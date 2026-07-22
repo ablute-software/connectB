@@ -250,6 +250,69 @@ Imported personal data = org-private overlay (lawful basis: the org's own record
 public catalog **only** through back-office verification (§1b), and provenance (source file, import
 date) is kept per field.
 
+## 9b. IMPORT ANNEX — real files received (22 Jul, evening). Authoritative field mapping + hard requirements.
+
+Nuno delivered the real import pack: `entities.csv` (19), `people.csv` (22), `interactions.csv` (8),
+`README.md`. This annex supersedes the generic §9 assumptions. **Read the pack's README.md first.**
+
+### 9b-0. Company identity — corrections that apply EVERYWHERE
+- The company is **ablute_** (always written that way). **Exotictarget** is the legal entity
+  (EUIPO trademark 019058853 holder) — use only where the legal entity matters.
+- **There is NO parent company called "Avelud"** — if that string ever appears in imports,
+  seed or notes it is an ERROR: delete it. (Repo verified clean 22 Jul.)
+- ablute_ itself holds the **ANI "selo de idoneidade em I&D"**.
+- Round: €1.3M seed @ €7–10M pre-money. €100k pre-seed convertible (Portugal Ventures) closed.
+  12-month pilot, 11 endpoints (Porto/Matosinhos/Maia) starting — **no results yet**.
+
+### 9b-1. File format facts
+UTF-8, comma-separated, all fields quoted. **Pipe `|` separates multi-values**
+(`invests_in_geographies`, `sectors`, `kill_words`) → split to `text[]`. Link keys:
+`people.entity_name → entities.name`; `interactions.entity_name + person_name`.
+Import order: entities → people → interactions. Literal `UNKNOWN` → NULL + needs-verification flag.
+
+### 9b-2. Column mapping highlights (full column docs in the pack's README)
+- entities: `hardware_stance` is **the most important column** (screen on it before fit_score —
+  ablute_'s recorded rejections are hardware-policy, not merit). `wave` 0=existing investor,
+  1=first, 4=deprioritised. `hard_filter`/`hard_filter_status` gate drafting. `status` maps to
+  pipeline status. `last_verified`+`source_url` = provenance; re-verify >90 days.
+- people: `seniority_rank` (1=first; never approach rank 2 while rank 1 unresolved — existing rule).
+  `email_verified` vs `email_guess` are DIFFERENT fields: **never promote a guess to verified,
+  never send to a guess** (only 4 verified emails exist in the pack — that is the honest state).
+  `hook_status` gates drafting (`researched` only). `do_not_contact` is permanent.
+- interactions: `classification` (awaiting|pass) → outcome; `pass_reason` populates the
+  pass-analysis (Bynd's 3 passes are policy: medtech/hardware); `next_action`+`next_action_due`
+  → tasks. History spans 2019–2026 (Bynd thread ×6, Crista Galli contacted 21 Jul 2026,
+  follow-up due 2026-08-04).
+
+### 9b-3. Deduplication — HARD requirement (not naive INSERT)
+a) **Entities match on**: (1) normalised website domain, (2) normalised name (lowercase, strip
+   legal suffixes/punct/diacritics/whitespace/parenthetical aliases). Aliases are real:
+   "MAZE (Mustard Seed MAZE)" == "MAZE" == "Mustard Seed MAZE"; "Bynd Venture Capital" ==
+   "Bynd" == "Busy Angels SCR" (former name). **New `entity_aliases` table** so future imports match.
+b) **People match on**: (1) normalised LinkedIn URL (strip query params), (2) verified email,
+   (3) normalised full name + entity. **Normalise diacritics**: "António Miguel"=="Antonio Miguel",
+   "Tomás Penaguião"=="Tomas Penaguiao".
+c) **Merge, never blind-overwrite**: verified beats unverified; never overwrite non-empty with
+   empty or human note with anything; newer `last_verified` wins on factual fields; both-non-empty-
+   and-different → **conflict review queue**, never silently pick.
+d) **Dry-run preview**: counts + per-row diff NEW/MATCHED/CONFLICT/SKIPPED with accept-or-skip
+   per row. **Idempotent** — same file twice changes nothing.
+e) **Provenance per imported field**: source file, source_url, imported_at.
+
+### 9b-4. Affiliations — upgrade, don't duplicate
+Migration 0009's `person_affiliations` exists but people still hang off one `entity_id`. Required:
+- Extend `person_affiliations` with `seniority_rank int`, `is_primary bool`, `notes text`
+  (it already has role/title, kind, current, started/ended). Do NOT create a parallel table.
+- Approach order becomes **per (person, entity) affiliation** (`seniority_rank` within the entity).
+- Person profile shows ALL affiliations (role/rank each, current vs past); entity profile lists
+  its people via affiliations.
+- Real cases that prove it: **Lurdes Gramaxo** (Bynd partner AND President Investors Portugal AND
+  APBA board — Bynd passed 3×, so the ONLY viable approach is her Investors-Portugal hat: the
+  affiliation determines the message); **David Alves** (COREangels Porto + VP Investors Portugal);
+  **António Murta** (Pathena fund in wind-down + Pathena Family Office + medtech angel — approach
+  as angel, not fund); **Lucanus Polagnoli** (Calm/Storm founder, ex-Speedinvest health team →
+  knows Andrea Zitna — consistency check must fire across these two).
+
 ## 10. Priority mapping (into NEXT_STEPS phases)
 
 - **Phase 1** (data → Supabase) is the prerequisite for everything here.
