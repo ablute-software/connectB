@@ -644,3 +644,52 @@ feed each row in as a forced-candidate hint. Flagged rather than built
 silently, since it wasn't asked for and the current fix (space-insensitive
 matching + a full re-scan before/after commit) closed the actual gap this
 time.
+
+## Agenda action types + Log Interaction recommendation (migration 0019)
+
+New `task_action_type` enum on `tasks` (`first_contact`, `follow_up_no_reply`,
+`follow_up_thread`, `research_hook`, `other`) — a finer label than the
+existing `task_kind` (follow_up/meeting/research/admin), tied to WHY the
+task exists from an outreach-discipline standpoint rather than what kind of
+task it is. `task_kind` is untouched; both axes coexist.
+
+1. **No 6th enum value for the reopen-doctrine case.** The request listed
+   exactly 5 action types; reopening a `dormant` entity with a
+   `reopen_trigger` doesn't map to any of them (it can co-occur with any of
+   the 5 depending on interaction history). Rather than inventing a 6th
+   value not in the requested set, `/log` shows the reopen trigger as a
+   separate banner (title: `Reabertura — cite o "não" anterior e o que
+   mudou`) layered on top of whichever action type is otherwise
+   recommended. Revisit if this reads wrong once used for real.
+2. **The reopen banner is a hard gate, not just a note.** "Exigir que o
+   rascunho cite" was implemented as an explicit checkbox ("O rascunho cita
+   o pass anterior e o que mudou") that blocks the Save button
+   (`formReady`) until checked — chosen over automated text-matching
+   against the trigger string, since `reopen_trigger` is a full sentence of
+   reasoning, not a short tag a founder could plausibly quote verbatim.
+   This mirrors the existing override-justification pattern already used
+   in `/log` for pre-flight bypasses, so it's consistent with the app's own
+   established gate style rather than a new interaction pattern.
+3. **`recommendedActionType()` priority order** (in `relationship.ts`,
+   reused by `/log`, Today, and the Agenda selector default): hook not
+   researched outranks everything else, since that's an existing *blocking*
+   rule already enforced by `preflight()` — you can't productively plan a
+   next step around a person you haven't researched. Then: no prior
+   interactions → first_contact; last touch inbound → follow_up_thread;
+   last touch outbound past the 14-day lock → follow_up_no_reply;
+   otherwise → other. The founder can always override the pre-fill
+   manually — it's a default, never an imposition.
+4. **§9e analysis labeling**: the request asks that "a análise §9e" also
+   label its suggestions with these action types. §9e was a one-time
+   analysis (a compiled script + a published Artifact report), not a
+   persistent page in the app — there's no living §9e UI to update. Any
+   future re-run of that analysis should tag its per-entity suggestions
+   using `recommendedActionType`/`ACTION_TYPE_LABEL` for consistency, but
+   no code change was made here since nothing currently re-runs it.
+5. `entities.reopen_trigger` / `entities.reopen_eligible_after` (added to
+   the DB by migration 0016, back in the MD-history-import phase) had never
+   been added to `types.ts`'s `Entity` interface — only raw Supabase calls
+   in the importer wrote to them directly. Added both fields now that the
+   UI needs to read `reopen_trigger`; no backend change needed since
+   `select('*')` + the generic `fromRow<Entity>()` mapper already carried
+   them, just untyped.

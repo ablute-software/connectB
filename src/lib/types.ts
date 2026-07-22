@@ -23,6 +23,11 @@ export type PassReasonCategory =
   | 'valuation' | 'check_size' | 'geography' | 'stage_too_early'
   | 'thesis_mismatch' | 'team' | 'traction' | 'other';
 export type TaskKind = 'follow_up' | 'meeting' | 'research' | 'admin';
+// "Tipo de compromisso" — a finer label than TaskKind, tied to WHY the task
+// exists from an outreach-discipline standpoint (first contact vs a
+// specific follow-up flavor vs a research gate), not just what kind of
+// task it is. TaskKind stays as-is alongside this, unrelated axis.
+export type ActionType = 'first_contact' | 'follow_up_no_reply' | 'follow_up_thread' | 'research_hook' | 'other';
 export type OverrideRule =
   | 'contact_lock' | 'seniority_order' | 'hard_filter'
   | 'daily_cap' | 'weekly_cap' | 'follow_up_limit';
@@ -95,6 +100,13 @@ export interface Entity {
   dormant_reason?: string;
   last_verified?: string; // ISO
   source_url?: string;
+  // Reopen doctrine (§9c): a `dormant` entity's earlier pass, and what would
+  // have to change for a re-approach to be legitimate — cited verbatim in
+  // any reopening draft. reopen_eligible_after is an optional earliest-retry
+  // date for phase/traction-type passes; left unset for thesis/mandate-type
+  // passes that reopen on a positioning change instead of a date.
+  reopen_trigger?: string;
+  reopen_eligible_after?: string; // ISO date
 }
 
 export interface Person {
@@ -178,6 +190,7 @@ export interface TaskItem {
   entity_id?: string;
   person_id?: string;
   kind: TaskKind;
+  action_type: ActionType;
   done: boolean;
 }
 

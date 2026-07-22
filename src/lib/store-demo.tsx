@@ -64,7 +64,7 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
               ? { ...e, contact_lock_until: lockUntil, status: e.status === 'not_contacted' ? 'contacted' : e.status }
               : e);
           next.tasks = [...next.tasks, {
-            id: uid('t'), kind: 'follow_up', done: false, due_at: due,
+            id: uid('t'), kind: 'follow_up', action_type: 'follow_up_no_reply', done: false, due_at: due,
             title: `Follow up ${person?.full_name ?? ''} (${prev.entities.find((e) => e.id === input.entity_id)?.name ?? ''})`.trim(),
             entity_id: input.entity_id, person_id: input.person_id,
           }];
@@ -74,6 +74,17 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
               e.id === input.entity_id && ['not_contacted', 'contacted'].includes(e.status)
                 ? { ...e, status: 'in_conversation' } : e);
           }
+        }
+        // The founder's own explicit next step (Log Interaction's "Next
+        // action" fields) becomes a real, visible Agenda task — separate
+        // from the automatic 14-day lock-reminder above, since they serve
+        // different purposes (a generic safety net vs. a specific plan).
+        if (input.next_action) {
+          next.tasks = [...next.tasks, {
+            id: uid('t'), kind: 'follow_up', action_type: input.next_action_type ?? 'other', done: false,
+            due_at: input.next_action_due ? `${input.next_action_due}T12:00:00Z` : undefined,
+            title: input.next_action, entity_id: input.entity_id, person_id: input.person_id,
+          }];
         }
         return next;
       });
@@ -259,7 +270,7 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
               const has = next.tasks.some((t) => t.person_id === person.id && t.kind === 'research' && !t.done);
               if (!has) {
                 next.tasks.push({
-                  id: uid('t'), kind: 'research', done: false,
+                  id: uid('t'), kind: 'research', action_type: 'research_hook', done: false,
                   title: `Research hook: ${person.full_name}`, person_id: person.id, entity_id: person.entity_id,
                   due_at: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
                 });

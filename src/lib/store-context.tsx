@@ -5,7 +5,7 @@
 // backend is mounted.
 import { createContext, useContext } from 'react';
 import type {
-  AccessGrant, Automation, Channel, Classification, Db,
+  AccessGrant, ActionType, Automation, Channel, Classification, Db,
   DocumentItem, Entity, Interaction, InvestorSubmission, OverrideRule,
   PassReasonCategory, PersonAffiliation, RelationshipStage, TaskItem,
 } from './types';
@@ -23,6 +23,9 @@ export type LogInput = {
   pass_reason?: string;
   next_action?: string;
   next_action_due?: string;
+  // The founder's chosen "tipo de compromisso" for the next_action task,
+  // pre-filled by relationship.ts's recommendedActionType() on /log.
+  next_action_type?: ActionType;
   overrides?: { rule: OverrideRule; justification: string }[];
   ai_generated?: boolean;
 };

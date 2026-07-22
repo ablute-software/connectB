@@ -6,7 +6,8 @@ import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
 import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
-import type { Channel, Classification, OverrideRule, PassReasonCategory } from '@/lib/types';
+import { ACTION_TYPE_LABEL, ACTION_TYPES, recommendedActionType } from '@/lib/relationship';
+import type { ActionType, Channel, Classification, OverrideRule, PassReasonCategory } from '@/lib/types';
 
 const CHANNELS: { v: Channel; l: string }[] = [
   { v: 'linkedin_dm', l: 'LinkedIn DM' }, { v: 'linkedin_note', l: 'LinkedIn note' },
@@ -31,6 +32,9 @@ function LogForm() {
   const [passReason, setPassReason] = useState('');
   const [nextAction, setNextAction] = useState('');
   const [nextDue, setNextDue] = useState('');
+  const [nextActionType, setNextActionType] = useState<ActionType>('other');
+  const [actionTypeTouched, setActionTypeTouched] = useState(false);
+  const [reopenAck, setReopenAck] = useState(false);
   const [docId, setDocId] = useState('');
   const [justification, setJustification] = useState('');
   const [showOverride, setShowOverride] = useState(false);
@@ -62,11 +66,16 @@ function LogForm() {
     [content, person, entity, channel, direction]);
   const lintErrors = lint.filter((f) => f.severity === 'error');
   const passMissing = direction === 'in' && classification === 'pass' && passReason.trim().length === 0;
-  const formReady = entityId && content.trim().length > 0 && (direction === 'in' ? !!person || true : !!person) && !passMissing;
+  const hookNotResearched = !!person && person.hook_status !== 'researched';
+  const reopenTrigger = entity?.status === 'dormant' ? entity.reopen_trigger : undefined;
+  const reopenBlocked = direction === 'out' && !!reopenTrigger && !reopenAck;
+  const formReady = entityId && content.trim().length > 0 && (direction === 'in' ? !!person || true : !!person) && !passMissing && !reopenBlocked;
 
   useEffect(() => {
     if (entityId) setIntent(pickIntent(db, entityId));
     setAiGenerated(false); setComposerMeta(null); setComposerNote('');
+    setNextActionType(entityId ? recommendedActionType(db, entityId, personId || undefined) : 'other');
+    setActionTypeTouched(false); setReopenAck(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityId, personId]);
 
@@ -108,6 +117,7 @@ function LogForm() {
       pass_reason_category: classification === 'pass' ? passCat : undefined,
       pass_reason: classification === 'pass' ? passReason : undefined,
       next_action: nextAction || undefined, next_action_due: nextDue || undefined,
+      next_action_type: nextAction ? nextActionType : undefined,
       overrides,
       ai_generated: aiGenerated || undefined,
     });
@@ -271,7 +281,30 @@ function LogForm() {
             <input type="date" value={nextDue} onChange={(e) => setNextDue(e.target.value)}
               className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
           </div>
+          <div className="mt-2">
+            <label className="text-xs text-gray-500">Tipo de compromisso {!actionTypeTouched && entityId && '(recomendado)'}</label>
+            <select value={nextActionType}
+              onChange={(e) => { setNextActionType(e.target.value as ActionType); setActionTypeTouched(true); }}
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm sm:w-auto">
+              {ACTION_TYPES.map((at) => <option key={at} value={at}>{ACTION_TYPE_LABEL[at]}</option>)}
+            </select>
+          </div>
+          {hookNotResearched && (
+            <div className="mt-2 rounded border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-900">
+              Hook não researched — pesquisar antes de contactar. (regra existente: nunca rascunhar sem hook researched)
+            </div>
+          )}
         </Card>
+
+        {reopenTrigger && direction === 'out' && (
+          <Card title="Reabertura — cite o &ldquo;não&rdquo; anterior e o que mudou" tint="amber">
+            <p className="text-sm text-amber-900">{reopenTrigger}</p>
+            <label className="mt-2 flex items-start gap-2 text-xs text-amber-800">
+              <input type="checkbox" checked={reopenAck} onChange={(e) => setReopenAck(e.target.checked)} className="mt-0.5" />
+              <span>O rascunho cita o pass anterior e o que mudou, conforme a doutrina de reabertura.</span>
+            </label>
+          </Card>
+        )}
 
         <div>
           {toast && <div className="mb-2 rounded bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800">{toast}</div>}

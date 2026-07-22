@@ -4,6 +4,12 @@ import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink, PersonLink, WaveTag, fmtEur } from '@/components/ui';
 import { outboundCounts, preflight, preflightSummary } from '@/lib/rules';
+import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, recommendedActionType } from '@/lib/relationship';
+import type { ActionType } from '@/lib/types';
+
+function ActionTypePill({ type }: { type: ActionType }) {
+  return <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${ACTION_TYPE_COLOR[type]}`}>{ACTION_TYPE_LABEL[type]}</span>;
+}
 
 export default function TodayPage() {
   const { db, toggleTask } = useStore();
@@ -47,6 +53,7 @@ export default function TodayPage() {
               {overdue.map((t) => (
                 <li key={t.id} className="flex items-center gap-3 py-2 text-sm">
                   <input type="checkbox" checked={false} onChange={() => toggleTask(t.id)} />
+                  <ActionTypePill type={t.action_type} />
                   <span className="flex-1">{t.title}
                     {t.entity_id && <> — <EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink></>}
                   </span>
@@ -86,6 +93,7 @@ export default function TodayPage() {
                   <li key={p.id} className="py-2 text-sm">
                     <div className="flex items-center gap-2">
                       <WaveTag wave={e.wave} />
+                      <ActionTypePill type={recommendedActionType(db, e.id, p.id)} />
                       <PersonLink id={p.id}><span className="font-medium">{p.full_name}</span></PersonLink>
                       <span className="text-gray-500">· {e.name}</span>
                       <Link href={`/log?entity=${e.id}&person=${p.id}`}
@@ -106,6 +114,7 @@ export default function TodayPage() {
               {research.map((t) => (
                 <li key={t.id} className="flex items-center gap-3 py-2 text-sm">
                   <input type="checkbox" checked={false} onChange={() => toggleTask(t.id)} />
+                  <ActionTypePill type={t.action_type} />
                   <span className="flex-1">{t.title}</span>
                   {t.person_id && <PersonLink id={t.person_id}>open</PersonLink>}
                 </li>
@@ -128,8 +137,9 @@ export default function TodayPage() {
           {thisWeek.length === 0 ? <p className="text-sm text-gray-400">Nothing scheduled.</p> : (
             <ul className="space-y-1.5 text-sm">
               {thisWeek.map((t) => (
-                <li key={t.id} className="flex justify-between gap-2">
-                  <span className="truncate">{t.title}</span>
+                <li key={t.id} className="flex items-center gap-2">
+                  <ActionTypePill type={t.action_type} />
+                  <span className="flex-1 truncate">{t.title}</span>
                   <span className="shrink-0 text-xs text-gray-400">{t.due_at?.slice(5, 10)}</span>
                 </li>
               ))}

@@ -3,12 +3,8 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink } from '@/components/ui';
-import type { TaskItem } from '@/lib/types';
-
-const KIND_COLOR: Record<string, string> = {
-  follow_up: 'bg-cyan-100 text-cyan-900', meeting: 'bg-[#0E7490] text-white',
-  research: 'bg-teal-100 text-teal-900', admin: 'bg-gray-200 text-gray-700',
-};
+import type { ActionType, TaskItem } from '@/lib/types';
+import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, ACTION_TYPES } from '@/lib/relationship';
 
 function toICS(tasks: TaskItem[]) {
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//ablute_ IRM//EN'];
@@ -26,7 +22,14 @@ export default function AgendaPage() {
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [newTitle, setNewTitle] = useState('');
   const [newDate, setNewDate] = useState('');
+  const [newType, setNewType] = useState<ActionType>('other');
+  const [typeFilter, setTypeFilter] = useState<ActionType | 'all'>('all');
   const now = new Date();
+
+  const visibleTasks = useMemo(
+    () => typeFilter === 'all' ? db.tasks : db.tasks.filter((t) => t.action_type === typeFilter),
+    [db.tasks, typeFilter]
+  );
 
   const days = useMemo(() => {
     const first = new Date(month);
@@ -37,12 +40,12 @@ export default function AgendaPage() {
     return cells;
   }, [month]);
 
-  const tasksOn = (d: Date) => db.tasks.filter((t) => t.due_at && !t.done
+  const tasksOn = (d: Date) => visibleTasks.filter((t) => t.due_at && !t.done
     && new Date(t.due_at).toDateString() === d.toDateString());
 
-  const overdue = db.tasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) < now);
-  const dueToday = db.tasks.filter((t) => !t.done && t.due_at && new Date(t.due_at).toDateString() === now.toDateString());
-  const week = db.tasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) > now
+  const overdue = visibleTasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) < now);
+  const dueToday = visibleTasks.filter((t) => !t.done && t.due_at && new Date(t.due_at).toDateString() === now.toDateString());
+  const week = visibleTasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) > now
     && new Date(t.due_at) < new Date(now.getTime() + 7 * 86400_000));
 
   function exportICS() {
@@ -60,6 +63,21 @@ export default function AgendaPage() {
           <button onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className="rounded border border-gray-300 px-2 py-1 text-sm">→</button>
           <button onClick={exportICS} className="ml-auto rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50">Export ICS</button>
         </div>
+        <div className="flex flex-wrap gap-1.5">
+          <button onClick={() => setTypeFilter('all')}
+            className={`rounded-full px-2.5 py-1 text-xs font-medium ${typeFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+            All ({db.tasks.length})
+          </button>
+          {ACTION_TYPES.map((at) => {
+            const count = db.tasks.filter((t) => t.action_type === at).length;
+            return (
+              <button key={at} onClick={() => setTypeFilter(at)}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium ${typeFilter === at ? 'ring-2 ring-offset-1 ring-gray-400' : 'hover:opacity-80'} ${ACTION_TYPE_COLOR[at]}`}>
+                {ACTION_TYPE_LABEL[at]} ({count})
+              </button>
+            );
+          })}
+        </div>
         <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200 text-xs">
           {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
             <div key={d} className="bg-gray-50 px-2 py-1 font-medium text-gray-500">{d}</div>
@@ -72,8 +90,8 @@ export default function AgendaPage() {
                   {tasksOn(d).slice(0, 3).map((t) => {
                     const late = new Date(t.due_at!) < now;
                     return (
-                      <div key={t.id} title={t.title}
-                        className={`mb-0.5 truncate rounded px-1 py-0.5 text-[10px] ${late ? 'bg-red-100 text-[#B00000]' : KIND_COLOR[t.kind]}`}>
+                      <div key={t.id} title={`${t.title} · ${ACTION_TYPE_LABEL[t.action_type]}`}
+                        className={`mb-0.5 truncate rounded px-1 py-0.5 text-[10px] ${late ? 'bg-red-100 text-[#B00000]' : ACTION_TYPE_COLOR[t.action_type]}`}>
                         {t.title}
                       </div>
                     );
@@ -90,8 +108,12 @@ export default function AgendaPage() {
               className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
             <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)}
               className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
+            <select value={newType} onChange={(e) => setNewType(e.target.value as ActionType)}
+              className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+              {ACTION_TYPES.map((at) => <option key={at} value={at}>{ACTION_TYPE_LABEL[at]}</option>)}
+            </select>
             <button disabled={!newTitle || !newDate}
-              onClick={() => { addTask({ title: newTitle, kind: 'admin', due_at: `${newDate}T12:00:00Z` }); setNewTitle(''); setNewDate(''); }}
+              onClick={() => { addTask({ title: newTitle, kind: 'admin', action_type: newType, due_at: `${newDate}T12:00:00Z` }); setNewTitle(''); setNewDate(''); setNewType('other'); }}
               className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Add</button>
           </div>
         </Card>
@@ -108,6 +130,9 @@ export default function AgendaPage() {
                   <li key={t.id} className="flex items-start gap-2">
                     <input type="checkbox" checked={false} onChange={() => toggleTask(t.id)} className="mt-0.5" />
                     <span className="flex-1">
+                      <span className={`mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${ACTION_TYPE_COLOR[t.action_type]}`}>
+                        {ACTION_TYPE_LABEL[t.action_type]}
+                      </span>
                       {t.title}
                       {t.entity_id && <span className="block text-xs"><EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink></span>}
                     </span>

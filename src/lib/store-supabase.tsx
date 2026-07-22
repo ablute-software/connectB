@@ -186,7 +186,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       let entities = prev.entities;
       let tasks = prev.tasks;
       let entityPatch: Partial<Entity> | null = null;
-      let taskRow: TaskItem | null = null;
+      const newTaskRows: TaskItem[] = [];
 
       if (input.direction === 'out') {
         const lockUntil = new Date(Date.now() + LOCK_DAYS * 24 * 3600 * 1000).toISOString();
@@ -195,12 +195,11 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         const newStatus: EntityStatus | undefined = entity && entity.status === 'not_contacted' ? 'contacted' : undefined;
         entityPatch = { contact_lock_until: lockUntil, ...(newStatus ? { status: newStatus } : {}) };
         entities = entities.map((e) => e.id === input.entity_id ? { ...e, ...entityPatch } : e);
-        taskRow = {
-          id: uuid(), kind: 'follow_up', done: false, due_at: lockUntil,
+        newTaskRows.push({
+          id: uuid(), kind: 'follow_up', action_type: 'follow_up_no_reply', done: false, due_at: lockUntil,
           title: `Follow up ${person?.full_name ?? ''} (${entity?.name ?? ''})`.trim(),
           entity_id: input.entity_id, person_id: input.person_id,
-        };
-        tasks = [...tasks, taskRow];
+        });
       } else if (input.classification && ['interested', 'meeting_request', 'question'].includes(input.classification)) {
         const entity = prev.entities.find((e) => e.id === input.entity_id);
         if (entity && ['not_contacted', 'contacted'].includes(entity.status)) {
@@ -208,6 +207,18 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
           entities = entities.map((e) => e.id === input.entity_id ? { ...e, ...entityPatch } : e);
         }
       }
+
+      // The founder's own explicit next step (Log Interaction's "Next
+      // action" fields) becomes a real, visible Agenda task — separate
+      // from the automatic 14-day lock-reminder above.
+      if (input.next_action) {
+        newTaskRows.push({
+          id: uuid(), kind: 'follow_up', action_type: input.next_action_type ?? 'other', done: false,
+          due_at: input.next_action_due ? `${input.next_action_due}T12:00:00Z` : undefined,
+          title: input.next_action, entity_id: input.entity_id, person_id: input.person_id,
+        });
+      }
+      tasks = [...tasks, ...newTaskRows];
 
       commit({
         ...prev, entities, tasks,
@@ -219,7 +230,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (o) {
         persist(sb.from('interactions').insert({ ...interaction, org_id: o }), 'logInteraction:interaction');
         if (overrideRows.length) persist(sb.from('rule_overrides').insert(overrideRows.map((r) => ({ ...r, org_id: o }))), 'logInteraction:overrides');
-        if (taskRow) persist(sb.from('tasks').insert({ ...taskRow, org_id: o }), 'logInteraction:task');
+        if (newTaskRows.length) persist(sb.from('tasks').insert(newTaskRows.map((t) => ({ ...t, org_id: o }))), 'logInteraction:task');
         if (entityPatch) persist(sb.from('entities').update(entityPatch).eq('id', input.entity_id), 'logInteraction:entity');
       }
       return interaction;
@@ -475,7 +486,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
             const has = tasks.some((t) => t.person_id === person.id && t.kind === 'research' && !t.done);
             if (!has) {
               const task: TaskItem = {
-                id: uuid(), kind: 'research', done: false,
+                id: uuid(), kind: 'research', action_type: 'research_hook', done: false,
                 title: `Research hook: ${person.full_name}`, person_id: person.id, entity_id: person.entity_id,
                 due_at: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
               };

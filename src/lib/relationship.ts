@@ -1,7 +1,24 @@
 // IRM_SPEC §4 — interaction roadmap derivations. Pure functions, sibling to
 // rules.ts (kept separate so rules.ts stays scoped to its documented set).
-import type { Db, Entity, Interaction, Person, RelationshipStage, TaskItem } from './types';
+import type { ActionType, Db, Entity, Interaction, Person, RelationshipStage, TaskItem } from './types';
 import { LOCK_DAYS } from './rules';
+
+export const ACTION_TYPE_LABEL: Record<ActionType, string> = {
+  first_contact: 'First contact', follow_up_no_reply: 'Follow-up · no reply',
+  follow_up_thread: 'Follow-up · active thread', research_hook: 'Research hook', other: 'Other',
+};
+
+// Shared pill styling for ActionType — used by the Agenda, Today, and §9e
+// analysis wherever a task/suggestion is labeled by its tipo de compromisso.
+export const ACTION_TYPE_COLOR: Record<ActionType, string> = {
+  first_contact: 'bg-blue-100 text-blue-800',
+  follow_up_no_reply: 'bg-amber-100 text-amber-800',
+  follow_up_thread: 'bg-emerald-100 text-emerald-800',
+  research_hook: 'bg-purple-100 text-purple-800',
+  other: 'bg-gray-100 text-gray-600',
+};
+
+export const ACTION_TYPES: ActionType[] = ['first_contact', 'follow_up_no_reply', 'follow_up_thread', 'research_hook', 'other'];
 
 export const STAGE_ORDER: RelationshipStage[] = ['not_contacted', 'contacted', 'engaged', 'meeting', 'diligence', 'decision'];
 
@@ -111,6 +128,38 @@ export function nextBestAction(db: Db, entityId: string, now = new Date()): stri
   if (summary.stage === 'not_contacted') return 'Ready for first contact — run pre-flight.';
   if (summary.nextStep) return summary.nextStep.title;
   return undefined;
+}
+
+// The recommended "tipo de compromisso" for a next-step task on this
+// (entity, person) — priority order matches the outreach-discipline rules
+// already enforced elsewhere, not a new judgment call:
+// 1. hook not researched (person.hook_status) — this is a BLOCKING rule
+//    already surfaced by rules.ts's preflight() ("Research first" — a
+//    generic message burns the contact permanently), so it outranks
+//    everything else: you can't productively plan a contact/follow-up
+//    around a person you haven't researched yet.
+// 2. no prior interactions with this entity — first_contact.
+// 3. last interaction was inbound — follow_up_thread (they moved, reply).
+// 4. last interaction was outbound and the 14-day lock has elapsed —
+//    follow_up_no_reply.
+// 5. otherwise (e.g. outbound but still inside the lock window) — other.
+// Reopening a `passed` entity with a reopen_trigger doesn't get its own
+// type here — the caller (the /log page) shows the trigger text as a
+// separate banner regardless of which of these 5 types applies, per the
+// reopen doctrine (cite the earlier "no" + what changed), rather than
+// inventing a 6th type not in the requested set.
+export function recommendedActionType(db: Db, entityId: string, personId?: string, now = new Date()): ActionType {
+  const person = personId ? db.people.find((p) => p.id === personId) : undefined;
+  if (person && person.hook_status !== 'researched') return 'research_hook';
+
+  const touches = entityInteractions(db, entityId).filter((i) => i.channel !== 'stage_change');
+  if (touches.length === 0) return 'first_contact';
+
+  const last = touches[touches.length - 1];
+  if (last.direction === 'in') return 'follow_up_thread';
+
+  const daysSince = (now.getTime() - new Date(last.occurred_at).getTime()) / 86_400_000;
+  return daysSince >= LOCK_DAYS ? 'follow_up_no_reply' : 'other';
 }
 
 export interface RelatedContact {
