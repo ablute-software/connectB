@@ -27,3 +27,22 @@ Reversible; flag if any should change.
   already cover outreach intelligence; adding parallel free-text fields
   before §1's contribution model exists would mean re-modeling them later.
   Only genuinely-existing-but-unshown field surfaced: `personal_notes`.
+
+## Phase 2 onboarding
+
+- **Only org name + person full_name/title are required.** IRM_SPEC lists
+  a longer field set (website, sector, stage, round target, country,
+  one-liner, phone, LinkedIn) without marking which are mandatory. Requiring
+  all of them would block signup on details a founder may not have typed up
+  yet; the rest of the app already tolerates partial/missing data everywhere
+  (optional fields throughout `Entity`/`Person`). Matches that pattern.
+- **Owner-email special-case kept, not removed.** `ablutecompany@gmail.com`
+  still auto-links to the real ablute_ org (15 real entities) instead of
+  getting a fresh empty org — removing it would strand Nuno's own account.
+  "Revisit" was interpreted as "make sure it still works with the new
+  profile fields," not "delete it." Now also stores the owner's own person
+  profile (full_name/title/phone/linkedin) on that org_members row.
+- **profiles live on `org_members`, not a separate `profiles` table.**
+  IRM_SPEC allowed either. One row per (org, user) already exists; adding
+  columns there avoids a join for something that's 1:1 per membership today.
+  If a user ever needs one profile shared across multiple orgs, revisit.
