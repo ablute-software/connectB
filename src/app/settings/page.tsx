@@ -91,12 +91,66 @@ function TeamCard({ orgId }: { orgId: string }) {
   );
 }
 
+function PaidFeatureLock({ label }: { label: string }) {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-6 text-center">
+      <p className="text-sm font-medium text-amber-900">🔒 Paid feature</p>
+      <p className="mt-1 text-xs text-amber-700">Upgrade to unlock {label}. Billing isn't wired up yet (Phase 7) — ask the platform team to flip your org's plan in the meantime.</p>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { db, resetDemo } = useStore();
   const [draft, setDraft] = useState('');
   const [personId, setPersonId] = useState('');
   const [aiResult, setAiResult] = useState<string>('');
   const [aiLoading, setAiLoading] = useState(false);
+  const isPaid = db.org.plan === 'paid';
+
+  const [docKind, setDocKind] = useState<'deck_review' | 'one_pager_review'>('deck_review');
+  const [docText, setDocText] = useState('');
+  const [docResult, setDocResult] = useState('');
+  const [docLoading, setDocLoading] = useState(false);
+
+  const [marketEntityId, setMarketEntityId] = useState('');
+  const [marketResult, setMarketResult] = useState('');
+  const [marketLoading, setMarketLoading] = useState(false);
+
+  async function reviewDocument() {
+    setDocLoading(true); setDocResult('');
+    try {
+      const res = await fetch('/api/ai-review', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: docKind, draft: docText }),
+      });
+      const data = await res.json();
+      setDocResult(data.review ?? data.error ?? 'No response');
+    } catch (e) {
+      setDocResult(`Error: ${(e as Error).message}`);
+    } finally { setDocLoading(false); }
+  }
+
+  async function researchMarket() {
+    setMarketLoading(true); setMarketResult('');
+    const entity = db.entities.find((e) => e.id === marketEntityId);
+    try {
+      const res = await fetch('/api/ai-review', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'market_data',
+          context: entity ? {
+            name: entity.name, type: entity.type, hq: `${entity.hq_city ?? ''} ${entity.hq_country ?? ''}`.trim(),
+            sectors: entity.sectors, thesis: entity.thesis, website: entity.website,
+          } : undefined,
+        }),
+      });
+      const data = await res.json();
+      setMarketResult(data.review ?? data.error ?? 'No response');
+    } catch (e) {
+      setMarketResult(`Error: ${(e as Error).message}`);
+    } finally { setMarketLoading(false); }
+  }
 
   async function reviewMessage() {
     setAiLoading(true); setAiResult('');
@@ -148,27 +202,67 @@ export default function SettingsPage() {
           watch-outs) as grounding. Requires <code className="rounded bg-gray-100 px-1">ANTHROPIC_API_KEY</code> in the environment.
           The AI never sends anything and never edits your data — it produces a report; acting on it is yours.
         </p>
-        <select value={personId} onChange={(e) => setPersonId(e.target.value)} className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
-          <option value="">Reviewing for… (person)</option>
-          {db.people.map((p) => <option key={p.id} value={p.id}>{p.full_name} — {db.entities.find((e) => e.id === p.entity_id)?.name}</option>)}
-        </select>
-        <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={5}
-          placeholder="Paste the draft to review…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
-        <button disabled={!draft || aiLoading} onClick={reviewMessage}
-          className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-          {aiLoading ? 'Reviewing…' : 'Review with Claude'}
-        </button>
-        {aiResult && <pre className="mt-3 whitespace-pre-wrap rounded bg-gray-50 border border-gray-200 p-3 text-xs text-gray-700">{aiResult}</pre>}
+        {!isPaid ? <PaidFeatureLock label="AI review" /> : (
+          <>
+            <select value={personId} onChange={(e) => setPersonId(e.target.value)} className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
+              <option value="">Reviewing for… (person)</option>
+              {db.people.map((p) => <option key={p.id} value={p.id}>{p.full_name} — {db.entities.find((e) => e.id === p.entity_id)?.name}</option>)}
+            </select>
+            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={5}
+              placeholder="Paste the draft to review…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
+            <button disabled={!draft || aiLoading} onClick={reviewMessage}
+              className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+              {aiLoading ? 'Reviewing…' : 'Review with Claude'}
+            </button>
+            {aiResult && <pre className="mt-3 whitespace-pre-wrap rounded bg-gray-50 border border-gray-200 p-3 text-xs text-gray-700">{aiResult}</pre>}
+          </>
+        )}
       </Card>
 
-      <Card title="Deck / one-pager review & market data (paid)">
-        <p className="text-sm text-gray-500">
-          Submit a document from the Data Room for an AI report: per-dimension ranking (problem clarity, traction
-          evidence, number credibility, narrative, design), issues with severity and location, and rewrite suggestions.
-          Market-data enrichment researches an investor (thesis, typical cheques, recent deals) with cited sources,
-          marked “AI-sourced — verify before relying”. Wire-up: <code className="rounded bg-gray-100 px-1">/api/ai-review</code> with
-          kinds <code className="rounded bg-gray-100 px-1">deck_review</code> · <code className="rounded bg-gray-100 px-1">market_data</code>.
+      <Card title="Deck / one-pager review (paid)">
+        <p className="mb-2 text-xs text-gray-500">
+          Paste the text content (deck speaker notes, one-pager copy) for a per-dimension report: problem clarity,
+          traction evidence, number credibility, narrative, design notes if inferable — plus issues with severity
+          and top rewrite suggestions. Review only — nothing is edited or sent.
         </p>
+        {!isPaid ? <PaidFeatureLock label="deck/one-pager review" /> : (
+          <>
+            <select value={docKind} onChange={(e) => setDocKind(e.target.value as typeof docKind)}
+              className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
+              <option value="deck_review">Deck</option>
+              <option value="one_pager_review">One-pager</option>
+            </select>
+            <textarea value={docText} onChange={(e) => setDocText(e.target.value)} rows={6}
+              placeholder="Paste the deck/one-pager text content…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
+            <button disabled={!docText || docLoading} onClick={reviewDocument}
+              className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+              {docLoading ? 'Reviewing…' : 'Review with Claude'}
+            </button>
+            {docResult && <pre className="mt-3 whitespace-pre-wrap rounded bg-gray-50 border border-gray-200 p-3 text-xs text-gray-700">{docResult}</pre>}
+          </>
+        )}
+      </Card>
+
+      <Card title="Market data — investor research (paid)">
+        <p className="mb-2 text-xs text-gray-500">
+          Researches an investor's thesis, typical cheque, stage, and recent relevant investments. Every item is
+          marked "AI-sourced — verify before relying"; the model is instructed to never invent specifics it isn't
+          confident about.
+        </p>
+        {!isPaid ? <PaidFeatureLock label="market data research" /> : (
+          <>
+            <select value={marketEntityId} onChange={(e) => setMarketEntityId(e.target.value)}
+              className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
+              <option value="">Research… (entity)</option>
+              {db.entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+            <button disabled={!marketEntityId || marketLoading} onClick={researchMarket}
+              className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+              {marketLoading ? 'Researching…' : 'Research with Claude'}
+            </button>
+            {marketResult && <pre className="mt-3 whitespace-pre-wrap rounded bg-gray-50 border border-gray-200 p-3 text-xs text-gray-700">{marketResult}</pre>}
+          </>
+        )}
       </Card>
 
       <Card title="Demo data">
