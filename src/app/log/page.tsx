@@ -1,10 +1,11 @@
 'use client';
 // Log an interaction — fast flow with pre-flight gate + live message linter
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
+import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
 import type { Channel, Classification, OverrideRule, PassReasonCategory } from '@/lib/types';
 
 const CHANNELS: { v: Channel; l: string }[] = [
@@ -34,6 +35,10 @@ function LogForm() {
   const [justification, setJustification] = useState('');
   const [showOverride, setShowOverride] = useState(false);
   const [toast, setToast] = useState('');
+  const [intent, setIntent] = useState<ComposerIntent>('first_touch');
+  const [composing, setComposing] = useState(false);
+  const [composerNote, setComposerNote] = useState('');
+  const [composerMeta, setComposerMeta] = useState<{ rationale: string; confidence: number } | null>(null);
 
   const entity = db.entities.find((e) => e.id === entityId);
   const people = db.people.filter((p) => p.entity_id === entityId).sort((a, b) => a.seniority_rank - b.seniority_rank);
@@ -49,6 +54,34 @@ function LogForm() {
   const lintErrors = lint.filter((f) => f.severity === 'error');
   const passMissing = direction === 'in' && classification === 'pass' && passReason.trim().length === 0;
   const formReady = entityId && content.trim().length > 0 && (direction === 'in' ? !!person || true : !!person) && !passMissing;
+
+  useEffect(() => {
+    if (entityId) setIntent(pickIntent(db, entityId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entityId]);
+
+  async function draftWithAi() {
+    if (!person || !entity) return;
+    setComposing(true); setComposerNote(''); setComposerMeta(null);
+    try {
+      const context = buildComposerContext(db, entityId, personId, channel);
+      const res = await fetch('/api/compose', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ context, channel, intent }),
+      });
+      const data = await res.json();
+      if (data.configured === false) { setComposerNote(data.message); return; }
+      if (data.error) { setComposerNote(`AI draft failed: ${data.error}`); return; }
+      const subjectLine = channel === 'email' && data.draft.subject ? `Subject: ${data.draft.subject}\n\n` : '';
+      setContent(subjectLine + data.draft.body);
+      setComposerMeta({ rationale: data.draft.rationale, confidence: data.draft.confidence });
+    } catch (e) {
+      setComposerNote(`AI draft failed: ${(e as Error).message}`);
+    } finally {
+      setComposing(false);
+    }
+  }
 
   function save(withOverrides: boolean) {
     if (!formReady) return;
@@ -118,8 +151,29 @@ function LogForm() {
               <span className="text-xs text-gray-400">from {db.org.sender_email} · BCC {db.org.bcc_email}</span>
             )}
           </div>
+
+          {direction === 'out' && person && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-cyan-100 bg-[#E8F4F8]/50 px-3 py-2">
+              <select value={intent} onChange={(e) => setIntent(e.target.value as ComposerIntent)}
+                className="rounded border border-gray-300 px-2 py-1 text-xs">
+                {(Object.keys(INTENT_LABEL) as ComposerIntent[]).map((i) => <option key={i} value={i}>{INTENT_LABEL[i]}</option>)}
+              </select>
+              <button disabled={composing} onClick={draftWithAi}
+                className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                {composing ? 'Drafting…' : '✨ Draft with AI'}
+              </button>
+              <span className="text-[11px] text-gray-400">Draft only — you review, edit, and confirm before saving. Never auto-sent.</span>
+            </div>
+          )}
+          {composerNote && <div className="mt-2 rounded bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-600">{composerNote}</div>}
+          {composerMeta && (
+            <div className="mt-2 rounded bg-[#E8F4F8]/60 border border-cyan-100 px-3 py-2 text-xs text-cyan-900">
+              <span className="font-semibold">AI rationale:</span> {composerMeta.rationale} · confidence {Math.round(composerMeta.confidence * 100)}%
+            </div>
+          )}
+
           <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={7}
-            placeholder={direction === 'out' ? 'Paste the message verbatim…' : 'Paste the reply verbatim…'}
+            placeholder={direction === 'out' ? 'Paste the message verbatim, or draft with AI above…' : 'Paste the reply verbatim…'}
             className="mt-3 w-full rounded border border-gray-300 p-2 text-sm font-mono" />
           {direction === 'out' && lint.length > 0 && (
             <ul className="mt-2 space-y-1">
