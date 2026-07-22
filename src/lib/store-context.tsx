@@ -7,7 +7,7 @@ import { createContext, useContext } from 'react';
 import type {
   AccessGrant, Automation, Channel, Classification, Db,
   DocumentItem, Entity, Interaction, InvestorSubmission, OverrideRule,
-  PassReasonCategory, TaskItem,
+  PassReasonCategory, RelationshipStage, TaskItem,
 } from './types';
 
 export type LogInput = {
@@ -51,6 +51,9 @@ export interface StoreApi {
   unlockPack: (packId: string) => number;
   submitInvestor: (payload: InvestorSubmission['payload']) => void;
   reviewSubmission: (id: string, decision: 'approved' | 'rejected', notes?: string) => void;
+  // IRM_SPEC §4e: relationship roadmap overlay
+  setRelationshipStage: (entityId: string, stage: RelationshipStage) => void;
+  setNextStepTask: (entityId: string, taskId: string | undefined) => void;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);

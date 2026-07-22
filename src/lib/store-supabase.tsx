@@ -11,15 +11,17 @@ import { StoreCtx, type StoreApi, type LogInput } from './store-context';
 import type {
   AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, Db, DocumentItem,
   DocumentView, Entity, EntityStatus, Folder, Interaction, InvestorSubmission, MessageTemplate,
-  Org, Pack, PackUnlock, PassReasonCategory, Person, RuleOverride, TaskItem, AiReview,
+  Org, Pack, PackUnlock, PassReasonCategory, Person, RelationshipStage, RelationshipState,
+  RuleOverride, TaskItem, AiReview,
 } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
+import { STAGE_LABEL, getStage } from './relationship';
 
 type SB = ReturnType<typeof browserClient>;
 
 const EMPTY_ORG: Org = { id: '', name: '', plan: 'free', daily_cap: 5, weekly_cap: 20 };
 const EMPTY_DB: Db = {
-  org: EMPTY_ORG, entities: [], people: [], interactions: [], tasks: [], overrides: [],
+  org: EMPTY_ORG, entities: [], people: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [],
 };
@@ -46,7 +48,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     orgRes, entitiesRes, peopleRes, interactionsRes, tasksRes, overridesRes,
     foldersRes, documentsRes, grantsRes, viewsRes, templatesRes, automationsRes,
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
-    deliveriesRes, submissionsRes,
+    deliveriesRes, submissionsRes, relationshipStateRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -68,6 +70,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     sb.from('pack_unlocks').select('*').eq('org_id', orgId),
     sb.from('catalog_deliveries').select('*').eq('org_id', orgId),
     sb.from('investor_submissions').select('*').eq('org_id', orgId),
+    sb.from('relationship_state').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -108,6 +111,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     people: ((peopleRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<Person>(r)),
     interactions: ((interactionsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<Interaction>(r)),
     tasks: ((tasksRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<TaskItem>(r)),
+    relationshipState: ((relationshipStateRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RelationshipState>(r)),
     overrides: ((overridesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RuleOverride>(r)),
     folders: ((foldersRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<Folder>(r)),
     documents: ((documentsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<DocumentItem>(r)),
@@ -680,6 +684,44 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
           .update({ verification_status: 'rejected', notes: notes ?? null })
           .eq('verification_status', 'pending')
           .ilike('name', sub.payload.name), 'reviewSubmission:catalog_reject');
+      }
+    },
+
+    setRelationshipStage(entityId: string, stage: RelationshipStage) {
+      const prev = dbRef.current;
+      const now = new Date().toISOString();
+      const existing = prev.relationshipState.find((r) => r.entity_id === entityId);
+      const relationshipState = existing
+        ? prev.relationshipState.map((r) => r.entity_id === entityId ? { ...r, stage, updated_at: now } : r)
+        : [...prev.relationshipState, { entity_id: entityId, stage, updated_at: now }];
+      const milestone: Interaction = {
+        id: uuid(), entity_id: entityId, occurred_at: now, direction: 'out',
+        channel: 'stage_change', content: `Stage changed to ${STAGE_LABEL[stage]}.`,
+      };
+      commit({ ...prev, relationshipState, interactions: [...prev.interactions, milestone] });
+      const o = orgIdRef.current;
+      if (o) {
+        persist(sb.from('relationship_state').upsert(
+          { org_id: o, entity_id: entityId, stage, updated_at: now }, { onConflict: 'org_id,entity_id' },
+        ), 'setRelationshipStage:state');
+        persist(sb.from('interactions').insert({ ...milestone, org_id: o }), 'setRelationshipStage:milestone');
+      }
+    },
+
+    setNextStepTask(entityId: string, taskId: string | undefined) {
+      const prev = dbRef.current;
+      const now = new Date().toISOString();
+      const stage = getStage(prev, entityId);
+      const existing = prev.relationshipState.find((r) => r.entity_id === entityId);
+      const relationshipState = existing
+        ? prev.relationshipState.map((r) => r.entity_id === entityId ? { ...r, next_step_task_id: taskId, updated_at: now } : r)
+        : [...prev.relationshipState, { entity_id: entityId, stage, next_step_task_id: taskId, updated_at: now }];
+      commit({ ...prev, relationshipState });
+      const o = orgIdRef.current;
+      if (o) {
+        persist(sb.from('relationship_state').upsert(
+          { org_id: o, entity_id: entityId, stage, next_step_task_id: taskId ?? null, updated_at: now }, { onConflict: 'org_id,entity_id' },
+        ), 'setNextStepTask');
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps

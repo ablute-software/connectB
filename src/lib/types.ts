@@ -13,7 +13,9 @@ export type HookStatus = 'researched' | 'to_research' | 'none_found';
 export type Direction = 'out' | 'in';
 export type Channel =
   | 'linkedin_dm' | 'linkedin_note' | 'email' | 'web_form'
-  | 'call' | 'meeting' | 'event' | 'intro';
+  | 'call' | 'meeting' | 'event' | 'intro' | 'stage_change';
+export type RelationshipStage =
+  | 'not_contacted' | 'contacted' | 'engaged' | 'meeting' | 'diligence' | 'decision';
 export type Classification =
   | 'awaiting' | 'interested' | 'meeting_request' | 'question'
   | 'pass' | 'out_of_office' | 'bounce' | 'unclear';
@@ -141,6 +143,13 @@ export interface TaskItem {
   person_id?: string;
   kind: TaskKind;
   done: boolean;
+}
+
+export interface RelationshipState {
+  entity_id: string;
+  stage: RelationshipStage;
+  next_step_task_id?: string;
+  updated_at: string;
 }
 
 export interface RuleOverride {
@@ -310,6 +319,7 @@ export interface Db {
   people: Person[];
   interactions: Interaction[];
   tasks: TaskItem[];
+  relationshipState: RelationshipState[];
   overrides: RuleOverride[];
   folders: Folder[];
   documents: DocumentItem[];

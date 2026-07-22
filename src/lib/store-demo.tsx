@@ -9,6 +9,7 @@ import type {
 } from './types';
 import { seed } from './data/seed';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
+import { STAGE_LABEL, getStage } from './relationship';
 import { StoreCtx, type StoreApi } from './store-context';
 
 const STORAGE_KEY = 'ablute-crm-demo-v3';
@@ -405,6 +406,32 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
               ? { ...c, verification_status: 'rejected', notes } : c);
         }
         return next;
+      });
+    },
+
+    setRelationshipStage(entityId, stage) {
+      setDb((prev) => {
+        const now = new Date().toISOString();
+        const existing = prev.relationshipState.find((r) => r.entity_id === entityId);
+        const relationshipState = existing
+          ? prev.relationshipState.map((r) => r.entity_id === entityId ? { ...r, stage, updated_at: now } : r)
+          : [...prev.relationshipState, { entity_id: entityId, stage, updated_at: now }];
+        const milestone: Interaction = {
+          id: uid('int'), entity_id: entityId, occurred_at: now, direction: 'out',
+          channel: 'stage_change', content: `Stage changed to ${STAGE_LABEL[stage]}.`,
+        };
+        return { ...prev, relationshipState, interactions: [...prev.interactions, milestone] };
+      });
+    },
+
+    setNextStepTask(entityId, taskId) {
+      setDb((prev) => {
+        const now = new Date().toISOString();
+        const existing = prev.relationshipState.find((r) => r.entity_id === entityId);
+        const relationshipState = existing
+          ? prev.relationshipState.map((r) => r.entity_id === entityId ? { ...r, next_step_task_id: taskId, updated_at: now } : r)
+          : [...prev.relationshipState, { entity_id: entityId, stage: getStage(prev, entityId), next_step_task_id: taskId, updated_at: now }];
+        return { ...prev, relationshipState };
       });
     },
   }), [db]);

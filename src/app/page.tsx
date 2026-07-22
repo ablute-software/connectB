@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { FitTag, StatusPill, WaveTag, fmtEur } from '@/components/ui';
+import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
 import { preflight, preflightSummary } from '@/lib/rules';
 import type { Entity } from '@/lib/types';
 
@@ -106,6 +107,7 @@ export default function PipelinePage() {
                     <Link href={`/entities/${e.id}`} className="text-gray-900 hover:text-[#0E7490]">
                       {e.name} {hf && <span title={e.hard_filter} className="text-[#B00000]">⚑</span>}
                     </Link>
+                    <RelationshipCompactLine entityId={e.id} />
                   </td>
                   <td className="px-3 py-2 text-gray-500">{e.type.replace('_', ' ')}</td>
                   <td className="px-3 py-2 text-gray-500">{e.hq_city ? `${e.hq_city}, ` : ''}{e.hq_country}</td>

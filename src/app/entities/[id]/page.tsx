@@ -4,18 +4,19 @@ import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, FitTag, HardFilterBanner, PersonLink, StatusPill, VerBadge, WaveTag, fmtEur } from '@/components/ui';
 import { preflight, preflightSummary } from '@/lib/rules';
+import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
+import { ThreadDrawer } from '@/components/ThreadDrawer';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const { db, setInterest, setEntityStatus } = useStore();
   const entity = db.entities.find((e) => e.id === id);
   const [interest, setInterestLocal] = useState<string>('');
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   if (!entity) return <div className="text-gray-500">Entity not found.</div>;
 
   const people = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
-  const timeline = db.interactions.filter((i) => i.entity_id === entity.id)
-    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > new Date();
   const grants = db.grants.filter((g) => people.some((p) => p.id === g.person_id));
   const views = db.views.filter((v) => grants.some((g) => g.id === v.grant_id)
@@ -48,6 +49,8 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
+      <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)} />
+
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-4 md:col-span-2">
           <Card title="People (contact order enforced)">
@@ -74,32 +77,6 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               })}
             </ul>
             <p className="mt-2 text-xs text-gray-400">Rank 2 unlocks only after rank 1 replies or goes dormant.</p>
-          </Card>
-
-          <Card title="Interaction timeline">
-            {timeline.length === 0
-              ? <p className="text-sm text-gray-400">No interactions yet.{entity.submission_channel ? ` Official channel first: ${entity.submission_channel}` : ''}</p>
-              : (
-                <ul className="space-y-3">
-                  {timeline.map((i) => (
-                    <li key={i.id} className="rounded border border-gray-100 bg-gray-50 p-3 text-sm">
-                      <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                        <span className={i.direction === 'out' ? 'font-bold text-[#0E7490]' : 'font-bold text-green-700'}>
-                          {i.direction === 'out' ? '→ OUT' : '← IN'}
-                        </span>
-                        <span className="rounded bg-white px-1.5 py-0.5 border border-gray-200">{i.channel.replace('_', ' ')}</span>
-                        <span>{i.occurred_at.slice(0, 10)}</span>
-                        {i.person_id && <PersonLink id={i.person_id}>{db.people.find((p) => p.id === i.person_id)?.full_name}</PersonLink>}
-                        {i.classification && <span className="rounded bg-gray-200 px-1.5 py-0.5">{i.classification.replace('_', ' ')}</span>}
-                        {i.automation_run_id && <span className="rounded bg-cyan-100 px-1.5 py-0.5 text-cyan-800">automation</span>}
-                      </div>
-                      <blockquote className="whitespace-pre-wrap border-l-2 border-gray-300 pl-2 text-gray-700">{i.content}</blockquote>
-                      {i.pass_reason && <div className="mt-1 text-xs text-[#B00000]">Pass reason ({i.pass_reason_category}): {i.pass_reason}</div>}
-                      {i.next_action && <div className="mt-1 text-xs text-gray-500">Next: {i.next_action} {i.next_action_due && `· ${i.next_action_due}`}</div>}
-                    </li>
-                  ))}
-                </ul>
-              )}
           </Card>
         </div>
 
@@ -155,6 +132,8 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           )}
         </div>
       </div>
+
+      <ThreadDrawer entity={entity} open={drawerOpen} onClose={() => setDrawerOpen(false)} />
     </div>
   );
 }
