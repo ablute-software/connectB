@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ablute_ CRM is a light-theme professional tool by design (dark-on-light). */
+body {
+  color: #1a1a1a;
+  background: #f9fafb;
+}
