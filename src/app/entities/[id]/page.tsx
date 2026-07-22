@@ -7,6 +7,8 @@ import { preflight, preflightSummary } from '@/lib/rules';
 import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
 import { ThreadDrawer } from '@/components/ThreadDrawer';
 import { ContributionBox } from '@/components/ContributionBox';
+import { EnrichmentBadge } from '@/components/EnrichmentBadge';
+import { entityCompleteness } from '@/lib/completeness';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -16,6 +18,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   if (!entity) return <div className="text-gray-500">Entity not found.</div>;
+  const completeness = entityCompleteness(entity);
 
   const people = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > new Date();
@@ -52,7 +55,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
 
       <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)} />
 
-      <Card title="Entity summary">
+      <Card title="Entity summary" right={<EnrichmentBadge result={completeness} subjectType="entity" subjectId={entity.id} orgId={db.org.id} />}>
         <div className="grid gap-4 sm:grid-cols-2">
           <dl className="space-y-1.5 text-sm text-gray-600">
             <div className="flex items-center gap-1">Website: {entity.website

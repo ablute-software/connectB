@@ -5,6 +5,8 @@ import { useStore } from '@/lib/store';
 import { Card, EntityLink, PersonEmailBlock, PreflightCard, VerBadge } from '@/components/ui';
 import { preflight } from '@/lib/rules';
 import { ContributionBox } from '@/components/ContributionBox';
+import { EnrichmentBadge } from '@/components/EnrichmentBadge';
+import { personCompleteness } from '@/lib/completeness';
 
 export default function PersonPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -12,6 +14,7 @@ export default function PersonPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const person = db.people.find((p) => p.id === id);
   if (!person) return <div className="text-gray-500">Person not found.</div>;
+  const completeness = personCompleteness(person);
   const entity = db.entities.find((e) => e.id === person.entity_id);
   const checks = preflight(db, person, null);
   const history = db.interactions.filter((i) => i.person_id === person.id)
@@ -42,6 +45,11 @@ export default function PersonPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
+      {!person.do_not_contact && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <EnrichmentBadge result={completeness} subjectType="person" subjectId={person.id} orgId={db.org.id} />
+        </div>
+      )}
       {!person.do_not_contact && <ContributionBox subjectType="person" subjectId={person.id} orgId={db.org.id} />}
 
       {person.do_not_contact && (

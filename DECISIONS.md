@@ -91,3 +91,23 @@ Reversible; flag if any should change.
 - **Contributions live outside StoreProvider too**, same reasoning as
   invitations: `ContributionBox` talks to Supabase directly (RLS-gated),
   gracefully falling back to the old placeholder button in demo mode.
+
+## §6b completeness score + enrichment queue
+
+- **Weights are a first cut, not a tuned model.** Entity/person completeness
+  each use ~5-6 equally-weighted existing fields (no schema change needed —
+  scoring runs entirely off what's already on `Entity`/`Person`). Verified
+  live against real data: David Alves (IRM_SPEC's own motivating example)
+  scores 60% — missing LinkedIn + email, exactly the spec's complaint.
+  Revisit weights once real usage shows which gaps founders actually care
+  about most.
+- **"Request more info" reuses the `contributions` table** (a row with
+  `field='__enrichment_request__'`) instead of a new table for one boolean
+  signal — same table already carries author/org/timestamp, which is all
+  this needs. Depends on the same pending `0006_contributions.sql` as §1;
+  no new migration for §6b.
+- **No AI research button — per instruction.** The enrichment queue is a
+  prioritized manual worklist (ranked by demand: active orgs pursuing the
+  profile + explicit requests). §6b-3/§6b-4 (AI-assisted research +
+  provenance logging) are explicitly out of scope this pass and have
+  nothing to attach to without the AI step existing.

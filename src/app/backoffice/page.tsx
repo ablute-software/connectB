@@ -13,6 +13,55 @@ type Contribution = {
   created_at: string; reviewer_notes: string | null;
 };
 
+type EnrichmentRow = {
+  subjectType: 'entity' | 'person'; name: string; orgCount: number; activeCount: number;
+  requestCount: number; minPercent: number; missing: string[]; demand: number;
+};
+
+function EnrichmentQueueCard() {
+  const [queue, setQueue] = useState<EnrichmentRow[] | null>(null);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    fetch('/api/backoffice/enrichment').then((r) => r.json()).then((body) => {
+      if (body.ok === false) { setErr(body.error); return; }
+      setQueue(body.queue);
+    });
+  }, []);
+
+  if (err) return <Card title="Enrichment queue"><p className="text-sm text-[#B00000]">{err}</p></Card>;
+  if (!queue) return <Card title="Enrichment queue"><p className="text-sm text-gray-400">Loading…</p></Card>;
+
+  return (
+    <Card title={`Enrichment queue — profiles below 70% (${queue.length})`}>
+      <p className="mb-3 text-xs text-gray-500">
+        Ranked by demand — active-pipeline orgs pursuing this profile, plus explicit "Request more info" clicks.
+        No AI research yet (comes with Phase 6 / Anthropic API); this is the prioritized worklist for manual research.
+      </p>
+      {queue.length === 0 ? <p className="text-sm text-gray-400">Nothing below the completeness threshold right now.</p> : (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
+              <th className="py-1.5">Subject</th><th>Type</th><th>Demand</th><th>Worst completeness</th><th>Missing</th>
+            </tr>
+          </thead>
+          <tbody>
+            {queue.map((r) => (
+              <tr key={`${r.subjectType}:${r.name}`} className="border-t border-gray-50">
+                <td className="py-2 font-medium">{r.name}</td>
+                <td className="text-gray-500">{r.subjectType}</td>
+                <td className="text-gray-600" title={`${r.activeCount} active org(s) · ${r.requestCount} explicit request(s)`}>{r.demand}</td>
+                <td className="text-gray-600">{r.minPercent}%</td>
+                <td className="text-xs text-gray-500">{r.missing.join(', ')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+
 function ContributionsCard() {
   const [items, setItems] = useState<Contribution[] | null>(null);
   const [err, setErr] = useState('');
@@ -112,6 +161,8 @@ export default function BackofficePage() {
       </p>
 
       <ContributionsCard />
+
+      <EnrichmentQueueCard />
 
       <Card title={`Review queue (${queue.length})`}>
         {queue.length === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
