@@ -55,5 +55,21 @@ for (const i of seed.interactions) {
   L.push(`insert into interactions (id, org_id, entity_id, person_id, occurred_at, direction, channel, content, classification, next_action, next_action_due) values (${q(uuid(i.id))}, ${q(ORG)}, ${q(uuid(i.entity_id))}, ${i.person_id ? q(uuid(i.person_id)) : 'null'}, ${q(i.occurred_at)}, ${q(i.direction)}, ${q(i.channel)}, ${q(i.content)}, ${q(i.classification)}, ${q(i.next_action)}, ${q(i.next_action_due)});`);
 }
 
+// ===== v3: platform catalog, packs, back-office (0002_catalog.sql) =====
+for (const c of seed.catalog ?? []) {
+  L.push(`insert into catalog_entities (id, name, type, hq_city, hq_country, sectors, stage_min, stage_max, check_min_eur, check_max_eur, thesis, website, verification_status, verified_at, source, notes) values (` +
+    [uuid(c.id), c.name, c.type, c.hq_city, c.hq_country, c.sectors, c.stage_min, c.stage_max, c.check_min_eur, c.check_max_eur, c.thesis, c.website, c.verification_status, c.verified_at, c.source, c.notes]
+      .map(q).join(', ') + ');');
+}
+for (const p of seed.packs ?? []) {
+  L.push(`insert into packs (id, name, description, price_eur) values (${q(uuid(p.id))}, ${q(p.name)}, ${q(p.description)}, ${p.price_eur});`);
+  for (const cid of p.catalog_ids) {
+    L.push(`insert into pack_items (pack_id, catalog_id) values (${q(uuid(p.id))}, ${q(uuid(cid))});`);
+  }
+}
+for (const s of seed.submissions ?? []) {
+  L.push(`insert into investor_submissions (id, org_id, payload, status, created_at) values (${q(uuid(s.id))}, ${q(ORG)}, ${q(s.payload)}, ${q(s.status)}, ${q(s.created_at)});`);
+}
+
 writeFileSync(new URL('../supabase/seed.sql', import.meta.url), L.join('\n') + '\n');
 console.log(`Wrote supabase/seed.sql (${L.length} statements).`);

@@ -99,7 +99,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       <div className="flex-1 md:ml-60">
         <header className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white/85 px-4 py-2.5 backdrop-blur md:px-8">
-          <div className="text-[15px] font-bold text-[#0E7490] md:hidden" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>ablute_</div>
+          <div className="text-[15px] font-bold text-[#0E7490] md:hidden" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>{db.org.name || 'connectB'}</div>
           <div className="hidden items-center gap-2 md:flex">
             <span className="text-sm text-gray-300">Outreach discipline, enforced</span>
           </div>
