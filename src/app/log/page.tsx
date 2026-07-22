@@ -39,6 +39,7 @@ function LogForm() {
   const [composing, setComposing] = useState(false);
   const [composerNote, setComposerNote] = useState('');
   const [composerMeta, setComposerMeta] = useState<{ rationale: string; confidence: number } | null>(null);
+  const [aiGenerated, setAiGenerated] = useState(false);
 
   const entity = db.entities.find((e) => e.id === entityId);
   const people = db.people.filter((p) => p.entity_id === entityId).sort((a, b) => a.seniority_rank - b.seniority_rank);
@@ -57,8 +58,9 @@ function LogForm() {
 
   useEffect(() => {
     if (entityId) setIntent(pickIntent(db, entityId));
+    setAiGenerated(false); setComposerMeta(null); setComposerNote('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entityId]);
+  }, [entityId, personId]);
 
   async function draftWithAi() {
     if (!person || !entity) return;
@@ -76,6 +78,7 @@ function LogForm() {
       const subjectLine = channel === 'email' && data.draft.subject ? `Subject: ${data.draft.subject}\n\n` : '';
       setContent(subjectLine + data.draft.body);
       setComposerMeta({ rationale: data.draft.rationale, confidence: data.draft.confidence });
+      setAiGenerated(true);
     } catch (e) {
       setComposerNote(`AI draft failed: ${(e as Error).message}`);
     } finally {
@@ -97,6 +100,7 @@ function LogForm() {
       pass_reason: classification === 'pass' ? passReason : undefined,
       next_action: nextAction || undefined, next_action_due: nextDue || undefined,
       overrides,
+      ai_generated: aiGenerated || undefined,
     });
     if (direction === 'out') {
       setToast(`Saved. Contact lock set for 14 days · follow-up task created.${overrides.length ? ' Override logged.' : ''}`);

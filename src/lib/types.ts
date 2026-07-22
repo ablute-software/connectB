@@ -140,6 +140,7 @@ export interface Interaction {
   next_action?: string;
   next_action_due?: string;
   automation_run_id?: string;
+  ai_generated?: boolean;
 }
 
 export interface TaskItem {

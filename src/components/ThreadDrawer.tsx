@@ -150,6 +150,7 @@ export function ThreadDrawer({ entity, open, onClose }: { entity: Entity; open: 
                     <span>{i.occurred_at.slice(0, 10)}</span>
                     {i.person_id && <PersonLink id={i.person_id}>{db.people.find((p) => p.id === i.person_id)?.full_name}</PersonLink>}
                     {i.classification && <span className="rounded bg-gray-200 px-1.5 py-0.5">{i.classification.replace('_', ' ')}</span>}
+                    {i.ai_generated && <span className="rounded bg-cyan-100 px-1.5 py-0.5 text-cyan-800">✨ AI-drafted</span>}
                   </div>
                   <blockquote className="whitespace-pre-wrap border-l-2 border-gray-300 pl-2 text-gray-700">{i.content}</blockquote>
                   {i.pass_reason && <div className="mt-1 text-xs text-[#B00000]">Pass reason ({i.pass_reason_category}): {i.pass_reason}</div>}

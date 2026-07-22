@@ -24,6 +24,7 @@ export type LogInput = {
   next_action?: string;
   next_action_due?: string;
   overrides?: { rule: OverrideRule; justification: string }[];
+  ai_generated?: boolean;
 };
 
 export interface StoreApi {
