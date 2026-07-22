@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
-import { Card, EntityLink, PersonEmailBlock, PreflightCard, VerBadge } from '@/components/ui';
+import { AddInfoButton, Card, EntityLink, PersonEmailBlock, PreflightCard, PrivateBadge, VerBadge } from '@/components/ui';
 import { preflight } from '@/lib/rules';
 
 export default function PersonPage({ params }: { params: { id: string } }) {
@@ -32,7 +32,9 @@ export default function PersonPage({ params }: { params: { id: string } }) {
             )}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {!person.do_not_contact && <PrivateBadge />}
+          {!person.do_not_contact && <AddInfoButton />}
           <Link href={`/people/${person.id}/prep`} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">Meeting prep</Link>
           {!person.do_not_contact && (
             <Link href={`/log?entity=${person.entity_id}&person=${person.id}`}
@@ -110,6 +112,9 @@ export default function PersonPage({ params }: { params: { id: string } }) {
                 ))}
               </div>
             </Card>
+          )}
+          {person.personal_notes && (
+            <Card title="Personal notes"><p className="text-sm text-gray-600">{person.personal_notes}</p></Card>
           )}
           <Card title="Intro path">
             <p className="text-sm text-gray-600">{person.intro_path ?? '—'}</p>

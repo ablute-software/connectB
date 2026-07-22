@@ -203,6 +203,30 @@ export function PersonLink({ id, children }: { id: string; children: React.React
   return <Link href={`/people/${id}`} className="text-[#0E7490] hover:underline">{children}</Link>;
 }
 
+// IRM_SPEC §2/§3 "Add info" — placeholder for the authored-contribution flow
+// (§1), which needs the contributions table + back-office verify queue that
+// haven't landed yet. Acknowledges the click instead of silently doing nothing.
+export function AddInfoButton() {
+  const [clicked, setClicked] = useState(false);
+  return (
+    <button
+      onClick={() => { setClicked(true); setTimeout(() => setClicked(false), 2500); }}
+      className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-500 hover:bg-gray-50">
+      {clicked ? 'Coming soon — contribution flow lands in a later phase' : '+ Add info'}
+    </button>
+  );
+}
+
+// Every field shown today is a private per-org overlay — nothing is promoted
+// to the shared public catalog yet (that split is §1b, back-office verify).
+export function PrivateBadge() {
+  return (
+    <span className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
+      private to your org
+    </span>
+  );
+}
+
 export function fmtEur(n?: number) {
   if (n == null) return '—';
   if (n >= 1_000_000) return `€${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M`;

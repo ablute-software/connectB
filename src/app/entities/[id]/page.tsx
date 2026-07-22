@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
-import { Card, FitTag, HardFilterBanner, PersonLink, StatusPill, VerBadge, WaveTag, fmtEur } from '@/components/ui';
+import { AddInfoButton, Card, FitTag, HardFilterBanner, PersonLink, PrivateBadge, StatusPill, VerBadge, WaveTag, fmtEur } from '@/components/ui';
 import { preflight, preflightSummary } from '@/lib/rules';
 import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
 import { ThreadDrawer } from '@/components/ThreadDrawer';
@@ -51,6 +51,38 @@ export default function EntityPage({ params }: { params: { id: string } }) {
 
       <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)} />
 
+      <Card title="Entity summary" right={<div className="flex items-center gap-2"><PrivateBadge /><AddInfoButton /></div>}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <dl className="space-y-1.5 text-sm text-gray-600">
+            <div className="flex items-center gap-1">Website: {entity.website
+              ? <a className="text-[#0E7490] hover:underline" href={entity.website} target="_blank">{entity.website.replace('https://', '')}</a> : '—'}
+              {entity.website && <VerBadge state={entity.website_verified ? 'verified' : 'missing'} label={entity.website_verified ? '' : 'unverified'} />}
+            </div>
+            <div>Domain: {entity.email_domain ?? '—'} {entity.email_domain_verified && '✓'}</div>
+            <div>HQ: {entity.hq_city ? `${entity.hq_city}, ` : ''}{entity.hq_country ?? '—'}</div>
+            <div>Geos: {entity.invests_in_geographies.join(', ') || '—'}</div>
+            <div>Sectors: {entity.sectors.join(', ') || '—'}</div>
+            <div>Stage: {entity.stage_min?.replace('_', ' ') ?? '—'} – {entity.stage_max?.replace('_', ' ') ?? '—'}</div>
+            <div>Check: {fmtEur(entity.check_min_eur)}–{fmtEur(entity.check_max_eur)}</div>
+          </dl>
+          <div className="space-y-3">
+            {entity.thesis && (
+              <div>
+                <div className="text-xs text-gray-500">Thesis — their own words</div>
+                <p className="text-sm italic text-gray-600">“{entity.thesis}”</p>
+              </div>
+            )}
+            {entity.network_cluster_notes && (
+              <div>
+                <div className="text-xs text-gray-500">Network notes</div>
+                <p className="text-sm text-gray-700">{entity.network_cluster_notes}</p>
+              </div>
+            )}
+            {!entity.thesis && !entity.network_cluster_notes && <p className="text-sm text-gray-400">No thesis or network notes yet.</p>}
+          </div>
+        </div>
+      </Card>
+
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-4 md:col-span-2">
           <Card title="People (contact order enforced)">
@@ -89,20 +121,6 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                 <div><dt className="text-xs text-gray-500">Official channel — use first</dt>
                   <dd className="font-mono text-xs">{entity.submission_channel}</dd></div>
               )}
-            </dl>
-          </Card>
-          {entity.thesis && <Card title="Thesis — their own words"><p className="text-sm italic text-gray-600">“{entity.thesis}”</p></Card>}
-          {entity.network_cluster_notes && <Card title="Network notes" tint="amber"><p className="text-sm">{entity.network_cluster_notes}</p></Card>}
-          <Card title="Details">
-            <dl className="space-y-1 text-sm text-gray-600">
-              <div>Stage: {entity.stage_min?.replace('_',' ')} – {entity.stage_max?.replace('_',' ')}</div>
-              <div>Check: {fmtEur(entity.check_min_eur)}–{fmtEur(entity.check_max_eur)}</div>
-              <div>Geos: {entity.invests_in_geographies.join(', ') || '—'}</div>
-              <div className="flex items-center gap-1">Website: {entity.website
-                ? <a className="text-[#0E7490] hover:underline" href={entity.website} target="_blank">{entity.website.replace('https://','')}</a> : '—'}
-                {entity.website && <VerBadge state={entity.website_verified ? 'verified' : 'missing'} label={entity.website_verified ? '' : 'unverified'} />}
-              </div>
-              <div>Domain: {entity.email_domain ?? '—'} {entity.email_domain_verified && '✓'}</div>
             </dl>
           </Card>
           <Card title="Round">
