@@ -20,7 +20,7 @@ export async function GET() {
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: contributions, error } = await admin
     .from('contributions')
-    .select('id, subject_type, subject_id, org_id, field, value, note, status, created_at, reviewer_notes')
+    .select('id, subject_type, subject_id, org_id, field, value, note, status, created_at, reviewer_notes, source, confidence, source_url')
     .order('created_at', { ascending: false });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 

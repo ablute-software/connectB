@@ -171,3 +171,28 @@ Reversible; flag if any should change.
   section** ("Also connected — other affiliations"), not merged into the
   main contact-order People list, so it's never ambiguous which people are
   actually subject to seniority/lock enforcement at this entity.
+
+## §6b-3 Research with AI
+
+- **One research call, applied to every org's matching row.** Since there's
+  no shared catalog for entities/people (per the §1 decision above), the
+  "same" fund/person can be N separate private rows across N orgs. Rather
+  than pick one arbitrarily, a research call finds all rows matching the
+  name and inserts a contribution for each org that has one — so every
+  affected org's own contribution feed gets the same proposal to verify
+  independently. Nothing is shared or merged between orgs; each contribution
+  row is still fully scoped to its own org_id.
+- **No email research.** IRM_SPEC only explicitly restricts LinkedIn to
+  URL-only (no scraping), but the same caution extends to emails: the model
+  proposes `linkedin_url`/`role`/`background`/`hook` for people, deliberately
+  excluding email guesses — there's already a dedicated, lower-risk mechanism
+  for that (`email_guess` + confidence), and an AI-sourced email guess is a
+  GDPR-sensitive claim that deserves more scrutiny than a field proposal.
+- **`web_search_20250305` + `tool_choice: auto`, not forced.** The model
+  needs to search first, then call `propose_fields` — forcing the structured
+  tool on the first turn would prevent the search step. This means the
+  proposal step could theoretically be skipped by the model; the route
+  treats an empty/missing `propose_fields` call as "no confident findings"
+  rather than an error. Not yet live-tested against a real ANTHROPIC_API_KEY
+  (empty locally) — worth a real run once a key is available locally, in
+  case the web-search tool's exact behavior needs adjustment.
