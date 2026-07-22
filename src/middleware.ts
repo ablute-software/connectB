@@ -3,7 +3,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-const PUBLIC = ['/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite'];
+const PUBLIC = ['/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite', '/api/portal'];
 
 export async function middleware(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
