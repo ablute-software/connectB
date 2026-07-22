@@ -67,6 +67,9 @@ function LoginInner() {
             <button onClick={() => setMode('magic')} className="mt-3 w-full text-center text-xs text-gray-500 hover:underline">
               Investor? Sign in with a magic link
             </button>
+            <Link href="/forgot-password" className="mt-2 block w-full text-center text-xs text-gray-400 hover:underline">
+              Forgot your password?
+            </Link>
           </>
         )}
 

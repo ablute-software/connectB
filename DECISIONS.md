@@ -263,3 +263,35 @@ Reversible; flag if any should change.
 - **The GDPR queue highlights the 30-day legal deadline** (amber ≤14 days,
   red ≤7 days or overdue) computed from `created_at` — no separate
   `deadline` column, since it's always `created_at + 30d` by law.
+
+## Full permission matrix + password reset
+
+- **No migration needed.** `org_role` already had all four values (owner/
+  admin/manager/member) since migration 0005 — confirmed live against
+  production (`org_members` currently has one `owner` and one `member` row).
+  This pass is pure app-code: a `src/lib/permissions.ts` rank/capability
+  matrix, consumed by both the settings UI and new server routes.
+- **Admin can manage anyone below admin; only owner can create/touch
+  owner or admin rank.** (`canAssignRole`/`canActOnMember` in
+  `permissions.ts`.) An admin inviting or promoting someone to 'admin' or
+  'owner' is blocked server-side — previously nothing stopped this (RLS on
+  `org_invitations` only checked the actor was owner/admin, not what role
+  they were granting). Moved invite creation from a direct client insert
+  into `/api/invite/create` specifically to close that gap.
+- **Role changes/removal run under service role**, not new RLS policies —
+  `org_members` only ever had a `select` policy. Enforcement lives in
+  `/api/team/members/[userId]` (`PATCH`/`DELETE`) instead, mirroring how
+  `/api/invite/[token]/accept` already works. Always blocks demoting/
+  removing the last owner, and blocks acting on your own membership through
+  this endpoint (no self-service "leave org" yet).
+- **Didn't retrofit the matrix onto entity/person/document actions** — the
+  product has no delete functionality for those yet, so `delete_pipeline`/
+  `manage_documents` capabilities exist in the matrix but aren't wired to a
+  UI control anywhere yet. Wire them in whenever those actions are built,
+  rather than adding dead gates now.
+- **Password reset reuses the existing magic-link plumbing** —
+  `resetPasswordForEmail` redirects through the same `/auth/callback` that
+  already exchanges a code for a session, landing on a new `/reset-password`
+  page that calls `updateUser({ password })`. No new callback logic needed.
+  Works as soon as Supabase's SMTP is configured (same dependency the
+  existing magic-link investor sign-in already has) — nothing to flip later.

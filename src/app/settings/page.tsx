@@ -4,14 +4,83 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
+import { ORG_ROLES, ROLE_LABELS, can, canAssignRole, canActOnMember, type OrgRole } from '@/lib/permissions';
 
 type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
+type Member = { userId: string; email: string; role: OrgRole; isSelf: boolean };
+
+function RosterCard({ myRole }: { myRole: OrgRole | null }) {
+  const [members, setMembers] = useState<Member[] | null>(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+
+  function refresh() {
+    fetch('/api/team/members').then((r) => r.json()).then((body) => {
+      if (body.ok === false) { setErr(body.error); return; }
+      setMembers(body.members);
+    });
+  }
+  useEffect(refresh, []);
+
+  async function changeRole(userId: string, role: OrgRole) {
+    setBusy(userId);
+    const res = await fetch(`/api/team/members/${userId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }),
+    });
+    const body = await res.json();
+    setBusy(null);
+    if (body.ok === false) { setErr(body.error); return; }
+    refresh();
+  }
+
+  async function remove(userId: string) {
+    setBusy(userId);
+    const res = await fetch(`/api/team/members/${userId}`, { method: 'DELETE' });
+    const body = await res.json();
+    setBusy(null);
+    if (body.ok === false) { setErr(body.error); return; }
+    refresh();
+  }
+
+  if (err) return <Card title="People"><p className="text-sm text-[#B00000]">{err}</p></Card>;
+  if (!members) return <Card title="People"><p className="text-sm text-gray-400">Loading…</p></Card>;
+
+  return (
+    <Card title={`People (${members.length})`}>
+      <ul className="space-y-1.5 text-sm">
+        {members.map((m) => {
+          const actable = myRole && !m.isSelf && canActOnMember(myRole, m.role);
+          return (
+            <li key={m.userId} className="flex items-center gap-2">
+              <span className="font-medium">{m.email}</span>
+              {m.isSelf && <span className="text-xs text-gray-400">(you)</span>}
+              {actable ? (
+                <select value={m.role} disabled={busy === m.userId} onChange={(e) => changeRole(m.userId, e.target.value as OrgRole)}
+                  className="rounded border border-gray-200 px-1.5 py-0.5 text-xs">
+                  {ORG_ROLES.filter((r) => canAssignRole(myRole!, r) || r === m.role).map((r) => (
+                    <option key={r} value={r} disabled={!canAssignRole(myRole!, r)}>{ROLE_LABELS[r]}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-xs text-gray-400">{ROLE_LABELS[m.role]}</span>
+              )}
+              {actable && (
+                <button disabled={busy === m.userId} onClick={() => remove(m.userId)}
+                  className="ml-auto text-xs text-gray-400 hover:text-[#B00000] hover:underline disabled:opacity-40">Remove</button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
+  );
+}
 
 function TeamCard({ orgId }: { orgId: string }) {
-  const [orgRole, setOrgRole] = useState<string | null>(null);
+  const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('member');
+  const [role, setRole] = useState<OrgRole>('member');
   const [link, setLink] = useState('');
   const [emailed, setEmailed] = useState(false);
   const [err, setErr] = useState('');
@@ -29,21 +98,23 @@ function TeamCard({ orgId }: { orgId: string }) {
 
   async function sendInvite() {
     setErr(''); setLink(''); setEmailed(false);
-    const { data, error } = await browserClient().from('org_invitations')
-      .insert({ org_id: orgId, email, role }).select('token').single();
-    if (error) { setErr(error.message); return; }
-    setLink(`${window.location.origin}/invite/${data.token}`);
+    const res = await fetch('/api/invite/create', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orgId, email, role }),
+    });
+    const body = await res.json();
+    if (body.ok === false) { setErr(body.error); return; }
+    setLink(`${window.location.origin}/invite/${body.token}`);
     setEmail('');
     refresh();
     // Best-effort: sends a real email if RESEND_API_KEY is configured; the
     // copyable link above always works regardless, so a failure here is silent.
     try {
-      const res = await fetch('/api/invite/send-email', {
+      const emailRes = await fetch('/api/invite/send-email', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: data.token }),
+        body: JSON.stringify({ token: body.token }),
       });
-      const body = await res.json();
-      if (body.sent) setEmailed(true);
+      const emailBody = await emailRes.json();
+      if (emailBody.sent) setEmailed(true);
     } catch { /* keep the copyable link path — nothing to show the user */ }
   }
 
@@ -52,55 +123,57 @@ function TeamCard({ orgId }: { orgId: string }) {
     refresh();
   }
 
-  const canInvite = orgRole === 'owner' || orgRole === 'admin';
+  const canInvite = can(orgRole, 'invite_members');
+  const assignableRoles = orgRole ? ORG_ROLES.filter((r) => canAssignRole(orgRole, r)) : [];
 
   return (
-    <Card title="Team">
-      {canInvite ? (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="teammate@company.com"
-            className="min-w-[220px] flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
-          <select value={role} onChange={(e) => setRole(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
-            <option value="member">member</option>
-            <option value="manager">manager</option>
-            <option value="admin">admin</option>
-          </select>
-          <button disabled={!email} onClick={sendInvite}
-            className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-            Create invite
-          </button>
-        </div>
-      ) : (
-        <p className="mb-3 text-xs text-gray-400">Only owners/admins can invite teammates.</p>
-      )}
-      {err && <p className="mb-2 text-xs text-[#B00000]">{err}</p>}
-      {link && (
-        <div className="mb-4 rounded-lg border border-cyan-200 bg-[#E8F4F8] px-3 py-2 text-xs text-cyan-900">
-          {emailed
-            ? 'Invite email sent. Link also below in case it lands in spam:'
-            : 'Invite link — copy and send by hand (email sending needs RESEND_API_KEY configured):'}
-          <div className="mt-1 break-all font-mono">{link}</div>
-        </div>
-      )}
-      {invitations.length === 0 ? <p className="text-sm text-gray-400">No invitations yet.</p> : (
-        <ul className="space-y-1.5 text-sm">
-          {invitations.map((i) => (
-            <li key={i.id} className="flex items-center gap-2">
-              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                i.status === 'pending' ? 'bg-amber-50 text-amber-700'
-                  : i.status === 'accepted' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                {i.status}
-              </span>
-              <span className="font-medium">{i.email}</span>
-              <span className="text-xs text-gray-400">{i.role}</span>
-              {canInvite && i.status === 'pending' && (
-                <button onClick={() => revoke(i.id)} className="ml-auto text-xs text-gray-400 hover:text-[#B00000] hover:underline">Revoke</button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
+    <div className="space-y-5">
+      <RosterCard myRole={orgRole} />
+      <Card title="Invite teammates">
+        {canInvite ? (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="teammate@company.com"
+              className="min-w-[220px] flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+            <select value={role} onChange={(e) => setRole(e.target.value as OrgRole)} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+              {assignableRoles.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+            </select>
+            <button disabled={!email} onClick={sendInvite}
+              className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+              Create invite
+            </button>
+          </div>
+        ) : (
+          <p className="mb-3 text-xs text-gray-400">Only owners/admins can invite teammates.</p>
+        )}
+        {err && <p className="mb-2 text-xs text-[#B00000]">{err}</p>}
+        {link && (
+          <div className="mb-4 rounded-lg border border-cyan-200 bg-[#E8F4F8] px-3 py-2 text-xs text-cyan-900">
+            {emailed
+              ? 'Invite email sent. Link also below in case it lands in spam:'
+              : 'Invite link — copy and send by hand (email sending needs RESEND_API_KEY configured):'}
+            <div className="mt-1 break-all font-mono">{link}</div>
+          </div>
+        )}
+        {invitations.length === 0 ? <p className="text-sm text-gray-400">No invitations yet.</p> : (
+          <ul className="space-y-1.5 text-sm">
+            {invitations.map((i) => (
+              <li key={i.id} className="flex items-center gap-2">
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                  i.status === 'pending' ? 'bg-amber-50 text-amber-700'
+                    : i.status === 'accepted' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                  {i.status}
+                </span>
+                <span className="font-medium">{i.email}</span>
+                <span className="text-xs text-gray-400">{i.role}</span>
+                {canInvite && i.status === 'pending' && (
+                  <button onClick={() => revoke(i.id)} className="ml-auto text-xs text-gray-400 hover:text-[#B00000] hover:underline">Revoke</button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </div>
   );
 }
 
