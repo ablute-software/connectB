@@ -1,7 +1,8 @@
 'use client';
 // Documents & Data Room — folder tree, documents with visibility attributes, grants, engagement
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
+import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card, PersonLink } from '@/components/ui';
 import type { Folder } from '@/lib/types';
 
@@ -11,6 +12,9 @@ export default function DocumentsPage() {
   const [docName, setDocName] = useState('');
   const [docUrl, setDocUrl] = useState('');
   const [docErr, setDocErr] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [grantDoc, setGrantDoc] = useState('');
   const [grantPerson, setGrantPerson] = useState('');
   const [grantFolder, setGrantFolder] = useState('');
@@ -21,6 +25,32 @@ export default function DocumentsPage() {
   const children = (id: string) => db.folders.filter((f) => f.parent_id === id).sort((a, b) => a.position - b.position);
   const docsIn = (id: string) => db.documents.filter((d) => d.folder_id === id);
   const activeGrants = db.grants.filter((g) => !g.revoked_at && (!g.expires_at || new Date(g.expires_at) > new Date()));
+
+  async function uploadFile(file: File) {
+    setUploadErr(''); setUploading(true);
+    try {
+      const sb = browserClient();
+      const path = `${db.org.id}/${crypto.randomUUID()}-${file.name}`;
+      const { error } = await sb.storage.from('data-room').upload(path, file);
+      if (error) throw error;
+      addDocument({
+        folder_id: selFolder, name: file.name, storage_path: path,
+        is_view_only: true, visibility: 'on_grant', watermark: false, downloadable: false,
+      });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (e) {
+      setUploadErr((e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function openStored(storagePath: string) {
+    const sb = browserClient();
+    const { data, error } = await sb.storage.from('data-room').createSignedUrl(storagePath, 60);
+    if (error) { alert(`Could not open file: ${error.message}`); return; }
+    window.open(data.signedUrl, '_blank');
+  }
 
   function FolderNode({ f, depth }: { f: Folder; depth: number }) {
     const kids = children(f.id);
@@ -64,6 +94,9 @@ export default function DocumentsPage() {
                           : <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-800">not view-only — blocked from sharing</span>}
                         <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">{d.visibility}</span>
                         {d.external_url && <a href={d.external_url} target="_blank" className="text-xs text-[#0E7490] hover:underline">open</a>}
+                        {d.storage_path && (
+                          <button onClick={() => openStored(d.storage_path!)} className="text-xs text-[#0E7490] hover:underline">open</button>
+                        )}
                         <button onClick={() => recordDemoView(d.id, 'demo-investor@example.com')}
                           className="ml-auto rounded border border-gray-200 px-1.5 py-0.5 text-[10px] text-gray-500 hover:bg-gray-50"
                           title="Demo: simulate an investor viewing this document">simulate view</button>
@@ -101,6 +134,19 @@ export default function DocumentsPage() {
               {docErr && <div className="mt-1 text-xs text-[#B00000]">{docErr}</div>}
               {docUrl.includes('/edit') && <div className="mt-1 text-xs text-[#B00000]">✗ Editable link — will be rejected. Get the view/share version.</div>}
             </div>
+
+            {authEnabled && (
+              <div className="mt-3 border-t border-gray-100 pt-3">
+                <div className="text-xs font-medium text-gray-500">Or upload a file (Supabase Storage)</div>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <input ref={fileInputRef} type="file" disabled={uploading}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); }}
+                    className="text-sm" />
+                  {uploading && <span className="text-xs text-gray-400">Uploading…</span>}
+                </div>
+                {uploadErr && <div className="mt-1 text-xs text-[#B00000]">{uploadErr}</div>}
+              </div>
+            )}
           </Card>
 
           <Card title="Access grants — the owner consents, access follows">
