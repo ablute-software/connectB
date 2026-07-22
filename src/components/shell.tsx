@@ -1,9 +1,12 @@
 'use client';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { outboundCounts } from '@/lib/rules';
+import { browserClient } from '@/lib/supabase';
+
+type Me = { authEnabled: boolean; user: { email?: string } | null; role: string };
 
 const NAV: { href: string; label: string; icon: string; section?: string }[] = [
   { href: '/', label: 'Pipeline', icon: '▤', section: 'Workspace' },
@@ -24,6 +27,19 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const caps = outboundCounts(db);
   const pendingRuns = db.runs.filter((r) => r.status === 'pending_review').length;
   const pendingSubs = db.submissions.filter((s) => s.status === 'pending_review').length;
+  const [me, setMe] = useState<Me | null>(null);
+
+  useEffect(() => {
+    fetch('/api/me').then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false, user: null, role: 'none' }));
+  }, []);
+
+  async function logout() {
+    try { await browserClient().auth.signOut(); } catch { /* ignore */ }
+    window.location.href = '/login';
+  }
+
+  // Developers see the platform back-office; founders don't.
+  const showBackoffice = !me?.authEnabled || me?.role === 'developer';
   const capClass =
     caps.today >= caps.dailyCap || caps.week >= caps.weeklyCap ? 'text-[#B00000] font-semibold'
       : caps.today === caps.dailyCap - 1 || caps.week === caps.weeklyCap - 1 ? 'text-amber-600 font-semibold'
@@ -36,12 +52,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-gray-100 bg-white md:flex">
         <div className="px-6 pb-3 pt-6">
           <div className="text-[26px] font-bold leading-none tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
-            ablute<span className="text-[#22D3EE]">_</span>
+            connect<span className="text-[#22D3EE]">B</span>
           </div>
           <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">Investor CRM</div>
         </div>
         <nav className="mt-1 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
-          {NAV.map((n) => {
+          {NAV.filter((n) => n.href !== '/backoffice' || showBackoffice).map((n) => {
             const active = n.href === '/' ? path === '/' : path?.startsWith(n.href);
             return (
               <React.Fragment key={n.href}>
@@ -63,9 +79,21 @@ export function Shell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className="border-t border-gray-100 px-6 py-3">
-          <div className="text-[11px] font-medium text-gray-500">Seed Round 2026 · €1.3M</div>
-          <div className="text-[10px] text-gray-300">Demo mode — data lives in this browser</div>
+        <div className="border-t border-gray-100 px-4 py-3">
+          {me?.user ? (
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-[12px] font-medium text-gray-700">{me.user.email}</div>
+                <div className="text-[10px] uppercase tracking-wide text-[#0E7490]">{me.role}</div>
+              </div>
+              <button onClick={logout} className="shrink-0 rounded-lg border border-gray-200 px-2 py-1 text-[11px] text-gray-500 hover:bg-gray-50">Log out</button>
+            </div>
+          ) : (
+            <div className="px-2">
+              <div className="text-[11px] font-medium text-gray-500">Seed Round 2026 · €1.3M</div>
+              <div className="text-[10px] text-gray-300">{me?.authEnabled === false ? 'Demo mode — data in this browser' : ''}</div>
+            </div>
+          )}
         </div>
       </aside>
 
