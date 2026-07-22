@@ -16,6 +16,7 @@ interface EntityItem {
   key: string; aliases: string[]; status: 'new' | 'matched' | 'conflict'; candidates: Candidate[]; chosenId?: string;
   desfecho: string; reopenTrigger?: string; patch: Record<string, unknown>;
   temaAConflicts: FieldDiff[]; temaBConflicts: FieldDiff[]; recentCampaign: boolean; include: boolean;
+  looksLikePerson?: boolean;
 }
 interface InteractionItem {
   key: string; entityKey: string; status: 'new' | 'duplicate'; estado: string; occurredAt?: string;
@@ -214,6 +215,11 @@ export default function MdHistoryImportPage() {
                     <span className="font-medium">{e.key}</span>
                     <span className="text-xs text-gray-400">{e.desfecho}</span>
                     {e.recentCampaign && <span className="rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-[#B00000]">recent campaign</span>}
+                    {e.looksLikePerson && (
+                      <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-800">
+                        looks like a person, not a fund — review after import
+                      </span>
+                    )}
                     {e.candidates.length > 0 && (
                       <select value={e.chosenId ?? ''} onChange={(ev) => toggleEntityChoice(e.key, ev.target.value || undefined)}
                         className="ml-auto rounded border border-gray-300 px-2 py-1 text-xs">

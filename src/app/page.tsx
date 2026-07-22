@@ -1,23 +1,88 @@
 'use client';
 // Pipeline (home) — dense sortable/filterable entity table
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
-import { FitTag, StatusPill, WaveTag, fmtEur } from '@/components/ui';
+import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur } from '@/components/ui';
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
 import { preflight, preflightSummary } from '@/lib/rules';
-import type { Entity } from '@/lib/types';
+import { isPersonCandidate } from '@/lib/relationship';
+import type { Db, Entity, TaskItem } from '@/lib/types';
 
-type SortKey = 'name' | 'fit' | 'wave' | 'status';
 const fitOrder = { high: 0, medium_high: 1, medium: 2, low: 3 };
+const SORT_STORAGE_KEY = 'ablute-pipeline-sort-v1';
+
+const SORT_COLUMNS = [
+  { key: 'name', label: 'Entity' }, { key: 'type', label: 'Type' }, { key: 'hq', label: 'HQ' },
+  { key: 'check', label: 'Check' }, { key: 'sectors', label: 'Sectors' }, { key: 'fit', label: 'Fit' },
+  { key: 'wave', label: 'Wave' }, { key: 'status', label: 'Status' }, { key: 'next_action', label: 'Next action' },
+  { key: 'ready', label: 'Ready', title: 'Rank-1 pre-flight' },
+] as const;
+type SortKey = typeof SORT_COLUMNS[number]['key'];
+
+// Generic nulls-last comparator so every column sorts sensibly without a
+// bespoke comparator per key — string/number/boolean all handled the same
+// way, missing values always sink to the bottom regardless of direction.
+function cmp(a: unknown, b: unknown): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  if (typeof a === 'string' && typeof b === 'string') return a.localeCompare(b);
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  if (typeof a === 'boolean' && typeof b === 'boolean') return a === b ? 0 : a ? -1 : 1;
+  return 0;
+}
+
+function nextAction(db: Db, e: Entity): TaskItem | undefined {
+  return db.tasks.filter((t) => t.entity_id === e.id && !t.done)
+    .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''))[0];
+}
+
+function readiness(db: Db, e: Entity): boolean | null {
+  if (['in_conversation', 'diligence', 'invested', 'dormant', 'passed'].includes(e.status)) return null;
+  const rank1 = db.people.filter((p) => p.entity_id === e.id).sort((a, b) => a.seniority_rank - b.seniority_rank)[0];
+  if (!rank1) return null;
+  return preflightSummary(preflight(db, rank1, null)).green;
+}
+
+function sortValue(db: Db, key: SortKey, e: Entity): unknown {
+  switch (key) {
+    case 'name': return e.name;
+    case 'type': return e.type;
+    case 'hq': return `${e.hq_country ?? ''} ${e.hq_city ?? ''}`.trim() || null;
+    case 'check': return e.check_min_eur ?? null;
+    case 'sectors': return e.sectors.join(', ') || null;
+    case 'fit': return e.fit_score ? fitOrder[e.fit_score] : null;
+    case 'wave': return e.wave ?? null;
+    case 'status': return e.status;
+    case 'next_action': return nextAction(db, e)?.due_at ?? null;
+    case 'ready': return readiness(db, e);
+  }
+}
 
 export default function PipelinePage() {
-  const { db } = useStore();
+  const { db, convertEntityToPerson, markEntityVerified } = useStore();
   const [q, setQ] = useState('');
   const [wave, setWave] = useState('');
   const [status, setStatus] = useState('');
   const [country, setCountry] = useState('');
-  const [sort, setSort] = useState<SortKey>('wave');
+  const [sortKey, setSortKey] = useState<SortKey>('wave');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SORT_STORAGE_KEY) ?? 'null');
+      if (saved?.key) { setSortKey(saved.key); setSortDir(saved.dir === 'desc' ? 'desc' : 'asc'); }
+    } catch { /* ignore malformed storage */ }
+  }, []);
+  useEffect(() => {
+    localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify({ key: sortKey, dir: sortDir }));
+  }, [sortKey, sortDir]);
+
+  function toggleSort(key: SortKey) {
+    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(key); setSortDir('asc'); }
+  }
 
   const rows = useMemo(() => {
     let list = [...db.entities];
@@ -26,32 +91,39 @@ export default function PipelinePage() {
     if (wave) list = list.filter((e) => String(e.wave) === wave);
     if (status) list = list.filter((e) => e.status === status);
     if (country) list = list.filter((e) => e.hq_country === country);
-    list.sort((a, b) => {
-      if (sort === 'name') return a.name.localeCompare(b.name);
-      if (sort === 'fit') return (fitOrder[a.fit_score ?? 'low'] - fitOrder[b.fit_score ?? 'low']);
-      if (sort === 'status') return a.status.localeCompare(b.status);
-      return (a.wave ?? 9) - (b.wave ?? 9) || (fitOrder[a.fit_score ?? 'low'] - fitOrder[b.fit_score ?? 'low']);
-    });
+    const dir = sortDir === 'asc' ? 1 : -1;
+    list.sort((a, b) => cmp(sortValue(db, sortKey, a), sortValue(db, sortKey, b)) * dir
+      || (a.wave ?? 9) - (b.wave ?? 9) || (fitOrder[a.fit_score ?? 'low'] - fitOrder[b.fit_score ?? 'low']));
     return list;
-  }, [db.entities, q, wave, status, country, sort]);
+  }, [db, q, wave, status, country, sortKey, sortDir]);
 
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
-
-  function readiness(e: Entity) {
-    if (['in_conversation', 'diligence', 'invested', 'dormant', 'passed'].includes(e.status)) return null;
-    const rank1 = db.people.filter((p) => p.entity_id === e.id).sort((a, b) => a.seniority_rank - b.seniority_rank)[0];
-    if (!rank1) return null;
-    const s = preflightSummary(preflight(db, rank1, null));
-    return s.green;
-  }
-
-  function nextAction(e: Entity) {
-    return db.tasks.filter((t) => t.entity_id === e.id && !t.done)
-      .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''))[0];
-  }
+  const personCandidates = db.entities.filter((e) => isPersonCandidate(db, e));
 
   return (
     <div className="space-y-4">
+      {personCandidates.length > 0 && (
+        <div className="rounded-2xl border-l-4 border-purple-400 bg-purple-50 p-4">
+          <div className="text-sm font-semibold text-purple-900">
+            Needs verification — looks like a person, not a fund ({personCandidates.length})
+          </div>
+          <ul className="mt-2 space-y-2 text-sm">
+            {personCandidates.map((e) => (
+              <li key={e.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-100 bg-white px-3 py-2">
+                <Link href={`/entities/${e.id}`} className="font-medium text-gray-900 hover:text-[#0E7490]">{e.name}</Link>
+                <span className="text-xs text-gray-400">{e.type.replace('_', ' ')} · no website · no email domain · no contacts on file</span>
+                <div className="ml-auto flex gap-2">
+                  <button onClick={() => convertEntityToPerson(e.id)}
+                    className="rounded bg-purple-700 px-2 py-1 text-xs font-medium text-white hover:bg-purple-800">Convert to person (angel)</button>
+                  <button onClick={() => markEntityVerified(e.id)}
+                    className="rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50">Not a person</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name or sector…"
           className="w-56 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
@@ -67,10 +139,6 @@ export default function PipelinePage() {
           <option value="">All countries</option>
           {countries.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
-        <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
-          <option value="wave">Sort: wave</option><option value="fit">Sort: fit</option>
-          <option value="name">Sort: name</option><option value="status">Sort: status</option>
-        </select>
         {(q || wave || status || country) && (
           <button onClick={() => { setQ(''); setWave(''); setStatus(''); setCountry(''); }} className="text-sm text-gray-500 hover:underline">Clear</button>
         )}
@@ -82,22 +150,22 @@ export default function PipelinePage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
-              <th className="px-3 py-2">Entity</th>
-              <th className="px-3 py-2">Type</th>
-              <th className="px-3 py-2">HQ</th>
-              <th className="px-3 py-2">Check</th>
-              <th className="px-3 py-2">Sectors</th>
-              <th className="px-3 py-2">Fit</th>
-              <th className="px-3 py-2">Wave</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Next action</th>
-              <th className="px-3 py-2" title="Rank-1 pre-flight">Ready</th>
+              {SORT_COLUMNS.map((c) => (
+                <th key={c.key} className="px-3 py-2" title={'title' in c ? c.title : undefined}>
+                  <Tooltip text={`Sort by ${c.label.toLowerCase()}.`} side="bottom">
+                    <button onClick={() => toggleSort(c.key)}
+                      className={`flex items-center gap-1 font-medium uppercase tracking-wide hover:text-gray-700 ${sortKey === c.key ? 'text-[#0E7490]' : ''}`}>
+                      {c.label} {sortKey === c.key && <span className="text-[10px]">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                    </button>
+                  </Tooltip>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {rows.map((e) => {
-              const ready = readiness(e);
-              const task = nextAction(e);
+              const ready = readiness(db, e);
+              const task = nextAction(db, e);
               const overdue = task?.due_at && new Date(task.due_at) < new Date();
               const hf = e.hard_filter_status === 'open';
               return (

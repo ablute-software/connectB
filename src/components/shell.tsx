@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { outboundCounts } from '@/lib/rules';
 import { browserClient } from '@/lib/supabase';
+import { Tooltip } from '@/components/ui';
 
 type Me = { authEnabled: boolean; user: { email?: string } | null; role: string };
 
@@ -80,10 +81,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
           {showBackofficeSwitcher && (
             <>
               <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-gray-300">Platform</div>
-              <Link href="/backoffice"
-                className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-[13.5px] text-gray-700 transition hover:bg-gray-100">
-                <span className="w-4 text-center text-gray-400">◉</span> Back-office →
-              </Link>
+              <Tooltip text="Switch to the platform team's console — catalog curation, cross-org queues, no founder pipeline data." side="right" block>
+                <Link href="/backoffice"
+                  className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-[13.5px] text-gray-700 transition hover:bg-gray-100">
+                  <span className="w-4 text-center text-gray-400">◉</span> Back-office →
+                </Link>
+              </Tooltip>
             </>
           )}
         </nav>
@@ -112,12 +115,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <span className="text-sm text-gray-300">Outreach discipline, enforced</span>
           </div>
           <div className="flex items-center gap-4">
-            <span className={`rounded-full border border-gray-100 bg-white px-3 py-1 text-xs ${capClass}`}>
-              Today {caps.today}/{caps.dailyCap} · Week {caps.week}/{caps.weeklyCap}
-            </span>
-            <Link href="/log" className="rounded-xl bg-[#0E7490] px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0c637b]">
-              + Log interaction
-            </Link>
+            <Tooltip text="Outbound messages sent today and this week, against your daily/weekly discipline caps." side="bottom">
+              <span className={`rounded-full border border-gray-100 bg-white px-3 py-1 text-xs ${capClass}`}>
+                Today {caps.today}/{caps.dailyCap} · Week {caps.week}/{caps.weeklyCap}
+              </span>
+            </Tooltip>
+            <Tooltip text="Record a new outbound or inbound interaction with an investor." side="bottom">
+              <Link href="/log" className="rounded-xl bg-[#0E7490] px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0c637b]">
+                + Log interaction
+              </Link>
+            </Tooltip>
           </div>
         </header>
         <main className="mx-auto max-w-6xl p-4 md:p-8">{children}</main>

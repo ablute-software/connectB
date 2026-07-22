@@ -8,7 +8,7 @@
 //   TEMA B — personal negotiation history (interactions, outcomes, notes):
 //     ablute_-org-private, forever. Never a contribution, never catalog.
 import { normalizeName, normalizeDomain } from './catalog-dedupe';
-import { matchEntities, mergeFields, type MatchStatus, type MatchCandidate, type FieldDiff, type ExistingEntity } from './structured-import';
+import { looksLikePersonName, matchEntities, mergeFields, type MatchStatus, type MatchCandidate, type FieldDiff, type ExistingEntity } from './structured-import';
 
 export type Desfecho = 'SEM_MARCACAO' | 'TALVEZ_FUTURO' | 'NAO_FECHADO' | 'CONTACTADO_SEM_DESFECHO';
 export type Estado = '—' | 'NÃO' | 'TALVEZ' | 'RESPOSTA';
@@ -234,6 +234,7 @@ export interface MdEntityPlanItem {
   temaBConflicts: FieldDiff[]; // ablute_-private only, never contributions
   recentCampaign: boolean;
   include: boolean;
+  looksLikePerson?: boolean; // §1c guard — see structured-import.ts's looksLikePersonName
 }
 
 export interface MdInteractionPlanItem {
@@ -322,6 +323,7 @@ export function buildMdImportPlan(
     return {
       key: s.name, aliases: s.aliases, status, candidates, chosenId: chosen?.id, desfecho: s.desfecho,
       reopenTrigger: namedReopenTrigger(s.name), patch, temaAConflicts, temaBConflicts, recentCampaign, include: true,
+      looksLikePerson: status === 'new' && looksLikePersonName(s.name, !!s.sites[0], !!emailDomain(s.emails[0])),
     };
   });
 

@@ -331,6 +331,52 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('entities').update({ hard_filter_status: status }).eq('id', id), 'resolveHardFilter');
     },
 
+    convertEntityToPerson(entityId: string) {
+      const prev = dbRef.current;
+      const entity = prev.entities.find((e) => e.id === entityId);
+      if (!entity) return;
+      const personId = uuid();
+      const newPerson: Person = {
+        id: personId, entity_id: entityId, full_name: entity.name, seniority_rank: 1,
+        linkedin_verified: false, bounce_count: 0, linked_companies: [], linked_funds: [],
+        hook_status: 'to_research', kill_words: [], preferred_language: 'en',
+        privacy_notice_sent: false, do_not_contact: false,
+      };
+      const newAffiliation: PersonAffiliation = {
+        id: uuid(), person_id: personId, entity_id: undefined, kind: 'angel', current: true,
+        is_primary: true, notes: 'Converted from a mis-imported VC-type entity — solo angel investor, no fund.',
+      };
+      const last_verified = new Date().toISOString().slice(0, 10);
+      const migratedInteractionIds = prev.interactions
+        .filter((i) => i.entity_id === entityId && !i.person_id).map((i) => i.id);
+
+      commit({
+        ...prev,
+        entities: prev.entities.map((e) => e.id === entityId ? { ...e, type: 'angel_fund', last_verified } : e),
+        people: [...prev.people, newPerson],
+        personAffiliations: [...prev.personAffiliations, newAffiliation],
+        interactions: prev.interactions.map((i) =>
+          i.entity_id === entityId && !i.person_id ? { ...i, person_id: personId } : i),
+      });
+
+      const o = orgIdRef.current;
+      if (o) {
+        persist(sb.from('entities').update({ type: 'angel_fund', last_verified }).eq('id', entityId), 'convertEntityToPerson:entity');
+        persist(sb.from('people').insert({ ...newPerson, org_id: o }), 'convertEntityToPerson:person');
+        persist(sb.from('person_affiliations').insert({ ...newAffiliation, org_id: o }), 'convertEntityToPerson:affiliation');
+        if (migratedInteractionIds.length) {
+          persist(sb.from('interactions').update({ person_id: personId }).in('id', migratedInteractionIds), 'convertEntityToPerson:interactions');
+        }
+      }
+    },
+
+    markEntityVerified(entityId: string) {
+      const prev = dbRef.current;
+      const last_verified = new Date().toISOString().slice(0, 10);
+      commit({ ...prev, entities: prev.entities.map((e) => e.id === entityId ? { ...e, last_verified } : e) });
+      if (orgIdRef.current) persist(sb.from('entities').update({ last_verified }).eq('id', entityId), 'markEntityVerified');
+    },
+
     setDoNotContact(personId: string) {
       const prev = dbRef.current;
       commit({

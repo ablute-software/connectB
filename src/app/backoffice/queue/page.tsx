@@ -4,7 +4,7 @@
 // page; Submissions/Claims are new tabs consolidating what used to be a
 // separate founder-store-scoped "Review queue" section.
 import { useEffect, useState } from 'react';
-import { Card } from '@/components/ui';
+import { Card, Tooltip } from '@/components/ui';
 
 type Tab = 'contributions' | 'submissions' | 'claims' | 'gdpr';
 
@@ -79,8 +79,12 @@ function ContributionsTab() {
                     {c.note && <span className="text-xs text-gray-500">— {c.note}</span>}
                     <input placeholder="Reviewer notes" value={notes[c.id] ?? ''} onChange={(e) => setNotes({ ...notes, [c.id]: e.target.value })}
                       className="ml-auto min-w-[160px] rounded border border-gray-200 px-2 py-1 text-xs" />
-                    <button onClick={() => review(c.id, 'verified')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Verify</button>
-                    <button onClick={() => review(c.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
+                    <Tooltip text="Marks this fact as confirmed true — verified facts are eligible for the shared catalog.">
+                      <button onClick={() => review(c.id, 'verified')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Verify</button>
+                    </Tooltip>
+                    <Tooltip text="Discards this submitted fact — it stays out of the catalog.">
+                      <button onClick={() => review(c.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
+                    </Tooltip>
                   </li>
                 ))}
               </ul>
@@ -160,8 +164,12 @@ function SubmissionsTab() {
               <div className="mt-3 flex flex-wrap gap-2">
                 <input placeholder="Reviewer notes" value={notes[s.id] ?? ''} onChange={(e) => setNotes({ ...notes, [s.id]: e.target.value })}
                   className="min-w-[240px] flex-1 rounded-xl border border-gray-200 px-3 py-1.5 text-sm" />
-                <button onClick={() => review(s.id, 'approved')} className="rounded-xl bg-green-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-800">Verify & merge to catalog</button>
-                <button onClick={() => review(s.id, 'rejected')} className="rounded-xl border border-red-200 px-3 py-1.5 text-sm text-[#B00000] hover:bg-red-50">Reject</button>
+                <Tooltip text="Confirms this investor is real and adds it to the shared catalog every org can discover.">
+                  <button onClick={() => review(s.id, 'approved')} className="rounded-xl bg-green-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-800">Verify & merge to catalog</button>
+                </Tooltip>
+                <Tooltip text="Declines this submission — it stays private to the submitting org only.">
+                  <button onClick={() => review(s.id, 'rejected')} className="rounded-xl border border-red-200 px-3 py-1.5 text-sm text-[#B00000] hover:bg-red-50">Reject</button>
+                </Tooltip>
               </div>
             </li>
           ))}
@@ -234,8 +242,12 @@ function ClaimsTab() {
                 </span>
               )}
               <div className="ml-auto flex gap-2">
-                <button onClick={() => resolve(c.id, 'approved')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Approve</button>
-                <button onClick={() => resolve(c.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
+                <Tooltip text="Confirms this LinkedIn account is the same person as the record — grants them self-claim access.">
+                  <button onClick={() => resolve(c.id, 'approved')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Approve</button>
+                </Tooltip>
+                <Tooltip text="Declines the claim — the match score or evidence wasn't convincing enough.">
+                  <button onClick={() => resolve(c.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
+                </Tooltip>
               </div>
             </li>
           ))}
@@ -320,10 +332,14 @@ function GdprTab() {
                   {r.matches.length === 0 ? 'No matching record found by email — link manually if needed.' : `Matches: ${r.matches.map((m) => `${m.name} (${m.orgName})`).join(', ')}`}
                 </div>
                 <div className="mt-2 flex gap-2">
-                  <button disabled={busy === r.id} onClick={() => resolve(r.id, 'resolved')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800 disabled:opacity-40">
-                    {r.kind === 'erase' ? 'Erase & resolve' : 'Mark resolved'}
-                  </button>
-                  <button disabled={busy === r.id} onClick={() => resolve(r.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50 disabled:opacity-40">Reject</button>
+                  <Tooltip text={r.kind === 'erase' ? 'Nulls out PII on every matched person record across every org — irreversible.' : 'Marks this rectification request as handled.'}>
+                    <button disabled={busy === r.id} onClick={() => resolve(r.id, 'resolved')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800 disabled:opacity-40">
+                      {r.kind === 'erase' ? 'Erase & resolve' : 'Mark resolved'}
+                    </button>
+                  </Tooltip>
+                  <Tooltip text="Declines the request — no data is changed.">
+                    <button disabled={busy === r.id} onClick={() => resolve(r.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50 disabled:opacity-40">Reject</button>
+                  </Tooltip>
                 </div>
               </li>
             );

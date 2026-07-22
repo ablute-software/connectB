@@ -5,7 +5,7 @@
 // StoreApi contract (locks, follow-up tasks, overrides, runs semantics).
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  AccessGrant, AutomationRun, Db, Entity, Interaction,
+  AccessGrant, AutomationRun, Db, Entity, Interaction, Person, PersonAffiliation,
 } from './types';
 import { seed } from './data/seed';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
@@ -142,6 +142,41 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
 
     resolveHardFilter(id, status) {
       setDb((prev) => ({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, hard_filter_status: status } : e) }));
+    },
+
+    convertEntityToPerson(entityId) {
+      setDb((prev) => {
+        const entity = prev.entities.find((e) => e.id === entityId);
+        if (!entity) return prev;
+        const personId = uid('p');
+        const newPerson: Person = {
+          id: personId, entity_id: entityId, full_name: entity.name, seniority_rank: 1,
+          linkedin_verified: false, bounce_count: 0, linked_companies: [], linked_funds: [],
+          hook_status: 'to_research', kill_words: [], preferred_language: 'en',
+          privacy_notice_sent: false, do_not_contact: false,
+        };
+        const newAffiliation: PersonAffiliation = {
+          id: uid('aff'), person_id: personId, entity_id: undefined, kind: 'angel', current: true,
+          is_primary: true, notes: 'Converted from a mis-imported VC-type entity — solo angel investor, no fund.',
+        };
+        return {
+          ...prev,
+          entities: prev.entities.map((e) => e.id === entityId
+            ? { ...e, type: 'angel_fund', last_verified: new Date().toISOString().slice(0, 10) } : e),
+          people: [...prev.people, newPerson],
+          personAffiliations: [...prev.personAffiliations, newAffiliation],
+          interactions: prev.interactions.map((i) =>
+            i.entity_id === entityId && !i.person_id ? { ...i, person_id: personId } : i),
+        };
+      });
+    },
+
+    markEntityVerified(entityId) {
+      setDb((prev) => ({
+        ...prev,
+        entities: prev.entities.map((e) => e.id === entityId
+          ? { ...e, last_verified: new Date().toISOString().slice(0, 10) } : e),
+      }));
     },
 
     setDoNotContact(personId) {

@@ -7,6 +7,23 @@
 // can share the exact same logic.
 import { normalizeName, normalizeDomain } from './catalog-dedupe';
 
+// §1c data-quality guard — some imported "entities" are really individual
+// people (e.g. a solo angel with no fund) mistyped as an organization, e.g.
+// "António Gama Amaral" typed as a VC with no website. A name with no
+// firm-like keyword, no website, and no email domain gets flagged for a
+// human to review (both at import time and via the live Pipeline sweep) —
+// never auto-converted, since a firm name that coincidentally looks like
+// "First Last" (rare, but real) still needs a human call.
+const FIRM_KEYWORDS = /\b(capital|ventures?|partners?|fund|vc|invest(ments?)?|group|holdings?|angels?|network|accelerator|advisors?|management|equity|office|labs?|studio)\b/i;
+const PERSON_NAME_PATTERN = /^[A-ZÀ-ÖØ-Þ][a-zà-öø-þ'-]+(\s+[A-ZÀ-ÖØ-Þ][a-zà-öø-þ'-]+){1,3}$/;
+
+export function looksLikePersonName(name: string, hasWebsite: boolean, hasEmailDomain: boolean): boolean {
+  if (hasWebsite || hasEmailDomain) return false;
+  const trimmed = name.trim();
+  if (FIRM_KEYWORDS.test(trimmed)) return false;
+  return PERSON_NAME_PATTERN.test(trimmed);
+}
+
 // ---------- CSV parsing (RFC4180-ish: quoted fields, doubled-quote escape) ----------
 
 export function parseCsv(text: string): string[][] {
@@ -298,6 +315,7 @@ export interface EntityPlanItem {
   conflicts: FieldDiff[];
   include: boolean;
   derived?: boolean; // true for entities invented by an affiliation upgrade, not present in entities.csv
+  looksLikePerson?: boolean; // §1c guard — see looksLikePersonName; surfaced, never auto-decided
 }
 
 export interface PersonPlanItem {
@@ -401,6 +419,7 @@ export function buildImportPlan(
     return {
       key: csvRow.name, status, candidates, chosenId: chosen?.id, csvRow, patch, conflicts, include: true,
       derived: DERIVED_ENTITIES.some((d) => d.name === csvRow.name),
+      looksLikePerson: status === 'new' && looksLikePersonName(csvRow.name, !!csvRow.website, !!csvRow.email_domain),
     };
   });
   const entityByKey = new Map(entityPlans.map((e) => [e.key, e]));

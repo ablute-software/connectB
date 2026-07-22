@@ -11,7 +11,7 @@ type Status = 'new' | 'matched' | 'conflict' | 'duplicate' | 'unresolved';
 
 interface Candidate { id: string; name: string; score: number }
 interface FieldDiff { field: string; existing: unknown; incoming: unknown }
-interface EntityItem { key: string; status: Status; candidates: Candidate[]; chosenId?: string; csvRow: { name: string }; patch: Record<string, unknown>; conflicts: FieldDiff[]; include: boolean; derived?: boolean }
+interface EntityItem { key: string; status: Status; candidates: Candidate[]; chosenId?: string; csvRow: { name: string }; patch: Record<string, unknown>; conflicts: FieldDiff[]; include: boolean; derived?: boolean; looksLikePerson?: boolean }
 interface PersonItem { key: string; status: Status; candidates: Candidate[]; chosenId?: string; entityKey: string; csvRow: { full_name: string }; patch: Record<string, unknown>; conflicts: FieldDiff[]; include: boolean }
 interface InteractionItem { key: string; status: Status; entityKey: string; personKey?: string; csvRow: { occurred_at?: string; direction: string; channel?: string; content: string }; include: boolean }
 interface AffiliationItem { personKey: string; entityKey?: string; kind: string; title?: string; isPrimary: boolean; notes: string; include: boolean }
@@ -154,6 +154,11 @@ export default function StructuredImportPage() {
                     <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_STYLE[e.status]}`}>{e.status}</span>
                     <span className="font-medium">{e.csvRow.name}</span>
                     {e.derived && <span className="text-xs text-gray-400">(derived — not in entities.csv, from §9b-4 affiliation upgrade)</span>}
+                    {e.looksLikePerson && (
+                      <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-800">
+                        looks like a person, not a fund — review after import
+                      </span>
+                    )}
                     {e.candidates.length > 0 && (
                       <select value={e.chosenId ?? ''} onChange={(ev) => toggleEntityChoice(e.key, ev.target.value || undefined)}
                         className="ml-auto rounded border border-gray-300 px-2 py-1 text-xs">

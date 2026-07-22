@@ -7,6 +7,38 @@ import { useStore } from '@/lib/store';
 
 export const BRAND = '#0E7490';
 
+// Single global tooltip: hover/focus ~500ms → short one-sentence popup near
+// the trigger. Neutral dark chip per DESIGN_IDEAS.md (calm, no color-as-
+// decoration) — semantic color stays reserved for status/verification.
+export function Tooltip({ text, children, side = 'top', block }: {
+  text: string; children: React.ReactNode; side?: 'top' | 'bottom' | 'left' | 'right'; block?: boolean;
+}) {
+  const [show, setShow] = useState(false);
+  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function open() { timer.current = setTimeout(() => setShow(true), 500); }
+  function close() { if (timer.current) clearTimeout(timer.current); setShow(false); }
+
+  const posClass = {
+    top: 'bottom-full left-1/2 -translate-x-1/2 mb-1.5',
+    bottom: 'top-full left-1/2 -translate-x-1/2 mt-1.5',
+    left: 'right-full top-1/2 -translate-y-1/2 mr-1.5',
+    right: 'left-full top-1/2 -translate-y-1/2 ml-1.5',
+  }[side];
+
+  return (
+    <span className={`relative ${block ? 'block w-full' : 'inline-flex'}`} onMouseEnter={open} onMouseLeave={close} onFocus={open} onBlur={close}>
+      {children}
+      {show && (
+        <span role="tooltip"
+          className={`pointer-events-none absolute z-50 w-max max-w-[220px] rounded-lg bg-gray-900 px-2 py-1 text-center text-[11px] font-medium leading-snug text-white shadow-lg ${posClass}`}>
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function Card({ title, children, tint, right }: {
   title?: React.ReactNode; children: React.ReactNode;
   tint?: 'red' | 'amber' | 'blue'; right?: React.ReactNode;
@@ -38,11 +70,23 @@ const statusStyle: Record<EntityStatus, string> = {
   dormant: 'bg-gray-400 text-white',
 };
 
+const statusExplain: Record<EntityStatus, string> = {
+  not_contacted: 'No outbound has been sent to anyone at this entity yet.',
+  contacted: 'At least one outbound was sent; still awaiting a substantive reply.',
+  in_conversation: 'They replied with interest, a question, or a meeting request.',
+  diligence: 'Actively in diligence — documents, calls, references.',
+  passed: 'They said no — see the pass reason on the entity page.',
+  invested: 'They committed capital to this round.',
+  dormant: 'Parked — no active outbound planned; may be reopened later.',
+};
+
 export function StatusPill({ status }: { status: EntityStatus }) {
   return (
-    <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${statusStyle[status]}`}>
-      {status.replace('_', ' ')}
-    </span>
+    <Tooltip text={statusExplain[status]}>
+      <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${statusStyle[status]}`}>
+        {status.replace('_', ' ')}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -54,14 +98,29 @@ const fitLabel: Record<FitScore, string> = { high: 'High', medium_high: 'Med-Hig
 
 export function FitTag({ fit }: { fit?: FitScore }) {
   if (!fit) return <span className="text-gray-300">—</span>;
-  return <span className={`text-xs ${fitStyle[fit]}`}>{fitLabel[fit]}</span>;
+  return (
+    <Tooltip text="How well this investor's thesis matches ablute_, hand-assessed from their public materials.">
+      <span className={`text-xs ${fitStyle[fit]}`}>{fitLabel[fit]}</span>
+    </Tooltip>
+  );
 }
 
 export function WaveTag({ wave }: { wave?: number }) {
   if (!wave) return null;
   const c = wave === 1 ? 'bg-[#0E7490] text-white' : wave === 2 ? 'bg-teal-600 text-white' : 'bg-gray-300 text-gray-700';
-  return <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-bold ${c}`}>W{wave}</span>;
+  return (
+    <Tooltip text={`Outreach wave ${wave} — the priority batch this investor is scheduled to be approached in.`}>
+      <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-bold ${c}`}>W{wave}</span>
+    </Tooltip>
+  );
 }
+
+const verExplain: Record<'verified' | 'guessed' | 'bounced' | 'missing', string> = {
+  verified: 'Confirmed correct — safe to send to.',
+  guessed: 'Inferred, never confirmed — sending here risks a bounce or the wrong person.',
+  bounced: 'A previous send to this address failed to deliver.',
+  missing: 'No value on file yet.',
+};
 
 export function VerBadge({ state, label }: { state: 'verified' | 'guessed' | 'bounced' | 'missing'; label?: string }) {
   const map = {
@@ -72,9 +131,11 @@ export function VerBadge({ state, label }: { state: 'verified' | 'guessed' | 'bo
   } as const;
   const [dot, text] = map[state];
   return (
-    <span className="inline-flex items-center gap-1 text-xs text-gray-600">
-      <span className={`h-2 w-2 rounded-full ${dot}`} /> {text}
-    </span>
+    <Tooltip text={verExplain[state]}>
+      <span className="inline-flex items-center gap-1 text-xs text-gray-600">
+        <span className={`h-2 w-2 rounded-full ${dot}`} /> {text}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -98,6 +159,15 @@ export function HardFilterBanner({ entity }: { entity: Entity }) {
   );
 }
 
+export const PREFLIGHT_EXPLAIN: Record<string, string> = {
+  dnc: 'Blocks contact forever once someone has asked not to be approached again.',
+  hook: 'A specific, researched reason to reach out — never a generic message.',
+  hard_filter: 'A known dealbreaker for this entity that needs addressing or resolving first.',
+  contact_lock: 'Only one person per entity is approached at a time — no parallel spraying.',
+  seniority: 'Contact the most senior person first; juniors wait until they reply or go dormant.',
+  email: 'Only send to an address that has been verified and hasn’t bounced before.',
+};
+
 export function PreflightCard({ checks, onProceed, ctaLabel = 'Log outbound' }: {
   checks: PreflightCheck[];
   onProceed?: (overrides: { rule: string; justification: string }[]) => void;
@@ -113,7 +183,9 @@ export function PreflightCard({ checks, onProceed, ctaLabel = 'Log outbound' }: 
           <li key={c.key} className="flex items-start gap-2 text-sm">
             <span className={`mt-0.5 ${c.ok ? 'text-green-600' : 'text-[#B00000]'}`}>{c.ok ? '✓' : '✗'}</span>
             <span className="flex-1">
-              <span className={c.ok ? 'text-gray-700' : 'font-medium text-gray-900'}>{c.label}</span>
+              <Tooltip text={PREFLIGHT_EXPLAIN[c.key] ?? c.label} side="right">
+                <span className={c.ok ? 'text-gray-700' : 'font-medium text-gray-900'}>{c.label}</span>
+              </Tooltip>
               {!c.ok && c.reason && <span className="block text-xs text-gray-500">{c.reason}{!c.overridable && ' — no override.'}</span>}
             </span>
             {!c.ok && !c.overridable && <span title="No override">🔒</span>}

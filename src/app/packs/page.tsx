@@ -27,10 +27,17 @@ export default function PacksPage() {
 
       {msg && <div className="rounded-xl border border-cyan-100 bg-[#E8F4F8] px-4 py-2.5 text-sm text-cyan-900">{msg}</div>}
 
+      <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-2.5 text-xs text-gray-500">
+        Investors already in your pipeline are never charged or duplicated — if a pack has fewer new investors
+        than advertised, you're compensated.
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2">
         {db.packs.map((p) => {
           const unlocked = db.unlocks.some((u) => u.pack_id === p.id);
           const items = p.catalog_ids.map((cid) => db.catalog.find((c) => c.id === cid)).filter(Boolean);
+          const geos = Array.from(new Set(items.map((c) => c!.hq_country).filter(Boolean))) as string[];
+          const sectors = Array.from(new Set(items.flatMap((c) => c!.sectors)));
           return (
             <div key={p.id} className="flex flex-col rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
               <div className="flex items-start justify-between">
@@ -41,17 +48,35 @@ export default function PacksPage() {
                 </div>
               </div>
               <p className="mt-1 text-sm text-gray-500">{p.description}</p>
+
+              {!unlocked && (
+                <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                  <span className="rounded-full bg-gray-800 px-2 py-0.5 font-semibold text-white">
+                    {items.length} investor{items.length === 1 ? '' : 's'}
+                  </span>
+                  {geos.map((g) => <span key={g} className="rounded-full border border-gray-200 px-2 py-0.5 text-gray-500">{g}</span>)}
+                  {sectors.slice(0, 4).map((s) => <span key={s} className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-gray-500">{s}</span>)}
+                  {sectors.length > 4 && <span className="text-gray-400">+{sectors.length - 4} more</span>}
+                </div>
+              )}
+
               <ul className="mt-3 flex-1 space-y-2">
                 {items.map((c) => (
                   <li key={c!.id} className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 text-sm">
-                    <span className="font-medium">{c!.name}</span>
+                    {unlocked ? (
+                      <span className="font-medium">{c!.name}</span>
+                    ) : (
+                      <span aria-label="Investor name hidden until unlock" className="select-none rounded bg-gray-200 font-medium text-gray-400 blur-[5px]">
+                        {c!.name}
+                      </span>
+                    )}
                     <span className="text-xs text-gray-400">{c!.hq_city}, {c!.hq_country}</span>
                     <span className="ml-auto flex gap-1">
                       {c!.sectors.slice(0, 2).map((s) => (
                         <span key={s} className="rounded-full bg-white px-2 py-0.5 text-[10px] text-gray-500 border border-gray-200">{s}</span>
                       ))}
                     </span>
-                    {deliveredIds.has(c!.id) && <span className="text-[10px] font-semibold text-green-700">in pipeline ✓</span>}
+                    {unlocked && deliveredIds.has(c!.id) && <span className="text-[10px] font-semibold text-green-700">in pipeline ✓</span>}
                   </li>
                 ))}
               </ul>

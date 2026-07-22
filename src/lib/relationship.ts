@@ -2,6 +2,20 @@
 // rules.ts (kept separate so rules.ts stays scoped to its documented set).
 import type { ActionType, Db, Entity, Interaction, Person, RelationshipStage, TaskItem } from './types';
 import { LOCK_DAYS } from './rules';
+import { looksLikePersonName } from './structured-import';
+
+// §1c data-quality guard — flags a live entity that is very likely an
+// individual person mistyped as an organization (e.g. a solo angel
+// imported with no fund). Never auto-converts: surfaced for the founder to
+// confirm via convertEntityToPerson/markEntityVerified. last_verified
+// doubles as "already reviewed" so a dismissed candidate doesn't keep
+// resurfacing; having zero people already on record is a strong signal
+// that the "entity" row itself IS the only contact.
+export function isPersonCandidate(db: Db, entity: Entity): boolean {
+  if (entity.last_verified) return false;
+  if (db.people.some((p) => p.entity_id === entity.id)) return false;
+  return looksLikePersonName(entity.name, !!entity.website, !!entity.email_domain);
+}
 
 export const ACTION_TYPE_LABEL: Record<ActionType, string> = {
   first_contact: 'First contact', follow_up_no_reply: 'Follow-up · no reply',

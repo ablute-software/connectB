@@ -740,3 +740,106 @@ confirmation:
 4. **Action-type feature confirmed working in production** (migration
    0019 applied) — the held commit from the prior session was pushed with
    no further changes needed.
+
+## Real-use feedback round: tooltips, sortable pipeline, packs polish
+
+1. **Global Tooltip** (`src/components/ui.tsx`): a single `Tooltip` component,
+   500ms hover/focus delay, dark neutral chip (no semantic color — that stays
+   reserved for status/verification per DESIGN_IDEAS.md). Applied by wrapping
+   the shared pill components (`StatusPill`, `FitTag`, `WaveTag`, `VerBadge`)
+   directly, so every existing usage across the app inherited a tooltip for
+   free instead of needing per-page edits. Also applied to: `PreflightCard`
+   and `/log`'s duplicate inline pre-flight list (one sentence per check,
+   independent of the pass/fail reason already shown), the composer's AI/
+   copy/save/override buttons, the top-bar cap counter and Log-interaction
+   button, the back-office switcher, and the Fila queue's review buttons
+   (Verify/Reject/Approve across all 4 tabs). Not attempted: exhaustive
+   coverage of every button in the app (e.g. Catálogo's merge tool, Startups,
+   Métricas) — scoped to the categories the feedback named explicitly
+   (top actions, pre-flight, pills, composer, back-office), not a blanket
+   sweep.
+2. **Sortable Pipeline table** (`src/app/page.tsx`): the old single-select
+   "Sort: …" dropdown (4 keys) replaced with clickable column headers across
+   all 10 requested columns, asc/desc arrow, persisted to localStorage
+   (`ablute-pipeline-sort-v1`). A generic nulls-last comparator handles every
+   column uniformly rather than a bespoke comparator per key; missing values
+   (no HQ, no check range, no next action, etc.) always sink to the bottom
+   regardless of direction, which reads better than nulls flipping to the
+   top on a "desc" click.
+3. **Packs frosted-glass names**: investor names in a locked pack are
+   rendered with a CSS blur filter + `select-none`, matching the existing
+   convention this app already uses for other not-yet-actionable data
+   (the guessed-email treatment in `PersonEmailBlock`) rather than inventing
+   a new pattern. Note the honest limit: this is a *presentational* blur —
+   the catalog rows are already loaded client-side (same as before), so it
+   deters casual copying but isn't a network-level redaction guarantee. If
+   pack contents ever need to be provably unextractable pre-purchase, that
+   requires withholding the names server-side until unlock — a real
+   architecture change, not attempted here since the feedback specifically
+   asked for "efeito frosted glass/blur," a client-side technique.
+4. **`Org.credits`**: added as a type-only field (no migration, no DB
+   column, nothing reads or writes it) — a placeholder for a future real
+   crediting mechanic, per the explicit instruction not to touch the pricing
+   model yet.
+5. **Future spec, not implemented — custom packs by keyword.** Idea: let a
+   founder type free-text keywords (e.g. "health + portugal + seed +
+   hardware") and generate a pack on the fly from the catalog, showing the
+   matching investor count before purchase. Needs a materially larger
+   catalog than exists today to produce non-trivial results — a handful of
+   seed investors sliced by 4 keywords would mostly return near-empty packs.
+   Revisit once the catalog has grown past a few dozen verified entries per
+   sector/geo combination.
+
+## Entities that are people (§1c data-quality fix)
+
+Real bug: "António Gama Amaral" (and likely similar rows) imported as a
+`vc`-type entity with no website/domain and zero people under it — he's
+actually an individual (probably a solo angel), not a fund.
+
+1. **No migration needed.** `people.entity_id` and `interactions.entity_id`
+   are both `NOT NULL` in the DB (migration 0001) — a genuinely
+   entity-less person isn't representable without a schema change nobody
+   asked for. `person_affiliations.entity_id`, though, was already
+   nullable from the start (migration 0009, "null + kind='angel' =
+   independent angel activity") — the exact pattern already used for
+   António Murta's angel-path affiliation. `convertEntityToPerson` reuses
+   that existing pattern instead of inventing one: the entity row is
+   *kept* as the person's technical "home" (same id, so `Person.entity_id`
+   / `Interaction.entity_id` stay satisfied), relabeled `type: 'angel_fund'`
+   (closest existing `EntityType` fit) and stamped `last_verified` (doubles
+   as "reviewed" for the sweep). A brand-new `Person` row is created under
+   it, plus a `PersonAffiliation` with `entity_id` omitted + `kind: 'angel'`
+   — the same independent-activity marker Murta already uses. Any
+   interaction already logged against the entity with no `person_id` gets
+   backfilled to point at the new person. Net effect: the "entity" stays
+   visible in Pipeline exactly as before (same name, same interaction
+   thread) but now has a real Person underneath it with hook/kill-words/
+   etc., which the founder can actually research and log against — an
+   improvement, not a removal.
+2. **Sweep heuristic** (`isPersonCandidate` in `relationship.ts`, backed by
+   `looksLikePersonName` in `structured-import.ts`, shared with both
+   importers): no website, no email domain, name shaped like "First
+   Last(-Last)" with no firm keyword (Capital/Ventures/Partners/Fund/VC/
+   etc.), AND zero existing `Person` rows under the entity, AND not
+   already `last_verified`. The "zero people" signal is doing real work
+   here — a genuine fund entity almost always has at least one contact
+   attached; a `vc`-type row with none is the actual tell, more reliable
+   than the name shape alone. Surfaced as a dismissible banner on both the
+   Pipeline page (org-wide sweep) and the entity page (single-entity), with
+   "Convert to person (angel)" and "Not a person" (dismiss via
+   `markEntityVerified`, which just stamps `last_verified` so it stops
+   resurfacing).
+3. **Importer heuristic is visibility-only, not a separate commit path.**
+   Both `buildImportPlan` and `buildMdImportPlan` now flag new-entity plan
+   items with `looksLikePerson` (surfaced as a purple staging badge:
+   "looks like a person, not a fund — review after import"), reusing the
+   same `looksLikePersonName` check. Deliberately did NOT build a parallel
+   person-creation code path inside either importer — imports are rare,
+   one-off events, and the conversion action from point 1 already handles
+   the fix post-commit. Building two full person-vs-entity branches into
+   the commit routes for an occasional-use import flow would be a much
+   larger change than the reported bug calls for; flagged rather than
+   silently deferred.
+4. Added a `structured-import.test.ts` covering `looksLikePersonName`
+   against the exact reported name, a couple of real fund names (must NOT
+   flag), and the with-website/with-domain cases (must clear the flag).

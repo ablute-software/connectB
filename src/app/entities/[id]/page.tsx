@@ -9,19 +9,21 @@ import { ThreadDrawer } from '@/components/ThreadDrawer';
 import { ContributionBox } from '@/components/ContributionBox';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
 import { entityCompleteness } from '@/lib/completeness';
-import { relatedContacts } from '@/lib/relationship';
+import { isPersonCandidate, relatedContacts } from '@/lib/relationship';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
-  const { db, setInterest, setEntityStatus } = useStore();
+  const { db, setInterest, setEntityStatus, convertEntityToPerson, markEntityVerified } = useStore();
   const entity = db.entities.find((e) => e.id === id);
   const [interest, setInterestLocal] = useState<string>('');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [confirmConvert, setConfirmConvert] = useState(false);
 
   if (!entity) return <div className="text-gray-500">Entity not found.</div>;
   const completeness = entityCompleteness(entity);
 
   const people = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
+  const personCandidate = isPersonCandidate(db, entity);
   const alsoConnected = relatedContacts(db, entity.id).filter((r) => r.viaAffiliation);
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > new Date();
   const grants = db.grants.filter((g) => people.some((p) => p.id === g.person_id));
@@ -45,8 +47,36 @@ export default function EntityPage({ params }: { params: { id: string } }) {
             <button onClick={() => setEntityStatus(entity.id, 'dormant', 'Manually parked')}
               className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600">Mark dormant</button>
           )}
+          {confirmConvert ? (
+            <div className="flex items-center gap-1 rounded-lg border border-purple-300 bg-purple-50 px-2 py-1">
+              <span className="text-xs text-purple-800">Convert to a person?</span>
+              <button onClick={() => { convertEntityToPerson(entity.id); setConfirmConvert(false); }}
+                className="rounded bg-purple-700 px-2 py-1 text-xs font-medium text-white hover:bg-purple-800">Confirm</button>
+              <button onClick={() => setConfirmConvert(false)} className="rounded border border-gray-300 px-2 py-1 text-xs">Cancel</button>
+            </div>
+          ) : (
+            <button onClick={() => setConfirmConvert(true)}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600">Convert to person (angel)</button>
+          )}
         </div>
       </div>
+
+      {personCandidate && (
+        <div className="flex items-start justify-between gap-4 rounded-lg border-l-4 border-purple-400 bg-purple-50 px-4 py-3">
+          <div>
+            <div className="text-sm font-semibold text-purple-900">This looks like a person, not a fund</div>
+            <div className="text-sm text-gray-700">
+              No website, no email domain, and no contacts recorded under it — likely an individual (e.g. a solo angel) imported as an organization.
+            </div>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button onClick={() => convertEntityToPerson(entity.id)}
+              className="rounded bg-purple-700 px-2 py-1 text-xs font-medium text-white hover:bg-purple-800">Convert to person (angel)</button>
+            <button onClick={() => markEntityVerified(entity.id)}
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50">Not a person</button>
+          </div>
+        </div>
+      )}
 
       <HardFilterBanner entity={entity} />
       {locked && (

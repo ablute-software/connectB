@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
-import { Card } from '@/components/ui';
+import { Card, PREFLIGHT_EXPLAIN, Tooltip } from '@/components/ui';
 import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
 import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
 import { ACTION_TYPE_LABEL, ACTION_TYPES, recommendedActionType } from '@/lib/relationship';
@@ -216,10 +216,12 @@ function LogForm() {
                 className="rounded border border-gray-300 px-2 py-1 text-xs">
                 {(Object.keys(INTENT_LABEL) as ComposerIntent[]).map((i) => <option key={i} value={i}>{INTENT_LABEL[i]}</option>)}
               </select>
-              <button disabled={composing} onClick={draftWithAi}
-                className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-                {composing ? 'Drafting…' : '✨ Draft with AI'}
-              </button>
+              <Tooltip text="Generates a draft using this person's hook and the entity's context — never sent automatically.">
+                <button disabled={composing} onClick={draftWithAi}
+                  className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                  {composing ? 'Drafting…' : '✨ Draft with AI'}
+                </button>
+              </Tooltip>
               <span className="text-[11px] text-gray-400">Draft only — you review, edit, and confirm before saving. Never auto-sent.</span>
             </div>
           )}
@@ -236,15 +238,19 @@ function LogForm() {
                 Este rascunho foi composto para {staleDraft.label} — atualiza ou regenera antes de usar.
               </span>
               {direction === 'out' && person && (
-                <button disabled={composing} onClick={draftWithAi}
-                  className="rounded border border-amber-500 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-40">
-                  {composing ? 'Regenerando…' : '↻ Regenerar'}
-                </button>
+                <Tooltip text="Redrafts the message for the currently selected person and entity.">
+                  <button disabled={composing} onClick={draftWithAi}
+                    className="rounded border border-amber-500 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-40">
+                    {composing ? 'Regenerando…' : '↻ Regenerar'}
+                  </button>
+                </Tooltip>
               )}
-              <button onClick={() => setContent('')}
-                className="rounded border border-amber-500 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100">
-                Limpar
-              </button>
+              <Tooltip text="Empties the message field so you can start fresh.">
+                <button onClick={() => setContent('')}
+                  className="rounded border border-amber-500 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100">
+                  Limpar
+                </button>
+              </Tooltip>
             </div>
           )}
           {direction === 'out' && channel === 'email' && (
@@ -257,11 +263,15 @@ function LogForm() {
           {direction === 'out' && (channel === 'linkedin_dm' || channel === 'linkedin_note') && content && (
             <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
               <span className="text-gray-500">No LinkedIn auto-send (ToS) — copy, send it there yourself, then save below to log it.</span>
-              <button onClick={() => navigator.clipboard.writeText(content)}
-                className="ml-auto rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-100">📋 Copy message</button>
+              <Tooltip text="Copies the message text so you can paste it into LinkedIn.">
+                <button onClick={() => navigator.clipboard.writeText(content)}
+                  className="ml-auto rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-100">📋 Copy message</button>
+              </Tooltip>
               {person?.linkedin_url && (
-                <a href={person.linkedin_url} target="_blank" rel="noreferrer"
-                  className="rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-100">Open profile ↗</a>
+                <Tooltip text="Opens this person's LinkedIn profile in a new tab.">
+                  <a href={person.linkedin_url} target="_blank" rel="noreferrer"
+                    className="rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-100">Open profile ↗</a>
+                </Tooltip>
               )}
             </div>
           )}
@@ -344,15 +354,19 @@ function LogForm() {
           {sendErr && <div className="mb-2 rounded bg-red-50 border border-red-200 px-3 py-2 text-sm text-[#B00000]">{sendErr}</div>}
           {direction === 'in' || summary.green ? (
             <div className="flex flex-wrap items-center gap-2">
-              <button disabled={!formReady || (direction === 'out' && lintErrors.length > 0)} onClick={() => save(false)}
-                className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
-                Save interaction
-              </button>
-              {canSendViaGmail && (
-                <button disabled={sending || !formReady || lintErrors.length > 0} onClick={sendViaGmail}
-                  className="rounded-lg border border-[#0E7490] px-4 py-2 text-sm font-medium text-[#0E7490] disabled:opacity-40">
-                  {sending ? 'Sending…' : `Send from ${gmail?.email} & log`}
+              <Tooltip text="Logs this interaction and applies its follow-on effects (contact lock, next-step task).">
+                <button disabled={!formReady || (direction === 'out' && lintErrors.length > 0)} onClick={() => save(false)}
+                  className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
+                  Save interaction
                 </button>
+              </Tooltip>
+              {canSendViaGmail && (
+                <Tooltip text="Sends the email through your connected Gmail account, then logs it automatically.">
+                  <button disabled={sending || !formReady || lintErrors.length > 0} onClick={sendViaGmail}
+                    className="rounded-lg border border-[#0E7490] px-4 py-2 text-sm font-medium text-[#0E7490] disabled:opacity-40">
+                    {sending ? 'Sending…' : `Send from ${gmail?.email} & log`}
+                  </button>
+                </Tooltip>
               )}
             </div>
           ) : blockedHard ? (
@@ -360,10 +374,12 @@ function LogForm() {
               Blocked: {summary.blocked ? 'a non-overridable pre-flight check failed.' : 'fix the linter errors above.'}
             </div>
           ) : needsOverride && !showOverride ? (
-            <button disabled={!formReady || lintErrors.length > 0} onClick={() => setShowOverride(true)}
-              className="rounded-lg border border-amber-500 px-4 py-2 text-sm font-medium text-amber-700 disabled:opacity-40">
-              Override & save… ({summary.failed.length} check{summary.failed.length > 1 ? 's' : ''} failed)
-            </button>
+            <Tooltip text="Proceed despite the failed checks — requires a written justification, logged to the audit trail.">
+              <button disabled={!formReady || lintErrors.length > 0} onClick={() => setShowOverride(true)}
+                className="rounded-lg border border-amber-500 px-4 py-2 text-sm font-medium text-amber-700 disabled:opacity-40">
+                Override & save… ({summary.failed.length} check{summary.failed.length > 1 ? 's' : ''} failed)
+              </button>
+            </Tooltip>
           ) : (
             <div className="space-y-2">
               <textarea value={justification} onChange={(e) => setJustification(e.target.value)} rows={2}
@@ -390,7 +406,9 @@ function LogForm() {
                   <li key={c.key} className="flex items-start gap-2 text-sm">
                     <span className={c.ok ? 'text-green-600' : 'text-[#B00000]'}>{c.ok ? '✓' : '✗'}</span>
                     <span className="flex-1">
-                      <span className={c.ok ? 'text-gray-600' : 'font-medium'}>{c.label}</span>
+                      <Tooltip text={PREFLIGHT_EXPLAIN[c.key] ?? c.label} side="right">
+                        <span className={c.ok ? 'text-gray-600' : 'font-medium'}>{c.label}</span>
+                      </Tooltip>
                       {!c.ok && c.reason && <span className="block text-xs text-gray-500">{c.reason}</span>}
                     </span>
                   </li>

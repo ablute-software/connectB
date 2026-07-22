@@ -61,6 +61,17 @@ export interface StoreApi {
   // IRM_SPEC §1c: multi-affiliation people
   addAffiliation: (a: Omit<PersonAffiliation, 'id' | 'current'>) => void;
   endAffiliation: (id: string) => void;
+  // §1c data-quality fix: some imported "entities" are really individual
+  // people (solo angels) mistyped as an organization — see DECISIONS.md
+  // "Entities that are people". Creates a real Person + an independent
+  // (entity_id-less) angel PersonAffiliation, migrates any interactions
+  // already logged against this entity to that person, and relabels the
+  // entity's type — the entity row itself is kept as the person's
+  // technical "home" (Person.entity_id/Interaction.entity_id stay non-null).
+  convertEntityToPerson: (entityId: string) => void;
+  // Dismisses the "looks like a person" sweep suggestion without converting
+  // — stamps last_verified so it stops being flagged.
+  markEntityVerified: (entityId: string) => void;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);
