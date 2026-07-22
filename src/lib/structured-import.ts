@@ -53,6 +53,17 @@ const num = (v: string): number | undefined => {
 };
 const bool = (v: string): boolean => ['yes', 'true', '1'].includes(v.trim().toLowerCase());
 
+// The `stage` enum only has pre_seed/seed/series_a/later — no series_b+.
+// Real files describe funds by their actual stage range, which sometimes
+// goes further than the app's own bucket granularity; anything past
+// series_a folds into 'later' rather than failing the insert.
+const VALID_STAGES = new Set(['pre_seed', 'seed', 'series_a', 'later']);
+function normalizeStage(v: string): string | undefined {
+  const t = orUndef(v);
+  if (!t) return undefined;
+  return VALID_STAGES.has(t) ? t : 'later';
+}
+
 export interface EntityCsvRow {
   name: string; type: string; hq_city?: string; hq_country?: string;
   invests_in_geographies: string[]; website?: string; website_verified: boolean;
@@ -72,7 +83,7 @@ export function parseEntitiesCsv(text: string): EntityCsvRow[] {
     website: orUndef(r.website), website_verified: bool(r.website_verified),
     email_domain: orUndef(r.email_domain), email_domain_verified: bool(r.email_domain_verified),
     submission_channel: orUndef(r.official_submission_channel),
-    stage_min: orUndef(r.stage_min), stage_max: orUndef(r.stage_max),
+    stage_min: normalizeStage(r.stage_min), stage_max: normalizeStage(r.stage_max),
     check_min_eur: num(r.check_min_eur), check_max_eur: num(r.check_max_eur),
     sectors: pipe(r.sectors), hardware_stance: orUndef(r.hardware_stance),
     is_sector_agnostic: r.is_sector_agnostic.trim() ? bool(r.is_sector_agnostic) : undefined,
@@ -391,8 +402,18 @@ export function buildImportPlan(
     const { status, candidates } = candidatePool.length ? matchPerson(candidatePool, csvRow) : { status: 'new' as const, candidates: [] };
     const chosen = status === 'matched' ? candidates[0] : undefined;
     const existingRow = chosen ? existing.people.find((p) => p.id === chosen.id) : undefined;
+    // entity_name is a CSV-only lookup key, not a people column — never pass
+    // it (or the free-text `notes`, which maps to personal_notes) into a
+    // raw column-name merge. Email fields are handled separately below —
+    // "never promote a guess to verified" isn't a generic merge rule.
+    const incomingColumns: Record<string, unknown> = {
+      full_name: csvRow.full_name, role: csvRow.role, seniority_rank: csvRow.seniority_rank,
+      based_in: csvRow.based_in, linkedin_url: csvRow.linkedin_url, linkedin_verified: csvRow.linkedin_verified,
+      background: csvRow.background, personal_notes: csvRow.notes, hook: csvRow.hook,
+      hook_status: csvRow.hook_status, kill_words: csvRow.kill_words, do_not_contact: csvRow.do_not_contact,
+    };
     const { patch, conflicts } = existingRow
-      ? mergeFields(existingRow as Record<string, unknown>, csvRow as unknown as Record<string, unknown>)
+      ? mergeFields(existingRow as Record<string, unknown>, incomingColumns)
       : { patch: {}, conflicts: [] };
     if (existingRow) Object.assign(patch, personEmailPatch(existingRow, csvRow));
     else if (csvRow.email_verified) patch.email_verified = csvRow.email_verified;

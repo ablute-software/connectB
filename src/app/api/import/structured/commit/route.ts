@@ -135,6 +135,12 @@ export async function POST(req: Request) {
     const personId = personIdByKey.get(a.personKey);
     if (!personId) continue;
     const entityId = a.entityKey ? entityIdByKey.get(a.entityKey) : undefined;
+    // Re-running the same plan (idempotency) must not duplicate — this
+    // table has no unique constraint to lean on, so check explicitly.
+    let existingQuery = sb.from('person_affiliations').select('id').eq('org_id', orgId).eq('person_id', personId).eq('kind', a.kind);
+    existingQuery = entityId ? existingQuery.eq('entity_id', entityId) : existingQuery.is('entity_id', null);
+    const { data: already } = await existingQuery.maybeSingle();
+    if (already) continue;
     const { error } = await sb.from('person_affiliations').insert({
       org_id: orgId, person_id: personId, entity_id: entityId ?? null, title: a.title ?? null,
       kind: a.kind, current: true, seniority_rank: a.seniorityRank ?? null, is_primary: a.isPrimary, notes: a.notes,
@@ -143,13 +149,19 @@ export async function POST(req: Request) {
     affiliationsCreated++;
   }
 
-  if (conflictRows.length) {
-    const { error } = await sb.from('contributions').insert(conflictRows);
+  let conflictsQueued = 0;
+  for (const row of conflictRows) {
+    const { data: already } = await sb.from('contributions').select('id')
+      .eq('org_id', orgId).eq('subject_type', row.subject_type as string).eq('subject_id', row.subject_id as string)
+      .eq('field', row.field as string).eq('status', 'submitted').maybeSingle();
+    if (already) continue;
+    const { error } = await sb.from('contributions').insert(row);
     if (error) return NextResponse.json({ ok: false, error: `contributions (conflicts): ${error.message}` }, { status: 500 });
+    conflictsQueued++;
   }
 
   return NextResponse.json({
     ok: true, entitiesCreated, entitiesUpdated, peopleCreated, peopleUpdated, peopleSkipped,
-    interactionsCreated, interactionsSkipped, affiliationsCreated, conflictsQueued: conflictRows.length,
+    interactionsCreated, interactionsSkipped, affiliationsCreated, conflictsQueued,
   });
 }

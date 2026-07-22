@@ -448,5 +448,55 @@ Reversible; flag if any should change.
   once the founder approves the actual commit.
 - **Ran the dry-run against live ablute_ production data** (read-only —
   fetched existing entities/people/interactions via service role, computed
-  the plan, wrote nothing) to produce the staging preview. Did NOT commit —
-  waiting on explicit approval per instruction.
+  the plan, wrote nothing) to produce the staging preview. Approved by Nuno,
+  then committed for real (details below).
+
+### Committed to production — what actually happened
+
+Ran via a scratch script using the exact same plan-building/commit logic as
+the real routes (service role, scoped to the ablute_ org — no session
+available to drive the founder's own UI flow non-interactively). Two real
+bugs surfaced and were fixed *before* the final state was accepted, not
+worked around:
+
+1. **`btov Partners`/`HCapital Partners` have `stage_max="series_b"`** —
+   the `stage` enum only goes to `later` (no series_b+). The first commit
+   attempt crashed here after already creating 7 entities. Fixed by folding
+   anything past `series_a` into `later` (`normalizeStage` in
+   structured-import.ts) rather than failing the whole batch; safe to
+   re-run because already-created rows just re-match as MATCHED/no-op.
+2. **People merge crashed on `entity_name` (a CSV lookup key, not a people
+   column) and silently would have mismapped `notes` → should be
+   `personal_notes`.** `mergeFields` was being handed the raw CSV row
+   instead of a column-mapped object. Fixed by building an explicit
+   `incomingColumns` object before merging (see `buildImportPlan`, people
+   branch) — this bug would have hit any real user of this importer, not
+   just this pack.
+3. **Idempotency was broken for affiliations and conflict-contributions**:
+   a second full run (deliberately triggered to verify "import twice =
+   zero changes") duplicated all 3 `person_affiliations` rows and all 112
+   conflict `contributions` rows, because neither insert had an
+   existence check the way entities/people/interactions already did.
+   Caught it BY running the idempotency check, not by skipping it — cleaned
+   up the 3+112 duplicate rows, then fixed both commit routes (real route
+   and the scratch script) to check-before-insert, and re-verified a third
+   run was a true no-op (all-zero) before calling it done.
+- **Final production state** (ablute_ org): 28 entities (15 existing + 13
+  new), 36 people (20 existing + 16 new), 9 interactions (1 pre-existing +
+  8 imported), 3 affiliations, 112 field-level conflicts queued in Fila →
+  Contributions for manual review. All 4 acceptance tests verified directly
+  against the committed rows: Bynd `status=passed`/`hard_filter_status=
+  resolved_blocked` with 7 interactions; Lurdes Gramaxo 2 affiliations
+  (Investors Portugal primary with the exact approach-only note, plus
+  APBA); Antonio Murta's Pathena Family Office angel affiliation present
+  and the Pathena fund itself still `resolved_blocked`; re-running the
+  import a second time (post-fix) changed nothing.
+- **112 conflicts is a lot** — many are cosmetic (e.g. `"AT"` vs
+  `"Austria"`, curly vs straight quotes, near-identical rephrasing of the
+  same fact) rather than substantive disagreements, because the merge rule
+  compares strings byte-for-byte with no fuzzy/semantic equality. That's
+  the deliberately conservative choice (never guess two differently-worded
+  facts are "the same"), but it does mean the Contributions queue now has
+  real bulk-review work — flagged here rather than silently adding a fuzzy-
+  match layer that risks the opposite mistake (silently treating two
+  actually-different facts as equal).
