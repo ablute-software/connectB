@@ -117,12 +117,14 @@ export interface RelatedContact {
   person: Person;
   entity?: Entity;
   lastInteraction?: Interaction;
+  viaAffiliation?: boolean; // true = confirmed via person_affiliations (§1c), not just fuzzy text match
 }
 
 // §4d "consistency across contacts": surfaces people at other entities who
-// share a fund/company reference with this entity or person (e.g. Polagnoli
-// @ Calm/Storm also built Speedinvest's health team) — matched fuzzily
-// against the free-text linked_funds/linked_companies fields already on Person.
+// are connected to this one — either via a confirmed person_affiliations row
+// (§1c — the precise signal) or, absent that, a fuzzy match on the free-text
+// linked_funds/linked_companies fields (e.g. Polagnoli @ Calm/Storm also
+// built Speedinvest's health team, before anyone had recorded it structurally).
 export function relatedContacts(db: Db, entityId: string, personId?: string): RelatedContact[] {
   const entity = db.entities.find((e) => e.id === entityId);
   if (!entity) return [];
@@ -131,15 +133,20 @@ export function relatedContacts(db: Db, entityId: string, personId?: string): Re
     [entity.name, ...(person?.linked_funds ?? []), ...(person?.linked_companies ?? [])].map((s) => s.toLowerCase())
   );
 
+  const affiliatedPersonIds = new Set(
+    db.personAffiliations.filter((a) => a.entity_id === entityId).map((a) => a.person_id)
+  );
+
   const results: RelatedContact[] = [];
   for (const p of db.people) {
     if (p.entity_id === entityId) continue; // same entity — already visible on this page
+    const viaAffiliation = affiliatedPersonIds.has(p.id);
     const fields = [...p.linked_funds, ...p.linked_companies].map((s) => s.toLowerCase());
-    const overlaps = fields.some((f) => [...names].some((n) => f.includes(n) || n.includes(f)));
-    if (!overlaps) continue;
+    const viaFuzzyMatch = fields.some((f) => [...names].some((n) => f.includes(n) || n.includes(f)));
+    if (!viaAffiliation && !viaFuzzyMatch) continue;
     const lastInteraction = db.interactions.filter((i) => i.person_id === p.id)
       .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
-    results.push({ person: p, entity: db.entities.find((e) => e.id === p.entity_id), lastInteraction });
+    results.push({ person: p, entity: db.entities.find((e) => e.id === p.entity_id), lastInteraction, viaAffiliation });
   }
   return results;
 }

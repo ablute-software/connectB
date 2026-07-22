@@ -9,6 +9,7 @@ import { ThreadDrawer } from '@/components/ThreadDrawer';
 import { ContributionBox } from '@/components/ContributionBox';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
 import { entityCompleteness } from '@/lib/completeness';
+import { relatedContacts } from '@/lib/relationship';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -21,6 +22,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const completeness = entityCompleteness(entity);
 
   const people = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
+  const alsoConnected = relatedContacts(db, entity.id).filter((r) => r.viaAffiliation);
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > new Date();
   const grants = db.grants.filter((g) => people.some((p) => p.id === g.person_id));
   const views = db.views.filter((v) => grants.some((g) => g.id === v.grant_id)
@@ -117,6 +119,22 @@ export default function EntityPage({ params }: { params: { id: string } }) {
             </ul>
             <p className="mt-2 text-xs text-gray-400">Rank 2 unlocks only after rank 1 replies or goes dormant.</p>
           </Card>
+
+          {alsoConnected.length > 0 && (
+            <Card title="Also connected (other affiliations)" tint="amber">
+              <ul className="space-y-1.5 text-sm">
+                {alsoConnected.map((r) => (
+                  <li key={r.person.id}>
+                    <PersonLink id={r.person.id}>{r.person.full_name}</PersonLink>
+                    {r.entity && <span className="text-gray-500"> — primarily at {r.entity.name}</span>}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-[11px] text-gray-400">
+                Not part of this entity's contact order — a separate, informational affiliation (§1c).
+              </p>
+            </Card>
+          )}
         </div>
 
         <div className="space-y-4">

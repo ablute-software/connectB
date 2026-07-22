@@ -111,3 +111,63 @@ Reversible; flag if any should change.
   profile + explicit requests). §6b-3/§6b-4 (AI-assisted research +
   provenance logging) are explicitly out of scope this pass and have
   nothing to attach to without the AI step existing.
+
+## §8 AI outreach composer
+
+- **"Editing tracked, AI draft vs founder final" simplified to one boolean.**
+  IRM_SPEC §8c wants to learn what founders change after an AI draft — that
+  implies diffing the original AI text against what was actually saved,
+  which needs somewhere to store the original draft. No such table exists
+  and adding one wasn't asked for. `interactions.ai_generated` (migration
+  0007) just tags "AI helped compose this," true regardless of subsequent
+  manual edits. Real edit-diff analytics is a follow-up if it's wanted.
+- **Intent is founder-selected, not fully automatic.** `pickIntent()` picks a
+  sensible default (first_touch / follow_up / reply / meeting_ask) from the
+  relationship stage and whose-turn, but the founder can override via a
+  dropdown — "which message is this" is a judgment call, not something to
+  silently decide for them.
+- **Subject line folded into the content field for email**, not a new
+  `subject` column — the existing /log form has never had a separate
+  subject field (even for manually-logged emails), so adding one just for
+  AI drafts would be inconsistent. The draft's subject is prefixed into the
+  same textarea as `Subject: X\n\n{body}`.
+
+## Phase 4 Data Room (Storage)
+
+- **Investor portal access ships in two independent pieces.** The API
+  routes + middleware fix (real per-org grants, signed URLs for future
+  Storage-backed docs, external links work today) needed no schema change
+  and are already pushed. Only the actual file-upload UI in `/documents`
+  needs migration 0008 (the Storage bucket + RLS) — held separately so the
+  portal fix didn't wait on infrastructure it doesn't actually need.
+- **One investor identity = one org's grants per login.** If the same email
+  has active grants from two different startups, the API returns the first
+  match only. A single login surfacing multiple unrelated startups' data
+  needs a real investor identity model — that's IRM_SPEC §5 (self-claim),
+  not this pass.
+- **Portal sign-in stays email-typed, not a real Supabase Auth session.**
+  Making the *data* real (service-role API resolving actual access_grants)
+  was in scope; replacing the sign-in mechanism itself with magic-link
+  session auth is the cross-cutting "verify investor magic-link end-to-end"
+  item / §5, tracked separately.
+
+## §1c multi-affiliation people
+
+- **Additive layer, not a remodel.** `people.entity_id` stays the person's
+  primary/home entity and keeps driving contact-order and seniority
+  enforcement in `rules.ts` — per instruction, `rules.ts` stays untouched.
+  `person_affiliations` (migration 0009) is a parallel, informational table
+  for the *other* funds/angel activity a person has (IRM_SPEC's own
+  examples: partner at several VCs, independent angel investing). Extending
+  contact-order to be per-affiliation-at-an-entity rather than per-primary-
+  entity would require changing `preflight()`'s seniority check — deferred,
+  flagged here rather than done silently.
+- **Consistency-check heuristic upgraded, not replaced.** `relatedContacts()`
+  (§4d) already fuzzy-matched free-text `linked_funds`/`linked_companies`;
+  it now also checks real `person_affiliations` rows first (precise) and
+  falls back to the fuzzy match (for the cases nobody has recorded
+  structurally yet, like the spec's own Polagnoli↔Speedinvest example).
+- **Entity page shows secondary affiliations as a separate, clearly-labeled
+  section** ("Also connected — other affiliations"), not merged into the
+  main contact-order People list, so it's never ambiguous which people are
+  actually subject to seniority/lock enforcement at this entity.

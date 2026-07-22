@@ -434,6 +434,23 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
         return { ...prev, relationshipState };
       });
     },
+
+    addAffiliation(a) {
+      setDb((prev) => ({
+        ...prev,
+        personAffiliations: [...prev.personAffiliations, { ...a, id: uid('aff'), current: true }],
+      }));
+    },
+
+    endAffiliation(id) {
+      setDb((prev) => {
+        const ended_at = new Date().toISOString().slice(0, 10);
+        return {
+          ...prev,
+          personAffiliations: prev.personAffiliations.map((pa) => pa.id === id ? { ...pa, current: false, ended_at } : pa),
+        };
+      });
+    },
   }), [db]);
 
   return <StoreCtx.Provider value={api}>{children}</StoreCtx.Provider>;

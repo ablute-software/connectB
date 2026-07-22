@@ -11,8 +11,8 @@ import { StoreCtx, type StoreApi, type LogInput } from './store-context';
 import type {
   AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, Db, DocumentItem,
   DocumentView, Entity, EntityStatus, Folder, Interaction, InvestorSubmission, MessageTemplate,
-  Org, Pack, PackUnlock, PassReasonCategory, Person, RelationshipStage, RelationshipState,
-  RuleOverride, TaskItem, AiReview,
+  Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, RelationshipStage,
+  RelationshipState, RuleOverride, TaskItem, AiReview,
 } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { STAGE_LABEL, getStage } from './relationship';
@@ -21,7 +21,7 @@ type SB = ReturnType<typeof browserClient>;
 
 const EMPTY_ORG: Org = { id: '', name: '', plan: 'free', daily_cap: 5, weekly_cap: 20 };
 const EMPTY_DB: Db = {
-  org: EMPTY_ORG, entities: [], people: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
+  org: EMPTY_ORG, entities: [], people: [], personAffiliations: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [],
 };
@@ -48,7 +48,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     orgRes, entitiesRes, peopleRes, interactionsRes, tasksRes, overridesRes,
     foldersRes, documentsRes, grantsRes, viewsRes, templatesRes, automationsRes,
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
-    deliveriesRes, submissionsRes, relationshipStateRes,
+    deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -71,6 +71,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     sb.from('catalog_deliveries').select('*').eq('org_id', orgId),
     sb.from('investor_submissions').select('*').eq('org_id', orgId),
     sb.from('relationship_state').select('*').eq('org_id', orgId),
+    sb.from('person_affiliations').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -109,6 +110,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     org,
     entities: ((entitiesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<Entity>(r)),
     people: ((peopleRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<Person>(r)),
+    personAffiliations: ((personAffiliationsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<PersonAffiliation>(r)),
     interactions: ((interactionsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<Interaction>(r)),
     tasks: ((tasksRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<TaskItem>(r)),
     relationshipState: ((relationshipStateRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RelationshipState>(r)),
@@ -723,6 +725,24 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
           { org_id: o, entity_id: entityId, stage, next_step_task_id: taskId ?? null, updated_at: now }, { onConflict: 'org_id,entity_id' },
         ), 'setNextStepTask');
       }
+    },
+
+    addAffiliation(a: Omit<PersonAffiliation, 'id' | 'current'>) {
+      const prev = dbRef.current;
+      const row: PersonAffiliation = { ...a, id: uuid(), current: true };
+      commit({ ...prev, personAffiliations: [...prev.personAffiliations, row] });
+      const o = orgIdRef.current;
+      if (o) persist(sb.from('person_affiliations').insert({ ...row, org_id: o }), 'addAffiliation');
+    },
+
+    endAffiliation(id: string) {
+      const prev = dbRef.current;
+      const ended_at = new Date().toISOString().slice(0, 10);
+      commit({
+        ...prev,
+        personAffiliations: prev.personAffiliations.map((pa) => pa.id === id ? { ...pa, current: false, ended_at } : pa),
+      });
+      if (orgIdRef.current) persist(sb.from('person_affiliations').update({ current: false, ended_at }).eq('id', id), 'endAffiliation');
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [version]);

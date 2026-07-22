@@ -6,6 +6,7 @@ import { Card, EntityLink, PersonEmailBlock, PreflightCard, VerBadge } from '@/c
 import { preflight } from '@/lib/rules';
 import { ContributionBox } from '@/components/ContributionBox';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
+import { AffiliationsCard } from '@/components/AffiliationsCard';
 import { personCompleteness } from '@/lib/completeness';
 
 export default function PersonPage({ params }: { params: { id: string } }) {
@@ -112,6 +113,7 @@ export default function PersonPage({ params }: { params: { id: string } }) {
               <p className="mt-2 text-[11px] text-gray-400">Only verified emails are copyable. Compose opens mailto: with BCC {db.org.bcc_email}.</p>
             </Card>
           )}
+          {!person.do_not_contact && <AffiliationsCard person={person} />}
           {(person.background || person.linked_funds.length > 0 || person.linked_companies.length > 0) && (
             <Card title="Background">
               {person.background && <p className="text-sm text-gray-600">{person.background}</p>}

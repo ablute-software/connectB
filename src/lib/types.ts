@@ -124,6 +124,23 @@ export interface Person {
   do_not_contact: boolean;
 }
 
+// IRM_SPEC §1c — additive multi-affiliation layer. entity_id stays the
+// person's primary/home entity above; this is everything else.
+export type AffiliationKind =
+  | 'partner' | 'principal' | 'associate' | 'operator'
+  | 'angel' | 'advisor' | 'board_member' | 'other';
+
+export interface PersonAffiliation {
+  id: string;
+  person_id: string;
+  entity_id?: string; // undefined + kind 'angel' = independent angel activity
+  title?: string;
+  kind: AffiliationKind;
+  current: boolean;
+  started_at?: string;
+  ended_at?: string;
+}
+
 export interface Interaction {
   id: string;
   entity_id: string;
@@ -325,6 +342,7 @@ export interface Db {
   org: Org;
   entities: Entity[];
   people: Person[];
+  personAffiliations: PersonAffiliation[];
   interactions: Interaction[];
   tasks: TaskItem[];
   relationshipState: RelationshipState[];

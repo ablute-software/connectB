@@ -386,6 +386,7 @@ export const seed: Db = {
 
   overrides: [],
   relationshipState: [],
+  personAffiliations: [],
 
   folders: [
     { id: 'f-materials', name: 'Materials', kind: 'materials', position: 0 },
