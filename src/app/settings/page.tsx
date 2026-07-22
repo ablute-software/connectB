@@ -1,6 +1,7 @@
 'use client';
 // Settings — org, plan (demo toggle), caps, AI Review (paid), demo reset
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
@@ -177,6 +178,55 @@ function TeamCard({ orgId }: { orgId: string }) {
   );
 }
 
+const GMAIL_MESSAGE: Record<string, string> = {
+  connected: 'Gmail connected.',
+  not_configured: "Gmail sign-in isn't set up yet — ask the platform team to configure GOOGLE_CLIENT_ID/SECRET.",
+  denied: 'Gmail connection was cancelled.',
+  error: 'Something went wrong connecting Gmail — try again.',
+};
+
+function GmailConnectionCard() {
+  const sp = useSearchParams();
+  const flash = sp.get('gmail');
+  const [status, setStatus] = useState<{ configured: boolean; connected: boolean; email?: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function refresh() {
+    fetch('/api/oauth/google/status').then((r) => r.json()).then(setStatus);
+  }
+  useEffect(refresh, []);
+
+  async function disconnect() {
+    setBusy(true);
+    await fetch('/api/oauth/google/disconnect', { method: 'POST' });
+    setBusy(false);
+    refresh();
+  }
+
+  return (
+    <Card title="Email — send from your own mailbox (IRM_SPEC §8d)">
+      <p className="mb-2 text-xs text-gray-500">
+        Connect Gmail so composer emails send from your own address (reply-to intact) instead of just being logged
+        after you send them by hand. LinkedIn has no send API by design (ToS) — the composer offers copy-assist there instead.
+      </p>
+      {flash && <p className="mb-2 text-xs text-cyan-800">{GMAIL_MESSAGE[flash] ?? ''}</p>}
+      {!status ? <p className="text-sm text-gray-400">Loading…</p> : !status.configured ? (
+        <p className="text-xs text-gray-400">Gmail sign-in isn't set up yet — check back soon.</p>
+      ) : status.connected ? (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">Connected</span>
+          <span>{status.email}</span>
+          <button disabled={busy} onClick={disconnect} className="ml-auto text-xs text-gray-400 hover:text-[#B00000] hover:underline disabled:opacity-40">Disconnect</button>
+        </div>
+      ) : (
+        <a href="/api/oauth/google/start" className="inline-block rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#0c637b]">
+          Connect Gmail
+        </a>
+      )}
+    </Card>
+  );
+}
+
 function PaidFeatureLock({ label }: { label: string }) {
   return (
     <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-6 text-center">
@@ -281,6 +331,7 @@ export default function SettingsPage() {
       </Card>
 
       {authEnabled && <TeamCard orgId={db.org.id} />}
+      {authEnabled && <Suspense fallback={null}><GmailConnectionCard /></Suspense>}
 
       <Card title="AI Review — second opinion on a draft (paid feature)">
         <p className="mb-2 text-xs text-gray-500">

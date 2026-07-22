@@ -40,6 +40,14 @@ function LogForm() {
   const [composerNote, setComposerNote] = useState('');
   const [composerMeta, setComposerMeta] = useState<{ rationale: string; confidence: number } | null>(null);
   const [aiGenerated, setAiGenerated] = useState(false);
+  const [subject, setSubject] = useState('');
+  const [gmail, setGmail] = useState<{ configured: boolean; connected: boolean; email?: string | null } | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendErr, setSendErr] = useState('');
+
+  useEffect(() => {
+    fetch('/api/oauth/google/status').then((r) => r.json()).then(setGmail).catch(() => setGmail({ configured: false, connected: false }));
+  }, []);
 
   const entity = db.entities.find((e) => e.id === entityId);
   const people = db.people.filter((p) => p.entity_id === entityId).sort((a, b) => a.seniority_rank - b.seniority_rank);
@@ -75,8 +83,8 @@ function LogForm() {
       const data = await res.json();
       if (data.configured === false) { setComposerNote(data.message); return; }
       if (data.error) { setComposerNote(`AI draft failed: ${data.error}`); return; }
-      const subjectLine = channel === 'email' && data.draft.subject ? `Subject: ${data.draft.subject}\n\n` : '';
-      setContent(subjectLine + data.draft.body);
+      setContent(data.draft.body);
+      if (channel === 'email') setSubject(data.draft.subject ?? '');
       setComposerMeta({ rationale: data.draft.rationale, confidence: data.draft.confidence });
       setAiGenerated(true);
     } catch (e) {
@@ -86,14 +94,15 @@ function LogForm() {
     }
   }
 
-  function save(withOverrides: boolean) {
+  function save(withOverrides: boolean, sentFrom?: string) {
     if (!formReady) return;
     const overrides = withOverrides
       ? summary.failed.filter((f) => f.overridable).map((f) => ({ rule: f.key as OverrideRule, justification }))
       : [];
+    const fullContent = channel === 'email' && subject ? `Subject: ${subject}\n\n${content}` : content;
     logInteraction({
-      entity_id: entityId, person_id: personId || undefined, direction, channel, content,
-      sent_from: direction === 'out' && channel === 'email' ? db.org.sender_email : undefined,
+      entity_id: entityId, person_id: personId || undefined, direction, channel, content: fullContent,
+      sent_from: direction === 'out' && channel === 'email' ? (sentFrom ?? db.org.sender_email) : undefined,
       document_id: docId || undefined,
       classification: direction === 'in' ? classification : direction === 'out' ? 'awaiting' : undefined,
       pass_reason_category: classification === 'pass' ? passCat : undefined,
@@ -103,13 +112,32 @@ function LogForm() {
       ai_generated: aiGenerated || undefined,
     });
     if (direction === 'out') {
-      setToast(`Saved. Contact lock set for 14 days · follow-up task created.${overrides.length ? ' Override logged.' : ''}`);
+      setToast(`${sentFrom ? `Sent from ${sentFrom} and logged` : 'Saved'}. Contact lock set for 14 days · follow-up task created.${overrides.length ? ' Override logged.' : ''}`);
     } else {
       setToast('Reply saved.');
     }
     setTimeout(() => router.push(entityId ? `/entities/${entityId}` : '/'), 900);
   }
 
+  async function sendViaGmail() {
+    if (!person?.email_verified || !formReady || lintErrors.length > 0) return;
+    setSending(true); setSendErr('');
+    try {
+      const res = await fetch('/api/compose/send', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ to: person.email_verified, subject, body: content }),
+      });
+      const data = await res.json();
+      if (data.ok === false) { setSendErr(data.error); return; }
+      save(false, data.sentFrom);
+    } catch (e) {
+      setSendErr((e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const canSendViaGmail = direction === 'out' && channel === 'email' && gmail?.connected && !!person?.email_verified;
   const blockedHard = direction === 'out' && (summary.blocked || lintErrors.length > 0);
   const needsOverride = direction === 'out' && !summary.green && !summary.blocked;
 
@@ -176,9 +204,24 @@ function LogForm() {
             </div>
           )}
 
+          {direction === 'out' && channel === 'email' && (
+            <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject"
+              className="mt-3 w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+          )}
           <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={7}
             placeholder={direction === 'out' ? 'Paste the message verbatim, or draft with AI above…' : 'Paste the reply verbatim…'}
             className="mt-3 w-full rounded border border-gray-300 p-2 text-sm font-mono" />
+          {direction === 'out' && (channel === 'linkedin_dm' || channel === 'linkedin_note') && content && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
+              <span className="text-gray-500">No LinkedIn auto-send (ToS) — copy, send it there yourself, then save below to log it.</span>
+              <button onClick={() => navigator.clipboard.writeText(content)}
+                className="ml-auto rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-100">📋 Copy message</button>
+              {person?.linkedin_url && (
+                <a href={person.linkedin_url} target="_blank" rel="noreferrer"
+                  className="rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-100">Open profile ↗</a>
+              )}
+            </div>
+          )}
           {direction === 'out' && lint.length > 0 && (
             <ul className="mt-2 space-y-1">
               {lint.map((f, i) => (
@@ -232,11 +275,20 @@ function LogForm() {
 
         <div>
           {toast && <div className="mb-2 rounded bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800">{toast}</div>}
+          {sendErr && <div className="mb-2 rounded bg-red-50 border border-red-200 px-3 py-2 text-sm text-[#B00000]">{sendErr}</div>}
           {direction === 'in' || summary.green ? (
-            <button disabled={!formReady || (direction === 'out' && lintErrors.length > 0)} onClick={() => save(false)}
-              className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
-              Save interaction
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button disabled={!formReady || (direction === 'out' && lintErrors.length > 0)} onClick={() => save(false)}
+                className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
+                Save interaction
+              </button>
+              {canSendViaGmail && (
+                <button disabled={sending || !formReady || lintErrors.length > 0} onClick={sendViaGmail}
+                  className="rounded-lg border border-[#0E7490] px-4 py-2 text-sm font-medium text-[#0E7490] disabled:opacity-40">
+                  {sending ? 'Sending…' : `Send from ${gmail?.email} & log`}
+                </button>
+              )}
+            </div>
           ) : blockedHard ? (
             <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-[#B00000]">
               Blocked: {summary.blocked ? 'a non-overridable pre-flight check failed.' : 'fix the linter errors above.'}

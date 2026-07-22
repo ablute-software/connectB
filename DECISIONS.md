@@ -295,3 +295,33 @@ Reversible; flag if any should change.
   page that calls `updateUser({ password })`. No new callback logic needed.
   Works as soon as Supabase's SMTP is configured (same dependency the
   existing magic-link investor sign-in already has) — nothing to flip later.
+
+## §8d Gmail OAuth pairing + LinkedIn copy-assist
+
+- **Tokens are encrypted at rest with AES-256-GCM before they ever reach
+  Postgres** (`src/lib/crypto.ts`, `TOKEN_ENCRYPTION_KEY`) — RLS on
+  `email_connections` scopes each row to `user_id = auth.uid()` too (not
+  just org membership), since these are one person's mailbox credentials,
+  not org-shared data. Both the encryption key AND Google OAuth credentials
+  must be present for the feature to switch on — see
+  `googleOAuthConfigured()`.
+- **`state` in the OAuth flow is just a CSRF nonce, not a lookup key** —
+  it's stored in a short-lived httpOnly cookie and compared at the callback.
+  Since this is a same-browser redirect round-trip, the Supabase session
+  cookie is what actually identifies which user gets the connection, not
+  the OAuth `state` param.
+- **New capability, not a redo of existing behaviour**: before this, the
+  `/log` "Save interaction" flow only ever recorded a message the founder
+  already sent by hand elsewhere. `/api/compose/send` is the first route in
+  the app that actually dispatches an outbound message — gated behind
+  having a Gmail connection, and still requires the founder to review/edit
+  the draft and click Send each time (same review gate as §8c), never
+  autonomous. Without a Gmail connection, the old paste-then-save flow is
+  unchanged and remains the fallback for every channel.
+- **LinkedIn stays copy-assist only, per spec** — no message API exists,
+  and automating it violates LinkedIn's ToS and risks the founder's
+  account. Added a "copy message" + "open profile" shortcut next to the
+  existing paste-and-save flow; no new mutation, just convenience.
+- **Scope requested is `gmail.send` + `userinfo.email` only** — never
+  `gmail.readonly` or broader — the product only ever needs to send as the
+  founder, never read their inbox.
