@@ -236,3 +236,30 @@ Reversible; flag if any should change.
   channel present → diligence/meeting stage; any inbound → in_conversation/
   engaged; else contacted) — matches the spirit of §9e without trying to
   replicate every nuance of manual classification.
+
+## §5 self-claim + GDPR/RGPD
+
+- **Split the two halves cleanly: GDPR requests work now, claiming does
+  not.** A data-subject rights request is legally valid however it arrives —
+  it doesn't need a verified LinkedIn identity — so `/privacy-request` is a
+  real, working, unauthenticated form today. The "claim your profile" flow
+  genuinely needs OAuth (the whole point is verifying *this* LinkedIn
+  account is *that* person before trusting a match_score), so it stays
+  behind `NEXT_PUBLIC_LINKEDIN_OAUTH_ENABLED` (currently unset) showing an
+  explanatory message and a link to the GDPR form as the interim path.
+- **`person_id` is nullable on both new tables.** People aren't a shared
+  cross-org identity (unlike `catalog_entities`) — a claimant's email might
+  match zero, one, or several org-private `people` rows. The GDPR intake
+  route does a best-effort email match at submission time for a starting
+  point; the back-office queue re-resolves matches at read time (across
+  every org) so an erase action isn't scoped to a stale snapshot.
+- **Erasure cascade nulls PII on every matching `people` row by email,
+  across every org** — the closest thing to "every org affected" available
+  without a shared person identity. Sets `do_not_contact = true` on those
+  rows too, since an erased person obviously shouldn't be re-contacted.
+  Rectification has no generic auto-apply (the correction is free-text and
+  field-specific); a developer edits the record via the normal person
+  screen, then marks the request resolved.
+- **The GDPR queue highlights the 30-day legal deadline** (amber ≤14 days,
+  red ≤7 days or overdue) computed from `created_at` — no separate
+  `deadline` column, since it's always `created_at + 30d` by law.

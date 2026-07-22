@@ -133,9 +133,30 @@ export default function PortalPage() {
               </div>
             ))}
             <p className="text-center text-[10px] text-gray-400">Every access is logged. ablute_ · Seed Round 2026</p>
+            <ClaimProfileSection />
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+// IRM_SPEC §5 — investor self-claim. Inert until LinkedIn OAuth is actually
+// configured (a claim needs a verified identity to score a match against);
+// GDPR/RGPD requests don't wait on this — see /privacy-request.
+function ClaimProfileSection() {
+  const enabled = process.env.NEXT_PUBLIC_LINKEDIN_OAUTH_ENABLED === 'true';
+  return (
+    <div className="mt-2 rounded-lg border border-dashed border-gray-200 bg-white p-4 text-center">
+      <h2 className="text-sm font-semibold text-gray-700">Is this you?</h2>
+      {enabled ? (
+        <button className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">Sign in with LinkedIn to claim your profile</button>
+      ) : (
+        <p className="mt-1 text-xs text-gray-400">
+          LinkedIn sign-in isn't set up yet — check back soon. In the meantime, you can{' '}
+          <a href="/privacy-request" className="text-[#0E7490] hover:underline">request a correction or removal</a> of your info directly.
+        </p>
+      )}
     </div>
   );
 }

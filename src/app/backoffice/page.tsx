@@ -206,6 +206,106 @@ function ContributionsCard() {
   );
 }
 
+type GdprRequest = {
+  id: string; person_id: string | null; claimant_name: string | null; claimant_email: string;
+  kind: 'rectify' | 'erase'; details: string | null; status: 'pending' | 'resolved' | 'rejected';
+  created_at: string; resolved_at: string | null;
+  matches: { personId: string; name: string; orgName: string }[];
+};
+
+const GDPR_DEADLINE_DAYS = 30;
+
+function GdprQueueCard() {
+  const [items, setItems] = useState<GdprRequest[] | null>(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+
+  function refresh() {
+    fetch('/api/backoffice/gdpr').then((r) => r.json()).then((body) => {
+      if (body.ok === false) { setErr(body.error); return; }
+      setItems(body.requests);
+    });
+  }
+  useEffect(refresh, []);
+
+  async function resolve(id: string, decision: 'resolved' | 'rejected') {
+    setBusy(id);
+    await fetch(`/api/backoffice/gdpr/${id}/resolve`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }),
+    });
+    setBusy(null);
+    refresh();
+  }
+
+  if (err) return <Card title="GDPR / RGPD requests"><p className="text-sm text-[#B00000]">{err}</p></Card>;
+  if (!items) return <Card title="GDPR / RGPD requests"><p className="text-sm text-gray-400">Loading…</p></Card>;
+
+  const pending = items.filter((r) => r.status === 'pending')
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const past = items.filter((r) => r.status !== 'pending');
+  const overdueCount = pending.filter((r) => daysLeft(r.created_at) <= 7).length;
+
+  return (
+    <Card title={`GDPR / RGPD requests (${pending.length})`} tint={overdueCount > 0 ? 'red' : undefined}>
+      <p className="mb-3 text-xs text-gray-500">
+        Rectification/erasure requests submitted at /privacy-request — no LinkedIn claim needed. Legal deadline is{' '}
+        {GDPR_DEADLINE_DAYS} days from submission. "Erase" nulls the matched people rows' PII across every org that has one.
+      </p>
+      {pending.length === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
+        <ul className="space-y-2">
+          {pending.map((r) => {
+            const left = daysLeft(r.created_at);
+            const deadlineClass = left <= 7 ? 'text-[#B00000] font-semibold' : left <= 14 ? 'text-amber-600 font-semibold' : 'text-gray-400';
+            return (
+              <li key={r.id} className="rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${r.kind === 'erase' ? 'bg-red-100 text-red-800' : 'bg-cyan-100 text-cyan-800'}`}>{r.kind}</span>
+                  <span className="font-medium">{r.claimant_name || r.claimant_email}</span>
+                  <span className="text-xs text-gray-400">{r.claimant_email}</span>
+                  <span className={`ml-auto text-xs ${deadlineClass}`}>
+                    {left < 0 ? `${-left}d overdue` : `${left}d left`}
+                  </span>
+                </div>
+                {r.details && <p className="mt-1 text-xs text-gray-600">{r.details}</p>}
+                <div className="mt-1 text-xs text-gray-400">
+                  {r.matches.length === 0 ? 'No matching record found by email — link manually if needed.' :
+                    `Matches: ${r.matches.map((m) => `${m.name} (${m.orgName})`).join(', ')}`}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <button disabled={busy === r.id} onClick={() => resolve(r.id, 'resolved')}
+                    className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800 disabled:opacity-40">
+                    {r.kind === 'erase' ? 'Erase & resolve' : 'Mark resolved'}
+                  </button>
+                  <button disabled={busy === r.id} onClick={() => resolve(r.id, 'rejected')}
+                    className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50 disabled:opacity-40">Reject</button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {past.length > 0 && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs text-gray-400">History ({past.length})</summary>
+          <ul className="mt-2 space-y-1 text-xs">
+            {past.map((r) => (
+              <li key={r.id} className="flex items-center gap-2">
+                <span className={`rounded-full px-1.5 py-0.5 font-semibold ${r.status === 'resolved' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{r.status}</span>
+                <span>{r.kind} — {r.claimant_email}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </Card>
+  );
+}
+
+function daysLeft(createdAt: string): number {
+  const deadline = new Date(createdAt).getTime() + GDPR_DEADLINE_DAYS * 24 * 60 * 60 * 1000;
+  return Math.ceil((deadline - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
 export default function BackofficePage() {
   const { db, reviewSubmission } = useStore();
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -223,6 +323,8 @@ export default function BackofficePage() {
         catalog — only <b>verified</b> entries can be distributed in packs. The distribution log below guarantees the
         same investor is never delivered twice to the same founder.
       </p>
+
+      <GdprQueueCard />
 
       <ContributionsCard />
 
