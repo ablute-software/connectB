@@ -1,8 +1,95 @@
 'use client';
 // Settings — org, plan (demo toggle), caps, AI Review (paid), demo reset
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
+import { authEnabled, browserClient } from '@/lib/supabase';
+
+type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
+
+function TeamCard({ orgId }: { orgId: string }) {
+  const [orgRole, setOrgRole] = useState<string | null>(null);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState('member');
+  const [link, setLink] = useState('');
+  const [err, setErr] = useState('');
+
+  function refresh() {
+    browserClient().from('org_invitations').select('*').eq('org_id', orgId)
+      .order('created_at', { ascending: false }).then(({ data }) => setInvitations((data as Invitation[]) ?? []));
+  }
+
+  useEffect(() => {
+    fetch('/api/me').then((r) => r.json()).then((me) => setOrgRole(me.orgRole ?? null));
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId]);
+
+  async function sendInvite() {
+    setErr(''); setLink('');
+    const { data, error } = await browserClient().from('org_invitations')
+      .insert({ org_id: orgId, email, role }).select('token').single();
+    if (error) { setErr(error.message); return; }
+    setLink(`${window.location.origin}/invite/${data.token}`);
+    setEmail('');
+    refresh();
+  }
+
+  async function revoke(id: string) {
+    await browserClient().from('org_invitations').update({ status: 'revoked' }).eq('id', id);
+    refresh();
+  }
+
+  const canInvite = orgRole === 'owner' || orgRole === 'admin';
+
+  return (
+    <Card title="Team">
+      {canInvite ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="teammate@company.com"
+            className="min-w-[220px] flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+          <select value={role} onChange={(e) => setRole(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+            <option value="member">member</option>
+            <option value="manager">manager</option>
+            <option value="admin">admin</option>
+          </select>
+          <button disabled={!email} onClick={sendInvite}
+            className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+            Create invite
+          </button>
+        </div>
+      ) : (
+        <p className="mb-3 text-xs text-gray-400">Only owners/admins can invite teammates.</p>
+      )}
+      {err && <p className="mb-2 text-xs text-[#B00000]">{err}</p>}
+      {link && (
+        <div className="mb-4 rounded-lg border border-cyan-200 bg-[#E8F4F8] px-3 py-2 text-xs text-cyan-900">
+          Invite link — copy and send by hand (email sending lands in Phase 5):
+          <div className="mt-1 break-all font-mono">{link}</div>
+        </div>
+      )}
+      {invitations.length === 0 ? <p className="text-sm text-gray-400">No invitations yet.</p> : (
+        <ul className="space-y-1.5 text-sm">
+          {invitations.map((i) => (
+            <li key={i.id} className="flex items-center gap-2">
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                i.status === 'pending' ? 'bg-amber-50 text-amber-700'
+                  : i.status === 'accepted' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                {i.status}
+              </span>
+              <span className="font-medium">{i.email}</span>
+              <span className="text-xs text-gray-400">{i.role}</span>
+              {canInvite && i.status === 'pending' && (
+                <button onClick={() => revoke(i.id)} className="ml-auto text-xs text-gray-400 hover:text-[#B00000] hover:underline">Revoke</button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
 
 export default function SettingsPage() {
   const { db, resetDemo } = useStore();
@@ -52,6 +139,8 @@ export default function SettingsPage() {
           Caps are strategic, not technical — a €1.3M seed closes on 15–40 conversations.
         </p>
       </Card>
+
+      {authEnabled && <TeamCard orgId={db.org.id} />}
 
       <Card title="AI Review — second opinion on a draft (paid feature)">
         <p className="mb-2 text-xs text-gray-500">

@@ -46,3 +46,22 @@ Reversible; flag if any should change.
   IRM_SPEC allowed either. One row per (org, user) already exists; adding
   columns there avoids a join for something that's 1:1 per membership today.
   If a user ever needs one profile shared across multiple orgs, revisit.
+
+## Phase 3 team invitations
+
+- **Only "who can invite" is enforced, not the full permission matrix.**
+  NEXT_STEPS asks for permission checks on "who can invite, edit, approve
+  outbox, manage data room, unlock packs" — that's granular ACL work across
+  ~10 existing pages/actions, a materially bigger scope than "add team
+  invitations." This pass gates invite-creation to owner/admin (enforced in
+  RLS itself, not just the UI) and stops there. Every other action stays
+  open to any org member, same as before. Retrofitting the rest is a
+  follow-up once the invite flow itself is proven, not bundled in blind.
+- **Email sending is a literal stub, per instruction.** `sendInvite()`
+  creates the row and shows the `/invite/<token>` link in the UI for the
+  owner/admin to copy and send by hand. No email is sent — that's Phase 5.
+- **Invite accept flow lives outside the StoreProvider abstraction.**
+  Invitations are account/org administration, not CRM content, and don't
+  make sense in demo mode (no real multi-user auth there) — so they're
+  handled directly via `browserClient()` in the settings page + two service-
+  role API routes, rather than extending `StoreApi` with invitation CRUD.

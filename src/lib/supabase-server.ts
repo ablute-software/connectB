@@ -33,3 +33,13 @@ export async function resolveRole(userId: string, email: string | undefined, sb:
   }
   return 'none';
 }
+
+// Phase 3 team invitations: owner/admin can invite, others can't — the UI
+// needs the org_members.role (owner/admin/manager/member), a finer grain
+// than resolveRole's founder/developer/investor/none.
+export type OrgMemberRole = 'owner' | 'admin' | 'manager' | 'member';
+
+export async function getOrgRole(userId: string, sb: Awaited<ReturnType<typeof serverClient>>): Promise<OrgMemberRole | null> {
+  const { data } = await sb.from('org_members').select('role').eq('user_id', userId).maybeSingle();
+  return (data?.role as OrgMemberRole | undefined) ?? null;
+}
