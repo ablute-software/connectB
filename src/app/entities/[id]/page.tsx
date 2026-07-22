@@ -2,10 +2,11 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
-import { AddInfoButton, Card, FitTag, HardFilterBanner, PersonLink, PrivateBadge, StatusPill, VerBadge, WaveTag, fmtEur } from '@/components/ui';
+import { Card, FitTag, HardFilterBanner, PersonLink, StatusPill, VerBadge, WaveTag, fmtEur } from '@/components/ui';
 import { preflight, preflightSummary } from '@/lib/rules';
 import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
 import { ThreadDrawer } from '@/components/ThreadDrawer';
+import { ContributionBox } from '@/components/ContributionBox';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -51,7 +52,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
 
       <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)} />
 
-      <Card title="Entity summary" right={<div className="flex items-center gap-2"><PrivateBadge /><AddInfoButton /></div>}>
+      <Card title="Entity summary">
         <div className="grid gap-4 sm:grid-cols-2">
           <dl className="space-y-1.5 text-sm text-gray-600">
             <div className="flex items-center gap-1">Website: {entity.website
@@ -80,6 +81,9 @@ export default function EntityPage({ params }: { params: { id: string } }) {
             )}
             {!entity.thesis && !entity.network_cluster_notes && <p className="text-sm text-gray-400">No thesis or network notes yet.</p>}
           </div>
+        </div>
+        <div className="mt-4 border-t border-gray-100 pt-3">
+          <ContributionBox subjectType="entity" subjectId={entity.id} orgId={db.org.id} />
         </div>
       </Card>
 

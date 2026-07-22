@@ -2,8 +2,9 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
-import { AddInfoButton, Card, EntityLink, PersonEmailBlock, PreflightCard, PrivateBadge, VerBadge } from '@/components/ui';
+import { Card, EntityLink, PersonEmailBlock, PreflightCard, VerBadge } from '@/components/ui';
 import { preflight } from '@/lib/rules';
+import { ContributionBox } from '@/components/ContributionBox';
 
 export default function PersonPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -33,8 +34,6 @@ export default function PersonPage({ params }: { params: { id: string } }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {!person.do_not_contact && <PrivateBadge />}
-          {!person.do_not_contact && <AddInfoButton />}
           <Link href={`/people/${person.id}/prep`} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">Meeting prep</Link>
           {!person.do_not_contact && (
             <Link href={`/log?entity=${person.entity_id}&person=${person.id}`}
@@ -42,6 +41,8 @@ export default function PersonPage({ params }: { params: { id: string } }) {
           )}
         </div>
       </div>
+
+      {!person.do_not_contact && <ContributionBox subjectType="person" subjectId={person.id} orgId={db.org.id} />}
 
       {person.do_not_contact && (
         <div className="rounded-lg border-l-4 border-[#B00000] bg-red-50 px-4 py-3 text-sm text-[#B00000] font-medium">

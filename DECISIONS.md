@@ -65,3 +65,29 @@ Reversible; flag if any should change.
   make sense in demo mode (no real multi-user auth there) — so they're
   handled directly via `browserClient()` in the settings page + two service-
   role API routes, rather than extending `StoreApi` with invitation CRUD.
+
+## §1 contributions + back-office verification
+
+- **No two-tier public/private catalog for entities/people.** IRM_SPEC's
+  §1a design assumes entities/people sit on top of a shared public catalog
+  with a per-org overlay (like `catalog_entities` already does for investor
+  packs) — that doesn't exist for entities/people; each org's `entities`/
+  `people` rows are just their own private data, full stop. Building the
+  real two-tier model is a significant remodel (new catalog tables, a merge/
+  diff layer, migrating existing per-org rows) — bigger than "add
+  contributions." Instead: `contributions` is a free-form field/value log
+  keyed to the org's own subject_id, shown back to that org immediately,
+  and readable cross-org by platform admins for §1b. "Verify" confirms
+  accuracy; it does not yet rewrite anyone's entity/person row or "flow to
+  every org" — there's no shared row to flow into yet. Revisit once/if the
+  catalog model gets built out for entities/people the way it exists for
+  packs.
+- **§1c (multi-affiliation people) is not in this pass.** The work item
+  said "§1 contributions + back-office verification queue," not §1c —
+  treated as intentionally separate. `person_affiliations` (many-to-many
+  entity↔person) is a real schema change to how People pages, contact
+  order, and the entity People list all query, and deserves its own pass
+  rather than being folded in silently.
+- **Contributions live outside StoreProvider too**, same reasoning as
+  invitations: `ContributionBox` talks to Supabase directly (RLS-gated),
+  gracefully falling back to the old placeholder button in demo mode.
