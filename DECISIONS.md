@@ -500,3 +500,85 @@ worked around:
   real bulk-review work — flagged here rather than silently adding a fuzzy-
   match layer that risks the opposite mistake (silently treating two
   actually-different facts as equal).
+
+## Real interaction-history import (ablute_historico_fundos.md)
+
+- **The .md file itself never enters git and never will** — read directly
+  from its local path, uploaded straight to the org's private `data-room`
+  Storage bucket by the app, parsed server-side. This is an absolute rule
+  from the instruction (public repo, private personal history), not a
+  style preference — every route touching it treats the file as Storage-
+  only, same trust boundary as any other data-room document.
+- **TEMA A and TEMA B share entity rows but never share a queue.** Contact
+  facts (website/email_domain) and private history (status, reopen_trigger,
+  interaction content) both live on the same `entities`/`interactions` rows
+  — they're the same real relationship — but the commit route only ever
+  queues TEMA-A-field conflicts to `contributions`; TEMA B conflicts are
+  logged in the plan for the founder to see and resolved by editing the
+  entity directly, never as a contribution, never near the shared catalog.
+- **A second real false-positive match, caught the same way as the CSV
+  import's "Investors Portugal" bug**: "Core Capital" lists two genuinely
+  different site domains (`coreangels.com/angel-groups/atlantic` — an
+  angel-group portal page — and its own `corecapital.pt`), and the domain-
+  match tier confidently proposed it as the same entity as the existing
+  "COREangels Porto." Rather than trust a domain-only match when a section
+  cites multiple distinct domains, that case now downgrades to `conflict`
+  (founder must explicitly confirm), while exact-name matches (Bynd, MAZE,
+  Pathena, etc.) stay auto-matched. Same lesson twice: a real dry-run step,
+  actually run and actually inspected, is what catches this class of bug —
+  not writing the matching code carefully in the first place.
+- **Alias groups are unioned across ALL sections that mention any member
+  name**, not just literal pairs — the file itself scatters the same real
+  fund across 2-4 separate `##` sections in inconsistent order (e.g.
+  "3xp global - Grosvenor" AND, 1200 lines later, "Grosvenor - 3xp global";
+  "BrainTrust - Brain capital - Bevin CP" AND a separate solo "Bevin CP"
+  AND a separate solo "Biven CP", an OCR-typo spelling of the same name).
+  Merged 118 raw sections down to 111 real entities this way.
+- **entity_aliases (0014, catalog-scoped) extended to also point at
+  org-level `entities`** (migration 0017) specifically so these 7 real
+  alias pairs have somewhere durable to live, per the instruction. Own RLS
+  policy lets org members manage their own entities' aliases; the existing
+  admin-only policy still covers catalog-scoped rows untouched.
+- **`interactions.needs_review`** (migration 0018) — persisted, not just a
+  staging-screen checkbox: ~380 of ~494 historical interactions have no
+  color marking, and the file's own header warns positive (green) markings
+  never survived the OneNote→PDF export. That's too many for a one-time
+  review gate; the flag lets the founder work through them over time via
+  the normal entity/person screens.
+- **Direction/channel aren't in the source data and had to be inferred**:
+  direction from the color code itself (`—` reads as "usually a send from
+  us" per the file's own README line; `NÃO`/`TALVEZ`/`RESPOSTA` all read as
+  the fund's own response, so `in`); channel from keyword-matching the
+  interaction text (liguei/telefone → call, reunião → meeting, LinkedIn →
+  linkedin_dm, formulário/site → web_form, else email — most of this
+  correspondence is email). Both are heuristics on messy real text, not
+  guaranteed correct per row — flagged here rather than silently trusted.
+- **A NOT NULL `occurred_at` needs a value even when the source has none**
+  (`(sem data)`, or a date that fails sanity bounds — found and fixed one
+  literal `"2024-26-26"` mid-run, an OCR/typo month-26). Used a fixed
+  placeholder (2018-01-01, older than everything else in the pack) rather
+  than "now" (which would misrepresent decade-old history as today's) —
+  `needs_review` is already true for every one of these, so the placeholder
+  is never presented as a real date without that flag alongside it.
+- **No entity `type` in this file's schema** (unlike the CSV pack) — new
+  entities default to `'vc'`, same convention as the generic §9 importer,
+  founder-correctable afterward.
+- **Reopen triggers only populated for the 4 cases the doctrine section
+  itself names with sourced reasoning** (Bynd, Indico, Pathena, MAZE) — not
+  derived generically for the other 24 `NAO_FECHADO` entities. That broader
+  per-entity reopen/reabordagem analysis is IRM_SPEC §9e, explicitly a
+  separate step in the instruction, run only after this import is approved
+  and committed.
+- **"Nomes de pessoas mencionadas" uses one Claude call per entity section**
+  (not regex — the source is free Portuguese prose with no person column),
+  proposing candidates with a confidence + evidence quote. Nothing is
+  auto-created: every proposal needs an explicit per-person checkbox before
+  commit, same review discipline as everything else in this importer. Runs
+  client-driven, one section at a time, so the UI can show real progress
+  across ~111 sections rather than one opaque multi-minute call.
+- **Contact_lock_until is computed from the imported interactions' own
+  historical dates** (latest outbound + 14 days), not "now" — correctly
+  yields mostly-expired locks today (2026-07-22) for a pack whose most
+  recent entries are Jan 2026, which is honest: the point was never to
+  block outreach right now, it's to make the existing `contact_lock`
+  preflight check consult real history instead of nothing.

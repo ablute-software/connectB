@@ -125,6 +125,10 @@ export default function ImportPage() {
         Already have a structured pack matching the entities.csv/people.csv/interactions.csv shape?{' '}
         <Link href="/import/structured" className="text-[#0E7490] hover:underline">Use the structured import (§9b)</Link> — no AI extraction needed.
       </p>
+      <p className="text-xs text-gray-400">
+        Have a full contact-history export (entities as `## ` sections, dated interactions)?{' '}
+        <Link href="/import/md" className="text-[#0E7490] hover:underline">Use the history import</Link> — keeps private negotiation history separate from shared contact facts.
+      </p>
 
       <Card title="Upload a file">
         <input ref={fileInputRef} type="file" accept=".txt,.csv" disabled={uploading}
