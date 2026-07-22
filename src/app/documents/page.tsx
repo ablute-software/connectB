@@ -1,6 +1,6 @@
 'use client';
 // Documents & Data Room — folder tree, documents with visibility attributes, grants, engagement
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card, PersonLink } from '@/components/ui';
@@ -8,7 +8,17 @@ import type { Folder } from '@/lib/types';
 
 export default function DocumentsPage() {
   const { db, addDocument, addGrant, revokeGrant, recordDemoView } = useStore();
-  const [selFolder, setSelFolder] = useState<string>('f-mat-investor');
+  const [selFolder, setSelFolder] = useState<string>('');
+
+  // Folder ids differ between demo seed data and real Supabase UUIDs, so the
+  // default can't be a hardcoded id — pick "Investor deck" by name once
+  // folders have loaded, falling back to whatever folder exists first.
+  useEffect(() => {
+    if (selFolder || db.folders.length === 0) return;
+    const preferred = db.folders.find((f) => f.name === 'Investor deck') ?? db.folders[0];
+    if (preferred) setSelFolder(preferred.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db.folders]);
   const [docName, setDocName] = useState('');
   const [docUrl, setDocUrl] = useState('');
   const [docErr, setDocErr] = useState('');
