@@ -161,12 +161,22 @@ export function matchEntities(
   const targetName = normalizeName(csvRow.name);
   const targetDomain = normalizeDomain(csvRow.website);
 
+  // Space-insensitive exact match: "Blue Crow" vs existing "BlueCrow
+  // Capital" (-> "bluecrow" once "capital" is stripped) fail BOTH the exact
+  // and containment tiers on the spaced form, purely because one source
+  // wrote it as two words and the other as one — found live, a real
+  // duplicate the earlier tiers silently missed (see DECISIONS.md). A
+  // whitespace-collapsed exact match is precise enough to auto-apply
+  // (still an exact-content match, not a fuzzy one).
+  const targetCompact = targetName.replace(/\s+/g, '');
+
   const scored = existing.map((e) => {
     const n = normalizeName(e.name);
     const d = normalizeDomain(e.website);
     let score = 0;
     if (targetDomain && d && targetDomain === d) score = Math.max(score, 90);
     if (n === targetName) score = Math.max(score, 100);
+    else if (n.replace(/\s+/g, '') === targetCompact && targetCompact.length >= MIN_CONTAINMENT_LEN) score = Math.max(score, 95);
     else if (n.length >= MIN_CONTAINMENT_LEN && targetName.length >= MIN_CONTAINMENT_LEN
       && (n.includes(targetName) || targetName.includes(n))
       && Math.min(n.length, targetName.length) / Math.max(n.length, targetName.length) >= MIN_CONTAINMENT_RATIO) {

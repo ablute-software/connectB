@@ -582,3 +582,65 @@ worked around:
   recent entries are Jan 2026, which is honest: the point was never to
   block outreach right now, it's to make the existing `contact_lock`
   preflight check consult real history instead of nothing.
+
+### Post-approval commit: 4 more real bugs found and fixed live
+
+Committed to production with the founder's explicit OK (Armilar → merge,
+Core Capital → confirmed separate via web research: CoRe Capital is a
+distinct CMVM-registered PE firm, not COREangels Porto). A full post-commit
+integrity sweep (interaction-count reconciliation + a duplicate re-scan
+with the matcher) caught four more real issues, all fixed live and folded
+back into the source so future imports don't repeat them:
+
+1. **My own resolution script had a bug**: I read `candidates[0].name` to
+   confirm Armilar's match to the user but never actually set
+   `chosenId`/`status` on the plan item — since `conflict`-status items
+   always compute `chosen = undefined`, Armilar silently went through the
+   "create new" path anyway, producing a duplicate "Armilar" entity instead
+   of merging into "Armilar Venture Partners." Caught via the interaction-
+   sum integrity check (10 interactions on an entity that shouldn't have
+   existed), fixed by moving its interactions to the real entity, applying
+   its patch there, and deleting the duplicate.
+2. **Reopen-trigger dictionary used the CSV pack's full name
+   ('indico capital partners') as the only key**, but the .md file's own
+   section — and the doctrine text itself — calls it "Indico." Exact-key
+   lookup silently missed it; Indico Capital Partners committed with no
+   reopen_trigger at all. Fix: list both the short and full name as keys
+   (not a containment match — a first attempt at that wrongly matched
+   "Pathena Family Office", a different entity, against the `pathena` key).
+3. **"Blue Crow" (this file) and "BlueCrow Capital" (already in the org,
+   from the earlier CSV import) never matched** — `bluecrow` (space
+   stripped by normalization removing "Capital") vs `blue crow` (genuinely
+   has a space) fail both the exact and containment tiers purely because
+   one source spells it as one word. Added a whitespace-collapsed exact-
+   match tier to `matchEntities` (structured-import.ts, shared with the
+   CSV importer) — still a precise, non-fuzzy comparison, just space-
+   insensitive. Found via a full duplicate re-scan; the file's own
+   "Sobreposição" table had actually named this exact correspondence, which
+   this import didn't consult programmatically (a scope gap, not fixed
+   generically — see below).
+4. **Personal LinkedIn profile URLs were treated as company websites**:
+   several sections list "the person I actually talked to"'s own
+   `linkedin.com/in/...` profile as their **Sites:**, not the fund's real
+   site. Every such profile shares the `linkedin.com` domain, so the
+   domain-match tier was one re-run away from confidently proposing
+   unrelated funds (Active Cap, BIG START VENTURES, Cedrus Capital, EggNest,
+   August Capital Partners, Kleber CP) as duplicates of each other — it
+   hadn't actually bitten *this* import (matching only checks against
+   pre-existing rows, not entities newly created within the same batch),
+   but would have on any later re-run. Added `linkedin.com` to the bogus-
+   site filter; nulled out the 6 already-written bad `website` values.
+   Also found and nulled one unrelated source-file data-quality artifact
+   this doesn't explain: "ONETIER"'s site field pointed to
+   `startventures.vc` (a different fund's URL — ONETIER's own emails are
+   `@big.pt`), most likely two adjacent original pages cross-contaminated
+   during the OneNote export.
+
+**Not generically fixed**: the "Sobreposição" table's 12 explicit name
+corrections were never consulted as a matching hint — the ones that worked
+did so by luck (exact/domain match), and Blue Crow only got caught by a
+manual post-commit scan. A more robust version would parse that table and
+feed each row in as a forced-candidate hint. Flagged rather than built
+silently, since it wasn't asked for and the current fix (space-insensitive
+matching + a full re-scan before/after commit) closed the actual gap this
+time.

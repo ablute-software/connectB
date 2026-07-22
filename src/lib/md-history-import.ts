@@ -41,8 +41,16 @@ const INTERACTION_RE = /^-\s*\[([^\]]*)\]\s*(.*?)\s*—\s*(.*)$/;
 
 // Login-portal / webmail URLs incidentally captured mid-correspondence,
 // not real company sites — filtering these out of TEMA A avoids polluting
-// entities.website with garbage.
-const BOGUS_SITE_PATTERNS = /roundcube|webmail|cpanel|dnscpanel|owa\.|zimbra|outlook\.office/i;
+// entities.website with garbage. linkedin.com added after finding live: a
+// personal LinkedIn profile URL (captured because that's who Nuno talked
+// to, not the fund's own site) was landing in entities.website, AND every
+// such profile shares the linkedin.com domain — meaning the domain-match
+// tier would confidently propose merging unrelated funds that each simply
+// happen to have a LinkedIn-profile "site" on file (found via a post-
+// commit scan; see DECISIONS.md — it hadn't actually bitten this specific
+// import, since matching only checks pre-existing rows, not entities newly
+// created within the same batch, but would on any later re-run).
+const BOGUS_SITE_PATTERNS = /roundcube|webmail|cpanel|dnscpanel|owa\.|zimbra|outlook\.office|linkedin\.com/i;
 
 function splitList(raw: string): string[] {
   return raw.split(/,\s*/).map((s) => s.trim()).filter(Boolean);
@@ -185,8 +193,17 @@ export function estadoToClassification(e: Estado): 'pass' | 'awaiting' | 'questi
 // per-entity reopen analysis across the rest of the pipeline is IRM_SPEC
 // §9e, a deliberately separate step run only after the founder approves
 // this import.
+// Keys are BOTH the CSV pack's full name and the .md file's own shorter
+// section-header name for the same 4 entities — the doctrine text itself
+// switches between them ("Indico" in the doctrine table vs "Indico Capital
+// Partners" in entities.csv). An earlier version tried a containment match
+// instead of listing both keys; found live that it wrongly matched
+// "Pathena Family Office" (a DIFFERENT entity — Murta's angel vehicle, not
+// the fund) against the 'pathena' key. Exact keys, listed twice where
+// needed, has no such false-positive surface.
 export const NAMED_REOPEN_TRIGGERS: Record<string, string> = {
   'bynd': 'Thesis/mandate pass ("não fazemos medtech/hardware", 2022 and 2024) — reopened by the wellness/biosphere repositioning, which removes the medtech/hardware framing the pass was about. Do not re-pitch the old framing.',
+  'indico': 'Thesis/mandate pass ("medical device regulado, fora do nosso âmbito", Nov 2025) — reopened by the wellness/biosphere repositioning, same reasoning as Bynd.',
   'indico capital partners': 'Thesis/mandate pass ("medical device regulado, fora do nosso âmbito", Nov 2025) — reopened by the wellness/biosphere repositioning, same reasoning as Bynd.',
   'pathena': 'Thesis/mandate pass ("não investimos em early stage") — reopened by the wellness/biosphere repositioning; note the fund itself is separately in wind-down (see Pathena Family Office for the angel path instead).',
   'maze': 'Phase/traction pass ("risks with traction") — they explicitly invited a re-application. Reopened by new evidence: pilot metrics (Fórum Braga), the T-Prism grant, first endpoint values.',
