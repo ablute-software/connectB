@@ -4,8 +4,8 @@ import { StoreProvider } from '@/lib/store';
 import { Shell } from '@/components/shell';
 
 export const metadata: Metadata = {
-  title: 'ablute_ — Investor CRM',
-  description: 'Investor outreach CRM — Seed Round 2026',
+  title: 'connectB — Investor CRM',
+  description: 'connectB — the investor-outreach CRM that enforces discipline. Founders, investors and the platform team in one place.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
