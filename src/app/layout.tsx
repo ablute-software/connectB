@@ -4,8 +4,8 @@ import { StoreProvider } from '@/lib/store';
 import { Shell } from '@/components/shell';
 
 export const metadata: Metadata = {
-  title: 'connectB — Investor CRM',
-  description: 'connectB — the investor-outreach CRM that enforces discipline. Founders, investors and the platform team in one place.',
+  title: 'connectB — IRM',
+  description: 'connectB — the Investor Relations Management platform that enforces outreach discipline. Founders, investors and the platform team in one place.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

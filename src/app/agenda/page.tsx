@@ -11,7 +11,7 @@ const KIND_COLOR: Record<string, string> = {
 };
 
 function toICS(tasks: TaskItem[]) {
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//ablute_ CRM//EN'];
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//ablute_ IRM//EN'];
   for (const t of tasks) {
     if (!t.due_at) continue;
     const dt = t.due_at.replace(/[-:]/g, '').slice(0, 15) + 'Z';

@@ -55,7 +55,7 @@ export default function SettingsPage() {
 
       <Card title="AI Review — second opinion on a draft (paid feature)">
         <p className="mb-2 text-xs text-gray-500">
-          Beyond the mechanical linter: tone, hook strength, investor fit — using the CRM context (thesis, kill words,
+          Beyond the mechanical linter: tone, hook strength, investor fit — using the IRM context (thesis, kill words,
           watch-outs) as grounding. Requires <code className="rounded bg-gray-100 px-1">ANTHROPIC_API_KEY</code> in the environment.
           The AI never sends anything and never edits your data — it produces a report; acting on it is yours.
         </p>

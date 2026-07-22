@@ -54,7 +54,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="text-[26px] font-bold leading-none tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
             connect<span className="text-[#22D3EE]">B</span>
           </div>
-          <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">Investor CRM</div>
+          <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">Investor Relations</div>
         </div>
         <nav className="mt-1 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
           {NAV.filter((n) => n.href !== '/backoffice' || showBackoffice).map((n) => {

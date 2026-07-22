@@ -42,7 +42,7 @@ function LoginInner() {
         <div className="mb-1 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
           connect<span className="text-[#22D3EE]">B</span>
         </div>
-        <p className="mb-5 text-sm text-gray-500">Sign in to your investor CRM.</p>
+        <p className="mb-5 text-sm text-gray-500">Sign in to your investor relations workspace.</p>
 
         {!authEnabled && (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
