@@ -5,6 +5,11 @@ the CRM *content* still runs from a per-browser localStorage seed, so it isn't y
 multi-tenant product. Everything below turns it into one. Ordered by priority. Read
 `CLAUDE.md` first for architecture.
 
+> **Founder feature requests (22 Jul):** see **`IRM_SPEC.md`** — rename CRM→**IRM**, editable
+> multi-affiliation people, authored edits → back-office verify → public, entity summary + people,
+> the **interaction roadmap** (crucial), and investor LinkedIn self-claim + GDPR. Those slot in as
+> Phases 3.5–3.7 and 6.5; the rename is a Phase 0.5 quick win. All depend on Phase 1 first.
+
 ---
 
 ## Phase 0 — config fixes (do first; ~10 min, no code)
