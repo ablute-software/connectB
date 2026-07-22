@@ -14,11 +14,17 @@ export async function POST(req: NextRequest) {
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
-  const { user_id, org_name, email } = await req.json();
+  const {
+    user_id, org_name, email,
+    website, sector, stage, round_target_eur, country, one_liner,
+    full_name, title, phone, linkedin_url,
+  } = await req.json();
   if (!user_id || !org_name) return NextResponse.json({ ok: false, error: 'missing fields' }, { status: 400 });
+  if (!full_name || !title) return NextResponse.json({ ok: false, error: 'full_name and title/cargo are required' }, { status: 400 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const isOwner = typeof email === 'string' && email.trim().toLowerCase() === OWNER_EMAIL;
+  const profileFields = { full_name, title, phone: phone || null, linkedin_url: linkedin_url || null };
 
   // Owner always gets platform (back-office) access — best effort, never blocks sign-up.
   if (isOwner) {
@@ -29,20 +35,27 @@ export async function POST(req: NextRequest) {
   if (existing) return NextResponse.json({ ok: true, org_id: existing.org_id, already: true });
 
   // Owner joins the existing seeded ablute_ org as owner rather than a fresh empty org.
+  // Revisited for Phase 2: the owner's own org (ablute_) already has a real 15-entity
+  // pipeline — onboarding's startup-detail fields don't apply to them, only their own
+  // person profile does. Multi-org platform-admin management is a later concern.
   if (isOwner) {
-    const { error: linkErr } = await admin.from('org_members').insert({ org_id: ABLUTE_ORG_ID, user_id, role: 'owner' });
+    const { error: linkErr } = await admin.from('org_members').insert({ org_id: ABLUTE_ORG_ID, user_id, role: 'owner', ...profileFields });
     if (!linkErr) return NextResponse.json({ ok: true, org_id: ABLUTE_ORG_ID, owner: true });
     // If linking failed for any reason, fall through to creating a normal org.
   }
 
   const { data: org, error: orgErr } = await admin
     .from('orgs')
-    .insert({ name: org_name, sender_email: email })
+    .insert({
+      name: org_name, sender_email: email,
+      website: website || null, sector: sector || null, stage: stage || null,
+      round_target_eur: round_target_eur || null, country: country || null, one_liner: one_liner || null,
+    })
     .select('id')
     .single();
   if (orgErr) return NextResponse.json({ ok: false, error: orgErr.message }, { status: 500 });
 
-  const { error: memErr } = await admin.from('org_members').insert({ org_id: org.id, user_id, role: 'owner' });
+  const { error: memErr } = await admin.from('org_members').insert({ org_id: org.id, user_id, role: 'owner', ...profileFields });
   if (memErr) return NextResponse.json({ ok: false, error: memErr.message }, { status: 500 });
 
   // Seed default folders so a new founder has a data room to work with immediately.

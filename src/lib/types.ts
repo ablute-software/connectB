@@ -51,6 +51,13 @@ export interface Org {
   weekly_cap: number;
   sender_email?: string;
   bcc_email?: string;
+  // NEXT_STEPS Phase 2 onboarding
+  website?: string;
+  sector?: string;
+  stage?: Stage;
+  round_target_eur?: number;
+  country?: string;
+  one_liner?: string;
 }
 
 export interface Entity {
