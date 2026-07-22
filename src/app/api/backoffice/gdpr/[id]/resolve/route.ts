@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, resolveRole } from '@/lib/supabase-server';
+import { logAdminAction } from '@/lib/audit';
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -48,6 +49,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     status: decision, resolved_at: new Date().toISOString(),
   }).eq('id', params.id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  await logAdminAction(admin, {
+    adminUserId: user.id, action: `gdpr_${decision}`, subjectType: 'gdpr_request', subjectId: params.id,
+    detail: { kind: request.kind, claimantEmail: request.claimant_email, erasedCount },
+  });
 
   return NextResponse.json({ ok: true, erasedCount });
 }

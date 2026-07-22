@@ -18,7 +18,6 @@ const NAV: { href: string; label: string; icon: string; section?: string }[] = [
   { href: '/packs', label: 'Packs', icon: '◈', section: 'Growth' },
   { href: '/outbox', label: 'Outbox', icon: '✉', section: 'Automation' },
   { href: '/automations', label: 'Automations', icon: '⚙' },
-  { href: '/backoffice', label: 'Back-office', icon: '◉', section: 'Platform' },
   { href: '/settings', label: 'Settings', icon: '⋯' },
 ];
 
@@ -27,7 +26,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const { db } = useStore();
   const caps = outboundCounts(db);
   const pendingRuns = db.runs.filter((r) => r.status === 'pending_review').length;
-  const pendingSubs = db.submissions.filter((s) => s.status === 'pending_review').length;
   const [me, setMe] = useState<Me | null>(null);
 
   useEffect(() => {
@@ -39,14 +37,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
     window.location.href = '/login';
   }
 
-  // Developers see the platform back-office; founders don't.
-  const showBackoffice = !me?.authEnabled || me?.role === 'developer';
+  // Dual-role (e.g. Nuno: founder of ablute_ AND platform admin) gets a
+  // switcher into the fully separate back-office console (own layout/chrome
+  // — see src/app/backoffice/layout.tsx). Founders without platform_admin
+  // never see this at all, per BLOCO 3's "separar completamente" ask.
+  const showBackofficeSwitcher = me?.role === 'developer';
   const capClass =
     caps.today >= caps.dailyCap || caps.week >= caps.weeklyCap ? 'text-[#B00000] font-semibold'
       : caps.today === caps.dailyCap - 1 || caps.week === caps.weeklyCap - 1 ? 'text-amber-600 font-semibold'
       : 'text-gray-400';
 
-  if (path?.startsWith('/portal')) return <>{children}</>;
+  if (path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
 
   return (
     <div className="flex min-h-screen bg-[#F7F9FA] text-[#1A1A1A]">
@@ -58,7 +59,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">Investor Relations</div>
         </div>
         <nav className="mt-1 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
-          {NAV.filter((n) => n.href !== '/backoffice' || showBackoffice).map((n) => {
+          {NAV.map((n) => {
             const active = n.href === '/' ? path === '/' : path?.startsWith(n.href);
             return (
               <React.Fragment key={n.href}>
@@ -72,13 +73,19 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   {n.href === '/outbox' && pendingRuns > 0 && (
                     <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{pendingRuns}</span>
                   )}
-                  {n.href === '/backoffice' && pendingSubs > 0 && (
-                    <span className="ml-auto rounded-full bg-gray-900 px-1.5 text-[10px] font-bold text-white">{pendingSubs}</span>
-                  )}
                 </Link>
               </React.Fragment>
             );
           })}
+          {showBackofficeSwitcher && (
+            <>
+              <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-gray-300">Platform</div>
+              <Link href="/backoffice"
+                className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-[13.5px] text-gray-700 transition hover:bg-gray-100">
+                <span className="w-4 text-center text-gray-400">◉</span> Back-office →
+              </Link>
+            </>
+          )}
         </nav>
         <div className="border-t border-gray-100 px-4 py-3">
           {me?.user ? (

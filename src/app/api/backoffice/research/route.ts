@@ -8,6 +8,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, resolveRole } from '@/lib/supabase-server';
+import { logAdminAction } from '@/lib/audit';
 
 const NOT_CONFIGURED_MSG = 'Set ANTHROPIC_API_KEY in the environment to enable AI-assisted research.';
 
@@ -123,6 +124,11 @@ export async function POST(req: Request) {
     })));
     const { error: insErr } = await admin.from('contributions').insert(contributionRows);
     if (insErr) return NextResponse.json({ ok: false, error: insErr.message }, { status: 500 });
+
+    await logAdminAction(admin, {
+      adminUserId: user.id, action: 'ai_research', subjectType, subjectId: rows[0].id,
+      detail: { name, proposalCount: proposals.length, appliedToOrgs: rows.length },
+    });
 
     return NextResponse.json({ ok: true, configured: true, proposals, appliedToOrgs: rows.length });
   } catch (e) {

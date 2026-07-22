@@ -6,6 +6,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, resolveRole } from '@/lib/supabase-server';
+import { logAdminAction } from '@/lib/audit';
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -24,10 +25,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
+  const { data: contribution } = await admin.from('contributions').select('subject_type, subject_id, field, value, org_id').eq('id', params.id).maybeSingle();
   const { error } = await admin.from('contributions').update({
     status: decision, reviewed_by: user.id, reviewed_at: new Date().toISOString(), reviewer_notes: notes || null,
   }).eq('id', params.id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  await logAdminAction(admin, {
+    adminUserId: user.id, action: `contribution_${decision}`, subjectType: 'contribution', subjectId: params.id,
+    detail: { ...contribution, notes },
+  });
 
   return NextResponse.json({ ok: true });
 }

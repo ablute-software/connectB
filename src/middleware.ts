@@ -40,6 +40,24 @@ export async function middleware(req: NextRequest) {
     home.search = '';
     return NextResponse.redirect(home);
   }
+
+  // BLOCO 3 — /backoffice and /api/backoffice are platform-admin only.
+  // Checked here (not just in each route/UI) so a founder who isn't a
+  // platform admin gets stopped before ever reaching the console, no
+  // matter which page or API they try. Every /api/backoffice route also
+  // re-checks independently (requirePlatformAdmin()) — defense in depth,
+  // never a single layer for this boundary.
+  if (pathname === '/backoffice' || pathname.startsWith('/backoffice/') || pathname.startsWith('/api/backoffice')) {
+    const admin = user ? (await supabase.from('platform_admins').select('user_id').eq('user_id', user.id).maybeSingle()).data : null;
+    if (!admin) {
+      if (pathname.startsWith('/api/')) return NextResponse.json({ ok: false, error: 'Platform admin only.' }, { status: 403 });
+      const home = req.nextUrl.clone();
+      home.pathname = '/';
+      home.search = '';
+      return NextResponse.redirect(home);
+    }
+  }
+
   return res;
 }
 

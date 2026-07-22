@@ -325,3 +325,69 @@ Reversible; flag if any should change.
 - **Scope requested is `gmail.send` + `userinfo.email` only** — never
   `gmail.readonly` or broader — the product only ever needs to send as the
   founder, never read their inbox.
+
+## BLOCO 3 — back-office console
+
+- **The pre-existing "Review queue"/"Global catalog"/"Distribution log"
+  cards were reading the founder's own org-scoped store** (`useStore()` →
+  `.eq('org_id', orgId)` in store-supabase.tsx), not a cross-org view — fine
+  for a founder checking their own submission, silently wrong for back-
+  office triage (it only ever showed the viewing admin's own org's rows).
+  Replaced with dedicated `/api/backoffice/*` service-role routes across
+  the board — Submissions, Claims, and Catalog CRUD are new; Contributions
+  and GDPR already had the right architecture from earlier passes.
+- **`/backoffice` fully separates from the founder Shell**, same pattern as
+  `/portal` (`shell.tsx` early-returns bare children for both prefixes).
+  Its own `layout.tsx` provides nav (Hoje/Fila/Catálogo/Startups/Métricas),
+  dark "PLATFORM"-branded header — per DESIGN_IDEAS.md's own explicit note
+  for this block. A dual-role user (Nuno) gets a "Back-office →" link in
+  the founder sidebar and a "← ablute_ (founder)" link back, never a merged
+  nav.
+- **Permission check duplicated three ways on purpose**: middleware.ts
+  blocks `/backoffice*` and `/api/backoffice*` before they're reached;
+  `requirePlatformAdmin()` (`src/lib/backoffice-auth.ts`) re-checks in every
+  route; the layout also re-checks client-side for UX (fast redirect
+  without waiting on a failed fetch). Per the instruction: never just UI.
+- **"Pessoas públicas" catalog CRUD was NOT built.** Unlike investors
+  (`catalog_entities`, global, no org_id), there is no shared public-person
+  identity anywhere in the schema — `people` rows are still fully org-
+  private (see §1c). Building one is a real schema project (verification
+  flow, promotion rules, its own dedup) that this instruction's wording
+  gestured at but didn't specify — scoping it out rather than inventing a
+  table shape nobody's reviewed. The existing contributions-based person
+  verification (Fila → Contributions) still covers person-level fact
+  curation in the meantime.
+- **Merge-duplicates tool matches on the IRM_SPEC §9b-3 algorithm**:
+  normalized website domain, normalized name (diacritics/legal-suffix/
+  parenthetical-alias stripped via `src/lib/catalog-dedupe.ts`), plus a new
+  `entity_aliases` table so a merge's history (e.g. "Busy Angels SCR" as a
+  former name of "Bynd") stays discoverable for future clustering — this is
+  exactly the table §9b-3a asks for, scoped for now to `catalog_entities`
+  (the org-level `entities` import-matching integration is a separate,
+  not-yet-built piece). Merge never blind-overwrites: a field that's
+  non-empty-and-different across the merged rows is left alone and named in
+  the audit log for a human to reconcile, rather than silently picked.
+- **Startups/Métricas are aggregates only, enforced by what the queries
+  select** — never a name, note, or message body from any org's own
+  `entities`/`people`/`interactions` content, only counts and timestamps.
+  There is no route anywhere in the console that reads into a specific
+  org's pipeline, and no impersonation exists.
+- **`last_sign_in_at` isn't queryable via a normal table join** (it lives on
+  `auth.users`, Supabase-managed) — Startups does one bulk
+  `admin.auth.admin.listUsers()` call and takes the max per org in JS,
+  rather than one query per org.
+- **"Emails this week" in Métricas is a proxy**: count of `interactions`
+  rows with `channel='email', direction='out'` in the last 7 days (i.e.
+  outreach logged as sent, whether pasted-after-manual-send or via the new
+  §8d Gmail path) — there's no separate send-log table, and this is the
+  honest signal already being recorded either way.
+- **Verified live**: migrations 0010-0013 were confirmed applied by direct
+  read-only query before this block started (not just trusted from
+  conversation history) — `org_role` already had all 4 values, and the
+  §8d-held commit was pushed once confirmed. `npm run build` passes with
+  all new `/backoffice/*` and `/api/backoffice/*` routes present;
+  unauthenticated `/backoffice` correctly redirects to `/login` (verified
+  live in-browser). Full authenticated click-through of Hoje/Fila/Catálogo/
+  Startups/Métricas was NOT done — no test credentials available in this
+  session — so treat the new UI as build-verified and logically reviewed,
+  not click-tested end-to-end.
