@@ -48,6 +48,7 @@ function LogForm() {
   const [gmail, setGmail] = useState<{ configured: boolean; connected: boolean; email?: string | null } | null>(null);
   const [sending, setSending] = useState(false);
   const [sendErr, setSendErr] = useState('');
+  const [draftedFor, setDraftedFor] = useState<{ key: string; label: string } | null>(null);
 
   useEffect(() => {
     fetch('/api/oauth/google/status').then((r) => r.json()).then(setGmail).catch(() => setGmail({ configured: false, connected: false }));
@@ -78,6 +79,21 @@ function LogForm() {
     setActionTypeTouched(false); setReopenAck(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityId, personId]);
+
+  // Stamps whoever the current message content was written for — whether
+  // typed by hand or AI-drafted — so a later entity/person switch (without
+  // clearing the textarea) can be caught as a stale draft below.
+  useEffect(() => {
+    if (content.trim().length === 0) { setDraftedFor(null); return; }
+    setDraftedFor({
+      key: `${entityId}|${personId}`,
+      label: person ? `${person.full_name} (${entity?.name ?? ''})` : (entity?.name ?? ''),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content]);
+
+  const staleDraft = draftedFor && content.trim().length > 0 && draftedFor.key !== `${entityId}|${personId}`
+    ? draftedFor : null;
 
   async function draftWithAi() {
     if (!person || !entity) return;
@@ -214,6 +230,23 @@ function LogForm() {
             </div>
           )}
 
+          {staleDraft && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 px-3 py-2">
+              <span className="flex-1 text-sm font-medium text-amber-900">
+                Este rascunho foi composto para {staleDraft.label} — atualiza ou regenera antes de usar.
+              </span>
+              {direction === 'out' && person && (
+                <button disabled={composing} onClick={draftWithAi}
+                  className="rounded border border-amber-500 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-40">
+                  {composing ? 'Regenerando…' : '↻ Regenerar'}
+                </button>
+              )}
+              <button onClick={() => setContent('')}
+                className="rounded border border-amber-500 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100">
+                Limpar
+              </button>
+            </div>
+          )}
           {direction === 'out' && channel === 'email' && (
             <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject"
               className="mt-3 w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />

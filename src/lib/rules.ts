@@ -61,17 +61,22 @@ export function preflight(db: Db, person: Person, channel: Channel | null, now =
     overridable: true,
   });
 
-  // 5. seniority order
+  // 5. seniority order — never approach a junior contact while a more
+  // senior one at the same fund is still unresolved. "Unresolved" covers
+  // both not-yet-contacted (approach them first) and contacted-with-no-
+  // reply (don't spray in parallel); only an actual reply (any
+  // classification, including a pass) resolves a senior and clears the
+  // way for the junior.
   let seniorityOk = true; let seniorityReason: string | undefined;
   if (person.seniority_rank > 1 && entity) {
-    const seniors = db.people.filter((p) => p.entity_id === entity.id && p.seniority_rank < person.seniority_rank);
-    const seniorReplied = seniors.some((s) =>
-      db.interactions.some((i) => i.person_id === s.id && i.direction === 'in'));
-    const seniorContacted = seniors.some((s) =>
-      db.interactions.some((i) => i.person_id === s.id && i.direction === 'out'));
-    if (seniorContacted && !seniorReplied) {
+    const seniors = db.people.filter((p) => p.entity_id === entity.id && p.seniority_rank < person.seniority_rank && !p.do_not_contact);
+    const unresolved = seniors.filter((s) => !db.interactions.some((i) => i.person_id === s.id && i.direction === 'in'));
+    if (unresolved.length > 0) {
       seniorityOk = false;
-      seniorityReason = 'A more senior contact at this fund has not replied yet — parallel approaches read as spraying.';
+      const anyContacted = unresolved.some((s) => db.interactions.some((i) => i.person_id === s.id && i.direction === 'out'));
+      seniorityReason = anyContacted
+        ? 'A more senior contact at this fund has not replied yet — parallel approaches read as spraying.'
+        : `${unresolved[0].full_name} (rank ${unresolved[0].seniority_rank}) hasn't been approached yet — respect seniority order.`;
     }
   }
   checks.push({ key: 'seniority', label: 'Seniority order respected', ok: seniorityOk, reason: seniorityReason, overridable: true });

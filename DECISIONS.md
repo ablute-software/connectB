@@ -693,3 +693,50 @@ task it is. `task_kind` is untouched; both axes coexist.
    UI needs to read `reopen_trigger`; no backend change needed since
    `select('*')` + the generic `fromRow<Entity>()` mapper already carried
    them, just untyped.
+
+## Composer feedback round: seniority bug, stale-draft warning, tests
+
+Feedback from a production run of the composer surfaced two issues and one
+confirmation:
+
+1. **Seniority pre-flight bug, confirmed and fixed.** `preflight()`'s
+   seniority check only failed when a more senior contact had been
+   *outbound-contacted but not replied* — it never considered a senior who
+   hadn't been contacted at all, so approaching Alberto Gomez (rank 2) at
+   Adara Ventures while Rocio Pillado (rank 1) was still `not_contacted`
+   incorrectly showed ✓. Fixed in `rules.ts`: the check now blocks whenever
+   any non-`do_not_contact` senior lacks an inbound reply, regardless of
+   whether they were ever contacted — "unresolved" covers both
+   not-yet-approached and contacted-with-no-reply; only an actual reply
+   (any classification, including a pass) clears the way for the junior.
+   Confirmed against the live seed data too: Yahel Halamish (rank 3, Nina
+   Capital) now correctly shows ✗ against Dr. Marta G. Zanchi (rank 1,
+   never approached).
+2. **Test infrastructure added.** The repo had zero automated tests.
+   `rules.ts` encodes the outreach-discipline rules the whole product is
+   built around (per this file's own CLAUDE.md framing) — worth protecting
+   with real regression tests rather than only interactive/manual
+   verification. Added `vitest` (minimal devDependency, `npm test`) and
+   `src/lib/rules.test.ts` covering the seniority check: the exact reported
+   case (never-contacted senior → blocked), the pre-existing
+   contacted-no-reply case, the resolved-by-reply case, the
+   do_not_contact-senior-is-ignored case, and the most-senior-contact
+   case (never triggered). Scoped to this one check, not a general test
+   suite build-out — not asked for, and `rules.ts`'s other functions
+   weren't implicated in the report.
+3. **Stale-draft warning, added to `/log`.** When the founder switches the
+   selected entity or person while the message textarea still holds
+   content composed for the previous selection, a highlighted banner now
+   reads "Este rascunho foi composto para [nome anterior] — atualiza ou
+   regenera antes de usar" with Regenerar (re-runs the AI draft for the
+   new selection) and Limpar buttons. Implemented via a `draftedFor` stamp
+   that re-captures the current entity/person whenever `content` itself
+   changes (typed or AI-drafted) — a mismatch between that stamp and the
+   live selection is what triggers the banner. Deliberately does not
+   auto-clear or auto-block Save on its own (unlike the reopen-doctrine
+   gate above) — the request asked for a prominent warning with a way to
+   act on it, not a hard stop; the founder can still knowingly save a
+   cross-referenced or reused message if that's genuinely intended.
+4. **Action-type feature confirmed working in production** (migration
+   0019 applied) — the held commit from the prior session was pushed with
+   no further changes needed.
