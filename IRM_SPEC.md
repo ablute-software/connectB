@@ -106,7 +106,64 @@ An investor can **claim their own public profile** and exercise data-subject rig
 - **GDPR request queue**: rectification/erasure requests route to the back-office **and notify every org** whose overlay/derived data is affected; keep an auditable log. Erasure must cascade to public catalog + org overlays as required by law.
 - New tables: `profile_claims(person_id, claimant_user_id, linkedin_payload jsonb, match_score, status, created_at)`, `gdpr_requests(person_id, claimant_user_id, kind ['rectify'|'erase'], details, status, created_at, resolved_at)`.
 
-## 6. Priority mapping (into NEXT_STEPS phases)
+## 6. Back-office console — the developer role is NOT a founder
+
+The developer persona **does not do outreach**, so the founder's pipeline/agenda/today make no
+sense there. The back-office is an *operator console* with its own queue + deadlines:
+
+- **Curation queue (the developer's "pipeline")**: investor submissions, field-level
+  contributions aggregated across orgs (§1b), profile claims (§5), GDPR requests. States:
+  pending → in review → verified/rejected → promoted to public catalog.
+- **Ops "Today" (the developer's "agenda")**: GDPR requests approaching the **30-day legal
+  deadline** (hard SLA), submissions stalled >7 days, failed automation runs. This is the
+  back-office landing screen.
+- **Catalog management**: edit public entities/people, **merge duplicates** (same person
+  submitted by several startups under different spellings — will happen constantly), compose
+  packs, data-quality panel (% profiles with email / thesis / check size filled).
+- **Tenants**: list of orgs, activity (last login, interactions/week), active vs. churned,
+  later billing status.
+- **Platform metrics**: signups, active orgs, contributions/week, pack unlocks, revenue.
+
+**Dual-role UX (Nuno is founder AND developer):** never mix the two views — risk of editing
+the public catalog thinking you're in the private ablute_ overlay. Use a **context switcher**
+in the shell: "ablute_ (founder)" ↔ "Back-office (platform)", each with its own nav. In
+back-office mode the founder nav (pipeline/agenda/today) is hidden; nav becomes
+**Queue · Catalog · Startups · Metrics**.
+
+## 6b. Data enrichment & completeness (founder feedback, 22 Jul — the "why is David Alves missing his LinkedIn?" problem)
+
+Context: catalog data was **seeded manually**; there is no engine fetching anything from the web.
+A profile like David Alves (COREangels Porto) shows "LinkedIn ?" / "No email" while a 10-second
+LinkedIn search finds him — because nobody typed it in. Fix this as a *workflow*, not blind scraping:
+
+### 6b-1. Completeness score
+Per catalog person/entity, a weighted score: person → linkedin_url, email, role, affiliations,
+preferences/thesis; entity → website, contact email, thesis, check size, stage range, portfolio.
+Show the % in back-office and (subtly) on founder-facing profiles.
+
+### 6b-2. Enrichment queue (back-office)
+- Profiles below a threshold (~70%) enter an **enrichment queue** in `/backoffice`.
+- **Ranked by demand**: nº of orgs with that entity in an active pipeline (stage-weighted), plus
+  explicit founder requests. An incomplete profile 5 startups are chasing outranks one nobody contacts.
+- Founder-side: a **"Request more info"** action on incomplete profiles → drops into the queue,
+  increments demand. Founders tell the platform where curation effort pays.
+
+### 6b-3. AI-assisted research (human-in-the-loop, reuses §1b)
+- Back-office "Research with AI" button on a queued profile → server route (Anthropic API +
+  web search) searches **public web only** (fund sites, news, interviews, podcasts, portfolio pages)
+  and returns **proposed fields, each with source URL + confidence**.
+- The AI is just another contributor: proposals land as `contributions` with `author = system/ai`,
+  go through the **same verify-then-promote flow** as startup contributions (§1b). Never auto-publish.
+- **LinkedIn: store the URL only** (found/confirmed manually). No scraping — ToS violation.
+  The §5 self-claim flow is the long-term highest-quality source (the investor validates their own data).
+
+### 6b-4. GDPR / provenance
+Enriching person profiles from public sources is still personal-data processing: log
+`source_url + retrieved_at + verified_by` per field (provenance), keep it auditable, and wire it
+to §5 rectification/erasure. B2B professional context = defensible legitimate interest, but only
+with the provenance log.
+
+## 7. Priority mapping (into NEXT_STEPS phases)
 
 - **Phase 1** (data → Supabase) is the prerequisite for everything here.
 - **Phase 2** onboarding — fold in §1c person model if convenient.
@@ -114,6 +171,10 @@ An investor can **claim their own public profile** and exercise data-subject rig
 - **New Phase 3.6 "Entity & person profiles"**: §2 + §3.
 - **New Phase 3.7 "Interaction roadmap"**: §4 — high founder value; can start on top of the existing `interactions` model even before full catalog work.
 - **New Phase 6.5 "Investor self-claim + GDPR"**: §5 (needs LinkedIn OAuth + back-office).
+- **Back-office console (§6)**: grows with each phase — the curation queue lands with Phase 3.5
+  (contributions), the GDPR/claims queues with Phase 6.5; the context switcher can come earlier.
+- **Enrichment (§6b)**: completeness score + queue land with Phase 3.5 (they ride on `contributions`);
+  the AI research button lands with Phase 6 (Anthropic API); "Request more info" is a small add-on to §2/§3.
 - **Phase 0.5 quick win**: the CRM→IRM rename (§0) — mechanical, do anytime.
 
 Order suggestion once Phase 1 is done: **§4 roadmap** and **§2/§3 profiles** first (they deliver
