@@ -5,6 +5,7 @@
 // the extraction shape is intentionally loose (jsonb) until real example
 // files arrive to tune the field mapping.
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card } from '@/components/ui';
@@ -119,6 +120,10 @@ export default function ImportPage() {
         Upload spreadsheets or notes of past investor outreach. AI extracts people, funds, and interactions — you
         review and approve every item before anything lands in the pipeline. Only .txt/.csv today; export other
         formats to plain text or CSV for now.
+      </p>
+      <p className="text-xs text-gray-400">
+        Already have a structured pack matching the entities.csv/people.csv/interactions.csv shape?{' '}
+        <Link href="/import/structured" className="text-[#0E7490] hover:underline">Use the structured import (§9b)</Link> — no AI extraction needed.
       </p>
 
       <Card title="Upload a file">

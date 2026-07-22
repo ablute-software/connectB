@@ -76,6 +76,8 @@ export interface Entity {
   check_min_eur?: number;
   check_max_eur?: number;
   sectors: string[];
+  hardware_stance?: string;
+  is_sector_agnostic?: boolean;
   thesis?: string;
   fit_score?: FitScore;
   wave?: number;
@@ -91,6 +93,8 @@ export interface Entity {
   status: EntityStatus;
   dormant_since?: string;
   dormant_reason?: string;
+  last_verified?: string; // ISO
+  source_url?: string;
 }
 
 export interface Person {
@@ -139,6 +143,13 @@ export interface PersonAffiliation {
   current: boolean;
   started_at?: string;
   ended_at?: string;
+  // IRM_SPEC §9b-4 — approach order lives per-affiliation now, not just on
+  // the person's base entity_id: seniority_rank orders multiple people at
+  // the same affiliation; is_primary flags which affiliation should
+  // actually drive outreach when it differs from the base entity_id.
+  seniority_rank?: number;
+  is_primary?: boolean;
+  notes?: string;
 }
 
 export interface Interaction {

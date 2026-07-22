@@ -391,3 +391,62 @@ Reversible; flag if any should change.
   Startups/Métricas was NOT done — no test credentials available in this
   session — so treat the new UI as build-verified and logically reviewed,
   not click-tested end-to-end.
+
+## §9b structured import (real files: entities.csv/people.csv/interactions.csv)
+
+- **A dedicated importer, not a retrofit of the generic §9 one.** The
+  generic `/import` flow (AI-extraction into a loose jsonb blob) exists for
+  *unknown*-shaped files; this pack has a known, rich, authoritative
+  schema, so `src/lib/structured-import.ts` parses and matches it
+  deterministically — no LLM call, fully reproducible. Lives at
+  `/import/structured`, linked from the generic `/import` page.
+- **Entity matching found a real false positive during its own dry-run,
+  fixed before this ever reached the founder**: a loose "one normalized
+  name contains the other" tier proposed "Investors Portugal" (new, an
+  angel network) as a match for the EXISTING "Portugal Ventures" (an
+  unrelated VC fund already invested) — both normalize to contain the bare
+  word "portugal". Fixed by requiring the shorter name to be ≥60% the
+  length of the longer one before containment counts at all (see
+  `MIN_CONTAINMENT_RATIO` in structured-import.ts) — re-ran the dry-run
+  against the live ablute_ org data afterward and confirmed it disappeared
+  with no loss of the real matches (Bynd VC/Bynd Venture Capital and
+  Speedinvest/Speedinvest Health both match via website domain anyway, not
+  containment). This is exactly why a dry-run step exists before commit.
+- **`status`/`hard_filter_status` are treated as "not asserted" when they
+  hold their table default** (`not_contacted`/`not_applicable`) **on either
+  side of a merge** — a fresh seed row's default isn't a founder-asserted
+  fact, so the CSV's real, documented value (e.g. Bynd: `passed` /
+  `resolved_blocked`, backed by three recorded email passes) fills it
+  without being flagged as a conflict. If BOTH sides hold a real
+  (non-default) value that differs, that's still a genuine conflict, left
+  for review — this only relaxes the rule for placeholder defaults.
+- **Conflicts become `contributions` rows** (source='user', one per
+  conflicting field) on commit, reusing the existing back-office Fila →
+  Contributions queue instead of a bespoke "conflict inbox" — matches how
+  the rest of the product already models "a fact someone should verify."
+- **The two §9b-4 affiliation upgrades (Lurdes Gramaxo, Antonio Murta) are
+  hard-coded by name**, not derived by parsing free-text backgrounds
+  generically. The annex names these exact people as required test cases;
+  a general "infer affiliations from prose" heuristic would be fragile
+  and speculative for data that isn't there yet. Lurdes gets 2 additional
+  `person_affiliations` rows beyond her base `entity_id` (Bynd): Investors
+  Portugal (is_primary, the note "approach only as President...") and APBA
+  (independent, entity_id null — APBA isn't in entities.csv, so no entity
+  is invented for it). Antonio Murta gets 1: a new derived entity "Pathena
+  Family Office" (not in entities.csv, invented from his own bio in
+  people.csv notes) with an `angel`-kind, is_primary affiliation. Future
+  real files would need a person to add affiliations manually via the
+  existing AffiliationsCard unless a future annex names new required cases.
+  Nuno Sousa (also under Pathena, "approach as clinical validator") gets no
+  extra affiliation — the acceptance tests don't require one, and inventing
+  an entity for "clinical validator" would be speculative.
+- **Interaction idempotency** matches on (org, entity, occurred_at date,
+  direction, channel, exact content) — re-submitting the same plan a second
+  time re-detects all 8 Bynd/Crista-Galli interactions as duplicates and
+  imports nothing new. Verified by design/algorithm inspection against the
+  live dry-run output; a literal second-pass-after-commit re-run happens
+  once the founder approves the actual commit.
+- **Ran the dry-run against live ablute_ production data** (read-only —
+  fetched existing entities/people/interactions via service role, computed
+  the plan, wrote nothing) to produce the staging preview. Did NOT commit —
+  waiting on explicit approval per instruction.
