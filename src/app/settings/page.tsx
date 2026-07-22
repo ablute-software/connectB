@@ -13,6 +13,7 @@ function TeamCard({ orgId }: { orgId: string }) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('member');
   const [link, setLink] = useState('');
+  const [emailed, setEmailed] = useState(false);
   const [err, setErr] = useState('');
 
   function refresh() {
@@ -27,13 +28,23 @@ function TeamCard({ orgId }: { orgId: string }) {
   }, [orgId]);
 
   async function sendInvite() {
-    setErr(''); setLink('');
+    setErr(''); setLink(''); setEmailed(false);
     const { data, error } = await browserClient().from('org_invitations')
       .insert({ org_id: orgId, email, role }).select('token').single();
     if (error) { setErr(error.message); return; }
     setLink(`${window.location.origin}/invite/${data.token}`);
     setEmail('');
     refresh();
+    // Best-effort: sends a real email if RESEND_API_KEY is configured; the
+    // copyable link above always works regardless, so a failure here is silent.
+    try {
+      const res = await fetch('/api/invite/send-email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: data.token }),
+      });
+      const body = await res.json();
+      if (body.sent) setEmailed(true);
+    } catch { /* keep the copyable link path — nothing to show the user */ }
   }
 
   async function revoke(id: string) {
@@ -65,7 +76,9 @@ function TeamCard({ orgId }: { orgId: string }) {
       {err && <p className="mb-2 text-xs text-[#B00000]">{err}</p>}
       {link && (
         <div className="mb-4 rounded-lg border border-cyan-200 bg-[#E8F4F8] px-3 py-2 text-xs text-cyan-900">
-          Invite link — copy and send by hand (email sending lands in Phase 5):
+          {emailed
+            ? 'Invite email sent. Link also below in case it lands in spam:'
+            : 'Invite link — copy and send by hand (email sending needs RESEND_API_KEY configured):'}
           <div className="mt-1 break-all font-mono">{link}</div>
         </div>
       )}
