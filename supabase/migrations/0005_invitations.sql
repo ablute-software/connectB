@@ -2,6 +2,16 @@
 -- Extends org_role with admin/manager and adds the invite queue. Email
 -- sending is stubbed (Phase 5 doesn't exist yet) — the invite link is
 -- generated and shown for the inviter to copy/send by hand.
+--
+-- IMPORTANT — apply in two transactions: Postgres won't let a newly added
+-- enum value be *used* (e.g. in a policy's `role in (...)` check, or any
+-- row referencing it) within the same transaction that added it via
+-- `alter type ... add value`. Run the two `alter type` statements below on
+-- their own first (commit), then run the rest of this file (the table +
+-- policies, which reference 'admin') as a second transaction. If your
+-- migration runner wraps the whole file in one transaction automatically,
+-- split it into two files/statements instead — confirmed live 22 Jul 2026
+-- against the production project (wkjcaoqdvhykrfacsylr).
 
 alter type org_role add value if not exists 'admin';
 alter type org_role add value if not exists 'manager';
