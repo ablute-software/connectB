@@ -14,6 +14,7 @@ const NAV: { href: string; label: string; icon: string; section?: string }[] = [
   { href: '/agenda', label: 'Agenda', icon: '▦' },
   { href: '/dashboard', label: 'Dashboard', icon: '◔' },
   { href: '/documents', label: 'Data Room', icon: '▣', section: 'Sharing' },
+  { href: '/import', label: 'Import history', icon: '⇪' },
   { href: '/packs', label: 'Packs', icon: '◈', section: 'Growth' },
   { href: '/outbox', label: 'Outbox', icon: '✉', section: 'Automation' },
   { href: '/automations', label: 'Automations', icon: '⚙' },

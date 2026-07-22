@@ -196,3 +196,43 @@ Reversible; flag if any should change.
   rather than an error. Not yet live-tested against a real ANTHROPIC_API_KEY
   (empty locally) — worth a real run once a key is available locally, in
   case the web-search tool's exact behavior needs adjustment.
+
+## §9 interaction history import
+
+- **Only .txt/.csv parse for now — no xlsx/docx.** Tried adding the `xlsx`
+  npm package (SheetJS) for spreadsheet support; `npm audit` flagged it with
+  two unpatched high-severity CVEs (prototype pollution, ReDoS) with no fix
+  available via npm. Removed it rather than ship a known-vulnerable parser.
+  Founders can export to CSV/plain text as a workaround until a safer
+  library (or SheetJS's non-npm patched CDN build) is evaluated — which
+  should happen once the two real example files land anyway, since they'll
+  determine what's actually needed.
+- **Extraction schema stays a loose jsonb blob** (`import_batches.extraction`),
+  not rigid per-item tables — per instruction, the field mapping isn't
+  finalized until real example files arrive, so reshaping it later shouldn't
+  need another migration.
+- **File text is truncated to 20k characters** before hitting the Anthropic
+  API (token-budget guard). Chunking/summarizing longer files is a future
+  enhancement once real file sizes are known.
+- **Entity type always defaults to `'vc'` for new entities.** Nothing in a
+  history file reliably signals angel_fund vs corporate_vc vs accelerator;
+  `'vc'` is the most common case and the founder can correct it after import
+  (same as any other entity field).
+- **Reconciliation is single-org, session-scoped by design** — the commit
+  route runs as the founder's own session (not service role), so RLS alone
+  guarantees it can only read/write their own org's entities/people. New
+  entities also get an `investor_submissions` row (reusing the existing
+  pack/catalog review flow) so back-office sees them; new people get a
+  `contributions` row tagged `__import_new_person__` (same reuse pattern as
+  the enrichment "Request more info" signal) instead of inventing a parallel
+  table for one boolean signal.
+- **Name matching is simple normalized-string equality**, not real fuzzy
+  matching (no fuzzy-match library added) — email-exact match is tried
+  first per the spec's own priority order, name match is the fallback. Good
+  enough to flag likely dupes for the founder to confirm/override in
+  staging; a proper fuzzy algorithm is a follow-up if false-negatives turn
+  out to be common in practice.
+- **Post-import stage/status derivation is a simple heuristic** (meeting
+  channel present → diligence/meeting stage; any inbound → in_conversation/
+  engaged; else contacted) — matches the spirit of §9e without trying to
+  replicate every nuance of manual classification.
