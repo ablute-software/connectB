@@ -163,7 +163,94 @@ Enriching person profiles from public sources is still personal-data processing:
 to §5 rectification/erasure. B2B professional context = defensible legitimate interest, but only
 with the provenance log.
 
-## 7. Priority mapping (into NEXT_STEPS phases)
+## 8. AI OUTREACH COMPOSER — the app's most important feature (founder feedback, 22 Jul)
+
+The founder gets **AI-suggested outreach text** (first contact or follow-up) composed from full
+context, pre-filled into the send fields, **always confirmed by the founder before anything goes
+out**. Composition uses the **Anthropic API** (same `ANTHROPIC_API_KEY` as Phase 6).
+
+### 8a. Context builder
+Assemble, per (org, entity, person): startup profile (name, sector, stage, round target, one-liner,
+traction), investor context (entity thesis/check size, person preferences, hooks, kill words,
+watch-outs), relationship state (§4: stage, whose turn, days waiting, full prior thread), and
+`rules.ts` constraints (channel caps, lock state, LinkedIn 900-char limit). This context JSON is
+the composer's input — it's what makes output specific, not generic.
+
+### 8b. Compose endpoint
+Server route → Claude API with the context + a prompt library keyed by (channel, stage, intent:
+first-touch / follow-up / reply / meeting-ask). Returns **structured output**: channel, subject
+(email), body, rationale (which hooks were used), confidence. Every draft is passed through
+`lintMessage()` **server-side before display**; failing drafts are regenerated or flagged.
+
+### 8c. Review & confirm UI
+Draft lands **in the send fields** (not auto-sent): founder reads, edits inline, sees lint/preflight
+banners live. Send button only enables when `preflight()` passes. Editing is tracked (AI draft vs
+founder final) for learning what the founder changes.
+
+### 8d. Channel pairing & dispatch
+- **Email — real send from the founder's mailbox**: OAuth pairing (Gmail API / Microsoft Graph
+  "send-as"), fallback SMTP. Sent from the founder's own address, reply-to intact. Store only OAuth
+  tokens (encrypted, per org_member), never passwords.
+- **LinkedIn — NO auto-send** (no messaging API; automation violates ToS and risks the founder's
+  account). Flow: **"Copy + open profile"** button → founder pastes & sends in LinkedIn → one-click
+  "mark as sent" logs it. Same for other channels without APIs.
+- Channel picker uses the person's/entity's known contacts (§2/§3); missing contact → prompt to add
+  (contribution flow §1a).
+
+### 8e. Logging & discipline
+Every dispatch (or confirmed manual send) is written as an `interaction` (`ai_generated: true`,
+`message_ref` to the final text) → appears in the §4 thread, counts toward daily/weekly caps,
+starts the awaiting-reply clock. **The AI never sends autonomously; nothing bypasses rules.ts.**
+
+### 8f. Sub-tasks (build order)
+1. Context builder (needs Phase 1 data) → 2. compose endpoint + prompt library → 3. review UI in
+the entity/person page + Outbox → 4. interaction logging (§8e) → 5. email OAuth pairing (with
+Phase 5) → 6. LinkedIn copy-assist. Ship 1–4 first (draft-only mode is already high-value); pairing
+comes after.
+
+## 9. INTERACTION HISTORY IMPORT (founder feedback, 22 Jul)
+
+Founders arrive with **manually-kept records** (spreadsheets, docs, notes) of past investor
+interactions. The app must import them, extract structure, and fold them into the IRM.
+*(Two example files from Nuno pending — refine field mapping in a §9 annex when they land.)*
+
+### 9a. Upload & formats
+Accept xlsx/csv/docx/txt (later .eml/.mbox). Files stored per org (Supabase Storage, Phase 4
+bucket); parsing is async with progress.
+
+### 9b. AI extraction
+Claude API with **structured output schema**: `people[]` (name, role, phones, emails, linkedin),
+`entities[]` (name, site, emails), `interactions[]` (date, channel, direction, person/entity,
+summary, outcome, followup markers), each with a **confidence score**. Low-confidence items →
+**confirmation prompts** ("Is 'David' David Alves @ COREangels Porto?"). Never silently guess
+identities.
+
+### 9c. Reconciliation vs catalog
+Match extracted people/entities against the catalog: email exact > LinkedIn URL > fuzzy name+company.
+- **Matched** → link imported interactions to the existing record.
+- **Unmatched** → create an **org-private** record AND queue a contribution to the **back-office
+  merge/integration queue** (§6): the developer decides new-catalog-entry vs merge-with-existing
+  (dedup, §6 Catalog management).
+
+### 9d. Staging review (nothing lands unreviewed)
+Import produces a **staging diff**: N people (X matched, Y new), M interactions on a preview
+timeline, conflicts flagged. Founder approves/edits/discards per item; only then is it committed
+(interactions stamped `source: import`, file provenance kept).
+
+### 9e. Post-import analysis → plan
+After commit, the app analyses each imported relationship:
+- rebuild the §4 timeline & stage (heuristics: reply → Engaged, meeting language → Meeting…);
+- compute pending state: whose turn, days waiting, overdue follow-ups, lock status per `rules.ts`
+  ("contactable now" vs "locked / not this phase");
+- propose **pipeline placement** (wave, priority) + next-best-action per §4d — founder confirms
+  before it enters the pipeline.
+
+### 9f. GDPR note
+Imported personal data = org-private overlay (lawful basis: the org's own records). It reaches the
+public catalog **only** through back-office verification (§1b), and provenance (source file, import
+date) is kept per field.
+
+## 10. Priority mapping (into NEXT_STEPS phases)
 
 - **Phase 1** (data → Supabase) is the prerequisite for everything here.
 - **Phase 2** onboarding — fold in §1c person model if convenient.
@@ -175,7 +262,14 @@ with the provenance log.
   (contributions), the GDPR/claims queues with Phase 6.5; the context switcher can come earlier.
 - **Enrichment (§6b)**: completeness score + queue land with Phase 3.5 (they ride on `contributions`);
   the AI research button lands with Phase 6 (Anthropic API); "Request more info" is a small add-on to §2/§3.
+- **New Phase 5.5 "AI outreach composer"**: §8 — draft-only mode (8a–8c + 8e) needs Phase 1 + §4;
+  email pairing (8d) rides on Phase 5; Anthropic API shared with Phase 6. **Highest founder value
+  after the §4 roadmap.**
+- **New Phase 5.7 "History import"**: §9 — needs Phase 1, §4 (timeline), §1 contributions
+  (back-office merge queue) and Storage (Phase 4) for the files.
 - **Phase 0.5 quick win**: the CRM→IRM rename (§0) — mechanical, do anytime.
 
 Order suggestion once Phase 1 is done: **§4 roadmap** and **§2/§3 profiles** first (they deliver
-the most day-one founder value), then **§1 contributions + back-office verification**, then **§5**.
+the most day-one founder value), then **§8 composer (draft-only)**, then **§1 contributions +
+back-office verification**, then **§9 import**, then **§5** and §8d channel pairing.
+*(Section numbering note: §7 intentionally unused; priority mapping moved to §10.)*
