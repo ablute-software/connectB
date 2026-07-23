@@ -176,6 +176,15 @@ export default function PipelinePage() {
                       {e.name} {hf && <span title={e.hard_filter} className="text-[#B00000]">⚑</span>}
                     </Link>
                     <RelationshipCompactLine entityId={e.id} />
+                    {/* E2 — a previously-passed/dormant investor that carries a
+                        reopen trigger has resurfaced via the reopen doctrine;
+                        say WHY it's back so the row isn't just a greyed name. */}
+                    {e.reopen_trigger && (e.status === 'dormant' || e.status === 'passed') && (
+                      <div className="mt-0.5 flex items-start gap-1 text-[11px] text-amber-700">
+                        <span title="Reopen doctrine — why this is back in play">↻</span>
+                        <span className="line-clamp-2">{e.reopen_trigger}</span>
+                      </div>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-gray-500">{e.type.replace('_', ' ')}</td>
                   <td className="px-3 py-2 text-gray-500">{e.hq_city ? `${e.hq_city}, ` : ''}{e.hq_country}</td>

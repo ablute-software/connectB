@@ -1,5 +1,6 @@
 'use client';
 // Dashboard — campaign at a glance
+import { useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink, fmtEur } from '@/components/ui';
 import { outboundCounts, passReasonAlert } from '@/lib/rules';
@@ -13,6 +14,7 @@ const STATUS_BAR: Record<EntityStatus, string> = {
 
 export default function DashboardPage() {
   const { db } = useStore();
+  const [openList, setOpenList] = useState<'followups' | 'passes' | null>(null);
   const caps = outboundCounts(db);
   const alert = passReasonAlert(db);
   const active = db.entities.filter((e) => ['in_conversation', 'diligence'].includes(e.status)).length;
@@ -57,11 +59,45 @@ export default function DashboardPage() {
         <Card><div className="text-2xl font-bold">{caps.week}<span className="text-sm font-normal text-gray-400">/{caps.weeklyCap}</span></div>
           <div className="mt-1 h-1.5 rounded bg-gray-100"><div className={`h-full rounded ${caps.week >= caps.weeklyCap - 2 ? 'bg-amber-500' : 'bg-[#0E7490]'}`} style={{ width: `${Math.min(100, caps.week / caps.weeklyCap * 100)}%` }} /></div>
           <div className="text-xs text-gray-500">Sent this week</div></Card>
-        <Card><div className="text-2xl font-bold">{followupsDue.length}</div>
-          <div className="text-xs text-gray-500">Follow-ups due next 7 days</div></Card>
-        <Card><div className="text-2xl font-bold">{passes.length}</div>
-          <div className="text-xs text-gray-500">Passes (with reasons)</div></Card>
+        <button onClick={() => setOpenList(openList === 'followups' ? null : 'followups')} className="text-left">
+          <Card><div className="text-2xl font-bold">{followupsDue.length}</div>
+            <div className="text-xs text-gray-500">Follow-ups due next 7 days <span className="text-[#0E7490]">— {openList === 'followups' ? 'hide' : 'view'}</span></div></Card>
+        </button>
+        <button onClick={() => setOpenList(openList === 'passes' ? null : 'passes')} className="text-left">
+          <Card><div className="text-2xl font-bold">{passes.length}</div>
+            <div className="text-xs text-gray-500">Passes (with reasons) <span className="text-[#0E7490]">— {openList === 'passes' ? 'hide' : 'view'}</span></div></Card>
+        </button>
       </div>
+
+      {openList === 'followups' && (
+        <Card title="Follow-ups due next 7 days">
+          {followupsDue.length === 0 ? <p className="text-sm text-gray-400">None in the next 7 days.</p> : (
+            <ul className="space-y-1.5 text-sm">
+              {followupsDue.map((t) => (
+                <li key={t.id} className="flex justify-between gap-2">
+                  <span>{t.title} {t.entity_id && <EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink>}</span>
+                  <span className="text-xs text-gray-400">{t.due_at?.slice(0, 10)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+      {openList === 'passes' && (
+        <Card title="Passes — investor + reason">
+          {passes.length === 0 ? <p className="text-sm text-gray-400">No passes yet.</p> : (
+            <ul className="space-y-1.5 text-sm">
+              {passes.map((p) => (
+                <li key={p.id}>
+                  {p.entity_id && <EntityLink id={p.entity_id}><span className="font-medium">{db.entities.find((e) => e.id === p.entity_id)?.name}</span></EntityLink>}
+                  {p.pass_reason_category && <span className="ml-1.5 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">{p.pass_reason_category.replace('_', ' ')}</span>}
+                  {p.pass_reason && <span className="block text-xs text-gray-500">“{p.pass_reason}”</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card title="Round progress" tint="blue">
