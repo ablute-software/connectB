@@ -7,12 +7,14 @@ import { NextResponse } from 'next/server';
 import { serverClient, resolveRole, getOrgRole, authEnabled } from '@/lib/supabase-server';
 import { companyCanonAvailable } from '@/lib/company-canon';
 import { needsReviewAiAvailable } from '@/lib/needs-review-ai';
+import { documentDetailsAvailable } from '@/lib/data-room-capability';
 
 export async function GET() {
   const capabilities = {
     ai: !!process.env.ANTHROPIC_API_KEY,
     companyCanon: await companyCanonAvailable(),
     needsReviewAi: await needsReviewAiAvailable(),
+    documentDetails: await documentDetailsAvailable(),
   };
   if (!authEnabled) return NextResponse.json({ authEnabled: false, user: null, role: 'none', capabilities });
   const sb = await serverClient();

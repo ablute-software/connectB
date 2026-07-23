@@ -259,6 +259,9 @@ export interface DocumentItem {
   downloadable: boolean;
   notes?: string;
   created_at?: string; // ISO — real DB column (migration 0001) since day one, only just surfaced in the type
+  // Data Room V2 (F1) — what it contains, version, who it was prepared for.
+  // Migration 0022, capability-gated: src/lib/data-room-capability.ts.
+  details?: string;
 }
 
 export interface AccessGrant {

@@ -6,7 +6,7 @@
 import { createContext, useContext } from 'react';
 import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, Db,
-  DocumentItem, Entity, Interaction, InvestorSubmission, OverrideRule,
+  DocumentItem, Entity, FolderKind, Interaction, InvestorSubmission, OverrideRule,
   PassReasonCategory, PersonAffiliation, RelationshipStage, TaskItem,
 } from './types';
 
@@ -71,6 +71,21 @@ export interface StoreApi {
   resolveHardFilter: (id: string, status: 'resolved_ok' | 'resolved_blocked') => void;
   setDoNotContact: (personId: string) => void;
   addDocument: (d: Omit<DocumentItem, 'id'>) => void;
+  // Data Room V2 (F1): removes the Storage object (when storage_path is
+  // set) and the documents row. Irreversible — the UI must confirm before
+  // calling this. Any access_grants scoped to this document are cleaned up
+  // by the DB's own cascade (documents(id) on delete cascade), not here.
+  deleteDocument: (id: string) => void;
+  renameDocument: (id: string, name: string) => void;
+  // Capability-gated on capabilities.documentDetails (migration 0022).
+  updateDocumentDetails: (id: string, details: string) => void;
+  // Data Room V2 (F3) — org-scoped folder management. createFolder appends
+  // at the end of its new siblings; deleteFolder throws (caught by the UI)
+  // if the folder still has children and moveContentsToParent is false —
+  // the founder chooses explicitly rather than a silent cascade delete.
+  createFolder: (name: string, parentId: string | undefined, kind: FolderKind) => void;
+  renameFolder: (id: string, name: string) => void;
+  deleteFolder: (id: string, moveContentsToParent: boolean) => void;
   addGrant: (g: Omit<AccessGrant, 'id' | 'granted_at'>) => void;
   revokeGrant: (id: string) => void;
   // Records a document view — used by the real portal flow (both live

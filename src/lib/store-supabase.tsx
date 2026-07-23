@@ -10,7 +10,7 @@ import { browserClient } from './supabase';
 import { StoreCtx, type StoreApi, type LogInput } from './store-context';
 import type {
   AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, CompanyFact, Db, DocumentItem,
-  DocumentView, Entity, EntityStatus, Folder, Interaction, InvestorSubmission, MessageTemplate,
+  DocumentView, Entity, EntityStatus, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview,
 } from './types';
@@ -522,6 +522,72 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       commit({ ...prev, documents: [...prev.documents, row] });
       const o = orgIdRef.current;
       if (o) persist(sb.from('documents').insert({ ...row, org_id: o }), 'addDocument');
+    },
+
+    deleteDocument(id: string) {
+      const prev = dbRef.current;
+      const doc = prev.documents.find((d) => d.id === id);
+      if (!doc) return;
+      commit({ ...prev, documents: prev.documents.filter((d) => d.id !== id) });
+      // access_grants scoped to this document are cleaned up by the DB's
+      // own cascade (documents(id) on delete cascade) — nothing to do here.
+      if (doc.storage_path) persist(sb.storage.from('data-room').remove([doc.storage_path]), 'deleteDocument:storage');
+      persist(sb.from('documents').delete().eq('id', id), 'deleteDocument:row');
+    },
+
+    renameDocument(id: string, name: string) {
+      const prev = dbRef.current;
+      commit({ ...prev, documents: prev.documents.map((d) => d.id === id ? { ...d, name } : d) });
+      if (orgIdRef.current) persist(sb.from('documents').update({ name }).eq('id', id), 'renameDocument');
+    },
+
+    updateDocumentDetails(id: string, details: string) {
+      const prev = dbRef.current;
+      commit({ ...prev, documents: prev.documents.map((d) => d.id === id ? { ...d, details } : d) });
+      if (orgIdRef.current) persist(sb.from('documents').update({ details }).eq('id', id), 'updateDocumentDetails');
+    },
+
+    createFolder(name: string, parentId: string | undefined, kind: FolderKind) {
+      const prev = dbRef.current;
+      const siblings = prev.folders.filter((f) => f.parent_id === parentId);
+      const position = siblings.length ? Math.max(...siblings.map((f) => f.position)) + 1 : 0;
+      const folder: Folder = { id: uuid(), name, parent_id: parentId, kind, position };
+      commit({ ...prev, folders: [...prev.folders, folder] });
+      const o = orgIdRef.current;
+      if (o) persist(sb.from('folders').insert({ ...folder, org_id: o }), 'createFolder');
+    },
+
+    renameFolder(id: string, name: string) {
+      const prev = dbRef.current;
+      commit({ ...prev, folders: prev.folders.map((f) => f.id === id ? { ...f, name } : f) });
+      if (orgIdRef.current) persist(sb.from('folders').update({ name }).eq('id', id), 'renameFolder');
+    },
+
+    // Reparents children BEFORE deleting the folder row, and awaits those
+    // writes first — the DB's folders(id) on delete cascade would otherwise
+    // race a fire-and-forget delete against the reparent update and could
+    // wipe out real content that was meant to move to the parent instead.
+    deleteFolder(id: string, moveContentsToParent: boolean) {
+      const prev = dbRef.current;
+      const folder = prev.folders.find((f) => f.id === id);
+      if (!folder) return;
+      const childFolders = prev.folders.filter((f) => f.parent_id === id);
+      const childDocs = prev.documents.filter((d) => d.folder_id === id);
+      if (!moveContentsToParent && (childFolders.length > 0 || childDocs.length > 0)) {
+        throw new Error('Folder is not empty — delete its contents first, or choose "move contents to parent".');
+      }
+      commit({
+        ...prev,
+        folders: prev.folders.filter((f) => f.id !== id).map((f) => f.parent_id === id ? { ...f, parent_id: folder.parent_id } : f),
+        documents: prev.documents.map((d) => d.folder_id === id ? { ...d, folder_id: folder.parent_id } : d),
+      });
+      if (!orgIdRef.current) return;
+      (async () => {
+        if (childFolders.length) await sb.from('folders').update({ parent_id: folder.parent_id ?? null }).eq('parent_id', id);
+        if (childDocs.length) await sb.from('documents').update({ folder_id: folder.parent_id ?? null }).eq('folder_id', id);
+        const { error } = await sb.from('folders').delete().eq('id', id);
+        if (error) console.error('[supabase-store] deleteFolder failed:', error.message);
+      })();
     },
 
     addGrant(g: Omit<AccessGrant, 'id' | 'granted_at'>) {

@@ -5,7 +5,7 @@
 // StoreApi contract (locks, follow-up tasks, overrides, runs semantics).
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  AccessGrant, AutomationRun, CompanyFact, Db, Entity, Interaction, Person, PersonAffiliation,
+  AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Person, PersonAffiliation,
 } from './types';
 import { seed } from './data/seed';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
@@ -296,6 +296,44 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({
         ...prev,
         documents: [...prev.documents, { ...d, external_url, id: uid('doc'), created_at: new Date().toISOString() }],
+      }));
+    },
+
+    deleteDocument(id) {
+      setDb((prev) => ({ ...prev, documents: prev.documents.filter((d) => d.id !== id) }));
+    },
+
+    renameDocument(id, name) {
+      setDb((prev) => ({ ...prev, documents: prev.documents.map((d) => d.id === id ? { ...d, name } : d) }));
+    },
+
+    updateDocumentDetails(id, details) {
+      setDb((prev) => ({ ...prev, documents: prev.documents.map((d) => d.id === id ? { ...d, details } : d) }));
+    },
+
+    createFolder(name, parentId, kind) {
+      const siblings = db.folders.filter((f) => f.parent_id === parentId);
+      const position = siblings.length ? Math.max(...siblings.map((f) => f.position)) + 1 : 0;
+      const folder: Folder = { id: uid('fold'), name, parent_id: parentId, kind, position };
+      setDb((prev) => ({ ...prev, folders: [...prev.folders, folder] }));
+    },
+
+    renameFolder(id, name) {
+      setDb((prev) => ({ ...prev, folders: prev.folders.map((f) => f.id === id ? { ...f, name } : f) }));
+    },
+
+    deleteFolder(id, moveContentsToParent) {
+      const folder = db.folders.find((f) => f.id === id);
+      if (!folder) return;
+      const childFolders = db.folders.filter((f) => f.parent_id === id);
+      const childDocs = db.documents.filter((d) => d.folder_id === id);
+      if (!moveContentsToParent && (childFolders.length > 0 || childDocs.length > 0)) {
+        throw new Error('Folder is not empty — delete its contents first, or choose "move contents to parent".');
+      }
+      setDb((prev) => ({
+        ...prev,
+        folders: prev.folders.filter((f) => f.id !== id).map((f) => f.parent_id === id ? { ...f, parent_id: folder.parent_id } : f),
+        documents: prev.documents.map((d) => d.folder_id === id ? { ...d, folder_id: folder.parent_id } : d),
       }));
     },
 
