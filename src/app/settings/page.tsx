@@ -9,6 +9,7 @@ import { ORG_ROLES, ROLE_LABELS, can, canAssignRole, canActOnMember, type OrgRol
 import { OrganisationCard } from '@/components/OrganisationCard';
 import { CompanyFactsPanel } from '@/components/CompanyFactsPanel';
 import { AutomationsPanel } from '@/components/AutomationsPanel';
+import { PermissionsMatrixCard } from '@/components/PermissionsMatrixCard';
 
 type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
 type Member = { userId: string; email: string; role: OrgRole; isSelf: boolean };
@@ -249,6 +250,7 @@ export default function SettingsPage() {
       </Card>
 
       {authEnabled && <TeamCard orgId={db.org.id} />}
+      {authEnabled && <PermissionsMatrixCard />}
       {authEnabled && <Suspense fallback={null}><GmailConnectionCard /></Suspense>}
 
       <Card title="Automations">
