@@ -8,7 +8,7 @@ import type {
   AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation,
 } from './types';
 import { seed } from './data/seed';
-import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
+import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate, buildFollowUpTask } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { STAGE_LABEL, getStage } from './relationship';
 import { StoreCtx, type StoreApi } from './store-context';
@@ -58,16 +58,15 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
 
         if (input.direction === 'out') {
           const lockUntil = new Date(Date.now() + LOCK_DAYS * 24 * 3600 * 1000).toISOString();
-          const due = new Date(Date.now() + LOCK_DAYS * 24 * 3600 * 1000).toISOString();
           const person = prev.people.find((p) => p.id === input.person_id);
+          const entityName = prev.entities.find((e) => e.id === input.entity_id)?.name ?? '';
           next.entities = next.entities.map((e) =>
             e.id === input.entity_id
               ? { ...e, contact_lock_until: lockUntil, status: e.status === 'not_contacted' ? 'contacted' : e.status }
               : e);
           next.tasks = [...next.tasks, {
-            id: uid('t'), kind: 'follow_up', action_type: 'follow_up_no_reply', done: false, due_at: due,
-            title: `Follow up ${person?.full_name ?? ''} (${prev.entities.find((e) => e.id === input.entity_id)?.name ?? ''})`.trim(),
-            entity_id: input.entity_id, person_id: input.person_id,
+            id: uid('t'), done: false,
+            ...buildFollowUpTask(input.entity_id, input.person_id, entityName, person?.full_name, interaction.occurred_at),
           }];
         } else {
           if (input.classification && ['interested', 'meeting_request', 'question'].includes(input.classification)) {

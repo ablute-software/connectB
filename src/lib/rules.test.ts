@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { preflight } from './rules';
+import { buildFollowUpTask, LINKEDIN_NOTE_MAX, LOCK_DAYS, lintMessage, preflight } from './rules';
 import type { Db, Entity, Interaction, Person } from './types';
 
 function makeEntity(overrides: Partial<Entity> & { id: string }): Entity {
@@ -98,5 +98,55 @@ describe('preflight — seniority order', () => {
 
     const check = seniorityCheck(db, rocio);
     expect(check.ok).toBe(true);
+  });
+});
+
+// Founder-feedback batch 2, item 2 — LinkedIn connection-request notes are
+// hard-capped by the platform itself at 300 characters, distinct from the
+// (much looser, soft) DM cap.
+describe('lintMessage — LinkedIn note length cap', () => {
+  const person = makePerson({ id: 'p1', entity_id: 'e1', seniority_rank: 1 });
+
+  it('errors when a linkedin_note draft exceeds LINKEDIN_NOTE_MAX', () => {
+    const draft = 'x'.repeat(LINKEDIN_NOTE_MAX + 1);
+    const findings = lintMessage(draft, person, undefined, 'linkedin_note');
+    expect(findings.some((f) => f.severity === 'error' && f.message.includes(String(LINKEDIN_NOTE_MAX)))).toBe(true);
+  });
+
+  it('does not flag a linkedin_note draft within the cap', () => {
+    const draft = 'Short note, well within the cap.';
+    const findings = lintMessage(draft, person, undefined, 'linkedin_note');
+    expect(findings.some((f) => f.severity === 'error' && f.message.includes(String(LINKEDIN_NOTE_MAX)))).toBe(false);
+  });
+
+  it('does not apply the note cap to a linkedin_dm draft', () => {
+    const draft = 'x'.repeat(LINKEDIN_NOTE_MAX + 1); // over the note cap, well under the DM cap
+    const findings = lintMessage(draft, person, undefined, 'linkedin_dm');
+    expect(findings.some((f) => f.severity === 'error')).toBe(false);
+  });
+});
+
+// Founder-feedback batch 2, item 2 — extracted from the (previously
+// duplicated, in both store providers) inline object literal so the
+// follow-up-commitment shape every outbound logInteraction creates is
+// tested once, directly.
+describe('buildFollowUpTask', () => {
+  it('creates a follow_up_no_reply task due exactly LOCK_DAYS after the interaction', () => {
+    const occurredAt = '2026-01-01T00:00:00.000Z';
+    const task = buildFollowUpTask('ent-1', 'p-1', 'Acme Ventures', 'Jane Doe', occurredAt);
+    expect(task.kind).toBe('follow_up');
+    expect(task.action_type).toBe('follow_up_no_reply');
+    expect(task.entity_id).toBe('ent-1');
+    expect(task.person_id).toBe('p-1');
+    expect(task.title).toBe('Follow up Jane Doe (Acme Ventures)');
+    const dueMs = new Date(task.due_at!).getTime();
+    const expectedMs = new Date(occurredAt).getTime() + LOCK_DAYS * 24 * 3600 * 1000;
+    expect(dueMs).toBe(expectedMs);
+  });
+
+  it('still produces a usable title and no person_id when there is no person', () => {
+    const task = buildFollowUpTask('ent-1', undefined, 'Acme Ventures', undefined, '2026-01-01T00:00:00.000Z');
+    expect(task.title).toContain('Acme Ventures');
+    expect(task.person_id).toBeUndefined();
   });
 });

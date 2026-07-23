@@ -14,7 +14,7 @@ import type {
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview,
 } from './types';
-import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
+import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate, buildFollowUpTask } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { STAGE_LABEL, getStage } from './relationship';
 
@@ -206,9 +206,8 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         entityPatch = { contact_lock_until: lockUntil, ...(newStatus ? { status: newStatus } : {}) };
         entities = entities.map((e) => e.id === input.entity_id ? { ...e, ...entityPatch } : e);
         newTaskRows.push({
-          id: uuid(), kind: 'follow_up', action_type: 'follow_up_no_reply', done: false, due_at: lockUntil,
-          title: `Follow up ${person?.full_name ?? ''} (${entity?.name ?? ''})`.trim(),
-          entity_id: input.entity_id, person_id: input.person_id,
+          id: uuid(), done: false,
+          ...buildFollowUpTask(input.entity_id, input.person_id, entity?.name ?? '', person?.full_name, interaction.occurred_at),
         });
       } else if (input.classification && ['interested', 'meeting_request', 'question'].includes(input.classification)) {
         const entity = prev.entities.find((e) => e.id === input.entity_id);

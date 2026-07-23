@@ -1,9 +1,12 @@
 // Business rules: pre-flight, message linter, caps, follow-up discipline.
 // Pure functions — used by the demo store, the Supabase adapter and the automation engine alike.
-import type { Channel, Db, Entity, Interaction, Person } from './types';
+import type { ActionType, Channel, Db, Entity, Interaction, Person, TaskItem } from './types';
 
 export const LOCK_DAYS = 14;
 export const LINKEDIN_DM_MAX = 900;
+// LinkedIn's own connection-request note cap — distinct from LINKEDIN_DM_MAX
+// (a DM to someone already connected has no such limit).
+export const LINKEDIN_NOTE_MAX = 300;
 
 // ---------- caps ----------
 export function outboundCounts(db: Db, now = new Date()) {
@@ -160,6 +163,10 @@ export function lintMessage(draft: string, person: Person, entity: Entity | unde
     findings.push({ severity: 'warning', message: `${draft.length}/${LINKEDIN_DM_MAX} characters — LinkedIn DMs over ${LINKEDIN_DM_MAX} get skimmed and dropped.` });
   }
 
+  if (channel === 'linkedin_note' && draft.length > LINKEDIN_NOTE_MAX) {
+    findings.push({ severity: 'error', message: `${draft.length}/${LINKEDIN_NOTE_MAX} characters — LinkedIn connection-request notes are hard-capped at ${LINKEDIN_NOTE_MAX}.` });
+  }
+
   if (/\/edit/.test(draft)) {
     findings.push({ severity: 'error', message: 'Contains an editable link (/edit) — only view-only links leave the building.' });
   }
@@ -231,4 +238,22 @@ export function outboundsAwaitingFollowUp(db: Db, now = new Date()) {
 
 export function fillTemplate(body: string, vars: Record<string, string>) {
   return body.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? `{{${k}}}`);
+}
+
+// The one follow-up-commitment shape every outbound logInteraction creates
+// (store-demo.tsx and store-supabase.tsx each had their own copy of this
+// object literal, byte-identical) — extracted so it's tested once instead
+// of twice, and so batch 2's "Confirmo que enviei" button (which is just
+// another caller of the same existing logInteraction path) doesn't need any
+// new scheduling logic of its own.
+export function buildFollowUpTask(
+  entityId: string, personId: string | undefined, entityName: string, personName: string | undefined, occurredAt: string,
+): Omit<TaskItem, 'id' | 'done'> {
+  const due_at = new Date(new Date(occurredAt).getTime() + LOCK_DAYS * 24 * 3600 * 1000).toISOString();
+  const action_type: ActionType = 'follow_up_no_reply';
+  return {
+    kind: 'follow_up', action_type, due_at,
+    title: `Follow up ${personName ?? ''} (${entityName})`.trim(),
+    entity_id: entityId, person_id: personId,
+  };
 }

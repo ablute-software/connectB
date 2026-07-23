@@ -6,7 +6,7 @@ import { useStore } from '@/lib/store';
 import { Card, PREFLIGHT_EXPLAIN, Tooltip } from '@/components/ui';
 import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
 import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
-import { ACTION_TYPE_LABEL, ACTION_TYPES, recommendedActionType } from '@/lib/relationship';
+import { ACTION_TYPE_LABEL, ACTION_TYPES, recommendedActionType, relationshipSummary } from '@/lib/relationship';
 import { evaluateProvenanceGate, type ComposerClaim } from '@/lib/company-canon-logic';
 import type { ActionType, Channel, Classification, OverrideRule, PassReasonCategory } from '@/lib/types';
 
@@ -64,6 +64,12 @@ function LogForm() {
   const entity = db.entities.find((e) => e.id === entityId);
   const people = db.people.filter((p) => p.entity_id === entityId).sort((a, b) => a.seniority_rank - b.seniority_rank);
   const person = db.people.find((p) => p.id === personId);
+  // Batch 2 item 2 — a first-ever touch means there's no LinkedIn
+  // connection yet (a connection request + note is the only thing that can
+  // reach them); any later touch means they're presumably already
+  // connected (a DM is the fit). Reuses the same "how many times have we
+  // touched this entity" signal composer.ts's pickIntent already relies on.
+  const touchCount = useMemo(() => entityId ? relationshipSummary(db, entityId).touchCount : 0, [db, entityId]);
 
   const checks = useMemo(() =>
     person && direction === 'out' ? preflight(db, person, channel) : [],
@@ -208,6 +214,14 @@ function LogForm() {
   const canSendViaGmail = direction === 'out' && channel === 'email' && gmail?.connected && !!person?.email_verified;
   const blockedHard = direction === 'out' && (summary.blocked || lintErrors.length > 0);
   const needsOverride = direction === 'out' && !summary.green && !summary.blocked;
+  // Batch 2 item 2 — the primary action reads as a confirmation, not a
+  // generic save, for every channel that has to be sent manually outside
+  // the app (email without Gmail connected, or either LinkedIn channel —
+  // LinkedIn never auto-sends). Everything else (inbound logging, calls,
+  // meetings, etc.) keeps the plain "Save interaction" label.
+  const needsManualSendConfirmation = direction === 'out'
+    && ((channel === 'email' && !canSendViaGmail) || channel === 'linkedin_dm' || channel === 'linkedin_note');
+  const primarySaveLabel = needsManualSendConfirmation ? 'Confirmo que enviei' : 'Save interaction';
 
   return (
     <div className="grid gap-4 md:grid-cols-3">
@@ -325,7 +339,11 @@ function LogForm() {
             className="mt-3 w-full rounded border border-gray-300 p-2 text-sm font-mono" />
           {direction === 'out' && (channel === 'linkedin_dm' || channel === 'linkedin_note') && content && (
             <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
-              <span className="text-gray-500">No LinkedIn auto-send (ToS) — copy, send it there yourself, then save below to log it.</span>
+              <span className="text-gray-500">
+                LinkedIn não permite envio automático (ToS) — copia e cola a mensagem manualmente, depois confirma abaixo para a registar.
+                {channel === 'linkedin_dm' && touchCount === 0 && ' Ainda sem contacto registado — talvez um pedido de ligação com nota (até 300 caracteres) em vez de DM, que exige ligação já feita.'}
+                {channel === 'linkedin_note' && touchCount > 0 && ' Já há contacto registado — provavelmente já estão ligados; um DM pode ser mais adequado que um pedido de ligação.'}
+              </span>
               <Tooltip text="Copies the message text so you can paste it into LinkedIn.">
                 <button onClick={() => navigator.clipboard.writeText(content)}
                   className="ml-auto rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-100">📋 Copy message</button>
@@ -336,6 +354,17 @@ function LogForm() {
                     className="rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-100">Open profile ↗</a>
                 </Tooltip>
               )}
+            </div>
+          )}
+          {direction === 'out' && channel === 'email' && !canSendViaGmail && content && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
+              <span className="text-gray-500">
+                {gmail?.configured ? 'Gmail não ligado a este contacto (sem email verificado ou conta não ligada) — copia e envia manualmente, depois confirma abaixo.' : 'Envia manualmente a partir do teu email, depois confirma abaixo para o registar.'}
+              </span>
+              <Tooltip text="Copies the subject and body so you can paste them into your email client.">
+                <button onClick={() => navigator.clipboard.writeText(subject ? `Subject: ${subject}\n\n${content}` : content)}
+                  className="ml-auto rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-100">📋 Copy</button>
+              </Tooltip>
             </div>
           )}
           {direction === 'out' && lint.length > 0 && (
@@ -417,10 +446,12 @@ function LogForm() {
           {sendErr && <div className="mb-2 rounded bg-red-50 border border-red-200 px-3 py-2 text-sm text-[#B00000]">{sendErr}</div>}
           {direction === 'in' || summary.green ? (
             <div className="flex flex-wrap items-center gap-2">
-              <Tooltip text="Logs this interaction and applies its follow-on effects (contact lock, next-step task).">
+              <Tooltip text={needsManualSendConfirmation
+                ? 'Confirms you sent this yourself outside the app, then logs it and applies its follow-on effects (contact lock, follow-up task).'
+                : 'Logs this interaction and applies its follow-on effects (contact lock, next-step task).'}>
                 <button disabled={!formReady || (direction === 'out' && lintErrors.length > 0)} onClick={() => save(false)}
                   className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
-                  Save interaction
+                  {primarySaveLabel}
                 </button>
               </Tooltip>
               {canSendViaGmail && (
