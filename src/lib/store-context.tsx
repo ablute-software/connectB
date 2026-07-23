@@ -33,12 +33,37 @@ export type LogInput = {
 export interface StoreApi {
   db: Db;
   logInteraction: (input: LogInput) => Interaction;
-  classifyInteraction: (id: string, c: Classification, cat?: PassReasonCategory, reason?: string) => void;
+  // classifiedBy: stamps who currently owns this classification (migration
+  // 0021). Always written verbatim, including when omitted — exactly like
+  // cat/reason above — so any manual reclassification (the normal call
+  // shape, no 5th arg) automatically clears a prior 'ai'/'mechanical' tag
+  // back to undefined. The entity/person side effects below are unchanged
+  // by who or what is calling this.
+  classifyInteraction: (id: string, c: Classification, cat?: PassReasonCategory, reason?: string, classifiedBy?: 'ai' | 'mechanical') => void;
   // Overnight block Task B2 — needs_review triage. Deliberately separate
   // from classifyInteraction (not a new parameter on it) so reviewing the
   // flag never changes that function's existing entity-status side
   // effects — this only ever touches the one boolean.
   clearNeedsReview: (interactionId: string) => void;
+  // Needs-review redesign — capability-gated on capabilities.needsReviewAi
+  // (migration 0021). Lets a human edit imported text directly (typos,
+  // garbled OCR) without touching classification/needs_review at all.
+  updateInteractionContent: (id: string, content: string) => void;
+  // Sends an auto-applied (ai/mechanical) row back to the human queue —
+  // one click, per the founder's explicit "revertible" requirement.
+  // Classification is left as-is (still visible/prefillable); only the
+  // ownership tag and the flag change.
+  revertToNeedsReview: (interactionId: string) => void;
+  // The metadata-card routine (§ needs-review redesign): fills ONLY empty
+  // entity fields (never overwrites a founder-verified value), appends the
+  // full original text as a dated note, and clears needs_review on the
+  // source interaction — all in one atomic action, since these three things
+  // only ever happen together.
+  applyMetadataCard: (
+    entityId: string, interactionId: string,
+    parsed: { emailDomain?: string; website?: string },
+    noteText: string, classifiedBy: 'ai' | 'mechanical',
+  ) => void;
   toggleTask: (id: string) => void;
   addTask: (t: Omit<TaskItem, 'id' | 'done'>) => void;
   setEntityStatus: (id: string, status: Db['entities'][0]['status'], reason?: string) => void;

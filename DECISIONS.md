@@ -4,6 +4,102 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## Needs-review redesign: dossier view + AI/mechanical pre-classification (23 Jul, founder feedback)
+
+**Why:** the original one-card-at-a-time /needs-review flow (shipped the
+night before) doesn't work at ~380 cards — the founder's real feedback:
+"the unit of work is the entity dossier, not the interaction; many items
+aren't even interactions; and text isn't editable." Full redesign per that
+feedback, everything additive and capability-gated so nothing changes until
+the founder applies the new migration (see below).
+
+**What shipped:**
+- `/needs-review` is now entity-grouped: a left rail of entities with
+  pending counts, and a main pane showing the FULL chronological thread for
+  the selected entity (reviewed or not, for context) — not just the pending
+  items. Each row has an inline edit affordance for the text
+  (`updateInteractionContent`, new store action) and the existing
+  classify/no-signal pills. Keyboard: `j`/`k` moves the focused item, `J`/`K`
+  (or `n`/`p`) switches entity, `1`/`2`/`3`/`r` classify exactly as before,
+  `e` edits, `a` accepts every stored AI proposal in the current dossier.
+- **Contact-metadata cards** (an auto-reply/signature dump like "Email: X /
+  Telefone: Y / Endereço: Z / De <url>") are detected by regex
+  (`src/lib/needs-review-logic.ts`'s `looksLikeMetadataCard`/
+  `parseMetadataCard`, mirroring the existing `.md`-import contact-fact
+  parser and its `linkedin.com`-etc bogus-site filter) and resolved via a new
+  `applyMetadataCard` store action: fills ONLY empty entity fields
+  (`email_domain`, `website` — never overwrites a founder-verified value),
+  appends the full original text as a dated "Ficha de contacto (importada)"
+  note on a new `entities.notes` column, and clears the review flag. Phone
+  and address stay inside that note text — no new schema fields for them,
+  per the explicit instruction not to add any.
+- **Mechanical (no-AI) resolution**: an outbound message with no inbound
+  reply anywhere later in that entity's thread is deterministically resolved
+  as `awaiting`/no-signal — the one shape in this data that's genuinely
+  unambiguous from direction alone. Free, instant, no API call.
+- **AI pre-classification** (`/api/needs-review/classify-entity`, one call
+  per entity dossier, same batched-per-unit pattern as the `.md` import's
+  person-mention extraction): only ever called for interactions the
+  deterministic pass couldn't already resolve — a real cost guard, not just
+  a suggestion. High-confidence proposals auto-apply and get tagged
+  `classified_by` (new `interactions` column: `'ai' | 'mechanical' | null`);
+  everything else stays queued with the model's reasoning shown inline.
+  Every auto-applied row is findable via the "Show AI-classified" toggle in
+  the dossier view and revertible with one click (`revertToNeedsReview`).
+  Any human reclassification (the plain 1/2/3 pills, no extra argument)
+  automatically clears the tag back to null — ownership always reflects who
+  currently owns the call, not a permanent history of who first touched it.
+- The single source of truth for "what's confident enough to auto-apply" is
+  `decideAutoApply()` in `needs-review-logic.ts` — a metadata_card claim only
+  auto-applies if the regex actually found a real email/website to back it
+  up (never on the model's say-so alone); a real interaction only auto-
+  applies at high confidence. 15 unit tests, all against fixtures, no DB.
+- **Migration 0021** (`interactions.classified_by`, `entities.notes`, both
+  additive/nullable) — capability-gated exactly like §11's Company Canon:
+  `src/lib/needs-review-ai.ts` probes column existence, exposed as
+  `capabilities.needsReviewAi` via `/api/me`. Until applied, the dossier
+  view still works today (grouping, full thread, manual classify, inline
+  edit — none of that needs the new columns), but the "Run pre-classification
+  pass" button and the AI-classified filter/revert stay hidden, with a
+  plain note explaining why.
+
+**Verified tonight:** typecheck/vitest (44/44)/build all green; a live smoke
+test in demo mode (temporarily working around the fact that local dev now
+authenticates against real Supabase, same as production — moved `.env.local`
+aside, tested, restored it byte-for-byte afterward) confirmed the dossier
+render, entity-switch, classify, no-signal, and inline-edit-save all work
+against injected fixture data with zero console errors.
+
+**Not run against production tonight — here's why, and what's left:**
+While preparing to apply migration 0021 (and the still-unapplied 0020 from
+last night, in the order the founder asked for), the Supabase MCP tools
+connected to this session turned out to be scoped to a **different account's
+projects** — `ablute_wellness_master_project` and
+`ablute-wellness-staging-disposable` — neither matching connectB's actual
+project ref (`wkjcaoqdvhykrfacsylr` per CLAUDE.md); a direct `get_project`
+call against the real ref returned a permission error. Flagged this
+immediately rather than guessing which project was "close enough." The
+founder chose to apply both migrations manually via the SQL editor rather
+than granting this MCP connection access to the right project. **So:**
+
+1. Apply `supabase/migrations/0020_company_canon.sql`, then
+   `supabase/migrations/0021_needs_review_ai_triage.sql`, in that order.
+2. Reload the app once — `/api/me` will report both capabilities as `true`.
+3. Go to `/needs-review` and click "✨ Run pre-classification pass" — this
+   is a browser-driven action (real auth required), so it has to be the
+   founder clicking it, same as every other AI-assisted flow in this app.
+   It runs the deterministic pass first, then AI only for what's left, and
+   shows a summary banner (contact cards / mechanical / AI-high auto-
+   applied vs. left for human review) right in the page — no need to ask
+   for the numbers separately.
+4. Whatever's left in the queue after that is the real remaining human
+   review work — expected to be a small fraction of the ~380 it started at.
+
+**If a Supabase MCP connection to the correct project is ever wanted**,
+worth checking why this session's connector only surfaced the wellness
+projects — possibly a different Supabase organization/account than the one
+`wkjcaoqdvhykrfacsylr` lives under.
+
 ## MORNING BRIEFING (overnight block, 23 Jul → demo morning)
 
 **Three things to glance at before the demo:**

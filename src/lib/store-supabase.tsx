@@ -241,7 +241,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       return interaction;
     },
 
-    classifyInteraction(id: string, c: Classification, cat?: PassReasonCategory, reason?: string) {
+    classifyInteraction(id: string, c: Classification, cat?: PassReasonCategory, reason?: string, classifiedBy?: 'ai' | 'mechanical') {
       const prev = dbRef.current;
       const it = prev.interactions.find((i) => i.id === id);
       let entityPatch: Partial<Entity> | null = null;
@@ -271,12 +271,12 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
 
       commit({
         ...prev, entities, people,
-        interactions: prev.interactions.map((i) => i.id === id ? { ...i, classification: c, pass_reason_category: cat, pass_reason: reason } : i),
+        interactions: prev.interactions.map((i) => i.id === id ? { ...i, classification: c, pass_reason_category: cat, pass_reason: reason, classified_by: classifiedBy } : i),
       });
 
       const o = orgIdRef.current;
       if (o) {
-        persist(sb.from('interactions').update({ classification: c, pass_reason_category: cat ?? null, pass_reason: reason ?? null }).eq('id', id), 'classifyInteraction:interaction');
+        persist(sb.from('interactions').update({ classification: c, pass_reason_category: cat ?? null, pass_reason: reason ?? null, classified_by: classifiedBy ?? null }).eq('id', id), 'classifyInteraction:interaction');
         if (entityPatch && it) persist(sb.from('entities').update(entityPatch).eq('id', it.entity_id), 'classifyInteraction:entity');
         if (newBounceCount !== null && it?.person_id) persist(sb.from('people').update({ bounce_count: newBounceCount }).eq('id', it.person_id), 'classifyInteraction:person');
       }
@@ -289,6 +289,44 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         interactions: prev.interactions.map((i) => i.id === interactionId ? { ...i, needs_review: false } : i),
       });
       if (orgIdRef.current) persist(sb.from('interactions').update({ needs_review: false }).eq('id', interactionId), 'clearNeedsReview');
+    },
+
+    updateInteractionContent(id: string, content: string) {
+      const prev = dbRef.current;
+      commit({ ...prev, interactions: prev.interactions.map((i) => i.id === id ? { ...i, content } : i) });
+      if (orgIdRef.current) persist(sb.from('interactions').update({ content }).eq('id', id), 'updateInteractionContent');
+    },
+
+    revertToNeedsReview(interactionId: string) {
+      const prev = dbRef.current;
+      commit({
+        ...prev,
+        interactions: prev.interactions.map((i) => i.id === interactionId ? { ...i, needs_review: true, classified_by: undefined } : i),
+      });
+      if (orgIdRef.current) persist(sb.from('interactions').update({ needs_review: true, classified_by: null }).eq('id', interactionId), 'revertToNeedsReview');
+    },
+
+    applyMetadataCard(entityId: string, interactionId: string, parsed: { emailDomain?: string; website?: string }, noteText: string, classifiedBy: 'ai' | 'mechanical') {
+      const prev = dbRef.current;
+      const entity = prev.entities.find((e) => e.id === entityId);
+      if (!entity) return;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const noteBlock = `Ficha de contacto (importada) — ${dateStr}\n${noteText}`;
+      const notes = entity.notes ? `${entity.notes}\n\n${noteBlock}` : noteBlock;
+      const email_domain = entity.email_domain ?? parsed.emailDomain;
+      const website = entity.website ?? parsed.website;
+
+      commit({
+        ...prev,
+        entities: prev.entities.map((e) => e.id === entityId ? { ...e, email_domain, website, notes } : e),
+        interactions: prev.interactions.map((i) => i.id === interactionId ? { ...i, needs_review: false, classified_by: classifiedBy } : i),
+      });
+
+      const o = orgIdRef.current;
+      if (o) {
+        persist(sb.from('entities').update({ email_domain, website, notes }).eq('id', entityId), 'applyMetadataCard:entity');
+        persist(sb.from('interactions').update({ needs_review: false, classified_by: classifiedBy }).eq('id', interactionId), 'applyMetadataCard:interaction');
+      }
     },
 
     toggleTask(id: string) {

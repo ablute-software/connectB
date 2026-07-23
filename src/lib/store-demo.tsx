@@ -91,11 +91,11 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       return interaction;
     },
 
-    classifyInteraction(id, c, cat, reason) {
+    classifyInteraction(id, c, cat, reason, classifiedBy) {
       setDb((prev) => ({
         ...prev,
         interactions: prev.interactions.map((i) =>
-          i.id === id ? { ...i, classification: c, pass_reason_category: cat, pass_reason: reason } : i),
+          i.id === id ? { ...i, classification: c, pass_reason_category: cat, pass_reason: reason, classified_by: classifiedBy } : i),
         entities: (() => {
           const it = prev.interactions.find((i) => i.id === id);
           if (!it) return prev.entities;
@@ -119,6 +119,39 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({
         ...prev,
         interactions: prev.interactions.map((i) => i.id === interactionId ? { ...i, needs_review: false } : i),
+      }));
+    },
+
+    updateInteractionContent(id, content) {
+      setDb((prev) => ({
+        ...prev,
+        interactions: prev.interactions.map((i) => i.id === id ? { ...i, content } : i),
+      }));
+    },
+
+    revertToNeedsReview(interactionId) {
+      setDb((prev) => ({
+        ...prev,
+        interactions: prev.interactions.map((i) => i.id === interactionId ? { ...i, needs_review: true, classified_by: undefined } : i),
+      }));
+    },
+
+    applyMetadataCard(entityId, interactionId, parsed, noteText, classifiedBy) {
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const noteBlock = `Ficha de contacto (importada) — ${dateStr}\n${noteText}`;
+      setDb((prev) => ({
+        ...prev,
+        entities: prev.entities.map((e) => e.id === entityId
+          ? {
+              ...e,
+              email_domain: e.email_domain ?? parsed.emailDomain,
+              website: e.website ?? parsed.website,
+              notes: e.notes ? `${e.notes}\n\n${noteBlock}` : noteBlock,
+            }
+          : e),
+        interactions: prev.interactions.map((i) => i.id === interactionId
+          ? { ...i, needs_review: false, classified_by: classifiedBy }
+          : i),
       }));
     },
 

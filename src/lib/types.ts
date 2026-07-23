@@ -98,6 +98,11 @@ export interface Entity {
   hard_filter?: string;
   hard_filter_status: HardFilterStatus;
   network_cluster_notes?: string;
+  // General freeform entity notes — distinct from network_cluster_notes
+  // (which is specifically dedup/network-clustering commentary). Migration
+  // 0021; used today by the needs-review metadata-card routine to file the
+  // full original text of a detected contact card.
+  notes?: string;
   interest_eur?: number;
   contact_lock_until?: string; // ISO
   status: EntityStatus;
@@ -195,6 +200,14 @@ export interface Interaction {
   // original coloring (e.g. a positive/green marker) was lost in an export
   // and needs a human to confirm the true outcome.
   needs_review?: boolean;
+  // Migration 0021 — set when a needs_review resolution was applied by the
+  // pre-classification pass rather than a human: 'mechanical' for the
+  // deterministic no-AI-call cases (obvious metadata cards, unanswered
+  // outbound threads), 'ai' for a high-confidence model proposal. Always
+  // cleared back to undefined the moment a human reclassifies (see
+  // classifyInteraction) — it marks "who decided this currently stands",
+  // not a permanent history of who first touched the row.
+  classified_by?: 'ai' | 'mechanical';
 }
 
 export interface TaskItem {

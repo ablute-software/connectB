@@ -50,7 +50,9 @@ const INTERACTION_RE = /^-\s*\[([^\]]*)\]\s*(.*?)\s*—\s*(.*)$/;
 // commit scan; see DECISIONS.md — it hadn't actually bitten this specific
 // import, since matching only checks pre-existing rows, not entities newly
 // created within the same batch, but would on any later re-run).
-const BOGUS_SITE_PATTERNS = /roundcube|webmail|cpanel|dnscpanel|owa\.|zimbra|outlook\.office|linkedin\.com/i;
+// Exported: reused as-is by needs-review-logic.ts's contact-card parser —
+// same "incidental URL, not a real company site" problem, same fix.
+export const BOGUS_SITE_PATTERNS = /roundcube|webmail|cpanel|dnscpanel|owa\.|zimbra|outlook\.office|linkedin\.com/i;
 
 function splitList(raw: string): string[] {
   return raw.split(/,\s*/).map((s) => s.trim()).filter(Boolean);
@@ -255,7 +257,8 @@ export interface MdImportPlan {
   interactions: MdInteractionPlanItem[];
 }
 
-function emailDomain(email?: string): string | undefined {
+// Exported: reused by needs-review-logic.ts.
+export function emailDomain(email?: string): string | undefined {
   const m = email?.match(/@([^@\s]+)$/);
   return m?.[1]?.toLowerCase();
 }
