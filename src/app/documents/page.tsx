@@ -5,6 +5,7 @@ import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card, PersonLink } from '@/components/ui';
 import type { Folder } from '@/lib/types';
+import { normalizeDocumentUrl, sanitizeStorageKey } from '@/lib/data-room';
 
 function fmtBytes(n?: number): string | undefined {
   if (n == null) return undefined;
@@ -60,7 +61,7 @@ export default function DocumentsPage() {
     setUploadErr(''); setUploading(true);
     try {
       const sb = browserClient();
-      const path = `${db.org.id}/${crypto.randomUUID()}-${file.name}`;
+      const path = `${db.org.id}/${crypto.randomUUID()}-${sanitizeStorageKey(file.name)}`;
       const { error } = await sb.storage.from('data-room').upload(path, file);
       if (error) throw error;
       addDocument({
@@ -165,7 +166,17 @@ export default function DocumentsPage() {
                   className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Add</button>
               </div>
               {docErr && <div className="mt-1 text-xs text-[#B00000]">{docErr}</div>}
-              {docUrl.includes('/edit') && <div className="mt-1 text-xs text-[#B00000]">✗ Editable link — will be rejected. Get the view/share version.</div>}
+              {(() => {
+                if (!docUrl) return null;
+                const normalized = normalizeDocumentUrl(docUrl);
+                if (normalized.includes('/edit')) {
+                  return <div className="mt-1 text-xs text-[#B00000]">✗ Editable link — will be rejected. Get the view/share version.</div>;
+                }
+                if (normalized !== docUrl) {
+                  return <div className="mt-1 text-xs text-green-700">✓ Google link detected — will be saved as a view-only link automatically.</div>;
+                }
+                return null;
+              })()}
             </div>
 
             {authEnabled && (

@@ -9,6 +9,7 @@ import type {
 } from './types';
 import { seed } from './data/seed';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
+import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { STAGE_LABEL, getStage } from './relationship';
 import { StoreCtx, type StoreApi } from './store-context';
 
@@ -288,12 +289,13 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     },
 
     addDocument(d) {
-      if (d.external_url && d.external_url.includes('/edit')) {
+      const external_url = d.external_url ? normalizeDocumentUrl(d.external_url) : d.external_url;
+      if (external_url && isEditableLink(external_url)) {
         throw new Error('Editable link rejected — only view-only links can be stored.');
       }
       setDb((prev) => ({
         ...prev,
-        documents: [...prev.documents, { ...d, id: uid('doc'), created_at: new Date().toISOString() }],
+        documents: [...prev.documents, { ...d, external_url, id: uid('doc'), created_at: new Date().toISOString() }],
       }));
     },
 

@@ -15,6 +15,7 @@ import type {
   RelationshipState, RuleOverride, TaskItem, AiReview,
 } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
+import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { STAGE_LABEL, getStage } from './relationship';
 
 type SB = ReturnType<typeof browserClient>;
@@ -512,11 +513,12 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     },
 
     addDocument(d: Omit<DocumentItem, 'id'>) {
-      if (d.external_url && d.external_url.includes('/edit')) {
+      const external_url = d.external_url ? normalizeDocumentUrl(d.external_url) : d.external_url;
+      if (external_url && isEditableLink(external_url)) {
         throw new Error('Editable link rejected — only view-only links can be stored.');
       }
       const prev = dbRef.current;
-      const row: DocumentItem = { ...d, id: uuid(), created_at: new Date().toISOString() };
+      const row: DocumentItem = { ...d, external_url, id: uuid(), created_at: new Date().toISOString() };
       commit({ ...prev, documents: [...prev.documents, row] });
       const o = orgIdRef.current;
       if (o) persist(sb.from('documents').insert({ ...row, org_id: o }), 'addDocument');
