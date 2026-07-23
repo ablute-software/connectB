@@ -36,6 +36,11 @@ export default function DocumentsPage() {
   const [dragOverDocId, setDragOverDocId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
   const [replacingDocId, setReplacingDocId] = useState<string | null>(null);
+  // E6 — collapsed folder ids, persisted per org in localStorage so the tree
+  // shape survives reloads. Keyed by org id (falls back to 'demo' when unset).
+  const collapseKey = `dataroom-collapsed-${db.org.id || 'demo'}`;
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [collapseLoaded, setCollapseLoaded] = useState(false);
 
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then((me) => {
@@ -44,6 +49,29 @@ export default function DocumentsPage() {
       setDocumentOrderingAvailable(!!me.capabilities?.documentOrdering);
     }).catch(() => {});
   }, []);
+
+  // Load persisted collapse state once the org id is known.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(collapseKey);
+      setCollapsed(new Set(raw ? (JSON.parse(raw) as string[]) : []));
+    } catch { setCollapsed(new Set()); }
+    setCollapseLoaded(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapseKey]);
+
+  useEffect(() => {
+    if (!collapseLoaded) return;
+    try { localStorage.setItem(collapseKey, JSON.stringify([...collapsed])); } catch { /* quota / private mode */ }
+  }, [collapsed, collapseKey, collapseLoaded]);
+
+  function toggleCollapse(id: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   // Folder ids differ between demo seed data and real Supabase UUIDs, so the
   // default can't be a hardcoded id — pick "Investor deck" by name once
@@ -314,6 +342,7 @@ export default function DocumentsPage() {
 
   function FolderNode({ f, depth }: { f: Folder; depth: number }) {
     const kids = children(f.id);
+    const isCollapsed = collapsed.has(f.id);
     return (
       <div>
         <div className="group flex items-center gap-1" style={{ paddingLeft: `${8 + depth * 14}px` }}>
@@ -325,6 +354,12 @@ export default function DocumentsPage() {
             </>
           ) : (
             <>
+              {kids.length > 0 ? (
+                <button onClick={() => toggleCollapse(f.id)} title={isCollapsed ? 'Expand' : 'Collapse'}
+                  className="w-3 shrink-0 text-[10px] text-gray-400 hover:text-gray-700">{isCollapsed ? '▸' : '▾'}</button>
+              ) : (
+                <span className="w-3 shrink-0" />
+              )}
               <button onClick={() => setSelFolder(f.id)}
                 onDragOver={dragDocId ? (e) => { e.preventDefault(); setDragOverFolderId(f.id); } : undefined}
                 onDragLeave={dragDocId ? () => setDragOverFolderId((cur) => cur === f.id ? null : cur) : undefined}
@@ -342,7 +377,7 @@ export default function DocumentsPage() {
             </>
           )}
         </div>
-        {kids.map((k) => <FolderNode key={k.id} f={k} depth={depth + 1} />)}
+        {!isCollapsed && kids.map((k) => <FolderNode key={k.id} f={k} depth={depth + 1} />)}
       </div>
     );
   }
