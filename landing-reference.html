@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sherlock Deal — Investor relations, investigated</title>
+<meta name="description" content="Sherlock Deal is the investor relations workspace for founders: track every investor, keep every fact straight, and never let a warm lead go cold.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0c272e;
+    --ink-2:#123a44;
+    --teal:#2a7f8e;
+    --teal-strong:#1e5d68;
+    --teal-soft:#e3f0f2;
+    --amber:#d9a441;
+    --amber-soft:#f9efd9;
+    --bg:#f7fafa;
+    --card:#ffffff;
+    --text:#22343a;
+    --muted:#5b7077;
+    --line:#dde8ea;
+    --radius:18px;
+    --shadow:0 10px 30px rgba(12,39,46,.08);
+    --shadow-lg:0 24px 60px rgba(12,39,46,.16);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;overflow-x:hidden}
+  h1,h2,h3,.display{font-family:'Fraunces',Georgia,serif;color:var(--ink);letter-spacing:-.01em}
+  a{text-decoration:none;color:inherit}
+  section{position:relative}
+  .wrap{max-width:1140px;margin:0 auto;padding:0 24px}
+
+  /* ---------- nav ---------- */
+  nav{position:fixed;top:0;left:0;right:0;z-index:50;transition:background .3s,box-shadow .3s,backdrop-filter .3s}
+  nav.scrolled{background:rgba(255,255,255,.88);backdrop-filter:blur(12px);box-shadow:0 1px 0 var(--line)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:72px}
+  .logo{display:flex;align-items:center;gap:10px;font-family:'Inter',sans-serif;font-weight:800;font-size:1.22rem;letter-spacing:-.02em;color:#fff;transition:color .3s}
+  .logo .deal{color:var(--amber)}
+  nav.scrolled .logo .deal,footer .logo .deal{color:var(--teal)}
+  nav.scrolled .logo{color:var(--ink)}
+  .logo svg{flex:0 0 auto}
+  .nav-links{display:flex;align-items:center;gap:28px;font-size:.92rem;font-weight:500}
+  .nav-links a.link{color:rgba(255,255,255,.85);transition:color .2s}
+  nav.scrolled .nav-links a.link{color:var(--muted)}
+  .nav-links a.link:hover{color:var(--amber)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 22px;border-radius:999px;font-weight:600;font-size:.95rem;transition:transform .2s,box-shadow .2s,background .2s;cursor:pointer;border:none}
+  .btn:hover{transform:translateY(-2px)}
+  .btn-primary{background:var(--amber);color:var(--ink)}
+  .btn-primary:hover{box-shadow:0 10px 24px rgba(217,164,65,.35)}
+  .btn-ghost{border:1.5px solid rgba(255,255,255,.35);color:#fff}
+  nav.scrolled .btn-ghost{border-color:var(--line);color:var(--ink)}
+  .btn-teal{background:var(--teal);color:#fff}
+  .btn-teal:hover{box-shadow:0 10px 24px rgba(42,127,142,.35)}
+  .btn-sm{padding:9px 18px;font-size:.88rem}
+
+  /* ---------- hero ---------- */
+  header.hero{background:radial-gradient(1200px 600px at 75% -10%,#1d5a67 0%,transparent 60%),linear-gradient(160deg,var(--ink) 0%,var(--ink-2) 55%,#0e3038 100%);color:#fff;padding:170px 0 0;overflow:hidden}
+  .hero .wrap{display:grid;grid-template-columns:1.05fr .95fr;gap:48px;align-items:center;padding-bottom:110px}
+  .badge{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:999px;padding:7px 16px;font-size:.82rem;font-weight:500;color:#cfe3e7;margin-bottom:22px}
+  .badge .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);animation:pulse 2.2s infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(217,164,65,.5)}50%{box-shadow:0 0 0 7px rgba(217,164,65,0)}}
+  .hero h1{font-size:clamp(2.4rem,5vw,3.7rem);line-height:1.08;color:#fff;font-weight:600;margin-bottom:20px}
+  .hero h1 em{font-style:italic;color:var(--amber)}
+  .hero p.lead{font-size:1.13rem;color:#b9d2d7;max-width:520px;margin-bottom:32px}
+  .hero-ctas{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:28px}
+  .hero-note{font-size:.85rem;color:#8fb0b7}
+  .hero-note b{color:#cfe3e7}
+
+  /* mock app window */
+  .mock{position:relative}
+  .window{background:#fdfefe;border-radius:16px;box-shadow:var(--shadow-lg);overflow:hidden;transform:rotate(-1.2deg);animation:float 7s ease-in-out infinite}
+  @keyframes float{0%,100%{transform:rotate(-1.2deg) translateY(0)}50%{transform:rotate(-1.2deg) translateY(-10px)}}
+  .window .bar{display:flex;align-items:center;gap:6px;padding:12px 16px;border-bottom:1px solid var(--line);background:#fff}
+  .window .bar i{width:10px;height:10px;border-radius:50%;display:block}
+  .window .bar i:nth-child(1){background:#f2726f}.window .bar i:nth-child(2){background:#f5c26b}.window .bar i:nth-child(3){background:#67c587}
+  .window .bar span{margin-left:10px;font-size:.72rem;color:var(--muted);font-weight:600;letter-spacing:.04em}
+  .cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:14px}
+  .col h4{font-family:'Inter',sans-serif;font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;display:flex;justify-content:space-between}
+  .col h4 b{color:var(--teal)}
+  .kcard{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;box-shadow:0 2px 6px rgba(12,39,46,.05);opacity:0;transform:translateY(12px);animation:cardIn .6s forwards}
+  .kcard .nm{font-size:.78rem;font-weight:600;color:var(--ink)}
+  .kcard .tg{display:inline-block;margin-top:6px;font-size:.62rem;font-weight:600;padding:2px 8px;border-radius:999px}
+  .tg.warm{background:var(--amber-soft);color:#8a6414}
+  .tg.due{background:#fde8e7;color:#a33c38}
+  .tg.ok{background:#e2f4e8;color:#20714a}
+  .tg.teal{background:var(--teal-soft);color:var(--teal-strong)}
+  @keyframes cardIn{to{opacity:1;transform:translateY(0)}}
+  .kcard:nth-child(2){animation-delay:.15s}.kcard:nth-child(3){animation-delay:.3s}.kcard:nth-child(4){animation-delay:.45s}
+
+  /* floating chips */
+  .chip{position:absolute;background:#fff;border-radius:12px;box-shadow:var(--shadow-lg);padding:10px 14px;display:flex;align-items:center;gap:9px;font-size:.8rem;font-weight:600;color:var(--ink);animation:float 6s ease-in-out infinite}
+  .chip svg{flex:0 0 auto}
+  .chip.c1{top:-22px;right:-10px;animation-delay:.8s}
+  .chip.c2{bottom:34px;left:-34px;animation-delay:1.6s}
+  .chip .sub{display:block;font-size:.68rem;font-weight:500;color:var(--muted)}
+
+  /* magnifier deco */
+  .lens{position:absolute;pointer-events:none;opacity:.12}
+  .lens.l1{top:90px;left:-60px;transform:rotate(-15deg)}
+
+  /* strip */
+  .strip{background:var(--ink);color:#9fc0c7;border-top:1px solid rgba(255,255,255,.06)}
+  .strip .wrap{display:flex;justify-content:space-between;gap:18px;padding:18px 24px;font-size:.85rem;flex-wrap:wrap}
+  .strip span{display:flex;align-items:center;gap:8px}
+  .strip svg{flex:0 0 auto}
+
+  /* ---------- sections ---------- */
+  .sec{padding:96px 0}
+  .sec-head{max-width:640px;margin:0 auto 56px;text-align:center}
+  .eyebrow{display:inline-block;font-family:'Inter',sans-serif;font-size:.78rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--teal);margin-bottom:14px}
+  .sec-head h2{font-size:clamp(1.8rem,3.4vw,2.5rem);font-weight:600;margin-bottom:14px;line-height:1.15}
+  .sec-head p{color:var(--muted);font-size:1.02rem}
+
+  /* features */
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+  .fcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:30px 26px;box-shadow:var(--shadow);transition:transform .25s,box-shadow .25s}
+  .fcard:hover{transform:translateY(-6px);box-shadow:var(--shadow-lg)}
+  .fcard .ic{width:48px;height:48px;border-radius:13px;display:flex;align-items:center;justify-content:center;background:var(--teal-soft);margin-bottom:18px}
+  .fcard:nth-child(3n+2) .ic{background:var(--amber-soft)}
+  .fcard h3{font-size:1.13rem;font-weight:600;margin-bottom:8px}
+  .fcard p{font-size:.92rem;color:var(--muted)}
+
+  /* how it works */
+  .how{background:linear-gradient(180deg,#fff 0%,var(--bg) 100%);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:26px;counter-reset:step}
+  .step{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:34px 28px;box-shadow:var(--shadow)}
+  .step .num{font-family:'Fraunces',serif;font-size:2.6rem;font-weight:600;color:var(--teal);opacity:.25;position:absolute;top:16px;right:22px}
+  .step h3{font-size:1.15rem;margin-bottom:10px}
+  .step p{font-size:.92rem;color:var(--muted)}
+  .step .tagline{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--amber);margin-bottom:12px}
+
+  /* split highlight */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center}
+  .split + .split{margin-top:88px}
+  .split h2{font-size:clamp(1.6rem,3vw,2.15rem);margin-bottom:16px;line-height:1.18}
+  .split p{color:var(--muted);margin-bottom:14px}
+  .split ul{list-style:none;margin-top:8px}
+  .split li{display:flex;gap:12px;align-items:flex-start;margin-bottom:12px;font-size:.95rem}
+  .split li svg{flex:0 0 auto;margin-top:3px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-lg);padding:26px}
+  .fact{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:12px;padding:13px 16px;margin-bottom:10px;background:#fff}
+  .fact .f-l{font-size:.88rem;font-weight:600;color:var(--ink)}
+  .fact .f-l small{display:block;font-weight:500;color:var(--muted);font-size:.75rem}
+  .pill{font-size:.68rem;font-weight:700;padding:4px 11px;border-radius:999px}
+  .pill.ok{background:#e2f4e8;color:#20714a}
+  .pill.pending{background:var(--amber-soft);color:#8a6414}
+  .meter{margin-top:6px}
+  .meter .row{display:flex;justify-content:space-between;font-size:.8rem;font-weight:600;color:var(--ink);margin-bottom:6px}
+  .meter .track{height:10px;border-radius:999px;background:var(--teal-soft);overflow:hidden;margin-bottom:16px}
+  .meter .fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--teal),var(--teal-strong));width:0;transition:width 1.2s cubic-bezier(.2,.7,.3,1)}
+  .meter .fill.gold{background:linear-gradient(90deg,var(--amber),#b8862e)}
+
+  /* pricing */
+  .toggle{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:44px;font-weight:600;font-size:.95rem}
+  .switch{width:56px;height:30px;border-radius:999px;background:var(--teal);position:relative;cursor:pointer;transition:background .25s}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:left .25s}
+  .switch.annual::after{left:29px}
+  .save{font-size:.72rem;font-weight:700;background:var(--amber-soft);color:#8a6414;padding:3px 10px;border-radius:999px}
+  .plans{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;align-items:stretch}
+  .plan{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:34px 30px;display:flex;flex-direction:column;box-shadow:var(--shadow);transition:transform .25s,box-shadow .25s;position:relative}
+  .plan:hover{transform:translateY(-6px);box-shadow:var(--shadow-lg)}
+  .plan.pop{border:2px solid var(--teal);box-shadow:var(--shadow-lg)}
+  .plan .flag{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:var(--teal);color:#fff;font-size:.7rem;font-weight:700;letter-spacing:.06em;padding:5px 16px;border-radius:999px;text-transform:uppercase}
+  .plan h3{font-size:1.22rem;margin-bottom:4px}
+  .plan .who{font-size:.85rem;color:var(--muted);margin-bottom:20px}
+  .price{font-family:'Fraunces',serif;font-size:2.5rem;font-weight:600;color:var(--ink)}
+  .price small{font-family:'Inter',sans-serif;font-size:.85rem;font-weight:500;color:var(--muted)}
+  .per-year{font-size:.8rem;color:var(--muted);margin-bottom:20px;min-height:1.2em}
+  .plan ul{list-style:none;margin:6px 0 26px;flex:1}
+  .plan li{display:flex;gap:10px;align-items:flex-start;font-size:.9rem;margin-bottom:11px;color:var(--text)}
+  .plan li svg{flex:0 0 auto;margin-top:3px}
+  .plan li.mut{color:#9fb2b8}
+  .teaser{max-width:640px;margin:40px auto 0;text-align:center;font-size:.9rem;color:var(--muted);background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:16px 22px}
+  .teaser b{color:var(--teal-strong)}
+
+  /* cta band */
+  .band{background:radial-gradient(900px 400px at 20% 0%,#1d5a67 0%,transparent 55%),linear-gradient(150deg,var(--ink),var(--ink-2));border-radius:28px;color:#fff;padding:72px 56px;text-align:center;overflow:hidden;position:relative}
+  .band h2{color:#fff;font-size:clamp(1.8rem,3.4vw,2.5rem);margin-bottom:14px}
+  .band p{color:#b9d2d7;max-width:520px;margin:0 auto 32px}
+  .band .lens-band{position:absolute;right:-40px;bottom:-60px;opacity:.1}
+
+  /* footer */
+  footer{padding:56px 0 40px;border-top:1px solid var(--line);background:#fff}
+  footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:24px;flex-wrap:wrap}
+  footer .logo{color:var(--ink);font-size:1.05rem}
+  footer .fl{display:flex;gap:24px;font-size:.88rem;color:var(--muted)}
+  footer .fl a:hover{color:var(--teal)}
+  footer .cp{font-size:.8rem;color:#9fb2b8;width:100%;text-align:center;margin-top:26px}
+
+  /* reveal on scroll */
+  .rv{opacity:0;transform:translateY(26px);transition:opacity .7s ease,transform .7s ease}
+  .rv.in{opacity:1;transform:none}
+  .rv.d1{transition-delay:.1s}.rv.d2{transition-delay:.2s}.rv.d3{transition-delay:.3s}
+
+  @media(max-width:900px){
+    .hero .wrap{grid-template-columns:1fr;padding-bottom:80px}
+    .mock{max-width:520px;margin:0 auto}
+    .grid3,.steps,.plans{grid-template-columns:1fr}
+    .split{grid-template-columns:1fr;gap:32px}
+    .nav-links a.link{display:none}
+    .chip.c2{left:-6px}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<nav id="nav">
+  <div class="wrap">
+    <a class="logo" href="#top">
+      <svg width="32" height="32" viewBox="0 0 48 48">
+        <rect width="48" height="48" rx="11" fill="#2a7f8e"/>
+        <text x="10" y="37" font-family="Georgia,'Times New Roman',serif" font-size="31" font-weight="700" fill="#fff">S</text>
+        <circle cx="35.5" cy="15" r="7" fill="none" stroke="#fff" stroke-width="2.9"/>
+        <line x1="40.5" y1="20" x2="44.5" y2="24" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/>
+      </svg>
+      sherlock<span class="deal">deal</span>
+    </a>
+    <div class="nav-links">
+      <a class="link" href="#features">Features</a>
+      <a class="link" href="#how">How it works</a>
+      <a class="link" href="#pricing">Pricing</a>
+      <a class="btn btn-ghost btn-sm" href="/login">Sign in</a>
+      <a class="btn btn-primary btn-sm" href="/signup">Create account</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero" id="top">
+  <svg class="lens l1" width="260" height="260" viewBox="0 0 48 48" fill="none">
+    <circle cx="20" cy="20" r="13" stroke="#fff" stroke-width="2"/>
+    <line x1="30" y1="30" x2="44" y2="44" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+  </svg>
+  <div class="wrap">
+    <div>
+      <span class="badge"><span class="dot"></span>The investor relations workspace for founders</span>
+      <h1>Crack the case on your <em>fundraise.</em></h1>
+      <p class="lead">Every investor, every conversation, every confirmed fact — in one case file. Sherlock Deal keeps your raise organised, consistent and moving, so no warm lead ever goes cold.</p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary" href="/signup">Start free
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a class="btn btn-ghost" href="/login">Sign in</a>
+      </div>
+      <p class="hero-note"><b>Free to start.</b> No credit card required.</p>
+    </div>
+
+    <div class="mock">
+      <div class="window">
+        <div class="bar"><i></i><i></i><i></i><span>SHERLOCK DEAL · PIPELINE</span></div>
+        <div class="cols">
+          <div class="col">
+            <h4>Contacted <b>8</b></h4>
+            <div class="kcard"><div class="nm">Northbridge Capital</div><span class="tg teal">Intro sent</span></div>
+            <div class="kcard"><div class="nm">Atlas Ventures</div><span class="tg due">Follow-up due</span></div>
+            <div class="kcard"><div class="nm">Beacon Angels</div><span class="tg teal">Deck viewed</span></div>
+          </div>
+          <div class="col">
+            <h4>In talks <b>5</b></h4>
+            <div class="kcard"><div class="nm">Harbour Partners</div><span class="tg warm">Warm · call Fri</span></div>
+            <div class="kcard"><div class="nm">Vega Family Office</div><span class="tg ok">NDA signed</span></div>
+          </div>
+          <div class="col">
+            <h4>Diligence <b>2</b></h4>
+            <div class="kcard"><div class="nm">Meridian Growth</div><span class="tg ok">Data room open</span></div>
+            <div class="kcard"><div class="nm">Quartz Capital</div><span class="tg warm">Partner meeting</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="chip c1">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#e2f4e8"/><path d="M8 12.5l2.6 2.6L16.5 9" stroke="#20714a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Fact confirmed<span class="sub">used in 12 messages</span></span>
+      </div>
+      <div class="chip c2">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#f9efd9"/><path d="M12 7v5l3 3" stroke="#8a6414" stroke-width="2" stroke-linecap="round"/></svg>
+        <span>3 investors reawakened<span class="sub">new milestone detected</span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="strip">
+    <div class="wrap">
+      <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M8 12.5l2.6 2.6L16.5 9" stroke="#d9a441" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Outreach discipline, enforced</span>
+      <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M8 12.5l2.6 2.6L16.5 9" stroke="#d9a441" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>One version of the truth</span>
+      <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M8 12.5l2.6 2.6L16.5 9" stroke="#d9a441" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>NDA-protected data room</span>
+      <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M8 12.5l2.6 2.6L16.5 9" stroke="#d9a441" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>AI drafts — you decide</span>
+    </div>
+  </div>
+</header>
+
+<!-- ============ FEATURES ============ -->
+<section class="sec" id="features">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="eyebrow">The case file</span>
+      <h2>Everything a raise needs, nothing it doesn't</h2>
+      <p>Built for founders running a round — not adapted from a sales CRM.</p>
+    </div>
+    <div class="grid3">
+      <div class="fcard rv">
+        <div class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="5" height="16" rx="1.5" stroke="#2a7f8e" stroke-width="1.8"/><rect x="10" y="4" width="5" height="11" rx="1.5" stroke="#2a7f8e" stroke-width="1.8"/><rect x="17" y="4" width="4" height="7" rx="1.5" stroke="#2a7f8e" stroke-width="1.8"/></svg></div>
+        <h3>Investor pipeline</h3>
+        <p>Every investor, stage and next step in one board. Interactions, notes and documents attached to the right person — never lost in an inbox.</p>
+      </div>
+      <div class="fcard rv d1">
+        <div class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#d9a441" stroke-width="1.8"/><path d="M12 7v5l3.5 2" stroke="#d9a441" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+        <h3>Outreach discipline, enforced</h3>
+        <p>Daily and weekly targets keep momentum honest. Today's agenda tells you exactly who to contact, chase or thank — before leads cool off.</p>
+      </div>
+      <div class="fcard rv d2">
+        <div class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="10" rx="2" stroke="#2a7f8e" stroke-width="1.8"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="#2a7f8e" stroke-width="1.8"/><circle cx="12" cy="15" r="1.6" fill="#2a7f8e"/></svg></div>
+        <h3>NDA-protected data room</h3>
+        <p>Share your deck in one click, or gate sensitive documents behind an NDA. Access is enforced per document, per investor — server-side.</p>
+      </div>
+      <div class="fcard rv">
+        <div class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 3l2.2 5.4L20 9l-4.4 3.8L17 19l-5-3.2L7 19l1.4-6.2L4 9l5.8-.6L12 3z" stroke="#2a7f8e" stroke-width="1.7" stroke-linejoin="round"/></svg></div>
+        <h3>One version of the truth</h3>
+        <p>Confirmed company facts power every message. When a number changes, everything stays consistent — no more contradicting yourself mid-round.</p>
+      </div>
+      <div class="fcard rv d1">
+        <div class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h10M4 18h13" stroke="#d9a441" stroke-width="1.8" stroke-linecap="round"/><circle cx="19" cy="17" r="3" stroke="#d9a441" stroke-width="1.7"/></svg></div>
+        <h3>AI drafts — you decide</h3>
+        <p>Replies, follow-ups and investor updates drafted from your confirmed facts. Nothing is ever sent without your review and your click.</p>
+      </div>
+      <div class="fcard rv d2">
+        <div class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 14c2-6 6-9 8-9s6 3 8 9" stroke="#2a7f8e" stroke-width="1.8" stroke-linecap="round"/><path d="M12 21v-8m0 0-3 3m3-3 3 3" stroke="#2a7f8e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h3>Reawaken cold investors</h3>
+        <p>Passed six months ago because you were too early? When your traction changes, Sherlock Deal proposes exactly who deserves a second look.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HOW ============ -->
+<section class="sec how" id="how">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="eyebrow">The method</span>
+      <h2>Three steps to a round under control</h2>
+    </div>
+    <div class="steps">
+      <div class="step rv">
+        <span class="num">1</span>
+        <span class="tagline">Open the case</span>
+        <h3>Build your case file</h3>
+        <p>Import your investor list, confirm your company facts once, and load your data room. Five minutes to a single source of truth.</p>
+      </div>
+      <div class="step rv d1">
+        <span class="num">2</span>
+        <span class="tagline">Follow the clues</span>
+        <h3>Run the investigation</h3>
+        <p>Work your daily agenda, send fact-checked messages, share documents safely. Every reply and every meeting lands back in the file.</p>
+      </div>
+      <div class="step rv d2">
+        <span class="num">3</span>
+        <span class="tagline">Close the case</span>
+        <h3>Close the round</h3>
+        <p>Momentum stays visible, dormant investors resurface at the right moment, and diligence runs from a data room that's already in order.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SPLITS ============ -->
+<section class="sec">
+  <div class="wrap">
+    <div class="split">
+      <div class="rv">
+        <span class="eyebrow">Company facts</span>
+        <h2>Your numbers, confirmed once. Consistent everywhere.</h2>
+        <p>Investors compare notes. Sherlock Deal makes sure the story they compare is the same one — every metric you use is a confirmed fact, tracked and versioned.</p>
+        <ul>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#e2f4e8"/><path d="M8 12.5l2.6 2.6L16.5 9" stroke="#20714a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Facts are confirmed by you before they're ever used</li>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#e2f4e8"/><path d="M8 12.5l2.6 2.6L16.5 9" stroke="#20714a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Outdated numbers are superseded, never silently reused</li>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#e2f4e8"/><path d="M8 12.5l2.6 2.6L16.5 9" stroke="#20714a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Inconsistencies are flagged before an investor spots them</li>
+        </ul>
+      </div>
+      <div class="panel rv d1">
+        <div class="fact"><div class="f-l">Monthly recurring revenue<small>updated 3 days ago</small></div><span class="pill ok">Confirmed</span></div>
+        <div class="fact"><div class="f-l">Team size<small>updated today</small></div><span class="pill ok">Confirmed</span></div>
+        <div class="fact"><div class="f-l">Pilot customers<small>new value detected</small></div><span class="pill pending">Confirm?</span></div>
+        <div class="fact"><div class="f-l">Round size &amp; instrument<small>locked for this raise</small></div><span class="pill ok">Confirmed</span></div>
+      </div>
+    </div>
+
+    <div class="split">
+      <div class="panel rv">
+        <div class="meter">
+          <div class="row"><span>Today's outreach</span><span>4 / 5</span></div>
+          <div class="track"><div class="fill" data-w="80%"></div></div>
+          <div class="row"><span>This week</span><span>14 / 20</span></div>
+          <div class="track"><div class="fill" data-w="70%"></div></div>
+          <div class="row"><span>Follow-ups on time</span><span>96%</span></div>
+          <div class="track"><div class="fill gold" data-w="96%"></div></div>
+        </div>
+      </div>
+      <div class="rv d1">
+        <span class="eyebrow">Momentum</span>
+        <h2>Fundraising is a discipline. We keep score.</h2>
+        <p>Rounds die from silence, not rejection. Sherlock Deal turns outreach into a daily practice — visible targets, a clear agenda, and follow-ups that never slip.</p>
+        <ul>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#f9efd9"/><path d="M12 7v5l3 3" stroke="#8a6414" stroke-width="2" stroke-linecap="round"/></svg>Daily and weekly targets you set, the app enforces</li>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#f9efd9"/><path d="M12 7v5l3 3" stroke="#8a6414" stroke-width="2" stroke-linecap="round"/></svg>A "Today" view that tells you exactly what moves the round</li>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#f9efd9"/><path d="M12 7v5l3 3" stroke="#8a6414" stroke-width="2" stroke-linecap="round"/></svg>Send from your own mailbox — investors see you, not a tool</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PRICING ============ -->
+<section class="sec" id="pricing" style="background:#fff;border-top:1px solid var(--line)">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="eyebrow">Pricing</span>
+      <h2>Plans that grow up with you</h2>
+      <p>Start free. Upgrade when the round gets serious.</p>
+    </div>
+
+    <div class="toggle rv">
+      <span>Monthly</span>
+      <div class="switch" id="switch" role="switch" aria-checked="false" tabindex="0"></div>
+      <span>Annual <span class="save">save ~26%</span></span>
+    </div>
+
+    <div class="plans">
+      <div class="plan rv">
+        <h3>Mom, I have an idea</h3>
+        <p class="who">For the very first steps</p>
+        <div class="price">€0</div>
+        <p class="per-year">free forever</p>
+        <ul>
+          <li><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 12.5l3.6 3.6L18.5 7.5" stroke="#2a7f8e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Investor pipeline &amp; agenda</li>
+          <li><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 12.5l3.6 3.6L18.5 7.5" stroke="#2a7f8e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Company facts &amp; consistency</li>
+          <li><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 12.5l3.6 3.6L18.5 7.5" stroke="#2a7f8e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Basic data room</li>
+          <li class="mut"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M7 7l10 10M17 7L7 17" stroke="#c3d2d6" stroke-width="2.2" stroke-linecap="round"/></svg>AI drafting &amp; review</li>
+        </ul>
+        <a class="btn btn-ghost" style="border-color:var(--line);color:var(--ink)" href="/signup">Start free</a>
+      </div>
+
+      <div class="plan pop rv d1">
+        <span class="flag">Most popular</span>
+        <h3>Dad, I'm leaving the garage</h3>
+        <p class="who">For rounds in motion</p>
+        <div class="price" data-m="€85" data-a="€63"><span class="amt">€85</span><small>/month</small></div>
+        <p class="per-year" data-a="billed €756 per year" data-m="billed monthly">billed monthly</p>
+        <ul>
+          <li><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 12.5l3.6 3.6L18.5 7.5" stroke="#2a7f8e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Everything in the free plan</li>
+          <li><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 12.5l3.6 3.6L18.5 7.5" stroke="#2a7f8e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>AI drafts, triage &amp; review</li>
+          <li><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 12.5l3.6 3.6L18.5 7.5" stroke="#2a7f8e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>NDA-protected sharing</li>
+          <li><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 12.5l3.6 3.6L18.5 7.5" stroke="#2a7f8e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Investor reawakening</li>
+        </ul>
+        <a class="btn btn-teal" href="/signup">Choose this plan</a>
+      </div>
+
+      <div class="plan rv d2">
+        <h3>Motherfunding</h3>
+        <p class="who">For serious, multi-investor raises</p>
+        <div class="price" data-m="€149" data-a="€109"><span class="amt">€149</span><small>/month</small></div>
+        <p class="per-year" data-a="billed €1,308 per year" data-m="billed monthly">billed monthly</p>
+        <ul>
+          <li><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 12.5l3.6 3.6L18.5 7.5" stroke="#2a7f8e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Everything in Garage</li>
+          <li><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 12.5l3.6 3.6L18.5 7.5" stroke="#2a7f8e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Advanced review &amp; optimisation</li>
+          <li><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 12.5l3.6 3.6L18.5 7.5" stroke="#2a7f8e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Investability reports</li>
+          <li><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 12.5l3.6 3.6L18.5 7.5" stroke="#2a7f8e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Priority support</li>
+        </ul>
+        <a class="btn btn-ghost" style="border-color:var(--line);color:var(--ink)" href="/signup">Choose this plan</a>
+      </div>
+    </div>
+
+    <p class="teaser rv"><b>Coming soon:</b> a capital-raising consultancy option, for founders who want hands-on help with their round.</p>
+  </div>
+</section>
+
+<!-- ============ CTA ============ -->
+<section class="sec">
+  <div class="wrap">
+    <div class="band rv">
+      <svg class="lens-band" width="300" height="300" viewBox="0 0 48 48" fill="none">
+        <circle cx="20" cy="20" r="13" stroke="#fff" stroke-width="2"/>
+        <line x1="30" y1="30" x2="44" y2="44" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+        <path d="M14 20.5l4 4 8-8" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </svg>
+      <h2>The game is afoot.</h2>
+      <p>Open your case file today — your pipeline, your facts and your data room, finally in one place.</p>
+      <a class="btn btn-primary" href="/signup">Create your account
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <a class="logo" href="#top" style="color:var(--ink)">
+      <svg width="26" height="26" viewBox="0 0 48 48">
+        <rect width="48" height="48" rx="11" fill="#2a7f8e"/>
+        <text x="10" y="37" font-family="Georgia,'Times New Roman',serif" font-size="31" font-weight="700" fill="#fff">S</text>
+        <circle cx="35.5" cy="15" r="7" fill="none" stroke="#fff" stroke-width="2.9"/>
+        <line x1="40.5" y1="20" x2="44.5" y2="24" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/>
+      </svg>
+      sherlock<span class="deal">deal</span>
+    </a>
+    <div class="fl">
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="/login">Sign in</a>
+      <a href="/signup">Create account</a>
+    </div>
+    <p class="cp">© 2026 Sherlock Deal · Investor relations, investigated.</p>
+  </div>
+</footer>
+
+<script>
+  // nav scroll state
+  const nav=document.getElementById('nav');
+  const onScroll=()=>nav.classList.toggle('scrolled',window.scrollY>30);
+  window.addEventListener('scroll',onScroll);onScroll();
+
+  // reveal on scroll
+  const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}}),{threshold:.15});
+  document.querySelectorAll('.rv').forEach(el=>io.observe(el));
+
+  // meters animate when visible
+  const mio=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.querySelectorAll('.fill').forEach(f=>f.style.width=f.dataset.w);mio.unobserve(e.target);}}),{threshold:.3});
+  document.querySelectorAll('.meter').forEach(m=>mio.observe(m));
+
+  // pricing toggle
+  const sw=document.getElementById('switch');
+  let annual=false;
+  function renderPrices(){
+    document.querySelectorAll('.price[data-m]').forEach(p=>{
+      p.querySelector('.amt').textContent=annual?p.dataset.a:p.dataset.m;
+    });
+    document.querySelectorAll('.per-year[data-a]').forEach(p=>{
+      p.textContent=annual?p.dataset.a:p.dataset.m;
+    });
+    sw.classList.toggle('annual',annual);
+    sw.setAttribute('aria-checked',annual);
+  }
+  sw.addEventListener('click',()=>{annual=!annual;renderPrices();});
+  sw.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();annual=!annual;renderPrices();}});
+</script>
+</body>
+</html>
