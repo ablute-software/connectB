@@ -4,6 +4,99 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## Restructure + founder-feedback batch 3 (nav/Settings redesign, permissions matrix, "melhorias e problemas")
+
+Founder-specified execution order **B+D → A → C → E**. Three migrations
+(**0025 review_runs, 0026 orgs.permission_matrix, 0027 documents.position**)
+ship in the code but are **pending manual application** — every feature that
+needs one is capability-gated (`/api/me` probes the column/table), so the app
+degrades to its pre-migration behaviour until they land, then lights up within
+~60s (the negative-probe TTL). Nothing here breaks if a migration is late.
+
+**B — Organisation editing (was a bug: owner couldn't edit).**
+`can()`'s `manage_org_settings` widened from owner-only to **`['owner','admin']`**;
+manager/member stay read-only. Enforcement is **server-side** in a new
+`/api/org/update` route (service-role, after an app-level role check) rather
+than an RLS change — the `orgs` UPDATE policy is owner-only and a route mirrors
+the team-member pattern already in the codebase without a schema migration.
+`OrganisationCard` gates the form; the Supabase store's `updateOrg` optimistic-
+commits then posts there. EDITABLE fields are an explicit allow-list
+(name, sender_email, website, sector, stage, round_target_eur, country,
+one_liner, daily/weekly cap); `''`→null so a cleared field really clears.
+
+**D — Email flow cleanup (remove the investors@ablute.pt BCC).**
+The BCC on every compose/send path read as surveillance; the in-app interaction
+log is already the record. Swept `mailto:` links (ui.tsx), the §8d send route,
+and the "how it works" copy in /log, /people/[id], /automations. The
+`bcc_email` column is **left in place but unused** — additive/reversible; no
+destructive migration just to drop a column.
+
+**A — Nav / Settings restructure + "Review & Optimization".**
+Settings now holds only: Organisation, **Company facts** (the full canon
+management panel, moved here — see interpretation below), Invite teammates /
+People, and **Automations** (moved *into* Settings; the `/automations` route
+still resolves for deep links but is no longer a top-level nav item). The
+"Company" nav item is renamed **"Review & Optimization"** (kept the `/company`
+href + `companyCanon` gate) and now carries AI Review, deck/one-pager review,
+**Market data repurposed** to benchmark the *startup's own* sector (not
+investor research), and the **investability ranking (§11f MVP)**: a "Run
+review" action that grounds on confirmed canon facts + live pipeline stats and
+returns a structured report (score + strengths/weaknesses/risks/
+recommendations) via forced tool-use, **stored per run** in `review_runs` so
+the founder can watch readiness evolve. Full SWOT depth iterates later.
+- *Interpretation flagged:* "Company facts moves to Settings" was read as moving
+  the **entire canon panel** (add + confirm/reject/supersede), not just the
+  "Add a fact" block — so add and confirm don't end up split across two pages.
+  Revert if you wanted only the add-block relocated.
+
+**C — Owner-configurable permissions matrix.**
+New pure module `org-permissions.ts`: a `MatrixCapability` union (data-room
+read/upload/manage, access grants, outbox approval, automations config, packs
+unlock, back-office access, invites, org editing), `DEFAULT_MATRIX` = today's
+permissions, and `resolveMatrix(overrides)` which merges overrides but **always
+force-grants the owner every capability** (no lockout is representable). Stored
+as `orgs.permission_matrix` jsonb (0026); owner-only GET/POST at
+`/api/org/permissions`; owner-only `PermissionsMatrixCard` table with the owner
+column fixed/disabled.
+- *Enforcement scope, flagged honestly:* the two capabilities whose writes pass
+  through a **server route** are enforced against the matrix today — **org_editing**
+  (in `/api/org/update`) and **invites** (in `/api/invite/create`), both via
+  `loadOrgMatrix` + `canWithMatrix`. The remaining capabilities' writes currently
+  go through the **browser client under membership RLS**, so their matrix toggles
+  are configuration + client-gating until those paths move server-side. That's a
+  mechanical follow-up, not a redesign — the pure layer and storage already model
+  the full matrix. **Back-office access** is doubly protected: the matrix toggle
+  can only *further restrict*; `platform_admins` + `is_platform_admin()` remain
+  the hard gate.
+
+**E — "melhorias e problemas" (items 1–5; item 6 was folded into A).**
+1. **Entity classification editing** — new `EntityClassificationEditor` with
+   per-field pencil toggles; sectors/geos are **multi-value chips** off a
+   standardized `taxonomy.ts` (SECTORS/GEOGRAPHIES/STAGE_OPTIONS) with an
+   "outro…" free-text escape; stage is a min–max pair. Writes via the generic
+   `updateEntity`. *Deferred:* the optional per-edit **note** — the inline
+   editor lands the value; annotating each change is a later pass.
+2. **Pipeline reopen note** — a dormant/passed entity that resurfaced via the
+   reopen doctrine shows its `reopen_trigger` inline (↻) so "why is this back"
+   is answered in place.
+3. **Agenda** — events are clickable → a summary popover with a mark-done
+   toggle; **completed tasks no longer vanish** — they stay, turn green with a
+   ✓, and a `completed` rail is shown.
+4. **Dashboard** — the "follow-ups due (7d)" and "passes (with reasons)" cards
+   are now buttons that toggle an inline quick-list (dates; entity + reason
+   category + verbatim reason).
+5. **Data Room v3** — nested subfolders **already worked** (FolderNode recurses
+   on parent_id/position — no change needed). Added: **drag-to-reorder within a
+   folder** (persisted `documents.position`, 0027), **drag a document onto a
+   folder to move it**, and a per-document **Replace file** action that keeps
+   the same row/name/grants/details and swaps only the Storage object. The pure
+   `reorderByDrag()` reorder math is unit-tested (6 cases); reorder + move are
+   gated on the `documentOrdering` capability, Replace is independent.
+
+**Tests** (founder's standing ask — cover where logic lives): `org-permissions.test.ts`
+(8: defaults/override/owner-always/canWithMatrix), taxonomy multi-value via the
+editor, and `reorderByDrag` persistence (6). Suite 124 green; build green.
+
 ## Needs-review triage toolkit + capability-cache fix (founder use case: Alantra)
 
 **Bug fixed first (its own commit):** the capability probes cached a NEGATIVE
