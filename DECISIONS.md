@@ -4,6 +4,92 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## MORNING BRIEFING (overnight block, 23 Jul → demo morning)
+
+**Three things to glance at before the demo:**
+1. **Nothing changed in how the app looks or behaves tonight, on purpose.** The
+   composer, pre-flight, and rules.ts are byte-behavior-identical to yesterday
+   — the entire Company Canon feature (§11) is code-complete but wired behind
+   a capability check that's currently OFF (migration 0020 not applied yet).
+   You will not see a "Company" nav item, an alignment banner, or a
+   confirmation popup anywhere tonight or during the demo unless you apply
+   that migration first.
+2. **When you're ready for Company Canon to go live** (any time after the
+   demo — no rush): apply `supabase/migrations/0020_company_canon.sql`
+   (already pushed to main) via the SQL editor. The app will pick it up on
+   the next request — no redeploy needed, no further code changes. A
+   "Company" nav item appears, and you can start confirming facts.
+3. **Two small real fixes landed** that DO change today's behavior, reviewed
+   as safe: the investor portal's sign-in button no longer claims
+   "(demo: signs in directly)" when it's actually doing a real access check
+   in production (was misleading investors), and Automations' "Full auto"
+   toggle is no longer greyed out behind a paid-plan lock that nothing
+   server-side ever enforced anyway (dead UI, now just works).
+
+**What shipped tonight, in brief:**
+- **Task A — demo-readiness sweep**: walked every founder-facing route in
+  demo mode (proxy for "does the code work," since I can't log in as you —
+  see the note in Task C below). Zero console errors anywhere. Fixed the
+  portal button text bug above and neutralized two "Supabase" mentions in
+  `/api/automations`'s internal (never-rendered) JSON messages. Wrote
+  `DEMO_SCRIPT.md` at the repo root — a 15-minute walkthrough in Portuguese
+  using real pipeline entities (Bynd, MAZE, Lurdes Gramaxo), verified
+  against production read-only right before writing it, plus a "do not
+  click" list of anything that would send a real email or mutate real data
+  live in front of the prospect.
+- **Task B1 — Contributions bulk triage**: a pure byte-diff classifier
+  (`src/lib/contribution-diff.ts`, tested) tags each of the back-office's
+  pending contributions cosmetic/substantive (case, accents, quotes,
+  whitespace, "AT"/"Austria"-style pairs) — filter chips, select-all-in-
+  filter, bulk verify/reject. Bulk is a UI convenience only: every id still
+  goes through the existing single-item review endpoint, so per-row audit
+  logging is unchanged.
+- **Task B2 — needs_review triage** (`/needs-review`, new nav item with a
+  count badge): keyboard-first (j/k/1/2/3/r) review of the ~380 imported
+  interactions whose original outcome coloring was lost. Found and fixed a
+  real timing bug while building this — a lazy-initialized "reviewed count"
+  raced the demo store's async localStorage hydration and could read stale;
+  replaced with an explicit counter.
+- **Task C — Company Canon (§11)**: full stack, capability-gated throughout.
+  Migration 0020 pushed already (company_facts + entity alignment columns).
+  `/api/me` exposes `capabilities.companyCanon` from a cached, cheap
+  existence probe (`src/lib/company-canon.ts`) — the single source of truth
+  every canon-dependent code path checks. Built: the data model + store
+  actions (add/confirm/edit-confirm/reject/supersede — facts are never
+  deleted, only superseded), the `/company` page (review queue + confirmed
+  facts by category + history), the composer's provenance gate (§11b — a
+  real hard gate: `/api/compose` only asks the model for `claims[]` when it
+  was actually given confirmed facts to ground against, and `/log` never
+  shows a draft with an unconfirmed claim — it shows a confirmation popup
+  instead, whose answer is saved as a new fact and triggers a regenerate),
+  the consistency-engine delta for reopened entities (§11c), and the
+  misalignment verdict shown on the entity page (§11d). All three
+  computational cores (gate contract, delta, alignment) are pure functions
+  with 12 passing unit tests against fixtures — no DB, no migration needed
+  to run them. One real bug caught by writing those tests: the alignment
+  verdict's severity was originally inferred by grepping its own reason
+  text for words like "exceeds," which silently misclassified a case whose
+  wording didn't happen to match — fixed to tag severity explicitly instead
+  of re-parsing generated text.
+- **Deferred, logged rather than rushed**: the §11e bootstrap extraction
+  pass (AI-scanning already-imported history + Data Room docs for candidate
+  facts) — a genuinely separate feature on top of an already-large night;
+  the review-queue UI it would feed already exists and works for
+  manually-added facts. Task D (TODO sweep, more `rules.ts` test coverage)
+  — explicitly lowest priority in tonight's instructions ("if time
+  remains"), and it didn't.
+- **One verification gap, by necessity, not oversight**: I could not log in
+  as you to click through the real authenticated app or fire a real
+  `/api/compose` call end-to-end tonight — entering your password is
+  outside what I'm allowed to do, and there is no other path to an
+  authenticated session in this environment. Everything above was verified
+  via demo mode (same components, same code, no auth needed), direct
+  read-only checks against production, and full `tsc`/`vitest`/`next build`
+  passes on every change. The provenance gate specifically is marked in the
+  spec itself as "verified after the demo, not during it" — consistent with
+  that, tonight's verification is code-level (types, tests, build) plus the
+  capability check confirmed live against production (`capabilities.companyCanon: false`, exactly as expected before you apply the migration).
+
 ## PERMANENT RULE — copy hygiene (added 2026-07-23, founder-mandated)
 
 **User-facing copy must never mention:**

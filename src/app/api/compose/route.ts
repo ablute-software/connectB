@@ -30,6 +30,31 @@ const INTENT_GUIDANCE: Record<ComposerIntent, string> = {
 };
 
 function buildPrompt(context: ComposerContext, channel: Channel, intent: ComposerIntent) {
+  // IRM_SPEC §11b/§11c — only appended when the caller actually has
+  // confirmed canon facts (see composer.ts's buildComposerContext, itself
+  // gated on confirmedFacts.length > 0). Empty/absent context.companyFacts
+  // means these blocks never render — the prompt is byte-identical to
+  // before §11 for every caller until at least one fact is confirmed.
+  const canonBlock = context.companyFacts?.length ? [
+    '',
+    'CONFIRMED COMPANY FACTS (the ONLY facts about the company you may assert — cite by id):',
+    context.companyFacts.map((f) => `[${f.id}] (${f.category}) ${f.statement}`).join('\n'),
+    '',
+    'PROVENANCE RULE (hard): every factual sentence about the company in your draft must map to one of the',
+    'fact ids above via the claims[] output field. If you need to state something about the company that is',
+    'NOT covered by these facts, do not invent it — instead add a claims[] entry with needsConfirmation',
+    '(a short question + 2-4 suggested answers) and write the draft sentence generically enough to still read',
+    'naturally either way.',
+  ] : [];
+
+  const reopenBlock = context.reopenContext ? [
+    '',
+    `REOPEN CONTEXT — this entity previously passed. Reason given: "${context.reopenContext.reopenTrigger}".`,
+    context.reopenContext.supersededSince.length ? `No longer true: ${context.reopenContext.supersededSince.join('; ')}` : '',
+    context.reopenContext.newSince.length ? `What changed since: ${context.reopenContext.newSince.join('; ')}` : '',
+    'The draft MUST cite the earlier "no" and lead with what changed — never pretend this is a first contact.',
+  ].filter(Boolean) : [];
+
   return [
     `Compose a single outreach message for ${context.startup.name} to send to ${context.person.fullName}` +
       (context.person.role ? ` (${context.person.role})` : '') + ` at ${context.investor.entityName}.`,
@@ -40,6 +65,8 @@ function buildPrompt(context: ComposerContext, channel: Channel, intent: Compose
     '',
     'CONTEXT (ground truth — do not invent beyond this):',
     JSON.stringify(context, null, 2),
+    ...canonBlock,
+    ...reopenBlock,
     '',
     'HARD RULES:',
     '- Never claim traction, revenue, or clinical results that are not in the context.',
@@ -52,7 +79,52 @@ function buildPrompt(context: ComposerContext, channel: Channel, intent: Compose
   ].filter(Boolean).join('\n');
 }
 
-async function callClaude(apiKey: string, model: string, prompt: string) {
+interface ComposerToolOutput { subject: string; body: string; rationale: string; confidence: number; claims?: { text: string; factId?: string; needsConfirmation?: { question: string; options: string[] } }[] }
+
+// Two schema variants, not one schema with an always-optional field: the
+// §11b claims[] contract is only ever REQUIRED of the model when it was
+// actually given canon facts to ground against (canonGated=true) — asking
+// for it unconditionally would change what every existing caller gets back
+// tonight, before any fact is ever confirmed.
+function toolSchema(canonGated: boolean) {
+  const base = {
+    subject: { type: 'string', description: 'Email subject line; empty string for non-email channels.' },
+    body: { type: 'string', description: 'The full message body.' },
+    rationale: { type: 'string', description: 'One or two sentences: which hooks/context were used, and why.' },
+    confidence: { type: 'number', description: '0 to 1 — how confident this draft is ready to send as-is.' },
+  };
+  if (!canonGated) {
+    return { type: 'object', properties: base, required: ['subject', 'body', 'rationale', 'confidence'] };
+  }
+  return {
+    type: 'object',
+    properties: {
+      ...base,
+      claims: {
+        type: 'array',
+        description: 'One entry per factual sentence about the company in the draft.',
+        items: {
+          type: 'object',
+          properties: {
+            text: { type: 'string', description: 'The claim/sentence from the draft.' },
+            factId: { type: 'string', description: 'The confirmed fact id this claim traces to, if any.' },
+            needsConfirmation: {
+              type: 'object',
+              properties: {
+                question: { type: 'string' },
+                options: { type: 'array', items: { type: 'string' } },
+              },
+            },
+          },
+          required: ['text'],
+        },
+      },
+    },
+    required: ['subject', 'body', 'rationale', 'confidence', 'claims'],
+  };
+}
+
+async function callClaude(apiKey: string, model: string, prompt: string, canonGated: boolean): Promise<ComposerToolOutput> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
@@ -61,20 +133,7 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
       max_tokens: 1200,
       system: 'You are an investor-outreach copywriter for a startup founder. You produce ONE structured draft per call via the compose_outreach tool — you never send anything, you only draft. Be specific, never generic; respect every hard rule given.',
       messages: [{ role: 'user', content: prompt }],
-      tools: [{
-        name: 'compose_outreach',
-        description: 'Return the composed outreach draft.',
-        input_schema: {
-          type: 'object',
-          properties: {
-            subject: { type: 'string', description: 'Email subject line; empty string for non-email channels.' },
-            body: { type: 'string', description: 'The full message body.' },
-            rationale: { type: 'string', description: 'One or two sentences: which hooks/context were used, and why.' },
-            confidence: { type: 'number', description: '0 to 1 — how confident this draft is ready to send as-is.' },
-          },
-          required: ['subject', 'body', 'rationale', 'confidence'],
-        },
-      }],
+      tools: [{ name: 'compose_outreach', description: 'Return the composed outreach draft.', input_schema: toolSchema(canonGated) }],
       tool_choice: { type: 'tool', name: 'compose_outreach' },
     }),
   });
@@ -85,7 +144,7 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
   const data = await res.json();
   const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
   if (!toolUse) throw new Error('AI draft failed — try again in a moment.');
-  return toolUse.input as { subject: string; body: string; rationale: string; confidence: number };
+  return toolUse.input as ComposerToolOutput;
 }
 
 export async function POST(req: NextRequest) {
@@ -108,19 +167,21 @@ export async function POST(req: NextRequest) {
   } as Person;
   const entityLike = { name: context.investor.entityName, the_ask: context.investor.theAsk } as Entity;
 
+  const canonGated = !!context.companyFacts?.length;
+
   try {
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
-    let draft = await callClaude(apiKey, model, buildPrompt(context, channel, intent));
+    let draft = await callClaude(apiKey, model, buildPrompt(context, channel, intent), canonGated);
     let findings = lintMessage(draft.body, personLike, entityLike, channel);
 
     if (findings.some((f) => f.severity === 'error')) {
       const retryPrompt = buildPrompt(context, channel, intent) +
         `\n\nYour previous attempt failed these checks — fix them:\n${findings.filter((f) => f.severity === 'error').map((f) => `- ${f.message}`).join('\n')}`;
-      draft = await callClaude(apiKey, model, retryPrompt);
+      draft = await callClaude(apiKey, model, retryPrompt, canonGated);
       findings = lintMessage(draft.body, personLike, entityLike, channel);
     }
 
-    return NextResponse.json({ configured: true, draft, lint: findings, model });
+    return NextResponse.json({ configured: true, draft, lint: findings });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 502 });
   }

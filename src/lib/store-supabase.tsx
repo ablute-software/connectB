@@ -9,7 +9,7 @@ import React, { useEffect, useMemo, useReducer, useRef } from 'react';
 import { browserClient } from './supabase';
 import { StoreCtx, type StoreApi, type LogInput } from './store-context';
 import type {
-  AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, Db, DocumentItem,
+  AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, CompanyFact, Db, DocumentItem,
   DocumentView, Entity, EntityStatus, Folder, Interaction, InvestorSubmission, MessageTemplate,
   Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview,
@@ -23,7 +23,7 @@ const EMPTY_ORG: Org = { id: '', name: '', plan: 'free', daily_cap: 5, weekly_ca
 const EMPTY_DB: Db = {
   org: EMPTY_ORG, entities: [], people: [], personAffiliations: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
-  runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [],
+  runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -48,7 +48,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     orgRes, entitiesRes, peopleRes, interactionsRes, tasksRes, overridesRes,
     foldersRes, documentsRes, grantsRes, viewsRes, templatesRes, automationsRes,
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
-    deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes,
+    deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -72,6 +72,10 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     sb.from('investor_submissions').select('*').eq('org_id', orgId),
     sb.from('relationship_state').select('*').eq('org_id', orgId),
     sb.from('person_affiliations').select('*').eq('org_id', orgId),
+    // §11 Company Canon — company_facts may not exist yet (migration 0020
+    // not applied). A missing-table error resolves here (never throws), so
+    // it just falls back to [] below like every other table's error path.
+    sb.from('company_facts').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -127,6 +131,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     packs,
     unlocks,
     submissions,
+    companyFacts: ((companyFactsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<CompanyFact>(r)),
   };
 }
 
@@ -277,6 +282,15 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       }
     },
 
+    clearNeedsReview(interactionId: string) {
+      const prev = dbRef.current;
+      commit({
+        ...prev,
+        interactions: prev.interactions.map((i) => i.id === interactionId ? { ...i, needs_review: false } : i),
+      });
+      if (orgIdRef.current) persist(sb.from('interactions').update({ needs_review: false }).eq('id', interactionId), 'clearNeedsReview');
+    },
+
     toggleTask(id: string) {
       const prev = dbRef.current;
       let newDone = false;
@@ -375,6 +389,66 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const last_verified = new Date().toISOString().slice(0, 10);
       commit({ ...prev, entities: prev.entities.map((e) => e.id === entityId ? { ...e, last_verified } : e) });
       if (orgIdRef.current) persist(sb.from('entities').update({ last_verified }).eq('id', entityId), 'markEntityVerified');
+    },
+
+    addCompanyFact(f: Omit<CompanyFact, 'id' | 'created_at' | 'updated_at'>) {
+      const prev = dbRef.current;
+      const now = new Date().toISOString();
+      const row: CompanyFact = { ...f, id: uuid(), created_at: now, updated_at: now };
+      commit({ ...prev, companyFacts: [...prev.companyFacts, row] });
+      const o = orgIdRef.current;
+      if (o) persist(sb.from('company_facts').insert({ ...row, org_id: o }), 'addCompanyFact');
+    },
+
+    confirmCompanyFact(id: string) {
+      const prev = dbRef.current;
+      const now = new Date().toISOString();
+      commit({
+        ...prev,
+        companyFacts: prev.companyFacts.map((f) => f.id === id ? { ...f, status: 'confirmed' as const, confirmed_at: now, updated_at: now } : f),
+      });
+      persist(sb.from('company_facts').update({ status: 'confirmed', confirmed_at: now, updated_at: now }).eq('id', id), 'confirmCompanyFact');
+    },
+
+    editAndConfirmCompanyFact(id: string, statement: string) {
+      const prev = dbRef.current;
+      const now = new Date().toISOString();
+      commit({
+        ...prev,
+        companyFacts: prev.companyFacts.map((f) => f.id === id
+          ? { ...f, statement, status: 'confirmed' as const, confirmed_at: now, updated_at: now } : f),
+      });
+      persist(sb.from('company_facts').update({ statement, status: 'confirmed', confirmed_at: now, updated_at: now }).eq('id', id), 'editAndConfirmCompanyFact');
+    },
+
+    rejectCompanyFact(id: string) {
+      const prev = dbRef.current;
+      const now = new Date().toISOString();
+      commit({ ...prev, companyFacts: prev.companyFacts.map((f) => f.id === id ? { ...f, status: 'deprecated' as const, updated_at: now } : f) });
+      persist(sb.from('company_facts').update({ status: 'deprecated', updated_at: now }).eq('id', id), 'rejectCompanyFact');
+    },
+
+    supersedeCompanyFact(oldId: string, newStatement: string) {
+      const prev = dbRef.current;
+      const old = prev.companyFacts.find((f) => f.id === oldId);
+      if (!old) return;
+      const now = new Date().toISOString();
+      const successor: CompanyFact = {
+        id: uuid(), category: old.category, statement: newStatement, status: 'confirmed',
+        source: 'user', valid_from: now.slice(0, 10), confirmed_at: now, created_at: now, updated_at: now,
+      };
+      commit({
+        ...prev,
+        companyFacts: [
+          ...prev.companyFacts.map((f) => f.id === oldId ? { ...f, status: 'deprecated' as const, superseded_by: successor.id, updated_at: now } : f),
+          successor,
+        ],
+      });
+      const o = orgIdRef.current;
+      if (o) {
+        persist(sb.from('company_facts').update({ status: 'deprecated', superseded_by: successor.id, updated_at: now }).eq('id', oldId), 'supersedeCompanyFact:old');
+        persist(sb.from('company_facts').insert({ ...successor, org_id: o }), 'supersedeCompanyFact:new');
+      }
     },
 
     setDoNotContact(personId: string) {

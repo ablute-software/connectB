@@ -10,6 +10,7 @@ import { ContributionBox } from '@/components/ContributionBox';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
 import { entityCompleteness } from '@/lib/completeness';
 import { isPersonCandidate, relatedContacts } from '@/lib/relationship';
+import { computeAlignment } from '@/lib/company-canon-logic';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -24,6 +25,9 @@ export default function EntityPage({ params }: { params: { id: string } }) {
 
   const people = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
   const personCandidate = isPersonCandidate(db, entity);
+  // §11d — only computed/shown once there's real canon to compare against;
+  // stays invisible tonight (db.companyFacts is empty pre-migration/pre-population).
+  const alignment = db.companyFacts.length > 0 ? computeAlignment(entity, db.companyFacts) : null;
   const alsoConnected = relatedContacts(db, entity.id).filter((r) => r.viaAffiliation);
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > new Date();
   const grants = db.grants.filter((g) => people.some((p) => p.id === g.person_id));
@@ -79,6 +83,19 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       )}
 
       <HardFilterBanner entity={entity} />
+      {alignment && alignment.status !== 'aligned' && (
+        <div className={`rounded-lg border-l-4 px-4 py-3 ${alignment.status === 'misaligned' ? 'border-[#B00000] bg-red-50' : 'border-amber-400 bg-amber-50'}`}>
+          <div className={`text-sm font-semibold ${alignment.status === 'misaligned' ? 'text-[#B00000]' : 'text-amber-900'}`}>
+            {alignment.status === 'misaligned' ? '⚠ Misaligned with the current company canon' : 'Caution — check against the company canon'}
+          </div>
+          <ul className="mt-1 space-y-0.5 text-sm text-gray-700">
+            {alignment.reasons.map((r, i) => <li key={i}>{r}</li>)}
+          </ul>
+          {alignment.status === 'misaligned' && (
+            <p className="mt-1 text-xs text-gray-500">Consider parking this one with a reopen trigger rather than approaching now.</p>
+          )}
+        </div>
+      )}
       {locked && (
         <div className="rounded-lg border border-cyan-200 bg-[#E8F4F8] px-4 py-2 text-sm text-cyan-900">
           🔒 Contact lock until {entity.contact_lock_until!.slice(0, 10)} — one approach per entity.

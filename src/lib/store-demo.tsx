@@ -5,7 +5,7 @@
 // StoreApi contract (locks, follow-up tasks, overrides, runs semantics).
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  AccessGrant, AutomationRun, Db, Entity, Interaction, Person, PersonAffiliation,
+  AccessGrant, AutomationRun, CompanyFact, Db, Entity, Interaction, Person, PersonAffiliation,
 } from './types';
 import { seed } from './data/seed';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
@@ -115,6 +115,13 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       }));
     },
 
+    clearNeedsReview(interactionId) {
+      setDb((prev) => ({
+        ...prev,
+        interactions: prev.interactions.map((i) => i.id === interactionId ? { ...i, needs_review: false } : i),
+      }));
+    },
+
     toggleTask(id) {
       setDb((prev) => ({ ...prev, tasks: prev.tasks.map((t) => t.id === id ? { ...t, done: !t.done } : t) }));
     },
@@ -177,6 +184,59 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
         entities: prev.entities.map((e) => e.id === entityId
           ? { ...e, last_verified: new Date().toISOString().slice(0, 10) } : e),
       }));
+    },
+
+    addCompanyFact(f) {
+      const now = new Date().toISOString();
+      setDb((prev) => ({
+        ...prev,
+        companyFacts: [...prev.companyFacts, { ...f, id: uid('fact'), created_at: now, updated_at: now }],
+      }));
+    },
+
+    confirmCompanyFact(id) {
+      const now = new Date().toISOString();
+      setDb((prev) => ({
+        ...prev,
+        companyFacts: prev.companyFacts.map((f) => f.id === id
+          ? { ...f, status: 'confirmed', confirmed_at: now, updated_at: now } : f),
+      }));
+    },
+
+    editAndConfirmCompanyFact(id, statement) {
+      const now = new Date().toISOString();
+      setDb((prev) => ({
+        ...prev,
+        companyFacts: prev.companyFacts.map((f) => f.id === id
+          ? { ...f, statement, status: 'confirmed', confirmed_at: now, updated_at: now } : f),
+      }));
+    },
+
+    rejectCompanyFact(id) {
+      const now = new Date().toISOString();
+      setDb((prev) => ({
+        ...prev,
+        companyFacts: prev.companyFacts.map((f) => f.id === id ? { ...f, status: 'deprecated', updated_at: now } : f),
+      }));
+    },
+
+    supersedeCompanyFact(oldId, newStatement) {
+      const now = new Date().toISOString();
+      setDb((prev) => {
+        const old = prev.companyFacts.find((f) => f.id === oldId);
+        if (!old) return prev;
+        const successor: CompanyFact = {
+          id: uid('fact'), category: old.category, statement: newStatement, status: 'confirmed',
+          source: 'user', valid_from: now.slice(0, 10), confirmed_at: now, created_at: now, updated_at: now,
+        };
+        return {
+          ...prev,
+          companyFacts: [
+            ...prev.companyFacts.map((f) => f.id === oldId ? { ...f, status: 'deprecated' as const, superseded_by: successor.id, updated_at: now } : f),
+            successor,
+          ],
+        };
+      });
     },
 
     setDoNotContact(personId) {

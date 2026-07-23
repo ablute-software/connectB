@@ -112,6 +112,10 @@ export interface Entity {
   // passes that reopen on a positioning change instead of a date.
   reopen_trigger?: string;
   reopen_eligible_after?: string; // ISO date
+  // §11d misalignment alert — capability-gated, see src/lib/company-canon.ts
+  alignment_status?: EntityAlignmentStatus;
+  alignment_notes?: string;
+  alignment_assessed_at?: string;
 }
 
 export interface Person {
@@ -186,6 +190,11 @@ export interface Interaction {
   next_action_due?: string;
   automation_run_id?: string;
   ai_generated?: boolean;
+  // Real DB column since migration 0018 (interactions_needs_review), only
+  // just surfaced in the type — set true for imported history rows whose
+  // original coloring (e.g. a positive/green marker) was lost in an export
+  // and needs a human to confirm the true outcome.
+  needs_review?: boolean;
 }
 
 export interface TaskItem {
@@ -307,6 +316,32 @@ export interface AiReview {
   created_at: string;
 }
 
+// ===== IRM_SPEC §11 — COMPANY CANON =====
+// Capability-gated: only meaningful once migration 0020 is applied (see
+// src/lib/company-canon.ts). Fields mirror the company_facts table exactly.
+export type CompanyFactCategory =
+  | 'product' | 'traction' | 'team' | 'positioning' | 'financing' | 'regulatory' | 'market' | 'metrics' | 'other';
+export type CompanyFactStatus = 'confirmed' | 'unconfirmed' | 'deprecated';
+export type CompanyFactSource = 'user' | 'import' | 'ai_extracted';
+
+export interface CompanyFact {
+  id: string;
+  category: CompanyFactCategory;
+  statement: string;
+  status: CompanyFactStatus;
+  source: CompanyFactSource;
+  source_ref?: string;
+  valid_from?: string; // ISO date
+  superseded_by?: string;
+  confirmed_at?: string;
+  confirmed_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// §11d misalignment alert verdict, stored on the entity row.
+export type EntityAlignmentStatus = 'aligned' | 'caution' | 'misaligned';
+
 // ===== v3: platform catalog, packs, back-office =====
 export type CatalogVerification = 'verified' | 'pending' | 'rejected';
 export type SubmissionStatus = 'pending_review' | 'approved' | 'rejected' | 'merged';
@@ -385,4 +420,5 @@ export interface Db {
   automations: Automation[];
   runs: AutomationRun[];
   aiReviews: AiReview[];
+  companyFacts: CompanyFact[];
 }

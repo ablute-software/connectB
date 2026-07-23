@@ -4,6 +4,7 @@
 import type { Channel, Db } from './types';
 import { LINKEDIN_DM_MAX, LOCK_DAYS, outboundCounts } from './rules';
 import { relationshipSummary } from './relationship';
+import { computeCanonDelta } from './company-canon-logic';
 
 export type ComposerIntent = 'first_touch' | 'follow_up' | 'reply' | 'meeting_ask';
 
@@ -34,6 +35,15 @@ export interface ComposerContext {
     linkedinMax: number; lockDays: number; locked: boolean; lockUntil?: string;
     thirdUnansweredRisk: boolean;
   };
+  // IRM_SPEC §11b — confirmed Company Canon facts, only ever non-empty once
+  // migration 0020 is applied and at least one fact is confirmed. Absent/
+  // empty is the exact same shape the composer has always received —
+  // /api/compose only switches into the provenance-gated schema when this
+  // is present and non-empty, so today's behavior is unchanged by default.
+  companyFacts?: { id: string; statement: string; category: string }[];
+  // §11c consistency engine — the delta since this entity's last contact,
+  // when reopening a passed/dormant relationship. Only set when relevant.
+  reopenContext?: { reopenTrigger: string; lastContactAt?: string; supersededSince: string[]; newSince: string[] };
 }
 
 export function pickIntent(db: Db, entityId: string): ComposerIntent {
@@ -63,6 +73,28 @@ export function buildComposerContext(db: Db, entityId: string, personId: string,
   const outsToPerson = db.interactions.filter((i) => i.person_id === personId && i.direction === 'out').length;
   const insFromPerson = db.interactions.filter((i) => i.person_id === personId && i.direction === 'in').length;
 
+  const confirmedFacts = db.companyFacts.filter((f) => f.status === 'confirmed');
+  const companyFacts = confirmedFacts.length > 0
+    ? confirmedFacts.map((f) => ({ id: f.id, statement: f.statement, category: f.category }))
+    : undefined;
+
+  // §11c — only relevant when reopening a passed/dormant entity with a
+  // recorded trigger; the delta is computed from the entity's last touch,
+  // never from the model's memory. Deliberately also gated on
+  // confirmedFacts.length > 0 (not just entity.reopen_trigger, which
+  // already exists independently of this migration) — this whole block
+  // must stay a no-op tonight, before any canon fact is ever confirmed.
+  let reopenContext: ComposerContext['reopenContext'];
+  if (confirmedFacts.length > 0 && entity?.reopen_trigger && priorThread.length > 0) {
+    const lastContactAt = priorThread[0]?.occurredAt;
+    const delta = computeCanonDelta(db.companyFacts, lastContactAt ?? entity.reopen_eligible_after ?? '1970-01-01');
+    reopenContext = {
+      reopenTrigger: entity.reopen_trigger, lastContactAt,
+      supersededSince: delta.supersededSinceDate.map((f) => f.statement),
+      newSince: delta.newSinceDate.map((f) => f.statement),
+    };
+  }
+
   return {
     startup: {
       name: db.org.name, sector: db.org.sector, stage: db.org.stage,
@@ -87,5 +119,7 @@ export function buildComposerContext(db: Db, entityId: string, personId: string,
       linkedinMax: LINKEDIN_DM_MAX, lockDays: LOCK_DAYS, locked, lockUntil: entity?.contact_lock_until,
       thirdUnansweredRisk: outsToPerson >= 2 && insFromPerson === 0,
     },
+    companyFacts,
+    reopenContext,
   };
 }

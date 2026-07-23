@@ -7,15 +7,22 @@ import { outboundCounts } from '@/lib/rules';
 import { browserClient } from '@/lib/supabase';
 import { Tooltip } from '@/components/ui';
 
-type Me = { authEnabled: boolean; user: { email?: string } | null; role: string };
+type Me = {
+  authEnabled: boolean; user: { email?: string } | null; role: string;
+  capabilities?: { ai: boolean; companyCanon: boolean };
+};
 
-const NAV: { href: string; label: string; icon: string; section?: string }[] = [
+const NAV: { href: string; label: string; icon: string; section?: string; requiresCapability?: 'companyCanon' }[] = [
   { href: '/', label: 'Pipeline', icon: '▤', section: 'Workspace' },
   { href: '/today', label: 'Today', icon: '☀' },
   { href: '/agenda', label: 'Agenda', icon: '▦' },
   { href: '/dashboard', label: 'Dashboard', icon: '◔' },
+  // §11 Company Canon — hidden until migration 0020 is applied (capability
+  // probed via /api/me), so main stays exactly as it is today until then.
+  { href: '/company', label: 'Company', icon: '◆', requiresCapability: 'companyCanon' },
   { href: '/documents', label: 'Data Room', icon: '▣', section: 'Sharing' },
   { href: '/import', label: 'Import history', icon: '⇪' },
+  { href: '/needs-review', label: 'Needs review', icon: '◑' },
   { href: '/packs', label: 'Packs', icon: '◈', section: 'Growth' },
   { href: '/outbox', label: 'Outbox', icon: '✉', section: 'Automation' },
   { href: '/automations', label: 'Automations', icon: '⚙' },
@@ -27,6 +34,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const { db } = useStore();
   const caps = outboundCounts(db);
   const pendingRuns = db.runs.filter((r) => r.status === 'pending_review').length;
+  const needsReviewCount = db.interactions.filter((i) => i.needs_review).length;
   const [me, setMe] = useState<Me | null>(null);
 
   useEffect(() => {
@@ -43,6 +51,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // — see src/app/backoffice/layout.tsx). Founders without platform_admin
   // never see this at all, per BLOCO 3's "separar completamente" ask.
   const showBackofficeSwitcher = me?.role === 'developer';
+  const visibleNav = NAV.filter((n) => !n.requiresCapability || !!me?.capabilities?.[n.requiresCapability]);
   const capClass =
     caps.today >= caps.dailyCap || caps.week >= caps.weeklyCap ? 'text-[#B00000] font-semibold'
       : caps.today === caps.dailyCap - 1 || caps.week === caps.weeklyCap - 1 ? 'text-amber-600 font-semibold'
@@ -60,7 +69,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">Investor Relations</div>
         </div>
         <nav className="mt-1 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
-          {NAV.map((n) => {
+          {visibleNav.map((n) => {
             const active = n.href === '/' ? path === '/' : path?.startsWith(n.href);
             return (
               <React.Fragment key={n.href}>
@@ -73,6 +82,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   <span className={`w-4 text-center ${active ? '' : 'text-gray-400'}`}>{n.icon}</span> {n.label}
                   {n.href === '/outbox' && pendingRuns > 0 && (
                     <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{pendingRuns}</span>
+                  )}
+                  {n.href === '/needs-review' && needsReviewCount > 0 && (
+                    <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{needsReviewCount}</span>
                   )}
                 </Link>
               </React.Fragment>
@@ -131,7 +143,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-10 flex justify-around border-t border-gray-100 bg-white py-1.5 md:hidden">
-        {NAV.slice(0, 5).map((n) => (
+        {visibleNav.slice(0, 5).map((n) => (
           <Link key={n.href} href={n.href} className={`px-2 py-1 text-xs ${path === n.href ? 'font-semibold text-[#0E7490]' : 'text-gray-400'}`}>
             {n.label}
           </Link>

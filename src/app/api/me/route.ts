@@ -5,10 +5,10 @@
 // duplicate that logic (and never inspects env vars client-side).
 import { NextResponse } from 'next/server';
 import { serverClient, resolveRole, getOrgRole, authEnabled } from '@/lib/supabase-server';
-
-const capabilities = { ai: !!process.env.ANTHROPIC_API_KEY };
+import { companyCanonAvailable } from '@/lib/company-canon';
 
 export async function GET() {
+  const capabilities = { ai: !!process.env.ANTHROPIC_API_KEY, companyCanon: await companyCanonAvailable() };
   if (!authEnabled) return NextResponse.json({ authEnabled: false, user: null, role: 'none', capabilities });
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();

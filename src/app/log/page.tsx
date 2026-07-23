@@ -7,6 +7,7 @@ import { Card, PREFLIGHT_EXPLAIN, Tooltip } from '@/components/ui';
 import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
 import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
 import { ACTION_TYPE_LABEL, ACTION_TYPES, recommendedActionType } from '@/lib/relationship';
+import { evaluateProvenanceGate, type ComposerClaim } from '@/lib/company-canon-logic';
 import type { ActionType, Channel, Classification, OverrideRule, PassReasonCategory } from '@/lib/types';
 
 const CHANNELS: { v: Channel; l: string }[] = [
@@ -18,7 +19,7 @@ const CLASSIFICATIONS: Classification[] = ['awaiting', 'interested', 'meeting_re
 const PASS_CATS: PassReasonCategory[] = ['valuation', 'check_size', 'geography', 'stage_too_early', 'thesis_mismatch', 'team', 'traction', 'other'];
 
 function LogForm() {
-  const { db, logInteraction } = useStore();
+  const { db, logInteraction, addCompanyFact } = useStore();
   const router = useRouter();
   const sp = useSearchParams();
 
@@ -49,6 +50,12 @@ function LogForm() {
   const [sending, setSending] = useState(false);
   const [sendErr, setSendErr] = useState('');
   const [draftedFor, setDraftedFor] = useState<{ key: string; label: string } | null>(null);
+  // IRM_SPEC §11b — provenance gate. Only ever populated when the composer
+  // response includes claims[] (itself only present once canon facts exist
+  // to ground against) AND at least one claim isn't grounded — so this
+  // stays empty/inert for every draft until then.
+  const [pendingQuestions, setPendingQuestions] = useState<ComposerClaim[]>([]);
+  const [pendingAnswer, setPendingAnswer] = useState('');
 
   useEffect(() => {
     fetch('/api/oauth/google/status').then((r) => r.json()).then(setGmail).catch(() => setGmail({ configured: false, connected: false }));
@@ -97,7 +104,7 @@ function LogForm() {
 
   async function draftWithAi() {
     if (!person || !entity) return;
-    setComposing(true); setComposerNote(''); setComposerMeta(null);
+    setComposing(true); setComposerNote(''); setComposerMeta(null); setPendingQuestions([]);
     try {
       const context = buildComposerContext(db, entityId, personId, channel);
       const res = await fetch('/api/compose', {
@@ -108,6 +115,31 @@ function LogForm() {
       const data = await res.json();
       if (data.configured === false) { setComposerNote(data.message); return; }
       if (data.error) { setComposerNote(`AI draft failed: ${data.error}`); return; }
+
+      // §11b HARD gate: a draft with any claim that isn't confirmed-or-
+      // flagged is never shown. Only reachable when the server actually
+      // returned claims[] (canon-gated mode) — see /api/compose's
+      // canonGated branch, itself inert until a fact is confirmed.
+      if (data.draft.claims?.length) {
+        const confirmedIds = new Set(db.companyFacts.filter((f) => f.status === 'confirmed').map((f) => f.id));
+        const gate = evaluateProvenanceGate(data.draft, confirmedIds);
+        if (!gate.grounded) {
+          const unresolved = [
+            ...gate.pendingQuestions,
+            ...gate.ungroundedClaims.map((c) => ({
+              ...c,
+              needsConfirmation: c.needsConfirmation ?? {
+                question: `The draft states "${c.text}" — is that accurate?`,
+                options: ['Yes — add to the canon', 'No — leave it out'],
+              },
+            })),
+          ];
+          setPendingQuestions(unresolved);
+          setComposerNote('This draft made a claim that needs your confirmation first — the draft itself is not shown yet.');
+          return;
+        }
+      }
+
       setContent(data.draft.body);
       if (channel === 'email') setSubject(data.draft.subject ?? '');
       setComposerMeta({ rationale: data.draft.rationale, confidence: data.draft.confidence });
@@ -117,6 +149,16 @@ function LogForm() {
     } finally {
       setComposing(false);
     }
+  }
+
+  function answerPendingQuestion(answer: string) {
+    if (!pendingQuestions[0]) return;
+    const now = new Date().toISOString();
+    addCompanyFact({ category: 'other', statement: answer, status: 'confirmed', source: 'user', confirmed_at: now });
+    const rest = pendingQuestions.slice(1);
+    setPendingQuestions(rest);
+    setPendingAnswer('');
+    if (rest.length === 0) { setComposerNote(''); draftWithAi(); } // all answered — regenerate
   }
 
   function save(withOverrides: boolean, sentFrom?: string) {
@@ -226,6 +268,27 @@ function LogForm() {
             </div>
           )}
           {composerNote && <div className="mt-2 rounded bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-600">{composerNote}</div>}
+          {pendingQuestions[0] && (
+            <div className="mt-2 rounded-lg border border-purple-300 bg-purple-50 p-3">
+              <p className="text-sm font-medium text-purple-900">{pendingQuestions[0].needsConfirmation!.question}</p>
+              <p className="mt-0.5 text-xs text-purple-700">Your answer is added to the Company canon so future drafts already know it.</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {pendingQuestions[0].needsConfirmation!.options.map((opt) => (
+                  <button key={opt} onClick={() => answerPendingQuestion(opt)}
+                    className="rounded-lg border border-purple-300 bg-white px-2.5 py-1 text-xs font-medium text-purple-800 hover:bg-purple-100">
+                    {opt}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-2 flex gap-2">
+                <input value={pendingAnswer} onChange={(e) => setPendingAnswer(e.target.value)} placeholder="Or type the real answer…"
+                  className="flex-1 rounded border border-gray-300 px-2 py-1 text-xs" />
+                <button disabled={!pendingAnswer.trim()} onClick={() => answerPendingQuestion(pendingAnswer.trim())}
+                  className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">Confirm</button>
+              </div>
+              {pendingQuestions.length > 1 && <p className="mt-1.5 text-[11px] text-purple-600">{pendingQuestions.length - 1} more after this one.</p>}
+            </div>
+          )}
           {composerMeta && (
             <div className="mt-2 rounded bg-[#E8F4F8]/60 border border-cyan-100 px-3 py-2 text-xs text-cyan-900">
               <span className="font-semibold">AI rationale:</span> {composerMeta.rationale} · confidence {Math.round(composerMeta.confidence * 100)}%

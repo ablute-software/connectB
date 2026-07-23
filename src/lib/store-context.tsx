@@ -5,7 +5,7 @@
 // backend is mounted.
 import { createContext, useContext } from 'react';
 import type {
-  AccessGrant, ActionType, Automation, Channel, Classification, Db,
+  AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, Db,
   DocumentItem, Entity, Interaction, InvestorSubmission, OverrideRule,
   PassReasonCategory, PersonAffiliation, RelationshipStage, TaskItem,
 } from './types';
@@ -34,6 +34,11 @@ export interface StoreApi {
   db: Db;
   logInteraction: (input: LogInput) => Interaction;
   classifyInteraction: (id: string, c: Classification, cat?: PassReasonCategory, reason?: string) => void;
+  // Overnight block Task B2 — needs_review triage. Deliberately separate
+  // from classifyInteraction (not a new parameter on it) so reviewing the
+  // flag never changes that function's existing entity-status side
+  // effects — this only ever touches the one boolean.
+  clearNeedsReview: (interactionId: string) => void;
   toggleTask: (id: string) => void;
   addTask: (t: Omit<TaskItem, 'id' | 'done'>) => void;
   setEntityStatus: (id: string, status: Db['entities'][0]['status'], reason?: string) => void;
@@ -74,6 +79,18 @@ export interface StoreApi {
   // Dismisses the "looks like a person" sweep suggestion without converting
   // — stamps last_verified so it stops being flagged.
   markEntityVerified: (entityId: string) => void;
+
+  // IRM_SPEC §11 — Company Canon. Capability-gated: the Company nav link and
+  // page only render when /api/me reports capabilities.companyCanon, so
+  // these are only ever called from a UI that has already confirmed the
+  // migration is applied.
+  addCompanyFact: (f: Omit<CompanyFact, 'id' | 'created_at' | 'updated_at'>) => void;
+  confirmCompanyFact: (id: string) => void;
+  editAndConfirmCompanyFact: (id: string, statement: string) => void;
+  rejectCompanyFact: (id: string) => void;
+  // Facts are never deleted, only superseded (§11a) — creates a new
+  // confirmed fact and points the old one's superseded_by at it.
+  supersedeCompanyFact: (oldId: string, newStatement: string) => void;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);
