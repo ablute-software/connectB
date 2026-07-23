@@ -53,7 +53,9 @@ export default function NeedsReviewPage() {
 
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
   useEffect(() => {
-    fetch('/api/me').then((r) => r.json()).then((me) => setAiAvailable(!!me.capabilities?.needsReviewAi)).catch(() => setAiAvailable(false));
+    // no-store so a just-applied migration 0021 is reflected on the next
+    // page load rather than served from a stale cached /api/me response.
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => setAiAvailable(!!me.capabilities?.needsReviewAi)).catch(() => setAiAvailable(false));
   }, []);
 
   const [railMode, setRailMode] = useState<'pending' | 'ai_classified'>('pending');

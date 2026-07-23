@@ -31,7 +31,9 @@ export default function CompanyPage() {
   const [superseding, setSuperseding] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    fetch('/api/me').then((r) => r.json()).then((me) => setAvailable(!!me.capabilities?.companyCanon)).catch(() => setAvailable(false));
+    // no-store so a just-applied migration is reflected on the next page
+    // load rather than served from a stale cached /api/me response.
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => setAvailable(!!me.capabilities?.companyCanon)).catch(() => setAvailable(false));
   }, []);
 
   if (available === false) {
