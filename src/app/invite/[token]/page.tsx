@@ -4,6 +4,7 @@
 // land back here via ?next=, then just confirm) in one page.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { BRAND_NAME } from '@/lib/brand';
 import { browserClient } from '@/lib/supabase';
 
 type Invite = { org_name: string; role: string; email: string; status: string };
@@ -57,7 +58,7 @@ export default function InvitePage({ params }: { params: { token: string } }) {
     <div className="flex min-h-screen items-center justify-center bg-[#F7F9FA] px-4">
       <div className="w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-7 shadow-sm">
         <div className="mb-4 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
-          connect<span className="text-[#22D3EE]">B</span>
+          {BRAND_NAME}
         </div>
 
         {loadErr && <p className="text-sm text-[#B00000]">{loadErr}</p>}
@@ -99,7 +100,7 @@ export default function InvitePage({ params }: { params: { token: string } }) {
                 {busy ? 'Joining…' : 'Create account & join'}
               </button>
               <div className="mt-4 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
-                Already have a connectB account?{' '}
+                Already have a {BRAND_NAME} account?{' '}
                 <Link href={`/login?next=/invite/${token}`} className="font-medium text-[#0E7490] hover:underline">Log in</Link>
               </div>
             </>

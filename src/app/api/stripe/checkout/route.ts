@@ -13,6 +13,7 @@ import { can, type OrgRole } from '@/lib/permissions';
 import { stripeConfigured, stripePriceMap, stripeSecret } from '@/lib/stripe-env';
 import { priceIdFor } from '@/lib/billing';
 import { PLAN_TIERS } from '@/lib/plans';
+import { APP_URL } from '@/lib/brand';
 import type { PlanTier } from '@/lib/types';
 
 export async function POST(req: Request) {
@@ -36,14 +37,14 @@ export async function POST(req: Request) {
   if (!priceId) return NextResponse.json({ ok: false, error: 'Preço indisponível.' }, { status: 400 });
 
   const { data: org } = await sb.from('orgs').select('stripe_customer_id').eq('id', member.org_id).maybeSingle();
-  const origin = req.headers.get('origin') ?? new URL(req.url).origin;
 
   const form = new URLSearchParams();
   form.set('mode', 'subscription');
   form.set('line_items[0][price]', priceId);
   form.set('line_items[0][quantity]', '1');
-  form.set('success_url', `${origin}/plans?checkout=success`);
-  form.set('cancel_url', `${origin}/plans?checkout=cancel`);
+  // Return URLs from APP_URL (canonical domain) so the cutover is one env change.
+  form.set('success_url', `${APP_URL}/plans?checkout=success`);
+  form.set('cancel_url', `${APP_URL}/plans?checkout=cancel`);
   form.set('client_reference_id', member.org_id as string);
   // Metadata carries org_id on BOTH the session and the subscription, so every
   // downstream webhook event can resolve the org without a lookup.

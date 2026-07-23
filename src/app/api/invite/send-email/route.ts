@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
+import { BRAND_NAME, APP_URL } from '@/lib/brand';
 
 export async function POST(req: NextRequest) {
   const { token } = await req.json();
@@ -21,13 +22,15 @@ export async function POST(req: NextRequest) {
   if (error || !invite) return NextResponse.json({ ok: false, sent: false, error: error?.message ?? 'invitation not found' }, { status: 404 });
 
   const { data: org } = await admin.from('orgs').select('name').eq('id', invite.org_id).maybeSingle();
-  const acceptUrl = `${new URL(req.url).origin}/invite/${token}`;
+  // Built from APP_URL (not the request origin) so the accept link always points
+  // at the canonical domain — the cutover is one env change, no code edit.
+  const acceptUrl = `${APP_URL}/invite/${token}`;
 
   const result = await sendTransactionalEmail({
     to: invite.email,
-    subject: `You've been invited to ${org?.name ?? 'a workspace'} on connectB`,
+    subject: `You've been invited to ${org?.name ?? 'a workspace'} on ${BRAND_NAME}`,
     html: transactionalTemplate({
-      heading: `Join ${org?.name ?? 'the team'} on connectB`,
+      heading: `Join ${org?.name ?? 'the team'} on ${BRAND_NAME}`,
       body: `You've been invited as ${invite.role === 'member' ? 'a team member' : `an ${invite.role}`}. Click below to accept — this link expires in 14 days.`,
       ctaLabel: 'Accept invitation',
       ctaUrl: acceptUrl,

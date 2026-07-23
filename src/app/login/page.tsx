@@ -4,6 +4,7 @@ import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { browserClient, authEnabled } from '@/lib/supabase';
+import { BRAND_NAME } from '@/lib/brand';
 
 function LoginInner() {
   const sp = useSearchParams();
@@ -40,7 +41,7 @@ function LoginInner() {
     <div className="flex min-h-screen items-center justify-center bg-[#F7F9FA] px-4">
       <div className="w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-7 shadow-sm">
         <div className="mb-1 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
-          connect<span className="text-[#22D3EE]">B</span>
+          {BRAND_NAME}
         </div>
         <p className="mb-5 text-sm text-gray-500">Sign in to your investor relations workspace.</p>
 

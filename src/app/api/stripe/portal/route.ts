@@ -6,8 +6,9 @@ import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
 import { can, type OrgRole } from '@/lib/permissions';
 import { stripeConfigured, stripeSecret } from '@/lib/stripe-env';
+import { APP_URL } from '@/lib/brand';
 
-export async function POST(req: Request) {
+export async function POST() {
   if (!stripeConfigured()) return NextResponse.json({ ok: false, error: 'Billing not configured.' }, { status: 200 });
 
   const sb = await serverClient();
@@ -23,10 +24,9 @@ export async function POST(req: Request) {
   const customer = org?.stripe_customer_id as string | undefined;
   if (!customer) return NextResponse.json({ ok: false, error: 'Sem subscrição para gerir.' }, { status: 400 });
 
-  const origin = req.headers.get('origin') ?? new URL(req.url).origin;
   const form = new URLSearchParams();
   form.set('customer', customer);
-  form.set('return_url', `${origin}/plans`);
+  form.set('return_url', `${APP_URL}/plans`);
 
   const res = await fetch('https://api.stripe.com/v1/billing_portal/sessions', {
     method: 'POST',

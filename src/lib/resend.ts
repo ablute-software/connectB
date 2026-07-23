@@ -4,6 +4,7 @@
 // `resendConfigured` first and keep their existing fallback (e.g. a
 // copyable link) when it's false — same pattern as the AI composer.
 import 'server-only';
+import { BRAND_NAME } from './brand';
 
 export const resendConfigured = !!process.env.RESEND_API_KEY;
 
@@ -11,7 +12,11 @@ export async function sendTransactionalEmail(opts: { to: string; subject: string
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return { sent: false, error: 'Email sending is not available in your workspace yet.' };
 
-  const from = process.env.RESEND_FROM_EMAIL || 'connectB <onboarding@resend.dev>';
+  // Sender display name is the brand; the address stays the verified Resend
+  // one until the sherlockdeal.com domain is verified in the provider — a
+  // separate infra step. RESEND_FROM_EMAIL (when set) overrides both, so the
+  // from-address switch is env-gated.
+  const from = process.env.RESEND_FROM_EMAIL || `${BRAND_NAME} <onboarding@resend.dev>`;
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -35,7 +40,7 @@ export function transactionalTemplate(opts: { heading: string; body: string; cta
   return `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; color: #1A1A1A;">
   <div style="font-size: 20px; font-weight: 700; color: #0E7490; margin-bottom: 24px;">
-    connect<span style="color: #22D3EE;">B</span>
+    ${BRAND_NAME}
   </div>
   <h1 style="font-size: 18px; font-weight: 600; margin: 0 0 12px;">${opts.heading}</h1>
   <p style="font-size: 14px; line-height: 1.6; color: #374151; margin: 0 0 20px;">${opts.body}</p>

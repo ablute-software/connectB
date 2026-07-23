@@ -10,6 +10,7 @@ import { OrganisationCard } from '@/components/OrganisationCard';
 import { CompanyFactsPanel } from '@/components/CompanyFactsPanel';
 import { AutomationsPanel } from '@/components/AutomationsPanel';
 import { PermissionsMatrixCard } from '@/components/PermissionsMatrixCard';
+import { APP_URL } from '@/lib/brand';
 
 type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
 type Member = { userId: string; email: string; role: OrgRole; isSelf: boolean };
@@ -108,7 +109,7 @@ function TeamCard({ orgId }: { orgId: string }) {
     });
     const body = await res.json();
     if (body.ok === false) { setErr(body.error); return; }
-    setLink(`${window.location.origin}/invite/${body.token}`);
+    setLink(`${APP_URL}/invite/${body.token}`);
     setEmail('');
     refresh();
     // Best-effort: sends a real email if RESEND_API_KEY is configured; the

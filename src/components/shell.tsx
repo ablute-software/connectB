@@ -6,6 +6,7 @@ import { useStore } from '@/lib/store';
 import { outboundCounts } from '@/lib/rules';
 import { browserClient } from '@/lib/supabase';
 import { Tooltip } from '@/components/ui';
+import { BRAND_NAME } from '@/lib/brand';
 
 type Me = {
   authEnabled: boolean; user: { email?: string } | null; role: string;
@@ -70,7 +71,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-gray-100 bg-white md:flex">
         <div className="px-6 pb-3 pt-6">
           <div className="text-[26px] font-bold leading-none tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
-            connect<span className="text-[#22D3EE]">B</span>
+            {BRAND_NAME}
           </div>
           <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">Investor Relations</div>
         </div>
@@ -128,7 +129,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       <div className="flex-1 md:ml-60">
         <header className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white/85 px-4 py-2.5 backdrop-blur md:px-8">
-          <div className="text-[15px] font-bold text-[#0E7490] md:hidden" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>{db.org.name || 'connectB'}</div>
+          <div className="text-[15px] font-bold text-[#0E7490] md:hidden" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>{db.org.name || BRAND_NAME}</div>
           <div className="hidden items-center gap-2 md:flex">
             <span className="text-sm text-gray-300">Outreach discipline, enforced</span>
           </div>

@@ -4,6 +4,7 @@
 // fields up front so a new org doesn't start as a bare name.
 import { useState } from 'react';
 import Link from 'next/link';
+import { BRAND_NAME } from '@/lib/brand';
 import { browserClient, authEnabled } from '@/lib/supabase';
 
 const STAGES = [
@@ -68,7 +69,7 @@ export default function SignupPage() {
     <div className="flex min-h-screen items-center justify-center bg-[#F7F9FA] px-4 py-10">
       <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-7 shadow-sm">
         <div className="mb-1 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
-          connect<span className="text-[#22D3EE]">B</span>
+          {BRAND_NAME}
         </div>
         <p className="mb-5 text-sm text-gray-500">Create your founder account and start managing your raise.</p>
         {!authEnabled && (

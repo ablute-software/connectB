@@ -4,6 +4,35 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## Rebrand — connectB → Sherlock Deal
+
+Name change only — the visual design (colours #0E7490 / #22D3EE, layout, fonts)
+is unchanged; a proper wordmark/logo comes later. New single source of truth
+`src/lib/brand.ts`: `BRAND_NAME = 'Sherlock Deal'`, `BRAND_SHORT`,
+`APP_URL` (from `NEXT_PUBLIC_APP_URL`, falling back to the current Vercel URL).
+Nothing user-visible hard-codes a product name anymore.
+
+- **Swept surfaces** (all read `BRAND_NAME`): sidebar wordmark + mobile header,
+  HTML `<title>`/metadata, login/signup/invite/reset/forgot wordmarks,
+  back-office header, the invite-account line, the transactional-email wordmark
+  + subject/heading, and DEMO_SCRIPT.md.
+- **Wordmark** is now single-tone `{BRAND_NAME}` — the old two-tone accent was
+  tied to the "B" letter, which no longer exists. Colours/fonts unchanged.
+- **Internal names kept** (no code-identifier churn): repo, table names,
+  IRM_SPEC.md/DECISIONS.md, and code comments. DoD grep (case-insensitive,
+  comments/infra exempt) leaves only two comments and the Vercel-URL fallback in
+  brand.ts.
+- **Emails**: sender display name is now "Sherlock Deal", but the address stays
+  the verified Resend one (`onboarding@resend.dev`) until the sherlockdeal.com
+  domain is verified in the provider — a separate infra step. `RESEND_FROM_EMAIL`
+  overrides both, so the from-address switch stays env-gated.
+- **User-facing links** (invite accept, Stripe checkout/cancel/portal return)
+  now build from `APP_URL`, not the request origin — so the domain cutover is
+  **one env change (`NEXT_PUBLIC_APP_URL=https://sherlockdeal.com`) + redeploy,
+  no code edits**. OAuth/magic-link redirects deliberately stay on the request
+  origin (they must match the actual host + Supabase/Google allowlists).
+- No migration; build + 171 tests green; wordmark/title/login smoke-tested.
+
 ## Billing — Stripe subscriptions (env-gated)
 
 Subscriptions are the only revenue (fee suspended). Everything is dark behind

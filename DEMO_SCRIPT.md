@@ -1,4 +1,4 @@
-# Guião da demo — connectB (10–15 min)
+# Guião da demo — Sherlock Deal (10–15 min)
 
 Lê isto com o café. Ordem sugerida, uma frase por ecrã sobre o que dizer, e no fim
 uma lista do que NÃO clicar. Todos os exemplos abaixo são dados reais do pipeline

@@ -2,10 +2,11 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { StoreProvider } from '@/lib/store';
 import { Shell } from '@/components/shell';
+import { BRAND_NAME } from '@/lib/brand';
 
 export const metadata: Metadata = {
-  title: 'connectB — IRM',
-  description: 'connectB — the Investor Relations Management platform that enforces outreach discipline. Founders, investors and the platform team in one place.',
+  title: `${BRAND_NAME} — Investor Relations`,
+  description: `${BRAND_NAME} — the Investor Relations Management platform that enforces outreach discipline. Founders, investors and the platform team in one place.`,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { BRAND_NAME } from '@/lib/brand';
 
 const NAV = [
   { href: '/backoffice', label: 'Hoje' },
@@ -41,7 +42,7 @@ export default function BackofficeLayout({ children }: { children: React.ReactNo
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="text-[17px] font-bold leading-none tracking-tight text-white" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
-              connect<span className="text-cyan-400">B</span>
+              {BRAND_NAME}
             </div>
             <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-gray-300">Platform</span>
           </div>
