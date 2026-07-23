@@ -94,7 +94,7 @@ export default function PortalPage() {
               className="mt-4 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
             <button onClick={signIn} disabled={!email.includes('@') || loading}
               className="mt-3 w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-medium text-white disabled:opacity-40">
-              {loading ? 'Checking access…' : authEnabled ? 'Check access (demo: signs in directly)' : 'Send magic link (demo: signs in directly)'}
+              {loading ? 'Checking access…' : authEnabled ? 'Check access' : 'Send magic link (demo: signs in directly)'}
             </button>
           </div>
         ) : loading ? (

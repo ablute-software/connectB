@@ -3,8 +3,9 @@
 // Contributions/GDPR logic carried over from the pre-Bloco-3 backoffice
 // page; Submissions/Claims are new tabs consolidating what used to be a
 // separate founder-store-scoped "Review queue" section.
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, Tooltip } from '@/components/ui';
+import { classifyConflict, type ConflictClass } from '@/lib/contribution-diff';
 
 type Tab = 'contributions' | 'submissions' | 'claims' | 'gdpr';
 
@@ -17,15 +18,23 @@ const TABS: { key: Tab; label: string }[] = [
 
 type Contribution = {
   id: string; subject_type: 'entity' | 'person'; subject_name: string; org_name: string;
-  field: string; value: unknown; note: string | null; status: 'submitted' | 'verified' | 'rejected';
+  field: string; value: unknown; existing_value?: unknown; note: string | null; status: 'submitted' | 'verified' | 'rejected';
   created_at: string; reviewer_notes: string | null;
   source: 'user' | 'ai'; confidence: number | null; source_url: string | null;
+};
+
+const CLASS_STYLE: Record<ConflictClass, string> = {
+  cosmetic: 'bg-gray-100 text-gray-500',
+  substantive: 'bg-amber-100 text-amber-800',
 };
 
 function ContributionsTab() {
   const [items, setItems] = useState<Contribution[] | null>(null);
   const [err, setErr] = useState('');
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [classFilter, setClassFilter] = useState<ConflictClass | 'all'>('all');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   function refresh() {
     fetch('/api/backoffice/contributions').then((r) => r.json()).then((body) => {
@@ -43,22 +52,94 @@ function ContributionsTab() {
     refresh();
   }
 
+  // Bulk is a UI convenience only — every id still goes through the exact
+  // same single-item review endpoint, so per-row audit logging (who/when/
+  // notes) is identical to reviewing one at a time.
+  async function bulkReview(ids: string[], decision: 'verified' | 'rejected') {
+    setBulkBusy(true);
+    try {
+      await Promise.all(ids.map((id) => fetch(`/api/backoffice/contributions/${id}/review`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision, notes: notes[id] }),
+      })));
+    } finally {
+      setSelected(new Set());
+      setBulkBusy(false);
+      refresh();
+    }
+  }
+
+  const classified = useMemo(() => (items ?? []).map((c) => ({
+    ...c, cls: classifyConflict(c.existing_value, c.value) as ConflictClass,
+  })), [items]);
+
   if (err) return <p className="text-sm text-[#B00000]">{err}</p>;
   if (!items) return <p className="text-sm text-gray-400">Loading…</p>;
 
-  const pending = items.filter((c) => c.status === 'submitted');
-  const reviewed = items.filter((c) => c.status !== 'submitted');
-  const groups = new Map<string, Contribution[]>();
+  const pendingAll = classified.filter((c) => c.status === 'submitted');
+  const cosmeticCount = pendingAll.filter((c) => c.cls === 'cosmetic').length;
+  const substantiveCount = pendingAll.filter((c) => c.cls === 'substantive').length;
+  const pending = classFilter === 'all' ? pendingAll : pendingAll.filter((c) => c.cls === classFilter);
+  const reviewed = classified.filter((c) => c.status !== 'submitted');
+  const groups = new Map<string, typeof pending>();
   for (const c of pending) {
     const key = `${c.subject_type}:${c.subject_name}`;
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
+  const visibleIds = pending.map((c) => c.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleAllVisible() {
+    setSelected((prev) => {
+      if (allVisibleSelected) return new Set([...prev].filter((id) => !visibleIds.includes(id)));
+      return new Set([...prev, ...visibleIds]);
+    });
+  }
 
   return (
-    <Card title={`Contributions — cross-org (${pending.length})`}>
+    <Card title={`Contributions — cross-org (${pendingAll.length})`}>
       <p className="mb-3 text-xs text-gray-500">
         Authored edits from every org's own "Add info," aggregated by subject, sources side by side.
+        Most conflicts are cosmetic (case, accents, quotes, whitespace, code-vs-full-name) — classified automatically below.
       </p>
+
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex gap-1.5 text-xs">
+          {(['all', 'cosmetic', 'substantive'] as const).map((f) => (
+            <button key={f} onClick={() => { setClassFilter(f); setSelected(new Set()); }}
+              className={`rounded-full px-2.5 py-1 font-medium ${classFilter === f ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {f === 'all' ? `All (${pendingAll.length})` : f === 'cosmetic' ? `Cosmetic (${cosmeticCount})` : `Substantive (${substantiveCount})`}
+            </button>
+          ))}
+        </div>
+        {pending.length > 0 && (
+          <label className="ml-2 flex items-center gap-1.5 text-xs text-gray-500">
+            <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} />
+            Select all in view ({pending.length})
+          </label>
+        )}
+        {selected.size > 0 && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-gray-500">{selected.size} selected</span>
+            <button disabled={bulkBusy} onClick={() => bulkReview([...selected], 'verified')}
+              className="rounded bg-green-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-800 disabled:opacity-40">
+              {bulkBusy ? 'Working…' : `Verify ${selected.size}`}
+            </button>
+            <button disabled={bulkBusy} onClick={() => bulkReview([...selected], 'rejected')}
+              className="rounded border border-red-200 px-2.5 py-1 text-xs text-[#B00000] hover:bg-red-50 disabled:opacity-40">
+              {bulkBusy ? 'Working…' : `Reject ${selected.size}`}
+            </button>
+          </div>
+        )}
+      </div>
+
       {groups.size === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
         <div className="space-y-3">
           {[...groups.entries()].map(([key, list]) => (
@@ -67,6 +148,10 @@ function ContributionsTab() {
               <ul className="space-y-1.5">
                 {list.map((c) => (
                   <li key={c.id} className="flex flex-wrap items-center gap-2 text-sm">
+                    <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleOne(c.id)} />
+                    <Tooltip text={c.cls === 'cosmetic' ? 'Same value after normalizing case/accents/quotes/whitespace.' : 'A genuinely different value from what is on record.'}>
+                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${CLASS_STYLE[c.cls]}`}>{c.cls}</span>
+                    </Tooltip>
                     <span className="font-medium">{c.field}:</span> {String(c.value)}
                     {c.source === 'ai' ? (
                       <span className="rounded-full bg-cyan-100 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-800">

@@ -28,20 +28,27 @@ export async function GET() {
   const personIds = [...new Set(contributions.filter((c) => c.subject_type === 'person').map((c) => c.subject_id))];
   const orgIds = [...new Set(contributions.map((c) => c.org_id))];
 
+  // select('*') here (not just name) so each contribution can carry the
+  // subject's CURRENT value of its own field — the bulk-triage classifier
+  // (src/lib/contribution-diff.ts) needs both sides of the diff.
   const [{ data: entities }, { data: people }, { data: orgs }] = await Promise.all([
-    entityIds.length ? admin.from('entities').select('id, name').in('id', entityIds) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
-    personIds.length ? admin.from('people').select('id, full_name').in('id', personIds) : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
+    entityIds.length ? admin.from('entities').select('*').in('id', entityIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
+    personIds.length ? admin.from('people').select('*').in('id', personIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
     orgIds.length ? admin.from('orgs').select('id, name').in('id', orgIds) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
   ]);
-  const entityName = new Map((entities ?? []).map((e) => [e.id, e.name]));
-  const personName = new Map((people ?? []).map((p) => [p.id, p.full_name]));
+  const entityById = new Map((entities ?? []).map((e) => [e.id as string, e]));
+  const personById = new Map((people ?? []).map((p) => [p.id as string, p]));
   const orgName = new Map((orgs ?? []).map((o) => [o.id, o.name]));
 
-  const enriched = contributions.map((c) => ({
-    ...c,
-    subject_name: (c.subject_type === 'entity' ? entityName.get(c.subject_id) : personName.get(c.subject_id)) ?? '(deleted)',
-    org_name: orgName.get(c.org_id) ?? '(unknown org)',
-  }));
+  const enriched = contributions.map((c) => {
+    const subjectRow = c.subject_type === 'entity' ? entityById.get(c.subject_id) : personById.get(c.subject_id);
+    return {
+      ...c,
+      subject_name: (subjectRow ? (c.subject_type === 'entity' ? subjectRow.name : subjectRow.full_name) : undefined) ?? '(deleted)',
+      org_name: orgName.get(c.org_id) ?? '(unknown org)',
+      existing_value: subjectRow ? subjectRow[c.field] ?? null : null,
+    };
+  });
 
   return NextResponse.json({ ok: true, contributions: enriched });
 }

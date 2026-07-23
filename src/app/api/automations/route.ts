@@ -13,9 +13,9 @@ export async function GET() {
   if (!configured) {
     return NextResponse.json({
       ok: false,
-      message: 'Supabase not configured — engine runs in demo mode (client-side tick from the Outbox page).',
+      message: 'Database not configured — engine runs in demo mode (client-side tick from the Outbox page).',
     });
   }
-  // TODO(supabase): implement server-side tick — see src/lib/rules.ts (pure functions, ready to reuse).
-  return NextResponse.json({ ok: true, message: 'Engine tick placeholder — wire to Supabase data.' });
+  // TODO: implement server-side tick — see src/lib/rules.ts (pure functions, ready to reuse).
+  return NextResponse.json({ ok: true, message: 'Engine tick placeholder — not yet wired to the real database.' });
 }

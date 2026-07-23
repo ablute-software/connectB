@@ -335,4 +335,70 @@ Migration 0009's `person_affiliations` exists but people still hang off one `ent
 Order suggestion once Phase 1 is done: **§4 roadmap** and **§2/§3 profiles** first (they deliver
 the most day-one founder value), then **§8 composer (draft-only)**, then **§1 contributions +
 back-office verification**, then **§9 import**, then **§5** and §8d channel pairing.
+
+## 11. COMPANY CANON — the org's verified-truth archive (founder decision, 23 Jul)
+
+Principle: the composer NEVER asserts anything unconfirmed. Every factual claim in a
+generated draft either traces to a confirmed fact, or generation pauses and asks the
+user. "Infallibility" here means discipline, not intelligence.
+
+### 11a. Data model
+`company_facts` (org-scoped, RLS org members; NEVER catalog — this is private truth):
+- id, org_id, category enum company_fact_category
+  ('product','traction','team','positioning','financing','regulatory','market','metrics','other')
+- statement text (one atomic fact, first person plural: "Seed €1.3M phased; first
+  tranche €300k")
+- status enum company_fact_status ('confirmed','unconfirmed','deprecated')
+- source enum company_fact_source ('user','import','ai_extracted'), source_ref text null
+- valid_from date null, superseded_by uuid null references company_facts(id)
+- confirmed_at timestamptz null, confirmed_by uuid null, created_at, updated_at
+Temporal rule: facts are never deleted, they are superseded. The delta between a
+deprecated fact and its successor IS the re-approach argument (e.g. health/hardware
+→ wellness/biosphere). Deprecated facts remain queryable for "what did we tell them
+back then".
+
+### 11b. Composer provenance gate (HARD — chosen over soft-marking)
+Generation pipeline:
+1. Composer receives: confirmed canon facts + entity record + interaction history +
+   reopen_trigger.
+2. Model output contract: draft + claims[] — every factual sentence mapped to a fact
+   id, OR flagged needs_confirmation with a key question and suggested answers.
+3. If any needs_confirmation: the draft is NOT shown. UI presents the question(s) as
+   popups (AskUserQuestion-style: question + 2-4 options + free text). Each answer
+   is written to company_facts as status=confirmed, source=user. Then generation
+   resumes/regenerates. Only a fully-grounded draft is ever displayed.
+4. Investor-side claims (portfolio companies, essays, fund announcements) must trace
+   to entity records/interactions. If not present: same popup flow, and the answer
+   is saved as an entity note so it's grounded next time.
+This is how the canon grows: by use, not by form-filling.
+
+### 11c. Consistency engine (reopen doctrine, automated)
+When drafting for an entity with prior interactions, the composer context must
+include: the prior outcome verbatim (esp. a pass reason), the reopen_trigger, the
+date of last contact, and the canon delta since then (facts superseded after that
+date + new facts with valid_from after it). The draft must cite the prior "no" and
+lead with what changed — the system supplies the delta; the AI never reconstructs
+it from memory.
+
+### 11d. Misalignment alert
+Before any generation: compare entity profile (stage, ticket, thesis, hardware_stance)
+against canon (round size, stage, traction, positioning). Verdict
+aligned/caution/misaligned with reasons, stored on the org's entity row
+(alignment_status, alignment_notes, alignment_assessed_at). Misaligned → prominent
+alert + recommendation: don't approach now; park with a reopen_trigger. Caution →
+show reasons in pre-flight.
+
+### 11e. Bootstrap & UI
+- Extraction pass over already-imported interaction history and Data Room docs →
+  candidate facts as status=unconfirmed, source=import/ai_extracted → review queue
+  (confirm / edit-then-confirm / reject), same pattern as import conflicts.
+- New page "Company" (workspace section): facts grouped by category, status pills
+  (reuse shared pill components), confirm/edit/supersede/add-manually, review queue
+  badge. Copy hygiene rules apply (no vendor names, no internals).
+
+### 11f. FUTURE — Analysis tab (specified, NOT to build yet)
+A dedicated tab that reviews everything exhaustively: SWOT, risks, weaknesses,
+strengths, benchmarking vs comparable raises, investability ranking (readiness vs
+round value), personalized advice. Consumes the canon + pipeline stats. Blocked
+until the founder unblocks it — depends on canon
 *(Section numbering note: §7 intentionally unused; priority mapping moved to §10.)*
