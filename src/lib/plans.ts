@@ -21,15 +21,23 @@ export interface PlanRow {
   /** Annual price label with the effective monthly in parentheses, if any. */
   annual?: string;
   paid: boolean;
+  /** Raw euro amounts — the same numbers behind the labels above, so surfaces
+   *  in another language (the English landing page) can format their own copy
+   *  without parsing the Portuguese strings. */
+  monthlyEur: number;
+  /** Total billed once a year. */
+  annualEur?: number;
+  /** Effective per-month price when billed annually. */
+  annualPerMonthEur?: number;
 }
 
 // Names and prices are verbatim per the founder's spec — treated as brand copy,
 // not paraphrasable. Kept here so the Plans page and any pricing surface share
 // one definition.
 export const PLANS: PlanRow[] = [
-  { tier: 'idea', name: 'Mom, I have an idea', monthly: '€0', paid: false },
-  { tier: 'garage', name: "Dad, I'm leaving the garage", monthly: '€85/mês', annual: '€756/ano (equivale a €63/mês)', paid: true },
-  { tier: 'motherfunding', name: 'Motherfunding', monthly: '€149/mês', annual: '€1.308/ano (equivale a €109/mês)', paid: true },
+  { tier: 'idea', name: 'Mom, I have an idea', monthly: '€0', paid: false, monthlyEur: 0 },
+  { tier: 'garage', name: "Dad, I'm leaving the garage", monthly: '€85/mês', annual: '€756/ano (equivale a €63/mês)', paid: true, monthlyEur: 85, annualEur: 756, annualPerMonthEur: 63 },
+  { tier: 'motherfunding', name: 'Motherfunding', monthly: '€149/mês', annual: '€1.308/ano (equivale a €109/mês)', paid: true, monthlyEur: 149, annualEur: 1308, annualPerMonthEur: 109 },
 ];
 
 // Success fee SUSPENDED (founder decision, post legal consultation, 2026-07-23):
@@ -38,6 +46,10 @@ export const PLANS: PlanRow[] = [
 // — subscriptions are the only thing a startup pays at this stage. Replaced on
 // the Plans page by this one discreet, terms-free note. No percentages, no terms.
 export const CONSULTANCY_TEASER = 'Brevemente: opção de consultoria para captação de capital.';
+// English rendering of the same teaser, for the public (English) landing page.
+// Same promise, no percentages, no terms — the fee stays suspended.
+export const CONSULTANCY_TEASER_EN_LEAD = 'Coming soon:';
+export const CONSULTANCY_TEASER_EN_REST = ' a capital-raising consultancy option, for founders who want hands-on help with their round.';
 
 // Billing period toggle (Mensal / Anual). Annual falls back to the monthly
 // label when a tier has no annual price (the free 'idea' tier is €0 either way).

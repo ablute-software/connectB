@@ -9,6 +9,11 @@
 export const BRAND_NAME = 'Sherlock Deal';
 export const BRAND_SHORT = 'sherlockdeal';
 
+// The wordmark lockup is two-tone ("sherlock" + an accented "deal") — the split
+// lives here rather than in markup so the logo component stays the only place
+// that renders it. Joined, it is exactly BRAND_SHORT.
+export const BRAND_WORDMARK: readonly [string, string] = ['sherlock', 'deal'];
+
 // Canonical public URL for links we generate FOR users — invite accept links,
 // portal/data-room links, Stripe checkout/portal return URLs. Building these
 // from APP_URL means the domain cutover (sherlockdeal.com → this Vercel

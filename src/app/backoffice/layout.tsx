@@ -29,7 +29,7 @@ export default function BackofficeLayout({ children }: { children: React.ReactNo
   }, []);
 
   useEffect(() => {
-    if (me && me.authEnabled && me.role !== 'developer') router.replace('/');
+    if (me && me.authEnabled && me.role !== 'developer') router.replace('/pipeline');
   }, [me, router]);
 
   if (me?.authEnabled && me.role !== 'developer') {
@@ -59,7 +59,7 @@ export default function BackofficeLayout({ children }: { children: React.ReactNo
             })}
           </nav>
           {me?.orgRole && (
-            <Link href="/" className="rounded-lg border border-white/20 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-white/10">
+            <Link href="/pipeline" className="rounded-lg border border-white/20 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-white/10">
               ← ablute_ (founder)
             </Link>
           )}

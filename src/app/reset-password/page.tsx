@@ -39,7 +39,7 @@ export default function ResetPasswordPage() {
         ) : done ? (
           <>
             <p className="mb-4 text-sm text-green-700">Password updated.</p>
-            <a href="/" className="block w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-center text-sm font-semibold text-white hover:bg-[#0c637b]">
+            <a href="/pipeline" className="block w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-center text-sm font-semibold text-white hover:bg-[#0c637b]">
               Continue
             </a>
           </>

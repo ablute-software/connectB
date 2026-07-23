@@ -4,6 +4,60 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## Public landing page + app home moves to /pipeline
+
+The approved design (`landing-reference.html`, kept in the repo as the source of
+truth) is now the public page at `/`. Faithful port: same layout, copy, palette
+(--ink #0c272e / --teal #2a7f8e / --amber #d9a441), and animations.
+
+**Routing.** `/` is the landing for logged-out visitors; an authenticated
+session is redirected to the app, which now lives at **`/pipeline`**. Auth logic,
+middleware protections and API routes are untouched — the landing only *reads*
+the session. Notes:
+- `'/'` was added to the middleware PUBLIC list. It only ever matches the root
+  exactly (the `startsWith(p + '/')` arm becomes `startsWith('//')`, never true),
+  so the rest of the app stays protected — verified: `/pipeline` with no session
+  still 307s to `/login?next=/pipeline`.
+- Every app-home reference was retargeted to `/pipeline` (nav item, post-login
+  and post-signup redirects, `/auth/callback` default `next`, back-office
+  "back to app", demo-mode "Enter the app" links, `/log` save redirect).
+- `Shell` early-returns bare children on `/` (same as portal/back-office), so the
+  landing brings its own nav/footer and the app shell is never wrapped around it.
+
+**Implementation.** Server component + two small client bits (`LandingEffects`
+for nav-scroll/reveal/meters, `PricingSection` for the Monthly/Annual toggle).
+- Styles are a **CSS module** (`landing.module.css`) — nothing can reach the app
+  shell. JS hooks are **data attributes** (`data-nav` / `data-reveal` /
+  `data-fill`), never class names, so the effects can't break on hashed modules.
+- A CSS module can't target `html`, so smooth anchor scrolling is applied by
+  `LandingEffects` and reverted on unmount rather than leaking app-wide.
+- **Safety net:** `.rv` starts at `opacity:0`; if `IntersectionObserver` were
+  ever unavailable the page below the hero would be invisible, so the effect
+  reveals everything immediately in that case. `prefers-reduced-motion` also
+  short-circuits every animation. The hero/nav carry no `.rv`, so the top of the
+  page is visible regardless.
+- Fonts (Fraunces + Inter) via `next/font` scoped to the landing container — the
+  app shell's fonts are untouched.
+- **Prices come from `plans.ts`**, not the markup: added raw `monthlyEur` /
+  `annualEur` / `annualPerMonthEur` alongside the existing Portuguese labels so
+  the English landing formats its own copy (€85↔€63 "billed €756 per year",
+  €149↔€109 "billed €1,308 per year") without parsing PT strings or drifting
+  from the in-app Plans page. The consultancy teaser is an English constant in
+  the same module — still no percentages, no terms (fee stays suspended).
+- The logo (teal badge, serif "S", lens) is a shared `components/Logo.tsx` used
+  in the landing nav + footer, and `src/app/icon.svg` is generated from it as
+  the favicon. The wordmark split ("sherlock" + accent "deal") lives in
+  `brand.ts` as `BRAND_WORDMARK`.
+- SEO: page-level `<title>`, description and Open Graph built from `APP_URL`.
+  Root `/` is 99.7 kB first load, no libraries, inline SVG only.
+
+**Not verified here (flagged):** the logged-in `/` → `/pipeline` redirect could
+not be exercised — it needs a real session and I can't sign in. The scroll-driven
+effects (nav state, reveal, meter fills) also couldn't be exercised: the headless
+preview pane doesn't composite frames, so scroll events and IntersectionObserver
+callbacks never fire there. Both are straight ports of the reference's script and
+compile clean; worth a 10-second look on the deployed page.
+
 ## Rebrand — connectB → Sherlock Deal
 
 Name change only — the visual design (colours #0E7490 / #22D3EE, layout, fonts)

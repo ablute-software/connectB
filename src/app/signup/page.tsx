@@ -74,7 +74,7 @@ export default function SignupPage() {
         <p className="mb-5 text-sm text-gray-500">Create your founder account and start managing your raise.</p>
         {!authEnabled && (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Demo mode — sign-up is disabled. <Link href="/" className="underline">Enter the app</Link>.
+            Demo mode — sign-up is disabled. <Link href="/pipeline" className="underline">Enter the app</Link>.
           </div>
         )}
 

@@ -110,7 +110,7 @@ export default function StructuredImportPage() {
             <li>Affiliations: {result.affiliationsCreated} created</li>
             <li>Conflicts queued for review: {result.conflictsQueued} (Fila → Contributions in back-office)</li>
           </ul>
-          <Link href="/" className="mt-3 inline-block text-sm text-[#0E7490] hover:underline">Back to pipeline →</Link>
+          <Link href="/pipeline" className="mt-3 inline-block text-sm text-[#0E7490] hover:underline">Back to pipeline →</Link>
         </Card>
       </div>
     );

@@ -14,7 +14,7 @@ type Me = {
 };
 
 const NAV: { href: string; label: string; icon: string; section?: string; requiresCapability?: 'companyCanon' }[] = [
-  { href: '/', label: 'Pipeline', icon: '▤', section: 'Workspace' },
+  { href: '/pipeline', label: 'Pipeline', icon: '▤', section: 'Workspace' },
   { href: '/today', label: 'Today', icon: '☀' },
   { href: '/agenda', label: 'Agenda', icon: '▦' },
   { href: '/dashboard', label: 'Dashboard', icon: '◔' },
@@ -64,7 +64,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
       : caps.today === caps.dailyCap - 1 || caps.week === caps.weeklyCap - 1 ? 'text-amber-600 font-semibold'
       : 'text-gray-400';
 
-  if (path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
+  // '/' is the public marketing landing — it brings its own nav/footer, so the
+  // app shell must not wrap it (same early-return as the portal/back-office).
+  if (path === '/' || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
 
   return (
     <div className="flex min-h-screen bg-[#F7F9FA] text-[#1A1A1A]">

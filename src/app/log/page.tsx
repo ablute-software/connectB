@@ -201,7 +201,7 @@ function LogForm() {
     } else {
       setToast('Reply saved.');
     }
-    setTimeout(() => router.push(entityId ? `/entities/${entityId}` : '/'), 900);
+    setTimeout(() => router.push(entityId ? `/entities/${entityId}` : '/pipeline'), 900);
   }
 
   async function sendViaGmail() {

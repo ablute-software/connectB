@@ -8,7 +8,7 @@ import { BRAND_NAME } from '@/lib/brand';
 
 function LoginInner() {
   const sp = useSearchParams();
-  const next = sp.get('next') ?? '/';
+  const next = sp.get('next') ?? '/pipeline';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [mode, setMode] = useState<'password' | 'magic'>('password');
@@ -47,7 +47,7 @@ function LoginInner() {
 
         {!authEnabled && (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Demo mode — authentication is not configured. <Link href="/" className="underline">Enter the app</Link>.
+            Demo mode — authentication is not configured. <Link href="/pipeline" className="underline">Enter the app</Link>.
           </div>
         )}
 

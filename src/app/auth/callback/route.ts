@@ -5,7 +5,7 @@ import { serverClient, authEnabled } from '@/lib/supabase-server';
 export async function GET(req: NextRequest) {
   const { searchParams, origin } = new URL(req.url);
   const code = searchParams.get('code');
-  const next = searchParams.get('next') ?? '/';
+  const next = searchParams.get('next') ?? '/pipeline';
   if (code && authEnabled) {
     const sb = await serverClient();
     await sb.auth.exchangeCodeForSession(code);

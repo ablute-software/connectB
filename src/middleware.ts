@@ -1,9 +1,18 @@
 // Auth gate. If Supabase env is configured, unauthenticated users are sent to /login.
-// Public routes: /login, /signup, /auth/*, /portal (investor magic-link area), static assets.
+// Public routes: '/' (the marketing landing), /login, /signup, /auth/*, /portal
+// (investor magic-link area), static assets.
+//
+// Note on '/': the entry `'/'` only ever matches the root exactly — the
+// startsWith(p + '/') arm becomes startsWith('//'), which is never true — so
+// adding it does NOT open up the rest of the app.
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-const PUBLIC = ['/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/api/stripe/webhook'];
+const PUBLIC = ['/', '/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/api/stripe/webhook'];
+
+// Where a signed-in user belongs. '/' is the public landing now, so the app
+// home is the pipeline.
+const APP_HOME = '/pipeline';
 
 export async function middleware(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -36,7 +45,7 @@ export async function middleware(req: NextRequest) {
   }
   if (user && (pathname === '/login' || pathname === '/signup')) {
     const home = req.nextUrl.clone();
-    home.pathname = '/';
+    home.pathname = APP_HOME;
     home.search = '';
     return NextResponse.redirect(home);
   }
@@ -52,7 +61,7 @@ export async function middleware(req: NextRequest) {
     if (!admin) {
       if (pathname.startsWith('/api/')) return NextResponse.json({ ok: false, error: 'Platform admin only.' }, { status: 403 });
       const home = req.nextUrl.clone();
-      home.pathname = '/';
+      home.pathname = APP_HOME;
       home.search = '';
       return NextResponse.redirect(home);
     }
