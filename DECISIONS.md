@@ -4,6 +4,37 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## PERMANENT RULE — copy hygiene (added 2026-07-23, founder-mandated)
+
+**User-facing copy must never mention:**
+- Environment variable names (`ANTHROPIC_API_KEY`, `RESEND_API_KEY`, etc.)
+- AI/service vendor names (Anthropic, Claude, Resend, Supabase, Vercel, Stripe)
+- Development phases or roadmap internals ("Phase 7", "billing isn't wired
+  up yet", "NEXT_STEPS")
+- Spec/section references (`IRM_SPEC §x`, `§9b-4`, etc.), internal table/
+  column names, RLS, migrations
+
+Say **"AI"** generically ("AI review", "AI-assisted") — never the provider.
+
+**Applies to every user-visible surface**: pages, tooltips, empty states,
+toasts, emails, error messages returned from API routes and rendered by a
+page. **Back-office (developer/platform-admin role) screens are exempt** —
+that's a different, technical audience and IRM_SPEC/vendor references stay
+useful there.
+
+**Why**: screenshots showed real leaks — an env var name, a roadmap phase
+number, and a spec citation, all in founder-facing Settings. A founder
+mid-fundraise should never see the seams of how the product is built.
+
+**How to apply going forward**: before adding any user-facing string,
+check it against this list. When a feature isn't available, say what's
+true in plain language ("isn't available in your workspace yet" /
+"coming soon") — never why (env var missing) or when (a phase number).
+Error messages returned from API routes are just as "user-facing" as page
+copy the moment any page renders them — sanitize at the source (the route),
+not just at the display site, so a future caller can't accidentally
+re-introduce the leak.
+
 ## §2/§3 entity & person profile enrichment
 
 - **Entity summary card uses only existing fields.** IRM_SPEC §2 mentions
@@ -899,3 +930,70 @@ actually an individual (probably a solo angel), not a fund.
    login to click through the real UI — entering the founder's password is
    outside what I'm allowed to do, and there's no other way to reach an
    authenticated session in this environment.
+
+## Copy hygiene sweep + paywall removal
+
+Triggered by screenshot evidence of Settings leaking internals to a founder:
+an env var name, "(Phase 7)", and "(IRM_SPEC §8d)" in a card title. See the
+PERMANENT RULE at the top of this file for the standing policy; this entry
+covers what changed to satisfy it right now.
+
+1. **The bug (Task 3): why AI Review showed locked while the composer
+   worked.** Two completely different gates existed for the same
+   capability. The composer (`/api/compose`) and AI Review's own route
+   (`/api/ai-review`) both ONLY ever checked `process.env.ANTHROPIC_API_KEY`
+   server-side — no plan/billing check anywhere in either route. But
+   Settings' UI gated the AI Review/Deck-review/Market-data cards on
+   `db.org.plan === 'paid'`, a completely unrelated billing field that was
+   never `'paid'` for ablute_ (billing was never wired up). Composer worked
+   because its gate matched reality; Settings didn't because its gate
+   checked something that was never going to be true. Fixed by deleting the
+   `plan`-based gate entirely and adding one real source of truth:
+   `/api/me` now returns `capabilities: { ai: !!process.env.ANTHROPIC_API_KEY }`
+   — the exact same check the AI routes already make internally — and every
+   AI-gated card in Settings reads that instead. They cannot disagree again
+   by construction, since it's the same boolean computed the same way.
+2. **Paywall UI removed** (Task 2): the `PaidFeatureLock` component (🔒,
+   "Upgrade to unlock", the Phase-7/billing sentence) is gone. Also found
+   and removed one more paywall the original report didn't mention:
+   Automations' "Full auto 🔒" gate, same `plan === 'paid'` pattern, same
+   fix (removed — nothing server-side ever enforced it either, so the gate
+   was purely cosmetic and just as stale as the Settings one). Unavailable
+   AI features now show a single muted line, "Coming soon to your
+   workspace." — no icon, no price, no CTA. `org.plan` itself is untouched
+   in the schema/type and still displays in the Organisation card; only the
+   gating logic and the paywall chrome are gone, per the explicit "UI
+   removal, not a schema change" instruction.
+3. **Error-message sanitization done at the API route, not the page**
+   (`/api/ai-review`, `/api/compose`, `/api/import/extract`,
+   `/api/import/md/extract-people`, `src/lib/resend.ts`): every one of
+   these was capable of returning a raw provider error string (e.g.
+   `"Anthropic API error: <300 chars of raw response>"`) straight into a
+   `configured:false` message or a caught-exception `.error` field that a
+   page then renders verbatim (`/log`'s composerNote, Settings'
+   `aiResult`/`docResult`/`marketResult`, `/import`'s batch error list).
+   Fixed at the source: routes now log the real error server-side
+   (`console.error`) and return a generic, still-actionable message
+   ("AI draft failed — try again in a moment.") to the client. This matters
+   more than fixing today's rendering sites — a future page could start
+   displaying `.error` without knowing it might contain a vendor name.
+4. **Backoffice is intentionally untouched.** `/api/backoffice/research`
+   still says `ANTHROPIC_API_KEY`/"Anthropic API error" and several
+   `src/app/backoffice/**` pages still cite `IRM_SPEC §x` — per the
+   permanent rule, that's the platform team's own screen, a technical
+   audience where these references are useful, not a leak.
+5. **Swept beyond the two screenshots** (per "and any similar leaks"):
+   found and fixed `§9b`/`§9b-4`/`§1c` spec references visibly rendered on
+   `/import/structured`, `/import`, and every entity page's "Also
+   connected" card; "Vercel cron"/"Resend" mentions in Automations' and
+   Outbox's explanatory copy; "Supabase" in Documents' upload label and
+   both import pages' not-connected states; `RESEND_API_KEY`/
+   `GOOGLE_CLIENT_ID/SECRET` in Settings' invite-link hint and Gmail
+   not-configured message; and the investor-facing portal's "LinkedIn
+   sign-in isn't set up yet" (rewritten to "coming soon," matching the
+   Gmail treatment the task specified). Left untouched: `db.org.plan`
+   display in Settings' Organisation card (a fact, not a paywall), the
+   entity contact-lock 🔒 (outreach discipline, unrelated to billing), and
+   `layout.tsx`'s meta description mentioning "the platform team" (product
+   marketing describing connectB's three real user roles, not an internal
+   leak).

@@ -1,4 +1,7 @@
-// AI Review (paid feature) — server route calling the Anthropic API.
+// AI Review — server route calling an LLM. Availability mirrors /api/me's
+// `capabilities.ai` exactly (same env check) — the UI checks that before
+// ever calling this route, so reaching here unconfigured should be rare,
+// but the fallback text still must never name the provider or env var.
 // Guardrails: the AI never sends anything and never mutates CRM data — it returns a report.
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -12,15 +15,7 @@ export async function POST(req: NextRequest) {
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({
-      review:
-        '[AI Review not configured]\n\nSet ANTHROPIC_API_KEY in the environment to enable this paid feature.\n\n' +
-        'What it will return for a message_review: (1) hook strength — is line 1 specific, recent, true; ' +
-        '(2) tone and fit against the investor’s own thesis vocabulary; (3) kill-word and framing risks beyond exact matches; ' +
-        '(4) whether the ask is single and small; (5) a suggested rewrite. ' +
-        'Deck reviews add per-dimension scores (problem clarity, traction evidence, number credibility, narrative, design) ' +
-        'and located issues with severity.',
-    }, { status: 200 });
+    return NextResponse.json({ configured: false, review: 'AI review isn’t available in your workspace yet.' }, { status: 200 });
   }
 
   const system =
@@ -61,14 +56,15 @@ export async function POST(req: NextRequest) {
       }),
     });
     if (!res.ok) {
-      const err = await res.text();
-      return NextResponse.json({ error: `Anthropic API error: ${err.slice(0, 300)}` }, { status: 502 });
+      console.error('AI review provider error:', (await res.text()).slice(0, 300));
+      return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 502 });
     }
     const data = await res.json();
     const text = (data.content as { type: string; text?: string }[])
       .filter((b) => b.type === 'text').map((b) => b.text).join('\n');
-    return NextResponse.json({ review: text, model: data.model });
+    return NextResponse.json({ review: text });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    console.error('AI review error:', e);
+    return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 500 });
   }
 }

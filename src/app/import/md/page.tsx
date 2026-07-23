@@ -134,7 +134,7 @@ export default function MdHistoryImportPage() {
     }
   }
 
-  if (!authEnabled) return <Card title="Import history (.md)"><p className="text-sm text-gray-400">Available once connected to Supabase.</p></Card>;
+  if (!authEnabled) return <Card title="Import history (.md)"><p className="text-sm text-gray-400">Not available in this workspace yet.</p></Card>;
 
   if (result) {
     return (

@@ -23,8 +23,8 @@ export default function OutboxPage() {
       </div>
       {tickMsg && <div className="rounded bg-[#E8F4F8] px-3 py-2 text-sm text-cyan-900">{tickMsg}</div>}
       <p className="text-xs text-gray-400">
-        In production the engine runs on a schedule (Vercel cron → /api/automations) and full_auto runs execute
-        without stopping here — but only when pre-flight is green. Anything blocked lands in this queue with the reason.
+        The engine also runs automatically on a schedule, and full-auto runs execute without stopping here — but only
+        when pre-flight is green. Anything blocked lands in this queue with the reason.
       </p>
 
       {pending.length === 0 ? (

@@ -16,7 +16,6 @@ const TRIGGER_LABEL: Record<string, string> = {
 
 export default function AutomationsPage() {
   const { db, toggleAutomation, setAutomationMode } = useStore();
-  const isPaid = db.org.plan === 'paid';
 
   return (
     <div className="space-y-4">
@@ -27,11 +26,6 @@ export default function AutomationsPage() {
         blocked falls back to the Outbox with the reason). LinkedIn has no official send API, so LinkedIn automations
         always produce ready-to-paste drafts.
       </p>
-      {!isPaid && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
-          Full-auto mode is a paid feature — on the free plan everything routes through the Outbox.
-        </div>
-      )}
 
       <Card>
         <ul className="divide-y divide-gray-100">
@@ -49,11 +43,9 @@ export default function AutomationsPage() {
                   className={`px-2.5 py-1 ${a.mode === 'draft_review' ? 'bg-[#0E7490] text-white' : 'bg-white text-gray-600'}`}>
                   Draft & review
                 </button>
-                <button onClick={() => isPaid && setAutomationMode(a.id, 'full_auto')}
-                  disabled={!isPaid}
-                  title={isPaid ? '' : 'Paid feature'}
-                  className={`px-2.5 py-1 ${a.mode === 'full_auto' ? 'bg-[#0E7490] text-white' : 'bg-white text-gray-600'} disabled:opacity-40`}>
-                  Full auto{!isPaid && ' 🔒'}
+                <button onClick={() => setAutomationMode(a.id, 'full_auto')}
+                  className={`px-2.5 py-1 ${a.mode === 'full_auto' ? 'bg-[#0E7490] text-white' : 'bg-white text-gray-600'}`}>
+                  Full auto
                 </button>
               </div>
             </li>
@@ -63,9 +55,9 @@ export default function AutomationsPage() {
 
       <Card title="How execution works">
         <ol className="list-decimal space-y-1 pl-5 text-sm text-gray-600">
-          <li>A scheduled job (Vercel cron → <code className="rounded bg-gray-100 px-1">/api/automations</code>) evaluates triggers hourly.</li>
+          <li>A scheduled job evaluates triggers on a regular cadence.</li>
           <li>Each match becomes a run. <b>Pre-flight and caps are evaluated first</b> — a full-auto run that fails any check lands in the Outbox instead, with the reason.</li>
-          <li>Email sends go through Resend from {db.org.sender_email ?? 'your verified domain'} (BCC {db.org.bcc_email}); bounces increment the person’s bounce counter and block the address.</li>
+          <li>Email sends go out from {db.org.sender_email ?? 'your verified domain'} (BCC {db.org.bcc_email}); bounces increment the person’s bounce counter and block the address.</li>
           <li>Guessed (unverified) addresses are <b>never</b> auto-sent. No exception, no override.</li>
           <li>Every executed run is logged as an interaction, marked “automation”.</li>
         </ol>

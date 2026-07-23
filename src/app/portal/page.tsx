@@ -153,7 +153,7 @@ function ClaimProfileSection() {
         <button className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">Sign in with LinkedIn to claim your profile</button>
       ) : (
         <p className="mt-1 text-xs text-gray-400">
-          LinkedIn sign-in isn't set up yet — check back soon. In the meantime, you can{' '}
+          LinkedIn sign-in is coming soon. In the meantime, you can{' '}
           <a href="/privacy-request" className="text-[#0E7490] hover:underline">request a correction or removal</a> of your info directly.
         </p>
       )}

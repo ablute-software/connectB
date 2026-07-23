@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   if (!section) return NextResponse.json({ ok: false, error: 'sectionIndex out of range' }, { status: 400 });
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return NextResponse.json({ ok: true, configured: false, message: 'Set ANTHROPIC_API_KEY to propose people mentions — the rest of the import works without it.' });
+  if (!apiKey) return NextResponse.json({ ok: true, configured: false, message: 'AI-assisted people detection isn’t available in your workspace yet — the rest of the import works without it.' });
 
   const text = section.interactions.map((i) => i.text).join('\n').slice(0, 6000);
   if (!text.trim()) {
@@ -73,7 +73,10 @@ export async function POST(req: NextRequest) {
         tool_choice: { type: 'tool', name: 'propose_people' },
       }),
     });
-    if (!res.ok) throw new Error(`Anthropic API error: ${(await res.text()).slice(0, 300)}`);
+    if (!res.ok) {
+      console.error('AI people-detection provider error:', (await res.text()).slice(0, 300));
+      throw new Error('AI-assisted people detection failed for this section — try again in a moment.');
+    }
     const data = await res.json();
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const proposedPeople = (toolUse?.input as { people?: ProposedPerson[] } | undefined)?.people ?? [];

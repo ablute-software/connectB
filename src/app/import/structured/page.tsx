@@ -118,7 +118,7 @@ export default function StructuredImportPage() {
 
   return (
     <div className="max-w-4xl space-y-5">
-      <h1 className="text-lg font-bold">Structured pack import (§9b)</h1>
+      <h1 className="text-lg font-bold">Structured pack import</h1>
       <p className="text-sm text-gray-500">Upload entities.csv, people.csv, and interactions.csv (in that link order). Nothing is written until you approve and click Commit.</p>
 
       <Card title="1 · Files">
@@ -153,7 +153,7 @@ export default function StructuredImportPage() {
                     <input type="checkbox" checked={e.include} onChange={() => toggleEntity(e.key)} />
                     <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_STYLE[e.status]}`}>{e.status}</span>
                     <span className="font-medium">{e.csvRow.name}</span>
-                    {e.derived && <span className="text-xs text-gray-400">(derived — not in entities.csv, from §9b-4 affiliation upgrade)</span>}
+                    {e.derived && <span className="text-xs text-gray-400">(derived — not in entities.csv, from an affiliation upgrade)</span>}
                     {e.looksLikePerson && (
                       <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-800">
                         looks like a person, not a fund — review after import
@@ -204,7 +204,7 @@ export default function StructuredImportPage() {
           </Card>
 
           {plan.affiliations.length > 0 && (
-            <Card title={`5 · Affiliation upgrades (§9b-4) (${plan.affiliations.filter((a) => a.include).length}/${plan.affiliations.length})`}>
+            <Card title={`5 · Affiliation upgrades (${plan.affiliations.filter((a) => a.include).length}/${plan.affiliations.length})`}>
               <ul className="space-y-1.5 text-sm">
                 {plan.affiliations.map((a) => (
                   <li key={`${a.personKey}::${a.entityKey ?? 'independent'}`} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">

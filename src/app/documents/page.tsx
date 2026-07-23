@@ -170,7 +170,7 @@ export default function DocumentsPage() {
 
             {authEnabled && (
               <div className="mt-3 border-t border-gray-100 pt-3">
-                <div className="text-xs font-medium text-gray-500">Or upload a file (Supabase Storage)</div>
+                <div className="text-xs font-medium text-gray-500">Or upload a file</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <input ref={fileInputRef} type="file" disabled={uploading}
                     onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); }}

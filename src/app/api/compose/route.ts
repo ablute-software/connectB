@@ -7,8 +7,8 @@ import type { ComposerContext, ComposerIntent } from '@/lib/composer';
 import type { Channel, Entity, Person } from '@/lib/types';
 
 const NOT_CONFIGURED_MSG =
-  'Set ANTHROPIC_API_KEY in the environment to enable AI-drafted outreach. ' +
-  'Until then, compose the message yourself — the linter and pre-flight checks below still apply.';
+  'AI drafting isn’t available in your workspace yet — compose the message yourself. ' +
+  'The linter and pre-flight checks below still apply.';
 
 const CHANNEL_GUIDANCE: Record<Channel, string> = {
   linkedin_dm: 'LinkedIn DM: under 900 characters, no links to editable docs, conversational.',
@@ -78,10 +78,13 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
       tool_choice: { type: 'tool', name: 'compose_outreach' },
     }),
   });
-  if (!res.ok) throw new Error(`Anthropic API error: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) {
+    console.error('AI compose provider error:', (await res.text()).slice(0, 300));
+    throw new Error('AI draft failed — try again in a moment.');
+  }
   const data = await res.json();
   const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
-  if (!toolUse) throw new Error('Model did not return a structured draft.');
+  if (!toolUse) throw new Error('AI draft failed — try again in a moment.');
   return toolUse.input as { subject: string; body: string; rationale: string; confidence: number };
 }
 

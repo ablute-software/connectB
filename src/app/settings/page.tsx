@@ -151,7 +151,7 @@ function TeamCard({ orgId }: { orgId: string }) {
           <div className="mb-4 rounded-lg border border-cyan-200 bg-[#E8F4F8] px-3 py-2 text-xs text-cyan-900">
             {emailed
               ? 'Invite email sent. Link also below in case it lands in spam:'
-              : 'Invite link — copy and send by hand (email sending needs RESEND_API_KEY configured):'}
+              : 'Invite link — copy and send by hand (email sending isn’t available yet):'}
             <div className="mt-1 break-all font-mono">{link}</div>
           </div>
         )}
@@ -180,7 +180,7 @@ function TeamCard({ orgId }: { orgId: string }) {
 
 const GMAIL_MESSAGE: Record<string, string> = {
   connected: 'Gmail connected.',
-  not_configured: "Gmail sign-in isn't set up yet — ask the platform team to configure GOOGLE_CLIENT_ID/SECRET.",
+  not_configured: 'Gmail connection is coming soon.',
   denied: 'Gmail connection was cancelled.',
   error: 'Something went wrong connecting Gmail — try again.',
 };
@@ -204,14 +204,14 @@ function GmailConnectionCard() {
   }
 
   return (
-    <Card title="Email — send from your own mailbox (IRM_SPEC §8d)">
+    <Card title="Email — send from your own mailbox">
       <p className="mb-2 text-xs text-gray-500">
         Connect Gmail so composer emails send from your own address (reply-to intact) instead of just being logged
         after you send them by hand. LinkedIn has no send API by design (ToS) — the composer offers copy-assist there instead.
       </p>
       {flash && <p className="mb-2 text-xs text-cyan-800">{GMAIL_MESSAGE[flash] ?? ''}</p>}
       {!status ? <p className="text-sm text-gray-400">Loading…</p> : !status.configured ? (
-        <p className="text-xs text-gray-400">Gmail sign-in isn't set up yet — check back soon.</p>
+        <p className="text-xs text-gray-400">Gmail connection is coming soon.</p>
       ) : status.connected ? (
         <div className="flex items-center gap-2 text-sm">
           <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">Connected</span>
@@ -227,13 +227,10 @@ function GmailConnectionCard() {
   );
 }
 
-function PaidFeatureLock({ label }: { label: string }) {
-  return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-6 text-center">
-      <p className="text-sm font-medium text-amber-900">🔒 Paid feature</p>
-      <p className="mt-1 text-xs text-amber-700">Upgrade to unlock {label}. Billing isn't wired up yet (Phase 7) — ask the platform team to flip your org's plan in the meantime.</p>
-    </div>
-  );
+// No paywall UI — monetisation is parked. When AI isn't available in this
+// workspace, say so plainly and stop; no lock icon, no price, no upgrade CTA.
+function ComingSoon() {
+  return <p className="rounded-lg bg-gray-50 px-4 py-3 text-center text-xs text-gray-400">Coming soon to your workspace.</p>;
 }
 
 export default function SettingsPage() {
@@ -242,7 +239,13 @@ export default function SettingsPage() {
   const [personId, setPersonId] = useState('');
   const [aiResult, setAiResult] = useState<string>('');
   const [aiLoading, setAiLoading] = useState(false);
-  const isPaid = db.org.plan === 'paid';
+  // Single server-side source of truth for AI availability — the exact same
+  // check /api/compose and /api/ai-review make themselves, so this can never
+  // disagree with what those routes actually do.
+  const [aiAvailable, setAiAvailable] = useState(false);
+  useEffect(() => {
+    fetch('/api/me').then((r) => r.json()).then((me) => setAiAvailable(!!me.capabilities?.ai)).catch(() => setAiAvailable(false));
+  }, []);
 
   const [docKind, setDocKind] = useState<'deck_review' | 'one_pager_review'>('deck_review');
   const [docText, setDocText] = useState('');
@@ -325,7 +328,6 @@ export default function SettingsPage() {
           <div><dt className="text-xs text-gray-500">Weekly cap</dt><dd>{db.org.weekly_cap} outbounds</dd></div>
         </dl>
         <p className="mt-2 text-xs text-gray-400">
-          In production these live on the org record (Supabase) and billing is handled by Stripe.
           Caps are strategic, not technical — a €1.3M seed closes on 15–40 conversations.
         </p>
       </Card>
@@ -333,13 +335,13 @@ export default function SettingsPage() {
       {authEnabled && <TeamCard orgId={db.org.id} />}
       {authEnabled && <Suspense fallback={null}><GmailConnectionCard /></Suspense>}
 
-      <Card title="AI Review — second opinion on a draft (paid feature)">
+      <Card title="AI Review — second opinion on a draft">
         <p className="mb-2 text-xs text-gray-500">
-          Beyond the mechanical linter: tone, hook strength, investor fit — using the IRM context (thesis, kill words,
-          watch-outs) as grounding. Requires <code className="rounded bg-gray-100 px-1">ANTHROPIC_API_KEY</code> in the environment.
-          The AI never sends anything and never edits your data — it produces a report; acting on it is yours.
+          Beyond the mechanical linter: tone, hook strength, investor fit — using your CRM context (thesis, kill words,
+          watch-outs) as grounding. The AI never sends anything and never edits your data — it produces a report;
+          acting on it is yours.
         </p>
-        {!isPaid ? <PaidFeatureLock label="AI review" /> : (
+        {!aiAvailable ? <ComingSoon /> : (
           <>
             <select value={personId} onChange={(e) => setPersonId(e.target.value)} className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
               <option value="">Reviewing for… (person)</option>
@@ -349,20 +351,20 @@ export default function SettingsPage() {
               placeholder="Paste the draft to review…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
             <button disabled={!draft || aiLoading} onClick={reviewMessage}
               className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-              {aiLoading ? 'Reviewing…' : 'Review with Claude'}
+              {aiLoading ? 'Reviewing…' : 'Review with AI'}
             </button>
             {aiResult && <pre className="mt-3 whitespace-pre-wrap rounded bg-gray-50 border border-gray-200 p-3 text-xs text-gray-700">{aiResult}</pre>}
           </>
         )}
       </Card>
 
-      <Card title="Deck / one-pager review (paid)">
+      <Card title="Deck / one-pager review">
         <p className="mb-2 text-xs text-gray-500">
           Paste the text content (deck speaker notes, one-pager copy) for a per-dimension report: problem clarity,
           traction evidence, number credibility, narrative, design notes if inferable — plus issues with severity
           and top rewrite suggestions. Review only — nothing is edited or sent.
         </p>
-        {!isPaid ? <PaidFeatureLock label="deck/one-pager review" /> : (
+        {!aiAvailable ? <ComingSoon /> : (
           <>
             <select value={docKind} onChange={(e) => setDocKind(e.target.value as typeof docKind)}
               className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
@@ -373,20 +375,20 @@ export default function SettingsPage() {
               placeholder="Paste the deck/one-pager text content…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
             <button disabled={!docText || docLoading} onClick={reviewDocument}
               className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-              {docLoading ? 'Reviewing…' : 'Review with Claude'}
+              {docLoading ? 'Reviewing…' : 'Review with AI'}
             </button>
             {docResult && <pre className="mt-3 whitespace-pre-wrap rounded bg-gray-50 border border-gray-200 p-3 text-xs text-gray-700">{docResult}</pre>}
           </>
         )}
       </Card>
 
-      <Card title="Market data — investor research (paid)">
+      <Card title="Market data — investor research">
         <p className="mb-2 text-xs text-gray-500">
           Researches an investor's thesis, typical cheque, stage, and recent relevant investments. Every item is
           marked "AI-sourced — verify before relying"; the model is instructed to never invent specifics it isn't
           confident about.
         </p>
-        {!isPaid ? <PaidFeatureLock label="market data research" /> : (
+        {!aiAvailable ? <ComingSoon /> : (
           <>
             <select value={marketEntityId} onChange={(e) => setMarketEntityId(e.target.value)}
               className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
@@ -395,7 +397,7 @@ export default function SettingsPage() {
             </select>
             <button disabled={!marketEntityId || marketLoading} onClick={researchMarket}
               className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-              {marketLoading ? 'Researching…' : 'Research with Claude'}
+              {marketLoading ? 'Researching…' : 'Research with AI'}
             </button>
             {marketResult && <pre className="mt-3 whitespace-pre-wrap rounded bg-gray-50 border border-gray-200 p-3 text-xs text-gray-700">{marketResult}</pre>}
           </>
@@ -409,7 +411,7 @@ export default function SettingsPage() {
             Reset demo to seed
           </button>
           <p className="mt-2 text-xs text-gray-400">
-            No Supabase env vars are configured, so this workspace runs on local browser storage. Connecting Supabase replaces this with the real database.
+            This workspace runs on local browser storage for now. Connecting a real database later replaces this with production data.
           </p>
         </Card>
       )}

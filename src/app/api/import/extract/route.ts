@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return NextResponse.json({ ok: true, configured: false, message: 'Set ANTHROPIC_API_KEY in the environment to enable extraction.' });
+  if (!apiKey) return NextResponse.json({ ok: true, configured: false, message: 'AI extraction isn’t available in your workspace yet.' });
 
   await admin.from('import_batches').update({ status: 'extracting' }).eq('id', batchId);
 
@@ -97,15 +97,19 @@ export async function POST(req: NextRequest) {
         tool_choice: { type: 'tool', name: 'extract_history' },
       }),
     });
-    if (!res.ok) throw new Error(`Anthropic API error: ${(await res.text()).slice(0, 300)}`);
+    if (!res.ok) {
+      console.error('AI extraction provider error:', (await res.text()).slice(0, 300));
+      throw new Error('AI extraction failed — try again in a moment.');
+    }
     const data = await res.json();
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
-    if (!toolUse) throw new Error('Model did not return a structured extraction.');
+    if (!toolUse) throw new Error('AI extraction failed — try again in a moment.');
 
     await admin.from('import_batches').update({ status: 'staged', extraction: toolUse.input }).eq('id', batchId);
     return NextResponse.json({ ok: true, configured: true, extraction: toolUse.input });
   } catch (e) {
-    await admin.from('import_batches').update({ status: 'failed', error: (e as Error).message }).eq('id', batchId);
-    return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
+    const message = (e as Error).message;
+    await admin.from('import_batches').update({ status: 'failed', error: message }).eq('id', batchId);
+    return NextResponse.json({ ok: false, error: message }, { status: 502 });
   }
 }

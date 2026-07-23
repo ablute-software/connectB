@@ -111,7 +111,7 @@ export default function ImportPage() {
     } finally { setCommitting(false); }
   }
 
-  if (!authEnabled) return <Card title="Import history"><p className="text-sm text-gray-400">Available once connected to Supabase.</p></Card>;
+  if (!authEnabled) return <Card title="Import history"><p className="text-sm text-gray-400">Not available in this workspace yet.</p></Card>;
 
   return (
     <div className="space-y-4">
@@ -123,7 +123,7 @@ export default function ImportPage() {
       </p>
       <p className="text-xs text-gray-400">
         Already have a structured pack matching the entities.csv/people.csv/interactions.csv shape?{' '}
-        <Link href="/import/structured" className="text-[#0E7490] hover:underline">Use the structured import (§9b)</Link> — no AI extraction needed.
+        <Link href="/import/structured" className="text-[#0E7490] hover:underline">Use the structured import</Link> — no AI extraction needed.
       </p>
       <p className="text-xs text-gray-400">
         Have a full contact-history export (entities as `## ` sections, dated interactions)?{' '}

@@ -9,7 +9,7 @@ export const resendConfigured = !!process.env.RESEND_API_KEY;
 
 export async function sendTransactionalEmail(opts: { to: string; subject: string; html: string }) {
   const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return { sent: false, error: 'RESEND_API_KEY not set' };
+  if (!apiKey) return { sent: false, error: 'Email sending is not available in your workspace yet.' };
 
   const from = process.env.RESEND_FROM_EMAIL || 'connectB <onboarding@resend.dev>';
   try {
@@ -19,8 +19,8 @@ export async function sendTransactionalEmail(opts: { to: string; subject: string
       body: JSON.stringify({ from, to: opts.to, subject: opts.subject, html: opts.html }),
     });
     if (!res.ok) {
-      const err = await res.text();
-      return { sent: false, error: `Resend API error: ${err.slice(0, 300)}` };
+      console.error('Transactional email provider error:', (await res.text()).slice(0, 300));
+      return { sent: false, error: 'Email sending failed — try again in a moment.' };
     }
     const data = await res.json();
     return { sent: true, id: data.id as string };
