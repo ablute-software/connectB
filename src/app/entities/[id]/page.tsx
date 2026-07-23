@@ -12,6 +12,7 @@ import { entityCompleteness } from '@/lib/completeness';
 import { isPersonCandidate, relatedContacts } from '@/lib/relationship';
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { browserClient } from '@/lib/supabase';
+import { EntityClassificationEditor } from '@/components/EntityClassificationEditor';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -205,9 +206,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
             )}
             <div>Domain: {entity.email_domain ?? '—'} {entity.email_domain_verified && '✓'}</div>
             <div>HQ: {entity.hq_city ? `${entity.hq_city}, ` : ''}{entity.hq_country ?? '—'}</div>
-            <div>Geos: {entity.invests_in_geographies.join(', ') || '—'}</div>
-            <div>Sectors: {entity.sectors.join(', ') || '—'}</div>
-            <div>Stage: {entity.stage_min?.replace('_', ' ') ?? '—'} – {entity.stage_max?.replace('_', ' ') ?? '—'}</div>
+            <EntityClassificationEditor entity={entity} onUpdate={(patch) => updateEntity(entity.id, patch)} />
             <div>Check: {fmtEur(entity.check_min_eur)}–{fmtEur(entity.check_max_eur)}</div>
           </dl>
           <div className="space-y-3">
