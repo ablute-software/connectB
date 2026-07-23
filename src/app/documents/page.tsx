@@ -6,9 +6,17 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card, PersonLink } from '@/components/ui';
 import type { Folder } from '@/lib/types';
 
+function fmtBytes(n?: number): string | undefined {
+  if (n == null) return undefined;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} MB`;
+  if (n >= 1000) return `${Math.round(n / 1000)} KB`;
+  return `${n} B`;
+}
+
 export default function DocumentsPage() {
-  const { db, addDocument, addGrant, revokeGrant, recordDemoView } = useStore();
+  const { db, addDocument, addGrant, revokeGrant } = useStore();
   const [selFolder, setSelFolder] = useState<string>('');
+  const [storageSizes, setStorageSizes] = useState<Record<string, number>>({});
 
   // Folder ids differ between demo seed data and real Supabase UUIDs, so the
   // default can't be a hardcoded id — pick "Investor deck" by name once
@@ -35,6 +43,18 @@ export default function DocumentsPage() {
   const children = (id: string) => db.folders.filter((f) => f.parent_id === id).sort((a, b) => a.position - b.position);
   const docsIn = (id: string) => db.documents.filter((d) => d.folder_id === id);
   const activeGrants = db.grants.filter((g) => !g.revoked_at && (!g.expires_at || new Date(g.expires_at) > new Date()));
+
+  // File size isn't a DB column — Supabase Storage already tracks it, so a
+  // single listing of the org's prefix is cheaper than a schema change.
+  useEffect(() => {
+    if (!authEnabled || !db.org.id) return;
+    browserClient().storage.from('data-room').list(db.org.id, { limit: 1000 }).then(({ data, error }) => {
+      if (error || !data) return;
+      const map: Record<string, number> = {};
+      for (const item of data) if (item.metadata?.size != null) map[`${db.org.id}/${item.name}`] = item.metadata.size;
+      setStorageSizes(map);
+    });
+  }, [db.org.id, db.documents.length]);
 
   async function uploadFile(file: File) {
     setUploadErr(''); setUploading(true);
@@ -94,6 +114,7 @@ export default function DocumentsPage() {
                 {docsIn(selFolder).map((d) => {
                   const grants = activeGrants.filter((g) => g.document_id === d.id || g.folder_id === d.folder_id);
                   const views = db.views.filter((v) => v.document_id === d.id);
+                  const size = d.storage_path ? fmtBytes(storageSizes[d.storage_path]) : undefined;
                   return (
                     <li key={d.id} className="py-2 text-sm">
                       <div className="flex flex-wrap items-center gap-2">
@@ -103,13 +124,15 @@ export default function DocumentsPage() {
                           ? <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-800">view-only ✓</span>
                           : <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-800">not view-only — blocked from sharing</span>}
                         <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">{d.visibility}</span>
-                        {d.external_url && <a href={d.external_url} target="_blank" className="text-xs text-[#0E7490] hover:underline">open</a>}
-                        {d.storage_path && (
-                          <button onClick={() => openStored(d.storage_path!)} className="text-xs text-[#0E7490] hover:underline">open</button>
-                        )}
-                        <button onClick={() => recordDemoView(d.id, 'demo-investor@example.com')}
-                          className="ml-auto rounded border border-gray-200 px-1.5 py-0.5 text-[10px] text-gray-500 hover:bg-gray-50"
-                          title="Demo: simulate an investor viewing this document">simulate view</button>
+                        <span className="text-xs text-gray-400">
+                          {d.storage_path ? 'file' : 'link'}{size && ` · ${size}`}
+                          {d.created_at && ` · uploaded ${d.created_at.slice(0, 10)}`}
+                        </span>
+                        <button
+                          onClick={() => d.storage_path ? openStored(d.storage_path!) : window.open(d.external_url, '_blank')}
+                          className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
+                          Open
+                        </button>
                       </div>
                       <div className="mt-1 text-xs text-gray-500">
                         {grants.length} active grant(s) · {views.length} view(s)

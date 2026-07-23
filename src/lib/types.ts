@@ -236,6 +236,7 @@ export interface DocumentItem {
   watermark: boolean;
   downloadable: boolean;
   notes?: string;
+  created_at?: string; // ISO — real DB column (migration 0001) since day one, only just surfaced in the type
 }
 
 export interface AccessGrant {

@@ -198,7 +198,10 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       if (d.external_url && d.external_url.includes('/edit')) {
         throw new Error('Editable link rejected — only view-only links can be stored.');
       }
-      setDb((prev) => ({ ...prev, documents: [...prev.documents, { ...d, id: uid('doc') }] }));
+      setDb((prev) => ({
+        ...prev,
+        documents: [...prev.documents, { ...d, id: uid('doc'), created_at: new Date().toISOString() }],
+      }));
     },
 
     addGrant(g) {
@@ -232,7 +235,7 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, grants: prev.grants.map((g) => g.id === id ? { ...g, revoked_at: new Date().toISOString() } : g) }));
     },
 
-    recordDemoView(documentId, viewerEmail) {
+    recordDocumentView(documentId, viewerEmail) {
       setDb((prev) => ({
         ...prev,
         views: [...prev.views, {

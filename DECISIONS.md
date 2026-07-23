@@ -843,3 +843,59 @@ actually an individual (probably a solo angel), not a fund.
 4. Added a `structured-import.test.ts` covering `looksLikePersonName`
    against the exact reported name, a couple of real fund names (must NOT
    flag), and the with-website/with-domain cases (must clear the flag).
+
+## Data Room cleanup: simulate-view removal + real Open
+
+1. **`recordDemoView` renamed to `recordDocumentView`** (store-context.tsx/
+   store-demo.tsx/store-supabase.tsx/portal/page.tsx) rather than deleted —
+   it's not actually a simulation. It's the real view-tracking call the
+   investor portal's `openDoc` makes in demo mode (the Supabase-backed
+   build calls `/api/portal/view` instead); only its confusing "Demo" name
+   was era-of-demo cruft, not its function.
+2. **The real simulate action removed**: `/documents`'s "simulate view"
+   button, which manually fired a fake view against a hardcoded
+   `demo-investor@example.com` — a founder-facing testing artifact with no
+   real analog (views should only ever be recorded when an actual investor
+   opens the portal).
+3. **Found and fixed one more piece of demo-era leakage while sweeping
+   the whole app per the "qualquer página" instruction**: `store-
+   supabase.tsx`'s `recordDocumentView` was fabricating a random
+   `seconds: 60-460` view-duration on every REAL portal view, in
+   production, since the app doesn't actually measure time-on-page. Now
+   left unset rather than invented. Demo mode's version keeps synthesizing
+   a plausible value — that store exists specifically to look "alive" for
+   local testing with no real users behind it, a different situation from
+   the real backend fabricating data a founder would actually see.
+4. **Two more stale references removed**: automations page's "(Demo:
+   toggle the plan in Settings.)" hint pointed at a control that was never
+   actually built (grepped for it — nothing toggles `org.plan` anywhere);
+   removed rather than built, since billing isn't wired up yet (Phase 7)
+   and the surrounding copy already says to ask the platform team.
+   Settings' "Demo data / Reset demo to seed" card was rendering
+   unconditionally, even in a real Supabase-backed session — gated behind
+   `!authEnabled` now, matching every other demo-only control in that page.
+5. **`DocumentItem.created_at`**: same pattern as `entities.reopen_trigger`
+   earlier this session — a real DB column since migration 0001 (`documents
+   .created_at timestamptz not null default now()`), never previously
+   surfaced in the TypeScript type. Added the field and stamped it
+   client-side in both `addDocument` implementations (matching the
+   existing `addGrant`/`granted_at` convention: the DB default exists too,
+   but the app stamps explicitly for optimistic-UI consistency).
+6. **File size has no DB column and doesn't need one** — Supabase Storage
+   already tracks it per-object. `/documents` now lists the org's Storage
+   prefix once (`storage.from('data-room').list(org.id)`) and reads
+   `metadata.size` from the response, keyed by full path. Link-type
+   documents show no size (there isn't one), only the upload date.
+7. **Verification**: link-based add/Open/date verified live in the browser
+   (demo mode — Storage upload is gated behind `authEnabled` in the UI and
+   can't be reached without it). File-upload/signed-URL/size-listing
+   verified against production Supabase via a reversible service-role
+   script — uploaded a real minimal PDF (valid `%PDF-1.4` structure, not
+   just a `.pdf`-named text file) to the `data-room` bucket under the
+   ablute_ org, inserted a matching `documents` row, confirmed the Storage
+   listing reports the correct byte size, fetched the signed URL over HTTP
+   and confirmed the returned bytes are the same PDF, then deleted both the
+   Storage object and the row. Did not attempt an interactive founder
+   login to click through the real UI — entering the founder's password is
+   outside what I'm allowed to do, and there's no other way to reach an
+   authenticated session in this environment.

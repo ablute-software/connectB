@@ -1,5 +1,5 @@
 'use client';
-// Settings — org, plan (demo toggle), caps, AI Review (paid), demo reset
+// Settings — org, plan, caps, AI Review (paid), local-storage reset (demo mode only)
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
@@ -402,13 +402,17 @@ export default function SettingsPage() {
         )}
       </Card>
 
-      <Card title="Demo data">
-        <button onClick={() => { if (window.confirm('Reset all demo data to the seeded pipeline?')) resetDemo(); }}
-          className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-[#B00000] hover:bg-red-50">
-          Reset demo to seed
-        </button>
-        <p className="mt-2 text-xs text-gray-400">Demo state persists in this browser (localStorage). Connecting Supabase replaces this with the real database.</p>
-      </Card>
+      {!authEnabled && (
+        <Card title="Demo data">
+          <button onClick={() => { if (window.confirm('Reset all demo data to the seeded pipeline?')) resetDemo(); }}
+            className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-[#B00000] hover:bg-red-50">
+            Reset demo to seed
+          </button>
+          <p className="mt-2 text-xs text-gray-400">
+            No Supabase env vars are configured, so this workspace runs on local browser storage. Connecting Supabase replaces this with the real database.
+          </p>
+        </Card>
+      )}
     </div>
   );
 }

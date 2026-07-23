@@ -43,7 +43,9 @@ export interface StoreApi {
   addDocument: (d: Omit<DocumentItem, 'id'>) => void;
   addGrant: (g: Omit<AccessGrant, 'id' | 'granted_at'>) => void;
   revokeGrant: (id: string) => void;
-  recordDemoView: (documentId: string, viewerEmail: string) => void;
+  // Records a document view — used by the real portal flow (both live
+  // Supabase mode via /api/portal/view, and demo mode's local mirror here).
+  recordDocumentView: (documentId: string, viewerEmail: string) => void;
   toggleAutomation: (id: string) => void;
   setAutomationMode: (id: string, mode: Automation['mode']) => void;
   runAutomationTick: () => number;

@@ -17,7 +17,7 @@ interface PortalData {
 }
 
 export default function PortalPage() {
-  const { db, recordDemoView } = useStore();
+  const { db, recordDocumentView } = useStore();
   const [email, setEmail] = useState('');
   const [signedIn, setSignedIn] = useState(false);
   const [ndaAccepted, setNdaAccepted] = useState(false);
@@ -61,7 +61,7 @@ export default function PortalPage() {
         body: JSON.stringify({ documentId: doc.id, email }),
       });
     } else {
-      recordDemoView(doc.id, email);
+      recordDocumentView(doc.id, email);
     }
     window.open(('url' in doc ? doc.url : doc.external_url) ?? '#', '_blank');
   }

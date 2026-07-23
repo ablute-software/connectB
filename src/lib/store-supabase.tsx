@@ -404,7 +404,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         throw new Error('Editable link rejected — only view-only links can be stored.');
       }
       const prev = dbRef.current;
-      const row: DocumentItem = { ...d, id: uuid() };
+      const row: DocumentItem = { ...d, id: uuid(), created_at: new Date().toISOString() };
       commit({ ...prev, documents: [...prev.documents, row] });
       const o = orgIdRef.current;
       if (o) persist(sb.from('documents').insert({ ...row, org_id: o }), 'addDocument');
@@ -446,16 +446,19 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('access_grants').update({ revoked_at }).eq('id', id), 'revokeGrant');
     },
 
-    recordDemoView(documentId: string, viewerEmail: string) {
+    recordDocumentView(documentId: string, viewerEmail: string) {
       const o = orgIdRef.current;
       if (!o) return; // investor portal with no resolved org — safe no-op (Phase 4 wires real per-grant access)
       const prev = dbRef.current;
+      // seconds/pages are left unset — this app doesn't yet measure actual
+      // time-on-page, and a real portal view shouldn't carry a fabricated
+      // duration (unlike demo mode, which is allowed to synthesize
+      // plausible-looking data for local testing).
       const row: DocumentView = {
-        id: uuid(), document_id: documentId, viewer_email: viewerEmail,
-        viewed_at: new Date().toISOString(), seconds: 60 + Math.floor(Math.random() * 400),
+        id: uuid(), document_id: documentId, viewer_email: viewerEmail, viewed_at: new Date().toISOString(),
       };
       commit({ ...prev, views: [...prev.views, row] });
-      persist(sb.from('document_views').insert({ ...row, org_id: o }), 'recordDemoView');
+      persist(sb.from('document_views').insert({ ...row, org_id: o }), 'recordDocumentView');
     },
 
     toggleAutomation(id: string) {
