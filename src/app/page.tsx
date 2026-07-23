@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur } from '@/components/ui';
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
+import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 import { preflight, preflightSummary } from '@/lib/rules';
 import { isPersonCandidate } from '@/lib/relationship';
 import type { Db, Entity, TaskItem } from '@/lib/types';
@@ -102,6 +103,7 @@ export default function PipelinePage() {
 
   return (
     <div className="space-y-4">
+      <ReawakeningQueue />
       {personCandidates.length > 0 && (
         <div className="rounded-2xl border-l-4 border-purple-400 bg-purple-50 p-4">
           <div className="text-sm font-semibold text-purple-900">

@@ -10,6 +10,7 @@ import type {
 import { seed } from './data/seed';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate, buildFollowUpTask } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
+import { buildReawakenApproval } from './reawakening';
 import { STAGE_LABEL, getStage } from './relationship';
 import { StoreCtx, type StoreApi } from './store-context';
 
@@ -380,6 +381,55 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
 
     replaceDocumentFile(docId, newStoragePath) {
       setDb((prev) => ({ ...prev, documents: prev.documents.map((d) => d.id === docId ? { ...d, storage_path: newStoragePath } : d) }));
+    },
+
+    addDocumentVersion(docId, storagePath, size) {
+      setDb((prev) => {
+        const doc = prev.documents.find((d) => d.id === docId);
+        if (!doc) return prev;
+        const existing = prev.documentVersions.filter((v) => v.document_id === docId);
+        const now = new Date().toISOString();
+        const rows = [...prev.documentVersions];
+        let nextNum = existing.length ? Math.max(...existing.map((v) => v.version)) + 1 : 1;
+        // First time a document is versioned, snapshot its current file as v1
+        // so the original is preserved (never lost, per the "never deletion"
+        // rule) before the new upload becomes the current version.
+        if (existing.length === 0 && doc.storage_path && doc.storage_path !== storagePath) {
+          rows.push({ id: uid('ver'), document_id: docId, version: 1, storage_path: doc.storage_path, uploaded_at: doc.created_at ?? now });
+          nextNum = 2;
+        }
+        rows.push({ id: uid('ver'), document_id: docId, version: nextNum, storage_path: storagePath, size, uploaded_at: now });
+        return {
+          ...prev,
+          documentVersions: rows,
+          documents: prev.documents.map((d) => d.id === docId ? { ...d, storage_path: storagePath, version: `v${nextNum}` } : d),
+        };
+      });
+    },
+
+    approveReawakening(proposalId, overrides) {
+      setDb((prev) => {
+        const p = prev.reawakeningProposals.find((x) => x.id === proposalId);
+        if (!p) return prev;
+        const now = new Date().toISOString();
+        const entityName = prev.entities.find((e) => e.id === p.entity_id)?.name ?? '';
+        const { entityPatch, task: taskBase } = buildReawakenApproval(p, entityName, overrides);
+        const task = { ...taskBase, id: uid('t'), done: false };
+        return {
+          ...prev,
+          entities: prev.entities.map((e) => e.id === p.entity_id ? { ...e, ...entityPatch } : e),
+          tasks: [...prev.tasks, task],
+          reawakeningProposals: prev.reawakeningProposals.map((x) => x.id === proposalId ? { ...x, status: 'approved' as const, resolved_at: now } : x),
+        };
+      });
+    },
+
+    rejectReawakening(proposalId) {
+      const now = new Date().toISOString();
+      setDb((prev) => ({
+        ...prev,
+        reawakeningProposals: prev.reawakeningProposals.map((x) => x.id === proposalId ? { ...x, status: 'rejected' as const, resolved_at: now } : x),
+      }));
     },
 
     createFolder(name, parentId, kind) {

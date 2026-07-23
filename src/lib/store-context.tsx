@@ -6,7 +6,7 @@
 import { createContext, useContext } from 'react';
 import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, Db,
-  Direction, DocumentItem, Entity, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
+  Direction, DocumentItem, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
   PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem,
 } from './types';
 
@@ -124,6 +124,12 @@ export interface StoreApi {
   moveDocumentToFolder: (docId: string, folderId: string | undefined) => void;
   reorderDocuments: (folderId: string | undefined, orderedIds: string[]) => void;
   replaceDocumentFile: (docId: string, newStoragePath: string) => void;
+  // E7 — Google-Drive-style versioning (migration 0029). Records storagePath
+  // as a NEW current version (seeding the document's prior file as v1 the first
+  // time), and repoints document.storage_path so the portal serves it. Never
+  // deletes; "restore" is just another addDocumentVersion pointing at an older
+  // object. size is the new file's byte length when known.
+  addDocumentVersion: (docId: string, storagePath: string, size?: number) => void;
   // Data Room V2 (F3) — org-scoped folder management. createFolder appends
   // at the end of its new siblings; deleteFolder throws (caught by the UI)
   // if the folder still has children and moveContentsToParent is false —
@@ -184,6 +190,16 @@ export interface StoreApi {
   // Facts are never deleted, only superseded (§11a) — creates a new
   // confirmed fact and points the old one's superseded_by at it.
   supersedeCompanyFact: (oldId: string, newStatement: string) => void;
+
+  // F — fact-triggered reawakening (migration 0030). approve: the entity
+  // returns to the active pipeline ('contacted') with the (optionally
+  // overridden) suggested wave/fit, and an agenda follow-up task is created;
+  // the proposal is marked approved. reject: the proposal is marked rejected —
+  // the (fact_id, entity_id) pair stays evaluated and is never re-proposed.
+  // Both only touch proposals the AI route already produced; the AI itself
+  // runs server-side only on fact confirmation (never here).
+  approveReawakening: (proposalId: string, overrides?: { wave?: number; fit?: FitScore }) => void;
+  rejectReawakening: (proposalId: string) => void;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);

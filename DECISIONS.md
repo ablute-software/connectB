@@ -4,6 +4,65 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## Fact-triggered reawakening + Data Room polish (E6 · E7 · F)
+
+Two migrations ship pending application (0029 document_versions, 0030
+reawakening_proposals) — both additive + capability-gated, so the app degrades
+gracefully until each lands (the store loads them missing-table-safe, exactly
+like company_facts/ndas).
+
+**E6 — Collapsible folder tree.** Folders with subfolders get a ▾/▸ chevron;
+collapsing hides the subtree. State persists per org in localStorage
+(`dataroom-collapsed-<orgId>`). No migration. Smoke-tested: collapsing
+"Materials" hid its 4 subfolders and persisted.
+
+**E7 — File versioning (Google-Drive-style).** The "Replace" action becomes
+"Nova versão" when migration 0029 is applied: uploading against a document
+KEEPS the prior Storage object as a version (never deletes) and repoints the
+document — so portal/signed URLs serve current automatically. The details area
+gains a "Versões (N)" list: open any version, or **restore** an old one.
+- *Design:* "restore" = another `addDocumentVersion` pointing at the older
+  object (a new current version), never a deletion — matches the "never
+  deletion" rule. The FIRST time a document is versioned, its existing file is
+  snapshotted as v1 before the new upload becomes v2, so nothing is lost.
+- *Fallback:* pre-0029 (capability off), the button keeps its legacy "Replace"
+  behaviour (swap + remove old). One store action, `addDocumentVersion`, in
+  both providers.
+
+**F — Fact-triggered reawakening engine (the architecture).** The single
+knowledge choke point: reawakening is evaluated ONLY when a canon fact is
+confirmed (or superseded). There is **no cron, no periodic scan, anywhere** —
+recorded here as a hard design rule; anything that would add a scheduled AI
+sweep is out of scope and should be flagged, not built.
+- **Trigger** (`store-supabase` confirm/editAndConfirm/supersede) fires
+  `/api/reawakening/evaluate` fire-and-forget. Supersede passes the OLD
+  statement so the model sees the delta.
+- **Step 1 — mechanical prefilter (no AI):** dormant/passed entities carrying a
+  `reopen_trigger`, MINUS (fact_id, entity_id) pairs already evaluated. The
+  unique(fact_id, entity_id) constraint on `reawakening_proposals` IS the dedup.
+  Empty shortlist → **zero AI calls**.
+- **Step 2 — ONE batched AI call per chunk of ≤40** (the spec's guard):
+  new fact + per-entity {name, reopen_trigger, prior pass reason, last contact}
+  → per-entity {reopens, rationale, suggested wave, suggested fit}, forced
+  tool-use. Prior pass reason is read from the entity's interactions
+  (`pass_reason` lives on the interaction, not the entity).
+- **Step 3 — proposals, never auto-moves:** reopens:true → 'pending' (Pipeline
+  queue), reopens:false → 'dismissed' (evaluated, silent). The Pipeline banner
+  ("N investidores podem renascer") cites the prior "não" verbatim + the AI
+  rationale, with wave/fit **editable at approval**. Approve → entity back to
+  'contacted' with the chosen wave/fit + a `follow_up_no_reply` agenda task;
+  reject → 'rejected' (pair stays evaluated, never re-proposed).
+- **Cost discipline (design rule):** AI runs only on fact confirmation, one
+  batched prefiltered call per fact, deduped by evaluated pairs. Idempotent
+  (upsert ignoreDuplicates), so a re-fired confirm is harmless.
+- **Pure + tested:** `reawakening.ts` (prefilter, priorPassInfo, chunk,
+  proposalStatusForVerdict, buildReawakenApproval) with 13 tests — the two
+  store providers share `buildReawakenApproval` so the approval effect can't
+  drift from the tested reference. Suite 148 green.
+- *Flagged:* approval sets status → 'contacted' and keeps `reopen_trigger` (so
+  the /log reopen-doctrine banner still fires on the next draft). If you'd
+  rather it clear the trigger on reawakening, that's the line to change.
+
 ## Plans & Account + premium frosting (business model partially unparked)
 
 Three tiers, names/prices verbatim, in one pure module `plans.ts` (single

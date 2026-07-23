@@ -293,6 +293,21 @@ export interface DocumentItem {
   position?: number;
 }
 
+// E7 — Google-Drive-style version history for a document. The document row's
+// storage_path always points at the CURRENT version (so portal/signed URLs
+// serve current automatically); this table is the immutable history. "Restore"
+// appends a NEW version pointing at an old object — never a deletion.
+// Migration 0029, capability-gated: src/lib/document-versions-capability.ts.
+export interface DocumentVersion {
+  id: string;
+  document_id: string;
+  version: number;
+  storage_path: string;
+  size?: number;
+  uploaded_at: string;
+  uploaded_by?: string;
+}
+
 // Data Room V2 (F5) — a real signed NDA file, attached to the investor's own
 // record (entity/person) with an AI cross-check verdict. Capability-gated:
 // src/lib/data-room-capability.ts, migration 0023.
@@ -462,6 +477,31 @@ export interface InvestorSubmission {
   reviewed_at?: string;
 }
 
+// F — fact-triggered reawakening. When a canon fact is confirmed (the ONLY
+// trigger), dormant/passed entities with a reopen_trigger are mechanically
+// shortlisted and evaluated by ONE batched AI call. Every evaluated
+// (fact_id, entity_id) pair gets a row here (unique) — reopens:true → 'pending'
+// (surfaced in the Pipeline queue), reopens:false → 'dismissed' (evaluated,
+// never re-proposed). Approve → entity returns to active + agenda task; reject
+// → 'rejected'. Migration 0030, capability-gated:
+// src/lib/reawakening-capability.ts. NO cron/periodic scan ever.
+export type ReawakeningStatus = 'pending' | 'approved' | 'rejected' | 'dismissed';
+export interface ReawakeningProposal {
+  id: string;
+  fact_id: string;
+  entity_id: string;
+  reopens: boolean;
+  rationale?: string;
+  suggested_wave?: number;
+  suggested_fit?: FitScore;
+  prior_pass_reason?: string;
+  prior_pass_category?: PassReasonCategory;
+  fact_statement?: string; // snapshot of the triggering fact, for the queue UI
+  status: ReawakeningStatus;
+  created_at: string;
+  resolved_at?: string;
+}
+
 export interface Db {
   catalog: CatalogEntity[];
   packs: Pack[];
@@ -485,4 +525,6 @@ export interface Db {
   aiReviews: AiReview[];
   companyFacts: CompanyFact[];
   ndas: Nda[];
+  documentVersions: DocumentVersion[];
+  reawakeningProposals: ReawakeningProposal[];
 }

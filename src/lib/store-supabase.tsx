@@ -10,12 +10,13 @@ import { browserClient } from './supabase';
 import { StoreCtx, type StoreApi, type LogInput } from './store-context';
 import type {
   AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, CompanyFact, Db, DocumentItem,
-  DocumentView, Entity, EntityStatus, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
-  Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, RelationshipStage,
+  DocumentVersion, DocumentView, Entity, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
+  Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview,
 } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate, buildFollowUpTask } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
+import { buildReawakenApproval } from './reawakening';
 import { STAGE_LABEL, getStage } from './relationship';
 
 type SB = ReturnType<typeof browserClient>;
@@ -25,6 +26,7 @@ const EMPTY_DB: Db = {
   org: EMPTY_ORG, entities: [], people: [], personAffiliations: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], ndas: [],
+  documentVersions: [], reawakeningProposals: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -61,6 +63,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     foldersRes, documentsRes, grantsRes, viewsRes, templatesRes, automationsRes,
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
+    documentVersionsRes, reawakeningProposalsRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -91,6 +94,12 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // Data Room V2 F5 — ndas may not exist yet (migration 0023). Same
     // missing-table-safe pattern as company_facts above.
     sb.from('ndas').select('*').eq('org_id', orgId),
+    // E7 file versions (0029) + F reawakening proposals (0030) — may not exist
+    // yet. PostgREST returns {data:null,error} for a missing table, so these
+    // resolve here (never throw) and fall back to [] below, exactly like the
+    // capability-gated tables above.
+    sb.from('document_versions').select('*').eq('org_id', orgId),
+    sb.from('reawakening_proposals').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -148,6 +157,8 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     submissions,
     companyFacts: ((companyFactsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<CompanyFact>(r)),
     ndas: ((ndasRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<Nda>(r)),
+    documentVersions: ((documentVersionsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<DocumentVersion>(r)),
+    reawakeningProposals: ((reawakeningProposalsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<ReawakeningProposal>(r)),
   };
 }
 
@@ -169,6 +180,22 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     const oid = orgIdRef.current;
     if (!oid) return;
     try { commit(await loadAll(sb, oid)); } catch (err) { console.error('[supabase-store] refetch failed', err); }
+  }
+
+  // F — the ONLY reawakening trigger: a canon fact was just confirmed. Fires
+  // the server-side batched evaluation (mechanical prefilter → one AI call);
+  // fire-and-forget so it never blocks the confirm. If proposals were created,
+  // refetch so the Pipeline queue reflects them without a manual refresh. The
+  // route no-ops (0 proposals, 0 AI calls) when the shortlist is empty or the
+  // feature isn't configured, so calling this unconditionally is safe.
+  function triggerReawakening(factId: string, supersedesStatement?: string) {
+    if (!orgIdRef.current) return;
+    fetch('/api/reawakening/evaluate', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ factId, supersedesStatement }),
+    }).then((r) => r.json()).then((b) => {
+      if (b && b.ok && (b.proposals ?? 0) > 0) refetch();
+    }).catch(() => { /* never blocks the confirm */ });
   }
 
   useEffect(() => {
@@ -537,6 +564,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         companyFacts: prev.companyFacts.map((f) => f.id === id ? { ...f, status: 'confirmed' as const, confirmed_at: now, updated_at: now } : f),
       });
       persist(sb.from('company_facts').update({ status: 'confirmed', confirmed_at: now, updated_at: now }).eq('id', id), 'confirmCompanyFact');
+      triggerReawakening(id);
     },
 
     editAndConfirmCompanyFact(id: string, statement: string) {
@@ -548,6 +576,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
           ? { ...f, statement, status: 'confirmed' as const, confirmed_at: now, updated_at: now } : f),
       });
       persist(sb.from('company_facts').update({ statement, status: 'confirmed', confirmed_at: now, updated_at: now }).eq('id', id), 'editAndConfirmCompanyFact');
+      triggerReawakening(id);
     },
 
     rejectCompanyFact(id: string) {
@@ -578,6 +607,9 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         persist(sb.from('company_facts').update({ status: 'deprecated', superseded_by: successor.id, updated_at: now }).eq('id', oldId), 'supersedeCompanyFact:old');
         persist(sb.from('company_facts').insert({ ...successor, org_id: o }), 'supersedeCompanyFact:new');
       }
+      // Superseding = positioning changed: evaluate against the successor fact,
+      // passing the OLD statement so the AI sees the delta.
+      triggerReawakening(successor.id, old.statement);
     },
 
     setDoNotContact(personId: string) {
@@ -677,6 +709,66 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         persist(sb.from('documents').update({ storage_path: newStoragePath }).eq('id', docId), 'replaceDocumentFile:row');
         if (oldPath && oldPath !== newStoragePath) persist(sb.storage.from('data-room').remove([oldPath]), 'replaceDocumentFile:storage');
       }
+    },
+
+    // E7 — the versioning counterpart to replaceDocumentFile. NEVER removes the
+    // old Storage object; it becomes a prior version. Repoints the document to
+    // the new path (so portal/signed URLs serve current automatically).
+    addDocumentVersion(docId: string, storagePath: string, size?: number) {
+      const prev = dbRef.current;
+      const doc = prev.documents.find((d) => d.id === docId);
+      if (!doc) return;
+      const existing = prev.documentVersions.filter((v) => v.document_id === docId);
+      const now = new Date().toISOString();
+      const rows: DocumentVersion[] = [];
+      let nextNum = existing.length ? Math.max(...existing.map((v) => v.version)) + 1 : 1;
+      if (existing.length === 0 && doc.storage_path && doc.storage_path !== storagePath) {
+        rows.push({ id: uuid(), document_id: docId, version: 1, storage_path: doc.storage_path, uploaded_at: doc.created_at ?? now });
+        nextNum = 2;
+      }
+      rows.push({ id: uuid(), document_id: docId, version: nextNum, storage_path: storagePath, size, uploaded_at: now });
+      commit({
+        ...prev,
+        documentVersions: [...prev.documentVersions, ...rows],
+        documents: prev.documents.map((d) => d.id === docId ? { ...d, storage_path: storagePath, version: `v${nextNum}` } : d),
+      });
+      const o = orgIdRef.current;
+      if (o) {
+        for (const r of rows) persist(sb.from('document_versions').insert({ ...r, org_id: o }), 'addDocumentVersion:ver');
+        persist(sb.from('documents').update({ storage_path: storagePath, version: `v${nextNum}` }).eq('id', docId), 'addDocumentVersion:doc');
+      }
+    },
+
+    // F — approve a reawakening proposal. Entity returns to the active pipeline
+    // with the (optionally overridden) suggested wave/fit + a follow-up task;
+    // the proposal row is marked approved (RLS member-update).
+    approveReawakening(proposalId: string, overrides?: { wave?: number; fit?: FitScore }) {
+      const prev = dbRef.current;
+      const p = prev.reawakeningProposals.find((x) => x.id === proposalId);
+      if (!p) return;
+      const now = new Date().toISOString();
+      const entityName = prev.entities.find((e) => e.id === p.entity_id)?.name ?? '';
+      const { entityPatch, task: taskBase } = buildReawakenApproval(p, entityName, overrides);
+      const task: TaskItem = { ...taskBase, id: uuid(), done: false };
+      commit({
+        ...prev,
+        entities: prev.entities.map((e) => e.id === p.entity_id ? { ...e, ...entityPatch } : e),
+        tasks: [...prev.tasks, task],
+        reawakeningProposals: prev.reawakeningProposals.map((x) => x.id === proposalId ? { ...x, status: 'approved', resolved_at: now } : x),
+      });
+      const o = orgIdRef.current;
+      if (o) {
+        persist(sb.from('entities').update(nullify(entityPatch)).eq('id', p.entity_id), 'approveReawakening:entity');
+        persist(sb.from('tasks').insert({ ...task, org_id: o }), 'approveReawakening:task');
+        persist(sb.from('reawakening_proposals').update({ status: 'approved', resolved_at: now }).eq('id', proposalId), 'approveReawakening:proposal');
+      }
+    },
+
+    rejectReawakening(proposalId: string) {
+      const prev = dbRef.current;
+      const now = new Date().toISOString();
+      commit({ ...prev, reawakeningProposals: prev.reawakeningProposals.map((x) => x.id === proposalId ? { ...x, status: 'rejected', resolved_at: now } : x) });
+      if (orgIdRef.current) persist(sb.from('reawakening_proposals').update({ status: 'rejected', resolved_at: now }).eq('id', proposalId), 'rejectReawakening');
     },
 
     createFolder(name: string, parentId: string | undefined, kind: FolderKind) {

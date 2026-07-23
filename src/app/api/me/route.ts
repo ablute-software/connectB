@@ -12,6 +12,8 @@ import { entityContactFieldsAvailable } from '@/lib/entity-contact-capability';
 import { reviewRunsAvailable } from '@/lib/review-capability';
 import { permissionMatrixAvailable } from '@/lib/permission-matrix-capability';
 import { documentOrderingAvailable } from '@/lib/document-ordering-capability';
+import { documentVersionsAvailable } from '@/lib/document-versions-capability';
+import { reawakeningAvailable } from '@/lib/reawakening-capability';
 import { planAccountsAvailable } from '@/lib/plan-accounts-capability';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements } from '@/lib/plans';
@@ -27,6 +29,8 @@ export async function GET() {
     reviewRuns: await reviewRunsAvailable(),
     permissionMatrix: await permissionMatrixAvailable(),
     documentOrdering: await documentOrderingAvailable(),
+    documentVersions: await documentVersionsAvailable(),
+    reawakening: await reawakeningAvailable(),
     planAccounts: await planAccountsAvailable(),
   };
   if (!authEnabled) return NextResponse.json({ authEnabled: false, user: null, role: 'none', capabilities });

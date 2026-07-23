@@ -20,7 +20,7 @@ function fmtBytes(n?: number): string | undefined {
 export default function DocumentsPage() {
   const {
     db, addDocument, deleteDocument, renameDocument, updateDocumentDetails,
-    moveDocumentToFolder, reorderDocuments, replaceDocumentFile,
+    moveDocumentToFolder, reorderDocuments, replaceDocumentFile, addDocumentVersion,
     createFolder, renameFolder, deleteFolder, addGrant, revokeGrant, recordNdaUpload,
   } = useStore();
   const [selFolder, setSelFolder] = useState<string>('');
@@ -28,6 +28,7 @@ export default function DocumentsPage() {
   const [documentDetailsAvailable, setDocumentDetailsAvailable] = useState(false);
   const [ndaSystemAvailable, setNdaSystemAvailable] = useState(false);
   const [documentOrderingAvailable, setDocumentOrderingAvailable] = useState(false);
+  const [documentVersionsAvailable, setDocumentVersionsAvailable] = useState(false);
   // E5 drag-and-drop state. `dragDocId` is the document currently being
   // dragged (reorder within a folder, or move onto a folder node in the
   // tree); `dragOverDocId` / `dragOverFolderId` drive the drop-target
@@ -47,6 +48,7 @@ export default function DocumentsPage() {
       setDocumentDetailsAvailable(!!me.capabilities?.documentDetails);
       setNdaSystemAvailable(!!me.capabilities?.ndaSystem);
       setDocumentOrderingAvailable(!!me.capabilities?.documentOrdering);
+      setDocumentVersionsAvailable(!!me.capabilities?.documentVersions);
     }).catch(() => {});
   }, []);
 
@@ -296,22 +298,32 @@ export default function DocumentsPage() {
     moveDocumentToFolder(src, folderId);
   }
 
-  // E5 — swap a document's underlying file, keeping the same row (name,
-  // folder, position, grants, details). Uploads the new file to Storage, then
-  // replaceDocumentFile repoints the row and removes the old object.
-  async function replaceFile(docId: string, file: File) {
+  // E5/E7 — upload a new file for an existing document, keeping the same row
+  // (name, folder, position, grants, details). When versioning is available
+  // (migration 0029) this becomes "Nova versão": the prior file is KEPT as a
+  // version (addDocumentVersion). Pre-migration it falls back to the legacy
+  // replace (replaceDocumentFile swaps + removes the old object).
+  async function newVersion(docId: string, file: File) {
     setReplacingDocId(docId);
     try {
       const sb = browserClient();
       const path = `${db.org.id}/${crypto.randomUUID()}-${sanitizeStorageKey(file.name)}`;
       const { error } = await sb.storage.from('data-room').upload(path, file);
       if (error) throw error;
-      replaceDocumentFile(docId, path);
+      if (documentVersionsAvailable) addDocumentVersion(docId, path, file.size);
+      else replaceDocumentFile(docId, path);
     } catch (e) {
-      alert(`Replace failed: ${(e as Error).message}`);
+      alert(`Upload failed: ${(e as Error).message}`);
     } finally {
       setReplacingDocId(null);
     }
+  }
+
+  // E7 — restore an older version: point the document back at that object as a
+  // NEW current version (never a deletion). No upload — the object already
+  // exists in Storage.
+  function restoreVersion(docId: string, storagePath: string, size?: number) {
+    addDocumentVersion(docId, storagePath, size);
   }
 
   function startRenameFolder(f: Folder) { setRenamingFolderId(f.id); setFolderRenameText(f.name); }
@@ -503,10 +515,12 @@ export default function DocumentsPage() {
                           </button>
                           {authEnabled && d.storage_path && (
                             <label className={`cursor-pointer rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 ${replacingDocId === d.id ? 'opacity-50' : ''}`}
-                              title="Upload a new file, keeping this document's name, folder and access grants">
-                              {replacingDocId === d.id ? 'Replacing…' : 'Replace'}
+                              title={documentVersionsAvailable
+                                ? 'Upload a new version — the previous file is kept in the version history'
+                                : "Upload a new file, keeping this document's name, folder and access grants"}>
+                              {replacingDocId === d.id ? 'Uploading…' : documentVersionsAvailable ? 'Nova versão' : 'Replace'}
                               <input type="file" className="hidden" disabled={replacingDocId === d.id}
-                                onChange={(e) => { const f = e.target.files?.[0]; if (f) replaceFile(d.id, f); e.target.value = ''; }} />
+                                onChange={(e) => { const f = e.target.files?.[0]; if (f) newVersion(d.id, f); e.target.value = ''; }} />
                             </label>
                           )}
                           {documentDetailsAvailable && (
@@ -535,6 +549,29 @@ export default function DocumentsPage() {
                       ) : d.details && documentDetailsAvailable ? (
                         <p className="mt-1 text-xs italic text-gray-400">{d.details}</p>
                       ) : null}
+                      {documentVersionsAvailable && (() => {
+                        const versions = db.documentVersions.filter((v) => v.document_id === d.id).sort((a, b) => b.version - a.version);
+                        if (versions.length === 0) return null;
+                        return (
+                          <details className="mt-1.5">
+                            <summary className="cursor-pointer text-[11px] text-gray-500">Versões ({versions.length})</summary>
+                            <ul className="mt-1 space-y-1">
+                              {versions.map((v) => {
+                                const isCurrent = v.storage_path === d.storage_path;
+                                return (
+                                  <li key={v.id} className="flex flex-wrap items-center gap-2 text-[11px] text-gray-600">
+                                    <span className="font-medium">v{v.version}</span>
+                                    {isCurrent && <span className="rounded bg-green-100 px-1 py-0.5 text-[10px] font-bold text-green-700">atual</span>}
+                                    <span className="text-gray-400">{v.uploaded_at.slice(0, 10)}{v.size != null ? ` · ${fmtBytes(v.size)}` : ''}</span>
+                                    <button onClick={() => openStored(v.storage_path)} className="text-cyan-700 hover:underline">abrir</button>
+                                    {!isCurrent && <button onClick={() => restoreVersion(d.id, v.storage_path, v.size)} className="text-cyan-700 hover:underline">restaurar</button>}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </details>
+                        );
+                      })()}
                     </li>
                   );
                 })}
