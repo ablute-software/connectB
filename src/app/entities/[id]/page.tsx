@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, FitTag, HardFilterBanner, PersonLink, StatusPill, VerBadge, WaveTag, fmtEur } from '@/components/ui';
@@ -20,8 +20,33 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const [interest, setInterestLocal] = useState<string>('');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [confirmConvert, setConfirmConvert] = useState(false);
+  const [contactAvailable, setContactAvailable] = useState(false);
+  const [editingContact, setEditingContact] = useState(false);
+  const [contactDraft, setContactDraft] = useState({ website: '', email: '', phone: '', address: '' });
+
+  useEffect(() => {
+    fetch('/api/me').then((r) => r.json()).then((me) => setContactAvailable(!!me.capabilities?.entityContactFields)).catch(() => {});
+  }, []);
 
   if (!entity) return <div className="text-gray-500">Entity not found.</div>;
+
+  function startEditContact() {
+    setContactDraft({
+      website: entity!.website ?? '', email: entity!.email ?? '',
+      phone: entity!.phone ?? '', address: entity!.address ?? '',
+    });
+    setEditingContact(true);
+  }
+
+  function saveContact() {
+    updateEntity(entity!.id, {
+      website: contactDraft.website.trim() || undefined,
+      email: contactDraft.email.trim() || undefined,
+      phone: contactDraft.phone.trim() || undefined,
+      address: contactDraft.address.trim() || undefined,
+    });
+    setEditingContact(false);
+  }
   const completeness = entityCompleteness(entity);
 
   const people = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
@@ -139,10 +164,45 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       <Card title="Entity summary" right={<EnrichmentBadge result={completeness} subjectType="entity" subjectId={entity.id} orgId={db.org.id} />}>
         <div className="grid gap-4 sm:grid-cols-2">
           <dl className="space-y-1.5 text-sm text-gray-600">
-            <div className="flex items-center gap-1">Website: {entity.website
-              ? <a className="text-[#0E7490] hover:underline" href={entity.website} target="_blank">{entity.website.replace('https://', '')}</a> : '—'}
-              {entity.website && <VerBadge state={entity.website_verified ? 'verified' : 'missing'} label={entity.website_verified ? '' : 'unverified'} />}
-            </div>
+            {contactAvailable ? (
+              <div className="-mx-2 mb-1 rounded-lg border border-gray-100 bg-gray-50 p-2">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-500">Contact</span>
+                  {!editingContact && <button onClick={startEditContact} className="text-xs text-cyan-700 hover:underline">Edit</button>}
+                </div>
+                {editingContact ? (
+                  <div className="space-y-1.5">
+                    <input value={contactDraft.website} onChange={(e) => setContactDraft({ ...contactDraft, website: e.target.value })}
+                      placeholder="Website" className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+                    <input value={contactDraft.email} onChange={(e) => setContactDraft({ ...contactDraft, email: e.target.value })}
+                      placeholder="Email" className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+                    <input value={contactDraft.phone} onChange={(e) => setContactDraft({ ...contactDraft, phone: e.target.value })}
+                      placeholder="Phone" className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+                    <input value={contactDraft.address} onChange={(e) => setContactDraft({ ...contactDraft, address: e.target.value })}
+                      placeholder="Address" className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+                    <div className="flex gap-2">
+                      <button onClick={saveContact} className="rounded bg-[#0E7490] px-2 py-1 text-xs font-medium text-white">Save</button>
+                      <button onClick={() => setEditingContact(false)} className="rounded border border-gray-300 px-2 py-1 text-xs">Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1 text-xs">
+                    <div className="flex items-center gap-1">Website: {entity.website
+                      ? <a className="text-[#0E7490] hover:underline" href={entity.website} target="_blank">{entity.website.replace('https://', '')}</a> : '—'}
+                      {entity.website && <VerBadge state={entity.website_verified ? 'verified' : 'missing'} label={entity.website_verified ? '' : 'unverified'} />}
+                    </div>
+                    <div>Email: {entity.email ?? '—'}</div>
+                    <div>Phone: {entity.phone ?? '—'}</div>
+                    <div>Address: {entity.address ?? '—'}</div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-1">Website: {entity.website
+                ? <a className="text-[#0E7490] hover:underline" href={entity.website} target="_blank">{entity.website.replace('https://', '')}</a> : '—'}
+                {entity.website && <VerBadge state={entity.website_verified ? 'verified' : 'missing'} label={entity.website_verified ? '' : 'unverified'} />}
+              </div>
+            )}
             <div>Domain: {entity.email_domain ?? '—'} {entity.email_domain_verified && '✓'}</div>
             <div>HQ: {entity.hq_city ? `${entity.hq_city}, ` : ''}{entity.hq_country ?? '—'}</div>
             <div>Geos: {entity.invests_in_geographies.join(', ') || '—'}</div>

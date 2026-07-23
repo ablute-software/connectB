@@ -9,7 +9,7 @@ import { Tooltip } from '@/components/ui';
 
 type Me = {
   authEnabled: boolean; user: { email?: string } | null; role: string;
-  capabilities?: { ai: boolean; companyCanon: boolean; needsReviewAi: boolean; documentDetails: boolean; ndaSystem: boolean };
+  capabilities?: { ai: boolean; companyCanon: boolean; needsReviewAi: boolean; documentDetails: boolean; ndaSystem: boolean; entityContactFields: boolean };
 };
 
 const NAV: { href: string; label: string; icon: string; section?: string; requiresCapability?: 'companyCanon' }[] = [

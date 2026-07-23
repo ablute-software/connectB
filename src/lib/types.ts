@@ -81,6 +81,12 @@ export interface Entity {
   website_verified: boolean;
   email_domain?: string;
   email_domain_verified: boolean;
+  // Direct, editable contact fields (batch 2 item 1) — distinct from
+  // website/email_domain above, which are derived/verification-tracked.
+  // Migration 0024, capability-gated: src/lib/entity-contact-capability.ts.
+  email?: string;
+  phone?: string;
+  address?: string;
   stage_min?: Stage;
   stage_max?: Stage;
   check_min_eur?: number;
@@ -152,6 +158,17 @@ export interface Person {
   data_source?: string;
   privacy_notice_sent: boolean;
   do_not_contact: boolean;
+  // Batch 2 item 3 — quick-create from /log. gender is free text (only
+  // ever set by explicit founder input for a specific real person they
+  // know, for Portuguese grammatical address — never inferred). Migration
+  // 0024, capability-gated: src/lib/entity-contact-capability.ts.
+  gender?: string;
+  // Distinct from linkedin_verified (which is only about the LinkedIn URL)
+  // — this is general identity confidence. Optional/absent reads as true
+  // (matches the DB's "not null default true" — every existing/imported
+  // person is verified without needing every seed/fixture touched); only a
+  // newly quick-created row is ever explicitly inserted with false.
+  identity_verified?: boolean;
 }
 
 // IRM_SPEC §1c — additive multi-affiliation layer. entity_id stays the
