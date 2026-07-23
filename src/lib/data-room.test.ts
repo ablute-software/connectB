@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   collectFolderSelectionKeys, cycleGrantState, diffGrantSelection, isEditableLink,
-  normalizeDocumentUrl, resolveDocumentAccess, sanitizeStorageKey, unlockedGrants,
+  normalizeDocumentUrl, reorderByDrag, resolveDocumentAccess, sanitizeStorageKey, unlockedGrants,
 } from './data-room';
 
 describe('sanitizeStorageKey', () => {
@@ -138,6 +138,35 @@ describe('resolveDocumentAccess (F4 per-doc override vs its folder grant)', () =
     const grants = [{ document_id: 'd1', nda_required: true, nda_accepted_at: '2026-01-01T00:00:00Z' }];
     const docs = [{ id: 'd1', folder_id: 'f1' }];
     expect(resolveDocumentAccess(grants, docs)).toEqual({ visibleIds: ['d1'], pendingCount: 0 });
+  });
+});
+
+describe('reorderByDrag (E5 within-folder reorder persistence)', () => {
+  it('moves a document earlier in the order', () => {
+    expect(reorderByDrag(['a', 'b', 'c', 'd'], 'd', 'b')).toEqual(['a', 'd', 'b', 'c']);
+  });
+
+  it('moves a document later in the order', () => {
+    expect(reorderByDrag(['a', 'b', 'c', 'd'], 'a', 'c')).toEqual(['b', 'c', 'a', 'd']);
+  });
+
+  it('dropping onto itself is a no-op', () => {
+    const ids = ['a', 'b', 'c'];
+    expect(reorderByDrag(ids, 'b', 'b')).toEqual(['a', 'b', 'c']);
+  });
+
+  it('returns the order unchanged when the dragged id is not present', () => {
+    const ids = ['a', 'b', 'c'];
+    expect(reorderByDrag(ids, 'zzz', 'b')).toEqual(['a', 'b', 'c']);
+  });
+
+  it('returns the order unchanged when the target id is not present', () => {
+    const ids = ['a', 'b', 'c'];
+    expect(reorderByDrag(ids, 'a', 'zzz')).toEqual(['a', 'b', 'c']);
+  });
+
+  it('reordering to the first slot puts the dragged item at the front', () => {
+    expect(reorderByDrag(['a', 'b', 'c'], 'c', 'a')).toEqual(['c', 'a', 'b']);
   });
 });
 

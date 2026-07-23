@@ -87,6 +87,24 @@ export function resolveDocumentAccess<T extends GrantLike>(grants: T[], document
   return { visibleIds, pendingCount };
 }
 
+// E5 — drag-to-reorder within a folder. Given the folder's current document
+// order and a drag from `dragId` onto `targetId`, returns the new id order
+// (dragId removed, then re-inserted at the target's slot). Pure so the
+// reorder math is unit-tested independently of the DnD event plumbing; the
+// store then writes position = array index for each id, keeping them dense.
+// A drop on itself, or on an id not in the list, is a no-op (returns the
+// input order unchanged) so the caller never persists a spurious reshuffle.
+export function reorderByDrag(ids: string[], dragId: string, targetId: string): string[] {
+  if (dragId === targetId) return ids;
+  const from = ids.indexOf(dragId);
+  const to = ids.indexOf(targetId);
+  if (from === -1 || to === -1) return ids;
+  const next = ids.slice();
+  next.splice(from, 1);
+  next.splice(to, 0, dragId);
+  return next;
+}
+
 // F4 — tri-state grant-by-selection tree. Three clicks cycle through: not
 // shared -> shared -> shared + NDA required -> not shared.
 export type GrantState = 'none' | 'shared' | 'shared_nda';

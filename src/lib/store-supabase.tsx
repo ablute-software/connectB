@@ -637,6 +637,48 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('documents').update({ details }).eq('id', id), 'updateDocumentDetails');
     },
 
+    // Data Room v3 (E5) — drag a document onto a folder. Appends to the end
+    // of the destination's documents (position = max sibling + 1) so it lands
+    // last rather than colliding with an existing position.
+    moveDocumentToFolder(docId: string, folderId: string | undefined) {
+      const prev = dbRef.current;
+      const doc = prev.documents.find((d) => d.id === docId);
+      if (!doc) return;
+      const siblings = prev.documents.filter((d) => d.folder_id === folderId && d.id !== docId);
+      const position = siblings.length ? Math.max(...siblings.map((d) => d.position ?? 0)) + 1 : 0;
+      commit({ ...prev, documents: prev.documents.map((d) => d.id === docId ? { ...d, folder_id: folderId, position } : d) });
+      if (orgIdRef.current) persist(sb.from('documents').update({ folder_id: folderId ?? null, position }).eq('id', docId), 'moveDocumentToFolder');
+    },
+
+    // Persist a new within-folder order (migration 0027). Writes one update
+    // per moved row; positions are the array index so they stay dense.
+    reorderDocuments(folderId: string | undefined, orderedIds: string[]) {
+      const prev = dbRef.current;
+      const pos = new Map(orderedIds.map((id, i) => [id, i] as const));
+      commit({
+        ...prev,
+        documents: prev.documents.map((d) => (d.folder_id === folderId && pos.has(d.id)) ? { ...d, position: pos.get(d.id)! } : d),
+      });
+      if (orgIdRef.current) {
+        for (const [id, position] of pos) persist(sb.from('documents').update({ position }).eq('id', id), 'reorderDocuments');
+      }
+    },
+
+    // Swap the underlying file, keeping the same row/details/grants. Removes
+    // the old storage object once the row points at the new path — the record
+    // (name, folder, position, access grants) is deliberately preserved.
+    replaceDocumentFile(docId: string, newStoragePath: string) {
+      const prev = dbRef.current;
+      const doc = prev.documents.find((d) => d.id === docId);
+      if (!doc) return;
+      const oldPath = doc.storage_path;
+      commit({ ...prev, documents: prev.documents.map((d) => d.id === docId ? { ...d, storage_path: newStoragePath } : d) });
+      if (orgIdRef.current) {
+        persist(sb.from('documents').update({ storage_path: newStoragePath }).eq('id', docId), 'replaceDocumentFile:row');
+        if (oldPath && oldPath !== newStoragePath) persist(sb.storage.from('data-room').remove([oldPath]), 'replaceDocumentFile:storage');
+      }
+    },
+
     createFolder(name: string, parentId: string | undefined, kind: FolderKind) {
       const prev = dbRef.current;
       const siblings = prev.folders.filter((f) => f.parent_id === parentId);

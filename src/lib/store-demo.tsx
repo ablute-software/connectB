@@ -362,6 +362,26 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, documents: prev.documents.map((d) => d.id === id ? { ...d, details } : d) }));
     },
 
+    moveDocumentToFolder(docId, folderId) {
+      setDb((prev) => {
+        const siblings = prev.documents.filter((d) => d.folder_id === folderId);
+        const position = siblings.length ? Math.max(...siblings.map((d) => d.position ?? 0)) + 1 : 0;
+        return { ...prev, documents: prev.documents.map((d) => d.id === docId ? { ...d, folder_id: folderId, position } : d) };
+      });
+    },
+
+    reorderDocuments(folderId, orderedIds) {
+      const pos = new Map(orderedIds.map((id, i) => [id, i]));
+      setDb((prev) => ({
+        ...prev,
+        documents: prev.documents.map((d) => (d.folder_id === folderId && pos.has(d.id)) ? { ...d, position: pos.get(d.id)! } : d),
+      }));
+    },
+
+    replaceDocumentFile(docId, newStoragePath) {
+      setDb((prev) => ({ ...prev, documents: prev.documents.map((d) => d.id === docId ? { ...d, storage_path: newStoragePath } : d) }));
+    },
+
     createFolder(name, parentId, kind) {
       const siblings = db.folders.filter((f) => f.parent_id === parentId);
       const position = siblings.length ? Math.max(...siblings.map((f) => f.position)) + 1 : 0;

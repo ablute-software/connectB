@@ -11,6 +11,7 @@ import { documentDetailsAvailable, ndaSystemAvailable } from '@/lib/data-room-ca
 import { entityContactFieldsAvailable } from '@/lib/entity-contact-capability';
 import { reviewRunsAvailable } from '@/lib/review-capability';
 import { permissionMatrixAvailable } from '@/lib/permission-matrix-capability';
+import { documentOrderingAvailable } from '@/lib/document-ordering-capability';
 
 export async function GET() {
   const capabilities = {
@@ -22,6 +23,7 @@ export async function GET() {
     entityContactFields: await entityContactFieldsAvailable(),
     reviewRuns: await reviewRunsAvailable(),
     permissionMatrix: await permissionMatrixAvailable(),
+    documentOrdering: await documentOrderingAvailable(),
   };
   if (!authEnabled) return NextResponse.json({ authEnabled: false, user: null, role: 'none', capabilities });
   const sb = await serverClient();

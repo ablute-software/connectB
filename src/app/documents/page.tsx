@@ -7,7 +7,7 @@ import { Card, PersonLink } from '@/components/ui';
 import type { Folder, FolderKind } from '@/lib/types';
 import {
   collectFolderSelectionKeys, cycleGrantState, diffGrantSelection,
-  normalizeDocumentUrl, sanitizeStorageKey, type GrantState,
+  normalizeDocumentUrl, reorderByDrag, sanitizeStorageKey, type GrantState,
 } from '@/lib/data-room';
 
 function fmtBytes(n?: number): string | undefined {
@@ -20,17 +20,28 @@ function fmtBytes(n?: number): string | undefined {
 export default function DocumentsPage() {
   const {
     db, addDocument, deleteDocument, renameDocument, updateDocumentDetails,
+    moveDocumentToFolder, reorderDocuments, replaceDocumentFile,
     createFolder, renameFolder, deleteFolder, addGrant, revokeGrant, recordNdaUpload,
   } = useStore();
   const [selFolder, setSelFolder] = useState<string>('');
   const [storageSizes, setStorageSizes] = useState<Record<string, number>>({});
   const [documentDetailsAvailable, setDocumentDetailsAvailable] = useState(false);
   const [ndaSystemAvailable, setNdaSystemAvailable] = useState(false);
+  const [documentOrderingAvailable, setDocumentOrderingAvailable] = useState(false);
+  // E5 drag-and-drop state. `dragDocId` is the document currently being
+  // dragged (reorder within a folder, or move onto a folder node in the
+  // tree); `dragOverDocId` / `dragOverFolderId` drive the drop-target
+  // highlight. `replacingDocId` is set while a per-document file swap uploads.
+  const [dragDocId, setDragDocId] = useState<string | null>(null);
+  const [dragOverDocId, setDragOverDocId] = useState<string | null>(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [replacingDocId, setReplacingDocId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then((me) => {
       setDocumentDetailsAvailable(!!me.capabilities?.documentDetails);
       setNdaSystemAvailable(!!me.capabilities?.ndaSystem);
+      setDocumentOrderingAvailable(!!me.capabilities?.documentOrdering);
     }).catch(() => {});
   }, []);
 
@@ -74,7 +85,12 @@ export default function DocumentsPage() {
 
   const roots = db.folders.filter((f) => !f.parent_id).sort((a, b) => a.position - b.position);
   const children = (id: string) => db.folders.filter((f) => f.parent_id === id).sort((a, b) => a.position - b.position);
-  const docsIn = (id: string) => db.documents.filter((d) => d.folder_id === id);
+  // E5 — documents sort by their persisted within-folder position (migration
+  // 0027). created_at breaks ties so pre-0027 rows (all position 0) keep a
+  // stable upload order rather than jumping around on every render.
+  const docsIn = (id: string) => db.documents
+    .filter((d) => d.folder_id === id)
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || (a.created_at ?? '').localeCompare(b.created_at ?? ''));
   const activeGrants = db.grants.filter((g) => !g.revoked_at && (!g.expires_at || new Date(g.expires_at) > new Date()));
 
   // F4 — this investor's current grants, keyed the same way the tree is, so
@@ -229,6 +245,47 @@ export default function DocumentsPage() {
     }
   }
 
+  // E5 — drop the dragged document onto another document in the same folder:
+  // recompute the order (reorderByDrag) and persist position = index.
+  function handleDropOnDoc(targetId: string) {
+    const src = dragDocId;
+    setDragDocId(null); setDragOverDocId(null);
+    if (!src || src === targetId) return;
+    const ids = docsIn(selFolder).map((d) => d.id);
+    const next = reorderByDrag(ids, src, targetId);
+    if (next.join() !== ids.join()) reorderDocuments(selFolder, next);
+  }
+
+  // E5 — drop the dragged document onto a folder in the tree: move it there
+  // (appends to the end of that folder's documents). No-op if it's already
+  // in that folder.
+  function handleDropOnFolder(folderId: string) {
+    const src = dragDocId;
+    setDragDocId(null); setDragOverDocId(null); setDragOverFolderId(null);
+    if (!src) return;
+    const doc = db.documents.find((d) => d.id === src);
+    if (!doc || doc.folder_id === folderId) return;
+    moveDocumentToFolder(src, folderId);
+  }
+
+  // E5 — swap a document's underlying file, keeping the same row (name,
+  // folder, position, grants, details). Uploads the new file to Storage, then
+  // replaceDocumentFile repoints the row and removes the old object.
+  async function replaceFile(docId: string, file: File) {
+    setReplacingDocId(docId);
+    try {
+      const sb = browserClient();
+      const path = `${db.org.id}/${crypto.randomUUID()}-${sanitizeStorageKey(file.name)}`;
+      const { error } = await sb.storage.from('data-room').upload(path, file);
+      if (error) throw error;
+      replaceDocumentFile(docId, path);
+    } catch (e) {
+      alert(`Replace failed: ${(e as Error).message}`);
+    } finally {
+      setReplacingDocId(null);
+    }
+  }
+
   function startRenameFolder(f: Folder) { setRenamingFolderId(f.id); setFolderRenameText(f.name); }
   function saveRenameFolder() {
     if (renamingFolderId && folderRenameText.trim()) renameFolder(renamingFolderId, folderRenameText.trim());
@@ -269,7 +326,12 @@ export default function DocumentsPage() {
           ) : (
             <>
               <button onClick={() => setSelFolder(f.id)}
-                className={`flex flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm ${selFolder === f.id ? 'bg-[#E8F4F8] font-medium text-[#0E7490]' : 'text-gray-700 hover:bg-gray-50'}`}>
+                onDragOver={dragDocId ? (e) => { e.preventDefault(); setDragOverFolderId(f.id); } : undefined}
+                onDragLeave={dragDocId ? () => setDragOverFolderId((cur) => cur === f.id ? null : cur) : undefined}
+                onDrop={dragDocId ? (e) => { e.preventDefault(); handleDropOnFolder(f.id); } : undefined}
+                className={`flex flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm ${
+                  dragOverFolderId === f.id ? 'bg-cyan-100 ring-1 ring-cyan-400'
+                    : selFolder === f.id ? 'bg-[#E8F4F8] font-medium text-[#0E7490]' : 'text-gray-700 hover:bg-gray-50'}`}>
                 <span>{f.kind === 'data_room' ? '▣' : '▤'}</span> {f.name}
                 <span className="ml-auto text-[10px] text-gray-400">{docsIn(f.id).length || ''}</span>
               </button>
@@ -354,15 +416,29 @@ export default function DocumentsPage() {
 
         <div className="space-y-4 md:col-span-2">
           <Card title={`Documents in “${selected?.name ?? ''}”`}>
+            {documentOrderingAvailable && docsIn(selFolder).length > 1 && (
+              <p className="mb-2 text-[11px] text-gray-400">Drag ⠿ to reorder, or drop a document onto a folder on the left to move it.</p>
+            )}
             {docsIn(selFolder).length === 0 ? <p className="text-sm text-gray-400">Empty.</p> : (
               <ul className="divide-y divide-gray-100">
                 {docsIn(selFolder).map((d) => {
                   const grants = activeGrants.filter((g) => g.document_id === d.id || g.folder_id === d.folder_id);
                   const views = db.views.filter((v) => v.document_id === d.id);
                   const size = d.storage_path ? fmtBytes(storageSizes[d.storage_path]) : undefined;
+                  const canDrag = documentOrderingAvailable && renamingDocId !== d.id;
                   return (
-                    <li key={d.id} className="py-2 text-sm">
+                    <li key={d.id}
+                      draggable={canDrag}
+                      onDragStart={canDrag ? () => setDragDocId(d.id) : undefined}
+                      onDragEnd={canDrag ? () => { setDragDocId(null); setDragOverDocId(null); setDragOverFolderId(null); } : undefined}
+                      onDragOver={dragDocId ? (e) => { e.preventDefault(); setDragOverDocId(d.id); } : undefined}
+                      onDrop={dragDocId ? (e) => { e.preventDefault(); handleDropOnDoc(d.id); } : undefined}
+                      className={`py-2 text-sm ${dragDocId === d.id ? 'opacity-40' : ''} ${
+                        dragOverDocId === d.id && dragDocId !== d.id ? 'border-t-2 border-cyan-400' : ''}`}>
                       <div className="flex flex-wrap items-center gap-2">
+                        {documentOrderingAvailable && (
+                          <span className={`select-none text-gray-300 ${canDrag ? 'cursor-grab' : ''}`} title="Drag to reorder, or drop onto a folder to move">⠿</span>
+                        )}
                         {renamingDocId === d.id ? (
                           <span className="flex items-center gap-1">
                             <input value={renameText} onChange={(e) => setRenameText(e.target.value)} autoFocus
@@ -390,6 +466,14 @@ export default function DocumentsPage() {
                           <button onClick={() => startRenameDoc(d)} className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">
                             Rename
                           </button>
+                          {authEnabled && d.storage_path && (
+                            <label className={`cursor-pointer rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 ${replacingDocId === d.id ? 'opacity-50' : ''}`}
+                              title="Upload a new file, keeping this document's name, folder and access grants">
+                              {replacingDocId === d.id ? 'Replacing…' : 'Replace'}
+                              <input type="file" className="hidden" disabled={replacingDocId === d.id}
+                                onChange={(e) => { const f = e.target.files?.[0]; if (f) replaceFile(d.id, f); e.target.value = ''; }} />
+                            </label>
+                          )}
                           {documentDetailsAvailable && (
                             <button onClick={() => startDetails(d)} className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">
                               Details

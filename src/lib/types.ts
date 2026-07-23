@@ -279,6 +279,9 @@ export interface DocumentItem {
   // Data Room V2 (F1) — what it contains, version, who it was prepared for.
   // Migration 0022, capability-gated: src/lib/data-room-capability.ts.
   details?: string;
+  // Data Room v3 (E5) — persisted sort order within a folder. Migration 0027,
+  // capability-gated: src/lib/document-ordering-capability.ts.
+  position?: number;
 }
 
 // Data Room V2 (F5) — a real signed NDA file, attached to the investor's own

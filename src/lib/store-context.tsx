@@ -117,6 +117,13 @@ export interface StoreApi {
   renameDocument: (id: string, name: string) => void;
   // Capability-gated on capabilities.documentDetails (migration 0022).
   updateDocumentDetails: (id: string, details: string) => void;
+  // Data Room v3 (E5). moveDocumentToFolder: drag a document onto a folder.
+  // reorderDocuments: persist a new order within a folder (migration 0027).
+  // replaceDocumentFile: swap the underlying file, keeping the same row/
+  // details/grants; removes the old storage object and records the swap.
+  moveDocumentToFolder: (docId: string, folderId: string | undefined) => void;
+  reorderDocuments: (folderId: string | undefined, orderedIds: string[]) => void;
+  replaceDocumentFile: (docId: string, newStoragePath: string) => void;
   // Data Room V2 (F3) — org-scoped folder management. createFolder appends
   // at the end of its new siblings; deleteFolder throws (caught by the UI)
   // if the folder still has children and moveContentsToParent is false —
