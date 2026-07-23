@@ -1,181 +1,242 @@
 'use client';
-// IRM_SPEC §11 — Company Canon. The org's verified-truth archive: every
-// factual claim the composer makes must trace back to a confirmed fact
-// here, or generation pauses and asks (§11b). This page is where that
-// archive is reviewed, confirmed, edited, and superseded — never deleted.
+// Batch 3 A — Review & Optimization (was "Company"). The Company Canon
+// management moved to Settings ("Company facts"); this page CONSUMES the
+// confirmed facts to help the founder improve the company: AI review of a
+// draft, deck/one-pager review, the startup's own market benchmarking, and
+// an investability ranking (readiness vs round value) stored per run so the
+// evolution is visible. Everything here is a report — nothing is sent, and
+// nothing mutates CRM data.
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
-import { Card, Tooltip } from '@/components/ui';
-import type { CompanyFact, CompanyFactCategory } from '@/lib/types';
+import { Card } from '@/components/ui';
+import { authEnabled, browserClient } from '@/lib/supabase';
 
-const CATEGORIES: CompanyFactCategory[] = [
-  'product', 'traction', 'team', 'positioning', 'financing', 'regulatory', 'market', 'metrics', 'other',
-];
+interface ReviewRun { id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string }
+interface InvestabilityReport { score: number; summary: string; strengths: string[]; weaknesses: string[]; risks: string[]; recommendations: string[] }
 
-const STATUS_STYLE: Record<CompanyFact['status'], string> = {
-  confirmed: 'bg-green-100 text-green-800',
-  unconfirmed: 'bg-amber-100 text-amber-800',
-  deprecated: 'bg-gray-100 text-gray-500',
-};
+function ComingSoon() {
+  return <p className="rounded-lg bg-gray-50 px-4 py-3 text-center text-xs text-gray-400">Coming soon to your workspace.</p>;
+}
 
-const SOURCE_LABEL: Record<CompanyFact['source'], string> = {
-  user: 'you', import: 'imported', ai_extracted: 'AI-suggested',
-};
+export default function ReviewOptimizationPage() {
+  const { db } = useStore();
+  const [caps, setCaps] = useState<{ ai: boolean; reviewRuns: boolean } | null>(null);
 
-export default function CompanyPage() {
-  const { db, addCompanyFact, confirmCompanyFact, editAndConfirmCompanyFact, rejectCompanyFact, supersedeCompanyFact } = useStore();
-  const [available, setAvailable] = useState<boolean | null>(null);
-  const [category, setCategory] = useState<CompanyFactCategory>('product');
-  const [statement, setStatement] = useState('');
-  const [editing, setEditing] = useState<Record<string, string>>({});
-  const [superseding, setSuperseding] = useState<Record<string, string>>({});
+  const [draft, setDraft] = useState('');
+  const [personId, setPersonId] = useState('');
+  const [aiResult, setAiResult] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const [docKind, setDocKind] = useState<'deck_review' | 'one_pager_review'>('deck_review');
+  const [docText, setDocText] = useState('');
+  const [docResult, setDocResult] = useState('');
+  const [docLoading, setDocLoading] = useState(false);
+
+  const [marketResult, setMarketResult] = useState('');
+  const [marketLoading, setMarketLoading] = useState(false);
+
+  const [runs, setRuns] = useState<ReviewRun[]>([]);
+  const [runLoading, setRunLoading] = useState(false);
+  const [runErr, setRunErr] = useState('');
 
   useEffect(() => {
-    // no-store so a just-applied migration is reflected on the next page
-    // load rather than served from a stale cached /api/me response.
-    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => setAvailable(!!me.capabilities?.companyCanon)).catch(() => setAvailable(false));
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
+      .then((me) => setCaps({ ai: !!me.capabilities?.ai, reviewRuns: !!me.capabilities?.reviewRuns }))
+      .catch(() => setCaps({ ai: false, reviewRuns: false }));
   }, []);
 
-  if (available === false) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-lg font-bold">Company</h1>
-        <Card><p className="text-sm text-gray-400">Not available in this workspace yet.</p></Card>
-      </div>
-    );
-  }
-  if (available === null) return <p className="text-sm text-gray-400">Loading…</p>;
+  useEffect(() => {
+    if (!authEnabled || !caps?.reviewRuns || !db.org.id) return;
+    browserClient().from('review_runs').select('id, score, summary, report, created_at')
+      .eq('org_id', db.org.id).order('created_at', { ascending: false }).limit(10)
+      .then(({ data }) => setRuns((data as ReviewRun[] | null) ?? []));
+  }, [caps?.reviewRuns, db.org.id]);
 
-  const active = db.companyFacts.filter((f) => f.status !== 'deprecated');
-  const unconfirmed = active.filter((f) => f.status === 'unconfirmed');
-  const confirmedByCategory = new Map<CompanyFactCategory, CompanyFact[]>();
-  for (const f of active.filter((f) => f.status === 'confirmed')) {
-    confirmedByCategory.set(f.category, [...(confirmedByCategory.get(f.category) ?? []), f]);
-  }
-  const deprecated = db.companyFacts.filter((f) => f.status === 'deprecated');
+  const confirmedFacts = db.companyFacts.filter((f) => f.status === 'confirmed').map((f) => f.statement);
+  const companyContext = {
+    name: db.org.name, sector: db.org.sector, stage: db.org.stage,
+    round_target_eur: db.org.round_target_eur, country: db.org.country, one_liner: db.org.one_liner,
+  };
 
-  function submitAdd() {
-    if (!statement.trim()) return;
-    addCompanyFact({ category, statement: statement.trim(), status: 'confirmed', source: 'user', confirmed_at: new Date().toISOString() });
-    setStatement('');
+  function pipelineStats() {
+    const byStatus: Record<string, number> = {};
+    for (const e of db.entities) byStatus[e.status] = (byStatus[e.status] ?? 0) + 1;
+    const passes = db.interactions.filter((i) => i.classification === 'pass').length;
+    const interest = db.entities.reduce((s, e) => s + (e.interest_eur ?? 0), 0);
+    return { total_investors: db.entities.length, by_status: byStatus, passes, soft_circled_eur: interest };
   }
+
+  async function reviewMessage() {
+    setAiLoading(true); setAiResult('');
+    const person = db.people.find((p) => p.id === personId);
+    const entity = person && db.entities.find((e) => e.id === person.entity_id);
+    try {
+      const res = await fetch('/api/ai-review', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'message_review', draft,
+          context: person && entity ? {
+            person: person.full_name, role: person.role, hook: person.hook,
+            kill_words: person.kill_words, watch_outs: person.watch_outs,
+            entity: entity.name, thesis: entity.thesis, the_ask: entity.the_ask,
+          } : undefined,
+        }),
+      });
+      const data = await res.json();
+      setAiResult(data.review ?? data.error ?? 'No response');
+    } catch (e) { setAiResult(`Error: ${(e as Error).message}`); } finally { setAiLoading(false); }
+  }
+
+  async function reviewDocument() {
+    setDocLoading(true); setDocResult('');
+    try {
+      const res = await fetch('/api/ai-review', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: docKind, draft: docText }),
+      });
+      const data = await res.json();
+      setDocResult(data.review ?? data.error ?? 'No response');
+    } catch (e) { setDocResult(`Error: ${(e as Error).message}`); } finally { setDocLoading(false); }
+  }
+
+  async function researchMarket() {
+    setMarketLoading(true); setMarketResult('');
+    try {
+      const res = await fetch('/api/ai-review', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'market_data', context: { ...companyContext, facts: confirmedFacts } }),
+      });
+      const data = await res.json();
+      setMarketResult(data.review ?? data.error ?? 'No response');
+    } catch (e) { setMarketResult(`Error: ${(e as Error).message}`); } finally { setMarketLoading(false); }
+  }
+
+  async function runInvestability() {
+    setRunLoading(true); setRunErr('');
+    try {
+      const res = await fetch('/api/review/investability', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ facts: confirmedFacts, pipeline: pipelineStats(), company: companyContext }),
+      });
+      const data = await res.json();
+      if (!data.ok) { setRunErr(data.error ?? data.message ?? 'Failed'); return; }
+      setRuns((prev) => [data.run, ...prev]);
+    } catch (e) { setRunErr((e as Error).message); } finally { setRunLoading(false); }
+  }
+
+  const latest = runs[0];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold">Company</h1>
-        <span className="text-sm text-gray-500">{active.length} active fact{active.length === 1 ? '' : 's'}</span>
-      </div>
+    <div className="max-w-3xl space-y-4">
+      <h1 className="text-lg font-bold">Review & Optimization</h1>
       <p className="text-xs text-gray-400">
-        The verified truth the AI composer grounds every claim in. Nothing here is asserted unless confirmed —
-        superseding a fact keeps its history, since the change itself is often the best re-approach argument.
+        Feeds on your confirmed <b>Company facts</b> (Settings) and pipeline to help improve the company itself —
+        every output is a report, never an action.
       </p>
 
-      {unconfirmed.length > 0 && (
-        <Card title={`Needs confirmation (${unconfirmed.length})`} tint="amber">
-          <ul className="space-y-2">
-            {unconfirmed.map((f) => (
-              <li key={f.id} className="rounded-lg border border-gray-100 bg-white p-3 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">{f.category}</span>
-                  <span className="text-xs text-gray-400">{SOURCE_LABEL[f.source]}</span>
+      <Card title="Investability ranking — readiness vs round value">
+        <p className="mb-2 text-xs text-gray-500">
+          Consumes your confirmed canon facts + pipeline stats and returns a score with concrete strengths, weaknesses,
+          risks and recommendations. Each run is stored so you can watch it improve as you add facts and close conversations.
+        </p>
+        {!caps ? <p className="text-sm text-gray-400">Loading…</p>
+          : !caps.reviewRuns || !caps.ai ? <ComingSoon />
+          : (
+            <>
+              <button disabled={runLoading} onClick={runInvestability}
+                className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+                {runLoading ? 'Running…' : 'Run review'}
+              </button>
+              {runErr && <p className="mt-2 text-xs text-[#B00000]">{runErr}</p>}
+              {latest && (
+                <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-bold text-[#0E7490]">{latest.score}</span>
+                    <span className="text-xs text-gray-400">/ 100 · {latest.created_at.slice(0, 10)}</span>
+                  </div>
+                  {latest.summary && <p className="mt-1 text-gray-700">{latest.summary}</p>}
+                  {(['strengths', 'weaknesses', 'risks', 'recommendations'] as const).map((k) => (
+                    latest.report?.[k]?.length ? (
+                      <div key={k} className="mt-2">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{k}</div>
+                        <ul className="ml-4 list-disc text-xs text-gray-700">{latest.report[k].map((x, i) => <li key={i}>{x}</li>)}</ul>
+                      </div>
+                    ) : null
+                  ))}
                 </div>
-                {editing[f.id] !== undefined ? (
-                  <textarea value={editing[f.id]} onChange={(e) => setEditing({ ...editing, [f.id]: e.target.value })}
-                    rows={2} className="mt-1.5 w-full rounded border border-gray-300 p-2 text-sm" />
-                ) : (
-                  <p className="mt-1 text-gray-700">{f.statement}</p>
-                )}
-                <div className="mt-2 flex gap-2">
-                  {editing[f.id] !== undefined ? (
-                    <>
-                      <button onClick={() => { editAndConfirmCompanyFact(f.id, editing[f.id]); setEditing((e) => { const n = { ...e }; delete n[f.id]; return n; }); }}
-                        className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Save & confirm</button>
-                      <button onClick={() => setEditing((e) => { const n = { ...e }; delete n[f.id]; return n; })}
-                        className="rounded border border-gray-300 px-2 py-1 text-xs">Cancel</button>
-                    </>
-                  ) : (
-                    <>
-                      <Tooltip text="Confirms this fact exactly as written — the composer can now use it.">
-                        <button onClick={() => confirmCompanyFact(f.id)} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Confirm</button>
-                      </Tooltip>
-                      <button onClick={() => setEditing({ ...editing, [f.id]: f.statement })}
-                        className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50">Edit then confirm</button>
-                      <Tooltip text="Not true or not useful — removes it from the queue without adding it to the canon.">
-                        <button onClick={() => rejectCompanyFact(f.id)} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
-                      </Tooltip>
-                    </>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      <Card title="Add a fact">
-        <div className="flex flex-wrap gap-2">
-          <select value={category} onChange={(e) => setCategory(e.target.value as CompanyFactCategory)}
-            className="rounded border border-gray-300 px-2 py-1.5 text-sm">
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <input value={statement} onChange={(e) => setStatement(e.target.value)} placeholder='One atomic fact, e.g. "Seed €1.3M phased; first tranche €300k"'
-            className="min-w-[320px] flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
-          <button disabled={!statement.trim()} onClick={submitAdd}
-            className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Add — confirmed</button>
-        </div>
+              )}
+              {runs.length > 1 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-gray-400">History ({runs.length - 1} earlier)</summary>
+                  <ul className="mt-1 space-y-1 text-xs text-gray-600">
+                    {runs.slice(1).map((r) => <li key={r.id}>{r.created_at.slice(0, 10)} — score {r.score}{r.summary ? ` · ${r.summary}` : ''}</li>)}
+                  </ul>
+                </details>
+              )}
+            </>
+          )}
       </Card>
 
-      {CATEGORIES.filter((c) => (confirmedByCategory.get(c) ?? []).length > 0).map((c) => (
-        <Card key={c} title={c}>
-          <ul className="space-y-2">
-            {(confirmedByCategory.get(c) ?? []).map((f) => (
-              <li key={f.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_STYLE[f.status]}`}>{f.status}</span>
-                  <span className="text-xs text-gray-400">{SOURCE_LABEL[f.source]} · {f.valid_from ?? f.created_at.slice(0, 10)}</span>
-                </div>
-                <p className="mt-1 text-gray-700">{f.statement}</p>
-                {superseding[f.id] !== undefined ? (
-                  <div className="mt-2 space-y-1.5">
-                    <textarea value={superseding[f.id]} onChange={(e) => setSuperseding({ ...superseding, [f.id]: e.target.value })}
-                      rows={2} placeholder="What's true now?" className="w-full rounded border border-gray-300 p-2 text-sm" />
-                    <div className="flex gap-2">
-                      <button onClick={() => { supersedeCompanyFact(f.id, superseding[f.id]); setSuperseding((s) => { const n = { ...s }; delete n[f.id]; return n; }); }}
-                        disabled={!superseding[f.id]?.trim()}
-                        className="rounded bg-[#0E7490] px-2 py-1 text-xs font-medium text-white disabled:opacity-40">Supersede</button>
-                      <button onClick={() => setSuperseding((s) => { const n = { ...s }; delete n[f.id]; return n; })}
-                        className="rounded border border-gray-300 px-2 py-1 text-xs">Cancel</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-2">
-                    <Tooltip text="This fact changed — keeps it in history and marks a new one current. The change itself becomes a re-approach argument.">
-                      <button onClick={() => setSuperseding({ ...superseding, [f.id]: '' })}
-                        className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50">Supersede</button>
-                    </Tooltip>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      ))}
+      <Card title="AI Review — second opinion on a draft">
+        <p className="mb-2 text-xs text-gray-500">
+          Beyond the mechanical linter: tone, hook strength, investor fit — using your CRM context (thesis, kill words,
+          watch-outs) as grounding. The AI never sends anything and never edits your data.
+        </p>
+        {!caps?.ai ? <ComingSoon /> : (
+          <>
+            <select value={personId} onChange={(e) => setPersonId(e.target.value)} className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
+              <option value="">Reviewing for… (person)</option>
+              {db.people.map((p) => <option key={p.id} value={p.id}>{p.full_name} — {db.entities.find((e) => e.id === p.entity_id)?.name}</option>)}
+            </select>
+            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={5}
+              placeholder="Paste the draft to review…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
+            <button disabled={!draft || aiLoading} onClick={reviewMessage}
+              className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+              {aiLoading ? 'Reviewing…' : 'Review with AI'}
+            </button>
+            {aiResult && <pre className="mt-3 whitespace-pre-wrap rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">{aiResult}</pre>}
+          </>
+        )}
+      </Card>
 
-      {deprecated.length > 0 && (
-        <details>
-          <summary className="cursor-pointer text-xs text-gray-400">History — deprecated facts ({deprecated.length})</summary>
-          <ul className="mt-2 space-y-1.5">
-            {deprecated.map((f) => (
-              <li key={f.id} className="rounded-lg border border-gray-100 bg-gray-50 p-2 text-xs text-gray-500">
-                <span className="rounded-full bg-gray-100 px-1.5 py-0.5 font-semibold">{f.category}</span>{' '}
-                <span className="line-through">{f.statement}</span>
-                {f.superseded_by && <span> — superseded</span>}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
+      <Card title="Deck / one-pager review">
+        <p className="mb-2 text-xs text-gray-500">
+          Paste the text content for a per-dimension report: problem clarity, traction evidence, number credibility,
+          narrative — plus issues with severity and top rewrite suggestions. Review only.
+        </p>
+        {!caps?.ai ? <ComingSoon /> : (
+          <>
+            <select value={docKind} onChange={(e) => setDocKind(e.target.value as typeof docKind)} className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
+              <option value="deck_review">Deck</option>
+              <option value="one_pager_review">One-pager</option>
+            </select>
+            <textarea value={docText} onChange={(e) => setDocText(e.target.value)} rows={6}
+              placeholder="Paste the deck/one-pager text content…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
+            <button disabled={!docText || docLoading} onClick={reviewDocument}
+              className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+              {docLoading ? 'Reviewing…' : 'Review with AI'}
+            </button>
+            {docResult && <pre className="mt-3 whitespace-pre-wrap rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">{docResult}</pre>}
+          </>
+        )}
+      </Card>
+
+      <Card title="Market data — your sector">
+        <p className="mb-2 text-xs text-gray-500">
+          Benchmarks YOUR OWN market/sector: size and direction, where a company at your stage typically sits, the metrics
+          investors in this space benchmark on, and comparable companies. Every item is marked for verification; specifics
+          are never invented. Grounded on your company facts.
+        </p>
+        {!caps?.ai ? <ComingSoon /> : (
+          <>
+            <button disabled={marketLoading} onClick={researchMarket}
+              className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+              {marketLoading ? 'Researching…' : 'Benchmark my market'}
+            </button>
+            {marketResult && <pre className="mt-3 whitespace-pre-wrap rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">{marketResult}</pre>}
+          </>
+        )}
+      </Card>
     </div>
   );
 }

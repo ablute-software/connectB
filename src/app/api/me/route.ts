@@ -9,6 +9,7 @@ import { companyCanonAvailable } from '@/lib/company-canon';
 import { needsReviewAiAvailable } from '@/lib/needs-review-ai';
 import { documentDetailsAvailable, ndaSystemAvailable } from '@/lib/data-room-capability';
 import { entityContactFieldsAvailable } from '@/lib/entity-contact-capability';
+import { reviewRunsAvailable } from '@/lib/review-capability';
 
 export async function GET() {
   const capabilities = {
@@ -18,6 +19,7 @@ export async function GET() {
     documentDetails: await documentDetailsAvailable(),
     ndaSystem: await ndaSystemAvailable(),
     entityContactFields: await entityContactFieldsAvailable(),
+    reviewRuns: await reviewRunsAvailable(),
   };
   if (!authEnabled) return NextResponse.json({ authEnabled: false, user: null, role: 'none', capabilities });
   const sb = await serverClient();

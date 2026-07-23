@@ -7,6 +7,8 @@ import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { ORG_ROLES, ROLE_LABELS, can, canAssignRole, canActOnMember, type OrgRole } from '@/lib/permissions';
 import { OrganisationCard } from '@/components/OrganisationCard';
+import { CompanyFactsPanel } from '@/components/CompanyFactsPanel';
+import { AutomationsPanel } from '@/components/AutomationsPanel';
 
 type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
 type Member = { userId: string; email: string; role: OrgRole; isSelf: boolean };
@@ -228,92 +230,13 @@ function GmailConnectionCard() {
   );
 }
 
-// No paywall UI — monetisation is parked. When AI isn't available in this
-// workspace, say so plainly and stop; no lock icon, no price, no upgrade CTA.
-function ComingSoon() {
-  return <p className="rounded-lg bg-gray-50 px-4 py-3 text-center text-xs text-gray-400">Coming soon to your workspace.</p>;
-}
-
 export default function SettingsPage() {
   const { db, resetDemo } = useStore();
-  const [draft, setDraft] = useState('');
-  const [personId, setPersonId] = useState('');
-  const [aiResult, setAiResult] = useState<string>('');
-  const [aiLoading, setAiLoading] = useState(false);
-  // Single server-side source of truth for AI availability — the exact same
-  // check /api/compose and /api/ai-review make themselves, so this can never
-  // disagree with what those routes actually do.
-  const [aiAvailable, setAiAvailable] = useState(false);
+  const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
   useEffect(() => {
-    fetch('/api/me').then((r) => r.json()).then((me) => setAiAvailable(!!me.capabilities?.ai)).catch(() => setAiAvailable(false));
+    if (!authEnabled) return;
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => setOrgRole(me.orgRole ?? null)).catch(() => {});
   }, []);
-
-  const [docKind, setDocKind] = useState<'deck_review' | 'one_pager_review'>('deck_review');
-  const [docText, setDocText] = useState('');
-  const [docResult, setDocResult] = useState('');
-  const [docLoading, setDocLoading] = useState(false);
-
-  const [marketEntityId, setMarketEntityId] = useState('');
-  const [marketResult, setMarketResult] = useState('');
-  const [marketLoading, setMarketLoading] = useState(false);
-
-  async function reviewDocument() {
-    setDocLoading(true); setDocResult('');
-    try {
-      const res = await fetch('/api/ai-review', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: docKind, draft: docText }),
-      });
-      const data = await res.json();
-      setDocResult(data.review ?? data.error ?? 'No response');
-    } catch (e) {
-      setDocResult(`Error: ${(e as Error).message}`);
-    } finally { setDocLoading(false); }
-  }
-
-  async function researchMarket() {
-    setMarketLoading(true); setMarketResult('');
-    const entity = db.entities.find((e) => e.id === marketEntityId);
-    try {
-      const res = await fetch('/api/ai-review', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kind: 'market_data',
-          context: entity ? {
-            name: entity.name, type: entity.type, hq: `${entity.hq_city ?? ''} ${entity.hq_country ?? ''}`.trim(),
-            sectors: entity.sectors, thesis: entity.thesis, website: entity.website,
-          } : undefined,
-        }),
-      });
-      const data = await res.json();
-      setMarketResult(data.review ?? data.error ?? 'No response');
-    } catch (e) {
-      setMarketResult(`Error: ${(e as Error).message}`);
-    } finally { setMarketLoading(false); }
-  }
-
-  async function reviewMessage() {
-    setAiLoading(true); setAiResult('');
-    const person = db.people.find((p) => p.id === personId);
-    const entity = person && db.entities.find((e) => e.id === person.entity_id);
-    try {
-      const res = await fetch('/api/ai-review', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kind: 'message_review', draft,
-          context: person && entity ? {
-            person: person.full_name, role: person.role, hook: person.hook,
-            kill_words: person.kill_words, watch_outs: person.watch_outs,
-            entity: entity.name, thesis: entity.thesis, the_ask: entity.the_ask,
-          } : undefined,
-        }),
-      });
-      const data = await res.json();
-      setAiResult(data.review ?? data.error ?? 'No response');
-    } catch (e) {
-      setAiResult(`Error: ${(e as Error).message}`);
-    } finally { setAiLoading(false); }
-  }
 
   return (
     <div className="max-w-3xl space-y-4">
@@ -321,76 +244,15 @@ export default function SettingsPage() {
 
       <OrganisationCard />
 
+      <Card title="Company facts">
+        <CompanyFactsPanel />
+      </Card>
+
       {authEnabled && <TeamCard orgId={db.org.id} />}
       {authEnabled && <Suspense fallback={null}><GmailConnectionCard /></Suspense>}
 
-      <Card title="AI Review — second opinion on a draft">
-        <p className="mb-2 text-xs text-gray-500">
-          Beyond the mechanical linter: tone, hook strength, investor fit — using your CRM context (thesis, kill words,
-          watch-outs) as grounding. The AI never sends anything and never edits your data — it produces a report;
-          acting on it is yours.
-        </p>
-        {!aiAvailable ? <ComingSoon /> : (
-          <>
-            <select value={personId} onChange={(e) => setPersonId(e.target.value)} className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
-              <option value="">Reviewing for… (person)</option>
-              {db.people.map((p) => <option key={p.id} value={p.id}>{p.full_name} — {db.entities.find((e) => e.id === p.entity_id)?.name}</option>)}
-            </select>
-            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={5}
-              placeholder="Paste the draft to review…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
-            <button disabled={!draft || aiLoading} onClick={reviewMessage}
-              className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-              {aiLoading ? 'Reviewing…' : 'Review with AI'}
-            </button>
-            {aiResult && <pre className="mt-3 whitespace-pre-wrap rounded bg-gray-50 border border-gray-200 p-3 text-xs text-gray-700">{aiResult}</pre>}
-          </>
-        )}
-      </Card>
-
-      <Card title="Deck / one-pager review">
-        <p className="mb-2 text-xs text-gray-500">
-          Paste the text content (deck speaker notes, one-pager copy) for a per-dimension report: problem clarity,
-          traction evidence, number credibility, narrative, design notes if inferable — plus issues with severity
-          and top rewrite suggestions. Review only — nothing is edited or sent.
-        </p>
-        {!aiAvailable ? <ComingSoon /> : (
-          <>
-            <select value={docKind} onChange={(e) => setDocKind(e.target.value as typeof docKind)}
-              className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
-              <option value="deck_review">Deck</option>
-              <option value="one_pager_review">One-pager</option>
-            </select>
-            <textarea value={docText} onChange={(e) => setDocText(e.target.value)} rows={6}
-              placeholder="Paste the deck/one-pager text content…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
-            <button disabled={!docText || docLoading} onClick={reviewDocument}
-              className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-              {docLoading ? 'Reviewing…' : 'Review with AI'}
-            </button>
-            {docResult && <pre className="mt-3 whitespace-pre-wrap rounded bg-gray-50 border border-gray-200 p-3 text-xs text-gray-700">{docResult}</pre>}
-          </>
-        )}
-      </Card>
-
-      <Card title="Market data — investor research">
-        <p className="mb-2 text-xs text-gray-500">
-          Researches an investor's thesis, typical cheque, stage, and recent relevant investments. Every item is
-          marked "AI-sourced — verify before relying"; the model is instructed to never invent specifics it isn't
-          confident about.
-        </p>
-        {!aiAvailable ? <ComingSoon /> : (
-          <>
-            <select value={marketEntityId} onChange={(e) => setMarketEntityId(e.target.value)}
-              className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
-              <option value="">Research… (entity)</option>
-              {db.entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
-            <button disabled={!marketEntityId || marketLoading} onClick={researchMarket}
-              className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-              {marketLoading ? 'Researching…' : 'Research with AI'}
-            </button>
-            {marketResult && <pre className="mt-3 whitespace-pre-wrap rounded bg-gray-50 border border-gray-200 p-3 text-xs text-gray-700">{marketResult}</pre>}
-          </>
-        )}
+      <Card title="Automations">
+        <AutomationsPanel orgRole={authEnabled ? orgRole : undefined} />
       </Card>
 
       {!authEnabled && (

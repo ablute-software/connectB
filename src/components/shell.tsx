@@ -9,7 +9,7 @@ import { Tooltip } from '@/components/ui';
 
 type Me = {
   authEnabled: boolean; user: { email?: string } | null; role: string;
-  capabilities?: { ai: boolean; companyCanon: boolean; needsReviewAi: boolean; documentDetails: boolean; ndaSystem: boolean; entityContactFields: boolean };
+  capabilities?: { ai: boolean; companyCanon: boolean; needsReviewAi: boolean; documentDetails: boolean; ndaSystem: boolean; entityContactFields: boolean; reviewRuns: boolean };
 };
 
 const NAV: { href: string; label: string; icon: string; section?: string; requiresCapability?: 'companyCanon' }[] = [
@@ -17,15 +17,18 @@ const NAV: { href: string; label: string; icon: string; section?: string; requir
   { href: '/today', label: 'Today', icon: '☀' },
   { href: '/agenda', label: 'Agenda', icon: '▦' },
   { href: '/dashboard', label: 'Dashboard', icon: '◔' },
-  // §11 Company Canon — hidden until migration 0020 is applied (capability
-  // probed via /api/me), so main stays exactly as it is today until then.
-  { href: '/company', label: 'Company', icon: '◆', requiresCapability: 'companyCanon' },
+  // Batch 3 A — the /company route is now "Review & Optimization": AI
+  // review, deck/one-pager review, the startup's market benchmarking, and
+  // the investability ranking. Still gated on the companyCanon capability
+  // (migration 0020) since the ranking grounds on confirmed canon facts.
+  { href: '/company', label: 'Review & Optimization', icon: '◆', requiresCapability: 'companyCanon' },
   { href: '/documents', label: 'Data Room', icon: '▣', section: 'Sharing' },
   { href: '/import', label: 'Import history', icon: '⇪' },
   { href: '/needs-review', label: 'Needs review', icon: '◑' },
   { href: '/packs', label: 'Packs', icon: '◈', section: 'Growth' },
   { href: '/outbox', label: 'Outbox', icon: '✉', section: 'Automation' },
-  { href: '/automations', label: 'Automations', icon: '⚙' },
+  // Automations moved INTO Settings (batch 3 A); the /automations route
+  // still works for direct links but is no longer a top-level nav item.
   { href: '/settings', label: 'Settings', icon: '⋯' },
 ];
 

@@ -34,10 +34,14 @@ export async function POST(req: NextRequest) {
       `Review this investor deck content.\n\n${draft}\n\nScore 0-10 per dimension (problem clarity, traction evidence, ` +
       'number credibility, narrative, design notes if inferable), list issues with severity and slide/section, then top 5 rewrite suggestions.',
     one_pager_review: `Review this one-pager:\n\n${draft}\n\nSame format as a deck review, adapted to a single page.`,
+    // Batch 3 A — repurposed: this is now about the STARTUP's OWN market
+    // (sector benchmarking for the founder's company), not investor research.
     market_data:
-      `Research brief request about an investor for outreach preparation:\n${JSON.stringify(context, null, 2)}\n\n` +
-      'Summarise thesis, typical cheque, stage, recent relevant investments IF you are confident, and explicitly mark ' +
-      'every item as needing verification. Do not invent specifics.',
+      `Market/sector benchmarking for our own company (the startup raising the round):\n${JSON.stringify(context, null, 2)}\n\n` +
+      'Using the company facts and sector above, give: 1) market size & growth direction for this specific sector, ' +
+      '2) where a company at this stage/traction typically sits vs peers, 3) the metrics investors in this space benchmark on, ' +
+      '4) comparable/adjacent companies worth knowing (only if you are confident). Mark anything you are not certain about ' +
+      'as needing verification, and never invent specific figures.',
   };
 
   try {
