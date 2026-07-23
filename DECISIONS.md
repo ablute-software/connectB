@@ -4,6 +4,47 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## Billing — Stripe subscriptions (env-gated)
+
+Subscriptions are the only revenue (fee suspended). Everything is dark behind
+`stripeConfigured()` (STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET + the 4 price
+IDs) — same env-gate pattern as Resend/Gmail. **Until the env vars are set the
+Plans page keeps its exact request-to-back-office flow; once set, the CTA
+becomes real checkout.** Raw fetch to the Stripe API, **no SDK** (matches the
+Anthropic/Resend convention) — one less dependency, and webhook signatures are
+verified with Node `crypto` (HMAC-SHA256, 5-min tolerance, timing-safe).
+
+- **Checkout** (`/api/stripe/checkout`, owner/admin): subscription-mode session
+  for the price ID of tier+period; org_id/user/tier/period in metadata on BOTH
+  the session and the subscription, so every webhook resolves the org with no
+  lookup. Client redirects to the hosted page — **no card data touches our
+  code**.
+- **Webhook** (`/api/stripe/webhook`, public in middleware since Stripe has no
+  cookie, signature-verified, service-role) is the **only** billing writer of
+  `orgs.plan`: `checkout.session.completed` activates from metadata;
+  `customer.subscription.updated/deleted` map the live price → plan via the pure
+  `billingEffectFromEvent`. The manual back-office set-plan stays as an override
+  (platform org, comps, support).
+- **Portal** (`/api/stripe/portal`, owner/admin): "Gerir subscrição" → hosted
+  portal (invoices, card, monthly↔annual switch, cancel); changes flow back
+  through the same webhooks.
+- **Downgrade/cancel**: `cancel_at_period_end` keeps status 'active' → the plan
+  **stays until period end**; the `subscription.deleted` event then drops the
+  org to `idea`. The AI-composer gate reacts automatically (it reads
+  `orgs.plan`). Unit-tested.
+- **Copy hygiene**: the UI says "🔒 pagamento seguro" — never the provider name.
+- **Storage**: migration 0031 adds `orgs.stripe_subscription_id` +
+  `stripe_billing_period` (`stripe_customer_id` already existed). Pending apply;
+  the webhook falls back to a plan-only update if 0031 lags, so plan sync never
+  breaks. Pure logic (`billing.ts`: price-ID resolution, event→plan, downgrade,
+  sig-header parse) has 16 tests. Suite 171 green.
+
+**⚠️ FLAG — IVA / Stripe Tax (needs your decision, not guessed):** checkout is
+created WITHOUT `automatic_tax`. For EU/PT VAT you'll likely want Stripe Tax on
+(and to decide B2B reverse-charge / collecting VAT IDs, and whether prices are
+tax-inclusive). I did **not** enable it — tell me the tax treatment and I'll
+wire `automatic_tax[enabled]=true` + `tax_id_collection` accordingly.
+
 ## Plans page — success fee suspended + Mensal/Anual toggle
 
 **Success fee SUSPENDED** (founder decision after legal consultation): pending

@@ -17,6 +17,7 @@ import { reawakeningAvailable } from '@/lib/reawakening-capability';
 import { planAccountsAvailable } from '@/lib/plan-accounts-capability';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements } from '@/lib/plans';
+import { stripeConfigured } from '@/lib/stripe-env';
 
 export async function GET() {
   const capabilities = {
@@ -32,6 +33,7 @@ export async function GET() {
     documentVersions: await documentVersionsAvailable(),
     reawakening: await reawakeningAvailable(),
     planAccounts: await planAccountsAvailable(),
+    billing: stripeConfigured(),
   };
   if (!authEnabled) return NextResponse.json({ authEnabled: false, user: null, role: 'none', capabilities });
   const sb = await serverClient();

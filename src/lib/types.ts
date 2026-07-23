@@ -77,6 +77,13 @@ export interface Org {
   // orgs.plan_change_requested), so absent/undefined pre-migration.
   plan_change_requested?: string;
   plan_change_requested_at?: string;
+  // Billing (Stripe subscriptions, env-gated). stripe_customer_id exists since
+  // 0001; subscription_id + billing_period added in migration 0031. Written
+  // ONLY by the Stripe webhook (the source of truth for billing-driven plan
+  // changes); the manual back-office set-plan stays as an override.
+  stripe_customer_id?: string;
+  stripe_subscription_id?: string;
+  stripe_billing_period?: string; // 'monthly' | 'annual'
 }
 
 export interface Entity {
