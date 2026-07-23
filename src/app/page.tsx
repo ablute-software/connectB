@@ -83,8 +83,8 @@ function Lens({ className, size, withCheck }: { className?: string; size: number
 
 const FEATURES = [
   {
-    title: 'Investor pipeline',
-    body: 'Every investor, stage and next step in one board. Interactions, notes and documents attached to the right person — never lost in an inbox.',
+    title: 'Matched investors, delivered',
+    body: `Don't start from a blank page. ${BRAND_NAME} supplies investors that fit your sector, stage and round size — then tracks every conversation, note and next step in one board.`,
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <rect x="3" y="4" width="5" height="16" rx="1.5" stroke="#2a7f8e" strokeWidth="1.8" />
@@ -146,7 +146,7 @@ const FEATURES = [
 ];
 
 const STEPS = [
-  { n: '1', tag: 'Open the case', h: 'Build your case file', p: 'Import your investor list, confirm your company facts once, and load your data room. Five minutes to a single source of truth.' },
+  { n: '1', tag: 'Open the case', h: 'Get your suspect list', p: `Tell ${BRAND_NAME} your sector, stage and round — it delivers investors matched to your profile, scored for fit. Add your own contacts on top, confirm your company facts, and load your data room.` },
   { n: '2', tag: 'Follow the clues', h: 'Run the investigation', p: 'Work your daily agenda, send fact-checked messages, share documents safely. Every reply and every meeting lands back in the file.' },
   { n: '3', tag: 'Close the case', h: 'Close the round', p: "Momentum stays visible, dormant investors resurface at the right moment, and diligence runs from a data room that's already in order." },
 ];
