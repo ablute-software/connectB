@@ -6,6 +6,7 @@ import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { ORG_ROLES, ROLE_LABELS, can, canAssignRole, canActOnMember, type OrgRole } from '@/lib/permissions';
+import { OrganisationCard } from '@/components/OrganisationCard';
 
 type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
 type Member = { userId: string; email: string; role: OrgRole; isSelf: boolean };
@@ -318,19 +319,7 @@ export default function SettingsPage() {
     <div className="max-w-3xl space-y-4">
       <h1 className="text-lg font-bold">Settings</h1>
 
-      <Card title="Organisation">
-        <dl className="grid grid-cols-2 gap-2 text-sm">
-          <div><dt className="text-xs text-gray-500">Org</dt><dd>{db.org.name}</dd></div>
-          <div><dt className="text-xs text-gray-500">Plan</dt><dd className="capitalize">{db.org.plan}</dd></div>
-          <div><dt className="text-xs text-gray-500">Sender</dt><dd>{db.org.sender_email}</dd></div>
-          <div><dt className="text-xs text-gray-500">BCC (reply record)</dt><dd>{db.org.bcc_email}</dd></div>
-          <div><dt className="text-xs text-gray-500">Daily cap</dt><dd>{db.org.daily_cap} outbounds</dd></div>
-          <div><dt className="text-xs text-gray-500">Weekly cap</dt><dd>{db.org.weekly_cap} outbounds</dd></div>
-        </dl>
-        <p className="mt-2 text-xs text-gray-400">
-          Caps are strategic, not technical — a €1.3M seed closes on 15–40 conversations.
-        </p>
-      </Card>
+      <OrganisationCard />
 
       {authEnabled && <TeamCard orgId={db.org.id} />}
       {authEnabled && <Suspense fallback={null}><GmailConnectionCard /></Suspense>}

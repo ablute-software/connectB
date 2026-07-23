@@ -6,7 +6,7 @@
 import { createContext, useContext } from 'react';
 import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, Db,
-  Direction, DocumentItem, Entity, FolderKind, Interaction, InvestorSubmission, Nda, OverrideRule,
+  Direction, DocumentItem, Entity, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
   PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem,
 } from './types';
 
@@ -86,6 +86,10 @@ export interface StoreApi {
   ) => void;
   toggleTask: (id: string) => void;
   addTask: (t: Omit<TaskItem, 'id' | 'done'>) => void;
+  // Batch 3 B — edit Organisation data (name, sender, caps, onboarding
+  // fields). Owner+admin only; enforced server-side in /api/org/update (the
+  // Supabase provider posts there), the UI just gates the form.
+  updateOrg: (patch: Partial<Org>) => void;
   setEntityStatus: (id: string, status: Db['entities'][0]['status'], reason?: string) => void;
   setInterest: (id: string, eur: number | undefined) => void;
   resolveHardFilter: (id: string, status: 'resolved_ok' | 'resolved_blocked') => void;

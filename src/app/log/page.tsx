@@ -275,7 +275,7 @@ function LogForm() {
               {CHANNELS.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}
             </select>
             {direction === 'out' && channel === 'email' && (
-              <span className="text-xs text-gray-400">from {db.org.sender_email} · BCC {db.org.bcc_email}</span>
+              <span className="text-xs text-gray-400">from {db.org.sender_email}</span>
             )}
           </div>
 

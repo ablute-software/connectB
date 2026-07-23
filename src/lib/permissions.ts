@@ -36,7 +36,9 @@ const CAN: Record<Capability, OrgRole[]> = {
   invite_members: ['owner', 'admin'],
   remove_members: ['owner', 'admin'],
   change_roles: ['owner', 'admin'],
-  manage_org_settings: ['owner'],
+  // Batch 3 B: admins can now edit Organisation data too (was owner-only) —
+  // enforced server-side in /api/org/update, not just the UI.
+  manage_org_settings: ['owner', 'admin'],
   manage_billing: ['owner'],
 };
 

@@ -57,7 +57,7 @@ export default function AutomationsPage() {
         <ol className="list-decimal space-y-1 pl-5 text-sm text-gray-600">
           <li>A scheduled job evaluates triggers on a regular cadence.</li>
           <li>Each match becomes a run. <b>Pre-flight and caps are evaluated first</b> — a full-auto run that fails any check lands in the Outbox instead, with the reason.</li>
-          <li>Email sends go out from {db.org.sender_email ?? 'your verified domain'} (BCC {db.org.bcc_email}); bounces increment the person’s bounce counter and block the address.</li>
+          <li>Email sends go out from {db.org.sender_email ?? 'your verified domain'}; bounces increment the person’s bounce counter and block the address.</li>
           <li>Guessed (unverified) addresses are <b>never</b> auto-sent. No exception, no override.</li>
           <li>Every executed run is logged as an interaction, marked “automation”.</li>
         </ol>

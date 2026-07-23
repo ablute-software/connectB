@@ -398,6 +398,18 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (o) persist(sb.from('tasks').insert({ ...row, org_id: o }), 'addTask');
     },
 
+    updateOrg(patch: Partial<Org>) {
+      const prev = dbRef.current;
+      commit({ ...prev, org: { ...prev.org, ...patch } });
+      // orgs has an owner-only RLS update policy and needs admin editing too,
+      // so writes go through /api/org/update (service-role after a role
+      // check) rather than the browser client — fire-and-forget, the local
+      // commit already reflects it optimistically.
+      fetch('/api/org/update', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
+      }).then((r) => r.json()).then((b) => { if (!b.ok) console.error('[supabase-store] updateOrg failed:', b.error); }).catch((e) => console.error('[supabase-store] updateOrg failed:', e));
+    },
+
     setEntityStatus(id: string, status: EntityStatus, reason?: string) {
       const prev = dbRef.current;
       commit({

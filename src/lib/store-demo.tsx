@@ -188,6 +188,10 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, tasks: [...prev.tasks, { ...t, id: uid('t'), done: false }] }));
     },
 
+    updateOrg(patch) {
+      setDb((prev) => ({ ...prev, org: { ...prev.org, ...patch } }));
+    },
+
     setEntityStatus(id, status, reason) {
       setDb((prev) => ({
         ...prev,

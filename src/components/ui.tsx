@@ -244,8 +244,8 @@ export function PersonEmailBlock({ person }: { person: Person }) {
                 <>
                   <VerBadge state="verified" />
                   <a className="rounded border border-gray-300 px-1.5 py-0.5 text-xs hover:bg-gray-50"
-                    href={`mailto:${person.email_verified}?bcc=${db.org.bcc_email ?? ''}`}>
-                    Compose (BCC {db.org.bcc_email})
+                    href={`mailto:${person.email_verified}`}>
+                    Compose
                   </a>
                 </>
               )}

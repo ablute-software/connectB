@@ -152,7 +152,7 @@ export default function PersonPage({ params }: { params: { id: string } }) {
                 <div className="text-xs text-gray-500">Phone</div>
                 <div className="text-gray-600">{person.phone ?? '—'}</div>
               </div>
-              <p className="mt-2 text-[11px] text-gray-400">Only verified emails are copyable. Compose opens mailto: with BCC {db.org.bcc_email}.</p>
+              <p className="mt-2 text-[11px] text-gray-400">Only verified emails are copyable. The in-app interaction log is the record — send from your own mailbox, then log it.</p>
             </Card>
           )}
           {!person.do_not_contact && <AffiliationsCard person={person} />}
