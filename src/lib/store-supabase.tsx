@@ -20,7 +20,7 @@ import { STAGE_LABEL, getStage } from './relationship';
 
 type SB = ReturnType<typeof browserClient>;
 
-const EMPTY_ORG: Org = { id: '', name: '', plan: 'free', daily_cap: 5, weekly_cap: 20 };
+const EMPTY_ORG: Org = { id: '', name: '', plan: 'idea', daily_cap: 5, weekly_cap: 20 };
 const EMPTY_DB: Db = {
   org: EMPTY_ORG, entities: [], people: [], personAffiliations: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],

@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
+import { REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
 
 interface ReviewRun { id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string }
 interface InvestabilityReport { score: number; summary: string; strengths: string[]; weaknesses: string[]; risks: string[]; recommendations: string[] }
@@ -20,7 +21,11 @@ function ComingSoon() {
 
 export default function ReviewOptimizationPage() {
   const { db } = useStore();
-  const [caps, setCaps] = useState<{ ai: boolean; reviewRuns: boolean } | null>(null);
+  // reviewOptimization is the plan entitlement (batch A). It's false for every
+  // org today (premium preview parked behind the frost) — so `locked` below is
+  // effectively always true; kept entitlement-driven so lifting it later is a
+  // one-line change in plans.ts with no edit here.
+  const [caps, setCaps] = useState<{ ai: boolean; reviewRuns: boolean; reviewOptimization: boolean } | null>(null);
 
   const [draft, setDraft] = useState('');
   const [personId, setPersonId] = useState('');
@@ -41,8 +46,8 @@ export default function ReviewOptimizationPage() {
 
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
-      .then((me) => setCaps({ ai: !!me.capabilities?.ai, reviewRuns: !!me.capabilities?.reviewRuns }))
-      .catch(() => setCaps({ ai: false, reviewRuns: false }));
+      .then((me) => setCaps({ ai: !!me.capabilities?.ai, reviewRuns: !!me.capabilities?.reviewRuns, reviewOptimization: !!me.entitlements?.reviewOptimization }))
+      .catch(() => setCaps({ ai: false, reviewRuns: false, reviewOptimization: false }));
   }, []);
 
   useEffect(() => {
@@ -126,6 +131,10 @@ export default function ReviewOptimizationPage() {
 
   const latest = runs[0];
 
+  // Premium preview (batch A): default to locked until /api/me answers, so the
+  // frost never flashes off for a beat on load.
+  const locked = !caps || !caps.reviewOptimization;
+
   return (
     <div className="max-w-3xl space-y-4">
       <h1 className="text-lg font-bold">Review & Optimization</h1>
@@ -134,6 +143,22 @@ export default function ReviewOptimizationPage() {
         every output is a report, never an action.
       </p>
 
+      {/* Batch A — premium preview. `locked` is entitlement-driven (currently
+          false for all plans), so the frost is shown to everyone; the built
+          tool underneath stays intact for when the entitlement lifts. The
+          overlay captures pointer events, so the Run action can't fire. */}
+      <div className="relative">
+        {locked && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl bg-white/55 px-4 text-center backdrop-blur-[3px]">
+            <span className="rounded-full border border-cyan-200 bg-white/90 px-4 py-1.5 text-sm font-semibold text-[#0E7490] shadow-sm">
+              {REVIEW_OPTIMIZATION_PREVIEW_COPY}
+            </span>
+            <span className="max-w-xs text-[11px] text-gray-500">
+              A leitura de investabilidade e as revisões com AI da tua empresa vão viver aqui.
+            </span>
+          </div>
+        )}
+        <div className={locked ? 'pointer-events-none select-none space-y-4 blur-[2px]' : 'space-y-4'} aria-hidden={locked}>
       <Card title="Investability ranking — readiness vs round value">
         <p className="mb-2 text-xs text-gray-500">
           Consumes your confirmed canon facts + pipeline stats and returns a score with concrete strengths, weaknesses,
@@ -237,6 +262,8 @@ export default function ReviewOptimizationPage() {
           </>
         )}
       </Card>
+        </div>
+      </div>
     </div>
   );
 }

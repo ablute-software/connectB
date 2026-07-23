@@ -12,6 +12,9 @@ import { entityContactFieldsAvailable } from '@/lib/entity-contact-capability';
 import { reviewRunsAvailable } from '@/lib/review-capability';
 import { permissionMatrixAvailable } from '@/lib/permission-matrix-capability';
 import { documentOrderingAvailable } from '@/lib/document-ordering-capability';
+import { planAccountsAvailable } from '@/lib/plan-accounts-capability';
+import { resolveUserPlan } from '@/lib/plan-server';
+import { planEntitlements } from '@/lib/plans';
 
 export async function GET() {
   const capabilities = {
@@ -24,14 +27,21 @@ export async function GET() {
     reviewRuns: await reviewRunsAvailable(),
     permissionMatrix: await permissionMatrixAvailable(),
     documentOrdering: await documentOrderingAvailable(),
+    planAccounts: await planAccountsAvailable(),
   };
   if (!authEnabled) return NextResponse.json({ authEnabled: false, user: null, role: 'none', capabilities });
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ authEnabled: true, user: null, role: 'none', capabilities });
-  const [role, orgRole] = await Promise.all([
+  const [role, orgRole, { plan }] = await Promise.all([
     resolveRole(user.id, user.email, sb),
     getOrgRole(user.id, sb),
+    resolveUserPlan(user.id, sb),
   ]);
-  return NextResponse.json({ authEnabled: true, user: { id: user.id, email: user.email }, role, orgRole, capabilities });
+  // Plans & Account batch — the plan half of the entitlement gate. The client
+  // uses `entitlements` to show/hide gated UI; the server re-checks it at each
+  // write path (e.g. the compose route), so this is display-truth, not the
+  // enforcement point. Platform admins (role 'developer') get full access.
+  const entitlements = planEntitlements(plan, role === 'developer');
+  return NextResponse.json({ authEnabled: true, user: { id: user.id, email: user.email }, role, orgRole, plan, entitlements, capabilities });
 }

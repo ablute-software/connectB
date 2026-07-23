@@ -3,6 +3,9 @@
 // via the existing /log flow. Draft-only, no autonomous dispatch anywhere.
 import { NextRequest, NextResponse } from 'next/server';
 import { lintMessage } from '@/lib/rules';
+import { serverClient, resolveRole, authEnabled } from '@/lib/supabase-server';
+import { resolveUserPlan } from '@/lib/plan-server';
+import { planEntitlements, AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
 import type { ComposerContext, ComposerIntent } from '@/lib/composer';
 import type { Channel, Entity, Person } from '@/lib/types';
 
@@ -157,6 +160,26 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return NextResponse.json({ configured: false, message: NOT_CONFIGURED_MSG }, { status: 200 });
+  }
+
+  // Plans & Account batch (C) — plan gate. The env key above is the infra half
+  // of AI availability; this is the plan half, and BOTH must pass. The free
+  // 'idea' tier gets the locked copy (reusing configured:false so the /log
+  // handler shows `message` without a client change); paid plans and the
+  // platform org proceed. Skipped in demo mode (no auth to resolve a plan).
+  // Enforced here server-side, not just hidden in the UI.
+  if (authEnabled) {
+    const sb = await serverClient();
+    const { data: { user } } = await sb.auth.getUser();
+    if (user) {
+      const [role, { plan }] = await Promise.all([
+        resolveRole(user.id, user.email, sb),
+        resolveUserPlan(user.id, sb),
+      ]);
+      if (!planEntitlements(plan, role === 'developer').aiComposer) {
+        return NextResponse.json({ configured: false, locked: true, message: AI_COMPOSER_LOCKED_COPY }, { status: 200 });
+      }
+    }
   }
 
   // Minimal Person/Entity shapes for the existing lintMessage() — it only

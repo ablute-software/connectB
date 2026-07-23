@@ -4,6 +4,7 @@
 // from here, and there's no impersonation anywhere in this console.
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
+import { planAccountsAvailable } from '@/lib/plan-accounts-capability';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -14,11 +15,15 @@ export async function GET() {
 
   const weekAgo = new Date(Date.now() - WEEK_MS).toISOString();
 
-  const [{ data: orgs, error }, { data: members }, { data: recentInteractions }, { data: grants }] = await Promise.all([
-    admin.from('orgs').select('id, name, plan, created_at'),
+  // select('*') is deliberate: the plan-change request columns (0028) may not
+  // exist yet, and naming them explicitly would error the whole query before
+  // the migration lands. planManagement tells the UI whether they're live.
+  const [{ data: orgs, error }, { data: members }, { data: recentInteractions }, { data: grants }, planManagement] = await Promise.all([
+    admin.from('orgs').select('*'),
     admin.from('org_members').select('org_id, user_id'),
     admin.from('interactions').select('org_id').gte('occurred_at', weekAgo),
     admin.from('access_grants').select('org_id').is('revoked_at', null),
+    planAccountsAvailable(),
   ]);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
@@ -56,11 +61,13 @@ export async function GET() {
 
     return {
       orgId: org.id, name: org.name, plan: org.plan, createdAt: org.created_at,
+      planChangeRequested: (org.plan_change_requested as string | null | undefined) ?? null,
+      planChangeRequestedAt: (org.plan_change_requested_at as string | null | undefined) ?? null,
       members: memberCountByOrg.get(org.id) ?? 0,
       grants: grantCountByOrg.get(org.id) ?? 0,
       interactionsThisWeek, lastLogin, health,
     };
   });
 
-  return NextResponse.json({ ok: true, orgs: result });
+  return NextResponse.json({ ok: true, orgs: result, planManagement });
 }

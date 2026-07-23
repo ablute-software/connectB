@@ -4,6 +4,67 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## Plans & Account + premium frosting (business model partially unparked)
+
+Three tiers, names/prices verbatim, in one pure module `plans.ts` (single
+source of truth): **Mom, I have an idea** (€0), **Dad, I'm leaving the garage**
+(€85/mês · €756/ano), **Motherfunding** (€149/mês · €1.308/ano). All display
+copy, the success-fee text, and the entitlement gate live there and are
+unit-tested (11 tests).
+
+**Migration surprise — a migration WAS needed.** The spec expected
+`orgs.plan` to be free text; it was actually the enum `plan_tier ('free',
+'paid')` from 0001. So **migration 0028** moves the column to text, remaps
+legacy rows (`free→idea`, `paid→garage`), sets the default to `idea`, sets
+ablute_'s org to `motherfunding` (full access), and adds the plan-change
+request columns. **Pending manual application** — but everything degrades
+gracefully first: `normalizePlan()` maps legacy values in code, so display +
+gating work pre-migration; only *writing* the new tier names and the request
+queue are gated on the `planAccounts` capability (a probe of
+`orgs.plan_change_requested`). Safe to deploy before applying.
+
+**A — Review & Optimization → premium preview.** The whole cards region is
+wrapped in a frosted-glass overlay (`bg-white/55 backdrop-blur-[3px]` + a
+centered "Disponível em breve, na versão Premium" pill) over a
+`pointer-events-none blur-[2px]` content wrapper, so the Run action can't fire.
+Everything built in Batch 3 is kept intact underneath. Gate = the
+`entitlements.reviewOptimization` server value.
+- *Flagged:* `reviewOptimization` is **false for every org, including the
+  platform org** — so the founder sees the frost in their own session and the
+  tool is fully parked. "Lift later without code changes" isn't literally
+  achievable (there's no feature-flag store), but lifting is a **one-line**
+  change in `plans.ts` (e.g. return `isPlatformOrg` or `plan === 'motherfunding'`).
+  If you'd rather keep the built investability tool usable for the platform
+  team now, say so and I'll flip that line.
+
+**B — "Planos e conta" (new nav item, everyone).** Current-plan card + the
+three tiers + the success-fee section with the PT copy verbatim and a
+**"Termos sujeitos a contrato"** caveat pill — **no checkbox, nothing presented
+as accepted terms**. **No payment processing:** the upgrade CTA files a
+plan-change *request* (`/api/plan/request`, owner+admin only, service-role,
+gated on `planAccounts`), which lands in the back-office. **Back-office
+Startups** gained per-org plan management: a set-plan dropdown, a pending-
+requests card with one-click "Aplicar pedido", and an "req" badge — all
+platform-admin + service-role (`/api/backoffice/set-plan`), and the flip clears
+the request. The startups route now `select('*')`s orgs (robust to the request
+columns not existing pre-migration) and returns a `planManagement` flag.
+
+**C — AI-composer plan gate (server-side).** The free `idea` tier does **not**
+get AI-personalized outreach: the compose route resolves the caller's org plan
++ platform status and returns the locked copy ("A personalização por AI faz
+parte dos planos pagos", reusing `configured:false` so `/log` shows it with no
+client change). Mechanical templates + manual writing stay for everyone. The
+gate **composes on top of** the existing env switch (`ANTHROPIC_API_KEY`) — both
+must pass — and is enforced in the route, not just hidden in `/log` (which also
+shows the locked copy, sourced from `/api/me` entitlements). Platform admins and
+paid plans are unchanged. Skipped in demo mode (no auth to resolve a plan).
+
+**PlanTier moved to the 3 tiers** in `types.ts`; seed/EMPTY_ORG/tests updated
+(ablute_ seed → `motherfunding`, new-org default → `idea`). No callsite compared
+against `'free'`/`'paid'`, so the type change had a small ripple. Smoke-tested in
+demo mode: plans page (verbatim copy + CTA states), the R&O frost
+(blur + non-interactive content confirmed), current-plan resolution.
+
 ## Restructure + founder-feedback batch 3 (nav/Settings redesign, permissions matrix, "melhorias e problemas")
 
 Founder-specified execution order **B+D → A → C → E**. Three migrations

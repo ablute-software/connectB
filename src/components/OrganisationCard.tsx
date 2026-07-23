@@ -8,6 +8,7 @@ import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled } from '@/lib/supabase';
 import { can, type OrgRole } from '@/lib/permissions';
+import { normalizePlan, planName } from '@/lib/plans';
 
 const STAGES = ['pre_seed', 'seed', 'series_a', 'later'] as const;
 
@@ -98,7 +99,7 @@ export function OrganisationCard() {
         <>
           <dl className="grid grid-cols-2 gap-2 text-sm">
             <div><dt className="text-xs text-gray-500">Org</dt><dd>{org.name}</dd></div>
-            <div><dt className="text-xs text-gray-500">Plan</dt><dd className="capitalize">{org.plan}</dd></div>
+            <div><dt className="text-xs text-gray-500">Plan</dt><dd>{planName(normalizePlan(org.plan))}</dd></div>
             <div><dt className="text-xs text-gray-500">Sender</dt><dd>{org.sender_email ?? '—'}</dd></div>
             <div><dt className="text-xs text-gray-500">Website</dt><dd>{org.website ?? '—'}</dd></div>
             <div><dt className="text-xs text-gray-500">Sector</dt><dd>{org.sector ?? '—'}</dd></div>

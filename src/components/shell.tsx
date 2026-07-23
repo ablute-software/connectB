@@ -9,7 +9,7 @@ import { Tooltip } from '@/components/ui';
 
 type Me = {
   authEnabled: boolean; user: { email?: string } | null; role: string;
-  capabilities?: { ai: boolean; companyCanon: boolean; needsReviewAi: boolean; documentDetails: boolean; ndaSystem: boolean; entityContactFields: boolean; reviewRuns: boolean; permissionMatrix: boolean; documentOrdering: boolean };
+  capabilities?: { ai: boolean; companyCanon: boolean; needsReviewAi: boolean; documentDetails: boolean; ndaSystem: boolean; entityContactFields: boolean; reviewRuns: boolean; permissionMatrix: boolean; documentOrdering: boolean; planAccounts: boolean };
 };
 
 const NAV: { href: string; label: string; icon: string; section?: string; requiresCapability?: 'companyCanon' }[] = [
@@ -30,6 +30,9 @@ const NAV: { href: string; label: string; icon: string; section?: string; requir
   // Automations moved INTO Settings (batch 3 A); the /automations route
   // still works for direct links but is no longer a top-level nav item.
   { href: '/settings', label: 'Settings', icon: '⋯' },
+  // Plans & Account batch — visible to everyone (free plans especially, to
+  // upgrade). Not capability-gated: the page degrades gracefully pre-migration.
+  { href: '/plans', label: 'Planos e conta', icon: '◇' },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {

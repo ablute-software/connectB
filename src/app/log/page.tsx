@@ -9,6 +9,7 @@ import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
 import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
 import { ACTION_TYPE_LABEL, ACTION_TYPES, recommendedActionType, relationshipSummary } from '@/lib/relationship';
 import { evaluateProvenanceGate, type ComposerClaim } from '@/lib/company-canon-logic';
+import { AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
 import type { ActionType, Channel, Classification, OverrideRule, PassReasonCategory } from '@/lib/types';
 
 const CHANNELS: { v: Channel; l: string }[] = [
@@ -58,9 +59,17 @@ function LogForm() {
   // stays empty/inert for every draft until then.
   const [pendingQuestions, setPendingQuestions] = useState<ComposerClaim[]>([]);
   const [pendingAnswer, setPendingAnswer] = useState('');
+  // Plans & Account batch (C) — AI-composer plan gate (display half; the
+  // compose route enforces it server-side regardless). true only when the org
+  // is authed AND its plan doesn't include AI personalization. Default false
+  // keeps the button in demo mode / while /api/me loads.
+  const [aiComposerLocked, setAiComposerLocked] = useState(false);
 
   useEffect(() => {
     fetch('/api/oauth/google/status').then((r) => r.json()).then(setGmail).catch(() => setGmail({ configured: false, connected: false }));
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
+      .then((me) => setAiComposerLocked(!!me.authEnabled && !!me.entitlements && !me.entitlements.aiComposer))
+      .catch(() => {});
   }, []);
 
   const entity = db.entities.find((e) => e.id === entityId);
@@ -280,19 +289,27 @@ function LogForm() {
           </div>
 
           {direction === 'out' && person && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-cyan-100 bg-[#E8F4F8]/50 px-3 py-2">
-              <select value={intent} onChange={(e) => setIntent(e.target.value as ComposerIntent)}
-                className="rounded border border-gray-300 px-2 py-1 text-xs">
-                {(Object.keys(INTENT_LABEL) as ComposerIntent[]).map((i) => <option key={i} value={i}>{INTENT_LABEL[i]}</option>)}
-              </select>
-              <Tooltip text="Generates a draft using this person's hook and the entity's context — never sent automatically.">
-                <button disabled={composing} onClick={draftWithAi}
-                  className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-                  {composing ? 'Drafting…' : '✨ Draft with AI'}
-                </button>
-              </Tooltip>
-              <span className="text-[11px] text-gray-400">Draft only — you review, edit, and confirm before saving. Never auto-sent.</span>
-            </div>
+            aiComposerLocked ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                <span className="text-xs text-gray-500">✨ {AI_COMPOSER_LOCKED_COPY}.</span>
+                <a href="/plans" className="text-[11px] font-medium text-[#0E7490] hover:underline">Ver planos</a>
+                <span className="text-[11px] text-gray-400">Podes escrever a mensagem manualmente abaixo.</span>
+              </div>
+            ) : (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-cyan-100 bg-[#E8F4F8]/50 px-3 py-2">
+                <select value={intent} onChange={(e) => setIntent(e.target.value as ComposerIntent)}
+                  className="rounded border border-gray-300 px-2 py-1 text-xs">
+                  {(Object.keys(INTENT_LABEL) as ComposerIntent[]).map((i) => <option key={i} value={i}>{INTENT_LABEL[i]}</option>)}
+                </select>
+                <Tooltip text="Generates a draft using this person's hook and the entity's context — never sent automatically.">
+                  <button disabled={composing} onClick={draftWithAi}
+                    className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                    {composing ? 'Drafting…' : '✨ Draft with AI'}
+                  </button>
+                </Tooltip>
+                <span className="text-[11px] text-gray-400">Draft only — you review, edit, and confirm before saving. Never auto-sent.</span>
+              </div>
+            )
           )}
           {composerNote && <div className="mt-2 rounded bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-600">{composerNote}</div>}
           {pendingQuestions[0] && (
@@ -327,7 +344,7 @@ function LogForm() {
               <span className="flex-1 text-sm font-medium text-amber-900">
                 Este rascunho foi composto para {staleDraft.label} — atualiza ou regenera antes de usar.
               </span>
-              {direction === 'out' && person && (
+              {direction === 'out' && person && !aiComposerLocked && (
                 <Tooltip text="Redrafts the message for the currently selected person and entity.">
                   <button disabled={composing} onClick={draftWithAi}
                     className="rounded border border-amber-500 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-40">

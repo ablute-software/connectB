@@ -9,7 +9,8 @@ export const seed: Db = {
   org: {
     id: 'org-ablute',
     name: 'ablute_',
-    plan: 'free',
+    // ablute_ has full access (top tier). Demo mode reads this seed directly.
+    plan: 'motherfunding',
     daily_cap: 5,
     weekly_cap: 20,
     sender_email: 'nunomarujo@ablute.pt',

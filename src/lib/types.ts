@@ -45,7 +45,10 @@ export type AutomationAction =
 export type RunStatus =
   | 'drafted' | 'pending_review' | 'approved' | 'executed'
   | 'rejected' | 'blocked_preflight' | 'failed';
-export type PlanTier = 'free' | 'paid';
+// Plans & Account batch — three founder-named tiers. Legacy DB rows may still
+// hold 'free'/'paid' (migration 0028 remaps them; normalizePlan in plans.ts
+// maps in code meanwhile). Prices/entitlements live in plans.ts.
+export type PlanTier = 'idea' | 'garage' | 'motherfunding';
 export type AiReviewKind = 'deck_review' | 'one_pager_review' | 'message_review' | 'market_data';
 
 export interface Org {
@@ -68,6 +71,12 @@ export interface Org {
   // Type-only stub for now: no DB column, no migration, no logic reads or
   // writes this yet.
   credits?: number;
+  // Plans & Account batch — a pending upgrade request the founder made from the
+  // Plans page. A platform admin clears it when flipping the org's plan in the
+  // back-office. Columns added in migration 0028; capability-gated (a probe on
+  // orgs.plan_change_requested), so absent/undefined pre-migration.
+  plan_change_requested?: string;
+  plan_change_requested_at?: string;
 }
 
 export interface Entity {
