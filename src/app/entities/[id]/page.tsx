@@ -11,6 +11,7 @@ import { EnrichmentBadge } from '@/components/EnrichmentBadge';
 import { entityCompleteness } from '@/lib/completeness';
 import { isPersonCandidate, relatedContacts } from '@/lib/relationship';
 import { computeAlignment } from '@/lib/company-canon-logic';
+import { browserClient } from '@/lib/supabase';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -103,6 +104,37 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       )}
 
       <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)} />
+
+      {db.ndas.filter((n) => n.entity_id === entity.id).length > 0 && (
+        <Card title="NDAs on file">
+          <ul className="space-y-2 text-sm">
+            {db.ndas.filter((n) => n.entity_id === entity.id).map((n) => (
+              <li key={n.id} className="flex flex-wrap items-center gap-2">
+                <span>{n.file_name ?? 'NDA'}</span>
+                <span className="text-xs text-gray-400">
+                  uploaded {n.uploaded_at.slice(0, 10)}{n.uploaded_by ? ` by ${n.uploaded_by}` : ''}
+                </span>
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                  n.match_status === 'match' ? 'bg-green-100 text-green-800'
+                  : n.match_status === 'mismatch' ? 'bg-red-100 text-[#B00000]'
+                  : 'bg-amber-100 text-amber-800'}`} title={n.match_notes}>
+                  {n.match_status === 'match' ? 'AI check: match' : n.match_status === 'mismatch' ? 'AI check: correspondência incerta — verificar' : 'AI check: uncertain'}
+                </span>
+                <button
+                  onClick={async () => {
+                    const sb = browserClient();
+                    const { data, error } = await sb.storage.from('data-room').createSignedUrl(n.storage_path, 60);
+                    if (error) { alert(`Could not open file: ${error.message}`); return; }
+                    window.open(data.signedUrl, '_blank');
+                  }}
+                  className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
+                  Open
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <Card title="Entity summary" right={<EnrichmentBadge result={completeness} subjectType="entity" subjectId={entity.id} orgId={db.org.id} />}>
         <div className="grid gap-4 sm:grid-cols-2">

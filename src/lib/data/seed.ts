@@ -442,6 +442,7 @@ export const seed: Db = {
   runs: [],
   aiReviews: [],
   companyFacts: [],
+  ndas: [],
 
   // ===== v3: platform catalog + packs (demo). Catalog facts are minimal public
   // info and must be re-verified by the team before real distribution. =====

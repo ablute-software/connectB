@@ -11,7 +11,7 @@ import { StoreCtx, type StoreApi, type LogInput } from './store-context';
 import type {
   AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, CompanyFact, Db, DocumentItem,
   DocumentView, Entity, EntityStatus, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
-  Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, RelationshipStage,
+  Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview,
 } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
@@ -24,7 +24,7 @@ const EMPTY_ORG: Org = { id: '', name: '', plan: 'free', daily_cap: 5, weekly_ca
 const EMPTY_DB: Db = {
   org: EMPTY_ORG, entities: [], people: [], personAffiliations: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
-  runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [],
+  runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], ndas: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -49,7 +49,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     orgRes, entitiesRes, peopleRes, interactionsRes, tasksRes, overridesRes,
     foldersRes, documentsRes, grantsRes, viewsRes, templatesRes, automationsRes,
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
-    deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes,
+    deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -77,6 +77,9 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // not applied). A missing-table error resolves here (never throws), so
     // it just falls back to [] below like every other table's error path.
     sb.from('company_facts').select('*').eq('org_id', orgId),
+    // Data Room V2 F5 — ndas may not exist yet (migration 0023). Same
+    // missing-table-safe pattern as company_facts above.
+    sb.from('ndas').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -133,6 +136,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     unlocks,
     submissions,
     companyFacts: ((companyFactsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<CompanyFact>(r)),
+    ndas: ((ndasRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<Nda>(r)),
   };
 }
 
@@ -624,6 +628,18 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const revoked_at = new Date().toISOString();
       commit({ ...prev, grants: prev.grants.map((g) => g.id === id ? { ...g, revoked_at } : g) });
       if (orgIdRef.current) persist(sb.from('access_grants').update({ revoked_at }).eq('id', id), 'revokeGrant');
+    },
+
+    // No persist() here — /api/data-room/nda-upload already wrote both the
+    // ndas row and the grants' nda_accepted_at server-side; this only syncs
+    // local state to match what's already on disk.
+    recordNdaUpload(nda: Nda, unlockedGrantIds: string[]) {
+      const prev = dbRef.current;
+      commit({
+        ...prev,
+        ndas: [...prev.ndas, nda],
+        grants: prev.grants.map((g) => unlockedGrantIds.includes(g.id) ? { ...g, nda_accepted_at: new Date().toISOString() } : g),
+      });
     },
 
     recordDocumentView(documentId: string, viewerEmail: string) {

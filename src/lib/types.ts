@@ -264,6 +264,24 @@ export interface DocumentItem {
   details?: string;
 }
 
+// Data Room V2 (F5) — a real signed NDA file, attached to the investor's own
+// record (entity/person) with an AI cross-check verdict. Capability-gated:
+// src/lib/data-room-capability.ts, migration 0023.
+export type NdaMatchStatus = 'pending' | 'match' | 'mismatch' | 'uncertain';
+
+export interface Nda {
+  id: string;
+  person_id?: string;
+  entity_id?: string;
+  grantee_email?: string;
+  storage_path: string;
+  file_name?: string;
+  uploaded_at: string;
+  uploaded_by?: string;
+  match_status: NdaMatchStatus;
+  match_notes?: string;
+}
+
 export interface AccessGrant {
   id: string;
   person_id?: string;
@@ -437,4 +455,5 @@ export interface Db {
   runs: AutomationRun[];
   aiReviews: AiReview[];
   companyFacts: CompanyFact[];
+  ndas: Nda[];
 }

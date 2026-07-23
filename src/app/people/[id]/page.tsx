@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink, PersonEmailBlock, PreflightCard, VerBadge } from '@/components/ui';
+import { browserClient } from '@/lib/supabase';
 import { preflight } from '@/lib/rules';
 import { ContributionBox } from '@/components/ContributionBox';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
@@ -83,6 +84,37 @@ export default function PersonPage({ params }: { params: { id: string } }) {
           {person.watch_outs && (
             <Card title="Watch-outs" tint="amber"><p className="text-sm">{person.watch_outs}</p></Card>
           )}
+          {db.ndas.filter((n) => n.person_id === person.id).length > 0 && (
+            <Card title="NDAs on file">
+              <ul className="space-y-2 text-sm">
+                {db.ndas.filter((n) => n.person_id === person.id).map((n) => (
+                  <li key={n.id} className="flex flex-wrap items-center gap-2">
+                    <span>{n.file_name ?? 'NDA'}</span>
+                    <span className="text-xs text-gray-400">
+                      uploaded {n.uploaded_at.slice(0, 10)}{n.uploaded_by ? ` by ${n.uploaded_by}` : ''}
+                    </span>
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                      n.match_status === 'match' ? 'bg-green-100 text-green-800'
+                      : n.match_status === 'mismatch' ? 'bg-red-100 text-[#B00000]'
+                      : 'bg-amber-100 text-amber-800'}`} title={n.match_notes}>
+                      {n.match_status === 'match' ? 'AI check: match' : n.match_status === 'mismatch' ? 'AI check: correspondência incerta — verificar' : 'AI check: uncertain'}
+                    </span>
+                    <button
+                      onClick={async () => {
+                        const sb = browserClient();
+                        const { data, error } = await sb.storage.from('data-room').createSignedUrl(n.storage_path, 60);
+                        if (error) { alert(`Could not open file: ${error.message}`); return; }
+                        window.open(data.signedUrl, '_blank');
+                      }}
+                      className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
+                      Open
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
           <Card title="Interaction history">
             {history.length === 0
               ? <p className="text-sm text-gray-400">No interactions yet.{entity?.submission_channel ? ` Official channel first: ${entity.submission_channel}` : ''}</p>

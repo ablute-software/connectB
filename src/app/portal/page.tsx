@@ -3,16 +3,23 @@
 // from /api/portal/* (service-role — investors aren't org_members, so RLS
 // can't grant them table access; signed URLs are minted server-side).
 // Demo mode: unchanged, reads the local store directly.
+//
+// Data Room V2 (F5): NDA gating is per-item now, not a blanket page gate —
+// unlocked items always show; a small note counts whatever's still pending
+// a signed NDA. There's no self-click "I accept" anymore — a real signed
+// NDA the founder uploads (and AI cross-checks) is what unlocks access now,
+// so there's nothing for the investor to click through here.
 import { useState } from 'react';
 import { useStore } from '@/lib/store';
 import { authEnabled } from '@/lib/supabase';
+import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 
 interface PortalDoc {
   id: string; name: string; version?: string; watermark: boolean;
   downloadable: boolean; folder_id?: string; url: string | null;
 }
 interface PortalData {
-  orgName: string | null; senderEmail?: string | null; needsNda: boolean;
+  orgName: string | null; senderEmail?: string | null; pendingNdaCount: number;
   folders: { id: string; name: string }[]; documents: PortalDoc[];
 }
 
@@ -20,19 +27,27 @@ export default function PortalPage() {
   const { db, recordDocumentView } = useStore();
   const [email, setEmail] = useState('');
   const [signedIn, setSignedIn] = useState(false);
-  const [ndaAccepted, setNdaAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [real, setReal] = useState<PortalData | null>(null);
 
-  // ---- demo-mode data (unchanged behaviour) ----
+  // ---- demo-mode data (unchanged behaviour, mirrors the real route's
+  // per-item NDA gate so the demo preview matches production exactly) ----
   const person = db.people.find((p) => p.email_verified?.toLowerCase() === email.toLowerCase());
-  const demoGrants = db.grants.filter((g) =>
+  const demoAllGrants = db.grants.filter((g) =>
     !g.revoked_at && (!g.expires_at || new Date(g.expires_at) > new Date())
     && ((person && g.person_id === person.id) || g.grantee_email?.toLowerCase() === email.toLowerCase()));
-  const demoNeedsNda = demoGrants.some((g) => g.nda_required && !g.nda_accepted_at) && !ndaAccepted;
-  const demoDocs = db.documents.filter((d) =>
-    demoGrants.some((g) => g.document_id === d.id || (g.folder_id && g.folder_id === d.folder_id)));
-  const demoFolders = db.folders.filter((f) => demoGrants.some((g) => g.folder_id === f.id));
+  // Same resolution as the real /api/portal/access route: a document's own
+  // grant overrides the folder it lives in, in either direction — a naive
+  // "any unlocked grant covers it" check would let a looser folder-level
+  // grant silently bypass a stricter per-document override (caught live).
+  const demoCandidateDocs = db.documents.filter((d) =>
+    demoAllGrants.some((g) => g.document_id === d.id || (g.folder_id && g.folder_id === d.folder_id)));
+  const demoDocAccess = resolveDocumentAccess(demoAllGrants, demoCandidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id })));
+  const demoDocs = demoCandidateDocs.filter((d) => demoDocAccess.visibleIds.includes(d.id));
+  const demoFolderGrants = demoAllGrants.filter((g) => g.folder_id);
+  const demoUnlockedFolderGrants = unlockedGrants(demoFolderGrants);
+  const demoFolders = db.folders.filter((f) => demoUnlockedFolderGrants.some((g) => g.folder_id === f.id));
+  const demoPendingNdaCount = (demoFolderGrants.length - demoUnlockedFolderGrants.length) + demoDocAccess.pendingCount;
 
   async function fetchAccess() {
     const res = await fetch(`/api/portal/access?email=${encodeURIComponent(email)}`);
@@ -42,16 +57,6 @@ export default function PortalPage() {
   async function signIn() {
     if (authEnabled) { setLoading(true); await fetchAccess(); setLoading(false); }
     setSignedIn(true);
-  }
-
-  async function acceptNda() {
-    if (authEnabled) {
-      await fetch('/api/portal/accept-nda', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }),
-      });
-      await fetchAccess();
-    }
-    setNdaAccepted(true);
   }
 
   function openDoc(doc: PortalDoc | { id: string; external_url?: string }) {
@@ -68,10 +73,12 @@ export default function PortalPage() {
 
   const orgName = authEnabled ? real?.orgName : db.org.name;
   const senderEmail = authEnabled ? real?.senderEmail : db.org.sender_email;
-  const needsNda = authEnabled ? !!real?.needsNda && !ndaAccepted : demoNeedsNda;
+  const pendingNdaCount = authEnabled ? real?.pendingNdaCount ?? 0 : demoPendingNdaCount;
   const folders = authEnabled ? real?.folders ?? [] : demoFolders;
   const documents = authEnabled ? real?.documents ?? [] : demoDocs;
-  const hasAccess = authEnabled ? (real?.documents.length ?? 0) + (real?.folders.length ?? 0) > 0 : demoGrants.length > 0;
+  const hasAccess = authEnabled
+    ? ((real?.documents.length ?? 0) + (real?.folders.length ?? 0) + (real?.pendingNdaCount ?? 0)) > 0
+    : demoAllGrants.length > 0;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -103,19 +110,14 @@ export default function PortalPage() {
           <div className="mt-16 text-center text-sm text-gray-500">
             No active access for <b>{email}</b>. If you believe this is an error, contact {senderEmail ?? 'the founder'}.
           </div>
-        ) : needsNda ? (
-          <div className="mx-auto mt-16 max-w-md rounded-lg border border-gray-200 bg-white p-6">
-            <h1 className="text-lg font-semibold">Non-disclosure agreement</h1>
-            <p className="mt-2 text-sm text-gray-600">
-              Access to these materials requires accepting the confidentiality terms. Your acceptance is recorded with a timestamp.
-            </p>
-            <button onClick={acceptNda} className="mt-4 w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-medium text-white">
-              I accept the NDA terms
-            </button>
-          </div>
         ) : (
           <div className="space-y-4">
             <p className="text-sm text-gray-500">Signed in as <b>{email}</b>{orgName ? <> · <b>{orgName}</b></> : ''}. You can see only the items granted to you.</p>
+            {pendingNdaCount > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                Awaiting NDA — {pendingNdaCount} more item{pendingNdaCount === 1 ? '' : 's'} will appear here once your signed NDA is on file.
+              </div>
+            )}
             {folders.map((f) => (
               <div key={f.id} className="rounded-lg border border-gray-200 bg-white p-4">
                 <h2 className="text-sm font-semibold">{f.name}</h2>

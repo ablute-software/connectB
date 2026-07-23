@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { isEditableLink, normalizeDocumentUrl, sanitizeStorageKey } from './data-room';
+import {
+  collectFolderSelectionKeys, cycleGrantState, diffGrantSelection, isEditableLink,
+  normalizeDocumentUrl, resolveDocumentAccess, sanitizeStorageKey, unlockedGrants,
+} from './data-room';
 
 describe('sanitizeStorageKey', () => {
   it('folds diacritics, replaces spaces/parentheses, and keeps the extension', () => {
@@ -67,5 +70,143 @@ describe('isEditableLink', () => {
 
   it('accepts an ordinary view-only link', () => {
     expect(isEditableLink('https://example.com/deck.pdf')).toBe(false);
+  });
+});
+
+describe('unlockedGrants (F5 portal NDA gate)', () => {
+  it('includes a grant that never required an NDA', () => {
+    const grants = [{ document_id: 'd1', nda_required: false }];
+    expect(unlockedGrants(grants)).toEqual(grants);
+  });
+
+  it('excludes an nda_required grant before the NDA is on file', () => {
+    const grants = [{ document_id: 'd1', nda_required: true }];
+    expect(unlockedGrants(grants)).toEqual([]);
+  });
+
+  it('includes an nda_required grant once accepted', () => {
+    const grants = [{ document_id: 'd1', nda_required: true, nda_accepted_at: '2026-01-01T00:00:00Z' }];
+    expect(unlockedGrants(grants)).toEqual(grants);
+  });
+
+  it('filters a mixed set to only the unlocked ones', () => {
+    const grants = [
+      { document_id: 'd1', nda_required: false },
+      { document_id: 'd2', nda_required: true },
+      { document_id: 'd3', nda_required: true, nda_accepted_at: '2026-01-01T00:00:00Z' },
+    ];
+    expect(unlockedGrants(grants).map((g) => g.document_id)).toEqual(['d1', 'd3']);
+  });
+});
+
+describe('resolveDocumentAccess (F4 per-doc override vs its folder grant)', () => {
+  it('a document with only a folder-level grant is visible when that grant is unlocked', () => {
+    const grants = [{ folder_id: 'f1', nda_required: false }];
+    const docs = [{ id: 'd1', folder_id: 'f1' }];
+    expect(resolveDocumentAccess(grants, docs)).toEqual({ visibleIds: ['d1'], pendingCount: 0 });
+  });
+
+  it('a document-level override to require an NDA wins even though its folder is shared without one', () => {
+    const grants = [
+      { folder_id: 'f1', nda_required: false },
+      { document_id: 'd1', nda_required: true },
+    ];
+    const docs = [{ id: 'd1', folder_id: 'f1' }, { id: 'd2', folder_id: 'f1' }];
+    const result = resolveDocumentAccess(grants, docs);
+    expect(result.visibleIds).toEqual(['d2']);
+    expect(result.pendingCount).toBe(1);
+  });
+
+  it('a document-level override to NOT require an NDA wins even though its folder requires one', () => {
+    const grants = [
+      { folder_id: 'f1', nda_required: true },
+      { document_id: 'd1', nda_required: false },
+    ];
+    const docs = [{ id: 'd1', folder_id: 'f1' }, { id: 'd2', folder_id: 'f1' }];
+    const result = resolveDocumentAccess(grants, docs);
+    expect(result.visibleIds).toEqual(['d1']);
+    expect(result.pendingCount).toBe(1);
+  });
+
+  it('a document with no applicable grant at all is neither visible nor pending', () => {
+    const grants: { folder_id?: string; document_id?: string; nda_required: boolean }[] = [];
+    const docs = [{ id: 'd1', folder_id: 'f1' }];
+    expect(resolveDocumentAccess(grants, docs)).toEqual({ visibleIds: [], pendingCount: 0 });
+  });
+
+  it('an accepted document-level NDA makes it visible', () => {
+    const grants = [{ document_id: 'd1', nda_required: true, nda_accepted_at: '2026-01-01T00:00:00Z' }];
+    const docs = [{ id: 'd1', folder_id: 'f1' }];
+    expect(resolveDocumentAccess(grants, docs)).toEqual({ visibleIds: ['d1'], pendingCount: 0 });
+  });
+});
+
+describe('cycleGrantState (F4 tri-state)', () => {
+  it('cycles none -> shared -> shared_nda -> none', () => {
+    expect(cycleGrantState('none')).toBe('shared');
+    expect(cycleGrantState('shared')).toBe('shared_nda');
+    expect(cycleGrantState('shared_nda')).toBe('none');
+  });
+});
+
+describe('collectFolderSelectionKeys (F4 cascade)', () => {
+  const folders = [
+    { id: 'root', parent_id: undefined },
+    { id: 'child', parent_id: 'root' },
+    { id: 'grandchild', parent_id: 'child' },
+    { id: 'unrelated', parent_id: undefined },
+  ];
+  const documents = [
+    { id: 'doc-root', folder_id: 'root' },
+    { id: 'doc-child', folder_id: 'child' },
+    { id: 'doc-unrelated', folder_id: 'unrelated' },
+  ];
+
+  it('cascades to every descendant folder and document, never siblings', () => {
+    const keys = collectFolderSelectionKeys('root', folders, documents);
+    const expected = ['folder:root', 'doc:doc-root', 'folder:child', 'doc:doc-child', 'folder:grandchild'];
+    expect([...keys].sort()).toEqual([...expected].sort());
+    expect(keys).not.toContain('folder:unrelated');
+    expect(keys).not.toContain('doc:doc-unrelated');
+  });
+
+  it('a leaf folder with no children returns only itself', () => {
+    expect(collectFolderSelectionKeys('grandchild', folders, documents)).toEqual(['folder:grandchild']);
+  });
+});
+
+describe('diffGrantSelection (F4 tri-state scoping)', () => {
+  it('produces an add for a newly selected item with no existing grant', () => {
+    const diff = diffGrantSelection({ 'doc:d1': 'shared' }, {});
+    expect(diff).toEqual([{ key: 'doc:d1', action: 'add', ndaRequired: false }]);
+  });
+
+  it('produces an add with ndaRequired true for shared_nda', () => {
+    const diff = diffGrantSelection({ 'doc:d1': 'shared_nda' }, {});
+    expect(diff).toEqual([{ key: 'doc:d1', action: 'add', ndaRequired: true }]);
+  });
+
+  it('is a no-op when the selection already matches the existing grant', () => {
+    const diff = diffGrantSelection({ 'doc:d1': 'shared' }, { 'doc:d1': { id: 'g1', nda_required: false } });
+    expect(diff).toEqual([]);
+  });
+
+  it('revokes and re-adds when the NDA requirement changes', () => {
+    const diff = diffGrantSelection({ 'doc:d1': 'shared_nda' }, { 'doc:d1': { id: 'g1', nda_required: false } });
+    expect(diff).toEqual([
+      { key: 'doc:d1', action: 'revoke', existingId: 'g1', ndaRequired: false },
+      { key: 'doc:d1', action: 'add', ndaRequired: true },
+    ]);
+  });
+
+  it('revokes an item that was un-selected back to none', () => {
+    const diff = diffGrantSelection({ 'doc:d1': 'none' }, { 'doc:d1': { id: 'g1', nda_required: false } });
+    expect(diff).toEqual([{ key: 'doc:d1', action: 'revoke', existingId: 'g1', ndaRequired: false }]);
+  });
+
+  it('re-submitting the exact same selection twice is a total no-op', () => {
+    const existing = { 'doc:d1': { id: 'g1', nda_required: true } };
+    const diff = diffGrantSelection({ 'doc:d1': 'shared_nda' }, existing);
+    expect(diff).toEqual([]);
   });
 });

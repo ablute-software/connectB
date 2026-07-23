@@ -4,6 +4,94 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## Data Room V2 (founder feedback batch, 23 Jul: 2 bugs + 5 features)
+
+Shipped in three pushes, in the order requested — bugs first (unblock daily
+use), then document/folder management, then the grants redesign.
+
+**B1 — Storage upload "Invalid key" for accented/spaced filenames.** Supabase
+Storage keys must be ASCII-safe; a real file named "Consulta de Certidão
+Permanente 07-2026 (1).pdf" broke the upload. Fixed with `sanitizeStorageKey()`
+(`src/lib/data-room.ts`, NFD diacritics-fold — same technique as
+catalog-dedupe.ts's `normalizeName`) applied only to the Storage key; the
+original filename is untouched as the document's display name.
+
+**B2 — Google Docs/Sheets/Slides/Drive links always rejected as "editable".**
+Their canonical share URL always contains `/edit` regardless of actual
+(server-side) permission — a real DB constraint (`no_edit_links` on
+`documents`, migration 0001) enforces this at the database level too, so the
+fix has to rewrite the URL before it's ever stored, not just relax a client
+check. `normalizeDocumentUrl()` rewrites the specific, well-known Google
+formats to `/preview` or `/view`; every other `/edit` link (Notion, anything
+else) is still rejected. 14 unit tests.
+
+**F1/F2/F3 — document delete/rename/details, multi-file upload, folder
+CRUD.** New store actions (`deleteDocument`, `renameDocument`,
+`updateDocumentDetails`, `createFolder`, `renameFolder`, `deleteFolder`).
+Folder delete is blocked with a clear error if non-empty unless the founder
+explicitly chooses "move contents to parent" — never a silent cascade, even
+though the DB's own `folders(id) on delete cascade` would otherwise allow
+one. `documents.details` (migration 0022) is capability-gated exactly like
+§11/needs-review before it — hidden with a plain note until applied.
+
+**F4 — access grants redesigned as a tri-state selection tree.** Pick the
+investor, then click through the org's whole folder/document tree: one
+click = shared, two = shared + NDA required, three = back to not shared.
+Clicking a folder cascades to everything inside it; clicking an individual
+document afterward overrides just that one. `diffGrantSelection()` turns
+"what changed since this investor's existing grants" into a minimal
+add/revoke plan, so reopening the panel and resubmitting the same selection
+is a no-op rather than duplicating grants.
+
+**A real bug caught during live smoke-testing, not by the unit tests**:
+sharing a folder, then overriding one document inside it to require an NDA,
+did nothing — the portal still showed that document, because it was ALSO
+reachable via the folder's own (unlocked) grant, and the original
+"any applicable grant unlocks it" check let the looser one win. Fixed with
+`resolveDocumentAccess()`: a document's own grant now always takes priority
+over the folder it lives in, in *either* direction (a doc can be unlocked
+inside a locked folder, or locked inside an unlocked one) — 5 new unit
+tests covering exactly this, plus the fix wired into both the real
+`/api/portal/access` route and the demo-mode portal page (same function,
+not two reimplementations that could drift).
+
+**F5 — NDA handling replaces the old self-serve "I accept the NDA terms"
+click** (which never attached a real document — just a timestamp) with the
+founder uploading the actual signed file, cross-checked by AI against the
+investor's name/entity and the org (Claude's native PDF input, no separate
+text-extraction step). A mismatch or unclear verdict is stored and still
+unlocks access — flagged "correspondência incerta — verificar" for the
+founder to check, never a block. The file is kept as a real attachment,
+visible in a new "NDAs on file" card on the entity/person page (migration
+0023, `ndas` table, capability-gated: `src/lib/data-room-capability.ts`'s
+`ndaSystemAvailable()`). `/api/portal/accept-nda` and its portal button are
+deleted, not deprecated — there's nothing left to click through.
+
+**A second real fix, found while rebuilding the portal route for the above**:
+`/api/portal/access` used to fetch and mint signed URLs for EVERY granted
+item regardless of NDA status, and rely entirely on the client hiding the
+whole page behind a blanket gate — meaning a locked document's real signed
+URL was already sitting in the network response before any "acceptance."
+The gate is now per-item and server-side: a locked item is never fetched or
+included in the response at all, and the portal just shows a count of how
+many are still pending ("Awaiting NDA — N more item(s)...").
+
+**Migration numbering note**: the founder's message assumed the grants
+remodel would land as "migration 0021," written before knowing last
+session's needs-review work had already claimed that number. Used 0022
+(documents.details) and 0023 (ndas) instead, in sequence — flagging here
+since the original ask named a specific number.
+
+**Verified**: 76/76 unit tests, typecheck, and build green on every push;
+each batch smoke-tested live in demo mode (folder/document CRUD, the
+tri-state tree's cascade + override + submit-as-diff, and the portal's
+per-item visibility both before and after the resolveDocumentAccess fix) —
+zero console errors throughout. Not verified live: the actual AI NDA
+cross-check and real Storage upload path, both of which need a real
+Supabase project + ANTHROPIC_API_KEY and are gated behind capability probes
+exactly like every other AI-assisted feature in this codebase, so they stay
+inert until the founder applies 0022/0023 and confirms.
+
 ## Needs-review redesign: dossier view + AI/mechanical pre-classification (23 Jul, founder feedback)
 
 **Why:** the original one-card-at-a-time /needs-review flow (shipped the

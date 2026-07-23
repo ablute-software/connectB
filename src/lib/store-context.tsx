@@ -6,7 +6,7 @@
 import { createContext, useContext } from 'react';
 import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, Db,
-  DocumentItem, Entity, FolderKind, Interaction, InvestorSubmission, OverrideRule,
+  DocumentItem, Entity, FolderKind, Interaction, InvestorSubmission, Nda, OverrideRule,
   PassReasonCategory, PersonAffiliation, RelationshipStage, TaskItem,
 } from './types';
 
@@ -88,6 +88,14 @@ export interface StoreApi {
   deleteFolder: (id: string, moveContentsToParent: boolean) => void;
   addGrant: (g: Omit<AccessGrant, 'id' | 'granted_at'>) => void;
   revokeGrant: (id: string) => void;
+  // Data Room V2 (F5) — capability-gated on capabilities.ndaSystem
+  // (migration 0023). The actual upload + AI cross-check happen server-side
+  // in /api/data-room/nda-upload (needs ANTHROPIC_API_KEY, never exposed to
+  // the client); this action just syncs the already-persisted result
+  // (the new nda row + which of this grantee's active nda_required grants
+  // just got unlocked) into local state so the UI updates instantly without
+  // a full refetch.
+  recordNdaUpload: (nda: Nda, unlockedGrantIds: string[]) => void;
   // Records a document view — used by the real portal flow (both live
   // Supabase mode via /api/portal/view, and demo mode's local mirror here).
   recordDocumentView: (documentId: string, viewerEmail: string) => void;

@@ -5,7 +5,7 @@
 // StoreApi contract (locks, follow-up tasks, overrides, runs semantics).
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Person, PersonAffiliation,
+  AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation,
 } from './types';
 import { seed } from './data/seed';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
@@ -366,6 +366,14 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
 
     revokeGrant(id) {
       setDb((prev) => ({ ...prev, grants: prev.grants.map((g) => g.id === id ? { ...g, revoked_at: new Date().toISOString() } : g) }));
+    },
+
+    recordNdaUpload(nda: Nda, unlockedGrantIds: string[]) {
+      setDb((prev) => ({
+        ...prev,
+        ndas: [...prev.ndas, nda],
+        grants: prev.grants.map((g) => unlockedGrantIds.includes(g.id) ? { ...g, nda_accepted_at: new Date().toISOString() } : g),
+      }));
     },
 
     recordDocumentView(documentId, viewerEmail) {

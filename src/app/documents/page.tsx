@@ -1,11 +1,14 @@
 'use client';
 // Documents & Data Room — folder tree, documents with visibility attributes, grants, engagement
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card, PersonLink } from '@/components/ui';
 import type { Folder, FolderKind } from '@/lib/types';
-import { normalizeDocumentUrl, sanitizeStorageKey } from '@/lib/data-room';
+import {
+  collectFolderSelectionKeys, cycleGrantState, diffGrantSelection,
+  normalizeDocumentUrl, sanitizeStorageKey, type GrantState,
+} from '@/lib/data-room';
 
 function fmtBytes(n?: number): string | undefined {
   if (n == null) return undefined;
@@ -17,14 +20,18 @@ function fmtBytes(n?: number): string | undefined {
 export default function DocumentsPage() {
   const {
     db, addDocument, deleteDocument, renameDocument, updateDocumentDetails,
-    createFolder, renameFolder, deleteFolder, addGrant, revokeGrant,
+    createFolder, renameFolder, deleteFolder, addGrant, revokeGrant, recordNdaUpload,
   } = useStore();
   const [selFolder, setSelFolder] = useState<string>('');
   const [storageSizes, setStorageSizes] = useState<Record<string, number>>({});
   const [documentDetailsAvailable, setDocumentDetailsAvailable] = useState(false);
+  const [ndaSystemAvailable, setNdaSystemAvailable] = useState(false);
 
   useEffect(() => {
-    fetch('/api/me').then((r) => r.json()).then((me) => setDocumentDetailsAvailable(!!me.capabilities?.documentDetails)).catch(() => {});
+    fetch('/api/me').then((r) => r.json()).then((me) => {
+      setDocumentDetailsAvailable(!!me.capabilities?.documentDetails);
+      setNdaSystemAvailable(!!me.capabilities?.ndaSystem);
+    }).catch(() => {});
   }, []);
 
   // Folder ids differ between demo seed data and real Supabase UUIDs, so the
@@ -42,11 +49,13 @@ export default function DocumentsPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [grantDoc, setGrantDoc] = useState('');
+  // F4 — grant by selection tree. Picking an investor loads their current
+  // grants into `selection` (keyed 'folder:<id>'/'doc:<id>'); the tree
+  // itself is just this map plus a click handler, and diffGrantSelection
+  // turns "what changed" into the minimal add/revoke plan on submit.
   const [grantPerson, setGrantPerson] = useState('');
-  const [grantFolder, setGrantFolder] = useState('');
   const [grantExpiry, setGrantExpiry] = useState('');
-  const [grantNda, setGrantNda] = useState(false);
+  const [selection, setSelection] = useState<Record<string, GrantState>>({});
 
   // Data Room V2 — per-document management
   const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
@@ -67,6 +76,90 @@ export default function DocumentsPage() {
   const children = (id: string) => db.folders.filter((f) => f.parent_id === id).sort((a, b) => a.position - b.position);
   const docsIn = (id: string) => db.documents.filter((d) => d.folder_id === id);
   const activeGrants = db.grants.filter((g) => !g.revoked_at && (!g.expires_at || new Date(g.expires_at) > new Date()));
+
+  // F4 — this investor's current grants, keyed the same way the tree is, so
+  // opening the panel shows what's already shared instead of a blank slate.
+  const existingGrantsByKey = useMemo(() => {
+    const map: Record<string, { id: string; nda_required: boolean }> = {};
+    if (!grantPerson) return map;
+    for (const g of activeGrants) {
+      if (g.person_id !== grantPerson) continue;
+      if (g.document_id) map[`doc:${g.document_id}`] = { id: g.id, nda_required: g.nda_required };
+      if (g.folder_id) map[`folder:${g.folder_id}`] = { id: g.id, nda_required: g.nda_required };
+    }
+    return map;
+  }, [activeGrants, grantPerson]);
+
+  useEffect(() => {
+    const init: Record<string, GrantState> = {};
+    for (const [key, g] of Object.entries(existingGrantsByKey)) init[key] = g.nda_required ? 'shared_nda' : 'shared';
+    setSelection(init);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grantPerson]);
+
+  function toggleFolderSelection(folderId: string) {
+    const current = selection[`folder:${folderId}`] ?? 'none';
+    const next = cycleGrantState(current);
+    const keys = collectFolderSelectionKeys(folderId, db.folders, db.documents);
+    setSelection((prev) => {
+      const updated = { ...prev };
+      for (const k of keys) updated[k] = next;
+      return updated;
+    });
+  }
+
+  function toggleDocSelection(docId: string) {
+    const current = selection[`doc:${docId}`] ?? 'none';
+    setSelection((prev) => ({ ...prev, [`doc:${docId}`]: cycleGrantState(current) }));
+  }
+
+  function submitGrantTree() {
+    if (!grantPerson) return;
+    const expires_at = grantExpiry ? `${grantExpiry}T23:59:59Z` : undefined;
+    const diff = diffGrantSelection(selection, existingGrantsByKey);
+    for (const item of diff) {
+      if (item.action === 'revoke' && item.existingId) revokeGrant(item.existingId);
+      if (item.action === 'add') {
+        const [kind, id] = item.key.split(':');
+        addGrant({
+          person_id: grantPerson, document_id: kind === 'doc' ? id : undefined,
+          folder_id: kind === 'folder' ? id : undefined, expires_at, nda_required: item.ndaRequired,
+        });
+      }
+    }
+    setGrantPerson(''); setGrantExpiry(''); setSelection({});
+  }
+
+  async function uploadNda(file: File, inv: { personId?: string; email?: string }) {
+    try {
+      const sb = browserClient();
+      const path = `${db.org.id}/ndas/${crypto.randomUUID()}-${sanitizeStorageKey(file.name)}`;
+      const { error } = await sb.storage.from('data-room').upload(path, file);
+      if (error) throw error;
+      const res = await fetch('/api/data-room/nda-upload', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ storagePath: path, fileName: file.name, personId: inv.personId, granteeEmail: inv.email }),
+      });
+      const body = await res.json();
+      if (!body.ok) throw new Error(body.error ?? 'Upload failed');
+      recordNdaUpload(body.nda, body.unlockedGrantIds ?? []);
+    } catch (e) {
+      alert(`NDA upload failed: ${(e as Error).message}`);
+    }
+  }
+
+  const pendingNdaInvestors = useMemo(() => {
+    const map = new Map<string, { personId?: string; email?: string; label: string; count: number }>();
+    for (const g of activeGrants) {
+      if (!g.nda_required || g.nda_accepted_at) continue;
+      const key = g.person_id ?? g.grantee_email ?? '';
+      if (!key) continue;
+      const label = g.person_id ? (db.people.find((p) => p.id === g.person_id)?.full_name ?? 'Unknown') : (g.grantee_email ?? '');
+      const existing = map.get(key);
+      map.set(key, { personId: g.person_id, email: g.grantee_email, label, count: (existing?.count ?? 0) + 1 });
+    }
+    return [...map.values()];
+  }, [activeGrants, db.people]);
 
   // File size isn't a DB column — Supabase Storage already tracks it, so a
   // single listing of the org's prefix is cheaper than a schema change.
@@ -188,6 +281,41 @@ export default function DocumentsPage() {
           )}
         </div>
         {kids.map((k) => <FolderNode key={k.id} f={k} depth={depth + 1} />)}
+      </div>
+    );
+  }
+
+  function TriStateBox({ state, onClick }: { state: GrantState; onClick: () => void }) {
+    const style = state === 'none'
+      ? 'border border-gray-300 bg-white'
+      : state === 'shared'
+      ? 'border border-cyan-600 bg-cyan-600 text-white'
+      : 'border border-amber-600 bg-amber-500 text-white';
+    const title = state === 'none' ? 'Not shared — click to share' : state === 'shared' ? 'Shared — click to also require an NDA' : 'Shared + NDA required — click to unshare';
+    return (
+      <button type="button" onClick={onClick} title={title}
+        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold leading-none ${style}`}>
+        {state === 'shared' ? '✓' : state === 'shared_nda' ? '🔒' : ''}
+      </button>
+    );
+  }
+
+  function GrantTreeNode({ f, depth }: { f: Folder; depth: number }) {
+    const kids = children(f.id);
+    const docs = docsIn(f.id);
+    return (
+      <div>
+        <div className="flex items-center gap-1.5 py-0.5" style={{ paddingLeft: `${depth * 14}px` }}>
+          <TriStateBox state={selection[`folder:${f.id}`] ?? 'none'} onClick={() => toggleFolderSelection(f.id)} />
+          <span className="text-sm text-gray-700">{f.kind === 'data_room' ? '▣' : '▤'} {f.name}</span>
+        </div>
+        {docs.map((d) => (
+          <div key={d.id} className="flex items-center gap-1.5 py-0.5" style={{ paddingLeft: `${(depth + 1) * 14}px` }}>
+            <TriStateBox state={selection[`doc:${d.id}`] ?? 'none'} onClick={() => toggleDocSelection(d.id)} />
+            <span className="text-xs text-gray-600">{d.name}</span>
+          </div>
+        ))}
+        {kids.map((k) => <GrantTreeNode key={k.id} f={k} depth={depth + 1} />)}
       </div>
     );
   }
@@ -366,42 +494,58 @@ export default function DocumentsPage() {
               </ul>
             )}
             <div className="mt-3 border-t border-gray-100 pt-3">
-              <div className="text-xs font-medium text-gray-500">Grant access</div>
+              <div className="text-xs font-medium text-gray-500">Grant access — pick the investor, then click items in the tree</div>
               <div className="mt-1 flex flex-wrap gap-2">
                 <select value={grantPerson} onChange={(e) => setGrantPerson(e.target.value)} className="rounded border border-gray-300 px-2 py-1.5 text-sm">
                   <option value="">Person…</option>
                   {db.people.filter((p) => !p.do_not_contact).map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
                 </select>
-                <select value={grantDoc} onChange={(e) => { setGrantDoc(e.target.value); setGrantFolder(''); }} className="rounded border border-gray-300 px-2 py-1.5 text-sm">
-                  <option value="">Document…</option>
-                  {db.documents.filter((d) => d.is_view_only).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
-                <span className="self-center text-xs text-gray-400">or</span>
-                <select value={grantFolder} onChange={(e) => { setGrantFolder(e.target.value); setGrantDoc(''); }} className="rounded border border-gray-300 px-2 py-1.5 text-sm">
-                  <option value="">Folder…</option>
-                  {db.folders.filter((f) => f.kind === 'data_room').map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
                 <input type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
                   className="rounded border border-gray-300 px-2 py-1.5 text-sm" title="Expiry (optional)" />
-                <label className="flex items-center gap-1 text-xs text-gray-600">
-                  <input type="checkbox" checked={grantNda} onChange={(e) => setGrantNda(e.target.checked)} /> NDA required
-                </label>
-                <button disabled={!grantPerson || (!grantDoc && !grantFolder)}
-                  onClick={() => {
-                    addGrant({
-                      person_id: grantPerson, document_id: grantDoc || undefined, folder_id: grantFolder || undefined,
-                      expires_at: grantExpiry ? `${grantExpiry}T23:59:59Z` : undefined, nda_required: grantNda,
-                    });
-                    setGrantPerson(''); setGrantDoc(''); setGrantFolder(''); setGrantExpiry(''); setGrantNda(false);
-                  }}
-                  className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Grant</button>
               </div>
+              {grantPerson && (
+                <>
+                  <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50 p-2">
+                    {roots.map((f) => <GrantTreeNode key={f.id} f={f} depth={0} />)}
+                  </div>
+                  <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-400">
+                    <span className="flex items-center gap-1"><TriStateBox state="shared" onClick={() => {}} /> shared</span>
+                    <span className="flex items-center gap-1"><TriStateBox state="shared_nda" onClick={() => {}} /> shared + NDA required</span>
+                    <span className="flex items-center gap-1"><TriStateBox state="none" onClick={() => {}} /> not shared</span>
+                  </div>
+                  <button onClick={submitGrantTree} className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">
+                    Save access
+                  </button>
+                </>
+              )}
               <p className="mt-2 text-[11px] text-gray-400">
                 Granting fires the “grant activated” automation: an access email drafts (or sends, in full-auto) and every
                 view is logged back to the entity. Investors sign in via magic link and see only their granted items.
+                Folder-level clicks cascade to everything inside it — click an individual document afterward to override just that one.
               </p>
             </div>
           </Card>
+
+          {ndaSystemAvailable && pendingNdaInvestors.length > 0 && (
+            <Card title="Awaiting NDA">
+              <ul className="space-y-2 text-sm">
+                {pendingNdaInvestors.map((inv) => (
+                  <li key={inv.personId ?? inv.email} className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{inv.label}</span>
+                    <span className="text-xs text-gray-400">{inv.count} item{inv.count === 1 ? '' : 's'} locked until the signed NDA is on file</span>
+                    <label className="ml-auto cursor-pointer rounded-lg border border-cyan-200 px-2.5 py-1 text-xs text-cyan-800 hover:bg-cyan-50">
+                      Upload signed NDA
+                      <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadNda(f, { personId: inv.personId, email: inv.email }); }} />
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-[11px] text-gray-400">
+                An AI cross-check compares the uploaded file against the investor's name and this org — a mismatch or
+                unclear result is flagged for you to verify, but never blocks access on its own.
+              </p>
+            </Card>
+          )}
         </div>
       </div>
     </div>
