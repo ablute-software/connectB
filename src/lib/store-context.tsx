@@ -6,7 +6,7 @@
 import { createContext, useContext } from 'react';
 import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, Db,
-  DocumentItem, Entity, FolderKind, Interaction, InvestorSubmission, Nda, OverrideRule,
+  Direction, DocumentItem, Entity, FolderKind, Interaction, InvestorSubmission, Nda, OverrideRule,
   PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem,
 } from './types';
 
@@ -49,6 +49,26 @@ export interface StoreApi {
   // (migration 0021). Lets a human edit imported text directly (typos,
   // garbled OCR) without touching classification/needs_review at all.
   updateInteractionContent: (id: string, content: string) => void;
+  // Needs-review triage toolkit — generic field-level patch (occurred_at,
+  // channel, direction, classification, content, needs_review, classified_by,
+  // person_id). Deliberately WITHOUT classifyInteraction's entity-status
+  // side effects: these are historical imported memories, and one old
+  // "interested" reply shouldn't flip the entity's live pipeline status.
+  // The single write path all dossier triage actions (and their undos) use.
+  updateInteraction: (id: string, patch: Partial<Interaction>) => void;
+  // Plain historical-interaction insert — a memory the import never
+  // captured (e.g. a remembered remote meeting). NOT logInteraction: no
+  // contact lock, no follow-up task, no status transition — it's backfill,
+  // not a fresh send. Returns the created row.
+  addInteraction: (input: {
+    entity_id: string; person_id?: string; occurred_at: string;
+    direction: Direction; channel: Channel; content: string; classification?: Classification;
+  }) => Interaction;
+  // Undo primitives for the triage toolkit (un-add a backfilled interaction,
+  // un-create a person routed from an item). Never used for real pipeline
+  // deletion — only to reverse a just-performed triage action.
+  removeInteraction: (id: string) => void;
+  removePerson: (id: string) => void;
   // Sends an auto-applied (ai/mechanical) row back to the human queue —
   // one click, per the founder's explicit "revertible" requirement.
   // Classification is left as-is (still visible/prefillable); only the

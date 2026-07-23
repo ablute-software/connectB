@@ -4,6 +4,71 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## Needs-review triage toolkit + capability-cache fix (founder use case: Alantra)
+
+**Bug fixed first (its own commit):** the capability probes cached a NEGATIVE
+result for the life of the server instance, so an instance that first probed
+before a migration was applied reported the feature unavailable forever — the
+founder's live session showed "AI pre-classification isn't available in this
+workspace yet" long after migration 0021 landed. New shared
+`makeCapabilityProbe()` factory: positives cache indefinitely (a table
+doesn't un-exist), negatives re-probe after a 60s TTL. All five probes
+refactored onto it (also DRYs out five copies of the boilerplate). `/needs-
+review` and `/company` now fetch `/api/me` with `cache:'no-store'`.
+
+**The toolkit** — each pending dossier item gained:
+- **Full inline edit** of content, date, channel, direction, and
+  classification. The import's placeholder date (`2018-01-01`, stamped on
+  "(sem data)" rows) shows as a muted "data por confirmar" pill with a
+  tooltip, and a date parsed from the item's own Portuguese text ("25 de
+  maio de 2022") is offered as a one-click "📅 usar 2022-05-25" correction —
+  fixing the "last touch 3125 days ago" distortion the Alantra case
+  described.
+- **Route-to actions**: "Criar pessoa daqui" (parses name/email from the
+  text, pre-fills the existing quick-create mini-form, links the item, and
+  offers to link the rest of the dossier's unassigned items); "Guardar como
+  dados da entidade" (fills empty entity contact fields + files the full
+  text as a dated note); "Adicionar interação ao fio" (backfills a
+  remembered interaction the import never captured).
+- **Single-step undo**: a persistent bar + `u` key reverts the last triage
+  action, including un-creating a routed person (unlink-then-remove) and
+  un-filling entity fields.
+
+**Design decisions worth flagging:**
+- **Manual triage no longer flips entity pipeline status.** The original
+  dossier's classify pills went through `classifyInteraction`, which
+  transitions the entity's status (e.g. → in_conversation). All manual
+  triage now goes through a new generic `updateInteraction(id, patch)`
+  instead, WITHOUT that side effect — deliberately: these are historical
+  imported memories, and one old "interested" reply shouldn't flip an
+  entity's *live* pipeline status. It also makes every action cleanly
+  reversible (the AI pre-classification pass still uses the old path,
+  unchanged). If the founder wants historical triage to still move pipeline
+  status, this is the line to revisit.
+- **Undo is single-step and session-scoped**, per the spec. The inverse
+  logic (`invertTriageAction`) is a pure function in needs-review-logic.ts
+  with its own tests; the store gained matching primitives
+  (`updateInteraction`, `addInteraction` [side-effect-free, unlike
+  `logInteraction`], `removeInteraction`, `removePerson`). Also added an
+  `undefined→null` coercion (`nullify`) to the Supabase `updateInteraction`/
+  `updateEntity` persists — without it a patch that *clears* a field was
+  silently dropped by `JSON.stringify` (a latent bug for the entity-contact
+  edit card too, now fixed).
+- **"Guardar como dados da entidade" falls back to a bare-email regex** when
+  the item isn't a labelled "Email: X" contact card — so it works on ANY
+  item's prose (Alantra's email is in a sentence), per the spec's "invoke on
+  any item." email/phone/address fills are gated on the entityContactFields
+  (migration 0024) capability; website/email_domain/note always work.
+
+**Verified:** 110 unit tests green (17 new: PT-month date parser, person-hint
+parser, undo inverses); typecheck + build green. Smoke-tested the full
+Alantra flow live in demo mode — the placeholder-date "📅 usar 2022-05-25"
+one-click, "Criar pessoa daqui" pre-filling "Merce Tell"/email and creating
+her unverified + linked, "Guardar como dados da entidade" filling the domain
++ note and clearing the item, and "Adicionar interação ao fio" backfilling a
+remembered meeting with NO follow-up-task side effects — each with its undo
+reverting cleanly, zero console errors throughout.
+
 ## Founder-feedback batch 2 (23 Jul): profile editing, send flow, quick-create, conflict cleanup
 
 Shipped in the requested order — 4 (cleanup/hygiene) → 1 (contact fields,

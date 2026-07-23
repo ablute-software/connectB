@@ -44,6 +44,17 @@ function persist(p: PromiseLike<{ error: { message: string } | null }>, label: s
   });
 }
 
+// A field-level patch that intends to CLEAR a column passes `undefined` for
+// it, but JSON.stringify drops undefined keys — so a naive `.update(patch)`
+// would silently leave the column unchanged. Map undefined→null so a clear
+// actually persists (matters for undo, which reverts a filled field back to
+// empty, and for un-linking a person_id).
+function nullify(patch: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k in patch) out[k] = patch[k] === undefined ? null : patch[k];
+  return out;
+}
+
 async function loadAll(sb: SB, orgId: string): Promise<Db> {
   const [
     orgRes, entitiesRes, peopleRes, interactionsRes, tasksRes, overridesRes,
@@ -301,6 +312,40 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('interactions').update({ content }).eq('id', id), 'updateInteractionContent');
     },
 
+    updateInteraction(id: string, patch: Partial<Interaction>) {
+      const prev = dbRef.current;
+      commit({ ...prev, interactions: prev.interactions.map((i) => i.id === id ? { ...i, ...patch } : i) });
+      if (orgIdRef.current) persist(sb.from('interactions').update(nullify(patch)).eq('id', id), 'updateInteraction');
+    },
+
+    addInteraction(input) {
+      const prev = dbRef.current;
+      const interaction: Interaction = { id: uuid(), ...input };
+      commit({ ...prev, interactions: [...prev.interactions, interaction] });
+      const o = orgIdRef.current;
+      if (o) persist(sb.from('interactions').insert({ ...interaction, org_id: o }), 'addInteraction');
+      return interaction;
+    },
+
+    removeInteraction(id: string) {
+      const prev = dbRef.current;
+      commit({ ...prev, interactions: prev.interactions.filter((i) => i.id !== id) });
+      if (orgIdRef.current) persist(sb.from('interactions').delete().eq('id', id), 'removeInteraction');
+    },
+
+    removePerson(id: string) {
+      const prev = dbRef.current;
+      commit({
+        ...prev,
+        people: prev.people.filter((p) => p.id !== id),
+        personAffiliations: prev.personAffiliations.filter((a) => a.person_id !== id),
+      });
+      // person_affiliations cascade on the DB (0001), interactions.person_id
+      // is on-delete-set-null — the undo path unlinks interactions first, so
+      // this only ever removes a person nothing still references.
+      if (orgIdRef.current) persist(sb.from('people').delete().eq('id', id), 'removePerson');
+    },
+
     revertToNeedsReview(interactionId: string) {
       const prev = dbRef.current;
       commit({
@@ -390,7 +435,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     updateEntity(id: string, patch: Partial<Entity>) {
       const prev = dbRef.current;
       commit({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, ...patch } : e) });
-      if (orgIdRef.current) persist(sb.from('entities').update(patch).eq('id', id), 'updateEntity');
+      if (orgIdRef.current) persist(sb.from('entities').update(nullify(patch)).eq('id', id), 'updateEntity');
     },
 
     updatePerson(id: string, patch: Partial<Person>) {

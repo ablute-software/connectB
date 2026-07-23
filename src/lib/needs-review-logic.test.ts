@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { classifyMechanically, decideAutoApply, looksLikeMetadataCard, parseMetadataCard } from './needs-review-logic';
+import {
+  classifyMechanically, decideAutoApply, invertTriageAction, isPlaceholderDate,
+  looksLikeMetadataCard, parseMetadataCard, parsePersonHint, suggestDateFromContent,
+  type TriageAction,
+} from './needs-review-logic';
 import type { Interaction } from './types';
 
 function interaction(overrides: Partial<Interaction> & Pick<Interaction, 'id' | 'entity_id' | 'direction' | 'occurred_at'>): Interaction {
@@ -91,5 +95,104 @@ describe('decideAutoApply', () => {
   it('queues a high-confidence interaction proposal that gave no classification', () => {
     const p = { interactionId: 'i1', kind: 'interaction' as const, confidence: 'high' as const, reason: '' };
     expect(decideAutoApply(p)).toBe('queue');
+  });
+});
+
+describe('suggestDateFromContent (PT month names)', () => {
+  it('parses the Alantra case "25 de maio de 2022"', () => {
+    expect(suggestDateFromContent('Reunião remota a 25 de maio de 2022 com a equipa.')).toBe('2022-05-25');
+  });
+
+  it('parses "1 de janeiro de 2020"', () => {
+    expect(suggestDateFromContent('Enviado a 1 de janeiro de 2020.')).toBe('2020-01-01');
+  });
+
+  it('handles "março" with the diacritic', () => {
+    expect(suggestDateFromContent('12 de março de 2021')).toBe('2021-03-12');
+  });
+
+  it('parses month + year with no day, defaulting to the 1st', () => {
+    expect(suggestDateFromContent('Falámos algures em maio de 2022.')).toBe('2022-05-01');
+  });
+
+  it('parses a numeric DD/MM/YYYY date', () => {
+    expect(suggestDateFromContent('data: 25/05/2022')).toBe('2022-05-25');
+  });
+
+  it('parses an ISO date already present', () => {
+    expect(suggestDateFromContent('logged 2022-05-25 by hand')).toBe('2022-05-25');
+  });
+
+  it('returns undefined when there is no parseable date', () => {
+    expect(suggestDateFromContent('sem qualquer data mencionada aqui')).toBeUndefined();
+  });
+});
+
+describe('isPlaceholderDate', () => {
+  it('recognizes the 2018-01-01 import placeholder', () => {
+    expect(isPlaceholderDate('2018-01-01T00:00:00.000Z')).toBe(true);
+  });
+
+  it('is false for a real date', () => {
+    expect(isPlaceholderDate('2022-05-25T12:00:00.000Z')).toBe(false);
+  });
+
+  it('is false for undefined', () => {
+    expect(isPlaceholderDate(undefined)).toBe(false);
+  });
+});
+
+describe('parsePersonHint', () => {
+  it('derives name and email from "merce.tell@rocagroupventures.com"', () => {
+    const hint = parsePersonHint('Falei com a Merce (merce.tell@rocagroupventures.com) sobre o dossier.');
+    expect(hint.email).toBe('merce.tell@rocagroupventures.com');
+    expect(hint.name).toBe('Merce Tell');
+  });
+
+  it('returns email but no derived name when the local part has no separator', () => {
+    const hint = parsePersonHint('contacto: merce@roca.com');
+    expect(hint.email).toBe('merce@roca.com');
+    expect(hint.name).toBeUndefined();
+  });
+
+  it('returns nothing when there is no email', () => {
+    expect(parsePersonHint('sem email no texto')).toEqual({ name: undefined, email: undefined });
+  });
+});
+
+describe('invertTriageAction', () => {
+  it('inverts an interaction edit by re-applying the prior fields', () => {
+    const action: TriageAction = { type: 'editInteraction', interactionId: 'i1', prev: { occurred_at: '2018-01-01T00:00:00.000Z', classification: undefined, needs_review: true } };
+    expect(invertTriageAction(action)).toEqual([
+      { kind: 'updateInteraction', id: 'i1', patch: { occurred_at: '2018-01-01T00:00:00.000Z', classification: undefined, needs_review: true } },
+    ]);
+  });
+
+  it('inverts a person route by unlinking each interaction then removing the person', () => {
+    const action: TriageAction = {
+      type: 'routePerson', personId: 'p1',
+      links: [{ interactionId: 'i1', prevPersonId: undefined }, { interactionId: 'i2', prevPersonId: 'p-old' }],
+    };
+    expect(invertTriageAction(action)).toEqual([
+      { kind: 'updateInteraction', id: 'i1', patch: { person_id: undefined } },
+      { kind: 'updateInteraction', id: 'i2', patch: { person_id: 'p-old' } },
+      { kind: 'removePerson', id: 'p1' },
+    ]);
+  });
+
+  it('inverts an entity-data route by restoring entity fields and re-flagging the item', () => {
+    const action: TriageAction = {
+      type: 'routeEntityData', entityId: 'e1', interactionId: 'i1',
+      prevEntity: { email: undefined, phone: undefined, notes: undefined }, prevNeedsReview: true,
+    };
+    expect(invertTriageAction(action)).toEqual([
+      { kind: 'updateEntity', id: 'e1', patch: { email: undefined, phone: undefined, notes: undefined } },
+      { kind: 'updateInteraction', id: 'i1', patch: { needs_review: true } },
+    ]);
+  });
+
+  it('inverts an added interaction by removing it', () => {
+    const action: TriageAction = { type: 'addInteraction', interactionId: 'i-new' };
+    expect(invertTriageAction(action)).toEqual([{ kind: 'removeInteraction', id: 'i-new' }]);
   });
 });

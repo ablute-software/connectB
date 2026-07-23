@@ -129,6 +129,31 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       }));
     },
 
+    updateInteraction(id, patch) {
+      setDb((prev) => ({
+        ...prev,
+        interactions: prev.interactions.map((i) => i.id === id ? { ...i, ...patch } : i),
+      }));
+    },
+
+    addInteraction(input) {
+      const interaction: Interaction = { id: uid('int'), ...input };
+      setDb((prev) => ({ ...prev, interactions: [...prev.interactions, interaction] }));
+      return interaction;
+    },
+
+    removeInteraction(id) {
+      setDb((prev) => ({ ...prev, interactions: prev.interactions.filter((i) => i.id !== id) }));
+    },
+
+    removePerson(id) {
+      setDb((prev) => ({
+        ...prev,
+        people: prev.people.filter((p) => p.id !== id),
+        personAffiliations: prev.personAffiliations.filter((a) => a.person_id !== id),
+      }));
+    },
+
     revertToNeedsReview(interactionId) {
       setDb((prev) => ({
         ...prev,

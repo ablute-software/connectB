@@ -7,15 +7,18 @@
 import { useState } from 'react';
 import { useStore } from '@/lib/store';
 
-export function QuickCreatePerson({ entityId, onCreated, onCancel }: {
+export function QuickCreatePerson({ entityId, onCreated, onCancel, initialName, initialEmail }: {
   entityId: string; onCreated: (personId: string) => void; onCancel: () => void;
+  // Batch 2 item 3 — route-to "Criar pessoa daqui" pre-fills name/email
+  // parsed from an interaction's text; the founder still edits before saving.
+  initialName?: string; initialEmail?: string;
 }) {
   const { addPerson } = useStore();
-  const [fullName, setFullName] = useState('');
+  const [fullName, setFullName] = useState(initialName ?? '');
   const [role, setRole] = useState('');
   const [gender, setGender] = useState('');
   const [linkedinUrl, setLinkedinUrl] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail ?? '');
   const [phone, setPhone] = useState('');
 
   function submit() {
