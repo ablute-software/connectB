@@ -399,6 +399,24 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('people').update(patch).eq('id', id), 'updatePerson');
     },
 
+    addPerson(p) {
+      const prev = dbRef.current;
+      const siblings = prev.people.filter((x) => x.entity_id === p.entity_id);
+      const seniority_rank = siblings.length ? Math.max(...siblings.map((x) => x.seniority_rank)) + 1 : 1;
+      const person: Person = {
+        id: uuid(), entity_id: p.entity_id, full_name: p.full_name, role: p.role, gender: p.gender,
+        linkedin_url: p.linkedin_url, email_guess: p.email_guess, phone: p.phone,
+        seniority_rank, linkedin_verified: false, bounce_count: 0, linked_companies: [], linked_funds: [],
+        hook_status: 'to_research', kill_words: [], preferred_language: 'pt',
+        privacy_notice_sent: false, do_not_contact: false, identity_verified: false,
+        data_source: 'Quick-created during logging',
+      };
+      commit({ ...prev, people: [...prev.people, person] });
+      const o = orgIdRef.current;
+      if (o) persist(sb.from('people').insert({ ...person, org_id: o }), 'addPerson');
+      return person;
+    },
+
     convertEntityToPerson(entityId: string) {
       const prev = dbRef.current;
       const entity = prev.entities.find((e) => e.id === entityId);

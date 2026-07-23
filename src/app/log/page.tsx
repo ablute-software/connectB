@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { Card, PREFLIGHT_EXPLAIN, Tooltip } from '@/components/ui';
+import { QuickCreatePerson } from '@/components/QuickCreatePerson';
 import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
 import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
 import { ACTION_TYPE_LABEL, ACTION_TYPES, recommendedActionType, relationshipSummary } from '@/lib/relationship';
@@ -25,6 +26,7 @@ function LogForm() {
 
   const [entityId, setEntityId] = useState(sp.get('entity') ?? '');
   const [personId, setPersonId] = useState(sp.get('person') ?? '');
+  const [showQuickCreate, setShowQuickCreate] = useState(false);
   const [direction, setDirection] = useState<'out' | 'in'>('out');
   const [channel, setChannel] = useState<Channel>('linkedin_dm');
   const [content, setContent] = useState('');
@@ -230,12 +232,17 @@ function LogForm() {
 
         <Card title="1 · Who">
           <div className="grid gap-2 sm:grid-cols-2">
-            <select value={entityId} onChange={(e) => { setEntityId(e.target.value); setPersonId(''); }}
+            <select value={entityId} onChange={(e) => { setEntityId(e.target.value); setPersonId(''); setShowQuickCreate(false); }}
               className="rounded border border-gray-300 px-2 py-1.5 text-sm">
               <option value="">Select entity…</option>
               {db.entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
-            <select value={personId} onChange={(e) => setPersonId(e.target.value)} disabled={!entityId}
+            <select value={showQuickCreate ? '__new__' : personId}
+              onChange={(e) => {
+                if (e.target.value === '__new__') { setShowQuickCreate(true); setPersonId(''); }
+                else { setShowQuickCreate(false); setPersonId(e.target.value); }
+              }}
+              disabled={!entityId}
               className="rounded border border-gray-300 px-2 py-1.5 text-sm">
               <option value="">Select person…</option>
               {people.map((p) => (
@@ -243,8 +250,14 @@ function LogForm() {
                   {p.seniority_rank} · {p.full_name}{p.do_not_contact ? ' — DO NOT CONTACT' : ''}
                 </option>
               ))}
+              <option value="__new__">Outra pessoa…</option>
             </select>
           </div>
+          {showQuickCreate && entityId && (
+            <QuickCreatePerson entityId={entityId}
+              onCreated={(newId) => { setPersonId(newId); setShowQuickCreate(false); }}
+              onCancel={() => setShowQuickCreate(false)} />
+          )}
         </Card>
 
         <Card title="2 · What">

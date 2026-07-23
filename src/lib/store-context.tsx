@@ -75,6 +75,15 @@ export interface StoreApi {
   updateEntity: (id: string, patch: Partial<Entity>) => void;
   updatePerson: (id: string, patch: Partial<Person>) => void;
   setDoNotContact: (personId: string) => void;
+  // Quick-create from /log's "Outra pessoa…" (batch 2 item 3) — attached to
+  // the entity immediately so the interaction can be saved without
+  // friction. Always created with identity_verified: false; seniority_rank
+  // defaults to least-senior-so-far at this entity. Returns the new row so
+  // the caller can select it immediately.
+  addPerson: (p: {
+    entity_id: string; full_name: string; role?: string; gender?: string;
+    linkedin_url?: string; email_guess?: string; phone?: string;
+  }) => Person;
   addDocument: (d: Omit<DocumentItem, 'id'>) => void;
   // Data Room V2 (F1): removes the Storage object (when storage_path is
   // set) and the documents row. Irreversible — the UI must confirm before

@@ -26,7 +26,14 @@ export default function PersonPage({ params }: { params: { id: string } }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">{person.full_name}</h1>
+          <h1 className="text-xl font-bold text-gray-900">
+            {person.full_name}
+            {person.identity_verified === false && (
+              <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 align-middle text-[10px] font-semibold text-amber-800">
+                identidade não confirmada
+              </span>
+            )}
+          </h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500">
             <span>{person.role}</span>
             {entity && <>· <EntityLink id={entity.id}>{entity.name}</EntityLink></>}

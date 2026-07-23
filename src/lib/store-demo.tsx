@@ -192,6 +192,21 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, people: prev.people.map((p) => p.id === id ? { ...p, ...patch } : p) }));
     },
 
+    addPerson(p) {
+      const siblings = db.people.filter((x) => x.entity_id === p.entity_id);
+      const seniority_rank = siblings.length ? Math.max(...siblings.map((x) => x.seniority_rank)) + 1 : 1;
+      const person: Person = {
+        id: uid('p'), entity_id: p.entity_id, full_name: p.full_name, role: p.role, gender: p.gender,
+        linkedin_url: p.linkedin_url, email_guess: p.email_guess, phone: p.phone,
+        seniority_rank, linkedin_verified: false, bounce_count: 0, linked_companies: [], linked_funds: [],
+        hook_status: 'to_research', kill_words: [], preferred_language: 'pt',
+        privacy_notice_sent: false, do_not_contact: false, identity_verified: false,
+        data_source: 'Quick-created during logging',
+      };
+      setDb((prev) => ({ ...prev, people: [...prev.people, person] }));
+      return person;
+    },
+
     convertEntityToPerson(entityId) {
       setDb((prev) => {
         const entity = prev.entities.find((e) => e.id === entityId);
