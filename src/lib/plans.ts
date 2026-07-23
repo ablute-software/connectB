@@ -32,14 +32,35 @@ export const PLANS: PlanRow[] = [
   { tier: 'motherfunding', name: 'Motherfunding', monthly: '€149/mês', annual: '€1.308/ano (equivale a €109/mês)', paid: true },
 ];
 
-// Success-fee copy (Portuguese, verbatim). NOT accepted terms — the plans page
-// must present this with the "Termos sujeitos a contrato" caveat and no
-// consent checkbox; the binding contract comes later.
-export const SUCCESS_FEE_COPY =
-  '1,3% sobre capital efetivamente levantado junto de investidores fornecidos pela plataforma; '
-  + 'aplica-se até 18 meses após o cancelamento do serviço; ao valor do fee são deduzidos os '
-  + 'montantes pagos em planos até à data do investimento.';
-export const SUCCESS_FEE_CAVEAT = 'Termos sujeitos a contrato';
+// Success fee SUSPENDED (founder decision, post legal consultation, 2026-07-23):
+// pending regulatory clarity. All user-facing fee copy (the 1,3%, the 18-month
+// tail, the plan-deduction, the "Termos sujeitos a contrato" caveat) is removed
+// — subscriptions are the only thing a startup pays at this stage. Replaced on
+// the Plans page by this one discreet, terms-free note. No percentages, no terms.
+export const CONSULTANCY_TEASER = 'Brevemente: opção de consultoria para captação de capital.';
+
+// Billing period toggle (Mensal / Anual). Annual falls back to the monthly
+// label when a tier has no annual price (the free 'idea' tier is €0 either way).
+export type BillingPeriod = 'monthly' | 'annual';
+export const BILLING_PERIODS: BillingPeriod[] = ['monthly', 'annual'];
+
+export function planPriceLabel(p: PlanRow, period: BillingPeriod): string {
+  return period === 'annual' ? (p.annual ?? p.monthly) : p.monthly;
+}
+
+// A plan-change request records BOTH the tier and the chosen billing period.
+// There is no DB column for the period (no migration), so it's encoded into the
+// existing free-text plan_change_requested column: an annual request is
+// `<tier>@annual`, a monthly one stays a bare `<tier>` (back-compatible with
+// rows written before this change). parsePlanRequest is tolerant of both.
+export function encodePlanRequest(tier: PlanTier, period: BillingPeriod): string {
+  return period === 'annual' ? `${tier}@annual` : tier;
+}
+export function parsePlanRequest(raw: string | null | undefined): { tier: PlanTier; period: BillingPeriod } {
+  if (!raw) return { tier: 'idea', period: 'monthly' };
+  const [t, p] = raw.split('@');
+  return { tier: normalizePlan(t), period: p === 'annual' ? 'annual' : 'monthly' };
+}
 
 // User-facing gate copy, kept beside the gate that produces it.
 export const AI_COMPOSER_LOCKED_COPY = 'A personalização por AI faz parte dos planos pagos';

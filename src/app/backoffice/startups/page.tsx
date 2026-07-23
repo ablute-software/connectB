@@ -5,8 +5,10 @@
 // platform team, since there's no billing infra yet — the flip is manual.
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
-import { PLANS, planName, normalizePlan } from '@/lib/plans';
+import { PLANS, planName, normalizePlan, parsePlanRequest } from '@/lib/plans';
 import type { PlanTier } from '@/lib/types';
+
+const PERIOD_LABEL: Record<'monthly' | 'annual', string> = { monthly: 'Mensal', annual: 'Anual' };
 
 interface OrgHealth {
   orgId: string; name: string; plan: string; createdAt: string;
@@ -61,21 +63,24 @@ export default function BackofficeStartupsPage() {
       {planManagement && pending.length > 0 && (
         <Card title={`Pending plan-change requests (${pending.length})`}>
           <ul className="divide-y divide-gray-100 text-sm">
-            {pending.map((o) => (
-              <li key={o.orgId} className="flex flex-wrap items-center gap-2 py-2">
-                <span className="font-medium">{o.name}</span>
-                <span className="text-xs text-gray-500">
-                  {planName(normalizePlan(o.plan))} → <b>{planName(normalizePlan(o.planChangeRequested))}</b>
-                  {o.planChangeRequestedAt && ` · pedido ${o.planChangeRequestedAt.slice(0, 10)}`}
-                </span>
-                <button
-                  onClick={() => setPlan(o.orgId, normalizePlan(o.planChangeRequested))}
-                  disabled={savingId === o.orgId}
-                  className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
-                  {savingId === o.orgId ? 'A aplicar…' : 'Aplicar pedido'}
-                </button>
-              </li>
-            ))}
+            {pending.map((o) => {
+              const req = parsePlanRequest(o.planChangeRequested);
+              return (
+                <li key={o.orgId} className="flex flex-wrap items-center gap-2 py-2">
+                  <span className="font-medium">{o.name}</span>
+                  <span className="text-xs text-gray-500">
+                    {planName(normalizePlan(o.plan))} → <b>{planName(req.tier)}</b> ({PERIOD_LABEL[req.period]})
+                    {o.planChangeRequestedAt && ` · pedido ${o.planChangeRequestedAt.slice(0, 10)}`}
+                  </span>
+                  <button
+                    onClick={() => setPlan(o.orgId, req.tier)}
+                    disabled={savingId === o.orgId}
+                    className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
+                    {savingId === o.orgId ? 'A aplicar…' : 'Aplicar pedido'}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </Card>
       )}
@@ -101,7 +106,7 @@ export default function BackofficeStartupsPage() {
                         {PLANS.map((p) => <option key={p.tier} value={p.tier}>{p.name}</option>)}
                       </select>
                       {o.planChangeRequested && (
-                        <span title={`Requested ${planName(normalizePlan(o.planChangeRequested))}`}
+                        <span title={`Requested ${planName(parsePlanRequest(o.planChangeRequested).tier)} (${PERIOD_LABEL[parsePlanRequest(o.planChangeRequested).period]})`}
                           className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">req</span>
                       )}
                     </div>

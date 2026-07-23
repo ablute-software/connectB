@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { can, type OrgRole } from '@/lib/permissions';
-import { PLAN_TIERS } from '@/lib/plans';
+import { PLAN_TIERS, encodePlanRequest } from '@/lib/plans';
 import type { PlanTier } from '@/lib/types';
 
 export async function POST(req: Request) {
@@ -25,14 +25,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Só o owner ou admin pode pedir uma mudança de plano.' }, { status: 403 });
   }
 
-  const { tier } = await req.json() as { tier?: string };
+  const { tier, period } = await req.json() as { tier?: string; period?: string };
   if (!tier || !PLAN_TIERS.includes(tier as PlanTier)) {
     return NextResponse.json({ ok: false, error: 'Plano inválido.' }, { status: 400 });
   }
+  // Encode the chosen billing period into the free-text request column (no
+  // migration): 'annual' → `<tier>@annual`, monthly stays a bare `<tier>`.
+  const encoded = encodePlanRequest(tier as PlanTier, period === 'annual' ? 'annual' : 'monthly');
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { error } = await admin.from('orgs')
-    .update({ plan_change_requested: tier, plan_change_requested_at: new Date().toISOString() })
+    .update({ plan_change_requested: encoded, plan_change_requested_at: new Date().toISOString() })
     .eq('id', member.org_id);
   // A missing-column error means migration 0028 hasn't been applied yet.
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

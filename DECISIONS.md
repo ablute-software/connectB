@@ -4,6 +4,27 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## Plans page — success fee suspended + Mensal/Anual toggle
+
+**Success fee SUSPENDED** (founder decision after legal consultation): pending
+regulatory clarity. Every user-facing trace is gone — the 1,3%, the 18-month
+tail, the plan-deduction, and the "Termos sujeitos a contrato" caveat, plus the
+`SUCCESS_FEE_COPY`/`SUCCESS_FEE_CAVEAT` constants themselves. In their place, one
+discreet, terms-free note: **"Brevemente: opção de consultoria para captação de
+capital."** No DB fields ever backed the fee (it was copy only), so nothing
+dormant to keep. **Subscriptions are the only charge at this stage.**
+
+**Mensal/Anual toggle** at the top of the plans table drives every price
+(garage €85 ↔ €756/ano, motherfunding €149 ↔ €1.308/ano, free €0 either way)
+via the pure `planPriceLabel(row, period)` — unit-tested.
+
+**The request records the period.** No migration (as expected), so the chosen
+period is encoded into the existing free-text `plan_change_requested` column:
+annual → `<tier>@annual`, monthly stays a bare `<tier>` (back-compatible with
+rows written before this). `encodePlanRequest`/`parsePlanRequest` (tested,
+back-compat + legacy free/paid) handle both ends; the Plans page and back-office
+Startups (pending list + set-plan) both parse it and show the period label.
+
 ## Fact-triggered reawakening + Data Room polish (E6 · E7 · F)
 
 Two migrations ship pending application (0029 document_versions, 0030
