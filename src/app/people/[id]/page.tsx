@@ -12,7 +12,7 @@ import { personCompleteness } from '@/lib/completeness';
 
 export default function PersonPage({ params }: { params: { id: string } }) {
   const { id } = params;
-  const { db, setDoNotContact } = useStore();
+  const { db, setDoNotContact, updatePerson } = useStore();
   const router = useRouter();
   const person = db.people.find((p) => p.id === id);
   if (!person) return <div className="text-gray-500">Person not found.</div>;
@@ -52,7 +52,10 @@ export default function PersonPage({ params }: { params: { id: string } }) {
           <EnrichmentBadge result={completeness} subjectType="person" subjectId={person.id} orgId={db.org.id} />
         </div>
       )}
-      {!person.do_not_contact && <ContributionBox subjectType="person" subjectId={person.id} orgId={db.org.id} />}
+      {!person.do_not_contact && (
+        <ContributionBox subjectType="person" subjectId={person.id} orgId={db.org.id} subject={person as unknown as Record<string, unknown>}
+          onApplyValue={(field, value) => updatePerson(person.id, { [field]: value } as Partial<typeof person>)} />
+      )}
 
       {person.do_not_contact && (
         <div className="rounded-lg border-l-4 border-[#B00000] bg-red-50 px-4 py-3 text-sm text-[#B00000] font-medium">

@@ -7,7 +7,7 @@ import { createContext, useContext } from 'react';
 import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, Db,
   DocumentItem, Entity, FolderKind, Interaction, InvestorSubmission, Nda, OverrideRule,
-  PassReasonCategory, PersonAffiliation, RelationshipStage, TaskItem,
+  PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem,
 } from './types';
 
 export type LogInput = {
@@ -69,6 +69,11 @@ export interface StoreApi {
   setEntityStatus: (id: string, status: Db['entities'][0]['status'], reason?: string) => void;
   setInterest: (id: string, eur: number | undefined) => void;
   resolveHardFilter: (id: string, status: 'resolved_ok' | 'resolved_blocked') => void;
+  // Generic field-level patch, used by the entity contact-info edit card
+  // (batch 2 item 1) and by the conflict compare popover's "usar importado"
+  // (batch 2 item 4) — one write path for both, not two ad-hoc ones.
+  updateEntity: (id: string, patch: Partial<Entity>) => void;
+  updatePerson: (id: string, patch: Partial<Person>) => void;
   setDoNotContact: (personId: string) => void;
   addDocument: (d: Omit<DocumentItem, 'id'>) => void;
   // Data Room V2 (F1): removes the Storage object (when storage_path is

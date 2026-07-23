@@ -15,7 +15,7 @@ import { browserClient } from '@/lib/supabase';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
-  const { db, setInterest, setEntityStatus, convertEntityToPerson, markEntityVerified } = useStore();
+  const { db, setInterest, setEntityStatus, convertEntityToPerson, markEntityVerified, updateEntity } = useStore();
   const entity = db.entities.find((e) => e.id === id);
   const [interest, setInterestLocal] = useState<string>('');
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -167,7 +167,8 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           </div>
         </div>
         <div className="mt-4 border-t border-gray-100 pt-3">
-          <ContributionBox subjectType="entity" subjectId={entity.id} orgId={db.org.id} />
+          <ContributionBox subjectType="entity" subjectId={entity.id} orgId={db.org.id} subject={entity as unknown as Record<string, unknown>}
+            onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} />
         </div>
       </Card>
 

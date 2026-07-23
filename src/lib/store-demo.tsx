@@ -185,6 +185,14 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, hard_filter_status: status } : e) }));
     },
 
+    updateEntity(id, patch) {
+      setDb((prev) => ({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, ...patch } : e) }));
+    },
+
+    updatePerson(id, patch) {
+      setDb((prev) => ({ ...prev, people: prev.people.map((p) => p.id === id ? { ...p, ...patch } : p) }));
+    },
+
     convertEntityToPerson(entityId) {
       setDb((prev) => {
         const entity = prev.entities.find((e) => e.id === entityId);

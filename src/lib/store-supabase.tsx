@@ -388,6 +388,18 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('entities').update({ hard_filter_status: status }).eq('id', id), 'resolveHardFilter');
     },
 
+    updateEntity(id: string, patch: Partial<Entity>) {
+      const prev = dbRef.current;
+      commit({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, ...patch } : e) });
+      if (orgIdRef.current) persist(sb.from('entities').update(patch).eq('id', id), 'updateEntity');
+    },
+
+    updatePerson(id: string, patch: Partial<Person>) {
+      const prev = dbRef.current;
+      commit({ ...prev, people: prev.people.map((p) => p.id === id ? { ...p, ...patch } : p) });
+      if (orgIdRef.current) persist(sb.from('people').update(patch).eq('id', id), 'updatePerson');
+    },
+
     convertEntityToPerson(entityId: string) {
       const prev = dbRef.current;
       const entity = prev.entities.find((e) => e.id === entityId);
