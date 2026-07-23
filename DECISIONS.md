@@ -4,6 +4,88 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## Founder-feedback batch 2 (23 Jul): profile editing, send flow, quick-create, conflict cleanup
+
+Shipped in the requested order — 4 (cleanup/hygiene) → 1 (contact fields,
+migration first) → 2 (post-compose flow) → 3 (quick-create + verification) —
+four separate pushes, each build/typecheck/test green.
+
+**Item 4 — conflict-display cleanup.** Entity/person profiles were
+rendering raw import-conflict log lines verbatim ("submitted — §9b import
+conflict — existing: X vs imported: Y") straight to the founder: backend
+jargon, a leaked spec reference, and a repeat of what the field above
+already showed. Now a small "por verificar" pill; clicking it opens a
+compact compare popover (valor atual vs importado) with "Manter"/"Usar
+importado". New founder-facing `/api/contributions/resolve` route (flips
+the contribution's status only — RLS has no update policy for org members
+on `contributions` by design, so this needed service-role after an
+explicit org-membership check; distinct from and never touches the
+existing platform-admin-only back-office review route) plus new generic
+`updateEntity`/`updatePerson` store actions for the actual write-back.
+Swept the rest of the app for similar leaks — none found; the import
+staging pages show this detail in-context while the founder reviews their
+own import, which is expected, not a leak.
+
+**Item 1 — editable entity contact fields.** Entities had no direct
+email/phone/address, only indirect/verification-tracked website/
+email_domain with no edit affordance at all. Migration 0024 (email, phone,
+address on entities; bundled with item 3's people.gender/
+identity_verified since both are small and land in this batch) — pushed
+alone first as instructed, capability-gated via the established probe
+pattern. One correction worth flagging: the instruction assumed person
+profiles already had an inline-edit pattern to mirror for entities; they
+didn't — only the existing `interest_eur` input+Save on the entity page
+did. This establishes the pattern (edit-toggle + Save, one small "Contact"
+block) rather than copying something that wasn't actually there.
+
+**Item 2 — post-compose action flow.** The primary action after a draft
+now matches the channel: email+Gmail is unchanged (existing "Send from X &
+log"); email without Gmail gets a new Copy button + "Confirmo que enviei";
+LinkedIn (DM or connection note) states the ToS constraint explicitly and
+adds connection-stage guidance (first-ever touch → suggests a connection
+request + note, hard-capped at 300 chars — new `LINKEDIN_NOTE_MAX` in
+rules.ts, distinct from the DM cap — over a DM that assumes an existing
+connection). "Confirmo que enviei" is not new logic — it calls the exact
+same `save()`/`logInteraction` path everything else uses, which already
+auto-creates the 14-day follow-up task for outbound interactions. That
+task-shape object literal was duplicated verbatim between store-demo.tsx
+and store-supabase.tsx; extracted to `rules.ts`'s `buildFollowUpTask()` so
+it's tested once (2 tests) instead of never, alongside 3 tests for the new
+LinkedIn-note cap.
+
+**Item 3 — quick-create person.** `/log`'s person select gets "Outra
+pessoa…" → an inline mini-form (name required, role/gender/LinkedIn/email/
+phone optional) → new `addPerson` store action, attached to the entity
+immediately, seniority rank defaulting to least-senior-so-far. Verified
+live: the new contact correctly triggers the existing seniority-order
+pre-flight check against the entity's real rank-1 person — no special-
+casing needed, it's a real row like any other. Flagged `identity_verified:
+false`, shown as an "identidade não confirmada" pill on their profile.
+
+Cross-org existence signal: a new pure module
+(`src/lib/person-similarity.ts` — Sørensen–Dice bigram name similarity +
+greedy same-context clustering, `CROSS_ORG_REPORT_THRESHOLD = 10`
+configurable constant, 12 tests) plus a minimal platform-admin/service-role
+route (`/api/backoffice/unverified-people-signal`) computing it cross-org
+and returning aggregate-only data (counts + proposed fields, never org
+identities or interaction content — same discipline as Startups/Métricas).
+No back-office UI added for it — with today's single-org reality it always
+returns an empty list, so a UI would show nothing to look at; deferred
+rather than built speculatively, exactly as the founder's own framing
+anticipated.
+
+**One assumption that didn't hold, disclosed rather than papered over**:
+the spec described reusing "the existing AI research (§6b-3) mechanism"
+for a quick-created person. That mechanism (`/api/backoffice/research`) is
+cross-org-by-catalog-entity-name and platform-admin-only — it looks up VC/
+investor firms, not individual people, so it doesn't actually apply here.
+Not wired up to anything; noted rather than building a route that only
+superficially resembles reuse.
+
+**Migration numbering**: the founder's message assumed "migration 0022"
+for item 1, written before knowing last session's Data Room V2 work had
+already claimed 0022 and 0023. This is 0024.
+
 ## Data Room V2 (founder feedback batch, 23 Jul: 2 bugs + 5 features)
 
 Shipped in three pushes, in the order requested — bugs first (unblock daily
