@@ -35,9 +35,9 @@ export interface PlanRow {
 // not paraphrasable. Kept here so the Plans page and any pricing surface share
 // one definition.
 export const PLANS: PlanRow[] = [
-  { tier: 'idea', name: 'Mom, I have an idea', monthly: '€0', paid: false, monthlyEur: 0 },
-  { tier: 'garage', name: "Dad, I'm leaving the garage", monthly: '€85/month', annual: '€756/year (equivalent to €63/month)', paid: true, monthlyEur: 85, annualEur: 756, annualPerMonthEur: 63 },
-  { tier: 'motherfunding', name: 'Motherfunding', monthly: '€149/month', annual: '€1,308/year (equivalent to €109/month)', paid: true, monthlyEur: 149, annualEur: 1308, annualPerMonthEur: 109 },
+  { tier: 'idea', name: 'Elementary, my dear', monthly: '€0', paid: false, monthlyEur: 0 },
+  { tier: 'garage', name: 'Suspect list', monthly: '€85/month', annual: '€756/year (equivalent to €63/month)', paid: true, monthlyEur: 85, annualEur: 756, annualPerMonthEur: 63 },
+  { tier: 'motherfunding', name: "It's the buttler!", monthly: '€149/month', annual: '€1,308/year (equivalent to €109/month)', paid: true, monthlyEur: 149, annualEur: 1308, annualPerMonthEur: 109 },
 ];
 
 // Success fee SUSPENDED (founder decision, post legal consultation, 2026-07-23):

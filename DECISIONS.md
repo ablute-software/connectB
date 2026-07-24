@@ -1987,3 +1987,93 @@ The 14 historical Banif Capital contribution rows (with their duplicates)
 were left as-is — they're an audit trail of what actually happened, not
 something worth pruning; the entity now correctly reflects only the first
 accepted value per field.
+
+## Packs removed from founder nav; suggest-investor moved into Pipeline
+
+**Diagnosed before removing, per the explicit ask.** Read the full
+`src/app/packs/page.tsx` (142 lines) and every backoffice consumer:
+- The founder-facing Packs page has exactly one capability worth keeping:
+  "Suggest an investor to the catalog" (`submitInvestor`). Everything else —
+  browsing/unlocking curated packs, blurred pre-unlock investor names,
+  de-dup/no-double-charge messaging — is being retired along with the page,
+  per the task's explicit "a única funcionalidade que interessa manter."
+- **No founder-facing suggestion-history/approval-status view exists
+  today**, before or after this change — post-submit was always just a
+  static "submitted, thanks" message. Flagging this as asked: if you want
+  founders to later check whether their suggestion was approved/rejected,
+  that's new work, not something this change removed.
+- **Back-office is fully independent, confirmed by reading every consumer**:
+  `/backoffice/catalog` manages `packs`/`pack_items` through its own
+  `/api/backoffice/packs*` routes; `/backoffice/queue`'s Submissions tab
+  reads `investor_submissions` through `/api/backoffice/submissions*`.
+  Neither renders or calls anything on `src/app/packs/page.tsx`. Removing it
+  breaks nothing admin-side.
+- **No deep links** (grepped emails, notifications, hardcoded `/packs`
+  strings) point at the old page from anywhere outside normal nav/the
+  Pipeline button.
+
+**Change:** sidebar nav entry removed (`shell.tsx`). The old
+"+ Add investor" link (`pipeline/page.tsx`, previously a plain `next/link`
+to `/packs` — there was no dropdown/other-options menu today, contrary to
+what the task's phrasing implied; it was single-purpose) now opens
+`AddInvestorModal` (new component) as a popup, same overlay/panel
+convention already used elsewhere (`fixed inset-0` + centered panel,
+matching `agenda/page.tsx`'s pattern) — exact same form fields, exact same
+`submitInvestor` call, exact same post-submit confirmation copy, just
+presented as a modal instead of a page nav. `src/app/packs/page.tsx` itself
+now redirects to `/pipeline` rather than 404ing — no internal link needed
+this (none exist), but a bookmarked/typed URL on a live product shouldn't
+break, so this is a small proactive addition beyond the literal ask.
+Underlying pack tables (`packs`, `pack_items`, `pack_unlocks`, `catalog`,
+`catalog_deliveries`) and the `unlockPack`/`reviewSubmission` store actions
+are untouched — only the founder's entry points into `submitInvestor`
+moved; the admin pack-management tooling keeps working exactly as before.
+
+## Plan display names renamed (Elementary, my dear / Suspect list / It's the buttler!)
+
+Display names only — `src/lib/plans.ts`'s `PLANS[].name` for tiers
+`idea`/`garage`/`motherfunding` respectively. Tier slugs, Stripe Price ID
+env vars, and every DB enum/column are untouched, so no subscription,
+webhook, or plan-gate logic changes. Confirmed via grep that every UI
+surface (Plans & billing page, landing `PricingSection`, back-office
+Startups org list, `OrganisationCard`) renders the name exclusively through
+`planName(tier)` or `.map`-ing the `PLANS` array — never a copy-pasted
+string — so the rename's blast radius was genuinely just the one array
+literal, plus:
+- `src/lib/plans.test.ts` — the three `planName()` assertions updated to
+  match (a required lockstep change, not optional).
+- `src/components/landing/PricingSection.tsx` — a feature-bullet string
+  ("Everything in Garage") referenced the OLD tier's *nickname* in prose,
+  not the literal old display name, so an exact-string grep wouldn't have
+  caught it; found it by re-checking the rendered landing page live and
+  fixed it to "Everything in Suspect list."
+- Grepped for any other standalone "Garage"/"Motherfunding" nickname
+  references after that fix — none found.
+
+**Order preserved** everywhere a comparison table renders (`PricingSection`,
+`/plans` page): both map over `PLANS` in array order, unchanged —
+idea → garage → motherfunding == Elementary, my dear → Suspect list →
+It's the buttler!, basic to complete, confirmed live in demo mode.
+
+**Stripe Product `name` NOT updated — could not, not just "chose not to."**
+`STRIPE_SECRET_KEY` and all four `STRIPE_PRICE_*` env vars are empty in this
+local environment (confirmed by reading `.env.local` directly), so there is
+no credential and no known Product ID to call `stripe.products.update()`
+against from here, and none is stored anywhere in this codebase (billing.ts
+only ever references Price IDs, never Product IDs — confirmed by grepping
+for `stripe.products`/`product.name` across `src/`, zero hits). This needs
+either the founder updating the two Products' display names directly in the
+Stripe Dashboard (simplest — a 2-minute manual edit, safe exactly as the
+task noted: Stripe references by Price ID, not name) or handing over the
+real production secret key and Product IDs for a script to do it, which
+isn't something to request or handle in chat per the credential-handling
+rule. Flagged rather than silently skipped.
+
+Verified: `tsc --noEmit`, full build, and all 197 tests green. Live-checked
+in demo mode (temporarily unset `.env.local`, restored after) — sidebar has
+no Packs entry, "+ Add investor" opens the modal with the full form intact,
+`/packs` redirects to Pipeline, and both the in-app Plans page and the
+public landing pricing section render the three new names in the correct
+order. Back-office Startups' org-list plan display could not be checked
+live (needs the real Supabase-backed API, unavailable in demo mode) —
+verified by source read only, same limitation noted on earlier passes.

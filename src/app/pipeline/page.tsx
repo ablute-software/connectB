@@ -6,6 +6,7 @@ import { useStore } from '@/lib/store';
 import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur } from '@/components/ui';
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
+import { AddInvestorModal } from '@/components/AddInvestorModal';
 import { preflight, preflightSummary } from '@/lib/rules';
 import { isPersonCandidate } from '@/lib/relationship';
 import type { Db, Entity, TaskItem } from '@/lib/types';
@@ -69,6 +70,7 @@ export default function PipelinePage() {
   const [country, setCountry] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('wave');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [addInvestorOpen, setAddInvestorOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -145,7 +147,7 @@ export default function PipelinePage() {
           <button onClick={() => { setQ(''); setWave(''); setStatus(''); setCountry(''); }} className="text-sm text-gray-500 hover:underline">Clear</button>
         )}
         <span className="ml-auto text-xs text-gray-400">{rows.length} entities</span>
-        <Link href="/packs" className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-[#0E7490] hover:bg-[#E8F4F8]">+ Add investor</Link>
+        <button onClick={() => setAddInvestorOpen(true)} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-[#0E7490] hover:bg-[#E8F4F8]">+ Add investor</button>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
@@ -221,6 +223,7 @@ export default function PipelinePage() {
           </tbody>
         </table>
       </div>
+      {addInvestorOpen && <AddInvestorModal onClose={() => setAddInvestorOpen(false)} />}
     </div>
   );
 }

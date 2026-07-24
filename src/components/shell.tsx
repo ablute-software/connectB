@@ -26,7 +26,6 @@ const NAV: { href: string; label: string; icon: string; section?: string; requir
   { href: '/documents', label: 'Data Room', icon: '▣', section: 'Sharing' },
   { href: '/import', label: 'Import history', icon: '⇪' },
   { href: '/needs-review', label: 'Needs review', icon: '◑' },
-  { href: '/packs', label: 'Packs', icon: '◈', section: 'Growth' },
   { href: '/outbox', label: 'Outbox', icon: '✉', section: 'Automation' },
   // Automations moved INTO Settings (batch 3 A); the /automations route
   // still works for direct links but is no longer a top-level nav item.
