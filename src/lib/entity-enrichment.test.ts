@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isKnownEntityField, coerceEnrichmentValue, entityHasValue, prepareEnrichmentProposals,
-  knownEnrichmentValues, buildEntityEnrichmentPrompt, resolveEntityFieldWrite, ENTITY_ENRICHMENT_FIELDS,
+  knownEnrichmentValues, buildEntityEnrichmentPrompt, resolveEntityFieldWrite, ENTITY_ENRICHMENT_FIELDS, AI_SEARCH_FIELDS,
 } from './entity-enrichment';
 import type { Entity } from './types';
 
@@ -173,7 +173,19 @@ describe('buildEntityEnrichmentPrompt', () => {
     expect(prompt).toContain('One Planet');
     expect(prompt).toContain('Never use LinkedIn as a source');
     expect(prompt).toContain('do not guess or invent');
-    for (const f of ENTITY_ENRICHMENT_FIELDS) expect(prompt).toContain(f);
+    for (const f of AI_SEARCH_FIELDS) expect(prompt).toContain(f);
+  });
+
+  it('never asks the AI to go search for the confidence-routed-import-only fields (key_people, GP emails, AUM, etc.)', () => {
+    const prompt = buildEntityEnrichmentPrompt('One Planet', {});
+    for (const f of ['key_people', 'general_partner_emails', 'aum', 'current_funds', 'latest_fund', 'last_investment_found', 'postal_code']) {
+      expect(AI_SEARCH_FIELDS as readonly string[]).not.toContain(f);
+      expect(prompt).not.toContain(f);
+    }
+    // ...but they ARE real write targets for other promotion paths (contribution-promotion.ts).
+    for (const f of ['key_people', 'general_partner_emails', 'aum', 'current_funds', 'latest_fund', 'last_investment_found', 'postal_code']) {
+      expect(isKnownEntityField(f)).toBe(true);
+    }
   });
 
   it('tells the model what is already known so it fills gaps, not repeats', () => {

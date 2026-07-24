@@ -2077,3 +2077,86 @@ public landing pricing section render the three new names in the correct
 order. Back-office Startups' org-list plan display could not be checked
 live (needs the real Supabase-backed API, unavailable in demo mode) —
 verified by source read only, same limitation noted on earlier passes.
+
+## Three more external-research batches imported (zero AI cost) + confidence-routed import infrastructure
+
+**Batches 4-6** (`European_Investors_103_No_UK` batch already covered above;
+this entry covers `European_Investors_Additional_100` and
+`European_VC_Family_Offices_150_A_to_L`, plus the confidence-routing
+infrastructure built afterward): same zero-cost seed-import process — no
+`/api/entities/[id]/enrich` or Anthropic call anywhere in this path. Real
+bugs found and fixed mid-stream, both caught by re-checking actual prior
+output rather than trusting my own summary of it:
+1. The batch-import scripts' `--dry-run` flag was **opt-in**, meaning any
+   invocation that wasn't the literal `node script.mjs --dry-run` — including
+   an unrelated debug command that happened to `import()` the module — wrote
+   for real by accident (confirmed happened once, on the 103-batch). Fixed
+   from that point on: every import script now defaults to dry-run and
+   requires an explicit `--commit` to write anything.
+2. Non-EUR check-size values (CHF/SEK/GBP/DKK) were being silently dropped
+   instead of preserved anywhere — confirmed by re-querying the 103-batch's
+   VI Partners/Industrifonden/Almi Invest rows and finding no trace of their
+   real check-size figures. Fixed going forward (folded into `notes`) and
+   backfilled the 3 affected rows retroactively.
+
+New per-batch judgment calls, both narrow (1 occurrence each), both flagged:
+`Type: "Venture studio"` (Buildit Accelerator) → `accelerator`; `Type:
+"Other"` (Novo Holdings, a foundation-owned evergreen capital vehicle) →
+`family_office` as the closest existing fit to patient/non-fee-charging
+capital, rather than a fee-charging fund. `Type: "Family Office"` (batch 3)
+needed no judgment call — direct match to the existing enum value.
+
+**Confidence-routed import (migration 0032 + `scripts/import-confidence-routed.mjs`).**
+The three batches above surfaced a real gap: contact/financial fields
+(Street, Postal Code, Email, Phone, Key People, GP Emails, AUM, Current/
+Latest Fund, Last Investment Found) had no dedicated entity columns, so they
+were folded into `notes` free text — which is exactly why this data never
+surfaced on the investor profile, per the founder's own diagnosis. Fixed:
+- **Migration 0032** adds `postal_code`, `key_people`,
+  `general_partner_emails`, `aum`, `current_funds`, `latest_fund`,
+  `last_investment_found` — all plain nullable `text` (AUM/fund fields are
+  narrative by design: mixed currencies, fund names, not clean numbers —
+  never parsed/converted). `address`/`email`/`phone` already existed
+  (migration 0024). **Not applied by me** — the Supabase MCP tool available
+  in this session is bound to an unrelated project
+  (`ablute_wellness_master_project`, a different Supabase account entirely),
+  and the service-role REST client can't run DDL — presenting the SQL for
+  the founder to run via the Supabase SQL editor, same as every prior
+  migration in this repo's history.
+- **`entity-enrichment.ts`** — `ENTITY_ENRICHMENT_FIELDS` (the shared write-
+  allowlist every promotion path checks against) now includes the 8 new
+  fields, but a new `AI_SEARCH_FIELDS` constant keeps the live AI-enrichment
+  route's own prompt scoped to exactly what it asked for before — widening
+  the schema on purpose does not silently start asking Anthropic to go
+  search for GP emails. Unit-tested: the new fields are real write targets
+  (`isKnownEntityField`) but never appear in `buildEntityEnrichmentPrompt`'s
+  output.
+- **`scripts/import-confidence-routed.mjs`** (new, committed — not a one-off,
+  reusable for every future v2.1/v3.1 CSV the founder hands over) routes
+  every confidence-tracked field three ways: `high` → direct, non-clobbering
+  write onto the real column; `medium`/`low` → a pending `contributions` row
+  via the exact same mechanism `contribution-promotion.ts` already uses for
+  AI-web-search proposals (`source:'ai'`, `status:'submitted'`) — so it lands
+  in ContributionBox's existing Accept/Reject UI with no new UI needed, with
+  `source_url`/evidence attached for the reviewer; `not found` → no-op.
+  Auto-detects CSV shape from the header (`First Check Min_confidence` =
+  v2.1 entity-creation pass; `Street_confidence` = v3.1 entity-*update*-only
+  pass, matched to an existing entity by normalized firm name, never creates
+  new rows). Follow-on Min/Max has no dedicated column (not in the founder's
+  own list of fields needing one) — stays in `notes` regardless of
+  confidence, same as before; flagged, not silently dropped. v3.1's LinkedIn
+  field has no confidence rating and no entity-level column (only
+  `Person.linkedin_url` exists) — flagged, not written anywhere.
+  Safe by default (dry-run unless `--commit`, learned from bug #1 above).
+  Verified against two hand-built synthetic CSVs (not real data — none was
+  provided for this step) covering: high/medium/low/not-found routing, the
+  non-EUR-currency fallback-to-notes path (kept as its own report bucket,
+  separate from genuine "not found" — an early version of the report
+  conflated the two), non-clobbering against a real existing entity
+  (Newion's already-set `address` correctly skipped while its still-empty
+  new `postal_code` column got a direct high-confidence write), and
+  unmatched-firm reporting for the v3.1 update-only path.
+
+Verified: `tsc --noEmit`, full build, all 198 tests (2 new) green. Not yet
+run against real data — per the founder's explicit "só executa quando eu
+disser 'importa este lote'."

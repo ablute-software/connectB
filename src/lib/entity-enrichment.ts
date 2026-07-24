@@ -14,9 +14,28 @@
 // (source:'ai', status:'submitted') — never applied to the entity directly.
 import type { Entity, Stage } from './types';
 
-export const ENTITY_ENRICHMENT_FIELDS = [
+// The fields the live AI enrichment route actually asks the model to search
+// for (buildEntityEnrichmentPrompt below) — kept as its own constant so
+// widening the write-allowlist for the confidence-routed external-research
+// import (migration 0032, see DECISIONS.md) never silently expands what the
+// AI route itself goes looking for. Contact-sensitive fields like GP emails
+// only ever get a structured column from a human-run research pass with its
+// own "never guess a pattern-based email" instruction — not from Anthropic's
+// web search.
+export const AI_SEARCH_FIELDS = [
   'website', 'email_domain', 'hq_city', 'hq_country', 'invests_in_geographies',
   'sectors', 'stage_min', 'stage_max', 'check_min_eur', 'check_max_eur', 'thesis', 'email', 'phone',
+] as const;
+
+// The full write-allowlist: every field any promotion path (AI proposal,
+// founder "+ Add info", or the confidence-routed external-research import)
+// is ever allowed to write onto an entity. Unknown field names are always
+// rejected (isKnownEntityField) — this is the single list that decides that,
+// for every writer.
+export const ENTITY_ENRICHMENT_FIELDS = [
+  ...AI_SEARCH_FIELDS,
+  'address', 'postal_code', 'key_people', 'general_partner_emails',
+  'aum', 'current_funds', 'latest_fund', 'last_investment_found',
 ] as const;
 export type EntityEnrichmentField = typeof ENTITY_ENRICHMENT_FIELDS[number];
 
@@ -127,7 +146,7 @@ export function buildEntityEnrichmentPrompt(name: string, known: Partial<Record<
     '',
     `Already known — do not re-propose these, only fill genuine gaps: ${JSON.stringify(known)}`,
     '',
-    `Try to find real values for: ${ENTITY_ENRICHMENT_FIELDS.join(', ')}.`,
+    `Try to find real values for: ${AI_SEARCH_FIELDS.join(', ')}.`,
     '- sectors and invests_in_geographies: return a comma-separated list.',
     '- stage_min/stage_max: one of pre_seed, seed, series_a, later.',
     '- check_min_eur/check_max_eur: a plain number in EUR (convert if quoted in another currency; skip if you cannot find a real check-size range).',

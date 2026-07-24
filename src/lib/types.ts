@@ -103,6 +103,21 @@ export interface Entity {
   email?: string;
   phone?: string;
   address?: string;
+  postal_code?: string;
+  // Confidence-routed external research import (migration 0032, see
+  // DECISIONS.md) — these previously had no structured home and fell into
+  // `notes` free text, which is why they never surfaced on the investor
+  // profile. All plain text: aum/current_funds/latest_fund/last_investment_found
+  // are narrative (mixed currencies, fund names, not clean numbers) by
+  // design, never parsed/converted. key_people/general_partner_emails are
+  // "Name — Role" / "name@firm.com" lists, pipe-separated, matching the
+  // research prompt's own output shape.
+  key_people?: string;
+  general_partner_emails?: string;
+  aum?: string;
+  current_funds?: string;
+  latest_fund?: string;
+  last_investment_found?: string;
   stage_min?: Stage;
   stage_max?: Stage;
   check_min_eur?: number;
