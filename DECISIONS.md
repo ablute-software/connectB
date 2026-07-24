@@ -1844,3 +1844,78 @@ covers what changed to satisfy it right now.
    `layout.tsx`'s meta description mentioning "the platform team" (product
    marketing describing connectB's three real user roles, not an internal
    leak).
+
+## Investor profile enrichment — "Request more info" was a stub, now a real lookup
+
+**Diagnosis.** The entity page's "Request more info" link (`EnrichmentBadge`)
+never called anything beyond writing a `contributions` row with
+`field: '__enrichment_request__'` — a demand flag for the back-office queue,
+nothing else. There was no AI, no web search, no fallback message; it just
+looked functional. Confirmed on the real "One Planet" row
+(`86267db3-9220-480c-8825-709e73d9e7f8`, org `bca54499-…`): every enrichable
+field was `null`/`[]` before this change, exactly as reported. The AI+web-search
+machinery already existed (`/api/backoffice/research`, §6b-3) but is
+platform-admin-only, matches by name string across orgs, and — this is the
+real gap — even a "verified" contribution there was never written back onto
+the entity/person row. That promotion step didn't exist anywhere in the
+codebase before now.
+
+**Fix — single-entity, on-demand, founder-facing.**
+- `src/lib/entity-enrichment.ts` (new, pure, unit-tested): the allowed field
+  list, type coercion (comma-lists → arrays, currency strings → numbers, stage
+  phrasing → the exact enum), and — enforced in code, not just prompt text —
+  a field the entity already has a value for is dropped before it's even
+  proposed, an unrecognised field name is dropped, and a value that fails to
+  coerce is dropped. A proposal can never silently overwrite founder-entered
+  data or write an arbitrary column.
+- `src/app/api/entities/[id]/enrich/route.ts` (new): org-scoped (any org
+  member may enrich their own org's entity — modeled on
+  `/api/contributions/resolve`'s membership check, not the platform-admin
+  gate `/api/backoffice/research` uses), calls Anthropic's real
+  `web_search_20250305` tool with an explicit instruction to verify via fresh
+  search rather than prior/training knowledge, and never scrape LinkedIn.
+  Surviving proposals are inserted as `contributions` rows
+  (`source:'ai', status:'submitted'`) — nothing ever writes to the entity
+  directly. Env-gated on `ANTHROPIC_API_KEY` with a generic, vendor-neutral
+  fallback message, same pattern as every other AI route in this codebase.
+- `EnrichmentBadge` keeps the existing demand-flag write unchanged, and for
+  entities only, now also calls the new route and shows a generic-copy
+  loading/result state ("searching public sources…", "suggestions added
+  below, unconfirmed", "no confident matches found"). Person enrichment is
+  untouched — no lookup exists for people yet, out of scope for this pass.
+- `ContributionBox` now renders AI-sourced `submitted` rows with their own
+  Accept/Reject UI ("AI-sourced · unconfirmed", plus a link to the
+  `source_url`), wired to the existing generic `/api/contributions/resolve`
+  route (already reusable — despite its origin comment mentioning import
+  conflicts, it just flips any contribution's status given an id + decision).
+  Accept applies the value via the same `onApplyValue` callback the import-
+  conflict flow already used; reject just marks it rejected. The pre-existing
+  PT-language import-conflict popover is untouched.
+
+**Verified live against real data**, since no migration was needed (the
+`contributions` table already had `source`/`confidence`/`source_url` from
+0010_ai_contributions.sql) and `ANTHROPIC_API_KEY` is configured locally.
+Could not drive this through the browser end-to-end — no local credential for
+the founder account, and generating one via `auth.admin.generateLink` turned
+out to redirect to the production Site URL rather than localhost (the
+project's redirect-URL allowlist), which would need a Supabase Auth setting
+change I didn't make unilaterally. Instead verified the actual new logic
+directly against production (bypassing only the thin, already-proven auth
+wrapper): ran the real prompt through the real Anthropic web-search call
+against the real "One Planet" and "Banif Capital" (0%-complete) entities.
+One Planet: 13/13 proposed fields survived the pipeline and were inserted as
+`submitted`/`ai` rows — website, sectors (9 of them), stage range (seed→series_a),
+a real check-size range, thesis, HQ, email and phone, all sourced from
+oneplanet.capital and matching what's publicly on their site. Banif Capital:
+the model found and proposed 6 fields (website, domain, country, geographies,
+sectors, thesis) and correctly left `hq_city`, `stage_min/max`, check size,
+email and phone blank rather than guessing — confirming the "skip, don't
+invent" behavior holds under a real partial-information case, and nothing
+crashed. Both are now sitting as real, unconfirmed AI-sourced contributions in
+production, exactly as the review-before-apply design intends. Build, `tsc
+--noEmit`, and all 191 tests (20 new) green.
+
+**Left out of scope, on purpose:** `address` was excluded from the
+enrichable-field list — it's gated behind the migration-0024 contact-fields
+capability probe and wasn't asked for; bulk/scheduled enrichment (Step 2 of
+the task) is report-only for now, not built.

@@ -24,6 +24,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const [contactAvailable, setContactAvailable] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
   const [contactDraft, setContactDraft] = useState({ website: '', email: '', phone: '', address: '' });
+  const [contributionsRefreshKey, setContributionsRefreshKey] = useState(0);
 
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then((me) => setContactAvailable(!!me.capabilities?.entityContactFields)).catch(() => {});
@@ -162,7 +163,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </Card>
       )}
 
-      <Card title="Entity summary" right={<EnrichmentBadge result={completeness} subjectType="entity" subjectId={entity.id} orgId={db.org.id} />}>
+      <Card title="Entity summary" right={<EnrichmentBadge result={completeness} subjectType="entity" subjectId={entity.id} orgId={db.org.id} onEnriched={() => setContributionsRefreshKey((k) => k + 1)} />}>
         <div className="grid gap-4 sm:grid-cols-2">
           <dl className="space-y-1.5 text-sm text-gray-600">
             {contactAvailable ? (
@@ -227,7 +228,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
         <div className="mt-4 border-t border-gray-100 pt-3">
           <ContributionBox subjectType="entity" subjectId={entity.id} orgId={db.org.id} subject={entity as unknown as Record<string, unknown>}
-            onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} />
+            onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} refreshKey={contributionsRefreshKey} />
         </div>
       </Card>
 

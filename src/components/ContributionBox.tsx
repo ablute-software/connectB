@@ -19,7 +19,11 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import { AddInfoButton, PrivateBadge } from '@/components/ui';
 
 type ContributionStatus = 'submitted' | 'verified' | 'rejected';
-type Contribution = { id: string; field: string; value: unknown; note: string | null; status: ContributionStatus; created_at: string };
+type ContributionSource = 'user' | 'ai';
+type Contribution = {
+  id: string; field: string; value: unknown; note: string | null; status: ContributionStatus; created_at: string;
+  source: ContributionSource; confidence: number | null; source_url: string | null;
+};
 
 const STATUS_STYLE: Record<ContributionStatus, string> = {
   submitted: 'bg-amber-100 text-amber-800',
@@ -31,7 +35,18 @@ function isConflictRow(c: Contribution): boolean {
   return c.status === 'submitted' && !!c.note && /conflict/i.test(c.note);
 }
 
-export function ContributionBox({ subjectType, subjectId, orgId, subject, onApplyValue }: {
+// AI-sourced enrichment proposals (§ investor profile enrichment) — awaiting
+// the founder's accept/reject, same non-clobbering review as import conflicts
+// but with its own generic-copy UI (no vendor names).
+function isAiPendingRow(c: Contribution): boolean {
+  return c.status === 'submitted' && c.source === 'ai';
+}
+
+function formatContributionValue(value: unknown): string {
+  return Array.isArray(value) ? value.join(', ') : String(value);
+}
+
+export function ContributionBox({ subjectType, subjectId, orgId, subject, onApplyValue, refreshKey }: {
   subjectType: 'entity' | 'person'; subjectId: string; orgId: string;
   // The current entity/person record (for "valor atual" in the conflict
   // popover) and a callback that writes an accepted imported value onto it
@@ -40,6 +55,9 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
   // as before, just without conflict-resolution capability.
   subject?: Record<string, unknown>;
   onApplyValue?: (field: string, value: unknown) => void;
+  // Bumped by the caller (e.g. after EnrichmentBadge's lookup stores new
+  // AI proposals) to force a refetch — this box has no other way to know.
+  refreshKey?: number;
 }) {
   const [items, setItems] = useState<Contribution[]>([]);
   const [open, setOpen] = useState(false);
@@ -49,9 +67,10 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
   const [busy, setBusy] = useState(false);
   const [conflictPopover, setConflictPopover] = useState<Contribution | null>(null);
   const [resolving, setResolving] = useState(false);
+  const [resolvingAiId, setResolvingAiId] = useState<string | null>(null);
 
   function refresh() {
-    browserClient().from('contributions').select('id, field, value, note, status, created_at')
+    browserClient().from('contributions').select('id, field, value, note, status, created_at, source, confidence, source_url')
       .eq('subject_type', subjectType).eq('subject_id', subjectId).eq('org_id', orgId)
       .order('created_at', { ascending: false })
       .then(({ data }) => setItems((data as Contribution[] | null) ?? []));
@@ -61,7 +80,7 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
     if (!authEnabled) return;
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subjectType, subjectId, orgId]);
+  }, [subjectType, subjectId, orgId, refreshKey]);
 
   async function submit() {
     setBusy(true);
@@ -95,6 +114,24 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
     }
   }
 
+  async function resolveAiProposal(c: Contribution, decision: 'keep_existing' | 'use_imported') {
+    setResolvingAiId(c.id);
+    try {
+      const res = await fetch('/api/contributions/resolve', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contributionId: c.id, decision }),
+      });
+      const body = await res.json();
+      if (!body.ok) throw new Error(body.error ?? 'Could not resolve.');
+      if (decision === 'use_imported') onApplyValue?.(c.field, c.value);
+      refresh();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setResolvingAiId(null);
+    }
+  }
+
   if (!authEnabled) return <AddInfoButton />;
 
   return (
@@ -119,22 +156,45 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
         </div>
       )}
       {items.length > 0 && (
-        <div className="mt-2 space-y-1">
+        <div className="mt-2 space-y-1.5">
           {items.map((c) => (
-            <div key={c.id} className="text-xs text-gray-600">
-              <span className="font-medium">{c.field}:</span>{' '}
-              {isConflictRow(c) ? (
-                <button onClick={() => setConflictPopover(c)}
-                  className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 hover:bg-amber-200">
-                  por verificar
-                </button>
-              ) : (
-                <>
-                  {String(c.value)}
-                  <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_STYLE[c.status]}`}>{c.status}</span>
-                </>
-              )}
-            </div>
+            isAiPendingRow(c) ? (
+              <div key={c.id} className="rounded-lg border border-cyan-200 bg-cyan-50 p-2 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-gray-700">{c.field}:</span>
+                  <span className="text-gray-700">{formatContributionValue(c.value)}</span>
+                  <span className="rounded-full bg-cyan-100 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-800">AI-sourced · unconfirmed</span>
+                </div>
+                <div className="mt-1 flex items-center gap-2">
+                  {c.source_url && (
+                    <a href={c.source_url} target="_blank" rel="noreferrer" className="truncate text-[10px] text-gray-400 hover:text-gray-600 hover:underline">
+                      source
+                    </a>
+                  )}
+                  <div className="ml-auto flex gap-1.5">
+                    <button disabled={resolvingAiId === c.id} onClick={() => resolveAiProposal(c, 'use_imported')}
+                      className="rounded bg-[#0E7490] px-2 py-0.5 font-medium text-white disabled:opacity-40">Accept</button>
+                    <button disabled={resolvingAiId === c.id} onClick={() => resolveAiProposal(c, 'keep_existing')}
+                      className="rounded border border-gray-300 bg-white px-2 py-0.5 text-gray-600 hover:bg-gray-100 disabled:opacity-40">Reject</button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div key={c.id} className="text-xs text-gray-600">
+                <span className="font-medium">{c.field}:</span>{' '}
+                {isConflictRow(c) ? (
+                  <button onClick={() => setConflictPopover(c)}
+                    className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 hover:bg-amber-200">
+                    por verificar
+                  </button>
+                ) : (
+                  <>
+                    {formatContributionValue(c.value)}
+                    <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_STYLE[c.status]}`}>{c.status}</span>
+                  </>
+                )}
+              </div>
+            )
           ))}
         </div>
       )}
