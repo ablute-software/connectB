@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { buildEntityEnrichmentPrompt, knownEnrichmentValues, prepareEnrichmentProposals, type RawProposal } from '@/lib/entity-enrichment';
+import { fieldsAlreadyProposed } from '@/lib/contribution-promotion';
 import type { Entity } from '@/lib/types';
 
 const NOT_CONFIGURED_MSG = 'AI-assisted enrichment isn’t available in your workspace yet.';
@@ -95,7 +96,13 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
     const known = knownEnrichmentValues(entity as Entity);
     const raw = await callClaude(apiKey, model, buildEntityEnrichmentPrompt(entity.name as string, known));
-    const proposals = prepareEnrichmentProposals(entity as Entity, raw);
+    const alreadyProposed = await fieldsAlreadyProposed(admin, 'entity', entity.id as string);
+    // alreadyProposed also catches fields a previous run proposed that are
+    // still 'submitted' (not yet reviewed) or already 'verified' — entityHasValue
+    // inside prepareEnrichmentProposals only sees what's landed on the entity
+    // row itself, which used to lag behind "verified" until the promotion fix,
+    // and can still lag briefly for anything still awaiting review.
+    const proposals = prepareEnrichmentProposals(entity as Entity, raw).filter((p) => !alreadyProposed.has(p.field));
 
     if (proposals.length === 0) {
       return NextResponse.json({ ok: true, configured: true, count: 0, message: 'No confident findings from a public web search.' });

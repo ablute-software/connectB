@@ -36,22 +36,36 @@ const STAGE_ALIASES: Record<string, Stage> = {
   later: 'later', 'later stage': 'later', growth: 'later', 'series b+': 'later', 'series b': 'later',
 };
 
-// Converts the model's raw string proposal into the correctly-typed value for
-// the given entity field. Returns undefined when the value can't be coerced
-// with confidence — the caller drops it rather than falling back to a guess.
-export function coerceEnrichmentValue(field: EntityEnrichmentField, raw: string): unknown {
-  const trimmed = raw.trim();
-  if (!trimmed) return undefined;
-
+// Converts a proposal's raw value into the correctly-typed value for the
+// given entity field. Accepts either a raw model string (the AI-proposal
+// path) or an already-typed jsonb value (the promotion path, reading a
+// value back out of a stored `contributions` row — sectors/geographies may
+// already be an array, check sizes already a number). Returns undefined when
+// the value can't be coerced with confidence — the caller drops it rather
+// than falling back to a guess.
+export function coerceEnrichmentValue(field: EntityEnrichmentField, raw: unknown): unknown {
   if (field === 'sectors' || field === 'invests_in_geographies') {
+    if (Array.isArray(raw)) {
+      const list = raw.map((s) => String(s).trim()).filter(Boolean);
+      return list.length ? list : undefined;
+    }
+    if (typeof raw !== 'string') return undefined;
+    const trimmed = raw.trim();
+    if (!trimmed) return undefined;
     const list = trimmed.split(',').map((s) => s.trim()).filter(Boolean);
     return list.length ? list : undefined;
   }
   if (field === 'check_min_eur' || field === 'check_max_eur') {
-    if (trimmed.includes('-')) return undefined;
+    if (typeof raw === 'number') return Number.isFinite(raw) && raw > 0 ? raw : undefined;
+    if (typeof raw !== 'string') return undefined;
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.includes('-')) return undefined;
     const n = Number(trimmed.replace(/[^0-9.]/g, ''));
     return Number.isFinite(n) && n > 0 ? n : undefined;
   }
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
   if (field === 'stage_min' || field === 'stage_max') {
     const norm = trimmed.toLowerCase();
     if ((STAGE_VALUES as readonly string[]).includes(norm)) return norm as Stage;
@@ -69,17 +83,31 @@ export function entityHasValue(entity: Entity, field: EntityEnrichmentField): bo
   return v != null && v !== '';
 }
 
+// The single-field counterpart to prepareEnrichmentProposals, used when a
+// contribution is promoted after the fact (marked 'verified' in the founder
+// or back-office review UI) rather than at initial proposal time. Same three
+// guarantees, applied to one field instead of a batch: unknown field names
+// are rejected, a field the entity already holds is never overwritten, and a
+// value that fails to coerce is dropped. Returns null when nothing should be
+// written — the caller then just leaves the contribution's status as-is
+// without touching the entity.
+export function resolveEntityFieldWrite(entity: Entity, field: string, rawValue: unknown): { field: EntityEnrichmentField; value: unknown } | null {
+  if (!isKnownEntityField(field)) return null;
+  if (entityHasValue(entity, field)) return null;
+  const value = coerceEnrichmentValue(field, rawValue);
+  if (value === undefined) return null;
+  return { field, value };
+}
+
 // The full pipeline from raw model output to insert-ready rows: drop unknown
 // field names, drop fields the entity already has, coerce the rest, drop
 // anything that fails to coerce.
 export function prepareEnrichmentProposals(entity: Entity, proposals: RawProposal[]): PreparedProposal[] {
   const out: PreparedProposal[] = [];
   for (const p of proposals) {
-    if (!isKnownEntityField(p.field)) continue;
-    if (entityHasValue(entity, p.field)) continue;
-    const value = coerceEnrichmentValue(p.field, p.value);
-    if (value === undefined) continue;
-    out.push({ field: p.field, value, confidence: p.confidence, source_url: p.source_url });
+    const resolved = resolveEntityFieldWrite(entity, p.field, p.value);
+    if (!resolved) continue;
+    out.push({ field: resolved.field, value: resolved.value, confidence: p.confidence, source_url: p.source_url });
   }
   return out;
 }

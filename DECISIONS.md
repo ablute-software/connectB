@@ -1919,3 +1919,71 @@ production, exactly as the review-before-apply design intends. Build, `tsc
 enrichable-field list — it's gated behind the migration-0024 contact-fields
 capability probe and wasn't asked for; bulk/scheduled enrichment (Step 2 of
 the task) is report-only for now, not built.
+
+## Contribution-promotion bug — "verified" never reached the entity (Banif Capital)
+
+**Reported symptom:** Banif Capital had 14 `contributions` rows, every one
+`status: 'verified'`, but every structured entity field (`website`,
+`email_domain`, `hq_city`, `hq_country`, `sectors`, `thesis`, …) was still
+null. Also 2-3x duplicates of the same fact.
+
+**Root cause, confirmed by reading the actual verified rows and both review
+routes:** neither place that flips a contribution to `'verified'` ever wrote
+the value back onto the entity. `/api/backoffice/contributions/[id]/review`
+(the back-office Fila queue — the most likely path here, since it's the
+general cross-org review tool and Nuno reviewed these one at a time with
+staggered timestamps) only ever updated the `contributions` row itself —
+there was no promotion step at all. The founder-facing ContributionBox Accept
+button (shipped in the previous investor-enrichment pass) was less broken but
+still fragile: the entity write only happened via a separate client-side
+`onApplyValue` call *after* the status flip succeeded — two round trips, no
+guarantee the second one lands. Because the entity field stayed empty either
+way, a second "Request more info" run on the same entity saw the field as
+still unfilled and proposed it again — the duplication is the exact same bug,
+not a second issue.
+
+**Fix:** moved the entity/person write server-side into whichever route
+flips status to `'verified'`, so it happens exactly once, regardless of
+which UI triggered it.
+- `src/lib/entity-enrichment.ts`: `coerceEnrichmentValue` widened to accept
+  already-typed jsonb values (arrays/numbers coming back out of a stored
+  contribution), not just fresh model strings; added `resolveEntityFieldWrite`,
+  the single-field version of the existing batch pipeline — same allowlist +
+  non-clobbering + coercion guarantees, applied to one promoted fact instead
+  of a proposal batch.
+- `src/lib/contribution-promotion.ts` (new): `applyVerifiedContribution` —
+  the one place a verified contribution's value gets applied, for both
+  entities (via `resolveEntityFieldWrite`) and people (a small parallel
+  allowlist: `linkedin_url`, `role`, `background`, `hook`, mirroring
+  `/api/backoffice/research`'s own `PERSON_FIELDS`). A freeform "+ Add info"
+  contribution with no matching column (e.g. "co-investor") correctly stays
+  contributions-only — nothing to write, by design, not a bug.
+  `fieldsAlreadyProposed` — queries existing submitted/verified AI
+  contributions for a subject, so the enrich route can skip re-proposing a
+  field that's already pending or already landed, closing the duplication
+  path directly rather than just waiting for the entity write to eventually
+  catch up.
+- Both `/api/contributions/resolve` and
+  `/api/backoffice/contributions/[id]/review` now call
+  `applyVerifiedContribution` immediately after flipping status.
+  `/api/entities/[id]/enrich` now also filters proposals through
+  `fieldsAlreadyProposed` before inserting.
+- 5 new unit tests on the exact Banif Capital shape (non-clobbering, jsonb
+  array/number round-trip, unknown-field rejection).
+
+**Retroactive backfill:** fixing the code doesn't fix contributions already
+stuck in the same state, so every `contributions` row with
+`status='verified' AND source='ai'` across the whole DB (35 rows) was
+re-checked with the exact same promotion logic. Ran a dry pass first to see
+the blast radius before writing anything: only Banif Capital's 7 unique
+fields would change; the other 28 rows (21 other contributions, several were
+themselves duplicates) all resolved to `already_set` — meaning those
+entities' fields already held real founder-entered data, correctly left
+untouched. Applied for real after the dry run confirmed the narrow, safe
+blast radius; verified live that Banif Capital's entity now shows
+`website`, `email_domain`, `hq_city: "Rio de Janeiro"`, `hq_country:
+"Brazil"`, `sectors`, `invests_in_geographies`, and `thesis` all populated.
+The 14 historical Banif Capital contribution rows (with their duplicates)
+were left as-is — they're an audit trail of what actually happened, not
+something worth pruning; the entity now correctly reflects only the first
+accepted value per field.

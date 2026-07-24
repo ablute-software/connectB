@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, resolveRole } from '@/lib/supabase-server';
 import { logAdminAction } from '@/lib/audit';
+import { applyVerifiedContribution } from '@/lib/contribution-promotion';
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -31,10 +32,19 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }).eq('id', params.id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
+  // Verifying a contribution here used to only flip its status — the value
+  // never reached the entity/person row (the bug behind Banif Capital's
+  // 14 "verified" facts and 0 populated fields). Promote it now, same rules
+  // as a fresh AI proposal: never overwrite a field the subject already has.
+  let promotion: { applied: boolean; reason: string } | null = null;
+  if (decision === 'verified' && contribution) {
+    promotion = await applyVerifiedContribution(admin, contribution as { subject_type: 'entity' | 'person'; subject_id: string; field: string; value: unknown });
+  }
+
   await logAdminAction(admin, {
     adminUserId: user.id, action: `contribution_${decision}`, subjectType: 'contribution', subjectId: params.id,
-    detail: { ...contribution, notes },
+    detail: { ...contribution, notes, promotion },
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, promotion });
 }

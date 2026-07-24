@@ -8,13 +8,20 @@
 // explicit org-membership check, same pattern as the other founder-triggered
 // writes in this codebase (nda-upload, classify-entity).
 //
-// This route ONLY flips the contribution's status. Applying the imported
-// value onto the entity/person row itself is the caller's job via the
-// normal updateEntity/updatePerson store actions — kept separate so this
-// stays a single-purpose, easily-reasoned-about write.
+// This route flips the contribution's status AND (when the decision applies
+// the value) promotes it onto the entity/person row server-side — the
+// client's onApplyValue callback also updates local store state for an
+// immediate UI refresh, but the server write is now the source of truth, not
+// a hope that the client-side call completes. Before this, "use_imported"
+// only ever flipped status; the entity write depended entirely on the
+// client following through, which is fragile and (per the back-office
+// review queue, which never called any client-side follow-up at all) was
+// the exact bug behind Banif Capital's 14 "verified" facts sitting on 0
+// populated fields.
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { applyVerifiedContribution } from '@/lib/contribution-promotion';
 
 export async function POST(req: NextRequest) {
   const { contributionId, decision } = await req.json() as { contributionId?: string; decision?: 'keep_existing' | 'use_imported' };
@@ -29,7 +36,8 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
-  const { data: contribution, error: fetchErr } = await admin.from('contributions').select('org_id').eq('id', contributionId).maybeSingle();
+  const { data: contribution, error: fetchErr } = await admin.from('contributions')
+    .select('org_id, subject_type, subject_id, field, value').eq('id', contributionId).maybeSingle();
   if (fetchErr || !contribution) return NextResponse.json({ ok: false, error: fetchErr?.message ?? 'Contribution not found.' }, { status: 404 });
 
   const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', contribution.org_id).maybeSingle();
@@ -41,5 +49,10 @@ export async function POST(req: NextRequest) {
   }).eq('id', contributionId);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
-  return NextResponse.json({ ok: true });
+  let promotion: { applied: boolean; reason: string } | null = null;
+  if (status === 'verified') {
+    promotion = await applyVerifiedContribution(admin, contribution as { subject_type: 'entity' | 'person'; subject_id: string; field: string; value: unknown });
+  }
+
+  return NextResponse.json({ ok: true, promotion });
 }

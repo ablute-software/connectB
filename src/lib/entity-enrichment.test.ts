@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isKnownEntityField, coerceEnrichmentValue, entityHasValue, prepareEnrichmentProposals,
-  knownEnrichmentValues, buildEntityEnrichmentPrompt, ENTITY_ENRICHMENT_FIELDS,
+  knownEnrichmentValues, buildEntityEnrichmentPrompt, resolveEntityFieldWrite, ENTITY_ENRICHMENT_FIELDS,
 } from './entity-enrichment';
 import type { Entity } from './types';
 
@@ -62,6 +62,38 @@ describe('coerceEnrichmentValue', () => {
   it('trims plain string fields and drops empty ones', () => {
     expect(coerceEnrichmentValue('website', '  https://oneplanet.capital  ')).toBe('https://oneplanet.capital');
     expect(coerceEnrichmentValue('thesis', '')).toBeUndefined();
+  });
+
+  it('accepts an already-typed jsonb value (reading a stored contribution back out, not a fresh model string)', () => {
+    expect(coerceEnrichmentValue('sectors', ['Deep Tech', 'Infrastructure'])).toEqual(['Deep Tech', 'Infrastructure']);
+    expect(coerceEnrichmentValue('check_min_eur', 585000)).toBe(585000);
+    expect(coerceEnrichmentValue('check_min_eur', -5)).toBeUndefined();
+    expect(coerceEnrichmentValue('sectors', [])).toBeUndefined();
+  });
+});
+
+describe('resolveEntityFieldWrite (single-field promotion, the Banif Capital fix)', () => {
+  it('resolves a write for an empty field with a well-formed value', () => {
+    const e = ent();
+    expect(resolveEntityFieldWrite(e, 'website', 'https://banif.capital/')).toEqual({ field: 'website', value: 'https://banif.capital/' });
+  });
+
+  it('handles a value already shaped as an array (as it comes back out of a jsonb column)', () => {
+    const e = ent();
+    expect(resolveEntityFieldWrite(e, 'sectors', ['Deep Tech', 'Infrastructure'])).toEqual({ field: 'sectors', value: ['Deep Tech', 'Infrastructure'] });
+  });
+
+  it('never overwrites a field the entity already holds — the core non-clobbering guarantee', () => {
+    const e = ent({ website: 'https://already-set.example' });
+    expect(resolveEntityFieldWrite(e, 'website', 'https://banif.capital/')).toBeNull();
+  });
+
+  it('rejects a field name outside the allowlist', () => {
+    expect(resolveEntityFieldWrite(ent(), 'org_id', 'nope')).toBeNull();
+  });
+
+  it('rejects a value that fails to coerce', () => {
+    expect(resolveEntityFieldWrite(ent(), 'stage_min', 'somewhere in between')).toBeNull();
   });
 });
 
