@@ -4,6 +4,78 @@ Non-critical product decisions made while working unattended through the
 NEXT_STEPS/IRM_SPEC backlog, so they're visible instead of buried in commits.
 Reversible; flag if any should change.
 
+## Auth pages: standalone frosted-glass screens
+
+`/login`, `/signup`, `/forgot-password` (as asked) **and `/reset-password`**
+(added — same wrapper pattern, part of the same reset flow; leaving it out
+would mean a founder going forgot-password → email → reset-password lands back
+on the OLD app-shell-wrapped page mid-flow, which reads as a bug, not a design
+choice) now render standalone: no sidebar, no top bar, no "Log interaction",
+no plan/seed-round footer. `Shell` early-returns bare children on all four
+routes, same mechanism as `/` and portal/back-office.
+
+**Backdrop** (`components/auth/AuthShell.tsx` + scoped CSS module): the
+landing's dark teal gradient (`--ink`→`--ink-2`) behind three blurred,
+low-opacity rounded-rect shapes (decorative only — no real app UI or data),
+then a `backdrop-filter: blur(18px) saturate(1.1)` wash on top so nothing
+behind is ever readable. `@supports not (backdrop-filter)` falls back to a
+solid 88%-opacity wash for browsers without support — verified both render via
+computed styles (`backdrop-filter` present; fallback rule compiles).
+
+**Card**: unchanged content/logic on every page — only the brand-text header
+swapped for `LogoLockup` (the landing's logo component: teal badge + serif "S"
++ lens, "sherlock" + accent "deal"), and `shadow-sm` → `shadow-2xl` so it reads
+against the glass. A "← Back to sherlockdeal.com" link (→ `/`) sits above each
+card.
+
+**Untouched**: auth logic, redirects, middleware, API routes. The logged-in
+redirect away from `/login`/`/signup` (middleware.ts) was not touched and still
+applies — `/forgot-password`/`/reset-password` were already not
+redirect-protected for a logged-in user before this change and remain so
+(pre-existing, unrelated to this pass). Verified in demo mode: all four pages
+render with no app shell, correct back-link, correct logo; the magic-link
+button/flow on `/login` is present and untouched. Could not exercise the
+logged-in→redirect path live (needs a real session). Build + 171 tests green.
+
+## Plans & billing — English translation sweep
+
+Translated the plans/billing surface end to end (logic/pricing/routing
+untouched): nav label "Planos e conta" → **"Plans & billing"**; the whole
+`/plans` page (headings, CTAs, toggle labels, banners, plan bullets, the
+security line, the no-payment-processing footer); the three server-side error
+strings each in `/api/stripe/checkout`, `/api/stripe/portal`,
+`/api/plan/request` (these surface verbatim as `{err}` on the Plans page, so a
+PT string there would have defeated the whole translation). `SECURE_PAYMENT_COPY`
+(billing.ts) → "Secure payment" (only consumer was this one line).
+
+**Also translated the price labels** (`PLANS[].monthly`/`.annual` in
+plans.ts) — "/mês"→"/month", "/ano"→"/year", "equivale a"→"equivalent to",
+and the PT thousands-separator fixed to English convention (€1.308→€1,308).
+Confirmed safe: the landing's `PricingSection` builds its own copy from the
+raw `monthlyEur`/`annualEur`/`annualPerMonthEur` numbers, never from these
+label strings — only `/plans` and its test consumed them, both updated.
+`CONSULTANCY_TEASER` (PT) is kept as instructed (unreferenced now, by design);
+the page renders the existing `CONSULTANCY_TEASER_EN_LEAD`/`_EN_REST` pair
+instead (the same one the landing uses).
+
+**Back-office is exempt, confirmed untouched**: `backoffice/startups/page.tsx`
+still shows Mensal/Anual, "Aplicar pedido", etc.
+
+**Flagged, not touched**: the sweep found pre-existing Portuguese strings
+outside the billing surface — `/needs-review`, `/log`'s LinkedIn-request-note
+copy, and `ReawakeningQueue`/`QuickCreatePerson` (a few founder-facing
+tooltips/labels: "identidade não confirmada", the reawakening tooltip). These
+are deliberate, pre-existing PT copy in the founder's internal triage tools
+from earlier batches — not "stray" billing-adjacent leftovers — so left as-is
+rather than silently expanding this pass's scope. Flag if you want a dedicated
+translation pass over those too.
+
+Verified live in demo mode: `/plans` renders "Plans & billing", "Your plan",
+"Current plan", "€149/month" (Monthly) and "€1,308/year (equivalent to
+€109/month)" (Annual toggle), the English consultancy teaser, and the English
+no-payment-processing footer. Build + 171 tests green (2 price-label
+assertions updated in plans.test.ts to match).
+
 ## Public landing page + app home moves to /pipeline
 
 The approved design (`landing-reference.html`, kept in the repo as the source of

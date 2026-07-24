@@ -4,7 +4,8 @@
 // short-lived) session, so this just sets a new password via updateUser.
 import { useState } from 'react';
 import { browserClient, authEnabled } from '@/lib/supabase';
-import { BRAND_NAME } from '@/lib/brand';
+import { LogoLockup } from '@/components/Logo';
+import { AuthShell } from '@/components/auth/AuthShell';
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState('');
@@ -27,10 +28,10 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#F7F9FA] px-4">
-      <div className="w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-7 shadow-sm">
-        <div className="mb-1 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
-          {BRAND_NAME}
+    <AuthShell>
+      <div className="w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-7 shadow-2xl">
+        <div className="mb-1 flex items-center gap-2 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+          <LogoLockup size={28} accentClassName="text-[#2a7f8e]" />
         </div>
         <p className="mb-5 text-sm text-gray-500">Set a new password.</p>
 
@@ -60,6 +61,6 @@ export default function ResetPasswordPage() {
           </>
         )}
       </div>
-    </div>
+    </AuthShell>
   );
 }

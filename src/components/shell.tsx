@@ -33,7 +33,7 @@ const NAV: { href: string; label: string; icon: string; section?: string; requir
   { href: '/settings', label: 'Settings', icon: '⋯' },
   // Plans & Account batch — visible to everyone (free plans especially, to
   // upgrade). Not capability-gated: the page degrades gracefully pre-migration.
-  { href: '/plans', label: 'Planos e conta', icon: '◇' },
+  { href: '/plans', label: 'Plans & billing', icon: '◇' },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {
@@ -64,9 +64,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
       : caps.today === caps.dailyCap - 1 || caps.week === caps.weeklyCap - 1 ? 'text-amber-600 font-semibold'
       : 'text-gray-400';
 
-  // '/' is the public marketing landing — it brings its own nav/footer, so the
-  // app shell must not wrap it (same early-return as the portal/back-office).
-  if (path === '/' || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
+  // '/' is the public marketing landing, and the auth pages (login/signup/
+  // forgot-password/reset-password) are now standalone frosted-glass screens
+  // — none of them should show the sidebar/top bar (a visitor could otherwise
+  // preview app chrome before ever signing in). All bring their own layout.
+  const isStandaloneAuthPage = path === '/login' || path === '/signup' || path === '/forgot-password' || path === '/reset-password';
+  if (path === '/' || isStandaloneAuthPage || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
 
   return (
     <div className="flex min-h-screen bg-[#F7F9FA] text-[#1A1A1A]">

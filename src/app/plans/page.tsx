@@ -1,25 +1,25 @@
 'use client';
-// Plans & Account — "Planos e conta". Current plan + three tiers with a
-// Mensal/Anual toggle. Two modes, decided by whether billing (Stripe) is
-// configured server-side:
-//   • billing ON  → "Escolher plano" opens secure checkout; "Gerir subscrição"
-//                   opens the customer portal (invoices, card, switch, cancel).
+// Plans & Billing. Current plan + three tiers with a Monthly/Annual toggle.
+// Two modes, decided by whether billing (Stripe) is configured server-side:
+//   • billing ON  → "Choose this plan" opens secure checkout; "Manage
+//                   subscription" opens the customer portal (invoices, card,
+//                   switch, cancel).
 //   • billing OFF → the CTA files a plan-change request the platform team
 //                   applies manually (unchanged).
 // No card data touches this code — checkout/portal are hosted. Copy says
-// "pagamento seguro", never the provider's name. Success fee is suspended.
+// "secure payment", never the provider's name. Success fee is suspended.
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import {
-  PLANS, CONSULTANCY_TEASER, BILLING_PERIODS, planPriceLabel, parsePlanRequest,
-  normalizePlan, planName, type BillingPeriod,
+  PLANS, CONSULTANCY_TEASER_EN_LEAD, CONSULTANCY_TEASER_EN_REST, BILLING_PERIODS,
+  planPriceLabel, parsePlanRequest, normalizePlan, planName, type BillingPeriod,
 } from '@/lib/plans';
 import { SECURE_PAYMENT_COPY } from '@/lib/billing';
 import { can, type OrgRole } from '@/lib/permissions';
 import type { PlanTier } from '@/lib/types';
 
-const PERIOD_LABEL: Record<BillingPeriod, string> = { monthly: 'Mensal', annual: 'Anual' };
+const PERIOD_LABEL: Record<BillingPeriod, string> = { monthly: 'Monthly', annual: 'Annual' };
 
 export default function PlansPage() {
   const { db } = useStore();
@@ -35,8 +35,8 @@ export default function PlansPage() {
     // Post-checkout return (?checkout=success|cancel) — read client-side to
     // avoid a Suspense boundary for useSearchParams.
     const q = new URLSearchParams(window.location.search).get('checkout');
-    if (q === 'success') setNotice('Subscrição confirmada — o teu plano é atualizado automaticamente em segundos.');
-    else if (q === 'cancel') setNotice('Pagamento cancelado — nada foi cobrado.');
+    if (q === 'success') setNotice('Subscription confirmed — your plan updates automatically within seconds.');
+    else if (q === 'cancel') setNotice('Payment cancelled — nothing was charged.');
   }, []);
 
   const current: PlanTier = me?.plan ?? normalizePlan(db.org.plan);
@@ -56,7 +56,7 @@ export default function PlansPage() {
       });
       const body = await res.json();
       if (body.ok && body.url) { window.location.href = body.url; return; }
-      setErr(body.error ?? 'Não foi possível iniciar o pagamento.');
+      setErr(body.error ?? 'Could not start checkout.');
     } finally {
       setBusy((b) => (b === tier ? null : b));
     }
@@ -68,7 +68,7 @@ export default function PlansPage() {
       const res = await fetch('/api/stripe/portal', { method: 'POST' });
       const body = await res.json();
       if (body.ok && body.url) { window.location.href = body.url; return; }
-      setErr(body.error ?? 'Não foi possível abrir a gestão de subscrição.');
+      setErr(body.error ?? 'Could not open the billing portal.');
     } finally {
       setBusy((b) => (b === 'portal' ? null : b));
     }
@@ -81,7 +81,7 @@ export default function PlansPage() {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tier, period }),
       });
       const body = await res.json();
-      if (!body.ok) { setErr(body.error ?? 'Não foi possível enviar o pedido.'); return; }
+      if (!body.ok) { setErr(body.error ?? 'Could not send the request.'); return; }
       setRequestedLocal({ tier, period });
     } finally {
       setBusy((b) => (b === tier ? null : b));
@@ -89,21 +89,21 @@ export default function PlansPage() {
   }
 
   function ctaFor(tier: PlanTier) {
-    if (tier === current) return <span className="rounded-full bg-[#E8F4F8] px-3 py-1 text-xs font-semibold text-[#0E7490]">Plano atual</span>;
+    if (tier === current) return <span className="rounded-full bg-[#E8F4F8] px-3 py-1 text-xs font-semibold text-[#0E7490]">Current plan</span>;
 
     // Billing ON — real checkout for paid tiers; downgrade to free is done in
     // the portal (cancel), so the free card just points there.
     if (billing) {
       if (tier === 'idea') {
         return hasSubscription
-          ? <span className="text-[11px] text-gray-400">Faz downgrade em “Gerir subscrição”.</span>
+          ? <span className="text-[11px] text-gray-400">Downgrade from “Manage subscription”.</span>
           : null;
       }
-      if (!canManage) return <span className="text-[11px] text-gray-400">Só o owner/admin pode subscrever.</span>;
+      if (!canManage) return <span className="text-[11px] text-gray-400">Only the owner/admin can subscribe.</span>;
       return (
         <button onClick={() => checkout(tier)} disabled={busy === tier}
           className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0c637b] disabled:opacity-40">
-          {busy === tier ? 'A abrir…' : 'Escolher plano'}
+          {busy === tier ? 'Opening…' : 'Choose this plan'}
         </button>
       );
     }
@@ -111,17 +111,17 @@ export default function PlansPage() {
     // Billing OFF — the manual request flow (unchanged).
     if (pending) {
       return pending.tier === tier
-        ? <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Pedido enviado</span>
-        : <span className="text-[11px] text-gray-400">Pedido pendente para {planName(pending.tier)}</span>;
+        ? <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Request sent</span>
+        : <span className="text-[11px] text-gray-400">Request pending for {planName(pending.tier)}</span>;
     }
     if (!requestsEnabled) {
-      return <span className="text-[11px] text-gray-400" title={me?.authEnabled ? 'Disponível quando a migração 0028 estiver aplicada.' : 'Disponível na versão publicada.'}>Pedidos em breve</span>;
+      return <span className="text-[11px] text-gray-400" title={me?.authEnabled ? 'Available once migration 0028 is applied.' : 'Available on the published version.'}>Requests coming soon</span>;
     }
-    if (!canManage) return <span className="text-[11px] text-gray-400">Só o owner/admin pode pedir.</span>;
+    if (!canManage) return <span className="text-[11px] text-gray-400">Only the owner/admin can request this.</span>;
     return (
       <button onClick={() => requestPlan(tier)} disabled={busy === tier}
         className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0c637b] disabled:opacity-40">
-        {busy === tier ? 'A enviar…' : `Pedir ${planName(tier)}`}
+        {busy === tier ? 'Sending…' : `Request ${planName(tier)}`}
       </button>
     );
   }
@@ -130,15 +130,15 @@ export default function PlansPage() {
 
   return (
     <div className="max-w-4xl space-y-4">
-      <h1 className="text-lg font-bold">Planos e conta</h1>
+      <h1 className="text-lg font-bold">Plans &amp; billing</h1>
 
       {notice && <div className="rounded-lg border border-cyan-100 bg-[#E8F4F8] px-3 py-2 text-xs text-[#0E7490]">{notice}</div>}
 
-      <Card title="O teu plano" tint="blue"
+      <Card title="Your plan" tint="blue"
         right={billing && hasSubscription && canManage ? (
           <button onClick={openPortal} disabled={busy === 'portal'}
             className="rounded-lg border border-cyan-200 bg-white px-2.5 py-1 text-xs font-medium text-[#0E7490] hover:bg-cyan-50 disabled:opacity-40">
-            {busy === 'portal' ? 'A abrir…' : 'Gerir subscrição'}
+            {busy === 'portal' ? 'Opening…' : 'Manage subscription'}
           </button>
         ) : undefined}>
         <div className="flex flex-wrap items-baseline gap-2">
@@ -147,7 +147,7 @@ export default function PlansPage() {
         </div>
         {!billing && pending && (
           <p className="mt-1.5 text-xs text-amber-700">
-            Pedido de mudança para <b>{planName(pending.tier)}</b> ({PERIOD_LABEL[pending.period]}) enviado — a equipa vai tratar disto. Sem cobrança automática.
+            Request to switch to <b>{planName(pending.tier)}</b> ({PERIOD_LABEL[pending.period]}) sent — the team will take care of it. No automatic charge.
           </p>
         )}
         {err && <p className="mt-1.5 text-xs text-[#B00000]">{err}</p>}
@@ -172,8 +172,8 @@ export default function PlansPage() {
               <div className="text-sm font-bold text-gray-800">{p.name}</div>
               <div className="mt-1.5 text-[15px] font-bold text-[#0E7490]">{planPriceLabel(p, period)}</div>
               <ul className="mt-3 flex-1 space-y-1 text-xs text-gray-600">
-                <li>{p.paid ? '✓ Personalização de mensagens por AI' : '· Templates mecânicos + escrita manual'}</li>
-                <li>· Pipeline, data room e disciplina de outreach</li>
+                <li>{p.paid ? '✓ AI-personalized messaging' : '· Mechanical templates + manual writing'}</li>
+                <li>· Pipeline, data room and outreach discipline</li>
               </ul>
               <div className="mt-3">{ctaFor(p.tier)}</div>
             </div>
@@ -181,13 +181,13 @@ export default function PlansPage() {
         })}
       </div>
 
-      {billing && <p className="text-[11px] text-gray-400">🔒 {SECURE_PAYMENT_COPY}. Podes cancelar a qualquer momento.</p>}
+      {billing && <p className="text-[11px] text-gray-400">🔒 {SECURE_PAYMENT_COPY}. Cancel anytime.</p>}
 
-      <p className="text-xs text-gray-400">{CONSULTANCY_TEASER}</p>
+      <p className="text-xs text-gray-400"><b>{CONSULTANCY_TEASER_EN_LEAD}</b>{CONSULTANCY_TEASER_EN_REST}</p>
 
       {!billing && (
         <p className="text-[11px] text-gray-400">
-          Sem processamento de pagamentos nesta versão — um pedido de mudança de plano é registado e a equipa aplica-o manualmente.
+          No payment processing in this version — a plan-change request is recorded and the team applies it manually.
         </p>
       )}
     </div>

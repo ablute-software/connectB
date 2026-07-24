@@ -4,8 +4,9 @@
 // fields up front so a new org doesn't start as a bare name.
 import { useState } from 'react';
 import Link from 'next/link';
-import { BRAND_NAME } from '@/lib/brand';
 import { browserClient, authEnabled } from '@/lib/supabase';
+import { LogoLockup } from '@/components/Logo';
+import { AuthShell } from '@/components/auth/AuthShell';
 
 const STAGES = [
   { value: '', label: 'Stage…' },
@@ -66,10 +67,10 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#F7F9FA] px-4 py-10">
-      <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-7 shadow-sm">
-        <div className="mb-1 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
-          {BRAND_NAME}
+    <AuthShell>
+      <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-7 shadow-2xl">
+        <div className="mb-1 flex items-center gap-2 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+          <LogoLockup size={28} accentClassName="text-[#2a7f8e]" />
         </div>
         <p className="mb-5 text-sm text-gray-500">Create your founder account and start managing your raise.</p>
         {!authEnabled && (
@@ -129,6 +130,6 @@ export default function SignupPage() {
           Already have an account? <Link href="/login" className="font-medium text-[#0E7490] hover:underline">Sign in</Link>
         </div>
       </div>
-    </div>
+    </AuthShell>
   );
 }

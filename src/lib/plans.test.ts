@@ -69,15 +69,15 @@ describe('planEntitlements (C — plan-gate resolution)', () => {
   });
 });
 
-describe('planPriceLabel (Mensal/Anual toggle mapping)', () => {
-  it('garage: monthly €85, annual €756/ano equivalence', () => {
-    expect(planPriceLabel(planRow('garage'), 'monthly')).toBe('€85/mês');
-    expect(planPriceLabel(planRow('garage'), 'annual')).toBe('€756/ano (equivale a €63/mês)');
+describe('planPriceLabel (Monthly/Annual toggle mapping)', () => {
+  it('garage: monthly €85, annual €756/year equivalence', () => {
+    expect(planPriceLabel(planRow('garage'), 'monthly')).toBe('€85/month');
+    expect(planPriceLabel(planRow('garage'), 'annual')).toBe('€756/year (equivalent to €63/month)');
   });
 
-  it('motherfunding: monthly €149, annual €1.308/ano equivalence', () => {
-    expect(planPriceLabel(planRow('motherfunding'), 'monthly')).toBe('€149/mês');
-    expect(planPriceLabel(planRow('motherfunding'), 'annual')).toBe('€1.308/ano (equivale a €109/mês)');
+  it('motherfunding: monthly €149, annual €1,308/year equivalence', () => {
+    expect(planPriceLabel(planRow('motherfunding'), 'monthly')).toBe('€149/month');
+    expect(planPriceLabel(planRow('motherfunding'), 'annual')).toBe('€1,308/year (equivalent to €109/month)');
   });
 
   it('free (idea) is €0 regardless of period (no annual → falls back to monthly)', () => {

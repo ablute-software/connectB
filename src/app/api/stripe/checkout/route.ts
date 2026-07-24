@@ -25,16 +25,16 @@ export async function POST(req: Request) {
   const { data: member } = await sb.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
   if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
   if (!can(member.role as OrgRole, 'manage_org_settings')) {
-    return NextResponse.json({ ok: false, error: 'Só o owner/admin pode alterar a subscrição.' }, { status: 403 });
+    return NextResponse.json({ ok: false, error: 'Only the owner/admin can change the subscription.' }, { status: 403 });
   }
 
   const { tier, period } = await req.json() as { tier?: string; period?: string };
   if (!tier || !PLAN_TIERS.includes(tier as PlanTier) || tier === 'idea') {
-    return NextResponse.json({ ok: false, error: 'Plano inválido.' }, { status: 400 });
+    return NextResponse.json({ ok: false, error: 'Invalid plan.' }, { status: 400 });
   }
   const pd: 'monthly' | 'annual' = period === 'annual' ? 'annual' : 'monthly';
   const priceId = priceIdFor(tier as PlanTier, pd, stripePriceMap());
-  if (!priceId) return NextResponse.json({ ok: false, error: 'Preço indisponível.' }, { status: 400 });
+  if (!priceId) return NextResponse.json({ ok: false, error: 'Price unavailable.' }, { status: 400 });
 
   const { data: org } = await sb.from('orgs').select('stripe_customer_id').eq('id', member.org_id).maybeSingle();
 
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
   });
   if (!res.ok) {
     console.error('Stripe checkout error:', (await res.text()).slice(0, 300));
-    return NextResponse.json({ ok: false, error: 'Não foi possível iniciar o pagamento.' }, { status: 502 });
+    return NextResponse.json({ ok: false, error: 'Could not start checkout.' }, { status: 502 });
   }
   const data = await res.json();
   return NextResponse.json({ ok: true, url: data.url as string });

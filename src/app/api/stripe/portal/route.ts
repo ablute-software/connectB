@@ -17,12 +17,12 @@ export async function POST() {
   const { data: member } = await sb.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
   if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
   if (!can(member.role as OrgRole, 'manage_org_settings')) {
-    return NextResponse.json({ ok: false, error: 'Só o owner/admin pode gerir a subscrição.' }, { status: 403 });
+    return NextResponse.json({ ok: false, error: 'Only the owner/admin can manage the subscription.' }, { status: 403 });
   }
 
   const { data: org } = await sb.from('orgs').select('stripe_customer_id').eq('id', member.org_id).maybeSingle();
   const customer = org?.stripe_customer_id as string | undefined;
-  if (!customer) return NextResponse.json({ ok: false, error: 'Sem subscrição para gerir.' }, { status: 400 });
+  if (!customer) return NextResponse.json({ ok: false, error: 'No subscription to manage.' }, { status: 400 });
 
   const form = new URLSearchParams();
   form.set('customer', customer);
@@ -35,7 +35,7 @@ export async function POST() {
   });
   if (!res.ok) {
     console.error('Stripe portal error:', (await res.text()).slice(0, 300));
-    return NextResponse.json({ ok: false, error: 'Não foi possível abrir a gestão de subscrição.' }, { status: 502 });
+    return NextResponse.json({ ok: false, error: 'Could not open the billing portal.' }, { status: 502 });
   }
   const data = await res.json();
   return NextResponse.json({ ok: true, url: data.url as string });

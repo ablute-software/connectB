@@ -22,12 +22,12 @@ export async function POST(req: Request) {
   const { data: member } = await sb.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
   if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
   if (!can(member.role as OrgRole, 'manage_org_settings')) {
-    return NextResponse.json({ ok: false, error: 'Só o owner ou admin pode pedir uma mudança de plano.' }, { status: 403 });
+    return NextResponse.json({ ok: false, error: 'Only the owner or admin can request a plan change.' }, { status: 403 });
   }
 
   const { tier, period } = await req.json() as { tier?: string; period?: string };
   if (!tier || !PLAN_TIERS.includes(tier as PlanTier)) {
-    return NextResponse.json({ ok: false, error: 'Plano inválido.' }, { status: 400 });
+    return NextResponse.json({ ok: false, error: 'Invalid plan.' }, { status: 400 });
   }
   // Encode the chosen billing period into the free-text request column (no
   // migration): 'annual' → `<tier>@annual`, monthly stays a bare `<tier>`.

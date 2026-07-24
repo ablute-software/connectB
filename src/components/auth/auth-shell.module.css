@@ -1,0 +1,43 @@
+/* Standalone backdrop for the auth pages (login/signup/forgot-password/
+   reset-password) — no app chrome, no real app UI or data behind the glass.
+   Decorative only: the landing's dark teal gradient + a few abstract blurred
+   shapes suggesting an app window, then a frosted wash on top so nothing
+   behind is ever readable. Scoped as a CSS module so it can't reach the app
+   shell's styles. */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 600px at 75% -10%, #1d5a67 0%, transparent 60%),
+    linear-gradient(160deg, #0c272e 0%, #123a44 55%, #0e3038 100%);
+}
+
+/* Abstract rounded-rectangle shapes, low opacity + heavily blurred — just
+   enough to suggest depth/an app window without ever forming real content. */
+.shape {
+  position: absolute;
+  border-radius: 28px;
+  filter: blur(60px);
+}
+.shape1 { top: -120px; left: -110px; width: 460px; height: 280px; background: rgba(255, 255, 255, 0.10); transform: rotate(-10deg); }
+.shape2 { bottom: -90px; right: -90px; width: 400px; height: 250px; background: rgba(42, 127, 142, 0.4); transform: rotate(8deg); }
+.shape3 { top: 38%; left: 58%; width: 320px; height: 200px; background: rgba(217, 164, 65, 0.14); transform: translate(-50%, -50%) rotate(-6deg); }
+
+/* The frosted wash. backdrop-filter is the primary treatment; browsers without
+   support (checked via @supports) fall back to a solid-enough overlay so
+   nothing behind is ever readable either way. */
+.glass {
+  position: absolute;
+  inset: 0;
+  background: rgba(12, 39, 46, 0.42);
+  backdrop-filter: blur(18px) saturate(1.1);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: rgba(12, 39, 46, 0.88);
+  }
+}

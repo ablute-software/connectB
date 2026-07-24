@@ -16,7 +16,7 @@ export interface PlanRow {
   tier: PlanTier;
   /** Verbatim plan name — do not translate or rephrase. */
   name: string;
-  /** Monthly price label, e.g. "€85/mês" (or "€0" for the free tier). */
+  /** Monthly price label, e.g. "€85/month" (or "€0" for the free tier). */
   monthly: string;
   /** Annual price label with the effective monthly in parentheses, if any. */
   annual?: string;
@@ -36,8 +36,8 @@ export interface PlanRow {
 // one definition.
 export const PLANS: PlanRow[] = [
   { tier: 'idea', name: 'Mom, I have an idea', monthly: '€0', paid: false, monthlyEur: 0 },
-  { tier: 'garage', name: "Dad, I'm leaving the garage", monthly: '€85/mês', annual: '€756/ano (equivale a €63/mês)', paid: true, monthlyEur: 85, annualEur: 756, annualPerMonthEur: 63 },
-  { tier: 'motherfunding', name: 'Motherfunding', monthly: '€149/mês', annual: '€1.308/ano (equivale a €109/mês)', paid: true, monthlyEur: 149, annualEur: 1308, annualPerMonthEur: 109 },
+  { tier: 'garage', name: "Dad, I'm leaving the garage", monthly: '€85/month', annual: '€756/year (equivalent to €63/month)', paid: true, monthlyEur: 85, annualEur: 756, annualPerMonthEur: 63 },
+  { tier: 'motherfunding', name: 'Motherfunding', monthly: '€149/month', annual: '€1,308/year (equivalent to €109/month)', paid: true, monthlyEur: 149, annualEur: 1308, annualPerMonthEur: 109 },
 ];
 
 // Success fee SUSPENDED (founder decision, post legal consultation, 2026-07-23):

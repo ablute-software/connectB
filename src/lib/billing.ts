@@ -14,9 +14,9 @@ export interface StripePriceMap {
   motherfunding: { monthly?: string; annual?: string };
 }
 
-// Copy hygiene (founder rule): the UI says "pagamento seguro" — never the
+// Copy hygiene (founder rule): the UI says "secure payment" — never the
 // provider's name.
-export const SECURE_PAYMENT_COPY = 'pagamento seguro';
+export const SECURE_PAYMENT_COPY = 'Secure payment';
 
 // A subscription is treated as paying while in any of these states — including
 // past_due (dunning grace) and a subscription set to cancel_at_period_end
