@@ -2307,3 +2307,58 @@ history/relations that only a human should decide).
 Verified live: Bynd VC's direct writes (address, postal_code, email,
 key_people) and Indico's AUM/current_funds all present exactly as
 committed; no errors this run.
+
+## Third direct-research batch — 20 UK entities — committed, one repair
+
+Scaled the batch size from 10-15 to 20 per the founder's own decision, same
+technique. New wrinkle: this batch's v3.1 file included the entity `Unique
+ID` for all 20 rows (queried directly from prod before research started),
+so `import-confidence-routed.mjs` matched 20/20 by ID with zero
+name-matching ambiguity — a strictly easier case than the previous two
+batches, no script changes needed.
+
+Real result: Step 1 (`batch_uk20_v31.csv`) — 20/20 matched, 70 direct
+writes, 10 pending, 0 already-set, 40 empty. Step 2
+(`extra_fields_uk20.csv`, one-off `_import_extra_fields_uk20.mjs`) — 13
+direct writes (AUM/current_funds, high confidence), 21 pending
+(AUM/current_funds medium/low + thesis, always-pending per policy), 14
+notes-only preservations (non-EUR/ambiguous check sizes — GBP/USD figures
+never converted, same rule as every prior batch), 53 report-only skips
+(Stage Focus narrative + sectors/thesis already set from earlier CSV
+imports), 36 genuine not-found.
+
+**Real bug found and fixed, same session, before it could compound:** the
+notes-append step in the one-off script read each entity's `notes` once
+into an in-memory map at the start of the run, then wrote every addition
+for that entity from that same stale snapshot — so an entity with two
+separate notes-only additions (its First Check Min AND Max, e.g. Hoxton
+Ventures' "$500K" and "$5M") had the second overwrite the first instead of
+appending after it, because neither write knew about the other's change.
+Caught by live-verifying Hoxton Ventures right after commit and noticing
+only the Max note had landed. Root cause is the same *family* of bug as
+the PostgREST mixed-key issue from batch 1 (a write that doesn't account
+for another write happening in the same batch) but a different mechanism
+(local stale-read, not a server-side default) — fixed by accumulating all
+of an entity's note additions into one list before issuing a single
+update, rather than one update per addition. Affected 5 entities total
+(Seedcamp, MMC Ventures, Hoxton Ventures, firstminute capital, Beringea,
+each missing their First Check Min note); repaired with a narrow one-off
+script that only touched those 5 specific `notes` values — deliberately
+did NOT re-run the full extra-fields script, since its pending-contribution
+inserts have no dedup and a second full run would have doubled all 21.
+Verified the total org-wide pending-contribution count (260) before and
+after the repair to confirm nothing else moved.
+
+Also flagged, not acted on (per the founder's own framing, not blocking):
+**LocalGlobe** — `localglobe.vc` redirects to `phoenixcourt.vc/localglobe`;
+several senior GPs reportedly departed, brand appears to now operate as
+one vehicle inside a larger "Phoenix Court" platform, no confirmed current
+fund name in a primary source. Its address wrote normally through the
+usual flow; whether the entity needs a note or a relationship to a
+"Phoenix Court" record is a human decision, deliberately not auto-merged
+or auto-annotated.
+
+Verified live: Atomico/Molten Ventures/Hoxton Ventures' direct writes
+present exactly as committed; the 5 repaired entities each carry both
+their Min and Max notes; total pending `submitted` contributions org-wide
+is 260, unchanged by the repair.
