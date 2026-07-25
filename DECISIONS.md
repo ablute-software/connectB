@@ -2264,3 +2264,46 @@ Verified live: 11 pending `submitted` contributions across the affected
 entities (9 from this batch + Step 1's 2 Key People pendings), each with the
 correct `kind`; 3VC's notes confirmed to contain the ambiguous-check-max
 addition exactly once, not twice.
+
+## Second direct-research batch — 15 Portuguese entities — committed
+
+Founder decision (per his own record, 2026-07-25): after batch 1's fill
+rates came back far above the country-by-country external-AI batches
+(Street 8-13%→70%, Email 3-8%→60%, Key People 0-1%→80%), scale the
+direct-research technique instead of going back to external-AI prompts or a
+hybrid — starting with Portugal. No code changes needed; both scripts
+(`import-confidence-routed.mjs` for the v3.1 contact CSV,
+a fresh one-off `_import_extra_fields_pt15.mjs` mirroring batch 1's for the
+business-data CSV) worked against the new data as designed.
+
+Real result: Step 1 (`batch_pt15_v31.csv`) — 15/15 matched by name, 37 direct
+writes, 3 pending (COREangels' email flagged medium as possibly a generic
+address; Pathena's address/Key People flagged low/medium, sourced from Yelp
+rather than the firm's own site). Step 2 (`extra_fields_pt15.csv`) — 15/15
+matched, 3 direct writes (Indico Capital Partners' and Portugal Ventures'
+AUM/current funds, all high confidence), 12 pending, 39 skipped
+(already-set from earlier batches — Bynd VC and Indico already had check
+sizes, most stage/sectors/thesis already populated).
+
+One real extension of the existing policy, not previously exercised: batch
+1's Sector Tags handling was always moot (every entity already had sectors
+set), so "what if it's actually empty" had never been tested. Built it now
+— same "no confidence rating in file → pending, never direct" rule already
+used for thesis — turned out moot again for these 15, but the code path is
+now real for whenever it isn't. Stage Focus stays report-only regardless of
+confidence — narrative phrasing ("Late early-stage and growth", "Multiple
+stages (VC, PE, capital markets)") doesn't map safely to the 4-value stage
+enum, a value-shape risk that no confidence level fixes.
+
+Also flagged, not acted on (per the founder's explicit "these don't block
+the import, just need a separate human decision"): Angry Ventures may not
+be an investable fund at all (a "Digital Studio", site unreachable);
+"Investors Portugal" is actually APIES, a ~50-firm trade association, not a
+fund; "MAZE (Mustard Seed MAZE)" and "Mustard Seed MAZE" look like the same
+organization recorded as two separate entities — flagged for a manual merge
+decision, no automatic merge attempted (has knock-on effects on notes/
+history/relations that only a human should decide).
+
+Verified live: Bynd VC's direct writes (address, postal_code, email,
+key_people) and Indico's AUM/current_funds all present exactly as
+committed; no errors this run.
