@@ -2470,3 +2470,125 @@ fixture, and the three `qualifiesForContactEnrichment` boundary cases
 (zero-both, partial-contact, firmographic-just-under-threshold). Typecheck
 clean, full suite 210/210 green, build green. No migration, no DB write —
 presentation/filtering logic only, exactly as scoped.
+
+## Fourth direct-research batch — 20 firms selected from the new contact queue — committed
+
+First batch actually sourced from the `qualifiesForContactEnrichment` list
+built in `9a2cb70` (SQL: firmographic ≥5/6 AND contact=0, top 20 by
+firmographic desc) — the contact-queue split paid off as a real sourcing
+tool, not just a UI number. New CSV shape this time: flat, one row per
+field, `subject_id` pre-resolved (no name-matching), numeric confidence
+(0.5–0.95) instead of high/medium/low labels, arrived with NO accompanying
+prompt spelling out a routing rule. Didn't guess silently: asked the
+founder to confirm a ≥0.9-direct / <0.9-pending cutoff before running
+anything — confirmed correct once the actual prompt (17) arrived, which
+also matched every one of the dry-run's counts exactly (87 rows, 74 @≥0.9,
+13 pending, 87% fill rate).
+
+One-off `_import_lote4_contacts.mjs` (deleted after use, per convention).
+Real result: 74 direct writes (71@0.95 + 3@0.9) across 19 entities, 13
+pending contributions (12@0.7 + 1@0.5) — Elkstone's phone/address/postal_code
+all landed pending since its site blocks automated fetch and the founder's
+own source was a lower-confidence privacy-policy page, not the firm's
+imprint/contact page.
+
+**Three firmographic corrections, deliberately kept out of the CSV** (the
+founder's own framing: "decide comigo antes" — these needed a conversation,
+not silent application): btov Partners rebranded to **b2venture** (name +
+website both wrong, legal entity is b2venture AG); Volta Ventures' `hq_city`
+said Brussels but the firm has no Brussels office (only Gent/Antwerp/
+Amsterdam) — independently corroborated by the CSV's own Gent postal code
+(9000) for the same entity, not just the founder's say-so; GO Capital's
+`hq_city` said Rennes but the legal seat is Saint-Jacques-de-la-Lande (Rennes
+metro). Asked which of these needed `kind='correction'` vs `kind='fill'`
+before writing anything (AskUserQuestion) — the founder caught a real gap in
+my first pass: btov's `hq_country` was also wrong (should be Switzerland,
+not Germany) even though the DB actually stores `null` there — so that one
+field is a `fill`, not a `correction` (nothing to overwrite), while `name`
+and `website` are true overwrites. Speedinvest Health's classification issue
+(no longer exists as a standalone fund, folded into Speedinvest's "Health &
+Bio" vertical) was explicitly left untouched — a merge decision, not a field
+fix, same discipline as the earlier MAZE/Mustard Seed MAZE non-merge.
+
+**Real bug found, not fixed here (flagged for a separate decision):**
+`entities.name` is not in `ENTITY_ENRICHMENT_FIELDS` (the write-allowlist
+`applyVerifiedContribution`/`resolveEntityFieldWrite` enforce) — so the
+btov name-correction contribution proposed here, and the 2 pre-existing
+`name`-field contributions already in the queue, can never actually be
+applied even if accepted through the UI. Surfaced during the (separate,
+same-session) bulk-review dry-run's Tier E breakdown, not silently patched
+— widening a write-allowlist to include the entity's own name is a product
+decision, not a mechanical fix.
+
+Committed both parts for real after confirming which of two simultaneously-
+pending batches "importa este lote" referred to (the contacts CSV was
+ambiguous against the also-pending bulk-review script — asked rather than
+guessed). Verified live: APEX Ventures' direct writes (email/address/
+postal_code/key_people) present; Elkstone's phone/address/postal_code
+correctly still null (all three went pending, not direct); total org-wide
+pending `submitted` contributions is 279 (260 before this batch + 13 lote4
+pending + 6 correction/fill rows — exact arithmetic match).
+
+## Bulk-review tool for the 260-pending-contribution backlog (built, NOT yet run)
+
+Approving/rejecting 260 pending contributions one at a time in the UI
+isn't viable — the founder asked for a rule-based bulk resolver instead of
+a bigger AI-assisted review pass, specifically because most of the backlog
+is mechanically resolvable (sourced facts landing on empty fields) and
+only a residue needs real human judgement.
+
+Built `scripts/bulk-review-contributions.mjs` — committed/reusable (not
+underscore-prefixed) since future batches will keep adding to this queue,
+not a one-off. Mirrors (can't import directly — this runs under plain
+`node`, not the Next/TS toolchain) the exact write rules
+`contribution-promotion.ts`'s `applyVerifiedContribution` already enforces:
+the entity write-allowlist and the person write-allowlist, plus the same
+non-clobbering check. Five tiers per the founder's spec: A (fill, sourced,
+confidence ≥0.85, field empty → auto-accept), B (same but confidence
+0.5–0.84, restricted to nine "objective" contact/identity fields → auto-
+accept), C (confidence <0.5 → auto-reject, "abaixo do piso de confiança"),
+D (legacy rows with no confidence/source at all → quarantine-reject rather
+than accept blind, split D1 for `last_verified` specifically vs D2 for
+everything else), E (residual: `correction` kind, unwritable fields,
+already-set fields, judgement-type fields at medium confidence — never
+automated).
+
+**Chose the no-migration Tier D variant** the founder offered a choice on:
+reuse the existing `rejected` status + `reviewer_notes` text, instead of
+adding a new `needs_source` enum value — a one-time cleanup pass doesn't
+justify a schema change when the existing terminal status already
+communicates "not accepted as-is."
+
+**A real, disclosed limitation, not silently glossed over:** the founder's
+spec asked for "uma transação única, com rollback em caso de erro a meio."
+This project has no direct Postgres connection configured anywhere (no
+`DATABASE_URL`, no `pg` package) — only the PostgREST-backed `supabase-js`
+client, which doesn't expose ad-hoc multi-table transactions. True
+atomicity would need a direct connection or a Postgres function wrapping
+the whole pass. Built the closest available substitute instead: rows are
+written one at a time, every touched row's before/after value is logged
+BEFORE being applied, and the run stops immediately on the first write
+error rather than continuing past it. Idempotency (safeguard #5) still
+holds because only `status='submitted'` rows are ever touched — anything
+already resolved by a prior partial run silently drops out of scope on a
+re-run.
+
+**Real, dry-run-only finding that changed the numbers materially — did NOT
+commit, per the founder's own stop condition ("se Tier E ficar acima de
+60-70, diz-me antes"):** the founder's own SQL profile (kind/confidence/
+source_url only) never cross-referenced whether each contribution's
+target field was already filled by a *later* batch since the legacy rows'
+2026-07-22 creation date. Non-clobbering correctly takes priority over
+every other tier. Actual result: **A=36** (not ~82), **B=4** (not a chunk
+of ~50), **C=9** (exact match), **D1=0/D2=0** (not 117 — nearly all of the
+legacy rows' target fields turned out to already be filled by the
+seed-import batches, so they fall to "already set" instead), **E=211**
+(not 60-70). Spot-checked the explanation directly: Nina Capital, Calm/
+Storm Ventures, Crista Galli, Bynd VC, and Speedinvest Health all already
+carry a `website` in production, confirming the legacy `website`
+proposals are genuinely superseded, not a classification bug. Reported
+the full tier breakdown, the `entities.name` allowlist gap this dry-run
+surfaced, and the transaction-safety limitation, then asked which of two
+simultaneously-pending confirmations ("importa este lote") the founder
+meant — this script is still **awaiting an explicit go-ahead with the real
+numbers**, not the estimated ones, before any `--commit` run.
