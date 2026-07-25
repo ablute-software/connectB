@@ -2225,3 +2225,42 @@ guessed), 4 preserved to `notes` only (non-EUR or structurally ambiguous
 check-size figures that would risk an uncoercible pending contribution
 later). Nothing written yet — dry-run only, per the founder's explicit
 "só corro com --commit quando eu disser 'importa este lote'."
+
+## Both batches committed for real — and a real PostgREST bulk-insert bug caught mid-run
+
+After confirming migration 0033 was applied, ran both scripts with
+`--commit`. Step 1 (`batch_maxinfo_10firms_v31.csv`) landed clean: 29 direct
+writes, 2 pending (both Key People, medium confidence), 0 already-set, 0
+unmatched.
+
+Step 2-4 (`extra_fields_10firms.csv`) hit a real bug on the first attempt:
+the `contributions` insert failed outright — `null value in column "kind"
+... violates not-null constraint` — even though `kind` has a DB default of
+`'fill'`. Root cause: PostgREST's bulk insert takes the union of keys across
+every object in the array as the column set; any row that doesn't include a
+key gets an explicit `NULL` for it, not the column default. This script's 9
+contributions were a mix — 7 objects with no `kind` key at all (meant to
+fall back to the default) and 2 explicitly `kind:'correction'` — so the 7
+got a literal `NULL` sent for `kind`, and the whole batch insert failed
+atomically (Postgres INSERT is all-or-nothing). Step 1's script never hit
+this because every contribution it creates is the same shape (`kind` always
+omitted, all `'fill'`) — the bug only surfaces when a single insert call
+mixes rows that specify a column with rows that don't.
+
+Before fixing, checked exactly what had already landed from the failed
+attempt (Postgres rolls back the failed INSERT, but the script's other
+statements — direct writes, notes appends — run as separate calls before
+it and aren't rolled back with it): ACE & Company's AUM direct write had
+already applied, and all 4 notes-appends had already applied. Fixed two
+things: (1) every non-correction contribution now explicitly sets
+`kind: 'fill'` rather than omitting the key, and (2) the notes-append step
+is now idempotent (checks whether the exact addition text is already
+present before appending) so re-running the script after a partial failure
+can't double-append. Re-ran — the direct write and notes-appends correctly
+no-op'd (already set / already present), and all 9 contributions inserted
+cleanly this time, both website corrections carrying `kind:'correction'`.
+
+Verified live: 11 pending `submitted` contributions across the affected
+entities (9 from this batch + Step 1's 2 Key People pendings), each with the
+correct `kind`; 3VC's notes confirmed to contain the ambiguous-check-max
+addition exactly once, not twice.
