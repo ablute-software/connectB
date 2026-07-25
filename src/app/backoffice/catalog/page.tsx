@@ -154,39 +154,14 @@ type ResearchResult = {
   appliedToOrgs?: number;
 };
 
-function QualityPanel() {
-  const [queue, setQueue] = useState<EnrichmentRow[] | null>(null);
-  const [err, setErr] = useState('');
-  const [research, setResearch] = useState<Record<string, ResearchResult>>({});
-
-  useEffect(() => {
-    fetch('/api/backoffice/enrichment').then((r) => r.json()).then((body) => {
-      if (body.ok === false) { setErr(body.error); return; }
-      setQueue(body.queue);
-    });
-  }, []);
-
-  async function researchRow(subjectType: 'entity' | 'person', name: string) {
-    const key = `${subjectType}:${name}`;
-    setResearch((prev) => ({ ...prev, [key]: { status: 'loading' } }));
-    try {
-      const res = await fetch('/api/backoffice/research', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subjectType, name }) });
-      const body = await res.json();
-      if (body.configured === false) setResearch((prev) => ({ ...prev, [key]: { status: 'not_configured', message: body.message } }));
-      else if (body.ok === false) setResearch((prev) => ({ ...prev, [key]: { status: 'error', message: body.error } }));
-      else setResearch((prev) => ({ ...prev, [key]: { status: 'done', proposals: body.proposals, appliedToOrgs: body.appliedToOrgs, message: body.message } }));
-    } catch (e) {
-      setResearch((prev) => ({ ...prev, [key]: { status: 'error', message: (e as Error).message } }));
-    }
-  }
-
-  if (err) return <Card title="Quality — enrichment queue"><p className="text-sm text-[#B00000]">{err}</p></Card>;
-  if (!queue) return <Card title="Quality — enrichment queue"><p className="text-sm text-gray-400">Loading…</p></Card>;
-
+function EnrichmentQueueTable({ title, subtitle, emptyLabel, queue, research, onResearch }: {
+  title: string; subtitle: string; emptyLabel: string; queue: EnrichmentRow[];
+  research: Record<string, ResearchResult>; onResearch: (subjectType: 'entity' | 'person', name: string) => void;
+}) {
   return (
-    <Card title={`Quality — profiles below 70% (${queue.length})`}>
-      <p className="mb-3 text-xs text-gray-500">Ranked by demand. "Research with AI" proposes fields with source + confidence, queued for verification in Fila → Contributions.</p>
-      {queue.length === 0 ? <p className="text-sm text-gray-400">Nothing below the completeness threshold right now.</p> : (
+    <Card title={`${title} (${queue.length})`}>
+      <p className="mb-3 text-xs text-gray-500">{subtitle}</p>
+      {queue.length === 0 ? <p className="text-sm text-gray-400">{emptyLabel}</p> : (
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400"><th className="py-1.5">Subject</th><th>Type</th><th>Demand</th><th>Worst</th><th>Missing</th><th></th></tr>
@@ -215,7 +190,7 @@ function QualityPanel() {
                     )}
                   </td>
                   <td>
-                    <button onClick={() => researchRow(r.subjectType, r.name)} disabled={rr?.status === 'loading'}
+                    <button onClick={() => onResearch(r.subjectType, r.name)} disabled={rr?.status === 'loading'}
                       className="whitespace-nowrap rounded-lg border border-cyan-200 px-2 py-1 text-xs text-cyan-800 hover:bg-cyan-50 disabled:opacity-40">
                       ✨ Research with AI
                     </button>
@@ -227,6 +202,61 @@ function QualityPanel() {
         </table>
       )}
     </Card>
+  );
+}
+
+function QualityPanel() {
+  // Two separate queues (DECISIONS.md, follow-up to cc11161): the
+  // original profile queue (people + entities below the firmographic
+  // threshold, unchanged calibration) and a new entity-only contact queue
+  // using the actionable rule (firmographic already >=70%, zero contact
+  // fields) — a raw percent cutoff on the contact score alone would flag
+  // nearly the whole base, which isn't a usable signal.
+  const [profileQueue, setProfileQueue] = useState<EnrichmentRow[] | null>(null);
+  const [contactQueue, setContactQueue] = useState<EnrichmentRow[] | null>(null);
+  const [err, setErr] = useState('');
+  const [research, setResearch] = useState<Record<string, ResearchResult>>({});
+
+  useEffect(() => {
+    fetch('/api/backoffice/enrichment').then((r) => r.json()).then((body) => {
+      if (body.ok === false) { setErr(body.error); return; }
+      setProfileQueue(body.profileQueue);
+      setContactQueue(body.contactQueue);
+    });
+  }, []);
+
+  async function researchRow(subjectType: 'entity' | 'person', name: string) {
+    const key = `${subjectType}:${name}`;
+    setResearch((prev) => ({ ...prev, [key]: { status: 'loading' } }));
+    try {
+      const res = await fetch('/api/backoffice/research', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subjectType, name }) });
+      const body = await res.json();
+      if (body.configured === false) setResearch((prev) => ({ ...prev, [key]: { status: 'not_configured', message: body.message } }));
+      else if (body.ok === false) setResearch((prev) => ({ ...prev, [key]: { status: 'error', message: body.error } }));
+      else setResearch((prev) => ({ ...prev, [key]: { status: 'done', proposals: body.proposals, appliedToOrgs: body.appliedToOrgs, message: body.message } }));
+    } catch (e) {
+      setResearch((prev) => ({ ...prev, [key]: { status: 'error', message: (e as Error).message } }));
+    }
+  }
+
+  if (err) return <Card title="Quality — enrichment queue"><p className="text-sm text-[#B00000]">{err}</p></Card>;
+  if (!profileQueue || !contactQueue) return <Card title="Quality — enrichment queue"><p className="text-sm text-gray-400">Loading…</p></Card>;
+
+  return (
+    <div className="space-y-4">
+      <EnrichmentQueueTable
+        title="Quality — profiles below 70% (firmographic)"
+        subtitle="Ranked by demand. &quot;Research with AI&quot; proposes fields with source + confidence, queued for verification in Fila → Contributions."
+        emptyLabel="Nothing below the firmographic completeness threshold right now."
+        queue={profileQueue} research={research} onResearch={researchRow}
+      />
+      <EnrichmentQueueTable
+        title="Quality — contact gaps"
+        subtitle="Entities already firmographically solid (≥70%) but with zero contact fields on file — the actionable follow-up list for the direct-research program."
+        emptyLabel="No firmographically-qualified entity has zero contact data right now."
+        queue={contactQueue} research={research} onResearch={researchRow}
+      />
+    </div>
   );
 }
 

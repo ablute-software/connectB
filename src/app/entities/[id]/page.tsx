@@ -8,7 +8,7 @@ import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
 import { ThreadDrawer } from '@/components/ThreadDrawer';
 import { ContributionBox } from '@/components/ContributionBox';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
-import { entityCompleteness } from '@/lib/completeness';
+import { entityCompleteness, qualifiesForContactEnrichment } from '@/lib/completeness';
 import { isPersonCandidate, relatedContacts } from '@/lib/relationship';
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { browserClient } from '@/lib/supabase';
@@ -163,7 +163,12 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </Card>
       )}
 
-      <Card title="Entity summary" right={<EnrichmentBadge result={completeness} subjectType="entity" subjectId={entity.id} orgId={db.org.id} onEnriched={() => setContributionsRefreshKey((k) => k + 1)} />}>
+      <Card title="Entity summary" right={
+        <div className="flex flex-col items-end gap-1">
+          <EnrichmentBadge label="Firmographic" result={completeness.firmographic} subjectType="entity" subjectId={entity.id} orgId={db.org.id} onEnriched={() => setContributionsRefreshKey((k) => k + 1)} />
+          <EnrichmentBadge label="Contact" result={completeness.contact} low={qualifiesForContactEnrichment(completeness)} subjectType="entity" subjectId={entity.id} orgId={db.org.id} onEnriched={() => setContributionsRefreshKey((k) => k + 1)} />
+        </div>
+      }>
         <div className="grid gap-4 sm:grid-cols-2">
           <dl className="space-y-1.5 text-sm text-gray-600">
             {contactAvailable ? (

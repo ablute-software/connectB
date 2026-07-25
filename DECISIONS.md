@@ -2406,3 +2406,67 @@ still green (no test file existed for `completeness.ts` before this — none
 added now either, since the fix is a small, direct data addition to an
 existing check list, not new branching logic). No migration, no DB write —
 presentation-logic only, exactly as the founder's report specified.
+
+## Follow-up to cc11161: completeness split into firmographic + contact scores
+
+The founder measured the real effect of the 11-field score across all 531
+production entities before asking for anything further — a good catch,
+not obvious from the code alone: `ENRICHMENT_THRESHOLD = 70` was
+calibrated when the score had 6 fields; unchanged at 11, it now demands 8
+of 11 rather than 5 of 6. Firmographic average stayed 69%, but contact
+average (only 45 entities touched by the direct-research batches so far)
+was 8% — one blended score of 41% describes neither group, entities below
+70% went from 203 (38%) to 500 (94%), and the entity-page badge would have
+read "incomplete" on nearly the whole base. The founder recommended (with
+these numbers behind it) splitting into two scores rather than lowering
+the threshold back down, which would have restored selectivity but lost
+the separate progress signal for the contact-research program.
+
+**Implemented the split, not the threshold-rollback:**
+- `entityCompleteness(e)` now returns `{ firmographic, contact }` — two
+  independent `CompletenessResult`s, same 6 firmographic + 5 contact
+  checks from cc11161, just no longer averaged together.
+- `ENRICHMENT_THRESHOLD` (70) is unchanged and now applies only to the
+  firmographic score — restores the exact pre-split 203-candidate
+  calibration.
+- **No percent threshold for the contact dimension** — the founder's own
+  point: with the base at 8% contact-average, any reasonable cutoff
+  selects almost everything. Instead, `qualifiesForContactEnrichment(c)`
+  encodes the actionable rule the founder proposed: firmographic already
+  ≥70% AND contact is exactly 0%. A profile incomplete on both fronts
+  isn't a distinct contact-queue item — it's just the firmographic queue.
+- `personCompleteness` is untouched (still one score) — the split request
+  was entity-specific; people don't have the same firmographic/contact
+  field-type distinction.
+
+**Consumers updated:**
+- `EnrichmentBadge` gained optional `label` (dimension name shown before
+  the percent) and `low` (override the internal `percent < threshold` calc,
+  needed for the contact badge since its own percent is misleading in
+  isolation) props — both optional, so the person-profile badge call site
+  is untouched.
+- Entity page now renders two badges, "Firmographic X% complete" and
+  "Contact Y% complete" (the latter's low/actionable state driven by
+  `qualifiesForContactEnrichment`, not its own percent).
+- `/api/backoffice/enrichment` now returns `{ profileQueue, contactQueue }`
+  instead of one flat `queue` — same grouping/demand-ranking logic
+  (factored into a shared `buildQueue()` helper, not duplicated), just run
+  twice with different input rows. `profileQueue` is people + entities
+  below the firmographic threshold (unchanged from before cc11161).
+  `contactQueue` is entities only, built from `qualifiesForContactEnrichment`.
+- Back-office Catálogo's Quality panel now renders two tables (factored
+  into a shared `EnrichmentQueueTable` component to avoid duplicating the
+  markup) instead of one: "profiles below 70% (firmographic)" and "contact
+  gaps" with its own subtitle explaining the actionable rule.
+
+**Verified against production** (531 entities, same dataset the founder
+measured): firmographic queue is back to **203** (exact match — same
+calibration as before contact fields existed). Contact queue (firmographic
+≥70% AND contact = 0) is **244** — smaller than the reported 500 "100%
+misleading" figure and, unlike that number, an actual actionable worklist
+rather than badge noise. Added `completeness.test.ts` (9 tests, none
+existed before) covering the split itself, the MAZE case reproduced as a
+fixture, and the three `qualifiesForContactEnrichment` boundary cases
+(zero-both, partial-contact, firmographic-just-under-threshold). Typecheck
+clean, full suite 210/210 green, build green. No migration, no DB write —
+presentation/filtering logic only, exactly as scoped.

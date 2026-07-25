@@ -11,21 +11,29 @@ import { ENRICHMENT_THRESHOLD, ENRICHMENT_REQUEST_FIELD, type CompletenessResult
 
 type LookupState = 'idle' | 'searching' | 'not_configured' | 'no_findings' | 'found' | 'error';
 
-export function EnrichmentBadge({ result, subjectType, subjectId, orgId, onEnriched }: {
+export function EnrichmentBadge({ result, subjectType, subjectId, orgId, label, low: lowOverride, onEnriched }: {
   result: CompletenessResult; subjectType: 'entity' | 'person'; subjectId: string; orgId: string;
+  // Optional dimension label ("Firmographic" / "Contact") when an entity
+  // shows more than one badge — omitted, this reads "Profile X% complete"
+  // exactly as before (unchanged for the single-score person badge).
+  label?: string;
+  // Override the internal `percent < ENRICHMENT_THRESHOLD` low-signal calc.
+  // Needed for the contact dimension, whose own percent is misleading in
+  // isolation (see qualifiesForContactEnrichment) — most callers omit this.
+  low?: boolean;
   // Called once a lookup finds and stores at least one suggestion, so the
   // caller can refresh whatever list is showing pending contributions.
   onEnriched?: () => void;
 }) {
   const [requested, setRequested] = useState(false);
   const [lookup, setLookup] = useState<LookupState>('idle');
-  const low = result.percent < ENRICHMENT_THRESHOLD;
+  const low = lowOverride ?? result.percent < ENRICHMENT_THRESHOLD;
 
   async function requestMoreInfo() {
     if (!authEnabled) return;
     await browserClient().from('contributions').insert({
       subject_type: subjectType, subject_id: subjectId, org_id: orgId,
-      field: ENRICHMENT_REQUEST_FIELD, value: true, note: `Missing: ${result.missing.join(', ')}`,
+      field: ENRICHMENT_REQUEST_FIELD, value: true, note: `Missing${label ? ` (${label})` : ''}: ${result.missing.join(', ')}`,
     });
     setRequested(true);
 
@@ -45,7 +53,7 @@ export function EnrichmentBadge({ result, subjectType, subjectId, orgId, onEnric
 
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-gray-400" title={result.missing.length ? `Missing: ${result.missing.join(', ')}` : 'Complete'}>
-      <span className={low ? 'text-amber-600' : 'text-gray-400'}>Profile {result.percent}% complete</span>
+      <span className={low ? 'text-amber-600' : 'text-gray-400'}>{label ?? 'Profile'} {result.percent}% complete</span>
       {low && authEnabled && (
         !requested
           ? <button onClick={requestMoreInfo} className="text-[#0E7490] hover:underline">Request more info</button>
