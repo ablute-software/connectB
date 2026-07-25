@@ -20,9 +20,10 @@ import { AddInfoButton, PrivateBadge } from '@/components/ui';
 
 type ContributionStatus = 'submitted' | 'verified' | 'rejected';
 type ContributionSource = 'user' | 'ai';
+type ContributionKind = 'fill' | 'correction';
 type Contribution = {
   id: string; field: string; value: unknown; note: string | null; status: ContributionStatus; created_at: string;
-  source: ContributionSource; confidence: number | null; source_url: string | null;
+  source: ContributionSource; confidence: number | null; source_url: string | null; kind: ContributionKind;
 };
 
 const STATUS_STYLE: Record<ContributionStatus, string> = {
@@ -39,7 +40,16 @@ function isConflictRow(c: Contribution): boolean {
 // the founder's accept/reject, same non-clobbering review as import conflicts
 // but with its own generic-copy UI (no vendor names).
 function isAiPendingRow(c: Contribution): boolean {
-  return c.status === 'submitted' && c.source === 'ai';
+  return c.status === 'submitted' && c.source === 'ai' && c.kind !== 'correction';
+}
+
+// A 'correction' contribution overwrites a field that already has a value
+// (a rebrand, a stale/wrong domain) — it needs its own review UI showing
+// current vs. proposed side by side, not just the proposed value like a
+// normal fill-empty proposal, since what it's replacing is exactly the
+// point of the review.
+function isCorrectionRow(c: Contribution): boolean {
+  return c.status === 'submitted' && c.kind === 'correction';
 }
 
 function formatContributionValue(value: unknown): string {
@@ -70,7 +80,7 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
   const [resolvingAiId, setResolvingAiId] = useState<string | null>(null);
 
   function refresh() {
-    browserClient().from('contributions').select('id, field, value, note, status, created_at, source, confidence, source_url')
+    browserClient().from('contributions').select('id, field, value, note, status, created_at, source, confidence, source_url, kind')
       .eq('subject_type', subjectType).eq('subject_id', subjectId).eq('org_id', orgId)
       .order('created_at', { ascending: false })
       .then(({ data }) => setItems((data as Contribution[] | null) ?? []));
@@ -158,7 +168,31 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
       {items.length > 0 && (
         <div className="mt-2 space-y-1.5">
           {items.map((c) => (
-            isAiPendingRow(c) ? (
+            isCorrectionRow(c) ? (
+              <div key={c.id} className="rounded-lg border border-orange-200 bg-orange-50 p-2 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-gray-700">{c.field}:</span>
+                  <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-800">correction · unconfirmed</span>
+                </div>
+                <div className="mt-1.5 grid grid-cols-2 gap-2">
+                  <div><div className="text-gray-400">current</div><div className="font-medium text-gray-700">{String(subject?.[c.field] ?? '—')}</div></div>
+                  <div><div className="text-gray-400">proposed</div><div className="font-medium text-gray-700">{formatContributionValue(c.value)}</div></div>
+                </div>
+                <div className="mt-1 flex items-center gap-2">
+                  {c.source_url && (
+                    <a href={c.source_url} target="_blank" rel="noreferrer" className="truncate text-[10px] text-gray-400 hover:text-gray-600 hover:underline">
+                      source
+                    </a>
+                  )}
+                  <div className="ml-auto flex gap-1.5">
+                    <button disabled={resolvingAiId === c.id} onClick={() => resolveAiProposal(c, 'use_imported')}
+                      className="rounded bg-[#0E7490] px-2 py-0.5 font-medium text-white disabled:opacity-40">Accept</button>
+                    <button disabled={resolvingAiId === c.id} onClick={() => resolveAiProposal(c, 'keep_existing')}
+                      className="rounded border border-gray-300 bg-white px-2 py-0.5 text-gray-600 hover:bg-gray-100 disabled:opacity-40">Reject</button>
+                  </div>
+                </div>
+              </div>
+            ) : isAiPendingRow(c) ? (
               <div key={c.id} className="rounded-lg border border-cyan-200 bg-cyan-50 p-2 text-xs">
                 <div className="flex items-center gap-1.5">
                   <span className="font-medium text-gray-700">{c.field}:</span>

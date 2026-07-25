@@ -95,6 +95,24 @@ describe('resolveEntityFieldWrite (single-field promotion, the Banif Capital fix
   it('rejects a value that fails to coerce', () => {
     expect(resolveEntityFieldWrite(ent(), 'stage_min', 'somewhere in between')).toBeNull();
   });
+
+  it('allowOverwrite bypasses non-clobbering for exactly the field being resolved (the correction path)', () => {
+    const e = ent({ website: 'https://stale-domain.example' });
+    expect(resolveEntityFieldWrite(e, 'website', 'https://real-site.example', { allowOverwrite: true }))
+      .toEqual({ field: 'website', value: 'https://real-site.example' });
+  });
+
+  it('without allowOverwrite, an already-set field is still protected by default (opts omitted entirely)', () => {
+    const e = ent({ website: 'https://stale-domain.example' });
+    expect(resolveEntityFieldWrite(e, 'website', 'https://real-site.example')).toBeNull();
+    expect(resolveEntityFieldWrite(e, 'website', 'https://real-site.example', {})).toBeNull();
+    expect(resolveEntityFieldWrite(e, 'website', 'https://real-site.example', { allowOverwrite: false })).toBeNull();
+  });
+
+  it('allowOverwrite only affects the field being resolved, not a blanket bypass — a coerce failure still rejects', () => {
+    const e = ent({ stage_min: 'seed' });
+    expect(resolveEntityFieldWrite(e, 'stage_min', 'somewhere in between', { allowOverwrite: true })).toBeNull();
+  });
 });
 
 describe('entityHasValue', () => {

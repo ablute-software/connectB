@@ -41,6 +41,12 @@ export interface PromotableContribution {
   subject_id: string;
   field: string;
   value: unknown;
+  // 'correction' (explicit, never the default) is the ONLY kind allowed to
+  // overwrite a field the subject already holds — and only that one field,
+  // never anything else. A normal 'fill' contribution can never take this
+  // path, by construction: this flag has to be read from the DB row itself
+  // (contributions.kind, migration 0033), not inferred or guessed here.
+  kind?: 'fill' | 'correction';
 }
 
 // Applies one verified contribution's value onto its entity/person row, if
@@ -48,14 +54,15 @@ export interface PromotableContribution {
 // — that's an expected, common outcome (most manual contributions have no
 // matching column at all), not an error.
 export async function applyVerifiedContribution(admin: SupabaseClient, c: PromotableContribution): Promise<PromotionResult> {
+  const allowOverwrite = c.kind === 'correction';
   if (c.subject_type === 'entity') {
     const { data: entity } = await admin.from('entities').select('*').eq('id', c.subject_id).maybeSingle();
     if (!entity) return { applied: false, reason: 'subject_not_found' };
-    const resolved = resolveEntityFieldWrite(entity as Entity, c.field, c.value);
+    const resolved = resolveEntityFieldWrite(entity as Entity, c.field, c.value, { allowOverwrite });
     if (!resolved) {
       const { isKnownEntityField, entityHasValue } = await import('./entity-enrichment');
       if (!isKnownEntityField(c.field)) return { applied: false, reason: 'not_writable_field' };
-      if (entityHasValue(entity as Entity, c.field)) return { applied: false, reason: 'already_set' };
+      if (!allowOverwrite && entityHasValue(entity as Entity, c.field)) return { applied: false, reason: 'already_set' };
       return { applied: false, reason: 'coerce_failed' };
     }
     const { error } = await admin.from('entities').update({ [resolved.field]: resolved.value }).eq('id', c.subject_id);
@@ -66,7 +73,7 @@ export async function applyVerifiedContribution(admin: SupabaseClient, c: Promot
   if (!isPersonWritableField(c.field)) return { applied: false, reason: 'not_writable_field' };
   const { data: person } = await admin.from('people').select('*').eq('id', c.subject_id).maybeSingle();
   if (!person) return { applied: false, reason: 'subject_not_found' };
-  if (personHasValue(person, c.field)) return { applied: false, reason: 'already_set' };
+  if (!allowOverwrite && personHasValue(person, c.field)) return { applied: false, reason: 'already_set' };
   const value = typeof c.value === 'string' ? c.value.trim() : c.value;
   if (!value) return { applied: false, reason: 'coerce_failed' };
   const { error } = await admin.from('people').update({ [c.field]: value }).eq('id', c.subject_id);

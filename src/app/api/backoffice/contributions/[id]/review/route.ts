@@ -26,7 +26,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
-  const { data: contribution } = await admin.from('contributions').select('subject_type, subject_id, field, value, org_id').eq('id', params.id).maybeSingle();
+  const { data: contribution } = await admin.from('contributions').select('subject_type, subject_id, field, value, org_id, kind').eq('id', params.id).maybeSingle();
   const { error } = await admin.from('contributions').update({
     status: decision, reviewed_by: user.id, reviewed_at: new Date().toISOString(), reviewer_notes: notes || null,
   }).eq('id', params.id);
@@ -38,7 +38,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   // as a fresh AI proposal: never overwrite a field the subject already has.
   let promotion: { applied: boolean; reason: string } | null = null;
   if (decision === 'verified' && contribution) {
-    promotion = await applyVerifiedContribution(admin, contribution as { subject_type: 'entity' | 'person'; subject_id: string; field: string; value: unknown });
+    promotion = await applyVerifiedContribution(admin, contribution as { subject_type: 'entity' | 'person'; subject_id: string; field: string; value: unknown; kind?: 'fill' | 'correction' });
   }
 
   await logAdminAction(admin, {

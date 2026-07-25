@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: contribution, error: fetchErr } = await admin.from('contributions')
-    .select('org_id, subject_type, subject_id, field, value').eq('id', contributionId).maybeSingle();
+    .select('org_id, subject_type, subject_id, field, value, kind').eq('id', contributionId).maybeSingle();
   if (fetchErr || !contribution) return NextResponse.json({ ok: false, error: fetchErr?.message ?? 'Contribution not found.' }, { status: 404 });
 
   const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', contribution.org_id).maybeSingle();
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
 
   let promotion: { applied: boolean; reason: string } | null = null;
   if (status === 'verified') {
-    promotion = await applyVerifiedContribution(admin, contribution as { subject_type: 'entity' | 'person'; subject_id: string; field: string; value: unknown });
+    promotion = await applyVerifiedContribution(admin, contribution as { subject_type: 'entity' | 'person'; subject_id: string; field: string; value: unknown; kind?: 'fill' | 'correction' });
   }
 
   return NextResponse.json({ ok: true, promotion });

@@ -2160,3 +2160,68 @@ surfaced on the investor profile, per the founder's own diagnosis. Fixed:
 Verified: `tsc --noEmit`, full build, all 198 tests (2 new) green. Not yet
 run against real data — per the founder's explicit "só executa quando eu
 disser 'importa este lote'."
+
+## Contribution "correction" path (migration 0033) — overwrite a field on purpose, not by accident
+
+Follow-up to the confidence-routing infrastructure above: the first real
+batch surfaced a case the design hadn't covered — two entities (A/O
+PropTech, AENU) had a **wrong** `website` (rebrand, dead domain), not a
+missing one. Every existing promotion path (`resolveEntityFieldWrite`) is
+built around non-clobbering — never overwrite a field the subject already
+holds — which is exactly correct for a fresh fill but silently defeats a
+correction: a normal `contributions` row proposing a new `website` for an
+entity that already has one would sit forever as "pending" because Accept
+would find the field already-set and no-op. Confirmed this really would
+have happened before building the fix (dry-run showed the proposal fine;
+tracing Accept's code path showed it would never actually apply).
+
+Fix, scoped narrowly per the founder's explicit requirements:
+- **Migration 0033** adds `contributions.kind` (`'fill' | 'correction'`,
+  default `'fill'`) plus a CHECK constraint requiring `source_url` on any
+  `correction` row. Every existing and future normal contribution is
+  `'fill'` by default — nothing becomes a correction by accident.
+- **`entity-enrichment.ts`** — `resolveEntityFieldWrite` gained an
+  `opts.allowOverwrite` parameter, defaulted off. It bypasses the
+  already-has-value check for exactly the one field being resolved — no
+  broader overwrite permission anywhere else in the pipeline. Unit-tested:
+  overwrite works when explicitly requested, is still blocked when the
+  option is omitted/false, and a coerce failure still rejects even with the
+  option on (allowOverwrite widens *what* can be overwritten, not *what
+  counts as a valid value*).
+- **`contribution-promotion.ts`** — `applyVerifiedContribution` reads
+  `c.kind` and passes `allowOverwrite: kind === 'correction'` through. Both
+  review routes (`/api/contributions/resolve`,
+  `/api/backoffice/contributions/[id]/review`) now select `kind` so it
+  survives the round trip.
+- **`ContributionBox`** — a `kind:'correction'` row gets its own card
+  (distinct color, "correction · unconfirmed" label) showing **current vs.
+  proposed side by side**, not just the proposed value like a normal
+  fill-empty row — per the explicit requirement that a reviewer must see
+  what they're replacing, not just what's being offered.
+- The two real corrections (A/O PropTech → noavc.com, AENU → aenu.com) are
+  now created via this path in `scripts/_import_extra_fields_10firms.mjs`
+  — Accept will actually apply them once reviewed, unlike the earlier
+  dry-run's proposal which would have silently done nothing.
+
+Also fixed a cosmetic reporting bug found while running Step 1 for real:
+`import-confidence-routed.mjs`'s "Matched N of M rows" count double-counted
+any entity that had both a direct write and a pending contribution from the
+same row (an entity can get both — e.g. address direct + Key People
+pending). Simplified to `rows - unmatched`, which is what the number is
+actually meant to convey.
+
+Verified: `tsc --noEmit`, full build, all 201 tests (3 new) green. Live dry-run
+against the real batch_maxinfo_10firms_v31.csv (Step 1, v3.1 shape): 10/10
+matched by name — including the 2 rows with no Unique ID (360 Capital, Adara
+Ventures), confirming name-only matching works as the founder hoped — 29
+direct writes, 2 pending (both Key People, medium confidence), 0
+already-set skips (all 10 entities were genuinely empty on every v3.1
+field, confirmed live beforehand). extra_fields_10firms.csv (Step 2-4):
+1 direct write (ACE & Company's AUM, confirmed safe since `aum` is text,
+not currency-gated like `check_min/max_eur`), 9 pending (2 of them the new
+`correction`-kind website fixes), 24 skipped (stage/sectors/thesis already
+set from the original batch import for all 10 — confirmed live, not
+guessed), 4 preserved to `notes` only (non-EUR or structurally ambiguous
+check-size figures that would risk an uncoercible pending contribution
+later). Nothing written yet — dry-run only, per the founder's explicit
+"só corro com --commit quando eu disser 'importa este lote'."

@@ -336,7 +336,7 @@ if (IS_V21) {
     if (Object.keys(patch).length) directWritesByEntityId.set(entity.id, patch);
   }
 
-  console.log(`\nMatched ${directWritesByEntityId.size + [...existingByName.values()].filter((e) => pendingContributions.some((p) => p.subject_id === e.id)).length} of ${rows.length} rows to existing entities. Unmatched (no direct/pending change and no existing entity found): ${unmatchedV31.length}.`);
+  console.log(`\nMatched ${rows.length - unmatchedV31.length} of ${rows.length} rows to existing entities. Unmatched: ${unmatchedV31.length}.`);
   console.log('\n--- confidence routing (Street/Postal/Email/Phone/Key People/GP Emails) ---');
   console.log(`direct (high): ${counts.direct}   pending (medium/low): ${counts.pending}   already-set (skipped, non-clobber): ${counts.skipped_already_set}   empty/not found: ${counts.empty}`);
   if (unmatchedV31.length) console.log('\n--- unmatched firm names (not found in DB — no entity to update) ---\n' + JSON.stringify(unmatchedV31, null, 2));

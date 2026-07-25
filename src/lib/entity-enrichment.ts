@@ -110,9 +110,14 @@ export function entityHasValue(entity: Entity, field: EntityEnrichmentField): bo
 // value that fails to coerce is dropped. Returns null when nothing should be
 // written — the caller then just leaves the contribution's status as-is
 // without touching the entity.
-export function resolveEntityFieldWrite(entity: Entity, field: string, rawValue: unknown): { field: EntityEnrichmentField; value: unknown } | null {
+// opts.allowOverwrite bypasses the "already has a value" check for this one
+// call — used ONLY by the explicit `correction`-kind contribution path
+// (contribution-promotion.ts), never by a normal fill-empty proposal. The
+// bypass is scoped to exactly the field being resolved here; it grants no
+// broader overwrite permission anywhere else in the write pipeline.
+export function resolveEntityFieldWrite(entity: Entity, field: string, rawValue: unknown, opts?: { allowOverwrite?: boolean }): { field: EntityEnrichmentField; value: unknown } | null {
   if (!isKnownEntityField(field)) return null;
-  if (entityHasValue(entity, field)) return null;
+  if (!opts?.allowOverwrite && entityHasValue(entity, field)) return null;
   const value = coerceEnrichmentValue(field, rawValue);
   if (value === undefined) return null;
   return { field, value };
