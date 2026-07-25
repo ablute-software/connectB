@@ -2362,3 +2362,47 @@ Verified live: Atomico/Molten Ventures/Hoxton Ventures' direct writes
 present exactly as committed; the 5 repaired entities each carry both
 their Min and Max notes; total pending `submitted` contributions org-wide
 is 260, unchanged by the repair.
+
+## Bug fix: completeness score ignored the real contact fields
+
+Founder-reported (found on MAZE (Mustard Seed MAZE),
+`24338bb7-071d-4af8-a5aa-3e40986b87dc`): the entity summary card showed
+"Profile 100% complete" while its Contacto block showed email/phone/
+address all empty — confirmed genuinely `NULL` in production, not a
+pending-review gap (no `contributions` rows exist for those fields on
+this entity). Data was correct; only the percentage was misleading.
+
+Root cause: `entityCompleteness()` in `src/lib/completeness.ts` never
+checked the direct contact fields (`email`, `phone`, `address`,
+`postal_code`, `key_people` — the last two added later, in migration
+0032) at all. Its six checks were `website`, `email_domain` (a derived/
+verification field, not the real `email`), `thesis`, check size, stage
+range, and sectors — so any entity from the direct-research batches with
+business fields filled but contact genuinely not-found (a normal,
+expected outcome per those batches' own currency/not-found rules) reads
+as "100%". The file's own top-of-file comment already flagged this scoring
+as a "first cut... revisit once real usage shows which gaps actually
+matter" — this is that gap.
+
+Fix: added `email`, `phone`, `address`, `postal_code`, `key_people` as
+five more checks (11 total, up from 6) to `entityCompleteness`. Kept a
+single score rather than splitting into separate "firmographic" vs
+"contact" numbers — the score's only consumers (the entity page badge and
+the back-office enrichment-queue threshold in `entity-enrichment.ts`/
+`ENRICHMENT_THRESHOLD`) already treat it as one flat completion signal,
+and splitting it would have meant redesigning both call sites for a
+UI-only bug whose actual complaint was "100% is a lie," not "I need two
+numbers." `email_domain`/`website_verified` were left untouched — still
+used for other logic (verification tracking), not the fix's concern.
+
+Also fixed `personCompleteness` — same bug, smaller: `phone` exists on
+`Person` and was never checked either. Added as a sixth check.
+
+Verified: re-fetched MAZE's real production row and hand-computed the new
+score — 6 of 11 checks pass (website, thesis, check size, stage range,
+sectors, email_domain), 5 fail (email, phone, address, postal_code,
+key_people all null) → **55%**, not 100%. Typecheck clean, all 201 tests
+still green (no test file existed for `completeness.ts` before this — none
+added now either, since the fix is a small, direct data addition to an
+existing check list, not new branching logic). No migration, no DB write —
+presentation-logic only, exactly as the founder's report specified.

@@ -19,6 +19,11 @@ export function entityCompleteness(e: Entity): CompletenessResult {
     [e.check_min_eur != null && e.check_max_eur != null, 'check size'],
     [e.stage_min != null && e.stage_max != null, 'stage range'],
     [e.sectors.length > 0, 'sectors'],
+    [!!e.email, 'email'],
+    [!!e.phone, 'phone'],
+    [!!e.address, 'address'],
+    [!!e.postal_code, 'postal code'],
+    [!!e.key_people, 'key people'],
   ];
   const missing = checks.filter(([ok]) => !ok).map(([, label]) => label);
   return { percent: Math.round(((checks.length - missing.length) / checks.length) * 100), missing };
@@ -28,6 +33,7 @@ export function personCompleteness(p: Person): CompletenessResult {
   const checks: [boolean, string][] = [
     [!!p.linkedin_url, 'LinkedIn'],
     [!!p.email_verified || !!p.email_guess, 'email'],
+    [!!p.phone, 'phone'],
     [!!p.role, 'role'],
     [!!p.hook, 'hook / outreach angle'],
     [!!p.background, 'background'],
