@@ -3306,3 +3306,95 @@ from a title alone risks guessing a schema the founder already specified
 differently elsewhere. Flagged rather than improvised; needs the actual
 prompt 28 document (or its migration, if it was written in a different
 session) before either task can proceed correctly.
+
+## Prompt 28 — Task 1 (universe freeze) and Task 2 (field-level hold)
+
+Prompt 28 arrived a turn late (attached after the fact) — the blocker
+above is resolved; this covers its Task 1 (independent, do first) and
+Task 2 (direct continuation of `held`). Tasks 3–6 (contributions columns
+incl. `pipeline`/`batch_tag`, `entity_match`, the cross-engine importer,
+and the founder's review screen) are real, substantial, and not started
+this round — attempting all four shallowly in the same pass as 1 and 2
+risked exactly the kind of unverified guess this file exists to catch.
+
+**Task 1 — universe frozen, in `data-freeze/`:**
+`universe_domains.txt`, `universe_no_domain.csv`, `universe_manifest.json`.
+`entities_total: 531` = `entities_with_domain: 480` + `entities_without_domain: 51`
+(closes). `alias_domains: 50`, `domains_unique: 492`.
+`sha256_universe_domains: a9d79461887da06799242bb2a5f7c155a7d12756610fda5c6219164b0ba2a896`,
+`sha256_universe_no_domain: 2d708f53c44e62a2ed2cc55acf77ddff7a137efffb74edcff441515038ab4b9c`.
+
+**Not `wave2/aggregate.py::registrable()`** — that file isn't available in
+this session, so `scripts/freeze-universe.mjs` reuses the same
+`registrableDomain()` already running in `bulk-review-contributions.mjs`'s
+domain gate (same ccTLD second-level list) rather than authoring a third,
+possibly-divergent implementation. **This needs a line-by-line diff
+against the real Python `registrable()` before the freeze is trusted** —
+a single ccTLD case that resolves differently would silently corrupt the
+intersection, exactly the failure mode the founder was guarding against.
+
+**Two entities sharing a registrable domain**, as requested before
+freezing: `faber.vc` (Faber Ventures + Faber — likely our own duplicate,
+not a parent/vehicle pair like Speedinvest/Speedinvest Health) and
+`nysnoinvest.no` (Nysno + Nysnø Climate Investments — same firm, an
+accent-normalization miss, not two entities). Neither decided here — per
+the founder's own instruction, flagged for her to resolve since it's the
+same class of question the Task 4 marriage will hit.
+
+**A bug found and fixed while building this, worth recording:** the
+`50` no-domain rows initially came out wrong (missing "Red angels", whose
+`website` field literally is a `mail.google.com` compose-link URL) because
+checking the *registrable* domain against the placeholder list reduces
+`mail.google.com` → `google.com`, which isn't in that list — the
+placeholder check needs the raw hostname, before ccTLD reduction, not
+after. Fixed; final count (51, not the founder's expected 50) also
+surfaced one she hadn't flagged: `Nuno Marujo`, `website = "JYFUJYF"` —
+garbage, not a URL, and worth a look as a possible person-recorded-as-
+entity data issue, separate from this task.
+
+**Task 2 — field-level `held`.** Migration `0035_entity_field_status.sql`
+adds `entity_field_status` (`entity_id, field, status ∈ {OK,
+UNDER_REVIEW, BLOCKED}, reason, set_by, set_at, released_at`), one active
+row per `(entity_id, field)` via a partial unique index on
+`released_at is null`. Wired into `bulk-review-contributions.mjs` as
+**Rule 0 — runs before Rule 1**, exactly as specified: any row whose
+target field has an active `UNDER_REVIEW`/`BLOCKED` status is left
+untouched, full stop, regardless of what any later rule would have done
+with it. **Not yet demonstrated live or populated** — the Entrée
+Capital/Arkwright X fields no longer need it (prompt 29 already resolved
+both to `verified`/`rejected`, not pending), so there's nothing to seed
+it with right now; it'll get its first real row and dry-run demonstration
+the next time a field genuinely needs freezing rather than a
+contribution.
+
+**Second migration now blocking, same class of blocker as `held`:**
+`0035_entity_field_status.sql` needs the same manual application as
+`0034` — this session's Supabase MCP has no DDL access to connectB's
+project. Confirmed live: `bulk-review-contributions.mjs` now hard-fails
+(`PGRST205`, table not found) until it's run. Needs, in the Supabase SQL
+editor for `wkjcaoqdvhykrfacsylr`:
+
+```sql
+create table entity_field_status (
+  id uuid primary key default uuid_generate_v4(),
+  entity_id uuid not null references entities(id) on delete cascade,
+  field text not null,
+  status text not null check (status in ('OK', 'UNDER_REVIEW', 'BLOCKED')),
+  reason text,
+  set_by text not null,
+  set_at timestamptz not null default now(),
+  released_at timestamptz
+);
+create unique index entity_field_status_active_unique on entity_field_status (entity_id, field) where released_at is null;
+create index entity_field_status_entity_idx on entity_field_status (entity_id);
+```
+
+**Deliberately not started:** Task 3 (`contributions` columns —
+`evidence_excerpt`, `source_title`, `source_relationship`, `method`,
+`origin_engine`, `external_fact_id` unique, `external_confidence`,
+`pipeline`; backfilling `batch_tag` from `note`), Task 4 (`entity_match`),
+Task 5 (the cross-engine importer), Task 6 (the review screen). All four
+are real product/schema work the founder is depending on for the control-
+group exchange with the other engine — they deserve a dedicated pass each
+rather than four rushed, unverified migrations in the same turn that just
+fixed a placeholder-domain bug and a scope error two prompts running.

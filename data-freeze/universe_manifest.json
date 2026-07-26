@@ -1,0 +1,11 @@
+{
+  "frozen_at": "2026-07-26T21:44:40.858Z",
+  "entities_total": 531,
+  "entities_with_domain": 480,
+  "entities_without_domain": 51,
+  "alias_domains": 50,
+  "domains_unique": 492,
+  "sha256_universe_domains": "a9d79461887da06799242bb2a5f7c155a7d12756610fda5c6219164b0ba2a896",
+  "sha256_universe_no_domain": "2d708f53c44e62a2ed2cc55acf77ddff7a137efffb74edcff441515038ab4b9c",
+  "registrable_impl": "scripts/_freeze_universe.mjs::registrable (mirrors bulk-review-contributions.mjs — NOT yet diffed against wave2/aggregate.py::registrable, that file is unavailable in this session)"
+}

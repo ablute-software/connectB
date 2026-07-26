@@ -286,14 +286,37 @@ if (eErr || pErr) { console.error(eErr ?? pErr); process.exit(1); }
 const entityById = new Map(entities.map((e) => [e.id, e]));
 const personById = new Map(people.map((p) => [p.id, p]));
 
-// rule1..rule8 buckets, per prompt 18's corrected order.
-const buckets = { rule1: [], rule2: [], rule3: [], rule4: [], rule5dup: [], rule5div: [], rule6: [], rule7: [], rule8: [] };
+// Prompt 28, Task 2 — entity_field_status (migration 0035): a status per
+// (entity, field), checked before every other rule including rule 1. This
+// is the field-level counterpart to 'held' on the contribution itself —
+// 'held' stops a pending proposal from being auto-resolved; this stops an
+// ALREADY-WRITTEN field from being silently overwritten by the next
+// proposal for the same field. Only entity-scoped (person fields have no
+// such table yet — not needed until a case forces it).
+const { data: fieldLocks, error: flErr } = await admin.from('entity_field_status')
+  .select('entity_id, field, status, reason').is('released_at', null).in('status', ['UNDER_REVIEW', 'BLOCKED']);
+if (flErr) { console.error(flErr); process.exit(1); }
+const lockedFields = new Set(fieldLocks.map((f) => `${f.entity_id}:${f.field}`));
+const lockReasonByKey = new Map(fieldLocks.map((f) => [`${f.entity_id}:${f.field}`, f]));
+
+// rule0..rule8 buckets, per prompt 18's corrected order (rule0 added prompt 28).
+const buckets = { rule0: [], rule1: [], rule2: [], rule3: [], rule4: [], rule5dup: [], rule5div: [], rule6: [], rule7: [], rule8: [] };
 
 for (const c of contributions) {
   const subject = c.subject_type === 'entity' ? entityById.get(c.subject_id) : personById.get(c.subject_id);
   const writableSet = c.subject_type === 'entity' ? ENTITY_WRITABLE_FIELDS : PERSON_WRITABLE_FIELDS;
   const hasSource = !!(c.source_url && c.source_url.trim() !== '');
   const legacy = c.confidence == null && !hasSource;
+
+  // Rule 0 — the target field is UNDER_REVIEW or BLOCKED. A fresh proposal
+  // for a frozen field does not unfreeze it — it just sits, same as every
+  // other rule below never runs for this row. Runs before rule 1 (even an
+  // unwritable-field check doesn't matter if we're not touching it anyway).
+  if (c.subject_type === 'entity' && lockedFields.has(`${c.subject_id}:${c.field}`)) {
+    const lock = lockReasonByKey.get(`${c.subject_id}:${c.field}`);
+    buckets.rule0.push({ c, reason: `field "${c.field}" is ${lock.status} on this entity (${lock.reason ?? 'no reason recorded'}) — a new proposal doesn't unfreeze it` });
+    continue;
+  }
 
   // Rule 1 — unwritable field (includes the demand-flag marker and any
   // field not in either allowlist). A contribution the system can never
@@ -372,7 +395,8 @@ for (const c of contributions) {
   buckets.rule8.push({ c, reason: !hasSource && (c.confidence >= 0.85 || OBJECTIVE_FIELDS.has(c.field)) ? 'would otherwise auto-accept but has no source_url' : OBJECTIVE_FIELDS.has(c.field) ? 'objective field but source_url is not the entity\'s own domain, a national registry, or a proven alias' : 'medium confidence but a judgement field — not auto-acceptable' });
 }
 
-console.log('\n--- Rule counts (1-8, first match wins) ---');
+console.log('\n--- Rule counts (0-8, first match wins) ---');
+console.log(`  0 (field UNDER_REVIEW/BLOCKED) : ${buckets.rule0.length}`);
 console.log(`  1 (unwritable field)          : ${buckets.rule1.length}`);
 console.log(`  2 (legacy, no provenance)      : ${buckets.rule2.length}`);
 console.log(`  3 (below confidence floor)     : ${buckets.rule3.length}`);
@@ -385,20 +409,20 @@ console.log(`  8 (real residual — manual)     : ${buckets.rule8.length}`);
 const total = Object.values(buckets).reduce((n, arr) => n + arr.length, 0);
 console.log(`  TOTAL: ${total} (should equal ${contributions.length})`);
 
-const manualTotal = buckets.rule4.length + buckets.rule5div.length + buckets.rule8.length;
-console.log(`\nManual residual (rule 4 + 5b + 8, left in the active queue): ${manualTotal}`);
+const manualTotal = buckets.rule0.length + buckets.rule4.length + buckets.rule5div.length + buckets.rule8.length;
+console.log(`\nManual residual (rule 0 + 4 + 5b + 8, left in the active queue): ${manualTotal}`);
 
 // Diagnostic: how did rows from a specific batch (note text) resolve?
 // Useful for checking a batch-specific expectation without conflating it
 // with whatever residual carried over from earlier passes.
 function tagBreakdown(tag) {
   const match = (arr) => arr.filter(({ c }) => (c.note ?? '').toLowerCase().includes(tag)).length;
-  return { rule1: match(buckets.rule1), rule2: match(buckets.rule2), rule3: match(buckets.rule3), rule4: match(buckets.rule4), rule5a: match(buckets.rule5dup), rule5b: match(buckets.rule5div), rule6: match(buckets.rule6), rule7: match(buckets.rule7), rule8: match(buckets.rule8) };
+  return { rule0: match(buckets.rule0), rule1: match(buckets.rule1), rule2: match(buckets.rule2), rule3: match(buckets.rule3), rule4: match(buckets.rule4), rule5a: match(buckets.rule5dup), rule5b: match(buckets.rule5div), rule6: match(buckets.rule6), rule7: match(buckets.rule7), rule8: match(buckets.rule8) };
 }
 for (const tag of ['lote4', 'lote5', 'lote6']) {
   const b = tagBreakdown(tag);
   const total = Object.values(b).reduce((n, v) => n + v, 0);
-  const residual = b.rule4 + b.rule5b + b.rule8;
+  const residual = b.rule0 + b.rule4 + b.rule5b + b.rule8;
   if (total === 0) continue;
   console.log(`\n--- "${tag}"-tagged rows (${total} total): ${JSON.stringify(b)} — residual ${residual} ---`);
 }
@@ -481,4 +505,4 @@ try {
 
 writeFileSync(new URL(`./bulk-review-${timestamp}.json`, import.meta.url), JSON.stringify(auditLog, null, 2));
 console.log(`\nDone. ${auditLog.length} rows touched. Audit log written to bulk-review-${timestamp}.json.`);
-console.log(`Manual residual left in the active queue (rule 4 + 5b + 8): ${manualTotal}`);
+console.log(`Manual residual left in the active queue (rule 0 + 4 + 5b + 8): ${manualTotal}`);
