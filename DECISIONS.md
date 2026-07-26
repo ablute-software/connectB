@@ -3214,3 +3214,95 @@ directly (Supabase SQL editor or CLI) before the two `email` rows can
 actually move to `held`. They remain `submitted` with the `reviewer_notes`
 flag in the meantime — not yet re-run through `bulk-review`, so the flag
 still holds for now.
+
+## Prompt 29 — correction, two resolutions, and the rule a wrong alias exposed
+
+**Correction: the lote6 residual reported as 30 was wrong; it's 31.** The
+founder counted directly against the database (grouping `contributions`
+by a `batch_tag` extracted from `note` via
+`substring(note from 'lote[ ]?[0-9]+')`, since no such column exists yet)
+rather than trusting the prior report. 30 came from a snapshot taken
+before the two `email` rows were reverted back to `submitted` a second
+time; 31 is the real, current count (29 fill + 2 email, both lote6-tagged
+as she confirmed). Every other number in the prior report's arithmetic
+already held — this was the one figure that hadn't been re-verified
+against a live count. **The lote6 `rejected` row she asked about is
+unrelated to the two emails**: it's Impact X Capital's `key_people` row,
+rejected back in prompt 24 for citing a content-hashed JS bundle as its
+source — a completely different event that happened to also be
+lote6-tagged. The two email rows were never in `rejected` state when she
+queried; they'd already been reverted to `submitted` by the time she ran
+her count.
+
+**Two resolutions, opposite outcomes — this is why `held` existed to be
+used once and correctly diverge:**
+- **Entrée Capital (`f0e9249e`) `email`: kept, `verified`.** The founder
+  read the actual page — `info@entreecapital.vc` appears twice in running
+  text on the entity's own privacy-policy, not just matched by an
+  `info@` pattern. Weak source class (a legal page, not a contact page),
+  correct value — stays, with the weakness noted.
+- **Arkwright X (`b24f22a2`) `email`: removed, `rejected`, and the
+  already-written `entities.email` field cleared.** `info@arkwright.no`
+  turned out to belong to Arkwright Consulting AG's Oslo office (a
+  management consultancy, HRB 89606, four office emails for four
+  countries) — not Arkwright X, the VC vehicle, whose own domain
+  (`arkwrightx.vc`) was already correctly on file. A hole is better than a
+  fact sitting on the wrong entity.
+- **A provenance bug surfaced along the way, fixed at the source:**
+  Entrée Capital's `entities.website` was `entreecapital.com`, but the
+  live site is `entreecap.com` (302 redirect, confirmed) — two different
+  registrable domains. Normalized `website` to `https://entreecap.com/`.
+  The domain gate had already let this fact in cleanly, via a
+  **pre-existing, correct alias** (`website-aliases.txt` §E,
+  `f0e9249e|entreecap.com`) — not a hole, the mechanism working as
+  designed; the alias entry now also carries the stronger redirect
+  evidence instead of only "identical response body."
+
+**The rule this exposes, written down because it needs to outlive this
+one case:** *a domain redirect proves identity of the domain; a claimed
+relationship between two firms does not.* "X is Y's fund arm" / "same
+office as Y" / "part of the Y family" can all be true and still not
+license a fact to cross from one firm's domain into the other's — the
+domain gate exists specifically to keep entities apart, and a
+relationship-based alias defeats it at exactly the moment it matters.
+This is what broke `website-aliases.txt` §F's Arkwright line
+(`b24f22a2|arkwright.com`, from prompt 26): the redirect
+(`arkwright.no → arkwright.com`) was real, but the inference stapled to
+it — that `arkwright.com` was therefore Arkwright X's own domain — wasn't;
+`arkwright.com` belongs to a different, unrelated company. The founder
+corrected the file (§F entry struck through, documented as
+`REJEITADOS-F` rather than deleted; the correct entry was already present
+independently in §D). Read alongside the redirect-outranks-absence rule
+above, together they cover the two ways an alias claim can go: a redirect
+is a proof, a relationship claim never is.
+
+**Facts that entered ONLY through a proven alias (not the entity's own
+domain, not a national registry) — the population the founder asked to
+see before trusting any of them:** checked every `verified`, non-
+`correction`, entity-level contribution on an objective field (excluding
+`website` itself) or `key_people`, 297 rows total. Six entered via an
+alias specifically: CapitalT, Eleven Ventures, bValue Fund (all Vaga-1
+redirect-verified aliases), Apposite Capital, e2vc (Vaga-2 §E,
+identical-response-body evidence), and **IBB Ventures — the one row in
+this list that came through §F, the same weak "same-firm migration"
+section the Arkwright line just failed out of**, not yet independently
+re-verified line-by-line the way §A/§B/§D/§E were. All six are `key_people`
+facts; none of the address/postal_code/email rows depended on an alias
+(those passed via a national registry match instead). Short list — the
+founder said she'd hand-check it if short; IBB Ventures is the one to
+look at first, given its evidence class.
+
+**Not actioned, blocked on missing context:** the founder's ordering
+references "Task 3 of prompt 28" (an additive migration adding a
+`pipeline` column, to also carry `batch_tag` backfilled from `note`) and
+"Task 1 of prompt 28" (freezing the entity universe into
+`universe_domains.txt`, now required to include a redirect-following pass
+per the Entrée Capital case). Neither prompt 28 nor any resulting
+migration exists anywhere in this repository or its git history — it was
+never received in this session. Both are real, well-motivated asks (the
+`pipeline` column mirrors what this file already proposed under prompt 26
+as the durable fix for the AI-route auto-accept gap), but building them
+from a title alone risks guessing a schema the founder already specified
+differently elsewhere. Flagged rather than improvised; needs the actual
+prompt 28 document (or its migration, if it was written in a different
+session) before either task can proceed correctly.

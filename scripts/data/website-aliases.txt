@@ -61,7 +61,7 @@ e152df77|bluepharmagroup.com|a2b.pt nao resolve; bluepharmagroup.com titulo "Blu
 #    dominio irmao passarem a trava.
 29c9258f|e2.vc|e2vc.com serve GET 200 com corpo identico (46034 bytes) ao de e2.vc; sao o mesmo site
 e97c3edb|appositecapital.com|apposite-capital.com serve GET 200 com corpo identico (350813 bytes) ao de appositecapital.com
-f0e9249e|entreecap.com|entreecapital.com serve GET 200 com corpo identico (98144 bytes) ao de entreecap.com
+f0e9249e|entreecap.com|entreecapital.com faz 302 para entreecap.com (prompt 29 — http_redirect, prova mais forte que o corpo identico usado antes); entities.website normalizado para https://entreecap.com/
 
 # ---------------------------------------------------------------------------
 # REJEITADOS — alegacoes de agente que NAO passaram na minha verificacao.
