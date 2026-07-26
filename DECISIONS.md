@@ -2766,3 +2766,66 @@ pages, national registries, bare firm-name slugs; the rest are genuine
 additional slug patterns — file extensions, `-members`/`-organisation`
 compounds, one subdomain variant — not yet worth widening further for a
 handful of rows).
+
+## Sixth direct-research batch — 623 facts across 150 entities, 25% of stored websites dead — committed
+
+Same architecture as lote5 (10 agents writing directly to a fixed
+contract, one aggregator validating line by line), applied to the
+remaining contact=0%-with-website entities. Real, load-bearing finding:
+lote5 caught 6 dead/migrated domains in 200 entities (3%); this pass
+caught ~42 in 163 (~25%) — not chance, selection: these are precisely the
+entities nobody could enrich before, and the most common reason is that
+the stored website no longer serves the firm at all. The founder verified
+all 42 by hand (`curl -sIL` + title/body inspection) before sending,
+discarding 7 (a parked lander with no cross-reference, a hosted
+business-card page pointing back to a different firm entirely, a domain
+that 404s, one where the "old" domain was live and correct, three where
+the "old" domain just responds 405 to HEAD but serves byte-identical
+content to the "new" one — correcting those would be pure churn) — 35
+made it into the corrections file, still `kind='correction'`, still
+always pending regardless of confidence, no exception for the higher
+count.
+
+The interesting subset of the 35: **7 were a different firm's domain
+entirely** — `coreangels.com` was recorded under "Core Capital" (an
+unrelated firm), `bpfomento.pt` (Banco Português de Fomento) under "ISQ,
+SCR, SA", `en.karma-network.com` (a digital agency) under "Faber
+Ventures." Not typos — wrong-firm domains from the original seeding,
+surfaced only because this pass finally tried to fetch each one and
+found nothing about the firm it was supposedly for.
+
+**A real transcription bug, caught by the founder's own verification, not
+mine:** my first materialized copy of the 623-row contacts CSV parsed to
+622 — I'd dropped Core Capital's `postal_code` row (`1350-118`,
+confidence 0.9) while manually re-typing the ~46k-token file into the
+scratchpad (chat attachments in this environment are read-once; Bash/Node
+can't open them directly, so every batch this session has required
+re-materializing the exact text by hand). I initially reported the
+discrepancy honestly rather than guessing which row was missing or
+silently proceeding with 622. The founder re-verified the source file
+independently (md5 hashes, per-field/per-confidence counts, zero internal
+duplicate keys) and pinpointed that the gap was on my side, in exactly
+the field/confidence bracket the math predicted (a `postal_code` at
+0.9–0.95, since the ≥0.9 tier was short by one and the <0.9 tier matched
+exactly). Fixed the one row, re-verified every asserted number matched
+byte-for-byte before writing anything.
+
+**Real result:** 499 direct writes across 144 entities (confidence ≥0.9),
+159 pending contributions (124 fill at 0.5–0.7 + 35 corrections), 0
+already-set (expected, contact=0% queue), 0 idempotent skips (first run).
+Verified live: entities with some contact field went from 292 to **436**
+(the founder's own "perto de 440" estimate, near-exact); Core Capital's
+`postal_code` present and correct; total pending `submitted`
+contributions org-wide now 418.
+
+Same discipline as every batch: `d0982a65` (Solaeng Invest) appears only
+in the corrections file, not the contacts file — one of the thirteen
+entities with zero contact lines at all but a website worth correcting,
+not an anomaly. Thirteen entities got no lines this batch, split two ways
+per the founder's own framing: eight with no live site at all (status-
+review candidates: June Fund, Bevin CP, Collector Ventures, Vega Ventures,
+NBS Ventures, Schenker Ventures, Solaeng Invest, Ideias glaciares — plus
+BCP Capital, in liquidation, whose stored domain actually belongs to an
+unrelated software company) and four blocked by the founder's own explicit
+decision pending a human call (Founders Capital, Bluemint, Conexo Capital,
+LEVELS) — none silently dropped.
