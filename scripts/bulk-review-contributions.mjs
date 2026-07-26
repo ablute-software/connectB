@@ -120,15 +120,35 @@ function isDuplicateValue(field, current, proposed) {
   return false;
 }
 
-// The lote4 exception (prompt 18, rule 7): a fund's own /team (or
-// equivalent personnel-listing) page is authoritative about who works
-// there — 0.7 confidence there is "might be stale," not "might be wrong."
-// Narrow, documented interpretation: same domain as the entity's own
-// website, AND the URL path suggests a personnel page. Does NOT include a
-// generic /contact/ or /imprint/ page even if it happens to list names —
-// those aren't dedicated team rosters. Flag in the report if this should
-// be wider or narrower.
-const TEAM_PAGE_PATH_RE = /\/(team|who-we-are|people)\b/i;
+// The lote4 exception (prompt 18, rule 7; widened prompt 21, rule 7b): a
+// fund's own team/personnel page is authoritative about who works there —
+// 0.7 confidence there is "might be stale," not "might be wrong." That
+// reasoning doesn't depend on the URL slug being literally "/team", or on
+// English — a European roster can't assume every fund's team page is
+// named that. The domain gate (same host as entity.website) is what does
+// the actual safety work; the slug only says what kind of page it is.
+//
+// Matched per PATH SEGMENT (not substring), so "/steam-engine" doesn't
+// falsely match "team". A segment matches if it's an exact hit in
+// TEAM_PAGE_SEGMENTS, or its last hyphen-joined word is team/people/teamet
+// (covers fund-specific slugs like "venionaire-team", "borski-team") —
+// EXCEPT a segment containing "contact" never matches even if it happens
+// to end in "-team" ("/contact-our-team" is a contact page, not a team
+// roster; caught explicitly rather than relying on the suffix rule alone).
+// Homepage (no segments), pure contact/get-in-touch pages, national
+// registry domains (excluded by the domain gate itself), and bare
+// firm-name slugs all correctly fall through to no-match.
+const TEAM_PAGE_SEGMENTS = new Set([
+  'team', 'teams', 'our-team', 'our-people', 'the-team', 'meet-the-team', 'fund-team', 'leadership',
+  'people', 'our-partners', 'partners', 'management', 'board', 'who-we-are',
+  'equipe', 'equipa', 'notre-equipe', 'chi-siamo', 'il-team', 'das-team', 'unser-team', 'ueber-uns',
+  'folk', 'vart-team', 'mot-teamet', 'om-oss', 'teamet', 'ons-team', 'het-team', 'wie-we-zijn',
+]);
+function looksLikeTeamPageSegment(segment) {
+  if (TEAM_PAGE_SEGMENTS.has(segment)) return true;
+  if (segment.includes('contact')) return false;
+  return /(^|-)(team|people|teamet)$/.test(segment);
+}
 // source_url is sometimes a single URL, sometimes several joined by "; "
 // (older batches cited multiple sources per field). Splitting explicitly
 // and checking each one avoids the trap of `new URL()` silently absorbing
@@ -143,7 +163,9 @@ function isOwnTeamPage(entity, sourceUrl) {
   for (const candidate of candidates) {
     try {
       const u = new URL(candidate);
-      if (u.hostname.replace(/^www\./, '') === siteHost && TEAM_PAGE_PATH_RE.test(u.pathname)) return true;
+      if (u.hostname.replace(/^www\./, '') !== siteHost) continue;
+      const segments = u.pathname.toLowerCase().split('/').filter(Boolean);
+      if (segments.some(looksLikeTeamPageSegment)) return true;
     } catch { /* not a parseable URL on its own — skip */ }
   }
   return false;
@@ -232,6 +254,21 @@ console.log(`  TOTAL: ${total} (should equal ${contributions.length})`);
 
 const manualTotal = buckets.rule4.length + buckets.rule5div.length + buckets.rule8.length;
 console.log(`\nManual residual (rule 4 + 5b + 8, left in the active queue): ${manualTotal}`);
+
+// Diagnostic: how did rows from a specific batch (note text) resolve?
+// Useful for checking a batch-specific expectation without conflating it
+// with whatever residual carried over from earlier passes.
+function tagBreakdown(tag) {
+  const match = (arr) => arr.filter(({ c }) => (c.note ?? '').toLowerCase().includes(tag)).length;
+  return { rule1: match(buckets.rule1), rule2: match(buckets.rule2), rule3: match(buckets.rule3), rule4: match(buckets.rule4), rule5a: match(buckets.rule5dup), rule5b: match(buckets.rule5div), rule6: match(buckets.rule6), rule7: match(buckets.rule7), rule8: match(buckets.rule8) };
+}
+for (const tag of ['lote4', 'lote5']) {
+  const b = tagBreakdown(tag);
+  const total = Object.values(b).reduce((n, v) => n + v, 0);
+  const residual = b.rule4 + b.rule5b + b.rule8;
+  if (total === 0) continue;
+  console.log(`\n--- "${tag}"-tagged rows (${total} total): ${JSON.stringify(b)} — residual ${residual} ---`);
+}
 
 console.log('\n--- Rule 7 team-page exception matches ---');
 console.log(JSON.stringify(buckets.rule7.filter((b) => b.reason.includes('team page')).map(({ c }) => ({ entity: entityById.get(c.subject_id)?.name, source_url: c.source_url })), null, 2));

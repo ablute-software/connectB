@@ -2731,3 +2731,38 @@ entities the research pass found zero data for (site-dead or clearly
 abandoned, e.g. fountainhealthcare.com for sale on GoDaddy) are simply
 absent from this CSV — nothing to import, a status review is a separate,
 later decision.
+
+## Widened the team-page exception past English-only slugs (prompt 21)
+
+`isOwnTeamPage`'s slug check tested literally `/team` (or a couple of
+English variants). Running it against the lote5 manual residual found 40
+of 42 candidate rows failing purely on slug — `/our-team`, `/equipe`,
+`/chi-siamo`, `/folk`, `/mot-teamet`, and locale-prefixed/nested variants
+like `/en/about-enterprise-ireland/our-team`. The underlying reasoning
+(a fund's own team page is authoritative; 0.7 there is staleness risk, not
+source risk) never depended on the slug being English — a European
+roster can't assume that.
+
+Rewrote the check to match per **path segment** against an explicit
+multi-language list (`team`, `equipe`, `chi-siamo`, `folk`, `mot-teamet`,
+etc.), or a segment whose last hyphen-joined word is `team`/`people`/
+`teamet` (covers fund-specific slugs like `venionaire-team`,
+`borski-team`) — except a segment containing `contact` never matches even
+if it ends in `-team`, since `/contact-our-team` is a contact page, not a
+team roster, and the naive suffix rule would have wrongly caught it.
+Segment-based matching also finally fixes the `/steam-engine` false-
+positive risk a plain substring test would have carried. The domain gate
+(source must share entity.website's host) is unchanged — it's the actual
+security control; the slug only classifies the page type.
+
+Also added a small permanent diagnostic: `bulk-review-contributions.mjs`
+now prints a per-batch-tag breakdown (rows whose `note` mentions a given
+lote, split by which rule they resolved to) so a specific batch's
+residual can be checked without conflating it with whatever carried over
+from earlier passes — used to confirm lote5's own residual dropped from
+187 to 35 after this widening (9 of the remainder are the categories the
+founder explicitly wants to stay manual — homepage-only sources, contact
+pages, national registries, bare firm-name slugs; the rest are genuine
+additional slug patterns — file extensions, `-members`/`-organisation`
+compounds, one subdomain variant — not yet worth widening further for a
+handful of rows).
