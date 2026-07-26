@@ -3056,3 +3056,101 @@ changed** (per explicit instruction — she reviews before either is built):
 Waiting on the founder's national-registry list (format of her choosing)
 before scoping (3), and her confirmation that fix (1)'s batch-wide effect
 is intended before touching rules 6/7 further.
+
+## Prompt 26 — the discriminator was "author", it should be "path"
+
+**Confirmed: fix (1)'s scope from prompt 25 was wrong**, and the founder
+caught it on her own re-derivation. `source='ai'` answers "who wrote this
+fact", not "what did this fact pass through before landing here" — and
+lote4/5/6 are *also* `source='ai'`, since they're AI-assisted research
+too, just funneled through the founder's own Python aggregator first
+(domain gate, no-paid-sources, never-infer, all enforced before the CSV
+even exists). The in-app AI routes skip all of that. Same `source` value,
+opposite guarantees — the gate needed to be "did this row come from the
+aggregator", not "was an AI involved at all".
+
+**Fixed:** the gate in `bulk-review-contributions.mjs` now checks the
+row's `note` for the two in-app AI routes' own markers (`"AI-sourced via
+Request more info"` from `/api/entities/[id]/enrich`, `"AI-proposed via
+research (§6b-3)"` from `/api/backoffice/research`) instead of `source`.
+Today that's zero rows — the gate is a no-op right now, and returns the
+batch pipeline to normal. Documented for real next time: the durable fix
+is an explicit `pipeline` column only the batch importer can write, which
+auto-accept requires present — a procedural guarantee (marks that
+specific code ran), not a cryptographic one, and honest to describe that
+way. Not built yet — flagging it here is the followup, not a TODO buried
+in a comment.
+
+**The domain gate (prompt 25 §3, scoped for real this time):** loads two
+founder-supplied reference files, `scripts/data/national-registries.csv`
+(22 hosts, `host,pais,registo`) and `scripts/data/website-aliases.txt` (a
+prefix|domain|proof format, six sections, each alias independently
+verified — redirects, dead-DNS successors, parked-domain replacements,
+wrong-firm corrections, same-site sibling hosts, and a rejected section
+kept on file so a vaga-3 agent doesn't re-propose them). A `source_url`
+on an `OBJECTIVE_FIELDS` row (except `key_people`, which keeps its own
+team-page exception, and `website` itself, which has no "own domain" yet
+to check when the field is still empty) is accepted if: its registrable
+domain matches the entity's own (last two labels, three for known
+second-level ccTLDs like `co.uk`), OR its host falls under a national
+registry, OR the (entity, domain) pair is a proven alias — and always
+rejected if the path is a build asset (`.js`/`.css`/`.json`/`.map`, or
+under `/assets/`, `/static/`, `/_next/`). The same alias/registry logic
+was also wired into the `key_people` team-page check (`isOwnTeamPage`) —
+without it, three lote6 rows (e2vc, IBB Ventures, Apposite Capital)
+stayed stuck even after finding the right team page, purely because
+`entities.website` couldn't be repointed to the exact same domain string
+as the alias.
+
+**Rules 6/7 now require `source_url` non-empty**, per prompt 25's
+pre-check (cost was zero across the 242 already-accepted rows — applied
+without further discussion, as instructed).
+
+**Recovered after re-running `--commit`:** lote5 residual 33→29 (the four
+Vaga-1 aliases — Eleven Ventures, CapitalT, Finch Capital, bValue Fund —
+now recognized as the entity's own domain); lote6 residual 48→30, right
+at the founder's own estimate. 23 rows accepted this run (19 via the
+`key_people` team-page/alias exception, 4 via the objective-field domain
+gate), 2 rejected as genuine duplicates (see below).
+
+**Confirmed (prompt 26 §2): the `superangel.io` match was suffix
+matching, on purpose, from prompt 18's original design** — not a new
+behavior. `looksLikeTeamPageSegment` falls back to
+`/(^|-)(team|people|teamet)$/` for compound slugs the fixed list doesn't
+enumerate (`superangel-investor-team` ends in `-team`). This matches
+suffixes, not substrings or prefixes: `team-de-advisors` would NOT match
+(it doesn't end in `team`/`people`/`teamet`), but `investor-team` or
+`advisors-team` would, same as `fund-team` already did. The `contact`
+exclusion still applies regardless. The door is open exactly as far as
+"ends in the marker word", not further.
+
+**A finding surfaced, not silently applied: GED Ventures now passes the
+`key_people` domain gate**, because `website-aliases.txt` §A lists
+`b9f29df7|buenavistaequity.com|gedventures.pt redirecciona...` as a
+proven redirect — the founder's own re-verification, stronger evidence
+than the earlier "does the destination page say GED" check from prompt
+25 that held the row back. This only affects the `key_people` *fill* row;
+the `website` *correction* row is still `kind='correction'` (rule 4,
+always manual) and was left untouched — nothing auto-wrote GED's website.
+Flagging this reversal explicitly rather than letting the domain gate
+quietly re-decide something the founder had explicitly parked.
+
+**Prompt 26 §3 — two `email` rows reverted to manual review**, per
+instruction: Entree Capital's (privacy-policy page — likely the DPO
+contact, not a business one) and Arkwright X's (parent company's
+imprint, not the fund's own `arkwrightx.vc`). Both were already
+`status='verified'` from the earlier run; flipped back to `submitted`
+with `reviewer_notes` explaining why. **A fragility worth flagging, not
+fixing now:** because the entity's `email` field already holds the exact
+proposed value, any *future* `bulk-review --commit` run will re-classify
+both as rule 5a ("duplicado, sem alteração") and silently re-reject them
+— rule 5 has no way to distinguish "a human should look at this before
+it's final" from "someone re-proposed a no-op". Confirmed by dry-running
+after the revert. Not a code change to make unilaterally; a real
+"flagged pending a human decision, exempt from rule 5" state is a design
+call for the founder.
+
+**§4 — objective-field domain-gate failures after loading both files:
+zero.** All currently-pending objective-field rows now pass (own domain,
+registry, or alias); the 33 that failed the earlier naive host-only check
+were exactly the registry/alias cases the founder anticipated.

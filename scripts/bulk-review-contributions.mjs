@@ -28,6 +28,69 @@ const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_RO
 
 const COMMIT = process.argv.includes('--commit');
 
+// Prompt 26 §4 — the founder's own domain-gate rule for OBJECTIVE_FIELDS
+// (other than key_people, which already has isOwnTeamPage; and other than
+// website itself, which has no "own domain" yet to check against when the
+// field is still empty). A source_url is accepted if its registrable
+// domain matches the entity's own, OR its host falls under a national
+// company registry, OR the (entity, domain) pair is a proven alias with
+// its own documented evidence. Rejected outright if the path is a build
+// asset, regardless of host.
+const NATIONAL_REGISTRY_HOSTS = readFileSync(new URL('./data/national-registries.csv', import.meta.url), 'utf8')
+  .split(/\r?\n/).slice(1).map((l) => l.split(',')[0]?.trim()).filter(Boolean);
+
+const WEBSITE_ALIASES = new Map(); // entity id prefix (8 chars) -> Set<domain>
+for (const line of readFileSync(new URL('./data/website-aliases.txt', import.meta.url), 'utf8').split(/\r?\n/)) {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith('#')) continue;
+  const [prefix, domain] = trimmed.split('|');
+  if (!prefix || !domain) continue;
+  if (!WEBSITE_ALIASES.has(prefix)) WEBSITE_ALIASES.set(prefix, new Set());
+  WEBSITE_ALIASES.get(prefix).add(domain.trim());
+}
+
+// Second-level ccTLDs where the registrable domain is the last THREE labels,
+// not two (co.uk, not just uk). Not the full public suffix list — just the
+// ones this European-funds dataset actually uses.
+const SECOND_LEVEL_CCTLDS = new Set([
+  'co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'ltd.uk', 'plc.uk', 'net.uk',
+  'co.no', 'co.nz', 'com.au', 'org.au', 'co.za', 'co.il', 'com.br', 'co.jp', 'co.kr', 'co.in',
+]);
+function registrableDomain(hostname) {
+  const labels = hostname.toLowerCase().split('.');
+  if (labels.length <= 2) return hostname.toLowerCase();
+  const last2 = labels.slice(-2).join('.');
+  if (SECOND_LEVEL_CCTLDS.has(last2) && labels.length >= 3) return labels.slice(-3).join('.');
+  return last2;
+}
+
+const FORBIDDEN_PATH_RE = /\.(js|css|json|map)$/i;
+const FORBIDDEN_PATH_SEGMENTS = new Set(['assets', 'static', '_next']);
+function isForbiddenAssetPath(u) {
+  if (FORBIDDEN_PATH_RE.test(u.pathname)) return true;
+  return u.pathname.toLowerCase().split('/').filter(Boolean).some((seg) => FORBIDDEN_PATH_SEGMENTS.has(seg));
+}
+
+function isAcceptedObjectiveSource(entity, sourceUrl, entityIdPrefix) {
+  if (!sourceUrl) return false;
+  const candidates = sourceUrl.split(/;\s*/).map((s) => s.trim()).filter(Boolean);
+  const aliasDomains = WEBSITE_ALIASES.get(entityIdPrefix);
+  for (const candidate of candidates) {
+    let u;
+    try { u = new URL(candidate.replace(/\s*\(.*\)\s*$/, '')); } catch { continue; } // strip trailing "(metadata only)"-style annotations
+    if (isForbiddenAssetPath(u)) continue;
+    const host = u.hostname.replace(/^www\./, '').toLowerCase();
+    const registrable = registrableDomain(host);
+    if (entity?.website) {
+      let siteHost; try { siteHost = new URL(entity.website).hostname.replace(/^www\./, '').toLowerCase(); } catch { siteHost = null; }
+      if (siteHost && registrableDomain(siteHost) === registrable) return true;
+    }
+    if (NATIONAL_REGISTRY_HOSTS.some((rh) => host === rh || host.endsWith(`.${rh}`))) return true;
+    if (aliasDomains && (aliasDomains.has(host) || aliasDomains.has(registrable))) return true;
+  }
+  return false;
+}
+
 // Mirrors entity-enrichment.ts ENTITY_ENRICHMENT_FIELDS (now includes 'name',
 // but 'name' is always forced to rule 8 below regardless of kind/confidence
 // — see the dedicated check).
@@ -173,22 +236,35 @@ function looksLikeTeamPageSegment(rawSegment) {
 // every URL after the first into one long percent-encoded pathname, which
 // would make ANY later-cited /team link falsely match regardless of which
 // URL is actually first/primary.
-function matchesOwnDomainPage(entity, sourceUrl, segmentPredicate) {
-  if (!entity.website || !sourceUrl) return false;
-  let siteHost;
-  try { siteHost = new URL(entity.website).hostname.replace(/^www\./, ''); } catch { return false; }
+// Prompt 26: "own domain" has to mean the same thing here as it does for
+// isAcceptedObjectiveSource — the entity's registrable domain OR a proven
+// alias (a domain migration verified independently, e.g. e2.vc / e2vc.com,
+// ibbventures.de / ibb-bet.de). Without the alias check, three lote6 rows
+// (e2vc, IBB Ventures, Apposite Capital) stayed stuck in manual review even
+// after the correct team page was found, purely because entities.website
+// hadn't been (or couldn't yet be) repointed to the exact same domain string.
+function matchesOwnDomainPage(entity, sourceUrl, segmentPredicate, entityIdPrefix) {
+  if (!sourceUrl) return false;
+  const aliasDomains = entityIdPrefix ? WEBSITE_ALIASES.get(entityIdPrefix) : undefined;
+  let siteRegistrable = null;
+  if (entity?.website) {
+    try { siteRegistrable = registrableDomain(new URL(entity.website).hostname.replace(/^www\./, '')); } catch { siteRegistrable = null; }
+  }
   const candidates = sourceUrl.split(/;\s*/).map((s) => s.trim()).filter(Boolean);
   for (const candidate of candidates) {
     try {
       const u = new URL(candidate);
-      if (u.hostname.replace(/^www\./, '') !== siteHost) continue;
+      const host = u.hostname.replace(/^www\./, '').toLowerCase();
+      const registrable = registrableDomain(host);
+      const isOwn = (siteRegistrable && registrable === siteRegistrable) || (aliasDomains && (aliasDomains.has(host) || aliasDomains.has(registrable)));
+      if (!isOwn) continue;
       const segments = u.pathname.toLowerCase().split('/').filter(Boolean);
       if (segments.some(segmentPredicate)) return true;
     } catch { /* not a parseable URL on its own — skip */ }
   }
   return false;
 }
-function isOwnTeamPage(entity, sourceUrl) { return matchesOwnDomainPage(entity, sourceUrl, looksLikeTeamPageSegment); }
+function isOwnTeamPage(entity, sourceUrl, entityIdPrefix) { return matchesOwnDomainPage(entity, sourceUrl, looksLikeTeamPageSegment, entityIdPrefix); }
 
 const { data: contributions, error: cErr } = await admin.from('contributions').select('*').eq('status', 'submitted');
 if (cErr) { console.error(cErr); process.exit(1); }
@@ -244,36 +320,50 @@ for (const c of contributions) {
     continue;
   }
 
-  // Prompt 25: confidence is not a property of the fact, it's a claim made
-  // by whoever produced it. Every confidence value in this pipeline so far
-  // came from the founder's own Python aggregator, which already enforces
-  // the domain gate, the no-paid-sources rule, and "never infer" — so a
-  // batch row's 0.95 means "printed on the entity's own imprint page."
-  // The AI-research route (source='ai') writes a confidence/source_url in
-  // the exact same shape, but the number means "the model thought so" —
-  // same field, no shared meaning. No confidence threshold closes that
-  // gap, so source='ai' is barred from both auto-accept tiers entirely,
-  // unconditionally, above every other rule below. It still passes through
-  // rules 1-5 (unwritable/legacy/floor/correction/duplicate) normally —
-  // those are quarantine or rejection paths, not auto-accept ones.
-  if (c.source === 'ai') { buckets.rule8.push({ c, reason: "AI-sourced (source='ai') — never auto-accepted regardless of confidence, always a human call" }); continue; }
-
-  // Rule 6 — Tier A: high confidence, sourced, field empty.
-  if (c.confidence >= 0.85) { buckets.rule6.push({ c, reason: 'high confidence, sourced, field empty' }); continue; }
-
-  // Rule 7 — Tier B: medium confidence, sourced, field empty, objective
-  // field OR the lote4 key_people/team-page exception. address/postal_code
-  // are themselves OBJECTIVE_FIELDS with no domain gate — a privacy-policy
-  // page (Celtis, Shilling, byFounders in lote6) already qualifies here,
-  // same as any other sourced address. Prompt 23 flagged this as an open
-  // question; no new exception was needed, the existing rule already covers it.
-  if (OBJECTIVE_FIELDS.has(c.field) || (c.field === 'key_people' && c.subject_type === 'entity' && isOwnTeamPage(subject, c.source_url))) {
-    buckets.rule7.push({ c, reason: OBJECTIVE_FIELDS.has(c.field) ? 'medium confidence, objective field, sourced, empty' : 'medium confidence, key_people sourced from the fund\'s own team page' });
+  // Prompt 25/26: confidence is not a property of the fact, it's a claim
+  // made by whoever produced it — and the right discriminator is what the
+  // fact passed through, not who's listed as its author. `source='ai'` was
+  // the wrong test: lote4/5/6 are ALSO source='ai' (they're AI-assisted
+  // research too), just funneled through the founder's own aggregator
+  // first, which enforces the domain gate, the no-paid-sources rule, and
+  // "never infer" before the row ever reaches this table. The in-app AI
+  // routes (`/api/entities/[id]/enrich`'s "Request more info", and
+  // `/api/backoffice/research`'s "Research with AI" button) bypass all of
+  // that — same confidence/source_url shape, no shared guarantee. So the
+  // gate is on the row's note carrying one of those two routes' own
+  // markers, not on `source`. (Longer-term: an explicit `pipeline` column
+  // only the batch importer can write, checked for presence — a
+  // procedural guarantee, not cryptographic, but honest and enough. Not
+  // built yet, flagged in DECISIONS.md.)
+  const APP_AI_ROUTE_MARKERS = ["AI-sourced via Request more info", 'AI-proposed via research (§6b-3)'];
+  if (APP_AI_ROUTE_MARKERS.some((m) => (c.note ?? '').includes(m))) {
+    buckets.rule8.push({ c, reason: 'produced by an in-app AI route — bypasses the aggregator (no domain gate, no paid-source ban, no never-infer check), never auto-accepted regardless of confidence' });
     continue;
   }
 
-  // Rule 8 — everything else: judgement fields at medium confidence.
-  buckets.rule8.push({ c, reason: 'medium confidence but a judgement field — not auto-acceptable' });
+  // Rule 6 — Tier A: high confidence, sourced (source_url required — a
+  // confidence number with nothing behind it is a claim, not a fact), field empty.
+  if (c.confidence >= 0.85 && hasSource) { buckets.rule6.push({ c, reason: 'high confidence, sourced, field empty' }); continue; }
+
+  // Rule 7 — Tier B: medium confidence, sourced, field empty, objective
+  // field OR the key_people/team-page exception. Prompt 26 §4: objective
+  // fields other than key_people (which already has isOwnTeamPage) and
+  // website (which has no "own domain" yet to check when still empty) now
+  // require the same class of domain gate — own registrable domain, a
+  // national company registry, or a proven (entity, domain) alias — via
+  // isAcceptedObjectiveSource.
+  const isTeamPageException = c.field === 'key_people' && c.subject_type === 'entity' && isOwnTeamPage(subject, c.source_url, c.subject_id.slice(0, 8));
+  const isDomainGatedObjective = OBJECTIVE_FIELDS.has(c.field) && c.field !== 'key_people' && c.field !== 'website'
+    && c.subject_type === 'entity' && isAcceptedObjectiveSource(subject, c.source_url, c.subject_id.slice(0, 8));
+  const isUngatedObjective = OBJECTIVE_FIELDS.has(c.field) && c.field === 'website'; // fill-when-empty, nothing to gate against yet
+  if (hasSource && (isDomainGatedObjective || isUngatedObjective || isTeamPageException)) {
+    buckets.rule7.push({ c, reason: isTeamPageException ? 'medium confidence, key_people sourced from the fund\'s own team page' : isUngatedObjective ? 'medium confidence, website fill, sourced, empty' : 'medium confidence, objective field, sourced from own domain/national registry/proven alias, empty' });
+    continue;
+  }
+
+  // Rule 8 — everything else: judgement fields at medium confidence,
+  // objective fields that failed the domain gate, or rows without a source.
+  buckets.rule8.push({ c, reason: !hasSource && (c.confidence >= 0.85 || OBJECTIVE_FIELDS.has(c.field)) ? 'would otherwise auto-accept but has no source_url' : OBJECTIVE_FIELDS.has(c.field) ? 'objective field but source_url is not the entity\'s own domain, a national registry, or a proven alias' : 'medium confidence but a judgement field — not auto-acceptable' });
 }
 
 console.log('\n--- Rule counts (1-8, first match wins) ---');
@@ -307,8 +397,11 @@ for (const tag of ['lote4', 'lote5', 'lote6']) {
   console.log(`\n--- "${tag}"-tagged rows (${total} total): ${JSON.stringify(b)} — residual ${residual} ---`);
 }
 
-console.log('\n--- AI-sourced rows blocked from auto-accept (prompt 25) ---');
-console.log(JSON.stringify(buckets.rule8.filter((b) => b.c.source === 'ai').map(({ c }) => ({ entity: entityById.get(c.subject_id)?.name ?? personById.get(c.subject_id)?.full_name, field: c.field, confidence: c.confidence, source_url: c.source_url })), null, 2));
+console.log('\n--- Rows blocked as in-app-AI-route-sourced (prompt 26) ---');
+console.log(JSON.stringify(buckets.rule8.filter((b) => b.reason.startsWith('produced by an in-app AI route')).map(({ c }) => ({ entity: entityById.get(c.subject_id)?.name ?? personById.get(c.subject_id)?.full_name, field: c.field, confidence: c.confidence, source_url: c.source_url })), null, 2));
+
+console.log('\n--- Objective-field rows blocked by the domain gate (prompt 26 §4) ---');
+console.log(JSON.stringify(buckets.rule8.filter((b) => b.reason.includes('not the entity\'s own domain')).map(({ c }) => ({ entity: entityById.get(c.subject_id)?.name, field: c.field, source_url: c.source_url })), null, 2));
 
 console.log('\n--- Rule 7 team-page exception matches ---');
 console.log(JSON.stringify(buckets.rule7.filter((b) => b.reason.includes('team page')).map(({ c }) => ({ entity: entityById.get(c.subject_id)?.name, source_url: c.source_url })), null, 2));

@@ -1,0 +1,100 @@
+# shortid|dominio_alternativo|prova
+# Vaga 1 (verificados 2026-07-26) — mantidos porque o agregador da vaga 2 herda o mesmo ficheiro.
+9fa304bb|ggf.vc|greengenerationfund.com redirecciona 302 -> https://www.ggf.vc/ (curl -IL, 2026-07-26)
+8e4168e7|fortino.group|fortinocapital.com redirecciona 302 -> https://www.fortino.group/ (curl -IL)
+8e4168e7|fortino.capital|site proprio da Fortino Capital, titulo "Homepage Capital | Fortino Capital"; irmao de fortino.group
+23e123f0|bvaluefund.com|bvalue.vc redirecciona 302 -> https://bvaluefund.com/ (curl -IL)
+cc1567a8|greenfieldcapital.com|greenfield-capital.com serve "Index of /" (185 bytes, directory index vazio); greenfieldcapital.com e o site vivo, titulo "Greenfield Capital"
+676283fd|11.vc|eleven.vc esta a venda ("Eleven.vc for sale | Spaceship.com"); 11.vc e o site vivo, titulo "We empower local heroes to build global success - Eleven"
+ccebae86|capitaltvc.com|capitalt.com devolve corpo vazio (405); capitaltvc.com e o site vivo, titulo "CapitalT"
+
+# ---------------------------------------------------------------------------
+# Vaga 2 — verificados por mim (Claude) a 2026-07-26 com curl -sIL --max-time 20
+# e leitura do titulo/conteudo. Nenhuma alegacao de agente entrou sem prova propria.
+# ---------------------------------------------------------------------------
+
+# A. Dominio antigo redirecciona para o novo (prova mais forte que ha)
+36866769|demea-si.com|demeter-im.com redirecciona -> https://www.demea-si.com/, corpo "Demea Invest - Investisseur durable en transition ecologique"
+649b36b5|educapitalvc.com|educapital.fr redirecciona -> https://www.educapitalvc.com/, titulo "Educapital | Europe's largest Edtech & Future of Work VC Fund"
+6077fcbd|jce.se|jcegroup.se redirecciona -> https://jce.se/, titulo "Vi skapar langsiktiga varden genom lonsamma och hallbara bolag"
+761ba724|flashpoint.capital|flashpointvc.com redirecciona -> https://flashpoint.capital/, titulo "Flashpoint - Capital Ignition for Audacious Founders"
+d0982a65|solang.co|solanginvest.se redirecciona -> https://solang.co/, titulo "Solang"
+b9f29df7|buenavistaequity.com|gedventures.pt redirecciona -> https://www.buenavistaequity.com/pt-pt/, titulo "Buenavista Equity Partners Portugal | Gestora de Fundos de Investimento" (GED Portugal passou a Buenavista)
+
+# B. Dominio antigo morto (DNS nao resolve) e o novo e o site vivo da mesma firma
+1195dd4d|siventures.de|smartinfrastructure.vc nao resolve; siventures.de vivo, titulo "SIVentures", morada Spinnereistrasse 7, Leipzig (bate com Smart Infrastructure Ventures)
+174e4a16|dunascapital.com|dunascap.com nao resolve; dunascapital.com titulo "Gestion de inversiones | Dunas Capital"
+1e7c13cb|cfh.de|cfh-management.de nao resolve; cfh.de titulo "CFH Start - CFH", impressum /en/impressum/
+2888cc6c|scalehouse-capital.com|scalehouse.capital nao resolve; scalehouse-capital.com titulo "Scalehouse Capital | Early-Stage VC for AI Founders"
+2f710660|kiko.vc|kikoventures.com nao resolve; kiko.vc titulo "Home - Kiko Ventures"
+4c7cdf90|nalka.com|nalkainvest.com nao resolve; nalka.com titulo "Nalka | Home"
+56af0561|greenspherecapital.com|greensphere.vc nao resolve; greenspherecapital.com titulo "Home | Greensphere"
+6ff9ccae|neoteq.de|neoteq.ventures nao resolve; neoteq.de titulo "Venture Capital Koln: Kapital fur Startups: Neoteq"
+7269c710|valacap.com|valacapital.co.uk nao resolve; valacap.com titulo "Home - Vala Capital Sustainable Venture Capitalists"
+810db2cc|cninordic.com|cninordic.se nao resolve; cninordic.com titulo "CNI - Taking exceptional businesses to the next level"
+8e79bb30|tvf.vc|seedfonds-aachen.de nao resolve; tvf.vc/imprint lista explicitamente "Seed Fonds II fur die Region Aachen GmbH & Co. KG", Markt 45-47, 52062 Aachen — prova directa da sucessao
+b25a24d6|enjoyventure.vc|enjoy.vc nao resolve; enjoyventure.vc titulo "EnjoyVenture GmbH | Innovative Venture Capital"
+b7dfc3e4|northern-gritstone.com|northerngritstone.co.uk nao resolve; northern-gritstone.com titulo "Northern Gritstone"
+cd17b8fa|selvedgeventure.com|selvedge.vc nao resolve; selvedgeventure.com titulo "Selvedge Venture - access beyond"
+d68af54b|bionovacapital.com|hovionecapital.com nao resolve; bionovacapital.com titulo "Bionova Capital" (Hovione Capital passou a Bionova Capital)
+d79c27d8|fearlessadventures.co.uk|fearless.adventures nao resolve; fearlessadventures.co.uk titulo "Embedded Venture Capital | Fearless Adventures"
+f072a1f8|solidbond.com|solidbondcapital.com nao resolve; solidbond.com titulo "Solid Bond | UK Pre-Seed Venture Capital"
+f9741ca8|gldinvest.com|gldinvest.se nao resolve; gldinvest.com titulo "Home - GLD Invest"
+
+# C. Dominio antigo parqueado / a venda; o novo e o site vivo da mesma firma
+193e674f|nysnoinvest.no|nysno.no serve "Parked at Loopia"; nysnoinvest.no vivo (58 KB, /no/)
+47c3cde0|perscitusllp.com|perscitus.com serve "perscitus.com :: this domain is for sale"; perscitusllp.com titulo "Perscitus LLP"
+559c42ad|segeniacapital.com|segenia.com devolve pagina vazia (114 bytes, sem titulo); segeniacapital.com titulo "Segenia Capital | Bespoke Venture Capital Fund Solutions"
+c161d0a0|fomcap.com|forceovermass.com serve "ForceOverMass.com is for sale | HugeDomains"; fomcap.com titulo "Force Over Mass | Re-Inventing Venture Capital"
+
+# D. O dominio que estava na base e de OUTRA firma; o novo e o da firma certa
+857b816e|pointcapital.pt|faradayvp.com e a espanhola Faraday Venture Partners, outra firma; pointcapital.pt tem JSON-LD legalName "Point Capital Partners" e rodape "(c) 2026 Point Capital Partners SGOIC"
+aa21ea66|faber.vc|en.karma-network.com e a "Karma Network: Your Digital Acceleration Partner", outra firma; faber.vc titulo "Faber"
+b24f22a2|arkwrightx.vc|arkwright.no redirecciona para arkwright.com, a consultora Arkwright Consulting; arkwrightx.vc titulo "Arkwright X - Venture Capital"
+b8d2b7ca|betterventures.io|better.ventures e a Better Ventures de Oakland (EUA), outra firma; a entidade e alema e betterventures.io tem titulo "better ventures | impact+return"
+bb723da9|ask.pt|bpfomento.pt e o Banco Portugues de Fomento, outra entidade; ask.pt afirma no proprio corpo "a atividade de capital de risco e desenvolvida atraves da ISQ, Sociedade de Capital, SA" — prova directa
+dc9af7f2|corecapital.pt|coreangels.com e a COREangels, outra firma; corecapital.pt titulo "CORE Capital | Sociedade Gestora de Capital de Risco"
+e152df77|bluepharmagroup.com|a2b.pt nao resolve; bluepharmagroup.com titulo "Bluepharma"
+
+# E. Dominio antigo vivo e da mesma firma (HEAD devolve 405 mas GET serve o mesmo corpo).
+#    Nao ha correccao a fazer na base — o alias existe so para os factos colhidos no
+#    dominio irmao passarem a trava.
+29c9258f|e2.vc|e2vc.com serve GET 200 com corpo identico (46034 bytes) ao de e2.vc; sao o mesmo site
+e97c3edb|appositecapital.com|apposite-capital.com serve GET 200 com corpo identico (350813 bytes) ao de appositecapital.com
+f0e9249e|entreecap.com|entreecapital.com serve GET 200 com corpo identico (98144 bytes) ao de entreecap.com
+
+# ---------------------------------------------------------------------------
+# REJEITADOS — alegacoes de agente que NAO passaram na minha verificacao.
+# Ficam aqui documentadas para nao serem re-propostas na vaga 3. Sem alias, os
+# factos destas quatro entidades caem em quarentena, que e o resultado correcto.
+#
+# 15b064cc Founders Capital  founderscapital.vc -> founderscap.co.uk
+#   founderscapital.vc devolve um lander parqueado (redirect JS para /lander), portanto
+#   nao ha como cruzar. founderscap.co.uk e uma firma de Londres com o mesmo nome mas
+#   tese de FinTech estoniana (Bondora, EstateGuru, Investly) e nao menciona o dominio
+#   antigo em lado nenhum. O G09 ja tinha assinalado a falta de confirmacao cruzada.
+#   4 factos ficam em quarentena. Decidir a mao de que Founders Capital se trata.
+#
+# e6018921 Bluemint  beresfordcapital.pt -> bluemint.pt
+#   bluemint.pt nao e um site: e um "webcard" (cartao de visita alojado), titulo igual
+#   ao dominio. O email que de la saiu e pvz@beresfordcapital.pt, ou seja aponta de
+#   volta para a Beresford. Ha aqui uma ligacao Bluemint<->Beresford para investigar,
+#   nao uma correccao de dominio.
+#
+# beddcc25 LEVELS  levels.vc -> wearelevels.com
+#   wearelevels.com devolve 404 ("404 - Page not found"). levels.vc e o site pessoal do
+#   Pieter Levels, outra coisa. A entidade fica sem site conhecido — problema de
+#   descoberta, nao de enriquecimento. Todos os campos vieram NOT_FOUND de qualquer modo.
+#
+# d02567ad Conexo Capital  conexo.vc -> buenavistaequity.com
+#   conexo.vc esta vivo (titulo "Conexo Ventures"), logo nao ha dominio errado a corrigir.
+#   O proprio agente pos 0.7 e disse que nao confirmou. Todos os campos NOT_FOUND.
+
+# F. Migracoes da mesma firma que os agentes nao reportaram como correccao (e bem — o
+#    dominio registavel muda mas a firma e a mesma). Sem estas quatro linhas os factos
+#    de quatro fundos grandes ficavam em quarentena por uma tecnicalidade.
+560ae2c5|ibbventures.de|ibb-bet.de redirecciona -> https://www.ibbventures.de/en (curl -IL); IBB Beteiligungsgesellschaft passou a IBB Ventures
+76c974d8|pointnine.com|pointninecap.com nao resolve; pointnine.com/imprint diz "Point Nine Management GmbH, Torstr. 19, 10119 Berlin" — prova directa
+2172daf6|project-a.vc|project-a.com redirecciona -> https://www.project-a.vc/ (curl -IL)
+c86e1c98|eqtgroup.com|eqtventures.com redirecciona -> https://eqtgroup.com/private-capital/eqt-ventures (curl -IL); a EQT Ventures e um fundo do grupo EQT e o grupo e que publica a morada e o telefone
+b24f22a2|arkwright.com|arkwright.no redirecciona -> https://www.arkwright.com/ (curl -IL); a Arkwright X e o braco de VC da Arkwright, mesmo escritorio de Oslo (Grundingen 2)
