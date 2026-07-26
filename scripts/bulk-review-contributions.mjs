@@ -244,6 +244,20 @@ for (const c of contributions) {
     continue;
   }
 
+  // Prompt 25: confidence is not a property of the fact, it's a claim made
+  // by whoever produced it. Every confidence value in this pipeline so far
+  // came from the founder's own Python aggregator, which already enforces
+  // the domain gate, the no-paid-sources rule, and "never infer" — so a
+  // batch row's 0.95 means "printed on the entity's own imprint page."
+  // The AI-research route (source='ai') writes a confidence/source_url in
+  // the exact same shape, but the number means "the model thought so" —
+  // same field, no shared meaning. No confidence threshold closes that
+  // gap, so source='ai' is barred from both auto-accept tiers entirely,
+  // unconditionally, above every other rule below. It still passes through
+  // rules 1-5 (unwritable/legacy/floor/correction/duplicate) normally —
+  // those are quarantine or rejection paths, not auto-accept ones.
+  if (c.source === 'ai') { buckets.rule8.push({ c, reason: "AI-sourced (source='ai') — never auto-accepted regardless of confidence, always a human call" }); continue; }
+
   // Rule 6 — Tier A: high confidence, sourced, field empty.
   if (c.confidence >= 0.85) { buckets.rule6.push({ c, reason: 'high confidence, sourced, field empty' }); continue; }
 
@@ -292,6 +306,9 @@ for (const tag of ['lote4', 'lote5', 'lote6']) {
   if (total === 0) continue;
   console.log(`\n--- "${tag}"-tagged rows (${total} total): ${JSON.stringify(b)} — residual ${residual} ---`);
 }
+
+console.log('\n--- AI-sourced rows blocked from auto-accept (prompt 25) ---');
+console.log(JSON.stringify(buckets.rule8.filter((b) => b.c.source === 'ai').map(({ c }) => ({ entity: entityById.get(c.subject_id)?.name ?? personById.get(c.subject_id)?.full_name, field: c.field, confidence: c.confidence, source_url: c.source_url })), null, 2));
 
 console.log('\n--- Rule 7 team-page exception matches ---');
 console.log(JSON.stringify(buckets.rule7.filter((b) => b.reason.includes('team page')).map(({ c }) => ({ entity: entityById.get(c.subject_id)?.name, source_url: c.source_url })), null, 2));

@@ -2973,3 +2973,86 @@ código" instruction. The fix (adding an explicit `source_url` requirement
 to rules 6/7, or a domain check for `OBJECTIVE_FIELDS` mirroring the
 `key_people` team-page exception) is a decision for her to make and
 scope, not something to bundle into this report.
+
+## Prompt 25 — confidence is a claim, not a property of the fact
+
+**The principle, now written down because it was never needed before:**
+"A confiança não é uma propriedade do facto. É uma afirmação de quem o
+produziu." Every confidence number in this pipeline so far came from the
+founder's own Python aggregator, which already enforces the domain gate,
+the no-paid-sources rule, and "never infer" — so a batch row's `0.95`
+means "printed on the entity's own imprint page." The `/api/entities/[id]
+/enrich` "Research with AI" route emits the same shape (`confidence`,
+`source_url`) but the number means "the model thought so" — same field,
+no shared meaning, and the two were structurally indistinguishable once
+landed in `contributions`. It hadn't produced a row yet; that was luck,
+not design.
+
+**Fix (1), done now, unconditional:** `source='ai'` never reaches rules 6
+or 7 (auto-accept), regardless of confidence. Added as a hard gate ahead
+of both tiers in `bulk-review-contributions.mjs` — it still passes
+through rules 1-5 (unwritable/legacy/floor/correction/duplicate) exactly
+as before, since those are quarantine/rejection paths, not auto-accept
+ones. A diagnostic block prints every row this blocks, same pattern as
+the existing team-page-exception log.
+
+**A real, load-bearing consequence, not a side effect to paper over:**
+lote4/5/6's own batch-imported rows are *also* stored with `source='ai'`
+in the database (they were produced by AI-assisted research, same as the
+in-app route, just funneled through the founder's aggregator first) — so
+this fix doesn't only guard the in-app button, it also permanently routes
+every remaining and future batch-imported `fill` row to manual review,
+regardless of confidence or domain match. Confirmed live: after approving
+the 34 website corrections and re-running `bulk-review-contributions.mjs
+--commit` a second time (per the fixed pipeline order), **0 rows were
+auto-accepted** — Bionova Capital, Dunas Capital, and Enjoy Venture's
+`key_people` rows now have correct domains and would have matched the
+team-page exception, but all three carry `source='ai'` and are
+permanently blocked from rule 7 by fix (1). This is the rule working
+exactly as specified ("sem excepção"), but it means rules 6/7 no longer
+auto-accept anything from *any* future batch either, not just the app —
+worth the founder's explicit confirmation that this is the intended
+scope, since it changes what "Tier A/B auto-accept" means going forward.
+
+**The 68-vs-67 count:** was my own phrasing error, not a second missing
+row. The five groups (22 pilot + 39 extra-fields + 2 §9b conflicts + 2
+pre-existing website corrections + 2 one-off notes) sum to exactly 67 —
+"plus exactly one row from the app" described one of those 67 (the
+`__enrichment_request__` demand-flag, filed under the "2 one-off notes"
+group alongside a Volta `hq_city` fix), not an addition to it. Total is
+67, not 68; math still closes at 350+67=417 and 229+1=230.
+
+**The 34 website corrections:** reviewed by the founder by hand, all but
+one confirmed as genuine rebrands/relocations (Demeter→Demea, Seedfonds
+Aachen→TVF Management, ISQ→ASK Group, Solaeng→Soläng, transliteration).
+`b9f29df7` (GED Ventures → buenavistaequity.com) held back — the page
+never mentions "GED" at all, so there's no printed proof linking the two
+names, exactly the failure mode these corrections exist to catch. Applied
+the 34 directly (`entities.website` write + `contributions.status =
+'verified'`), left GED Ventures pending. Re-ran the bulk-review per the
+fixed order — see the `source='ai'` finding above for why it touched
+nothing.
+
+**Impact estimates for changes (2) and (3), counts only, no code
+changed** (per explicit instruction — she reviews before either is built):
+- **(2) requiring non-empty `source_url` on rules 6/7:** of the 242
+  lote4/5/6 rows that were auto-accepted end to end, **zero** are missing
+  a `source_url`. This change would currently cost nothing — every batch
+  row has always carried one.
+- **(3) a domain gate on `OBJECTIVE_FIELDS`** (mirroring the `key_people`
+  team-page check, no national-registry allowance yet): of the 77 non-
+  website objective-field rows accepted, **33 fail a naive host-match**
+  against `entities.website`. Nearly all of them are exactly the
+  legitimate case the founder flagged needing a registry carve-out —
+  Companies House (`find-and-update.company-information.service.gov.uk`),
+  Belgian KBO (`kbopub.economie.fgov.be`), Norwegian Brønnøysund
+  (`data.brreg.no`), French `annuaire-entreprises.data.gouv.fr` — plus a
+  handful of legitimate imprint/privacy-policy pages on a rebranded
+  domain (`b2venture.vc` for btov Partners, `msm.vc` for MAZE). Without
+  her registry list this rule can't be scoped correctly; sending it
+  narrow (host-match only, no registry) would wrongly quarantine most of
+  these 33 real facts.
+
+Waiting on the founder's national-registry list (format of her choosing)
+before scoping (3), and her confirmation that fix (1)'s batch-wide effect
+is intended before touching rules 6/7 further.
