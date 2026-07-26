@@ -18,7 +18,7 @@ const TABS: { key: Tab; label: string }[] = [
 
 type Contribution = {
   id: string; subject_type: 'entity' | 'person'; subject_name: string; org_name: string;
-  field: string; value: unknown; existing_value?: unknown; note: string | null; status: 'submitted' | 'verified' | 'rejected';
+  field: string; value: unknown; existing_value?: unknown; note: string | null; status: 'submitted' | 'verified' | 'rejected' | 'held';
   created_at: string; reviewer_notes: string | null;
   source: 'user' | 'ai'; confidence: number | null; source_url: string | null;
 };
@@ -80,7 +80,12 @@ function ContributionsTab() {
   const cosmeticCount = pendingAll.filter((c) => c.cls === 'cosmetic').length;
   const substantiveCount = pendingAll.filter((c) => c.cls === 'substantive').length;
   const pending = classFilter === 'all' ? pendingAll : pendingAll.filter((c) => c.cls === classFilter);
-  const reviewed = classified.filter((c) => c.status !== 'submitted');
+  // 'held' (migration 0034) — flagged by a human for a second look, not a
+  // routine backlog row. Kept out of "Decided" (it isn't) and out of the
+  // bulk-selectable pending list (no automatic rule should batch through
+  // it either), shown in its own section instead.
+  const held = classified.filter((c) => c.status === 'held');
+  const reviewed = classified.filter((c) => c.status !== 'submitted' && c.status !== 'held');
   const groups = new Map<string, typeof pending>();
   for (const c of pending) {
     const key = `${c.subject_type}:${c.subject_name}`;
@@ -175,6 +180,24 @@ function ContributionsTab() {
               </ul>
             </div>
           ))}
+        </div>
+      )}
+      {held.length > 0 && (
+        <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50 p-2">
+          <p className="mb-1.5 text-xs font-semibold text-purple-800">Held — needs a decision ({held.length})</p>
+          <ul className="space-y-1.5 text-xs">
+            {held.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center gap-1.5">
+                <span className="font-medium">{c.subject_name} — {c.field}:</span> {String(c.value)}
+                {c.source_url && <a href={c.source_url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">source</a>}
+                {c.reviewer_notes && <span className="text-gray-500">— {c.reviewer_notes}</span>}
+                <input placeholder="Reviewer notes" value={notes[c.id] ?? ''} onChange={(e) => setNotes({ ...notes, [c.id]: e.target.value })}
+                  className="ml-auto min-w-[160px] rounded border border-gray-200 px-2 py-1 text-xs" />
+                <button onClick={() => review(c.id, 'verified')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Verify</button>
+                <button onClick={() => review(c.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       {reviewed.length > 0 && (

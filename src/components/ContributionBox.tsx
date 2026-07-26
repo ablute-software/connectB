@@ -18,22 +18,33 @@ import { useEffect, useState } from 'react';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { AddInfoButton, PrivateBadge } from '@/components/ui';
 
-type ContributionStatus = 'submitted' | 'verified' | 'rejected';
+// 'held' (migration 0034, prompt 27) — a contribution a human flagged as
+// needing a second look before it's final, distinct from 'submitted'
+// (routine backlog, fair game for automatic rules). No automatic rule ever
+// touches a 'held' row; it leaves this state only via an explicit
+// accept/reject here, same as the AI-pending block below.
+type ContributionStatus = 'submitted' | 'verified' | 'rejected' | 'held';
 type ContributionSource = 'user' | 'ai';
 type ContributionKind = 'fill' | 'correction';
 type Contribution = {
   id: string; field: string; value: unknown; note: string | null; status: ContributionStatus; created_at: string;
   source: ContributionSource; confidence: number | null; source_url: string | null; kind: ContributionKind;
+  reviewer_notes?: string | null;
 };
 
 const STATUS_STYLE: Record<ContributionStatus, string> = {
   submitted: 'bg-amber-100 text-amber-800',
   verified: 'bg-green-100 text-green-700',
   rejected: 'bg-red-100 text-red-700',
+  held: 'bg-purple-100 text-purple-800',
 };
 
 function isConflictRow(c: Contribution): boolean {
   return c.status === 'submitted' && !!c.note && /conflict/i.test(c.note);
+}
+
+function isHeldRow(c: Contribution): boolean {
+  return c.status === 'held';
 }
 
 // AI-sourced enrichment proposals (§ investor profile enrichment) — awaiting
@@ -80,7 +91,7 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
   const [resolvingAiId, setResolvingAiId] = useState<string | null>(null);
 
   function refresh() {
-    browserClient().from('contributions').select('id, field, value, note, status, created_at, source, confidence, source_url, kind')
+    browserClient().from('contributions').select('id, field, value, note, status, created_at, source, confidence, source_url, kind, reviewer_notes')
       .eq('subject_type', subjectType).eq('subject_id', subjectId).eq('org_id', orgId)
       .order('created_at', { ascending: false })
       .then(({ data }) => setItems((data as Contribution[] | null) ?? []));
@@ -199,6 +210,28 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
                   <span className="text-gray-700">{formatContributionValue(c.value)}</span>
                   <span className="rounded-full bg-cyan-100 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-800">AI-sourced · unconfirmed</span>
                 </div>
+                <div className="mt-1 flex items-center gap-2">
+                  {c.source_url && (
+                    <a href={c.source_url} target="_blank" rel="noreferrer" className="truncate text-[10px] text-gray-400 hover:text-gray-600 hover:underline">
+                      source
+                    </a>
+                  )}
+                  <div className="ml-auto flex gap-1.5">
+                    <button disabled={resolvingAiId === c.id} onClick={() => resolveAiProposal(c, 'use_imported')}
+                      className="rounded bg-[#0E7490] px-2 py-0.5 font-medium text-white disabled:opacity-40">Accept</button>
+                    <button disabled={resolvingAiId === c.id} onClick={() => resolveAiProposal(c, 'keep_existing')}
+                      className="rounded border border-gray-300 bg-white px-2 py-0.5 text-gray-600 hover:bg-gray-100 disabled:opacity-40">Reject</button>
+                  </div>
+                </div>
+              </div>
+            ) : isHeldRow(c) ? (
+              <div key={c.id} className="rounded-lg border border-purple-200 bg-purple-50 p-2 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-gray-700">{c.field}:</span>
+                  <span className="text-gray-700">{formatContributionValue(c.value)}</span>
+                  <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-800">held · needs a decision</span>
+                </div>
+                {c.reviewer_notes && <div className="mt-1 text-[11px] text-gray-500">{c.reviewer_notes}</div>}
                 <div className="mt-1 flex items-center gap-2">
                   {c.source_url && (
                     <a href={c.source_url} target="_blank" rel="noreferrer" className="truncate text-[10px] text-gray-400 hover:text-gray-600 hover:underline">

@@ -1,0 +1,11 @@
+-- Prompt 27 — "manual review" was a comment, not a state. A contribution
+-- could only be submitted/verified/rejected; there was nowhere to put a row
+-- that a human needs to look at before it's final, so any automatic rule
+-- (rule 5's duplicate check, most sharply) would silently re-resolve it on
+-- the next run. Adds 'held': no automatic rule in
+-- scripts/bulk-review-contributions.mjs ever reads a 'held' row (its fetch
+-- is scoped to status='submitted', so a held row is structurally invisible
+-- to every rule, not just exempted by a check) — it only leaves 'held' via
+-- an explicit human decision (accept/reject through the UI or a one-off
+-- script), same as verified/rejected.
+alter type contribution_status add value if not exists 'held';

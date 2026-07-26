@@ -266,6 +266,12 @@ function matchesOwnDomainPage(entity, sourceUrl, segmentPredicate, entityIdPrefi
 }
 function isOwnTeamPage(entity, sourceUrl, entityIdPrefix) { return matchesOwnDomainPage(entity, sourceUrl, looksLikeTeamPageSegment, entityIdPrefix); }
 
+// Prompt 27 — 'held' (migration 0034) rows are never fetched here, by
+// construction: this scopes to status='submitted' only, so a held row is
+// structurally invisible to every rule below, not merely skipped by a
+// check that could be bypassed or forgotten. It only leaves 'held' via an
+// explicit human decision elsewhere (ContributionBox / the backoffice
+// queue / a one-off script) — this script is not one of those places.
 const { data: contributions, error: cErr } = await admin.from('contributions').select('*').eq('status', 'submitted');
 if (cErr) { console.error(cErr); process.exit(1); }
 console.log(`Fetched ${contributions.length} submitted contributions.`);

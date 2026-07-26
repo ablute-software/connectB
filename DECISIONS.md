@@ -3154,3 +3154,63 @@ call for the founder.
 zero.** All currently-pending objective-field rows now pass (own domain,
 registry, or alias); the 33 that failed the earlier naive host-only check
 were exactly the registry/alias cases the founder anticipated.
+
+## Prompt 27 — a redirect outranks an absent name, and "manual review" needed a real state
+
+**Rule, not a one-off: a domain redirect from the old name to the new one
+is stronger proof of a rebrand than the new page simply not mentioning the
+old name.** A redirect is machine-checkable today and in six months,
+independent of anyone reading carefully; an absent name is just an absence
+— the new firm almost never prints the name it dropped, so its absence
+proves nothing either way, while the redirect is the one thing the new
+owner can't hide. GED Ventures was the concrete case: prompt 25 held the
+`gedventures.pt → buenavistaequity.com` correction back because the
+destination page never says "GED" — correct read of that specific signal,
+wrong conclusion, because `website-aliases.txt` §A already recorded the
+redirect itself (found independently, before this website even had a
+proven-alias file to check against). Applied both once flagged: GED
+Ventures' `key_people` (already auto-accepted via the domain gate) and the
+`website` correction itself (still `kind='correction'`, so it needed the
+explicit approval it just got — never auto-applies regardless of this
+rule).
+
+**The 23-vs-22 arithmetic the founder flagged did close, no row missing.**
+Decomposed the run's audit log by batch tag: 4 accepted from lote5 + 19
+from lote6 = 23, exactly matching the reported count. The apparent gap
+came from conflating two different populations: the two `email` rows I
+reverted to `submitted` right before running `--commit` were **not** part
+of the original 33/48 residual baseline — they'd already been `verified`
+from an earlier pass, and only became `submitted` again because of my own
+revert timing, immediately ahead of the commit. The run correctly
+re-evaluated them (both landed on rule 5's duplicate check, since the
+entity field already held the exact proposed value) and rejected them —
+a side effect of my sequencing, not a defect in the counts. Lote5's -4 and
+lote6's actual -19 (not the founder's own back-of-envelope -18) both fully
+account for the residual drop on their own.
+
+**"Manual review" needed to be a real status, not a note a later run could
+overwrite.** `contributions.status` was `submitted | verified | rejected`
+— nothing for "a human flagged this, don't touch it yet." Reverting the
+two email rows to `submitted` with a `reviewer_notes` flag looked like it
+worked, but the very next `bulk-review --commit` proved it doesn't: rule 5
+can't distinguish "awaiting a human decision" from "someone re-proposed a
+no-op," so it silently re-resolved both as duplicates. Migration 0034 adds
+`held`: no automatic rule ever reads a `held` row — not by a check that
+could be skipped, but because `bulk-review-contributions.mjs`'s fetch is
+scoped to `status='submitted'`, so a `held` row is structurally absent
+from what any rule ever sees. It leaves `held` only via an explicit human
+decision — wired into `ContributionBox` (founder's own-org view) and the
+back-office queue (cross-org, platform-admin view) with their own Accept/
+Reject actions, both hitting the same `applyVerifiedContribution` path
+every other resolution already uses.
+
+**Blocked on the founder:** this session's Supabase MCP connection is
+scoped to a different project (`ablute_wellness_master_project`), not
+connectB's (`wkjcaoqdvhykrfacsylr`) — no DDL access to this project's
+Postgres from here. Migration `0034_contribution_held_status.sql` is
+written and typechecks clean, but needs
+`alter type contribution_status add value if not exists 'held';` run
+directly (Supabase SQL editor or CLI) before the two `email` rows can
+actually move to `held`. They remain `submitted` with the `reviewer_notes`
+flag in the meantime — not yet re-run through `bulk-review`, so the flag
+still holds for now.
