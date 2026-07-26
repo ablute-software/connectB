@@ -113,6 +113,18 @@ describe('resolveEntityFieldWrite (single-field promotion, the Banif Capital fix
     const e = ent({ stage_min: 'seed' });
     expect(resolveEntityFieldWrite(e, 'stage_min', 'somewhere in between', { allowOverwrite: true })).toBeNull();
   });
+
+  it('"name" is a known write target but never as a plain fill (dedup/matching key, per DECISIONS.md)', () => {
+    expect(isKnownEntityField('name')).toBe(true);
+    expect(resolveEntityFieldWrite(ent({ name: 'btov Partners' }), 'name', 'b2venture')).toBeNull();
+    expect(resolveEntityFieldWrite(ent({ name: 'btov Partners' }), 'name', 'b2venture', {})).toBeNull();
+    expect(resolveEntityFieldWrite(ent({ name: 'btov Partners' }), 'name', 'b2venture', { allowOverwrite: false })).toBeNull();
+  });
+
+  it('"name" can only be renamed through an explicit correction', () => {
+    expect(resolveEntityFieldWrite(ent({ name: 'btov Partners' }), 'name', 'b2venture', { allowOverwrite: true }))
+      .toEqual({ field: 'name', value: 'b2venture' });
+  });
 });
 
 describe('entityHasValue', () => {

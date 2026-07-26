@@ -1,0 +1,2161 @@
+[
+  {
+    "contribution_id": "5554bb11-4578-4c69-915a-0307f312c4ed",
+    "subject_type": "entity",
+    "subject_id": "0d71409f-4a10-49d5-8060-416e07f0c873",
+    "field": "hq_city",
+    "before": null,
+    "after": "London",
+    "source_url": "https://en.wikipedia.org/wiki/Index_Ventures",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "fdc9ba5a-488a-4888-aa39-4f90fda74668",
+    "subject_type": "entity",
+    "subject_id": "0d71409f-4a10-49d5-8060-416e07f0c873",
+    "field": "invests_in_geographies",
+    "before": [],
+    "after": [
+      "Europe",
+      "United States",
+      "Israel"
+    ],
+    "source_url": "https://startupintros.com/orgs/index-ventures",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "2d2d3cef-7999-461b-9775-37fb67f829c6",
+    "subject_type": "entity",
+    "subject_id": "0d71409f-4a10-49d5-8060-416e07f0c873",
+    "field": "check_min_eur",
+    "before": null,
+    "after": 450000,
+    "source_url": "https://grokipedia.com/page/Index_Ventures",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "6189433c-ffd3-4a8d-a41a-0e8093d0ca55",
+    "subject_type": "entity",
+    "subject_id": "0d71409f-4a10-49d5-8060-416e07f0c873",
+    "field": "check_max_eur",
+    "before": null,
+    "after": 180000000,
+    "source_url": "https://superscout.co/investor/index-ventures",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "7ec11917-4b27-4f05-b964-4f36d97d0ad3",
+    "subject_type": "entity",
+    "subject_id": "3a997425-539b-44ea-91eb-b81fc8df3395",
+    "field": "hq_city",
+    "before": null,
+    "after": "London",
+    "source_url": "https://pitchbook.com/profiles/investor/170053-39",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "d70084eb-8aa4-411b-8a62-d59bd211e492",
+    "subject_type": "entity",
+    "subject_id": "3a997425-539b-44ea-91eb-b81fc8df3395",
+    "field": "invests_in_geographies",
+    "before": [],
+    "after": [
+      "UK",
+      "Europe"
+    ],
+    "source_url": "https://pitchbook.com/profiles/investor/170053-39",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "36d93261-c6f8-498d-959f-0f951c39461e",
+    "subject_type": "entity",
+    "subject_id": "3a997425-539b-44ea-91eb-b81fc8df3395",
+    "field": "check_min_eur",
+    "before": null,
+    "after": 120000,
+    "source_url": "https://octopusventures.com/about/faq/",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "7945ebd5-fa80-4873-9459-314f2c86ecc3",
+    "subject_type": "entity",
+    "subject_id": "3a997425-539b-44ea-91eb-b81fc8df3395",
+    "field": "check_max_eur",
+    "before": null,
+    "after": 18000000,
+    "source_url": "https://superscout.co/investor/octopus-ventures",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "ecea7581-891e-4d4d-81fa-a7895ba33f65",
+    "subject_type": "entity",
+    "subject_id": "3a997425-539b-44ea-91eb-b81fc8df3395",
+    "field": "thesis",
+    "before": null,
+    "after": "Backing unusually talented entrepreneurs building businesses that change the world, focusing on companies solving three major problems: building a sustainable planet, empowering people, and revitalising healthcare. Investment philosophy centered on achieving 10x+ returns through disruptive ideas and exceptional management teams.",
+    "source_url": "https://inforcapital.com/companies/octopus-ventures/",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "d108dc31-dc2f-4199-8295-123b1bf2ef61",
+    "subject_type": "entity",
+    "subject_id": "0d71409f-4a10-49d5-8060-416e07f0c873",
+    "field": "thesis",
+    "before": null,
+    "after": "Partners with exceptional entrepreneurs to turn bold ideas into global businesses, investing from seed to IPO with focus on founder quality and unique insight over market sizing, emphasizing long-term relationships and deep conviction in transformative technology companies",
+    "source_url": "https://www.indexventures.com/philosophy/",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "16c8fbf7-0185-4017-9418-44f45d16c0b2",
+    "subject_type": "entity",
+    "subject_id": "10ade7f2-bb6a-40ab-9eef-9cbd551f9cbe",
+    "field": "hq_city",
+    "before": null,
+    "after": "London",
+    "source_url": "https://techcrunch.com/2020/02/17/atomico-v/",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "45415a25-f71f-4a74-a03d-bc9065b24590",
+    "subject_type": "entity",
+    "subject_id": "10ade7f2-bb6a-40ab-9eef-9cbd551f9cbe",
+    "field": "invests_in_geographies",
+    "before": [],
+    "after": [
+      "Europe",
+      "United States"
+    ],
+    "source_url": "https://sparkco.ai/blog/atomico",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "542891ee-bfc1-44a5-9cd7-7a5d693170f4",
+    "subject_type": "entity",
+    "subject_id": "10ade7f2-bb6a-40ab-9eef-9cbd551f9cbe",
+    "field": "thesis",
+    "before": null,
+    "after": "Technology will transform all sectors of our world and the biggest transformations are yet to come. Partners with mission-driven European founders building transformative technology companies from Series A to pre-IPO across two funds: Venture (Series A and occasional seed) and Growth (Series B to pre-IPO).",
+    "source_url": "https://atomico.com/",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "25f733ed-0cd3-472e-8285-1f00248fe701",
+    "subject_type": "entity",
+    "subject_id": "10ade7f2-bb6a-40ab-9eef-9cbd551f9cbe",
+    "field": "email",
+    "before": null,
+    "after": "contact@atomico.com",
+    "source_url": "https://atomico.com/locations",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "ad3164da-f791-4a45-b691-6809d6d2927d",
+    "subject_type": "entity",
+    "subject_id": "76481ae5-3e5a-4c8c-9038-5c08c49e312d",
+    "field": "hq_city",
+    "before": null,
+    "after": "London",
+    "source_url": "https://tracxn.com/d/venture-capital/localglobe/__OXPAwlweVGWdFupRbEkFsxTbyvGBoqSsUTb9iaUbE7g",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "73d95d67-d272-4f1c-a601-ab24c0ed9f13",
+    "subject_type": "entity",
+    "subject_id": "76481ae5-3e5a-4c8c-9038-5c08c49e312d",
+    "field": "invests_in_geographies",
+    "before": [],
+    "after": [
+      "UK",
+      "Europe",
+      "United States"
+    ],
+    "source_url": "https://tracxn.com/d/venture-capital/localglobe/__OXPAwlweVGWdFupRbEkFsxTbyvGBoqSsUTb9iaUbE7g",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "83ccf9cc-efc6-4bb2-9444-8ff97548ecc4",
+    "subject_type": "entity",
+    "subject_id": "76481ae5-3e5a-4c8c-9038-5c08c49e312d",
+    "field": "check_min_eur",
+    "before": null,
+    "after": 117000,
+    "source_url": "https://www.eaglerockcfo.com/blog/venture-capital-firms/localglobe-review",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "6ad737ed-1d35-411c-83c7-e914638f476d",
+    "subject_type": "entity",
+    "subject_id": "76481ae5-3e5a-4c8c-9038-5c08c49e312d",
+    "field": "check_max_eur",
+    "before": null,
+    "after": 1755000,
+    "source_url": "https://www.eaglerockcfo.com/blog/venture-capital-firms/localglobe-review",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "8a996275-2414-4638-8021-aacbddd4d9be",
+    "subject_type": "entity",
+    "subject_id": "76481ae5-3e5a-4c8c-9038-5c08c49e312d",
+    "field": "thesis",
+    "before": null,
+    "after": "Backing exceptional founders from pre-seed and seed stages, focusing on transformative companies with long-term founder relationships and hands-on support. Generalist approach emphasizing founder quality and market opportunity over strict sector focus.",
+    "source_url": "https://f4.fund/firms/localglobe",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "1c2511da-e7cd-4d95-a221-20d96b66a370",
+    "subject_type": "entity",
+    "subject_id": "76481ae5-3e5a-4c8c-9038-5c08c49e312d",
+    "field": "email",
+    "before": null,
+    "after": "rose@localglobe.vc",
+    "source_url": "https://www.crunchbase.com/organization/localglobe",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "22d1a19b-dfab-4225-875f-88cdfab17f27",
+    "subject_type": "entity",
+    "subject_id": "2879aa1d-0c67-4e5a-9958-74ea4951bd25",
+    "field": "hq_city",
+    "before": null,
+    "after": "London",
+    "source_url": "https://en.wikipedia.org/wiki/Balderton_Capital",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "c7ad3bf0-94f3-4e73-9bc1-f8ce940a0bd0",
+    "subject_type": "entity",
+    "subject_id": "2879aa1d-0c67-4e5a-9958-74ea4951bd25",
+    "field": "invests_in_geographies",
+    "before": [],
+    "after": [
+      "Europe"
+    ],
+    "source_url": "https://fundcomb.com/funds/balderton-capital",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "81b4ff88-a648-4354-bdd5-3b67ea220885",
+    "subject_type": "entity",
+    "subject_id": "2879aa1d-0c67-4e5a-9958-74ea4951bd25",
+    "field": "check_min_eur",
+    "before": null,
+    "after": 940000,
+    "source_url": "https://sifted.eu/articles/balderton-capital-early-stage-fund",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "0546eecf-c5f2-4e10-bbd6-a66e6e164d23",
+    "subject_type": "entity",
+    "subject_id": "2879aa1d-0c67-4e5a-9958-74ea4951bd25",
+    "field": "check_max_eur",
+    "before": null,
+    "after": 18800000,
+    "source_url": "https://sifted.eu/articles/balderton-capital-early-stage-fund",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "efee13b7-a1b2-4e67-a725-cb058f8ada7a",
+    "subject_type": "entity",
+    "subject_id": "2879aa1d-0c67-4e5a-9958-74ea4951bd25",
+    "field": "thesis",
+    "before": null,
+    "after": "Focused exclusively on backing European-founded technology companies from Seed to IPO, with a founder-centric approach emphasizing transformational, purpose-led startups with global ambitions",
+    "source_url": "https://sparkco.ai/blog/balderton-capital",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "82b7e62b-9b4c-4bfd-bd4f-8f3e34fb838b",
+    "subject_type": "entity",
+    "subject_id": "57f0787f-fb17-4ca3-b2e3-9ee04e1e429c",
+    "field": "hq_city",
+    "before": null,
+    "after": "London",
+    "source_url": "https://en.wikipedia.org/wiki/Molten_Ventures",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "a5b19151-0208-4905-9044-9ccf0133b6f9",
+    "subject_type": "entity",
+    "subject_id": "57f0787f-fb17-4ca3-b2e3-9ee04e1e429c",
+    "field": "invests_in_geographies",
+    "before": [],
+    "after": [
+      "UK",
+      "Europe"
+    ],
+    "source_url": "https://investors.moltenventures.com/",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "4f477396-98f8-4a2c-bb4b-56688dde7dbf",
+    "subject_type": "entity",
+    "subject_id": "57f0787f-fb17-4ca3-b2e3-9ee04e1e429c",
+    "field": "thesis",
+    "before": null,
+    "after": "Backing Europe's tech leaders from Series A to pre-IPO stages with evergreen capital, focusing on high-growth private technology companies with global ambitions in four core sectors, providing not just capital but expertise and networks to help portfolio companies scale",
+    "source_url": "https://investors.moltenventures.com/about-molten",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "a366279a-a48b-46b7-9041-421f44cbabc4",
+    "subject_type": "entity",
+    "subject_id": "57f0787f-fb17-4ca3-b2e3-9ee04e1e429c",
+    "field": "email",
+    "before": null,
+    "after": "info@molten.vc",
+    "source_url": "https://www.crunchbase.com/organization/draper-esprit",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "81442893-f3d7-4b13-85b2-8ce793213fd2",
+    "subject_type": "entity",
+    "subject_id": "55e60641-5504-48a1-980b-cabb1c03f5e2",
+    "field": "hq_city",
+    "before": null,
+    "after": "London",
+    "source_url": "https://en.wikipedia.org/wiki/Seedcamp",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "cf88c795-5ec5-4148-9ae2-6b6499585ac6",
+    "subject_type": "entity",
+    "subject_id": "55e60641-5504-48a1-980b-cabb1c03f5e2",
+    "field": "invests_in_geographies",
+    "before": [],
+    "after": [
+      "Europe",
+      "United Kingdom",
+      "United States"
+    ],
+    "source_url": "https://techcrunch.com/2026/06/22/seedcamp-raises-320m-for-its-new-fund-to-expand-its-us-footprint/",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "4d01e88d-e0dd-45fa-9e13-c1111fd4838a",
+    "subject_type": "entity",
+    "subject_id": "55e60641-5504-48a1-980b-cabb1c03f5e2",
+    "field": "check_min_eur",
+    "before": null,
+    "after": 100000,
+    "source_url": "https://goldi.ai/intelligence/vc/seedcamp",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "65289963-efd4-415f-bc85-1a9bcd9a27d1",
+    "subject_type": "entity",
+    "subject_id": "55e60641-5504-48a1-980b-cabb1c03f5e2",
+    "field": "check_max_eur",
+    "before": null,
+    "after": 500000,
+    "source_url": "https://www.eaglerockcfo.com/blog/venture-capital-firms/seedcamp-review",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "7af965d9-3186-4a50-83d6-91e583999b7c",
+    "subject_type": "entity",
+    "subject_id": "55e60641-5504-48a1-980b-cabb1c03f5e2",
+    "field": "thesis",
+    "before": null,
+    "after": "Europe's seed fund partnering with exceptional founders with global ambition, investing in transformative technology companies from pre-seed to Series A",
+    "source_url": "https://seedcamp.com/about-us/",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "f5e17ad9-68b5-4954-ba4c-2d51df8ef5e9",
+    "subject_type": "entity",
+    "subject_id": "55e60641-5504-48a1-980b-cabb1c03f5e2",
+    "field": "email",
+    "before": null,
+    "after": "complaints@seedcamp.com",
+    "source_url": "https://seedcamp.com/complaints/",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "9c3a633c-17b0-45cb-813c-4e558fec05a7",
+    "subject_type": "entity",
+    "subject_id": "55e60641-5504-48a1-980b-cabb1c03f5e2",
+    "field": "phone",
+    "before": null,
+    "after": "+442039362828",
+    "source_url": "https://seedcamp.com/complaints/",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "922e8e5d-e893-48ef-98a7-4cdc4e019d24",
+    "subject_type": "entity",
+    "subject_id": "fd488262-efff-4557-97cc-d3c9732a40c6",
+    "field": "hq_country",
+    "before": null,
+    "after": "Switzerland",
+    "source_url": "https://www.b2venture.vc/imprint",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "2ed05f60-a6fc-4367-8a16-a2c75b05d9ec",
+    "subject_type": "entity",
+    "subject_id": "fd488262-efff-4557-97cc-d3c9732a40c6",
+    "field": "hq_city",
+    "before": null,
+    "after": "St. Gallen",
+    "source_url": "https://www.b2venture.vc/imprint",
+    "rule": 6,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "2cc8b8f6-47d0-4b50-9e4a-1f7b35f2c516",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "email",
+    "before": null,
+    "after": "info.pacific@coreangels.com",
+    "source_url": "https://coreangels.com; https://www.coreangels.com/angel-groups/porto",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "098476ea-781d-49e5-b143-c8fdb67efb28",
+    "subject_type": "entity",
+    "subject_id": "2879aa1d-0c67-4e5a-9958-74ea4951bd25",
+    "field": "key_people",
+    "before": null,
+    "after": "Bernard Liautaud (Managing Partner) | Daniel Waterhouse (General Partner) | Rana Yared (General Partner) | Suranga Chandratillake (General Partner) | Rob Moffat (Partner) | James Wise (Partner) | Greta Anderson (Principal) | Shikha Ahluwalia (Principal) | Sujay Tyle (Venture Partner)",
+    "source_url": "https://www.balderton.com/contact/; https://www.balderton.com/team/; https://www.balderton.com/news/balderton-announces-1-3b-in-new-funds-...; https://www.linkedin.com/company/balderton-capital_2/",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "e5e48b30-a0b6-4c16-912b-56f6187a5656",
+    "subject_type": "entity",
+    "subject_id": "0d71409f-4a10-49d5-8060-416e07f0c873",
+    "field": "key_people",
+    "before": null,
+    "after": "Danny Rimer (Co-founder & Partner) | Neil Rimer (Co-founder & Partner) | Mike Volpi (Partner) | Nina Achadjian (Partner) | Martin Mignot (Partner) | Jan Hammer (Partner) | Julia Andre (Investor) | Ana Andreescu (Investor) | Jahanvi Sardana (Investor)",
+    "source_url": "https://www.indexventures.com/contact-us/; https://www.indexventures.com/team/; https://www.businesswire.com/news/home/20240709136755/en/Index-Ventures-Announces-2.3bn-in-New-Funds; https://find-and-update.company-information.service.gov.uk/company/OC344205",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "e1f40420-80d3-4eae-a5be-9008a307734f",
+    "subject_type": "entity",
+    "subject_id": "d3f57033-5966-4d9a-92cc-0d41733cc1d8",
+    "field": "email",
+    "before": null,
+    "after": "press@eightroads.com",
+    "source_url": "https://eightroads.com/; https://eightroads.com/en/about; https://eightroads.com/en/contact; https://eightroads.com/en/people; https://techcrunch.com/2021/10/04/eight-roads-launches-its-fourth-fund-450m-aimed-at-european-israeli-scale-ups",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "4c5feec7-2ec0-4b73-bec1-88c0656b9af3",
+    "subject_type": "entity",
+    "subject_id": "d3f57033-5966-4d9a-92cc-0d41733cc1d8",
+    "field": "key_people",
+    "before": null,
+    "after": "Vytautas Balsys (Partner) | Lucile Cornet (Partner) | Arvind Chari (Principal) | Antonin Gury-Coupier (Vice President) | Daniel Auerbach (Founding Partner Emeritus) | Davor Hebel (Managing Partner, per imprensa)",
+    "source_url": "https://eightroads.com/; https://eightroads.com/en/about; https://eightroads.com/en/contact; https://eightroads.com/en/people; https://techcrunch.com/2021/10/04/eight-roads-launches-its-fourth-fund-450m-aimed-at-european-israeli-scale-ups",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "6d971fab-86d1-4eb1-85da-eec809ec2664",
+    "subject_type": "entity",
+    "subject_id": "861e9569-5bf7-4314-b575-57011f98e2e3",
+    "field": "address",
+    "before": null,
+    "after": "78 St. James's Street",
+    "source_url": "https://www.gpbullhound.com/; https://www.gpbullhound.com/about-us/; https://www.gpbullhound.com/team/; https://www.gpbullhound.com/investments/fund-vi/; https://find-and-update.company-information.service.gov.uk/company/OC352636",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "33078887-ec42-4ec8-8f49-fa221943f706",
+    "subject_type": "entity",
+    "subject_id": "861e9569-5bf7-4314-b575-57011f98e2e3",
+    "field": "postal_code",
+    "before": null,
+    "after": "SW1A 1JB",
+    "source_url": "https://www.gpbullhound.com/; https://www.gpbullhound.com/about-us/; https://www.gpbullhound.com/team/; https://www.gpbullhound.com/investments/fund-vi/; https://find-and-update.company-information.service.gov.uk/company/OC352636",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "908a23f2-1260-4b8c-83ae-955ead8a0113",
+    "subject_type": "entity",
+    "subject_id": "70e18fb4-7c7d-4c93-8539-c245b57ccbee",
+    "field": "key_people",
+    "before": null,
+    "after": "John Flynn — Managing Partner; Debbie Rennick — General Partner; John O'Sullivan — General Partner; Conor Mills — Principal; Andrew O'Neill — Principal; Mairead Roche — Associate",
+    "source_url": "https://actventure.capital/who-we-are",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "9dddccb6-62c5-4664-81b1-f30fa5419f81",
+    "subject_type": "entity",
+    "subject_id": "f5928973-fcfa-41dd-af6b-176b8bd3e462",
+    "field": "key_people",
+    "before": null,
+    "after": "Lucanus Polagnoli — Founding Partner; Stephanie Urbanski — Managing Partner; Johannes Blaschke — Partner; Ekaterina Gianelli — Venture Partner; Paul Varga — Venture Partner; Philippa Allen — Investment Manager",
+    "source_url": "https://calmstorm.vc/team",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "ad982c6f-c29f-4afd-bcb2-1aff04dbba40",
+    "subject_type": "entity",
+    "subject_id": "dd4ef882-db55-4e25-a32d-f731ab48d033",
+    "field": "key_people",
+    "before": null,
+    "after": "Fiona Pathiraja — Founder & Managing Partner; Soren Fryland Moller — Investor / Board Member",
+    "source_url": "https://www.cristagalli.com/team/",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "9372f32a-7615-4b67-993b-eb9369c15cc6",
+    "subject_type": "entity",
+    "subject_id": "8617a003-f9da-4f29-be14-3f874ce0bdf7",
+    "field": "phone",
+    "before": null,
+    "after": "+353 1 662 5020",
+    "source_url": "https://www.elkstonepartners.com/privacy-policy",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "654a222d-0906-415d-bd7c-8ff2a507ce97",
+    "subject_type": "entity",
+    "subject_id": "8617a003-f9da-4f29-be14-3f874ce0bdf7",
+    "field": "address",
+    "before": null,
+    "after": "76 Baggot Street Lower",
+    "source_url": "https://www.elkstonepartners.com/privacy-policy",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "d7feb6fb-1ae6-47d9-ba82-8feba1243cc2",
+    "subject_type": "entity",
+    "subject_id": "8617a003-f9da-4f29-be14-3f874ce0bdf7",
+    "field": "postal_code",
+    "before": null,
+    "after": "D02 EK81",
+    "source_url": "https://www.elkstonepartners.com/privacy-policy",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "1be05971-b987-43ae-a9eb-d8a5e4c4bbd2",
+    "subject_type": "entity",
+    "subject_id": "24338bb7-071d-4af8-a5aa-3e40986b87dc",
+    "field": "address",
+    "before": null,
+    "after": "Rua do Vale Formoso 94, 5 Esquerdo",
+    "source_url": "https://msm.vc/privacy-policy/",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "eb15eb9f-e7ba-4423-bf65-80c88a208806",
+    "subject_type": "entity",
+    "subject_id": "24338bb7-071d-4af8-a5aa-3e40986b87dc",
+    "field": "postal_code",
+    "before": null,
+    "after": "1950-284",
+    "source_url": "https://msm.vc/privacy-policy/",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "3793d989-75b1-4bcd-b59f-d9c968fe8f6a",
+    "subject_type": "entity",
+    "subject_id": "4e3613da-e774-4bdb-8f11-a90135080b46",
+    "field": "address",
+    "before": null,
+    "after": "pl. Pilsudskiego 2",
+    "source_url": "https://movenscapital.com/movens-venture-capital-rodo/",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "c7cfa82a-463d-464a-bc36-d9a48beade11",
+    "subject_type": "entity",
+    "subject_id": "4e3613da-e774-4bdb-8f11-a90135080b46",
+    "field": "postal_code",
+    "before": null,
+    "after": "00-073",
+    "source_url": "https://movenscapital.com/movens-venture-capital-rodo/",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "fa6c0886-ad8e-4201-9c7a-6b1b77517c0f",
+    "subject_type": "entity",
+    "subject_id": "b2370bca-275d-45d0-ab09-5e5d56bc05c3",
+    "field": "postal_code",
+    "before": null,
+    "after": "9000",
+    "source_url": "https://kbopub.economie.fgov.be/kbopub/toonondernemingps.html?ondernemingsnummer=0740541253",
+    "rule": 7,
+    "action": "accepted"
+  },
+  {
+    "contribution_id": "3ab10799-94d7-43c2-8699-9b9412913ea8",
+    "subject_type": "entity",
+    "subject_id": "24338bb7-071d-4af8-a5aa-3e40986b87dc",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "08f292e0-9c44-4bc5-93a2-8f602d914925",
+    "subject_type": "entity",
+    "subject_id": "8b5378be-9f08-432b-9b08-fa02154c98b2",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "f16b0864-e2cb-4e7a-adca-6daa3381ab7d",
+    "subject_type": "entity",
+    "subject_id": "c1471e1e-0ed1-4839-bf2e-8e535ec704a8",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "d07414f4-ed74-4055-be30-eed53b3e8a49",
+    "subject_type": "entity",
+    "subject_id": "fc996d26-75a4-47fe-9b8f-4396d66fae5e",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "3bb4e6c0-3a7d-485a-aa3e-df40af64b636",
+    "subject_type": "entity",
+    "subject_id": "a7c66296-56a7-4b0c-a033-985bcff26d3f",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "81c99a1e-9ccf-4de2-91e6-571c4c42c582",
+    "subject_type": "entity",
+    "subject_id": "d456700b-f3ae-47ea-b8fa-bb4bcdda79fd",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "cdd11883-11e0-477c-a455-e4fd01dca5b6",
+    "subject_type": "entity",
+    "subject_id": "633b3954-3b40-4848-bac3-ecaa79f10837",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "3d73bbb4-4180-4443-a495-f2d9f9d55c20",
+    "subject_type": "entity",
+    "subject_id": "fd488262-efff-4557-97cc-d3c9732a40c6",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "4845b02b-1244-46bf-8073-8826fa671cd0",
+    "subject_type": "entity",
+    "subject_id": "a8cf0775-fc78-44ed-9ed2-217dc7139183",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "1302966d-10ee-487d-85b6-4e8417a092af",
+    "subject_type": "entity",
+    "subject_id": "30ee461d-880e-4d7c-8570-3db9eca798d8",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "341929c5-e79c-4ca0-80d5-ed195993d3ba",
+    "subject_type": "entity",
+    "subject_id": "fcca3706-ae30-4f0d-bc99-002ca9c31081",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "094d5a96-0e9d-47a4-ae0f-e76428923433",
+    "subject_type": "entity",
+    "subject_id": "030e5195-e6b5-4a49-ac0e-eae42c502c00",
+    "field": "submission_channel",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "bba2f631-136a-4770-b0a7-87695dd7fdfc",
+    "subject_type": "entity",
+    "subject_id": "030e5195-e6b5-4a49-ac0e-eae42c502c00",
+    "field": "our_angle",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "91c3b249-5cde-418c-9624-686c50eef70b",
+    "subject_type": "entity",
+    "subject_id": "030e5195-e6b5-4a49-ac0e-eae42c502c00",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "8c7bb698-15e7-4359-b8e3-73caec8af721",
+    "subject_type": "entity",
+    "subject_id": "f5928973-fcfa-41dd-af6b-176b8bd3e462",
+    "field": "submission_channel",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "39ae2001-d87f-4080-84f6-2b7431d87f80",
+    "subject_type": "entity",
+    "subject_id": "f5928973-fcfa-41dd-af6b-176b8bd3e462",
+    "field": "our_angle",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "932f2626-c55d-4359-bd64-d5beb5dc4406",
+    "subject_type": "entity",
+    "subject_id": "f5928973-fcfa-41dd-af6b-176b8bd3e462",
+    "field": "hard_filter",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "0f6294bc-4e62-4ad3-aca8-806aec50b639",
+    "subject_type": "entity",
+    "subject_id": "f5928973-fcfa-41dd-af6b-176b8bd3e462",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "78122afe-da1f-46fd-b75b-8ce062c7f956",
+    "subject_type": "entity",
+    "subject_id": "dd4ef882-db55-4e25-a32d-f731ab48d033",
+    "field": "type",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "c5e895ac-e559-4ec5-ad11-341ecf6f1841",
+    "subject_type": "entity",
+    "subject_id": "dd4ef882-db55-4e25-a32d-f731ab48d033",
+    "field": "our_angle",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "a30f6e55-d024-413d-abf7-d1db0fdb19fe",
+    "subject_type": "entity",
+    "subject_id": "dd4ef882-db55-4e25-a32d-f731ab48d033",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "e1b0056c-30b8-48a1-bf98-e9276688e75d",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "website_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "6e2d4834-65d0-4a1b-8970-75e4b61db27d",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "fit_score",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "9efdcdf2-e7bc-416f-9227-a0c2d5b925a6",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "wave",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "80268dab-c1b9-430c-8c57-4a1f7a182c0d",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "our_angle",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "ae4a849b-8332-43b1-b394-de88fd1c0df4",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "9f4fb75d-2762-4ffe-9ea0-8ed40cad8ad4",
+    "subject_type": "entity",
+    "subject_id": "a24a8b27-56bc-4eb4-a224-9b2c2355285a",
+    "field": "website_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "cd3f018d-4c3e-44ea-b44e-8caef5f8935c",
+    "subject_type": "entity",
+    "subject_id": "a24a8b27-56bc-4eb4-a224-9b2c2355285a",
+    "field": "fit_score",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "dccd6f60-52ae-4247-85f0-b1a639cf478b",
+    "subject_type": "entity",
+    "subject_id": "a24a8b27-56bc-4eb4-a224-9b2c2355285a",
+    "field": "our_angle",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "ec5d8979-dd3c-427c-a9f3-5046888fb54e",
+    "subject_type": "entity",
+    "subject_id": "a24a8b27-56bc-4eb4-a224-9b2c2355285a",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "8eb72fd5-bcda-4221-a09e-5943794ccc12",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "type",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "e1ac106a-bb22-4f9e-a878-12cde4726916",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "website_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "a3c4f208-8429-4a1f-8b75-0a3b4d536d58",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "email_domain_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "c578b40b-af8e-4eab-820a-f775e49a8219",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "fit_score",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "7dfe089c-50a7-48ca-bf6b-410bcd968ef8",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "our_angle",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "8d285662-9969-45e8-ae95-4f5e155ec698",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "hard_filter",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "8368674a-c30a-4bcf-b7ed-aab415474887",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "36ade994-8a78-4b24-b71d-aa7ddb9a44c4",
+    "subject_type": "entity",
+    "subject_id": "5cc4fc7f-7934-4616-a46a-0fc220eca210",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "28794667-0247-4eef-a8db-22b5f693fc49",
+    "subject_type": "entity",
+    "subject_id": "bd818da1-67cf-4f60-a80e-010eb6edb80b",
+    "field": "email_domain_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "4dee5031-cc6f-42e1-81c1-3d36e4f84f00",
+    "subject_type": "entity",
+    "subject_id": "bd818da1-67cf-4f60-a80e-010eb6edb80b",
+    "field": "fit_score",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "d5856013-96d8-4725-b129-d8ed088a0515",
+    "subject_type": "entity",
+    "subject_id": "bd818da1-67cf-4f60-a80e-010eb6edb80b",
+    "field": "wave",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "fa60ef30-080c-41a9-92d8-cdd0f2699764",
+    "subject_type": "entity",
+    "subject_id": "bd818da1-67cf-4f60-a80e-010eb6edb80b",
+    "field": "our_angle",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "90f3e837-6b85-46ed-b2bb-70bcf98a16f2",
+    "subject_type": "entity",
+    "subject_id": "bd818da1-67cf-4f60-a80e-010eb6edb80b",
+    "field": "last_verified",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "59cd03cb-1f8c-465c-882c-96e24aa07030",
+    "subject_type": "person",
+    "subject_id": "d6791e41-b9d5-4711-a269-8bea19c76dd3",
+    "field": "based_in",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "64d2b5f7-f743-4d02-a820-8f72aa5ac128",
+    "subject_type": "person",
+    "subject_id": "d6791e41-b9d5-4711-a269-8bea19c76dd3",
+    "field": "kill_words",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "d20e7d59-e073-473d-bff2-9f820e16558e",
+    "subject_type": "person",
+    "subject_id": "dfcabb9c-ced3-4cd7-a680-ba141a164a59",
+    "field": "based_in",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "7b1fe102-0499-4d9a-82ca-80dc7627faa9",
+    "subject_type": "person",
+    "subject_id": "e97f6c71-ed8d-44bd-a524-74c38898f3a7",
+    "field": "based_in",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "4ad99250-f2b7-4942-82fb-447b036939c2",
+    "subject_type": "person",
+    "subject_id": "da8667d7-b1bf-42ac-aa8d-36bbf61eb7ab",
+    "field": "based_in",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "7c0dca3c-dbcb-4f21-b6b4-969f8c732767",
+    "subject_type": "person",
+    "subject_id": "6abbba90-834d-4223-a0ab-58c92462e44a",
+    "field": "based_in",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "7a47e439-1147-4ae4-8688-ece5b090cda7",
+    "subject_type": "person",
+    "subject_id": "3aa9ed3b-c558-4528-ac37-b917bdb655e8",
+    "field": "based_in",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "cd3627f5-0a1a-4e42-9872-f84ab70f4071",
+    "subject_type": "entity",
+    "subject_id": "fb472389-0b18-46d9-b4ec-8615245e0073",
+    "field": "__enrichment_request__",
+    "before": null,
+    "after": null,
+    "rule": 1,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "4dae09a2-c812-4238-a8e8-80a2e34314ed",
+    "subject_type": "entity",
+    "subject_id": "fcca3706-ae30-4f0d-bc99-002ca9c31081",
+    "field": "email_domain",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "53404f33-4a37-4f96-aa18-df3c5e7a338c",
+    "subject_type": "entity",
+    "subject_id": "030e5195-e6b5-4a49-ac0e-eae42c502c00",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "b4ae642b-a737-4b57-8b41-3d99f4d70963",
+    "subject_type": "entity",
+    "subject_id": "030e5195-e6b5-4a49-ac0e-eae42c502c00",
+    "field": "invests_in_geographies",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "a4696cfd-c2e0-4d0f-b7ed-2fbf6d7d5966",
+    "subject_type": "entity",
+    "subject_id": "030e5195-e6b5-4a49-ac0e-eae42c502c00",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "7f96f78a-22e0-42d0-8d1a-9e970c0d69f0",
+    "subject_type": "entity",
+    "subject_id": "030e5195-e6b5-4a49-ac0e-eae42c502c00",
+    "field": "stage_max",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "d9451e9a-dd01-41fb-95f4-bca349d70aa0",
+    "subject_type": "entity",
+    "subject_id": "030e5195-e6b5-4a49-ac0e-eae42c502c00",
+    "field": "check_min_eur",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "6e1dd1c1-a28e-470a-beeb-15f9eb796f71",
+    "subject_type": "entity",
+    "subject_id": "030e5195-e6b5-4a49-ac0e-eae42c502c00",
+    "field": "sectors",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "25b638d0-784e-4bc7-85e2-d42bcb35c877",
+    "subject_type": "entity",
+    "subject_id": "030e5195-e6b5-4a49-ac0e-eae42c502c00",
+    "field": "thesis",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "656b1e6a-87dd-4167-81d6-9aaa94733b41",
+    "subject_type": "entity",
+    "subject_id": "f5928973-fcfa-41dd-af6b-176b8bd3e462",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "340f786e-7d3c-4dae-9d1d-3978a1670f5a",
+    "subject_type": "entity",
+    "subject_id": "f5928973-fcfa-41dd-af6b-176b8bd3e462",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "41598b93-b257-49e8-94a2-81f5a4c18bb8",
+    "subject_type": "entity",
+    "subject_id": "f5928973-fcfa-41dd-af6b-176b8bd3e462",
+    "field": "sectors",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "29bbb939-8f65-479e-b7fd-66ca9ebdc883",
+    "subject_type": "entity",
+    "subject_id": "f5928973-fcfa-41dd-af6b-176b8bd3e462",
+    "field": "thesis",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "16d17659-c0b1-4ceb-b860-0bc805d230d0",
+    "subject_type": "entity",
+    "subject_id": "dd4ef882-db55-4e25-a32d-f731ab48d033",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "47d70189-bf16-45a2-bf3b-05d0a88e8f8a",
+    "subject_type": "entity",
+    "subject_id": "dd4ef882-db55-4e25-a32d-f731ab48d033",
+    "field": "invests_in_geographies",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "26de5853-2c9c-4558-a120-709f30f4333b",
+    "subject_type": "entity",
+    "subject_id": "dd4ef882-db55-4e25-a32d-f731ab48d033",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "d7c771fa-15f0-4d9e-9003-8d76b72b677d",
+    "subject_type": "entity",
+    "subject_id": "dd4ef882-db55-4e25-a32d-f731ab48d033",
+    "field": "sectors",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "90da55b1-e9c5-4b3f-9b4d-76cd02f8ed7d",
+    "subject_type": "entity",
+    "subject_id": "dd4ef882-db55-4e25-a32d-f731ab48d033",
+    "field": "thesis",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "b0ea73ad-c044-400b-92ff-f4d9be7e30b9",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "hq_city",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "4ef5d16f-be92-4129-961a-2c24049cb51b",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "becbf917-c446-49f7-a9a3-5cdde9372fe5",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "invests_in_geographies",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "ae444cd6-bed9-4e83-8358-eefa36b5cf13",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "91a28e89-8cd9-4d76-b236-981eb957be16",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "stage_min",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "c6f0b6f1-8f5a-47e0-8634-dfca282fa0e6",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "stage_max",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "a04aaf7c-012a-448d-a44d-7dfdee948b8f",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "check_min_eur",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "56fe4072-349d-4f22-b5c3-02556dd3c128",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "check_max_eur",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "5fe0d704-010a-4a2c-967a-ac55c7629b11",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "sectors",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "2c13b815-ec99-4afe-9b26-b039126b287a",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "thesis",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "e516b0c2-199a-4f50-ab84-00315815d5f7",
+    "subject_type": "entity",
+    "subject_id": "a24a8b27-56bc-4eb4-a224-9b2c2355285a",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "14deadc3-3681-413d-bfac-6b16ab710a5d",
+    "subject_type": "entity",
+    "subject_id": "a24a8b27-56bc-4eb4-a224-9b2c2355285a",
+    "field": "invests_in_geographies",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "70c2c643-4594-4ff2-8a97-a76ec05c07e9",
+    "subject_type": "entity",
+    "subject_id": "a24a8b27-56bc-4eb4-a224-9b2c2355285a",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "3b675888-9111-43fd-a9c2-2df7d837d84e",
+    "subject_type": "entity",
+    "subject_id": "a24a8b27-56bc-4eb4-a224-9b2c2355285a",
+    "field": "sectors",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "ee4c6f1d-7e93-474d-a52e-2fdd08264dbb",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "c56fa2b3-7201-4a0c-884d-f25a1ab1e4eb",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "invests_in_geographies",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "a009f208-60f4-436f-bb3d-eeeed7b1d604",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "5785fbcc-9c78-493f-acd5-09ef91523c45",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "check_max_eur",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "0cbb0fa0-ea16-401f-a891-9b72ed8d2aaa",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "sectors",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "f4b6b7ba-b1d9-4386-a558-ebe02dcd29c8",
+    "subject_type": "entity",
+    "subject_id": "bd818da1-67cf-4f60-a80e-010eb6edb80b",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "113eed4e-2f42-49a0-a232-1b687d4933d8",
+    "subject_type": "entity",
+    "subject_id": "bd818da1-67cf-4f60-a80e-010eb6edb80b",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "80a80202-c2bc-4406-96c7-65a65d28fa12",
+    "subject_type": "entity",
+    "subject_id": "bd818da1-67cf-4f60-a80e-010eb6edb80b",
+    "field": "check_min_eur",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "b9cb3ca1-29e3-4304-bb0b-c29ded2c3dcf",
+    "subject_type": "entity",
+    "subject_id": "bd818da1-67cf-4f60-a80e-010eb6edb80b",
+    "field": "check_max_eur",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "15822b3d-5581-446d-90f5-762e59e92c6c",
+    "subject_type": "entity",
+    "subject_id": "bd818da1-67cf-4f60-a80e-010eb6edb80b",
+    "field": "sectors",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "e3005d61-c052-4913-a606-575ddb50557a",
+    "subject_type": "person",
+    "subject_id": "d6791e41-b9d5-4711-a269-8bea19c76dd3",
+    "field": "linkedin_url",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "98b2979a-b9a8-4d01-a8c6-8cef62dedbc2",
+    "subject_type": "person",
+    "subject_id": "d6791e41-b9d5-4711-a269-8bea19c76dd3",
+    "field": "background",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "f3df8eb3-116a-4b4c-ac17-f4ac8ad9cedc",
+    "subject_type": "person",
+    "subject_id": "d6791e41-b9d5-4711-a269-8bea19c76dd3",
+    "field": "hook",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "d78f1f5b-65be-4890-9e4d-1c5c53ea89c1",
+    "subject_type": "person",
+    "subject_id": "dfcabb9c-ced3-4cd7-a680-ba141a164a59",
+    "field": "linkedin_url",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "260c0664-24d9-451b-99e3-84656b7bd4a2",
+    "subject_type": "person",
+    "subject_id": "dfcabb9c-ced3-4cd7-a680-ba141a164a59",
+    "field": "background",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "537216ae-203a-4e69-86c4-e06b5a3039d1",
+    "subject_type": "person",
+    "subject_id": "dfcabb9c-ced3-4cd7-a680-ba141a164a59",
+    "field": "hook",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "e229e75b-d0df-4f9f-a27b-5160daf82848",
+    "subject_type": "person",
+    "subject_id": "e97f6c71-ed8d-44bd-a524-74c38898f3a7",
+    "field": "role",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "659af053-93ff-4cab-afc8-d45655164c46",
+    "subject_type": "person",
+    "subject_id": "e97f6c71-ed8d-44bd-a524-74c38898f3a7",
+    "field": "linkedin_url",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "2bdd911e-a38c-4faf-bb93-ed9709f359ec",
+    "subject_type": "person",
+    "subject_id": "e97f6c71-ed8d-44bd-a524-74c38898f3a7",
+    "field": "background",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "b742e9dd-82d2-4909-a34b-5ee8fb00efb5",
+    "subject_type": "person",
+    "subject_id": "e97f6c71-ed8d-44bd-a524-74c38898f3a7",
+    "field": "hook",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "f6ad948c-8c59-41ce-9658-0e5c1b321dae",
+    "subject_type": "person",
+    "subject_id": "da8667d7-b1bf-42ac-aa8d-36bbf61eb7ab",
+    "field": "role",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "dae67ee7-ab99-47ed-8706-187dffb697fb",
+    "subject_type": "entity",
+    "subject_id": "633b3954-3b40-4848-bac3-ecaa79f10837",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "56e7d8f2-fab3-4a2c-824a-0c4fdf717296",
+    "subject_type": "person",
+    "subject_id": "da8667d7-b1bf-42ac-aa8d-36bbf61eb7ab",
+    "field": "background",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "76009818-9b63-4e34-aaea-7523fe673857",
+    "subject_type": "person",
+    "subject_id": "da8667d7-b1bf-42ac-aa8d-36bbf61eb7ab",
+    "field": "hook",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "439a10e3-1be5-409e-a147-19073ed06891",
+    "subject_type": "person",
+    "subject_id": "6abbba90-834d-4223-a0ab-58c92462e44a",
+    "field": "role",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "178b4a96-321b-43b1-adaa-5bf542b0a2a5",
+    "subject_type": "person",
+    "subject_id": "6abbba90-834d-4223-a0ab-58c92462e44a",
+    "field": "linkedin_url",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "7a916834-af1d-42fa-b13b-8618587819d7",
+    "subject_type": "person",
+    "subject_id": "6abbba90-834d-4223-a0ab-58c92462e44a",
+    "field": "background",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "6dae5751-d5e5-4e75-aa47-50aa9bff94ab",
+    "subject_type": "person",
+    "subject_id": "6abbba90-834d-4223-a0ab-58c92462e44a",
+    "field": "hook",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "416f0391-5325-4006-8b94-37781cbdf7c7",
+    "subject_type": "person",
+    "subject_id": "3aa9ed3b-c558-4528-ac37-b917bdb655e8",
+    "field": "role",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "5532833c-c6bb-4e84-bf61-eceff900768c",
+    "subject_type": "person",
+    "subject_id": "3aa9ed3b-c558-4528-ac37-b917bdb655e8",
+    "field": "background",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "a077fd96-111a-4a98-9782-5d82c416186c",
+    "subject_type": "person",
+    "subject_id": "3aa9ed3b-c558-4528-ac37-b917bdb655e8",
+    "field": "hook",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "04bafd41-2232-4b11-abf3-b65cddf31da3",
+    "subject_type": "entity",
+    "subject_id": "30ee461d-880e-4d7c-8570-3db9eca798d8",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "386cd9ca-d2f2-45c3-a2bd-12e998b0860c",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "email_domain",
+    "before": null,
+    "after": null,
+    "rule": 2,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "1b1d8a6f-05aa-4888-9d64-c81f05d37279",
+    "subject_type": "entity",
+    "subject_id": "30ee461d-880e-4d7c-8570-3db9eca798d8",
+    "field": "address",
+    "before": null,
+    "after": null,
+    "rule": 3,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "4db78571-431c-43ed-a768-c9f5e9e3cbc0",
+    "subject_type": "entity",
+    "subject_id": "cf2eb87c-7ba9-47b6-af43-43bb9bf07c2d",
+    "field": "aum",
+    "before": null,
+    "after": null,
+    "rule": 3,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "9b555456-bdf8-4ac8-a51f-012c932f916d",
+    "subject_type": "entity",
+    "subject_id": "ed15b5bd-b6fb-44f5-a551-7975d4b38ab5",
+    "field": "current_funds",
+    "before": null,
+    "after": null,
+    "rule": 3,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "07563644-2385-4dab-8c3f-bc9b42140edd",
+    "subject_type": "entity",
+    "subject_id": "dbaf948f-8172-4bef-a00e-0c6992aaedae",
+    "field": "current_funds",
+    "before": null,
+    "after": null,
+    "rule": 3,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "9ad9926a-de13-4bb0-a8e4-823d930a3a1d",
+    "subject_type": "entity",
+    "subject_id": "5cc4fc7f-7934-4616-a46a-0fc220eca210",
+    "field": "aum",
+    "before": null,
+    "after": null,
+    "rule": 3,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "85bc5203-5e27-405d-a7cf-d1d0ecdf8587",
+    "subject_type": "entity",
+    "subject_id": "2879aa1d-0c67-4e5a-9958-74ea4951bd25",
+    "field": "email",
+    "before": null,
+    "after": null,
+    "rule": 3,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "160666df-edd9-47b5-af34-9dde4d7a1564",
+    "subject_type": "entity",
+    "subject_id": "3a997425-539b-44ea-91eb-b81fc8df3395",
+    "field": "email",
+    "before": null,
+    "after": null,
+    "rule": 3,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "84e8d10f-ed57-4242-b97f-12655e2a87bb",
+    "subject_type": "entity",
+    "subject_id": "55e60641-5504-48a1-980b-cabb1c03f5e2",
+    "field": "key_people",
+    "before": null,
+    "after": null,
+    "rule": 3,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "16c2efa5-ea84-4fc0-8245-aae49f8e7ce4",
+    "subject_type": "entity",
+    "subject_id": "3313cf45-1c61-4378-9e86-890d3fc6aea7",
+    "field": "current_funds",
+    "before": null,
+    "after": null,
+    "rule": 3,
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "51b987d0-6462-4f57-8b75-478958c6e265",
+    "subject_type": "entity",
+    "subject_id": "0d71409f-4a10-49d5-8060-416e07f0c873",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "2aeff267-8025-48c1-81a3-c749afbe806a",
+    "subject_type": "entity",
+    "subject_id": "0d71409f-4a10-49d5-8060-416e07f0c873",
+    "field": "email_domain",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "b0d030df-7f3a-4d12-9544-33ace21a9bb1",
+    "subject_type": "entity",
+    "subject_id": "0d71409f-4a10-49d5-8060-416e07f0c873",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "e27cfa3d-1a42-4475-b2e1-ffa07a24010e",
+    "subject_type": "entity",
+    "subject_id": "0d71409f-4a10-49d5-8060-416e07f0c873",
+    "field": "stage_min",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "ca8bc214-4f88-4e9e-9525-ac381a51e832",
+    "subject_type": "entity",
+    "subject_id": "0d71409f-4a10-49d5-8060-416e07f0c873",
+    "field": "stage_max",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "6ac23575-0e1e-46d3-a954-222407ec1229",
+    "subject_type": "entity",
+    "subject_id": "3a997425-539b-44ea-91eb-b81fc8df3395",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "07a3c289-ef88-42d8-81be-c1f69b75f257",
+    "subject_type": "entity",
+    "subject_id": "3a997425-539b-44ea-91eb-b81fc8df3395",
+    "field": "stage_max",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "bcf2858c-cdc1-441f-80c6-010cf2ff8205",
+    "subject_type": "entity",
+    "subject_id": "0d71409f-4a10-49d5-8060-416e07f0c873",
+    "field": "email",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "3b1e171a-a1dd-40e8-ae0f-6981b864a6cb",
+    "subject_type": "entity",
+    "subject_id": "10ade7f2-bb6a-40ab-9eef-9cbd551f9cbe",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "92255c2c-440a-4bd9-8a91-9c369a087738",
+    "subject_type": "entity",
+    "subject_id": "10ade7f2-bb6a-40ab-9eef-9cbd551f9cbe",
+    "field": "email_domain",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "e6a7253c-a269-458c-96e9-7bab39cda829",
+    "subject_type": "entity",
+    "subject_id": "10ade7f2-bb6a-40ab-9eef-9cbd551f9cbe",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "e73dbda0-b161-4801-a4c1-06f12d349a5c",
+    "subject_type": "entity",
+    "subject_id": "76481ae5-3e5a-4c8c-9038-5c08c49e312d",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "d3130b4a-3209-4028-a1ce-bc055fe42a1a",
+    "subject_type": "entity",
+    "subject_id": "76481ae5-3e5a-4c8c-9038-5c08c49e312d",
+    "field": "email_domain",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "8b5066b4-23a9-435a-8d1d-09ddd004d6d5",
+    "subject_type": "entity",
+    "subject_id": "76481ae5-3e5a-4c8c-9038-5c08c49e312d",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "34c1478f-19a7-4136-aa5f-5d35708c0534",
+    "subject_type": "entity",
+    "subject_id": "3a997425-539b-44ea-91eb-b81fc8df3395",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "bd4c944c-8822-422e-9999-99f35cf7c8d6",
+    "subject_type": "entity",
+    "subject_id": "3a997425-539b-44ea-91eb-b81fc8df3395",
+    "field": "email_domain",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "3b6ee3e3-d687-47d5-9ea3-38563d006d2e",
+    "subject_type": "entity",
+    "subject_id": "2879aa1d-0c67-4e5a-9958-74ea4951bd25",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "102aaa12-1780-4276-93a9-49d276255d42",
+    "subject_type": "entity",
+    "subject_id": "2879aa1d-0c67-4e5a-9958-74ea4951bd25",
+    "field": "email_domain",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "956705ce-729b-4b33-ba81-46f38e8c9682",
+    "subject_type": "entity",
+    "subject_id": "2879aa1d-0c67-4e5a-9958-74ea4951bd25",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "6cf5b4e2-63f5-4c91-bce7-c320ce6b3d0e",
+    "subject_type": "entity",
+    "subject_id": "2879aa1d-0c67-4e5a-9958-74ea4951bd25",
+    "field": "stage_min",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "7afd1173-0d13-48c0-b51c-6e178b5706f6",
+    "subject_type": "entity",
+    "subject_id": "2879aa1d-0c67-4e5a-9958-74ea4951bd25",
+    "field": "phone",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "54517ffd-843b-4a5a-9f63-644a14105d71",
+    "subject_type": "entity",
+    "subject_id": "57f0787f-fb17-4ca3-b2e3-9ee04e1e429c",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "62ff7038-7601-4eca-ad2e-8c0d85a83510",
+    "subject_type": "entity",
+    "subject_id": "57f0787f-fb17-4ca3-b2e3-9ee04e1e429c",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "1557c0b1-799a-43b2-995f-768652684d2b",
+    "subject_type": "entity",
+    "subject_id": "57f0787f-fb17-4ca3-b2e3-9ee04e1e429c",
+    "field": "stage_min",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "feaf4267-9a69-4529-8112-242d4d0e281e",
+    "subject_type": "entity",
+    "subject_id": "55e60641-5504-48a1-980b-cabb1c03f5e2",
+    "field": "website",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "84a94b7a-017b-4005-8783-87a82fc6aa35",
+    "subject_type": "entity",
+    "subject_id": "55e60641-5504-48a1-980b-cabb1c03f5e2",
+    "field": "email_domain",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "e90989ae-23ca-4389-8f9a-443d4d58462e",
+    "subject_type": "entity",
+    "subject_id": "55e60641-5504-48a1-980b-cabb1c03f5e2",
+    "field": "hq_country",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  },
+  {
+    "contribution_id": "0510faea-c484-448f-a642-0e74d01380e8",
+    "subject_type": "entity",
+    "subject_id": "55e60641-5504-48a1-980b-cabb1c03f5e2",
+    "field": "stage_min",
+    "before": null,
+    "after": null,
+    "rule": "5a",
+    "action": "rejected"
+  }
+]

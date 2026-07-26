@@ -36,6 +36,15 @@ export const ENTITY_ENRICHMENT_FIELDS = [
   ...AI_SEARCH_FIELDS,
   'address', 'postal_code', 'key_people', 'general_partner_emails',
   'aum', 'current_funds', 'latest_fund', 'last_investment_found',
+  // 'name' is deliberately last and NOT in AI_SEARCH_FIELDS — the AI route
+  // must never propose a rename. Real gap found via a lote4 rebrand
+  // (btov Partners -> b2venture) that could never be applied: the write-
+  // allowlist didn't recognise 'name' at all. Fixed, but narrowly: it's the
+  // dedup/matching key for every other script and process in this codebase,
+  // so resolveEntityFieldWrite below refuses it outright unless the caller
+  // is an explicit `correction`, never a `fill` — see the dedicated check
+  // there. No amount of bulk/auto-review tooling should ever touch it.
+  'name',
 ] as const;
 export type EntityEnrichmentField = typeof ENTITY_ENRICHMENT_FIELDS[number];
 
@@ -117,6 +126,13 @@ export function entityHasValue(entity: Entity, field: EntityEnrichmentField): bo
 // broader overwrite permission anywhere else in the write pipeline.
 export function resolveEntityFieldWrite(entity: Entity, field: string, rawValue: unknown, opts?: { allowOverwrite?: boolean }): { field: EntityEnrichmentField; value: unknown } | null {
   if (!isKnownEntityField(field)) return null;
+  // 'name' is the dedup/matching key everywhere else in this codebase —
+  // never write it as a plain fill (entities.name is effectively always
+  // set, so this rarely bites in practice, but the guard is explicit rather
+  // than relying on that incidental fact). Only an explicit correction can
+  // rename an entity, and even then only through the reviewed contribution
+  // path this function serves — never proposed/applied automatically.
+  if (field === 'name' && !opts?.allowOverwrite) return null;
   if (!opts?.allowOverwrite && entityHasValue(entity, field)) return null;
   const value = coerceEnrichmentValue(field, rawValue);
   if (value === undefined) return null;
@@ -137,10 +153,13 @@ export function prepareEnrichmentProposals(entity: Entity, proposals: RawProposa
 }
 
 // The subset of ENTITY_ENRICHMENT_FIELDS the entity already has a value for
-// — told to the model as "don't bother re-proposing this."
+// — told to the model as "don't bother re-proposing this." Excludes 'name':
+// it's the subject of the research itself (always known, never a fact the
+// AI route could propose — it's not in AI_SEARCH_FIELDS), so including it
+// here would just be noise, not a useful "don't re-propose" hint.
 export function knownEnrichmentValues(entity: Entity): Partial<Record<EntityEnrichmentField, unknown>> {
   const known: Partial<Record<EntityEnrichmentField, unknown>> = {};
-  for (const f of ENTITY_ENRICHMENT_FIELDS) if (entityHasValue(entity, f)) known[f] = entity[f as keyof Entity];
+  for (const f of ENTITY_ENRICHMENT_FIELDS) if (f !== 'name' && entityHasValue(entity, f)) known[f] = entity[f as keyof Entity];
   return known;
 }
 

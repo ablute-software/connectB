@@ -2592,3 +2592,79 @@ surfaced, and the transaction-safety limitation, then asked which of two
 simultaneously-pending confirmations ("importa este lote") the founder
 meant — this script is still **awaiting an explicit go-ahead with the real
 numbers**, not the estimated ones, before any `--commit` run.
+
+## Bulk-review tool: rule-order fix, name allowlist fix, committed for real
+
+The founder found a real logic bug in her own spec, not in the
+implementation of it: safeguard #1 ("never overwrite, in any tier") was
+written generally but only actually makes sense for tiers that *write*.
+Applying it as a first-pass filter ahead of the two status-only tiers
+(legacy quarantine, confidence-floor rejection) meant a legacy row whose
+target field happened to already be set skipped the quarantine entirely
+and dropped back into "already set" — exactly the outcome the quarantine
+existed to prevent. Fixed by re-ordering to 8 explicit rules, evaluated
+first-match-wins: (1) unwritable field — reject as garbage, not
+quarantine, since the system could never apply it regardless; (2) legacy/
+no-provenance — quarantine-reject regardless of whether the field is
+filled, since this is a status change, not a write; (3) confidence floor —
+reject, also status-only; (4) `kind='correction'` — always manual; (5)
+field already set — split duplicate (reject) vs divergent (manual); (6)
+Tier A; (7) Tier B; (8) true residual.
+
+**`entities.name` allowlist gap, fixed with the guard the founder
+specified:** added `name` to `ENTITY_ENRICHMENT_FIELDS`, but
+`resolveEntityFieldWrite` now refuses it outright unless the caller passes
+`allowOverwrite` (i.e., it's an explicit `correction`) — a plain `fill`
+targeting `name` can never apply, no matter the entity's current value.
+The bulk-review script also force-routes any `name` contribution straight
+to the manual residual regardless of kind/confidence, as a second,
+independent guard. `knownEnrichmentValues` (the "don't re-propose this"
+hint fed to the AI route) explicitly excludes `name` too — it's the
+subject of the research itself, never a fact to withhold. 2 new tests in
+`entity-enrichment.test.ts` (212 total, up from 210); build/typecheck
+green.
+
+**Rule 7's lote4 key_people/team-page exception, found to be "correct by
+accident" — the founder's own words, and she was right.** The exception
+matched 6 rows, not just the 3 from lote4: Balderton Capital, Index
+Ventures, and Eight Roads Ventures (an older UK20-batch, multi-URL
+citation format) also matched. Investigated why: `new URL()` on a
+`source_url` containing several URLs joined by `"; "` silently absorbs
+everything after the first URL into one long percent-encoded pathname —
+so the regex check for `/team` was matching against a blob containing
+every cited URL's path concatenated together, not genuinely checking
+"does THIS source point to a team page." The result didn't change (all 6
+do cite a real own-domain team page somewhere in their citation string),
+but the logic was accidentally right, not actually right. Fixed by
+splitting `source_url` on `;` and checking each candidate URL
+independently before deciding.
+
+**The two rule-5 normalizations, exactly as specified — no more, no
+less:** a URL differing only in scheme/`www.`/trailing slash is the same
+site (`indexventures.com` vs `https://indexventures.com`), and a country
+code/alias proposed over its own canonical full name is the same fact
+(`UK` vs `United Kingdom`) — canonical form fixed as the full name per the
+founder's explicit convention, asymmetrically: a code-over-full-name
+proposal is a duplicate (reject), but a full-name-over-code proposal is a
+real improvement and is let through to the normal tiers. This resolves
+half of the previously-open `hq_country` normalization backlog as a side
+effect. Deliberately did NOT extend normalization to other fields the
+founder didn't ask about (e.g. Molten Ventures' `phone` differing only in
+parenthesis/spacing formatting correctly stayed in the divergent/manual
+bucket) — scope discipline over cleverness.
+
+**Real result, dry-run then committed:** residual dropped from 85 to 71
+after the two normalizations (14 rows moved from divergent to duplicate),
+which the founder's own instruction treated as the commit signal ("se
+descer, commita a seguir"). Final counts across 279 pending contributions:
+51 rejected (unwritable field), 64 rejected (legacy quarantine), 9
+rejected (confidence floor), 28 rejected (duplicate), 38 accepted (Tier
+A), 18 accepted (Tier B) — **96 written + verified, 155 rejected, 71 left
+in the active queue** for genuine human review (5 corrections, 18
+divergent-value rows, 48 judgement-field-at-medium-confidence rows).
+Verified live: Index Ventures now shows `hq_country: 'United Kingdom'`
+(normalized) and `website: 'https://indexventures.com'` (its pre-existing
+value correctly untouched, not overwritten by the near-duplicate
+proposal). The full before/after audit log (`bulk-review-2026-07-26.json`,
+committed rather than deleted — it's the undo record the spec asked for,
+not a disposable report) has all 208 touched rows.
