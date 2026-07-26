@@ -2897,3 +2897,79 @@ lote6 residual 83/158 — **48 in `fill` (exactly the founder's expected
 number) + 35 always-manual website corrections**. Total submitted
 contributions org-wide: 417 (418 minus the Impact X `key_people`
 rejection).
+
+## Fixed pipeline order: website corrections before bulk-review, always
+
+Bionova Capital, Dunas Capital, and Enjoy Venture weren't three unlucky
+rows — they're the general case. `entities.website` is the domain gate's
+only source of truth; while it's stale, the gate correctly rejects
+*everything true* that batch found for that entity, including fields
+that have nothing to do with the website itself. A `kind='correction'`
+row is always manual (by design — an overwrite with no second look is
+exactly what that rule exists to prevent), so if it hasn't been approved
+yet, the gate has no way to know the correction is right.
+
+**Fixed order for every future batch, no exceptions:** (1) approve that
+batch's `website` corrections first, (2) run `bulk-review-contributions.mjs
+--commit`, (3) run it **again** — the second pass is what catches
+whatever the website corrections just unblocked. Skipping step 3 silently
+strands exactly the rows step 1 was meant to free.
+
+## Prompt 24 — verifying the bulk-review run against the founder's own count
+
+The founder re-derived the run's numbers independently and found two real
+gaps, not phantom ones (same "a one-row difference has been real twice
+before" discipline that caught the lote6 transcription bug).
+
+**1. The 67 untagged rows.** Her batch-tag breakdown (lote4/5/6) summed to
+350 of the 417 pre-run `submitted` rows, leaving 67 unaccounted for —
+"presumo que sejam os lotes 1–3 [...] mas presumir não serve." Reconstructed
+the exact pre-run snapshot (187 still-`submitted` + 230 touched, from the
+`--commit` audit log, sums to 417) and tagged all 417 by note text. The 67
+are real and all pre-lote4: 22 from the VC-firms pilot batch, 39 from
+various "extra fields" imports, 2 from the §9b structured-import conflict
+path, 2 pre-existing website corrections, 2 one-off notes (a Volta
+hq_city fix, a missing-fields flag) — plus exactly **one** row from the
+live app: the `__enrichment_request__` demand-flag (the "418th"
+contribution from the earlier report), which is the only one of the 67
+this run touched (rejected, rule 1). Zero rows had a `NULL` note. This
+closes her arithmetic: 350 + 67 = 417; 229 + 1 = 230.
+
+**2. The 75-vs-73 discrepancy.** Sent her the full list (`subject_id`
+prefix, `field`, `source_url`) for independent cross-check, per her
+request, rather than trying to guess the two rows myself.
+
+**3. The domain-gate question — this is the important one.** Checked the
+code, wrote nothing:
+- **What does `bulk-review` actually verify before approving an
+  `OBJECTIVE_FIELD`?** Confidence tier only. Rule 6 (≥0.85) and rule 7
+  (0.5–0.85 + objective field) both check *only* `c.confidence` — neither
+  requires `source_url` to be non-empty. The only place a missing
+  `source_url` matters is rule 2's "legacy" quarantine, which requires
+  confidence to be `null` *as well* — a row with a real confidence number
+  and no source_url passes through untouched. This is a real gap in the
+  script, independent of anything to do with lote5/6.
+- **What confidence/source_url do app-created contributions carry?**
+  Traced every insert path. `ContributionBox`'s "Add info" (the plain
+  founder-authored form) inserts with no `confidence`/`source_url` at
+  all — both default to `NULL` per the `0006_contributions.sql`/
+  `0010_ai_contributions.sql` schema. A `NULL` confidence always satisfies
+  rule 2's "legacy" quarantine before rule 6/7 are ever reached, so this
+  path is safe **by construction**, not by any check specific to it. The
+  `/api/entities/[id]/enrich` "Research with AI" route is different: it's
+  `source='ai'` but carries a *real* confidence + source_url (required by
+  its own tool schema) — structurally indistinguishable from a batch
+  import once it lands in `contributions`, and therefore just as exposed
+  to the gap above. It hasn't produced a row in the current dataset (its
+  distinct note, `"AI-sourced via Request more info"`, appears zero times
+  among the 417), so it caused no harm this run, but the exposure is real
+  and will matter the day that button gets used.
+- **Did any of the 230 approved rows come from the app?** No. Checked all
+  417 by note text; the only app-originated row in the whole set was the
+  demand-flag one, which was rejected (rule 1), not accepted.
+
+No code changed answering this — per the founder's explicit "não mexas em
+código" instruction. The fix (adding an explicit `source_url` requirement
+to rules 6/7, or a domain check for `OBJECTIVE_FIELDS` mirroring the
+`key_people` team-page exception) is a decision for her to make and
+scope, not something to bundle into this report.
