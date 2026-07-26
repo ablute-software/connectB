@@ -2668,3 +2668,66 @@ value correctly untouched, not overwritten by the near-duplicate
 proposal). The full before/after audit log (`bulk-review-2026-07-26.json`,
 committed rather than deleted — it's the undo record the spec asked for,
 not a disposable report) has all 208 touched rows.
+
+## Fifth direct-research batch — 726 facts across 190 entities, new production method — committed
+
+Production changed: instead of the founder compiling the CSV by hand, ten
+research agents wrote directly to disk against a fixed contract and an
+aggregator validated line by line — 1000 raw rows (200 entities × 5
+fields) down to 726 real facts, 76% fill rate, zero malformed rows, zero
+quarantined after the founder resolved six domain issues herself before
+sending. Same source discipline as every prior batch (official imprint/
+contact/team pages, national business registries where nothing else
+existed), just at 10x the batch size of lote4.
+
+**The one genuinely new mechanic: prefix resolution.** To fit the SQL
+editor's read limits, the roster was built with 8-character UUID prefixes,
+not full ids. Built this as an explicit two-gate pre-flight, run to
+completion before a single row is classified or written:
+1. Resolve every prefix via exact string-prefix match against the full
+   entity table (`id.startsWith(prefix)`, done in JS after one bulk fetch
+   — not a Postgres `LIKE`, since PostgREST doesn't cast a uuid column to
+   text for pattern matching without extra plumbing this didn't need).
+   Any prefix resolving to 0 or >1 entities **aborts the entire import**,
+   not just that row — exactly as specified, since a fact written to the
+   wrong entity is worse than a fact never written.
+2. Second-check `entity_name` against the resolved entity's real name,
+   normalized (NFD diacritic strip, lowercased, common legal suffixes —
+   GmbH/Ltd/AB/Oy/BV/SA/AG/Inc/LLC/etc — stripped as whole tokens). Any
+   material mismatch also aborts the whole run.
+Both gates ran clean: all 190 prefixes resolved to exactly one entity,
+zero name mismatches, so nothing needed the founder's promised "go back
+and disambiguate" fallback.
+
+**New idempotency requirement, also implemented as specified:** a second
+run must not duplicate a pending contribution. Added a
+`(subject_id, field, value)` key checked against every existing
+contribution row (any status) before inserting — direct writes were
+already idempotent for free via the pre-existing non-clobber/`hasValue`
+check, so this only needed building for the pending-contribution path.
+
+**Corrections (6 website rows) followed the same rule as every prior
+batch**: `kind='correction'` always routes to a pending contribution for
+human review, never a direct write, regardless of confidence (all 6 were
+0.95) — the founder's spec explicitly said not to carve out an exception
+here, and none was.
+
+**Real result:** 545 direct writes across 174 entities (confidence ≥0.9),
+187 pending contributions (181 fill at 0.5–0.7 + 6 corrections), 0
+already-set skips (expected — these 190 entities were pulled from the
+qualifiesForContactEnrichment queue, i.e., contact was already 0% for all
+of them), 0 idempotent skips (first run, nothing to collide with yet).
+Verified live: aws Gründungsfonds' direct writes (email/phone/address/
+postal_code/key_people) all present; Green Generation Fund's `website`
+correctly still the OLD value (`greengenerationfund.com`) — its correction
+sits pending, not applied, exactly as designed. Total pending `submitted`
+contributions org-wide is now 258 (71 after the bulk-review pass + 187
+from this batch — exact arithmetic match).
+
+Same two informational flags from the founder's own prompt carried
+through untouched, no action taken: Buildit Accelerator and BADideas.fund
+share one Riga address (both imported as-is, no auto-merge); the ten
+entities the research pass found zero data for (site-dead or clearly
+abandoned, e.g. fountainhealthcare.com for sale on GoDaddy) are simply
+absent from this CSV — nothing to import, a status review is a separate,
+later decision.
