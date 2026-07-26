@@ -143,11 +143,29 @@ const TEAM_PAGE_SEGMENTS = new Set([
   'people', 'our-partners', 'partners', 'management', 'board', 'who-we-are',
   'equipe', 'equipa', 'notre-equipe', 'chi-siamo', 'il-team', 'das-team', 'unser-team', 'ueber-uns',
   'folk', 'vart-team', 'mot-teamet', 'om-oss', 'teamet', 'ons-team', 'het-team', 'wie-we-zijn',
+  // Prompt 23: Spanish was missing entirely (not a forgotten slug, a whole
+  // missing language — the same design gap prompt 21 fixed for English).
+  'equipo', 'nuestro-equipo', 'quienes-somos',
+  'menschen', 'unsere-menschen',
+  'meista', 'tiimi', 'hallitus',
+  'qui-sommes-nous',
+  'board-of-directors', 'styrelse', 'bestyrelse',
 ]);
-function looksLikeTeamPageSegment(segment) {
-  if (TEAM_PAGE_SEGMENTS.has(segment)) return true;
+// Prompt 23, 2 fixes to how a segment is normalized before comparison —
+// neither widens what's accepted, both just recognise the same accepted
+// slugs written a different way:
+//   - strip a trailing file extension (.html/.htm/.php/.asp/.aspx/.jsp)
+//     before comparing, so "/team.html" and "/team" are the same segment.
+//   - compare hyphen-insensitively too, so "/whoweare" and "/who-we-are"
+//     match the same accepted entry (Firda's actual slug is "whoweare").
+const FILE_EXTENSION_RE = /\.(html?|php|aspx?|jsp)$/i;
+const TEAM_PAGE_SEGMENTS_NO_HYPHEN = new Set([...TEAM_PAGE_SEGMENTS].map((s) => s.replace(/-/g, '')));
+function looksLikeTeamPageSegment(rawSegment) {
+  const segment = rawSegment.replace(FILE_EXTENSION_RE, '');
   if (segment.includes('contact')) return false;
-  return /(^|-)(team|people|teamet)$/.test(segment);
+  if (TEAM_PAGE_SEGMENTS.has(segment)) return true;
+  if (/(^|-)(team|people|teamet)$/.test(segment)) return true;
+  return TEAM_PAGE_SEGMENTS_NO_HYPHEN.has(segment.replace(/-/g, ''));
 }
 // source_url is sometimes a single URL, sometimes several joined by "; "
 // (older batches cited multiple sources per field). Splitting explicitly
@@ -155,7 +173,7 @@ function looksLikeTeamPageSegment(segment) {
 // every URL after the first into one long percent-encoded pathname, which
 // would make ANY later-cited /team link falsely match regardless of which
 // URL is actually first/primary.
-function isOwnTeamPage(entity, sourceUrl) {
+function matchesOwnDomainPage(entity, sourceUrl, segmentPredicate) {
   if (!entity.website || !sourceUrl) return false;
   let siteHost;
   try { siteHost = new URL(entity.website).hostname.replace(/^www\./, ''); } catch { return false; }
@@ -165,11 +183,12 @@ function isOwnTeamPage(entity, sourceUrl) {
       const u = new URL(candidate);
       if (u.hostname.replace(/^www\./, '') !== siteHost) continue;
       const segments = u.pathname.toLowerCase().split('/').filter(Boolean);
-      if (segments.some(looksLikeTeamPageSegment)) return true;
+      if (segments.some(segmentPredicate)) return true;
     } catch { /* not a parseable URL on its own — skip */ }
   }
   return false;
 }
+function isOwnTeamPage(entity, sourceUrl) { return matchesOwnDomainPage(entity, sourceUrl, looksLikeTeamPageSegment); }
 
 const { data: contributions, error: cErr } = await admin.from('contributions').select('*').eq('status', 'submitted');
 if (cErr) { console.error(cErr); process.exit(1); }
@@ -229,7 +248,11 @@ for (const c of contributions) {
   if (c.confidence >= 0.85) { buckets.rule6.push({ c, reason: 'high confidence, sourced, field empty' }); continue; }
 
   // Rule 7 — Tier B: medium confidence, sourced, field empty, objective
-  // field OR the lote4 key_people/team-page exception.
+  // field OR the lote4 key_people/team-page exception. address/postal_code
+  // are themselves OBJECTIVE_FIELDS with no domain gate — a privacy-policy
+  // page (Celtis, Shilling, byFounders in lote6) already qualifies here,
+  // same as any other sourced address. Prompt 23 flagged this as an open
+  // question; no new exception was needed, the existing rule already covers it.
   if (OBJECTIVE_FIELDS.has(c.field) || (c.field === 'key_people' && c.subject_type === 'entity' && isOwnTeamPage(subject, c.source_url))) {
     buckets.rule7.push({ c, reason: OBJECTIVE_FIELDS.has(c.field) ? 'medium confidence, objective field, sourced, empty' : 'medium confidence, key_people sourced from the fund\'s own team page' });
     continue;
@@ -262,7 +285,7 @@ function tagBreakdown(tag) {
   const match = (arr) => arr.filter(({ c }) => (c.note ?? '').toLowerCase().includes(tag)).length;
   return { rule1: match(buckets.rule1), rule2: match(buckets.rule2), rule3: match(buckets.rule3), rule4: match(buckets.rule4), rule5a: match(buckets.rule5dup), rule5b: match(buckets.rule5div), rule6: match(buckets.rule6), rule7: match(buckets.rule7), rule8: match(buckets.rule8) };
 }
-for (const tag of ['lote4', 'lote5']) {
+for (const tag of ['lote4', 'lote5', 'lote6']) {
   const b = tagBreakdown(tag);
   const total = Object.values(b).reduce((n, v) => n + v, 0);
   const residual = b.rule4 + b.rule5b + b.rule8;

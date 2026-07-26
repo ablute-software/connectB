@@ -2829,3 +2829,71 @@ BCP Capital, in liquidation, whose stored domain actually belongs to an
 unrelated software company) and four blocked by the founder's own explicit
 decision pending a human call (Founders Capital, Bluemint, Conexo Capital,
 LEVELS) — none silently dropped.
+
+## Bulk-review run for real: two matcher fixes, one non-bug, one real one
+
+**The 418th contribution.** 258 pre-lote5 + 159 from lote6 = 417, not the
+418 reported. The extra row was legitimate: a `__enrichment_request__`
+demand-flag created via the live app at `2026-07-26T13:06:48`, between
+the lote5 verification checkpoint and the lote6 import — someone clicked
+"Request more info" in the UI mid-batch. Not a bug; confirmed by querying
+`contributions` ordered by `created_at` around that window. It resolves
+under rule 1 (unwritable field) on every run, since the demand-flag isn't
+a real data field.
+
+**Fix (a), mine to own:** the team-page segment matcher didn't strip file
+extensions (`/team.html`, `/team.php`) before comparing, and compared
+hyphenated slugs literally, so `/whoweare` never matched `/who-we-are`
+even though both were already-accepted shapes. Neither restriction was
+intentional — both were oversights from the prompt-21 widening. Fixed by
+stripping `.html/.htm/.php/.asp/.aspx/.jsp` from the last path segment and
+adding a hyphen-insensitive fallback match.
+
+**Fix (b), also mine:** `TEAM_PAGE_SEGMENTS` had zero Spanish entries —
+not a missed slug, a missing language, in a database whose stated
+expansion order is Europe → UK → MENA → USA and Spain isn't a footnote in
+that. Added `equipo/nuestro-equipo/quienes-somos` (ES), `menschen/unsere-
+menschen` (DE), `meista/tiimi/hallitus` (FI), `qui-sommes-nous` (FR), and
+completed the `board` family (`board-of-directors/styrelse/bestyrelse`).
+
+**Item 4 (privacy-policy as an address source) needed no code change.**
+Checked before building the proposed `isOwnLegalPage` exception: `address`
+and `postal_code` are already in `OBJECTIVE_FIELDS`, which rule 7 accepts
+with no domain gate at all — any sourced, empty, medium-confidence value
+already passes regardless of which page it came from. Celtis, Shilling,
+and byFounders' privacy-policy-sourced rows were never actually blocked;
+building a narrower exception for them would have been redundant scope
+against an already-permissive rule, so nothing was added.
+
+**Impact X Capital — a real aggregator bug, not mine.** Two rows cited
+`https://impactxcapital.com/assets/index-DC5XJK2H.js` (a content-hashed
+JS bundle, not a page) as `source_url`: an already-applied `email` write
+at 0.9 and a still-pending `key_people` row at 0.7. The hash means the
+URL 404s on the site's next deploy — the proof rots. Rejected the pending
+row with a note explaining why; appended a warning to the entity's
+`notes` pointing at the already-written `email` needing re-sourcing from
+a real page. The founder's own sweep confirmed these are the only two
+such rows across lote5+lote6; a future batch will have the aggregator
+reject `source_url` values ending in `.js/.css/.json/.map` or living
+under `/assets//static//_next/` outright.
+
+**Verifying against three named rows exposed a real limitation, not a
+bug:** Bionova Capital, Dunas Capital, and Enjoy Venture were named as
+rows fix (a)/(b) should unblock, but none did. All three share one cause:
+their `entities.website` is stale (`hovionecapital.com`,
+`dunascap.com`, `enjoy.vc` vs. the correct `bionovacapital.com`,
+`dunascapital.com`, `enjoyventure.vc`), lote6 carries a `kind='correction'`
+row to fix each, and corrections are *always* manual by explicit design
+(rule 4) — so the domain gate correctly refuses to match until a human
+approves the website correction first. Working as designed: the gate is
+the actual security control, and a stale website is exactly the case it
+exists to catch. These three will resolve on the next bulk-review run
+after their website corrections are approved, not before.
+
+**Real result of `--commit`:** 230 rows touched. Manual residual left in
+the queue: 187 (rule 4 + 5b + 8), matching the dry run exactly.
+Per-batch-tag breakdown: lote4 residual 5/5, lote5 residual 33/187,
+lote6 residual 83/158 — **48 in `fill` (exactly the founder's expected
+number) + 35 always-manual website corrections**. Total submitted
+contributions org-wide: 417 (418 minus the Impact X `key_people`
+rejection).
