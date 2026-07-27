@@ -97,7 +97,7 @@ const FEATURES: { title: string; body: string; soon?: boolean }[] = [
 
 const FAQS = [
   { q: 'Is my deal flow private?', a: 'Yes. Anything you forward to your Qualification Inbox is private to your organisation by default. It is never used to grow the marketplace or train shared models without your explicit consent.' },
-  { q: 'Who can see startup data?', a: 'Only verified investor organisations with a complete profile and an active mandate — and startups always control what is shared and see who viewed their profile.' },
+  { q: 'Who can see startup data?', a: 'Only verified investor organisations with a complete profile and an active mandate. Browsing your matches is private — founders aren’t notified while you’re exploring. When you want to go further, consent-based introductions (coming soon) put both sides in agreement before any identity or data room is shared.' },
   { q: 'How do you verify investors?', a: 'Work email and domain for collaboration; stronger proof — including official registry checks — for organisation control and sensitive actions.' },
   { q: 'What does "qualified opportunity" mean?', a: 'A company that passed your mandate’s hard criteria and received a full analysis: fit, evidence, risks and a recommended action. Raw names on a list do not count against your capacity.' },
 ];
@@ -248,22 +248,24 @@ export default async function InvestorLandingPage() {
           <div className={s.split}>
             <div className={s.rv} data-reveal>
               <span className={s.eyebrow}>Access</span>
-              <h2>Verified investors only.</h2>
+              <h2>Browse privately. Engage on your terms.</h2>
               <p>
-                Every investor organisation on {BRAND_NAME} is claimed and verified. No anonymous
-                browsing, no tourists: startup identities are visible only to verified, complete investor
-                profiles — and startups always see who is looking.
+                Explore your mandate-matched opportunities in private — no tracking, no pressure, no
+                founder wondering why you looked. When you&apos;re ready to go further, consent-based
+                introductions (coming soon) put both sides in agreement before any identity or data
+                room is shared.
               </p>
               <ul>
-                <li><CheckGreen />No anonymous browsing, ever</li>
-                <li><CheckGreen />Startups always see who is looking</li>
-                <li><CheckGreen />Complete profile and mandate required to unlock identities</li>
+                <li><CheckGreen />Explore your matches privately, always</li>
+                <li><CheckGreen />No founder notifications while you&apos;re just looking</li>
+                <li><ClockAmber />Consent-based introductions before identity is shared — coming soon</li>
               </ul>
             </div>
             <div className={`${s.panel} ${s.rv} ${s.d1}`} data-reveal>
               <div className={s.fact}><div className={s.fL}>Organisation profile<small>verified</small></div><span className={`${s.pill} ${s.pillOk}`}>Complete</span></div>
               <div className={s.fact}><div className={s.fL}>Investment mandate<small>hard criteria set</small></div><span className={`${s.pill} ${s.pillOk}`}>Active</span></div>
-              <div className={s.fact}><div className={s.fL}>Startup identities<small>gated by mandate completeness</small></div><span className={`${s.pill} ${s.pillOk}`}>Unlocked</span></div>
+              <div className={s.fact}><div className={s.fL}>Browsing<small>private by default</small></div><span className={`${s.pill} ${s.pillOk}`}>Always on</span></div>
+              <div className={s.fact}><div className={s.fL}>Consent-based introductions<small>identity sharing, both sides agree</small></div><span className={`${s.pill} ${s.pillPending}`}>Coming soon</span></div>
             </div>
           </div>
 

@@ -5,9 +5,14 @@
 //
 // ?as=investor renders a different panel: investors aren't self-serve today
 // (access is an access_grants row a founder creates for their email, per
-// resolveRole in supabase-server.ts), so there's no form to fill in here yet.
-// This is a placeholder until that flow is designed — it just points the
-// investor at /portal, where a granted email already works.
+// resolveRole in supabase-server.ts) — that part is real and unchanged, "Sign
+// in with your granted email" still points at /portal. What used to sit above
+// it was a dead end for everyone else: 5 CTAs across the /investors landing
+// (hero, claim, features, closing band, footer) all land here, and the only
+// options were "sign in" (doesn't apply, no grant yet) or leave. Replaced
+// with a real request-access form — /api/investor-access-request — that
+// captures the lead for manual follow-up. Not self-signup (still doesn't
+// promise instant access), but no longer a wall.
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -24,6 +29,31 @@ const STAGES = [
 ];
 
 function InvestorSignupPanel() {
+  const [email, setEmail] = useState('');
+  const [firmName, setFirmName] = useState('');
+  const [note, setNote] = useState('');
+  const [website, setWebsite] = useState(''); // honeypot — never shown to real visitors
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function submit() {
+    setErr('');
+    if (!email.trim()) { setErr('Enter your email.'); return; }
+    setBusy(true);
+    try {
+      const res = await fetch('/api/investor-access-request', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, firm_name: firmName, note, website }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (body && body.ok === false) { setErr(body.error ?? 'Could not send the request.'); return; }
+      setSent(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <AuthShell>
       <div className="w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-7 shadow-2xl">
@@ -31,14 +61,43 @@ function InvestorSignupPanel() {
           <LogoLockup size={28} accentClassName="text-[#2a7f8e]" />
         </div>
         <p className="mb-5 text-sm text-gray-500">Investor access on Sherlock Deal</p>
-        <p className="text-sm text-gray-600">
-          Investor accounts aren&apos;t self sign-up yet — a founder grants access to your email when
-          they share their round with you. Ask them for access, then sign in below.
-        </p>
-        <Link href="/login?as=investor"
-          className="mt-4 block w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-center text-sm font-semibold text-white hover:bg-[#0c637b]">
-          Sign in with your granted email
-        </Link>
+
+        {sent ? (
+          <div className="rounded-xl border border-cyan-100 bg-[#E8F4F8] px-3.5 py-3 text-sm text-[#0E7490]">
+            Request received — we&apos;ll confirm your access by email.
+          </div>
+        ) : (
+          <>
+            <p className="text-sm text-gray-600">
+              Investor accounts aren&apos;t self sign-up yet. Tell us who you are and we&apos;ll follow up
+              to confirm access — or if a founder has already granted you access, sign in below.
+            </p>
+            <div className="mt-4 space-y-2.5">
+              <input type="email" placeholder="you@fund.com *" value={email} onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" />
+              <input type="text" placeholder="Firm name (optional)" value={firmName} onChange={(e) => setFirmName(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" />
+              <textarea placeholder="Anything that helps us route this — e.g. “I'm a partner at X, looking for deals in Y” (optional)"
+                value={note} onChange={(e) => setNote(e.target.value)} rows={3}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" />
+              {/* Honeypot — hidden from real visitors via CSS, not `type=hidden`
+                  (some bots skip those); ContactForm.tsx uses the same pattern. */}
+              <input type="text" value={website} onChange={(e) => setWebsite(e.target.value)}
+                tabIndex={-1} autoComplete="off"
+                className="absolute -left-[9999px] h-0 w-0 opacity-0" aria-hidden="true" />
+            </div>
+            {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}
+            <button onClick={submit} disabled={busy}
+              className="mt-3 w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+              {busy ? 'Sending…' : 'Request access'}
+            </button>
+            <Link href="/login?as=investor"
+              className="mt-2.5 block w-full rounded-xl border border-gray-200 px-3 py-2.5 text-center text-sm font-medium text-gray-600 hover:bg-gray-50">
+              Sign in with your granted email
+            </Link>
+          </>
+        )}
+
         <div className="mt-5 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
           Raising a round? <Link href="/signup" className="font-medium text-[#0E7490] hover:underline">Create a founder account</Link>
         </div>
