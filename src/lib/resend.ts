@@ -30,6 +30,7 @@ export async function sendTransactionalEmail(opts: { to: string; subject: string
     const data = await res.json();
     return { sent: true, id: data.id as string };
   } catch (e) {
+    console.error('Transactional email provider threw:', (e as Error).message);
     return { sent: false, error: (e as Error).message };
   }
 }

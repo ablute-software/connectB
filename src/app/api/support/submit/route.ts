@@ -86,7 +86,9 @@ export async function POST(req: Request) {
 
   // Best-effort — a notification failure never blocks the visitor's
   // response; the ticket is already saved and visible in the back-office
-  // either way.
+  // either way. sendTransactionalEmail never THROWS on a provider error (it
+  // resolves {sent:false, error}), so the old bare `.catch()` here never
+  // fired and the failure was invisible — logged now, still never blocks.
   const notifyTo = process.env.SUPPORT_NOTIFY_EMAIL;
   if (notifyTo) {
     sendTransactionalEmail({
@@ -96,7 +98,9 @@ export async function POST(req: Request) {
         heading: 'New support ticket',
         body: `<b>${name.trim()}</b> (${finalEmail}) · ${category} · via ${source}<br><br>${subject.trim()}<br><br>${message.trim().replace(/\n/g, '<br>')}`,
       }),
-    }).catch(() => { /* logged inside sendTransactionalEmail; never blocks */ });
+    }).then((result) => {
+      if (!result.sent) console.error('[support/submit] notification email not sent:', result.error);
+    }).catch((e) => console.error('[support/submit] notification email threw:', (e as Error).message));
   }
 
   return genericOk();

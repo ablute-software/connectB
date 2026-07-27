@@ -182,9 +182,10 @@ export default async function InvestorLandingPage() {
               <span className={s.eyebrow}>Already in our database</span>
               <h2>Your firm may already be on {BRAND_NAME}.</h2>
               <p>
-                We have compiled verified profiles of hundreds of VC funds, family offices and business
-                angels from public sources. Search for your organisation, claim your profile, verify your
-                affiliation and take control — no duplicate profiles, no starting from zero.
+                500+ investor profiles — VC funds, family offices and business angels across 25+ European
+                countries — compiled and verified from public sources. And growing every week. Search for
+                your organisation, claim your profile, verify your affiliation and take control — no
+                duplicate profiles, no starting from zero.
               </p>
               <p className={s.claimTrust}>
                 Claiming requires a verified work email and proportional proof of authority. Sensitive
