@@ -4,6 +4,13 @@
 // validates access_grants by email and mints short-lived signed URLs for
 // Storage-backed documents; external links pass through as-is.
 //
+// SECURITY FIX (audited 2026-07-27): this route used to trust an `email`
+// query param with NO identity check — anyone who knew (or guessed) a
+// grantee's email could call this directly and get back real signed
+// download URLs, no session required. The email now comes ONLY from the
+// caller's own Supabase session (verified server-side via the request's
+// cookies) — never from client input. No session → 401, full stop.
+//
 // Data Room V2 (F5) fix: an nda_required grant that isn't yet accepted used
 // to still have its document/folder included in this response (with a real
 // signed URL already minted) — only the CLIENT hid the whole page behind a
@@ -12,17 +19,20 @@
 // those out here, server-side, before anything is even fetched — a locked
 // item never reaches this response at all, and the client just shows a
 // count of how many are still pending.
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { serverClient } from '@/lib/supabase-server';
 import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 
-export async function GET(req: NextRequest) {
-  const email = req.nextUrl.searchParams.get('email')?.trim().toLowerCase();
-  if (!email) return NextResponse.json({ error: 'email required' }, { status: 400 });
-
+export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ error: 'not configured' }, { status: 200 });
+
+  const sb = await serverClient();
+  const { data: { user } } = await sb.auth.getUser();
+  const email = user?.email?.trim().toLowerCase();
+  if (!email) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 

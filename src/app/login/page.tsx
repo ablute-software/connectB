@@ -35,7 +35,15 @@ function LoginInner() {
       const sb = browserClient();
       const { error } = await sb.auth.signInWithOtp({
         email,
-        options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}` },
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+          // Explicit, not the implicit default — same reasoning as
+          // portal/page.tsx: harmless to self-create here since RLS blocks
+          // org data for non-members and /api/portal/access is now
+          // session-scoped, and blocking it would break first-time login
+          // for a legitimately granted investor.
+          shouldCreateUser: true,
+        },
       });
       setMsg(error ? error.message : 'Check your email for the sign-in link.');
     } finally { setBusy(false); }
