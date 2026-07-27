@@ -920,6 +920,16 @@ re-introduce the leak.
   "Revisit" was interpreted as "make sure it still works with the new
   profile fields," not "delete it." Now also stores the owner's own person
   profile (full_name/title/phone/linkedin) on that org_members row.
+- **Owner email became a LIST (`OWNER_EMAILS`), 2026-07-27.** The project
+  account moved to `sherlockdeal.com@gmail.com`, so both that address and
+  the original `ablutecompany@gmail.com` now grant owner-of-ablute_ plus
+  `platform_admins`. Swapping one for the other was the alternative and was
+  rejected: with a single constant, signing up as the address that ISN'T in
+  the code produces an ordinary founder with a fresh empty org and no
+  back-office, and nothing in the UI explains why — an easy way to lock the
+  owner out of the platform console. A list costs nothing and fails safe.
+  `RESEND_FROM_EMAIL` deliberately did NOT move: the from-address must sit on
+  a domain verified in Resend, and only `ablute.pt` is verified today.
 - **profiles live on `org_members`, not a separate `profiles` table.**
   IRM_SPEC allowed either. One row per (org, user) already exists; adding
   columns there avoids a join for something that's 1:1 per membership today.

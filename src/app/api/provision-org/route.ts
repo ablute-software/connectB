@@ -3,10 +3,17 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// The platform owner. Signing up with this email links to the real ablute_ org
-// (already seeded) as owner AND grants back-office (developer) access — so the
-// owner gets full founder + back-office capabilities from a single sign-up.
-const OWNER_EMAIL = 'ablutecompany@gmail.com';
+// The platform owner. Signing up with any of these emails links to the real
+// ablute_ org (already seeded) as owner AND grants back-office (developer)
+// access — so the owner gets full founder + back-office capabilities from a
+// single sign-up.
+//
+// A LIST, not a single address, deliberately: the project account moved to
+// sherlockdeal.com@gmail.com, and with a single constant, signing up as the
+// new address would have silently produced an ordinary founder with a fresh
+// empty org and no back-office — locking the owner out of the platform
+// console with no error to explain why. Both addresses stay valid.
+const OWNER_EMAILS = ['ablutecompany@gmail.com', 'sherlockdeal.com@gmail.com'];
 const ABLUTE_ORG_ID = 'bca54499-03c8-469b-a48d-b9f442e44f69';
 
 export async function POST(req: NextRequest) {
@@ -23,7 +30,7 @@ export async function POST(req: NextRequest) {
   if (!full_name || !title) return NextResponse.json({ ok: false, error: 'full_name and title/cargo are required' }, { status: 400 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
-  const isOwner = typeof email === 'string' && email.trim().toLowerCase() === OWNER_EMAIL;
+  const isOwner = typeof email === 'string' && OWNER_EMAILS.includes(email.trim().toLowerCase());
   const profileFields = { full_name, title, phone: phone || null, linkedin_url: linkedin_url || null };
 
   // Owner always gets platform (back-office) access — best effort, never blocks sign-up.
