@@ -6,6 +6,7 @@ import { useStore } from '@/lib/store';
 import { outboundCounts } from '@/lib/rules';
 import { browserClient } from '@/lib/supabase';
 import { Tooltip } from '@/components/ui';
+import { HelpSupportWidget } from '@/components/HelpSupportWidget';
 import { BRAND_NAME } from '@/lib/brand';
 
 type Me = {
@@ -67,7 +68,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // forgot-password/reset-password) are now standalone frosted-glass screens
   // — none of them should show the sidebar/top bar (a visitor could otherwise
   // preview app chrome before ever signing in). All bring their own layout.
-  const isStandaloneAuthPage = path === '/login' || path === '/signup' || path === '/forgot-password' || path === '/reset-password';
+  // /contact joins this list too — it's the public Contact & Support form
+  // (AuthShell-styled, same as login/signup) and must render standalone even
+  // for a signed-in visitor who followed the landing footer link, not get
+  // the founder app chrome wrapped around it.
+  const isStandaloneAuthPage = path === '/login' || path === '/signup' || path === '/forgot-password' || path === '/reset-password' || path === '/contact';
   if (path === '/' || path === '/investors' || isStandaloneAuthPage || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
 
   return (
@@ -102,6 +107,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+          <div className="px-3 pt-3">
+            <HelpSupportWidget source="founder_app" />
+          </div>
           {showBackofficeSwitcher && (
             <>
               <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-gray-300">Platform</div>

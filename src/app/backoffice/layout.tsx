@@ -16,6 +16,7 @@ const NAV = [
   { href: '/backoffice/queue', label: 'Fila' },
   { href: '/backoffice/catalog', label: 'Catálogo' },
   { href: '/backoffice/startups', label: 'Startups' },
+  { href: '/backoffice/support', label: 'Assistência ao Cliente' },
   { href: '/backoffice/metrics', label: 'Métricas' },
 ];
 
@@ -23,10 +24,18 @@ export default function BackofficeLayout({ children }: { children: React.ReactNo
   const path = usePathname();
   const router = useRouter();
   const [me, setMe] = useState<{ authEnabled: boolean; role: string; orgRole?: string | null } | null>(null);
+  const [supportBadge, setSupportBadge] = useState(0);
 
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false, role: 'none' }));
   }, []);
+
+  useEffect(() => {
+    if (me?.authEnabled === false || me?.role !== 'developer') return;
+    fetch('/api/backoffice/support').then((r) => r.json()).then((body) => {
+      if (body.ok) setSupportBadge(body.counts.navBadge as number);
+    }).catch(() => {});
+  }, [me]);
 
   useEffect(() => {
     if (me && me.authEnabled && me.role !== 'developer') router.replace('/pipeline');
@@ -51,9 +60,12 @@ export default function BackofficeLayout({ children }: { children: React.ReactNo
               const active = n.href === '/backoffice' ? path === '/backoffice' : path?.startsWith(n.href);
               return (
                 <Link key={n.href} href={n.href}
-                  className={`rounded-lg px-3 py-1.5 text-[13px] font-medium transition ${
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition ${
                     active ? 'bg-white text-gray-900' : 'text-gray-300 hover:bg-white/10'}`}>
                   {n.label}
+                  {n.href === '/backoffice/support' && supportBadge > 0 && (
+                    <span className="rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">{supportBadge}</span>
+                  )}
                 </Link>
               );
             })}

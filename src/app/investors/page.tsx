@@ -338,6 +338,7 @@ export default async function InvestorLandingPage() {
             <a href="#pricing">Pricing</a>
             <Link href="/">For Startups</Link>
             <Link href="/investors">For Investors</Link>
+            <Link href="/contact?from=investors">Contact</Link>
             <Link href="/login?as=investor">Sign in</Link>
           </div>
           <p className={s.cp}>© {new Date().getFullYear()} {BRAND_NAME} · Investor relations, investigated.</p>

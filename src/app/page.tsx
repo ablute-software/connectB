@@ -373,6 +373,7 @@ export default async function LandingPage() {
             <a href="#pricing">Pricing</a>
             <Link href="/">For Startups</Link>
             <Link href="/investors">For Investors</Link>
+            <Link href="/contact">Contact</Link>
             <Link href="/login">Sign in</Link>
             <Link href="/signup">Create account</Link>
           </div>

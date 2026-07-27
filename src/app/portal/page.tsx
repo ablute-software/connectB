@@ -22,6 +22,7 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
+import { HelpSupportWidget } from '@/components/HelpSupportWidget';
 
 interface PortalDoc {
   id: string; name: string; version?: string; watermark: boolean;
@@ -133,7 +134,10 @@ export default function PortalPage() {
             <span className="text-xl font-bold text-[#0E7490]" style={{ fontFamily: 'Comfortaa, sans-serif' }}>ablute<span className="text-[#22D3EE]">_</span></span>
             <span className="ml-2 text-sm text-gray-400">Investor data room</span>
           </div>
-          <span className="text-[10px] font-bold text-[#B00000]">CONFIDENTIAL — SUBJECT TO NDA</span>
+          <div className="flex items-center gap-4">
+            <span className="text-[10px] font-bold text-[#B00000]">CONFIDENTIAL — SUBJECT TO NDA</span>
+            <HelpSupportWidget source="investor_portal" className="text-xs text-gray-400 hover:text-gray-600" />
+          </div>
         </div>
       </header>
 

@@ -9,7 +9,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/api/stripe/webhook'];
+const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/api/stripe/webhook', '/contact', '/api/support'];
 
 // Where a signed-in user belongs. '/' is the public landing now, so the app
 // home is the pipeline.
