@@ -7,6 +7,7 @@ import { outboundCounts } from '@/lib/rules';
 import { browserClient } from '@/lib/supabase';
 import { Tooltip } from '@/components/ui';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
+import { MatchDealModal } from '@/components/MatchDealModal';
 import { BRAND_NAME } from '@/lib/brand';
 
 type Me = {
@@ -43,6 +44,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const pendingRuns = db.runs.filter((r) => r.status === 'pending_review').length;
   const needsReviewCount = db.interactions.filter((i) => i.needs_review).length;
   const [me, setMe] = useState<Me | null>(null);
+  const [showMatchDeal, setShowMatchDeal] = useState(false);
 
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false, user: null, role: 'none' }));
@@ -107,6 +109,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+          {/* Opens a modal, not a route — same top-level treatment as Plans
+              & billing (always visible, not tucked inside "about {org}"),
+              per the connectB entry-point prompt this was built from. */}
+          <button onClick={() => setShowMatchDeal(true)}
+            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13.5px] text-gray-600 transition hover:bg-gray-50">
+            <span className="w-4 text-center text-gray-400">♥</span>
+            MatchDeal
+          </button>
           <div className="px-3 pt-3">
             <HelpSupportWidget source="founder_app" />
           </div>
@@ -182,7 +192,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </Link>
           );
         })}
+        <button onClick={() => setShowMatchDeal(true)} className="relative shrink-0 px-2.5 py-1 text-xs text-gray-400">
+          MatchDeal
+        </button>
       </nav>
+
+      {showMatchDeal && <MatchDealModal onClose={() => setShowMatchDeal(false)} />}
     </div>
   );
 }
