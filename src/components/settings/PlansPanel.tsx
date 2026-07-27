@@ -1,7 +1,14 @@
 'use client';
-// Plans & Billing. Moved from src/app/plans/page.tsx (formerly its own
-// top-level route) into the "Plans & billing" separador on /settings — logic
-// unchanged, only the export changed from a page default to a named panel.
+// Plans & Billing. Rebuilt as an actual sales page (2026-07-27) — was 2-3
+// bullets per card with no comparison and no "what am I gaining" step
+// before checkout. Now: rich cards (full feature list via PlanCards),
+// an expandable full comparison table, and a confirm-before-committing
+// modal that explains the upgrade before checkout/request ever fires.
+// PlanCards/ComparisonTable/UpgradeConfirmModal (components/plans/) are
+// generic — this file's only job is adapting PLANS into their PlanCardData
+// shape and supplying the checkout/request behaviour. Same components will
+// serve the Investor Workspace plans page (Phase 0) and any future landing
+// pricing block.
 //
 // Current plan + three tiers with a Monthly/Annual toggle. Two modes,
 // decided by whether billing (Stripe) is configured server-side:
@@ -12,9 +19,14 @@
 //                   applies manually (unchanged).
 // No card data touches this code — checkout/portal are hosted. Copy says
 // "secure payment", never the provider's name. Success fee is suspended.
+// Stripe flow itself is UNCHANGED — only presentation and the confirm step.
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
+import { PlanCards } from '@/components/plans/PlanCards';
+import { ComparisonTable } from '@/components/plans/ComparisonTable';
+import { UpgradeConfirmModal } from '@/components/plans/UpgradeConfirmModal';
+import type { PlanCardData } from '@/components/plans/types';
 import {
   PLANS, CONSULTANCY_TEASER_EN_LEAD, CONSULTANCY_TEASER_EN_REST, BILLING_PERIODS,
   planPriceLabel, parsePlanRequest, normalizePlan, planName, type BillingPeriod,
@@ -33,6 +45,8 @@ export function PlansPanel() {
   const [requestedLocal, setRequestedLocal] = useState<{ tier: PlanTier; period: BillingPeriod } | null>(null);
   const [err, setErr] = useState('');
   const [notice, setNotice] = useState('');
+  const [showCompare, setShowCompare] = useState(false);
+  const [confirmTier, setConfirmTier] = useState<PlanTier | null>(null);
 
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false }));
@@ -92,6 +106,26 @@ export function PlansPanel() {
     }
   }
 
+  // Adapt PLANS -> the generic PlanCardData shape PlanCards/ComparisonTable/
+  // UpgradeConfirmModal actually render. Recomputed on every period toggle
+  // since the price label depends on it.
+  const cardPlans: PlanCardData[] = PLANS.map((p) => ({
+    id: p.tier,
+    name: p.name,
+    tagline: p.tagline,
+    priceLabel: planPriceLabel(p, period),
+    priceSubLabel: p.paid ? undefined : 'free forever',
+    bullets: p.bullets,
+    popular: p.tier === 'garage',
+  }));
+  const confirmToPlan = confirmTier ? cardPlans.find((p) => p.id === confirmTier) : undefined;
+  const confirmFromPlan = cardPlans.find((p) => p.id === current);
+
+  function commitPlan(tier: PlanTier) {
+    setConfirmTier(null);
+    if (billing) checkout(tier); else requestPlan(tier);
+  }
+
   function ctaFor(tier: PlanTier) {
     if (tier === current) return <span className="rounded-full bg-[#E8F4F8] px-3 py-1 text-xs font-semibold text-[#0E7490]">Current plan</span>;
 
@@ -105,8 +139,8 @@ export function PlansPanel() {
       }
       if (!canManage) return <span className="text-[11px] text-gray-400">Only the owner/admin can subscribe.</span>;
       return (
-        <button onClick={() => checkout(tier)} disabled={busy === tier}
-          className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0c637b] disabled:opacity-40">
+        <button onClick={() => setConfirmTier(tier)} disabled={busy === tier}
+          className="w-full rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0c637b] disabled:opacity-40">
           {busy === tier ? 'Opening…' : 'Choose this plan'}
         </button>
       );
@@ -123,8 +157,8 @@ export function PlansPanel() {
     }
     if (!canManage) return <span className="text-[11px] text-gray-400">Only the owner/admin can request this.</span>;
     return (
-      <button onClick={() => requestPlan(tier)} disabled={busy === tier}
-        className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0c637b] disabled:opacity-40">
+      <button onClick={() => setConfirmTier(tier)} disabled={busy === tier}
+        className="w-full rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0c637b] disabled:opacity-40">
         {busy === tier ? 'Sending…' : `Request ${planName(tier)}`}
       </button>
     );
@@ -167,23 +201,15 @@ export function PlansPanel() {
         ))}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        {PLANS.map((p) => {
-          const isCurrent = p.tier === current;
-          return (
-            <div key={p.tier}
-              className={`flex flex-col rounded-2xl border bg-white p-4 shadow-sm ${isCurrent ? 'border-[#0E7490] ring-1 ring-[#0E7490]' : 'border-gray-100'}`}>
-              <div className="text-sm font-bold text-gray-800">{p.name}</div>
-              <div className="mt-1.5 text-[15px] font-bold text-[#0E7490]">{planPriceLabel(p, period)}</div>
-              <ul className="mt-3 flex-1 space-y-1 text-xs text-gray-600">
-                <li>{p.paid ? '✓ AI-personalized messaging' : '· Mechanical templates + manual writing'}</li>
-                <li>· Pipeline, data room and outreach discipline</li>
-              </ul>
-              <div className="mt-3">{ctaFor(p.tier)}</div>
-            </div>
-          );
-        })}
+      <PlanCards plans={cardPlans} currentId={current} renderCta={(p) => ctaFor(p.id as PlanTier)} />
+
+      <div>
+        <button onClick={() => setShowCompare((v) => !v)}
+          className="text-xs font-semibold text-[#0E7490] hover:underline">
+          {showCompare ? '− Hide full comparison' : '+ Compare plans in detail'}
+        </button>
       </div>
+      {showCompare && <ComparisonTable plans={cardPlans} />}
 
       {billing && <p className="text-[11px] text-gray-400">🔒 {SECURE_PAYMENT_COPY}. Cancel anytime.</p>}
 
@@ -193,6 +219,17 @@ export function PlansPanel() {
         <p className="text-[11px] text-gray-400">
           No payment processing in this version — a plan-change request is recorded and the team applies it manually.
         </p>
+      )}
+
+      {confirmToPlan && (
+        <UpgradeConfirmModal
+          fromPlan={confirmFromPlan}
+          toPlan={confirmToPlan}
+          busy={busy === confirmTier}
+          confirmLabel={billing ? 'Continue to secure payment' : 'Send request'}
+          onCancel={() => setConfirmTier(null)}
+          onConfirm={() => confirmTier && commitPlan(confirmTier)}
+        />
       )}
     </div>
   );

@@ -29,15 +29,74 @@ export interface PlanRow {
   annualEur?: number;
   /** Effective per-month price when billed annually. */
   annualPerMonthEur?: number;
+  /** One line: who this plan is for. */
+  tagline: string;
+  /**
+   * The FULL, cumulative list of what this plan includes — not a delta.
+   * Each tier's array is the previous tier's array plus what's new, in that
+   * order, so a generic renderer can diff consecutive entries to highlight
+   * "what's new" without any extra data (see plans/PlanCards.tsx). Every
+   * line maps to a real capability in the app today, or is explicitly
+   * marked "(coming soon)" when it names something already built but
+   * parked (Review & Optimization) rather than implying it ships now.
+   */
+  bullets: string[];
 }
 
 // Names and prices are verbatim per the founder's spec — treated as brand copy,
 // not paraphrasable. Kept here so the Plans page and any pricing surface share
 // one definition.
 export const PLANS: PlanRow[] = [
-  { tier: 'idea', name: 'Elementary, my dear', monthly: '€0', paid: false, monthlyEur: 0 },
-  { tier: 'garage', name: 'Suspect list', monthly: '€85/month', annual: '€756/year (equivalent to €63/month)', paid: true, monthlyEur: 85, annualEur: 756, annualPerMonthEur: 63 },
-  { tier: 'motherfunding', name: "It's the buttler!", monthly: '€149/month', annual: '€1,308/year (equivalent to €109/month)', paid: true, monthlyEur: 149, annualEur: 1308, annualPerMonthEur: 109 },
+  {
+    tier: 'idea', name: 'Elementary, my dear', monthly: '€0', paid: false, monthlyEur: 0,
+    tagline: 'For your very first steps',
+    bullets: [
+      'Investor pipeline & agenda',
+      'Company profile & completeness tracker',
+      'Data room — documents, folders, access control',
+      'Outreach discipline — kill-word linting, volume caps, contact locks',
+      'Needs-review queue',
+      'Import investors — CSV or manual entry',
+      'Mechanical message templates',
+    ],
+  },
+  {
+    tier: 'garage', name: 'Suspect list', monthly: '€85/month', annual: '€756/year (equivalent to €63/month)', paid: true, monthlyEur: 85, annualEur: 756, annualPerMonthEur: 63,
+    tagline: 'For rounds already in motion',
+    bullets: [
+      'Investor pipeline & agenda',
+      'Company profile & completeness tracker',
+      'Data room — documents, folders, access control',
+      'Outreach discipline — kill-word linting, volume caps, contact locks',
+      'Needs-review queue',
+      'Import investors — CSV or manual entry',
+      'Mechanical message templates',
+      'AI-personalized outreach drafts',
+      'Automations — reminders & follow-up sequencing',
+      'NDA-protected document sharing',
+      'Investor reawakening engine',
+    ],
+  },
+  {
+    tier: 'motherfunding', name: "It's the buttler!", monthly: '€149/month', annual: '€1,308/year (equivalent to €109/month)', paid: true, monthlyEur: 149, annualEur: 1308, annualPerMonthEur: 109,
+    tagline: 'For serious, multi-investor raises',
+    bullets: [
+      'Investor pipeline & agenda',
+      'Company profile & completeness tracker',
+      'Data room — documents, folders, access control',
+      'Outreach discipline — kill-word linting, volume caps, contact locks',
+      'Needs-review queue',
+      'Import investors — CSV or manual entry',
+      'Mechanical message templates',
+      'AI-personalized outreach drafts',
+      'Automations — reminders & follow-up sequencing',
+      'NDA-protected document sharing',
+      'Investor reawakening engine',
+      'Advanced Review & Optimization (coming soon)',
+      'Investability reports (coming soon)',
+      'Priority support',
+    ],
+  },
 ];
 
 // Success fee SUSPENDED (founder decision, post legal consultation, 2026-07-23):
