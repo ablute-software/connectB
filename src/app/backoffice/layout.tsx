@@ -15,6 +15,7 @@ const NAV = [
   { href: '/backoffice', label: 'Hoje' },
   { href: '/backoffice/queue', label: 'Fila' },
   { href: '/backoffice/catalog', label: 'Catálogo' },
+  { href: '/backoffice/investors', label: 'Investors' },
   { href: '/backoffice/startups', label: 'Startups' },
   { href: '/backoffice/support', label: 'Assistência ao Cliente' },
   { href: '/backoffice/metrics', label: 'Métricas' },
