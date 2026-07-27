@@ -84,23 +84,39 @@ export async function POST(req: Request) {
   });
   if (error) { console.error('[support/submit] insert failed', error.message); return genericOk(); }
 
-  // Best-effort — a notification failure never blocks the visitor's
-  // response; the ticket is already saved and visible in the back-office
-  // either way. sendTransactionalEmail never THROWS on a provider error (it
-  // resolves {sent:false, error}), so the old bare `.catch()` here never
-  // fired and the failure was invisible — logged now, still never blocks.
+  // AWAITED, deliberately. This was fire-and-forget (a dangling promise with
+  // .then/.catch) and the email was never actually sent: on serverless the
+  // function is frozen the moment the response is returned, so the fetch to
+  // the provider never ran — confirmed in production, where the request's
+  // External APIs panel showed 6 calls to Supabase and ZERO to the provider,
+  // with no error logged anywhere. A dangling promise isn't "best-effort"
+  // here, it's "never".
+  //
+  // The cost is a few hundred ms added to the visitor's response on a form
+  // they submit once. The alternative that keeps the response fast is
+  // waitUntil() from @vercel/functions, which would pin this route to Vercel
+  // for a trade nobody asked for. Still never blocks the OUTCOME: the ticket
+  // is already committed above, and a provider failure only logs.
   const notifyTo = process.env.SUPPORT_NOTIFY_EMAIL;
-  if (notifyTo) {
-    sendTransactionalEmail({
-      to: notifyTo,
-      subject: `[${BRAND_NAME} support] ${subject.trim()}`,
-      html: transactionalTemplate({
-        heading: 'New support ticket',
-        body: `<b>${name.trim()}</b> (${finalEmail}) · ${category} · via ${source}<br><br>${subject.trim()}<br><br>${message.trim().replace(/\n/g, '<br>')}`,
-      }),
-    }).then((result) => {
-      if (!result.sent) console.error('[support/submit] notification email not sent:', result.error);
-    }).catch((e) => console.error('[support/submit] notification email threw:', (e as Error).message));
+  if (!notifyTo) {
+    // Was a silent early return — an unset env var looked identical to a
+    // successful send in the logs.
+    console.warn('[support/submit] SUPPORT_NOTIFY_EMAIL unset — ticket saved, no notification sent.');
+  } else {
+    try {
+      const result = await sendTransactionalEmail({
+        to: notifyTo,
+        subject: `[${BRAND_NAME} support] ${subject.trim()}`,
+        html: transactionalTemplate({
+          heading: 'New support ticket',
+          body: `<b>${name.trim()}</b> (${finalEmail}) · ${category} · via ${source}<br><br>${subject.trim()}<br><br>${message.trim().replace(/\n/g, '<br>')}`,
+        }),
+      });
+      if (result.sent) console.log('[support/submit] notification email sent, id:', result.id);
+      else console.error('[support/submit] notification email not sent:', result.error);
+    } catch (e) {
+      console.error('[support/submit] notification email threw:', (e as Error).message);
+    }
   }
 
   return genericOk();

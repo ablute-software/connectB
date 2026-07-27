@@ -10,7 +10,13 @@ export const resendConfigured = !!process.env.RESEND_API_KEY;
 
 export async function sendTransactionalEmail(opts: { to: string; subject: string; html: string }) {
   const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return { sent: false, error: 'Email sending is not available in your workspace yet.' };
+  if (!apiKey) {
+    // Logged, not silent: an unset key used to be indistinguishable from a
+    // successful send in the logs, which is how a broken notify path stayed
+    // invisible. The returned message stays user-facing and vague on purpose.
+    console.error('[resend] RESEND_API_KEY is not set — no email was sent.');
+    return { sent: false, error: 'Email sending is not available in your workspace yet.' };
+  }
 
   // Sender display name is the brand; the address stays the verified Resend
   // one until the sherlockdeal.com domain is verified in the provider — a
