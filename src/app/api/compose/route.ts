@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await sb.auth.getUser();
     if (user) {
       const [role, { plan }] = await Promise.all([
-        resolveRole(user.id, user.email, sb),
+        resolveRole(user.id, user.email, sb, user.email_confirmed_at),
         resolveUserPlan(user.id, sb),
       ]);
       if (!planEntitlements(plan, role === 'developer').aiComposer) {

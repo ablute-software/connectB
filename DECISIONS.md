@@ -3408,3 +3408,54 @@ are real product/schema work the founder is depending on for the control-
 group exchange with the other engine — they deserve a dedicated pass each
 rather than four rushed, unverified migrations in the same turn that just
 fixed a placeholder-domain bug and a scope error two prompts running.
+
+## ablute.pt domain admin access, 2026-07-27
+
+Any Supabase-**confirmed** email ending in `@ablute.pt` now resolves to
+`developer` (full back-office) in `resolveRole` (`supabase-server.ts`) and
+gets the same org-ablute_-owner + `platform_admins` treatment as the two
+hardcoded `OWNER_EMAILS` in `provision-org`, via the shared
+`isAbluteTeamEmail()` suffix check (`endsWith('@ablute.pt')`,
+case-insensitive — deliberately not `includes`, so `x@notablute.pt` cannot
+match).
+
+**Hard requirement, both call sites:** the grant only fires on a
+Supabase-confirmed address.
+- `resolveRole` takes a new `emailConfirmedAt` parameter; every one of its
+  16 call sites now passes `user.email_confirmed_at` from the same
+  `auth.getUser()` call that already produced `user.email`. Omitted =
+  treated as unconfirmed (fails closed), by construction — there's no
+  default that grants access.
+- `provision-org` never trusts the request body's `email` field for this
+  decision (it's an unverified string the signup form sent). It re-fetches
+  the authoritative user via `admin.auth.admin.getUserById(user_id)` and
+  reads `email` + `email_confirmed_at` from *that* — the same data
+  `resolveRole` would see once the user is actually signed in.
+- Practical note: this project's Supabase Auth has `mailer_autoconfirm:
+  true` (checked live via `/auth/v1/settings`), so in practice
+  `email_confirmed_at` is set the instant `signUp()` returns — there is no
+  real-world window today where a genuine `@ablute.pt` signup is
+  provisioned before being "confirmed." The check is still enforced
+  unconditionally, because that setting is infrastructure configuration,
+  not a code guarantee, and could change.
+- The two legacy `OWNER_EMAILS` (`ablutecompany@gmail.com`,
+  `sherlockdeal.com@gmail.com`) do **not** carry this confirmation
+  requirement — they're two specific, pre-vetted, hardcoded accounts, a
+  narrower and different trust decision than "anyone who can receive mail
+  anywhere on this whole domain." Not retrofitted; out of scope of this
+  change.
+
+**Security boundary, stated plainly:** this is safe only for as long as
+`ablute.pt` is a domain we control end to end (DNS + every mailbox on it).
+If that domain is ever handed to a registrar/host we don't fully trust, or
+a subdomain/catch-all is delegated to a third party, this rule silently
+grants back-office access to whoever can receive mail there. Revisit this
+rule if that ever changes.
+
+**Requirement for Phase 0 (Investor Workspace):** once investor accounts
+and the investor side of the app exist, the same rule must extend to give
+`@ablute.pt` team members observation/read access on the investor side too
+— platform team members need to be able to see what an investor user sees,
+the same way they already can on the founder side via back-office. Not
+built now (there is no investor side yet to extend); flagged here so Phase
+0's design doesn't have to rediscover this requirement.

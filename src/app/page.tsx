@@ -158,7 +158,7 @@ export default async function LandingPage() {
     const sb = await serverClient();
     const { data: { user } } = await sb.auth.getUser();
     if (user) {
-      const role = await resolveRole(user.id, user.email, sb);
+      const role = await resolveRole(user.id, user.email, sb, user.email_confirmed_at);
       redirect(role === 'investor' ? '/portal' : '/pipeline');
     }
   }

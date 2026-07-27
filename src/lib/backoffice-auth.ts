@@ -21,7 +21,7 @@ export async function requirePlatformAdmin(): Promise<BackofficeAuth | { error: 
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return { error: NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 }) };
 
-  const role = await resolveRole(user.id, user.email, sb);
+  const role = await resolveRole(user.id, user.email, sb, user.email_confirmed_at);
   if (role !== 'developer') return { error: NextResponse.json({ ok: false, error: 'Platform admin only.' }, { status: 403 }) };
 
   return { admin: createClient(url, service, { auth: { persistSession: false } }), userId: user.id };

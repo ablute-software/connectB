@@ -42,7 +42,7 @@ export async function GET() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ authEnabled: true, user: null, role: 'none', capabilities });
   const [role, orgRole, { plan }] = await Promise.all([
-    resolveRole(user.id, user.email, sb),
+    resolveRole(user.id, user.email, sb, user.email_confirmed_at),
     getOrgRole(user.id, sb),
     resolveUserPlan(user.id, sb),
   ]);

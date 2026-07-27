@@ -13,7 +13,7 @@ export async function GET() {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
-  const role = await resolveRole(user.id, user.email, sb);
+  const role = await resolveRole(user.id, user.email, sb, user.email_confirmed_at);
   if (role !== 'developer') return NextResponse.json({ ok: false, error: 'Platform admin only.' }, { status: 403 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });

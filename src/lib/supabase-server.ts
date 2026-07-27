@@ -20,12 +20,33 @@ export async function serverClient() {
   });
 }
 
-export async function resolveRole(userId: string, email: string | undefined, sb: Awaited<ReturnType<typeof serverClient>>): Promise<Role> {
+// @ablute.pt team members are developer/back-office regardless of a
+// platform_admins row — see DECISIONS.md "ablute.pt domain admin access".
+// Exported so provision-org (a different trust boundary, service-role only)
+// can apply the exact same rule when deciding org-join, not just role.
+export function isAbluteTeamEmail(email: string | undefined | null): boolean {
+  // endsWith, not includes: 'x@notablute.pt' must NOT match. Case-insensitive
+  // because email domains aren't case-sensitive in practice.
+  return !!email && email.trim().toLowerCase().endsWith('@ablute.pt');
+}
+
+export async function resolveRole(
+  userId: string,
+  email: string | undefined,
+  sb: Awaited<ReturnType<typeof serverClient>>,
+  // Hard requirement (DECISIONS.md): the @ablute.pt grant below only ever
+  // applies to a Supabase-CONFIRMED email. Omitted/undefined = treated as
+  // unconfirmed (fail closed) — every call site is expected to pass
+  // user.email_confirmed_at from the same auth.getUser() call that produced
+  // `email`, never to skip this parameter.
+  emailConfirmedAt?: string | null,
+): Promise<Role> {
   const [{ data: admin }, { data: member }] = await Promise.all([
     sb.from('platform_admins').select('user_id').eq('user_id', userId).maybeSingle(),
     sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle(),
   ]);
   if (admin) return 'developer';
+  if (emailConfirmedAt && isAbluteTeamEmail(email)) return 'developer';
   if (member) return 'founder';
   if (email) {
     const { data: grant } = await sb.from('access_grants').select('id').eq('grantee_email', email).limit(1).maybeSingle();

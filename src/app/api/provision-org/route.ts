@@ -2,11 +2,12 @@
 // Idempotent: if the user already owns an org, it is returned unchanged.
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { isAbluteTeamEmail } from '@/lib/supabase-server';
 
-// The platform owner. Signing up with any of these emails links to the real
-// ablute_ org (already seeded) as owner AND grants back-office (developer)
-// access — so the owner gets full founder + back-office capabilities from a
-// single sign-up.
+// The platform owner. Signing up with either of these two specific,
+// hardcoded addresses links to the real ablute_ org (already seeded) as
+// owner AND grants back-office (developer) access — so the owner gets full
+// founder + back-office capabilities from a single sign-up.
 //
 // A LIST, not a single address, deliberately: the project account moved to
 // sherlockdeal.com@gmail.com, and with a single constant, signing up as the
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
   const {
-    user_id, org_name, email,
+    user_id, org_name,
     website, sector, stage, round_target_eur, country, one_liner,
     full_name, title, phone, linkedin_url,
   } = await req.json();
@@ -30,7 +31,24 @@ export async function POST(req: NextRequest) {
   if (!full_name || !title) return NextResponse.json({ ok: false, error: 'full_name and title/cargo are required' }, { status: 400 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
-  const isOwner = typeof email === 'string' && OWNER_EMAILS.includes(email.trim().toLowerCase());
+
+  // The request body's `email` field is never used for this decision — it's
+  // whatever the signup form sent, unverified. The email that actually
+  // decides ownership/domain-admin comes from auth.users itself, via the
+  // service role, which is also the only place email_confirmed_at lives.
+  const { data: authUser } = await admin.auth.admin.getUserById(user_id);
+  const email = authUser?.user?.email;
+  const emailConfirmed = !!authUser?.user?.email_confirmed_at;
+
+  const isLegacyOwner = typeof email === 'string' && OWNER_EMAILS.includes(email.trim().toLowerCase());
+  // Hard requirement (DECISIONS.md): the @ablute.pt domain grant only ever
+  // applies once Supabase has confirmed the address — never on the strength
+  // of a just-submitted signup form alone. The two legacy OWNER_EMAILS are
+  // pre-vetted, hardcoded, known accounts and don't carry this restriction —
+  // that's a different, narrower trust decision than "anyone who can receive
+  // mail at this whole domain."
+  const isAbluteTeam = emailConfirmed && isAbluteTeamEmail(email);
+  const isOwner = isLegacyOwner || isAbluteTeam;
   const profileFields = { full_name, title, phone: phone || null, linkedin_url: linkedin_url || null };
 
   // Owner always gets platform (back-office) access — best effort, never blocks sign-up.
