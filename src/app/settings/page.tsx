@@ -1,8 +1,11 @@
 'use client';
-// Settings — org config (General), Automations, Data & imports, Plans &
-// billing, as separadores. Merges the former standalone /automations,
-// /import and /plans routes in — each keeps its logic completely unchanged,
-// only moved into a named panel. The active separador lives in ?tab=
+// The "about {org.name}" page (nav label set in shell.tsx; the route stays
+// /settings). Separadores: Company, Import history, Needs review,
+// Automations, Team. Plans & billing is NOT here — it went back to being its
+// own top-level nav item (src/app/plans/page.tsx) — this page is company
+// config + data ingestion + team, not billing. Needs review moved in from
+// the former /queue (which is back to being just Outbox — see
+// src/app/outbox/page.tsx). The active separador lives in ?tab=
 // (useTabParam), never component state alone.
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -16,18 +19,15 @@ import { CompanyFactsPanel } from '@/components/CompanyFactsPanel';
 import { AutomationsPanel } from '@/components/AutomationsPanel';
 import { PermissionsMatrixCard } from '@/components/PermissionsMatrixCard';
 import { ImportPanel } from '@/components/settings/ImportPanel';
-import { PlansPanel } from '@/components/settings/PlansPanel';
+import { NeedsReviewPanel } from '@/components/queue/NeedsReviewPanel';
 import { APP_URL } from '@/lib/brand';
 
 type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
 type Member = { userId: string; email: string; role: OrgRole; isSelf: boolean };
 
-const TABS = [
-  { key: 'general', label: 'General' },
-  { key: 'automations', label: 'Automations' },
-  { key: 'data-imports', label: 'Data & imports' },
-  { key: 'plans-billing', label: 'Plans & billing' },
-];
+function needsReviewBadge(db: ReturnType<typeof useStore>['db']) {
+  return db.interactions.filter((i) => i.needs_review).length;
+}
 
 function RosterCard({ myRole }: { myRole: OrgRole | null }) {
   const [members, setMembers] = useState<Member[] | null>(null);
@@ -246,8 +246,8 @@ function GmailConnectionCard() {
   );
 }
 
-function GeneralPanel() {
-  const { db, resetDemo } = useStore();
+function CompanyPanel() {
+  const { resetDemo } = useStore();
   return (
     <div className="max-w-3xl space-y-4">
       <OrganisationCard />
@@ -255,10 +255,6 @@ function GeneralPanel() {
       <Card title="Company facts">
         <CompanyFactsPanel />
       </Card>
-
-      {authEnabled && <TeamCard orgId={db.org.id} />}
-      {authEnabled && <PermissionsMatrixCard />}
-      {authEnabled && <Suspense fallback={null}><GmailConnectionCard /></Suspense>}
 
       {!authEnabled && (
         <Card title="Demo data">
@@ -275,26 +271,53 @@ function GeneralPanel() {
   );
 }
 
+function TeamPanel() {
+  const { db } = useStore();
+  return (
+    <div className="max-w-3xl space-y-4">
+      {authEnabled ? (
+        <>
+          <TeamCard orgId={db.org.id} />
+          <PermissionsMatrixCard />
+          <Suspense fallback={null}><GmailConnectionCard /></Suspense>
+        </>
+      ) : (
+        <Card title="Team"><p className="text-sm text-gray-400">Not available in this workspace yet.</p></Card>
+      )}
+    </div>
+  );
+}
+
 function SettingsInner() {
-  const [tab, setTab] = useTabParam('general');
+  const [tab, setTab] = useTabParam('company');
   const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
+  const { db } = useStore();
   useEffect(() => {
     if (!authEnabled) return;
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => setOrgRole(me.orgRole ?? null)).catch(() => {});
   }, []);
 
+  const tabs = [
+    { key: 'company', label: 'Company' },
+    { key: 'import-history', label: 'Import history' },
+    { key: 'needs-review', label: 'Needs review', badge: needsReviewBadge(db) },
+    { key: 'automations', label: 'Automations' },
+    { key: 'team', label: 'Team' },
+  ];
+
   return (
     <div>
-      <h1 className="mb-1 text-lg font-bold">Settings</h1>
-      <Tabs items={TABS} active={tab} onChange={setTab} />
+      <h1 className="mb-1 text-lg font-bold">About {db.org.name || 'your company'}</h1>
+      <Tabs items={tabs} active={tab} onChange={setTab} />
       {tab === 'automations' && (
         <Card title="Automations">
           <AutomationsPanel orgRole={authEnabled ? orgRole : undefined} />
         </Card>
       )}
-      {tab === 'data-imports' && <ImportPanel />}
-      {tab === 'plans-billing' && <PlansPanel />}
-      {tab !== 'automations' && tab !== 'data-imports' && tab !== 'plans-billing' && <GeneralPanel />}
+      {tab === 'import-history' && <ImportPanel />}
+      {tab === 'needs-review' && <NeedsReviewPanel />}
+      {tab === 'team' && <TeamPanel />}
+      {tab !== 'automations' && tab !== 'import-history' && tab !== 'needs-review' && tab !== 'team' && <CompanyPanel />}
     </div>
   );
 }

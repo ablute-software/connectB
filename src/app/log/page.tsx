@@ -292,7 +292,7 @@ function LogForm() {
             aiComposerLocked ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                 <span className="text-xs text-gray-500">✨ {AI_COMPOSER_LOCKED_COPY}.</span>
-                <a href="/settings?tab=plans-billing" className="text-[11px] font-medium text-[#0E7490] hover:underline">Ver planos</a>
+                <a href="/plans" className="text-[11px] font-medium text-[#0E7490] hover:underline">Ver planos</a>
                 <span className="text-[11px] text-gray-400">Podes escrever a mensagem manualmente abaixo.</span>
               </div>
             ) : (

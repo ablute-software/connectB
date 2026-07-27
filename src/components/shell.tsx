@@ -13,20 +13,26 @@ type Me = {
   capabilities?: { ai: boolean; companyCanon: boolean; needsReviewAi: boolean; documentDetails: boolean; ndaSystem: boolean; entityContactFields: boolean; reviewRuns: boolean; permissionMatrix: boolean; documentOrdering: boolean; documentVersions: boolean; reawakening: boolean; planAccounts: boolean; billing: boolean };
 };
 
-// Reorganisation batch — 11 items collapsed to 6 top-level entries; the rest
-// live as separadores inside the page they were absorbed into (see
-// src/app/today, /dashboard, /queue, /settings). Review & Optimization used
-// to gate this WHOLE list on the companyCanon capability (requiresCapability
-// below, now removed) — that gate moved one level down, into the Dashboard
-// page deciding whether its own "Review & Optimization" tab renders. Nothing
-// here needs capability-based filtering anymore, so visibleNav is gone too.
+// Reorganisation batch, since revised: 11 items collapsed to separadores
+// inside the page that absorbed them (see src/app/today, /dashboard,
+// /settings), with 7 top-level entries left. Two corrections on top of the
+// first pass: Plans & billing came back out to top-level (always-visible
+// billing shouldn't be a tab click away), and Queue was dissolved — Needs
+// review moved into /settings ("about {org}"), Outbox went back to being
+// its own page. Review & Optimization still gates itself on the
+// companyCanon capability, but one level down (Dashboard decides whether
+// its own tab renders) — nothing here needs capability-based filtering.
+//
+// The 6th item's label is set at render time (`about {org.name}`), not
+// here — see aboutLabel below.
 const NAV: { href: string; label: string; icon: string }[] = [
   { href: '/pipeline', label: 'Pipeline', icon: '▤' },
   { href: '/today', label: 'Today', icon: '☀' },
   { href: '/dashboard', label: 'Dashboard', icon: '◔' },
-  { href: '/queue', label: 'Queue', icon: '◑' },
+  { href: '/outbox', label: 'Outbox', icon: '✉' },
   { href: '/documents', label: 'Data Room', icon: '▣' },
-  { href: '/settings', label: 'Settings', icon: '⋯' },
+  { href: '/settings', label: 'about your company', icon: '⋯' },
+  { href: '/plans', label: 'Plans & billing', icon: '◇' },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {
@@ -51,11 +57,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // — see src/app/backoffice/layout.tsx). Founders without platform_admin
   // never see this at all, per BLOCO 3's "separar completamente" ask.
   const showBackofficeSwitcher = me?.role === 'developer';
-  // Queue badge is the sum of the two work queues it merged (Needs review +
-  // Outbox) — each keeps its own individual badge on its separador inside
-  // /queue itself (src/app/queue/page.tsx); the sidebar only needs to say
-  // "there is queue work", not which kind.
-  const queueCount = pendingRuns + needsReviewCount;
+  const aboutLabel = db.org.name ? `about ${db.org.name}` : 'about your company';
   const capClass =
     caps.today >= caps.dailyCap || caps.week >= caps.weeklyCap ? 'text-[#B00000] font-semibold'
       : caps.today === caps.dailyCap - 1 || caps.week === caps.weeklyCap - 1 ? 'text-amber-600 font-semibold'
@@ -80,13 +82,22 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <nav className="mt-1 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
           {NAV.map((n) => {
             const active = n.href === '/' ? path === '/' : path?.startsWith(n.href);
+            const isAbout = n.href === '/settings';
             return (
               <Link key={n.href} href={n.href}
                 className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] transition ${
                   active ? 'bg-[#0E7490] font-medium text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}>
-                <span className={`w-4 text-center ${active ? '' : 'text-gray-400'}`}>{n.icon}</span> {n.label}
-                {n.href === '/queue' && queueCount > 0 && (
-                  <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{queueCount}</span>
+                <span className={`w-4 text-center ${active ? '' : 'text-gray-400'}`}>{n.icon}</span>
+                {/* "about {org.name}" is the one item that names something
+                    specific to this workspace, not a generic app section —
+                    the slightly heavier weight + tracking sets it apart from
+                    the rest of the list, active or not. */}
+                <span className={isAbout ? 'font-semibold tracking-wide' : undefined}>{isAbout ? aboutLabel : n.label}</span>
+                {n.href === '/outbox' && pendingRuns > 0 && (
+                  <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{pendingRuns}</span>
+                )}
+                {isAbout && needsReviewCount > 0 && (
+                  <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{needsReviewCount}</span>
                 )}
               </Link>
             );
@@ -143,20 +154,26 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <main className="mx-auto max-w-6xl p-4 md:p-8">{children}</main>
       </div>
 
-      {/* All 6 items, never cut down to 5 — that clipping was part of what
-          this reorganisation batch fixed. They no longer all fit at once on
-          a phone width, so this row scrolls horizontally instead of hiding
-          one; relative positioning keeps each badge pinned to its own link. */}
+      {/* All 7 items, never cut down — that clipping was part of what this
+          reorganisation batch fixed. They don't all fit at once on a phone
+          width, so this row scrolls horizontally instead of hiding one;
+          relative positioning keeps each badge pinned to its own link. */}
       <nav className="fixed inset-x-0 bottom-0 z-10 flex gap-1 overflow-x-auto border-t border-gray-100 bg-white px-2 py-1.5 md:hidden">
-        {NAV.map((n) => (
-          <Link key={n.href} href={n.href}
-            className={`relative shrink-0 px-2.5 py-1 text-xs ${path === n.href ? 'font-semibold text-[#0E7490]' : 'text-gray-400'}`}>
-            {n.label}
-            {n.href === '/queue' && queueCount > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 rounded-full bg-amber-400 px-1 text-[9px] font-bold text-white">{queueCount}</span>
-            )}
-          </Link>
-        ))}
+        {NAV.map((n) => {
+          const isAbout = n.href === '/settings';
+          return (
+            <Link key={n.href} href={n.href}
+              className={`relative shrink-0 px-2.5 py-1 text-xs ${path === n.href ? 'font-semibold text-[#0E7490]' : 'text-gray-400'} ${isAbout ? 'tracking-wide' : ''}`}>
+              {isAbout ? aboutLabel : n.label}
+              {n.href === '/outbox' && pendingRuns > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 rounded-full bg-amber-400 px-1 text-[9px] font-bold text-white">{pendingRuns}</span>
+              )}
+              {isAbout && needsReviewCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 rounded-full bg-amber-400 px-1 text-[9px] font-bold text-white">{needsReviewCount}</span>
+              )}
+            </Link>
+          );
+        })}
       </nav>
     </div>
   );
