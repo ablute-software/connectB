@@ -13,26 +13,20 @@ type Me = {
   capabilities?: { ai: boolean; companyCanon: boolean; needsReviewAi: boolean; documentDetails: boolean; ndaSystem: boolean; entityContactFields: boolean; reviewRuns: boolean; permissionMatrix: boolean; documentOrdering: boolean; documentVersions: boolean; reawakening: boolean; planAccounts: boolean; billing: boolean };
 };
 
-const NAV: { href: string; label: string; icon: string; section?: string; requiresCapability?: 'companyCanon' }[] = [
-  { href: '/pipeline', label: 'Pipeline', icon: '▤', section: 'Workspace' },
+// Reorganisation batch — 11 items collapsed to 6 top-level entries; the rest
+// live as separadores inside the page they were absorbed into (see
+// src/app/today, /dashboard, /queue, /settings). Review & Optimization used
+// to gate this WHOLE list on the companyCanon capability (requiresCapability
+// below, now removed) — that gate moved one level down, into the Dashboard
+// page deciding whether its own "Review & Optimization" tab renders. Nothing
+// here needs capability-based filtering anymore, so visibleNav is gone too.
+const NAV: { href: string; label: string; icon: string }[] = [
+  { href: '/pipeline', label: 'Pipeline', icon: '▤' },
   { href: '/today', label: 'Today', icon: '☀' },
-  { href: '/agenda', label: 'Agenda', icon: '▦' },
   { href: '/dashboard', label: 'Dashboard', icon: '◔' },
-  // Batch 3 A — the /company route is now "Review & Optimization": AI
-  // review, deck/one-pager review, the startup's market benchmarking, and
-  // the investability ranking. Still gated on the companyCanon capability
-  // (migration 0020) since the ranking grounds on confirmed canon facts.
-  { href: '/company', label: 'Review & Optimization', icon: '◆', requiresCapability: 'companyCanon' },
-  { href: '/documents', label: 'Data Room', icon: '▣', section: 'Sharing' },
-  { href: '/import', label: 'Import history', icon: '⇪' },
-  { href: '/needs-review', label: 'Needs review', icon: '◑' },
-  { href: '/outbox', label: 'Outbox', icon: '✉', section: 'Automation' },
-  // Automations moved INTO Settings (batch 3 A); the /automations route
-  // still works for direct links but is no longer a top-level nav item.
+  { href: '/queue', label: 'Queue', icon: '◑' },
+  { href: '/documents', label: 'Data Room', icon: '▣' },
   { href: '/settings', label: 'Settings', icon: '⋯' },
-  // Plans & Account batch — visible to everyone (free plans especially, to
-  // upgrade). Not capability-gated: the page degrades gracefully pre-migration.
-  { href: '/plans', label: 'Plans & billing', icon: '◇' },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {
@@ -57,7 +51,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // — see src/app/backoffice/layout.tsx). Founders without platform_admin
   // never see this at all, per BLOCO 3's "separar completamente" ask.
   const showBackofficeSwitcher = me?.role === 'developer';
-  const visibleNav = NAV.filter((n) => !n.requiresCapability || !!me?.capabilities?.[n.requiresCapability]);
+  // Queue badge is the sum of the two work queues it merged (Needs review +
+  // Outbox) — each keeps its own individual badge on its separador inside
+  // /queue itself (src/app/queue/page.tsx); the sidebar only needs to say
+  // "there is queue work", not which kind.
+  const queueCount = pendingRuns + needsReviewCount;
   const capClass =
     caps.today >= caps.dailyCap || caps.week >= caps.weeklyCap ? 'text-[#B00000] font-semibold'
       : caps.today === caps.dailyCap - 1 || caps.week === caps.weeklyCap - 1 ? 'text-amber-600 font-semibold'
@@ -68,7 +66,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // — none of them should show the sidebar/top bar (a visitor could otherwise
   // preview app chrome before ever signing in). All bring their own layout.
   const isStandaloneAuthPage = path === '/login' || path === '/signup' || path === '/forgot-password' || path === '/reset-password';
-  if (path === '/' || isStandaloneAuthPage || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
+  if (path === '/' || path === '/investors' || isStandaloneAuthPage || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
 
   return (
     <div className="flex min-h-screen bg-[#F7F9FA] text-[#1A1A1A]">
@@ -80,25 +78,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">Investor Relations</div>
         </div>
         <nav className="mt-1 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
-          {visibleNav.map((n) => {
+          {NAV.map((n) => {
             const active = n.href === '/' ? path === '/' : path?.startsWith(n.href);
             return (
-              <React.Fragment key={n.href}>
-                {n.section && (
-                  <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-gray-300">{n.section}</div>
+              <Link key={n.href} href={n.href}
+                className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] transition ${
+                  active ? 'bg-[#0E7490] font-medium text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}>
+                <span className={`w-4 text-center ${active ? '' : 'text-gray-400'}`}>{n.icon}</span> {n.label}
+                {n.href === '/queue' && queueCount > 0 && (
+                  <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{queueCount}</span>
                 )}
-                <Link href={n.href}
-                  className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] transition ${
-                    active ? 'bg-[#0E7490] font-medium text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}>
-                  <span className={`w-4 text-center ${active ? '' : 'text-gray-400'}`}>{n.icon}</span> {n.label}
-                  {n.href === '/outbox' && pendingRuns > 0 && (
-                    <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{pendingRuns}</span>
-                  )}
-                  {n.href === '/needs-review' && needsReviewCount > 0 && (
-                    <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{needsReviewCount}</span>
-                  )}
-                </Link>
-              </React.Fragment>
+              </Link>
             );
           })}
           {showBackofficeSwitcher && (
@@ -153,10 +143,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <main className="mx-auto max-w-6xl p-4 md:p-8">{children}</main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-10 flex justify-around border-t border-gray-100 bg-white py-1.5 md:hidden">
-        {visibleNav.slice(0, 5).map((n) => (
-          <Link key={n.href} href={n.href} className={`px-2 py-1 text-xs ${path === n.href ? 'font-semibold text-[#0E7490]' : 'text-gray-400'}`}>
+      {/* All 6 items, never cut down to 5 — that clipping was part of what
+          this reorganisation batch fixed. They no longer all fit at once on
+          a phone width, so this row scrolls horizontally instead of hiding
+          one; relative positioning keeps each badge pinned to its own link. */}
+      <nav className="fixed inset-x-0 bottom-0 z-10 flex gap-1 overflow-x-auto border-t border-gray-100 bg-white px-2 py-1.5 md:hidden">
+        {NAV.map((n) => (
+          <Link key={n.href} href={n.href}
+            className={`relative shrink-0 px-2.5 py-1 text-xs ${path === n.href ? 'font-semibold text-[#0E7490]' : 'text-gray-400'}`}>
             {n.label}
+            {n.href === '/queue' && queueCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 rounded-full bg-amber-400 px-1 text-[9px] font-bold text-white">{queueCount}</span>
+            )}
           </Link>
         ))}
       </nav>

@@ -2,7 +2,14 @@
 // Founder sign-up: creates the auth user, then an org + owner membership via
 // an API route. NEXT_STEPS Phase 2 — collects the startup + person profile
 // fields up front so a new org doesn't start as a bare name.
-import { useState } from 'react';
+//
+// ?as=investor renders a different panel: investors aren't self-serve today
+// (access is an access_grants row a founder creates for their email, per
+// resolveRole in supabase-server.ts), so there's no form to fill in here yet.
+// This is a placeholder until that flow is designed — it just points the
+// investor at /portal, where a granted email already works.
+import { Suspense, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { browserClient, authEnabled } from '@/lib/supabase';
 import { LogoLockup } from '@/components/Logo';
@@ -16,7 +23,31 @@ const STAGES = [
   { value: 'later', label: 'Later' },
 ];
 
-export default function SignupPage() {
+function InvestorSignupPanel() {
+  return (
+    <AuthShell>
+      <div className="w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-7 shadow-2xl">
+        <div className="mb-1 flex items-center gap-2 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+          <LogoLockup size={28} accentClassName="text-[#2a7f8e]" />
+        </div>
+        <p className="mb-5 text-sm text-gray-500">Investor access on Sherlock Deal</p>
+        <p className="text-sm text-gray-600">
+          Investor accounts aren&apos;t self sign-up yet — a founder grants access to your email when
+          they share their round with you. Ask them for access, then sign in below.
+        </p>
+        <Link href="/login?as=investor"
+          className="mt-4 block w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-center text-sm font-semibold text-white hover:bg-[#0c637b]">
+          Sign in with your granted email
+        </Link>
+        <div className="mt-5 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
+          Raising a round? <Link href="/signup" className="font-medium text-[#0E7490] hover:underline">Create a founder account</Link>
+        </div>
+      </div>
+    </AuthShell>
+  );
+}
+
+function FounderSignupForm() {
   // Startup (required: name; rest optional — a founder mid-signup may not have
   // every detail handy, and the app tolerates partial data everywhere else).
   const [org, setOrg] = useState('');
@@ -132,4 +163,13 @@ export default function SignupPage() {
       </div>
     </AuthShell>
   );
+}
+
+function SignupInner() {
+  const sp = useSearchParams();
+  return sp.get('as') === 'investor' ? <InvestorSignupPanel /> : <FounderSignupForm />;
+}
+
+export default function SignupPage() {
+  return <Suspense fallback={null}><SignupInner /></Suspense>;
 }

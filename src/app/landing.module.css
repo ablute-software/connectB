@@ -41,7 +41,12 @@
 .nav { position: fixed; top: 0; left: 0; right: 0; z-index: 50; transition: background .3s, box-shadow .3s, backdrop-filter .3s; }
 .nav[data-scrolled='true'] { background: rgba(255, 255, 255, .88); backdrop-filter: blur(12px); box-shadow: 0 1px 0 var(--line); }
 .nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 72px; }
-.logo { display: flex; align-items: center; gap: 10px; font-family: var(--font-inter), sans-serif; font-weight: 800; font-size: 1.22rem; letter-spacing: -.02em; color: #fff; transition: color .3s; }
+.logo { display: flex; align-items: center; gap: 10px; font-family: var(--font-inter), sans-serif; font-weight: 800; font-size: 1.22rem; letter-spacing: -.02em; transition: color .3s; }
+/* Qualified with .nav so this beats ".landing a { color: inherit }" (which
+   otherwise wins on specificity and drops "sherlock" to the near-invisible
+   base text color on the dark hero background — the footer logo doesn't
+   need this because .footerEl .logo is already more specific). */
+.nav .logo { color: #fff; }
 .deal { color: var(--amber); }
 .nav[data-scrolled='true'] .deal { color: var(--teal); }
 .nav[data-scrolled='true'] .logo { color: var(--ink); }
@@ -60,6 +65,18 @@
 .btnTeal { background: var(--teal); color: #fff; }
 .btnTeal:hover { box-shadow: 0 10px 24px rgba(42, 127, 142, .35); }
 .btnSm { padding: 9px 18px; font-size: .88rem; }
+
+/* ---------- audience toggle (Startup / Investor) ---------- */
+.audience { display: flex; align-items: center; background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .22); border-radius: 999px; padding: 3px; gap: 2px; }
+.nav[data-scrolled='true'] .audience { background: var(--teal-soft); border-color: var(--line); }
+.audienceOpt { padding: 7px 16px; border-radius: 999px; font-size: .85rem; font-weight: 600; color: rgba(255, 255, 255, .8); transition: background .2s, color .2s; }
+.nav[data-scrolled='true'] .audienceOpt { color: var(--muted); }
+.audienceOpt:hover { color: #fff; }
+.nav[data-scrolled='true'] .audienceOpt:hover { color: var(--ink); }
+.audienceOptOn { background: var(--amber); color: var(--ink); }
+.nav[data-scrolled='true'] .audienceOptOn { background: var(--teal); color: #fff; }
+.audienceOptOn:hover { color: var(--ink); }
+.nav[data-scrolled='true'] .audienceOptOn:hover { color: #fff; }
 /* the plan cards use a light-bordered ghost button (inline style in the reference) */
 .btnGhostLight { border: 1.5px solid var(--line); color: var(--ink); }
 
@@ -213,6 +230,49 @@
 @media (prefers-reduced-motion: reduce) {
   .landing *, .landing *::before, .landing *::after { animation: none !important; transition: none !important; }
   .rv { opacity: 1; transform: none; }
+}
+
+/* ---------- investor deal-flow mock (hero) ---------- */
+.dealList { padding: 6px 14px 14px; }
+.dealHead { display: grid; grid-template-columns: 1.3fr .7fr 1.3fr 1fr; gap: 10px; padding: 6px 10px; font-size: .66rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700; }
+.dealRow { display: grid; grid-template-columns: 1.3fr .7fr 1.3fr 1fr; gap: 10px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 11px 10px; margin-bottom: 8px; box-shadow: 0 2px 6px rgba(12, 39, 46, .05); opacity: 0; transform: translateY(12px); animation: cardIn .6s forwards; }
+.dealRow:nth-child(2) { animation-delay: .15s; }
+.dealRow:nth-child(3) { animation-delay: .3s; }
+.dealRow:nth-child(4) { animation-delay: .45s; }
+.dealCo { font-size: .8rem; font-weight: 600; color: var(--ink); }
+.dealMatch { font-size: .74rem; font-weight: 700; color: var(--teal-strong); }
+.dealWhy { font-size: .74rem; color: var(--muted); }
+.dealNext { font-size: .68rem; font-weight: 600; padding: 4px 9px; border-radius: 999px; background: var(--teal-soft); color: var(--teal-strong); justify-self: start; }
+
+/* ---------- claim section ---------- */
+.claimSec { background: linear-gradient(180deg, var(--bg) 0%, #fff 100%); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.claimWrap { display: grid; grid-template-columns: 1.1fr .9fr; gap: 56px; align-items: center; }
+.claimWrap h2 { font-size: clamp(1.6rem, 3vw, 2.15rem); margin-bottom: 16px; line-height: 1.18; }
+.claimWrap p { color: var(--muted); }
+.claimTrust { margin-top: 18px; font-size: .8rem; color: var(--muted); }
+.claimCard { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 24px; }
+.claimBadge { display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .04em; padding: 4px 10px; border-radius: 999px; background: var(--amber-soft); color: #8a6414; margin-bottom: 12px; }
+.claimOrg { font-family: var(--font-fraunces), serif; font-size: 1.2rem; color: var(--ink); margin-bottom: 4px; }
+.claimMeta { font-size: .82rem; color: var(--muted); margin-bottom: 18px; }
+.claimBtn { display: inline-flex; align-items: center; justify-content: center; width: 100%; padding: 11px 18px; border-radius: 999px; font-weight: 600; font-size: .88rem; background: var(--teal); color: #fff; }
+
+/* ---------- coming soon tag ---------- */
+.soonTag { display: inline-block; margin-left: 8px; font-size: .62rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--amber-soft); color: #8a6414; vertical-align: middle; }
+.vat { font-size: .78rem; color: var(--muted); }
+
+/* ---------- FAQ ---------- */
+.faq { max-width: 760px; margin: 0 auto; }
+.faqItem { border-bottom: 1px solid var(--line); padding: 18px 0; }
+.faqItem summary { cursor: pointer; font-weight: 600; color: var(--ink); font-size: .98rem; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.faqItem summary::-webkit-details-marker { display: none; }
+.faqItem summary::after { content: '+'; font-size: 1.3rem; color: var(--teal); font-weight: 400; flex: 0 0 auto; }
+.faqItem[open] summary::after { content: '−'; }
+.faqItem p { margin-top: 12px; color: var(--muted); font-size: .92rem; }
+
+@media (max-width: 900px) {
+  .claimWrap { grid-template-columns: 1fr; gap: 32px; }
+  .dealHead, .dealRow { grid-template-columns: 1.2fr .6fr 1fr; }
+  .dealWhy { display: none; }
 }
 
 @media (max-width: 900px) {

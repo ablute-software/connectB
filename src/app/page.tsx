@@ -9,11 +9,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Fraunces, Inter } from 'next/font/google';
-import { serverClient, authEnabled } from '@/lib/supabase-server';
+import { serverClient, authEnabled, resolveRole } from '@/lib/supabase-server';
 import { BRAND_NAME, APP_URL } from '@/lib/brand';
 import { LogoLockup } from '@/components/Logo';
 import { LandingEffects } from '@/components/landing/LandingEffects';
 import { PricingSection } from '@/components/landing/PricingSection';
+import { AudienceToggle } from '@/components/landing/AudienceToggle';
 import s from './landing.module.css';
 
 const fraunces = Fraunces({
@@ -156,7 +157,10 @@ export default async function LandingPage() {
   if (authEnabled) {
     const sb = await serverClient();
     const { data: { user } } = await sb.auth.getUser();
-    if (user) redirect('/pipeline');
+    if (user) {
+      const role = await resolveRole(user.id, user.email, sb);
+      redirect(role === 'investor' ? '/portal' : '/pipeline');
+    }
   }
 
   return (
@@ -173,6 +177,7 @@ export default async function LandingPage() {
             <a className={s.link} href="#features">Features</a>
             <a className={s.link} href="#how">How it works</a>
             <a className={s.link} href="#pricing">Pricing</a>
+            <AudienceToggle active="startup" />
             <Link className={`${s.btn} ${s.btnGhost} ${s.btnSm}`} href="/login">Sign in</Link>
             <Link className={`${s.btn} ${s.btnPrimary} ${s.btnSm}`} href="/signup">Create account</Link>
           </div>
@@ -366,6 +371,8 @@ export default async function LandingPage() {
           <div className={s.fl}>
             <a href="#features">Features</a>
             <a href="#pricing">Pricing</a>
+            <Link href="/">For Startups</Link>
+            <Link href="/investors">For Investors</Link>
             <Link href="/login">Sign in</Link>
             <Link href="/signup">Create account</Link>
           </div>

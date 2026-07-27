@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sherlock Deal for Investors — qualified deal flow, verified access</title>
+<meta name="description" content="Sherlock Deal continuously analyses startups against your investment mandate and delivers only the opportunities that deserve your team's attention — qualified, explained, and ready for a decision.">
+<!--
+  DESIGN RECORD — Investor side of the Startup/Investor landing toggle.
+  Sibling to landing-reference.html (the Startup side); same fonts, same CSS
+  custom properties, same section rhythm (.sec / .sec-head / .rv reveal-on-
+  scroll) so the two read as one product. This file documents the approved
+  design for /investors (src/app/investors/page.tsx) — it is a static mock,
+  not the shipped page; the shipped page is server-rendered React reading
+  copy/prices from src/lib/plans.ts.
+
+  New patterns introduced here that landing-reference.html doesn't have:
+    .deal-list / .deal-row   — hero mock: a qualified deal-flow table instead
+                                of the Startup side's 3-column kanban mock.
+    .claim-wrap / .claim-card — "Your firm may already be here" section: the
+                                claim-a-profile hook, directly under the hero.
+    .soon-tag                 — small amber "Coming soon" chip on a feature
+                                card whose backend (consent-based intros)
+                                isn't live yet.
+    .faq / .faq-item          — plain <details>/<summary> accordion, 4 items.
+  Everything else (nav, audience toggle, buttons, pricing card/toggle, split,
+  band, footer) reuses the Startup side's classes unchanged.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0c272e; --ink-2:#123a44; --teal:#2a7f8e; --teal-strong:#1e5d68;
+    --teal-soft:#e3f0f2; --amber:#d9a441; --amber-soft:#f9efd9; --bg:#f7fafa;
+    --card:#ffffff; --text:#22343a; --muted:#5b7077; --line:#dde8ea;
+    --radius:18px; --shadow:0 10px 30px rgba(12,39,46,.08); --shadow-lg:0 24px 60px rgba(12,39,46,.16);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;overflow-x:hidden}
+  h1,h2,h3,.display{font-family:'Fraunces',Georgia,serif;color:var(--ink);letter-spacing:-.01em}
+  a{text-decoration:none;color:inherit}
+  section{position:relative}
+  .wrap{max-width:1140px;margin:0 auto;padding:0 24px}
+
+  /* ---------- nav ---------- */
+  nav{position:fixed;top:0;left:0;right:0;z-index:50;transition:background .3s,box-shadow .3s,backdrop-filter .3s}
+  nav.scrolled{background:rgba(255,255,255,.88);backdrop-filter:blur(12px);box-shadow:0 1px 0 var(--line)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:72px}
+  .logo{display:flex;align-items:center;gap:10px;font-family:'Inter',sans-serif;font-weight:800;font-size:1.22rem;letter-spacing:-.02em;color:#fff;transition:color .3s}
+  .logo .deal{color:var(--amber)}
+  nav.scrolled .logo .deal,footer .logo .deal{color:var(--teal)}
+  nav.scrolled .logo{color:var(--ink)}
+  .logo svg{flex:0 0 auto}
+  .nav-links{display:flex;align-items:center;gap:22px;font-size:.92rem;font-weight:500}
+  .nav-links a.link{color:rgba(255,255,255,.85);transition:color .2s}
+  nav.scrolled .nav-links a.link{color:var(--muted)}
+  .nav-links a.link:hover{color:var(--amber)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 22px;border-radius:999px;font-weight:600;font-size:.95rem;transition:transform .2s,box-shadow .2s,background .2s;cursor:pointer;border:none}
+  .btn:hover{transform:translateY(-2px)}
+  .btn-primary{background:var(--amber);color:var(--ink)}
+  .btn-primary:hover{box-shadow:0 10px 24px rgba(217,164,65,.35)}
+  .btn-ghost{border:1.5px solid rgba(255,255,255,.35);color:#fff}
+  nav.scrolled .btn-ghost{border-color:var(--line);color:var(--ink)}
+  .btn-teal{background:var(--teal);color:#fff}
+  .btn-teal:hover{box-shadow:0 10px 24px rgba(42,127,142,.35)}
+  .btn-ghost-light{border:1.5px solid var(--line);color:var(--ink)}
+  .btn-sm{padding:9px 18px;font-size:.88rem}
+
+  /* audience toggle */
+  .audience{display:flex;align-items:center;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:3px;gap:2px}
+  nav.scrolled .audience{background:var(--teal-soft);border-color:var(--line)}
+  .audience-opt{padding:7px 16px;border-radius:999px;font-size:.85rem;font-weight:600;color:rgba(255,255,255,.8);transition:background .2s,color .2s}
+  nav.scrolled .audience-opt{color:var(--muted)}
+  .audience-opt.on{background:var(--amber);color:var(--ink)}
+  nav.scrolled .audience-opt.on{background:var(--teal);color:#fff}
+
+  /* ---------- hero ---------- */
+  header.hero{background:radial-gradient(1200px 600px at 75% -10%,#1d5a67 0%,transparent 60%),linear-gradient(160deg,var(--ink) 0%,var(--ink-2) 55%,#0e3038 100%);color:#fff;padding:170px 0 0;overflow:hidden}
+  .hero .wrap{display:grid;grid-template-columns:1.05fr .95fr;gap:48px;align-items:center;padding-bottom:110px}
+  .badge{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:999px;padding:7px 16px;font-size:.82rem;font-weight:500;color:#cfe3e7;margin-bottom:22px}
+  .badge .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);animation:pulse 2.2s infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(217,164,65,.5)}50%{box-shadow:0 0 0 7px rgba(217,164,65,0)}}
+  .hero h1{font-size:clamp(2.4rem,5vw,3.7rem);line-height:1.08;color:#fff;font-weight:600;margin-bottom:20px}
+  .hero h1 em{font-style:italic;color:var(--amber)}
+  .hero p.lead{font-size:1.13rem;color:#b9d2d7;max-width:520px;margin-bottom:32px}
+  .hero-ctas{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:28px}
+
+  /* mock deal-flow window (Investor-side equivalent of the Startup pipeline mock) */
+  .mock{position:relative}
+  .window{background:#fdfefe;border-radius:16px;box-shadow:var(--shadow-lg);overflow:hidden;transform:rotate(-1.2deg);animation:float 7s ease-in-out infinite}
+  @keyframes float{0%,100%{transform:rotate(-1.2deg) translateY(0)}50%{transform:rotate(-1.2deg) translateY(-10px)}}
+  .window .bar{display:flex;align-items:center;gap:6px;padding:12px 16px;border-bottom:1px solid var(--line);background:#fff}
+  .window .bar i{width:10px;height:10px;border-radius:50%;display:block}
+  .window .bar i:nth-child(1){background:#f2726f}.window .bar i:nth-child(2){background:#f5c26b}.window .bar i:nth-child(3){background:#67c587}
+  .window .bar span{margin-left:10px;font-size:.72rem;color:var(--muted);font-weight:600;letter-spacing:.04em}
+  .deal-list{padding:6px 14px 14px}
+  .deal-head,.deal-row{display:grid;grid-template-columns:1.3fr .7fr 1.3fr 1fr;gap:10px;align-items:center}
+  .deal-head{padding:6px 10px;font-size:.66rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700}
+  .deal-row{background:#fff;border:1px solid var(--line);border-radius:10px;padding:11px 10px;margin-bottom:8px;box-shadow:0 2px 6px rgba(12,39,46,.05);opacity:0;transform:translateY(12px);animation:cardIn .6s forwards}
+  @keyframes cardIn{to{opacity:1;transform:translateY(0)}}
+  .deal-row:nth-child(2){animation-delay:.15s}.deal-row:nth-child(3){animation-delay:.3s}.deal-row:nth-child(4){animation-delay:.45s}
+  .deal-co{font-size:.8rem;font-weight:600;color:var(--ink)}
+  .deal-match{font-size:.74rem;font-weight:700;color:var(--teal-strong)}
+  .deal-why{font-size:.74rem;color:var(--muted)}
+  .deal-next{font-size:.68rem;font-weight:600;padding:4px 9px;border-radius:999px;background:var(--teal-soft);color:var(--teal-strong);justify-self:start}
+
+  /* ---------- sections ---------- */
+  .sec{padding:96px 0}
+  .sec-head{max-width:640px;margin:0 auto 56px;text-align:center}
+  .eyebrow{display:inline-block;font-family:'Inter',sans-serif;font-size:.78rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--teal);margin-bottom:14px}
+  .sec-head h2{font-size:clamp(1.8rem,3.4vw,2.5rem);font-weight:600;margin-bottom:14px;line-height:1.15}
+  .sec-head p{color:var(--muted);font-size:1.02rem}
+
+  /* claim section */
+  .claim-sec{background:linear-gradient(180deg,var(--bg) 0%,#fff 100%);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .claim-wrap{display:grid;grid-template-columns:1.1fr .9fr;gap:56px;align-items:center}
+  .claim-wrap h2{font-size:clamp(1.6rem,3vw,2.15rem);margin-bottom:16px;line-height:1.18}
+  .claim-wrap p{color:var(--muted)}
+  .claim-trust{margin-top:18px;font-size:.8rem;color:var(--muted)}
+  .claim-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-lg);padding:24px}
+  .claim-badge{display:inline-block;font-size:.68rem;font-weight:700;letter-spacing:.04em;padding:4px 10px;border-radius:999px;background:var(--amber-soft);color:#8a6414;margin-bottom:12px}
+  .claim-org{font-family:'Fraunces',serif;font-size:1.2rem;color:var(--ink);margin-bottom:4px}
+  .claim-meta{font-size:.82rem;color:var(--muted);margin-bottom:18px}
+  .claim-btn{display:flex;align-items:center;justify-content:center;width:100%;padding:11px 18px;border-radius:999px;font-weight:600;font-size:.88rem;background:var(--teal);color:#fff}
+
+  /* features */
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+  .fcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:30px 26px;box-shadow:var(--shadow);transition:transform .25s,box-shadow .25s}
+  .fcard:hover{transform:translateY(-6px);box-shadow:var(--shadow-lg)}
+  .fcard .ic{width:48px;height:48px;border-radius:13px;display:flex;align-items:center;justify-content:center;background:var(--teal-soft);margin-bottom:18px}
+  .fcard h3{font-size:1.13rem;font-weight:600;margin-bottom:8px}
+  .fcard p{font-size:.92rem;color:var(--muted)}
+  .soon-tag{display:inline-block;margin-left:8px;font-size:.62rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:999px;background:var(--amber-soft);color:#8a6414;vertical-align:middle}
+
+  /* how it works */
+  .how{background:linear-gradient(180deg,#fff 0%,var(--bg) 100%);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:26px}
+  .step{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:34px 28px;box-shadow:var(--shadow)}
+  .step .num{font-family:'Fraunces',serif;font-size:2.6rem;font-weight:600;color:var(--teal);opacity:.25;position:absolute;top:16px;right:22px}
+  .step h3{font-size:1.15rem;margin-bottom:10px}
+  .step p{font-size:.92rem;color:var(--muted)}
+  .step .tagline{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--amber);margin-bottom:12px}
+
+  /* split highlight */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center}
+  .split + .split{margin-top:88px}
+  .split h2{font-size:clamp(1.6rem,3vw,2.15rem);margin-bottom:16px;line-height:1.18}
+  .split p{color:var(--muted);margin-bottom:14px}
+  .split ul{list-style:none;margin-top:8px}
+  .split li{display:flex;gap:12px;align-items:flex-start;margin-bottom:12px;font-size:.95rem}
+  .split li svg{flex:0 0 auto;margin-top:3px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-lg);padding:26px}
+  .fact{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:12px;padding:13px 16px;margin-bottom:10px;background:#fff}
+  .fact .f-l{font-size:.88rem;font-weight:600;color:var(--ink)}
+  .fact .f-l small{display:block;font-weight:500;color:var(--muted);font-size:.75rem}
+  .pill{font-size:.68rem;font-weight:700;padding:4px 11px;border-radius:999px}
+  .pill.ok{background:#e2f4e8;color:#20714a}
+  .meter{margin-top:6px}
+  .meter .row{display:flex;justify-content:space-between;font-size:.8rem;font-weight:600;color:var(--ink);margin-bottom:6px}
+  .meter .track{height:10px;border-radius:999px;background:var(--teal-soft);overflow:hidden;margin-bottom:16px}
+  .meter .fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--teal),var(--teal-strong))}
+  .meter .fill.gold{background:linear-gradient(90deg,var(--amber),#b8862e)}
+
+  /* pricing */
+  .toggle{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:44px;font-weight:600;font-size:.95rem}
+  .switch{width:56px;height:30px;border-radius:999px;background:var(--teal);position:relative;cursor:pointer}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff}
+  .save{font-size:.72rem;font-weight:700;background:var(--amber-soft);color:#8a6414;padding:3px 10px;border-radius:999px}
+  .plans{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;align-items:stretch}
+  .plan{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:34px 30px;display:flex;flex-direction:column;box-shadow:var(--shadow);position:relative}
+  .plan.pop{border:2px solid var(--teal);box-shadow:var(--shadow-lg)}
+  .plan .flag{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:var(--teal);color:#fff;font-size:.7rem;font-weight:700;letter-spacing:.06em;padding:5px 16px;border-radius:999px;text-transform:uppercase}
+  .plan h3{font-size:1.22rem;margin-bottom:4px}
+  .plan .who{font-size:.85rem;color:var(--muted);margin-bottom:20px}
+  .price{font-family:'Fraunces',serif;font-size:2.5rem;font-weight:600;color:var(--ink)}
+  .price small{font-family:'Inter',sans-serif;font-size:.85rem;font-weight:500;color:var(--muted)}
+  .per-year{font-size:.8rem;color:var(--muted);margin-bottom:20px;min-height:1.2em}
+  .plan ul{list-style:none;margin:6px 0 26px;flex:1}
+  .plan li{display:flex;gap:10px;align-items:flex-start;font-size:.9rem;margin-bottom:11px;color:var(--text)}
+  .plan li svg{flex:0 0 auto;margin-top:3px}
+  .vat-note{font-size:.78rem;color:var(--muted);text-align:center;margin-top:12px}
+  .teaser{max-width:640px;margin:40px auto 0;text-align:center;font-size:.9rem;color:var(--muted);background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:16px 22px}
+
+  /* faq */
+  .faq{max-width:760px;margin:0 auto}
+  .faq-item{border-bottom:1px solid var(--line);padding:18px 0}
+  .faq-item summary{cursor:pointer;font-weight:600;color:var(--ink);font-size:.98rem;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .faq-item summary::-webkit-details-marker{display:none}
+  .faq-item summary::after{content:'+';font-size:1.3rem;color:var(--teal);font-weight:400}
+  .faq-item[open] summary::after{content:'−'}
+  .faq-item p{margin-top:12px;color:var(--muted);font-size:.92rem}
+
+  /* cta band */
+  .band{background:radial-gradient(900px 400px at 20% 0%,#1d5a67 0%,transparent 55%),linear-gradient(150deg,var(--ink),var(--ink-2));border-radius:28px;color:#fff;padding:72px 56px;text-align:center}
+  .band h2{color:#fff;font-size:clamp(1.8rem,3.4vw,2.5rem);margin-bottom:14px}
+  .band p{color:#b9d2d7;max-width:520px;margin:0 auto 32px}
+
+  /* footer */
+  footer{padding:56px 0 40px;border-top:1px solid var(--line);background:#fff}
+  footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:24px;flex-wrap:wrap}
+  footer .logo{color:var(--ink);font-size:1.05rem}
+  footer .fl{display:flex;gap:24px;font-size:.88rem;color:var(--muted)}
+  footer .cp{font-size:.8rem;color:#9fb2b8;width:100%;text-align:center;margin-top:26px}
+
+  .rv{opacity:0;transform:translateY(26px);transition:opacity .7s ease,transform .7s ease}
+  .rv.in{opacity:1;transform:none}
+
+  @media(max-width:900px){
+    .hero .wrap{grid-template-columns:1fr;padding-bottom:80px}
+    .mock{max-width:520px;margin:0 auto}
+    .grid3,.steps,.plans{grid-template-columns:1fr}
+    .split,.claim-wrap{grid-template-columns:1fr;gap:32px}
+    .nav-links a.link{display:none}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<nav id="nav">
+  <div class="wrap">
+    <a class="logo" href="#top">
+      <svg width="32" height="32" viewBox="0 0 48 48">
+        <rect width="48" height="48" rx="11" fill="#2a7f8e"/>
+        <text x="10" y="37" font-family="Georgia,'Times New Roman',serif" font-size="31" font-weight="700" fill="#fff">S</text>
+        <circle cx="35.5" cy="15" r="7" fill="none" stroke="#fff" stroke-width="2.9"/>
+        <line x1="40.5" y1="20" x2="44.5" y2="24" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/>
+      </svg>
+      sherlock<span class="deal">deal</span>
+    </a>
+    <div class="nav-links">
+      <a class="link" href="#how">How it works</a>
+      <a class="link" href="#features">Features</a>
+      <a class="link" href="#pricing">Pricing</a>
+      <div class="audience"><a class="audience-opt" href="#">For Startups</a><a class="audience-opt on" href="#">For Investors</a></div>
+      <a class="btn btn-ghost btn-sm" href="/login?as=investor">Sign in</a>
+      <a class="btn btn-primary btn-sm" href="/signup?as=investor">Claim your profile</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero" id="top">
+  <div class="wrap">
+    <div>
+      <span class="badge"><span class="dot"></span>SHERLOCK DEAL FOR INVESTORS</span>
+      <h1>Fewer, better, <em>investment-ready</em> opportunities.</h1>
+      <p class="lead">Sherlock Deal continuously analyses startups against your investment mandate and delivers only the opportunities that deserve your team's attention — qualified, explained, and ready for a decision.</p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary" href="/signup?as=investor">Claim your investor profile
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a class="btn btn-ghost" href="#how">See how it works</a>
+      </div>
+    </div>
+
+    <div class="mock">
+      <div class="window">
+        <div class="bar"><i></i><i></i><i></i><span>SHERLOCK DEAL · DEAL FLOW REVIEW</span></div>
+        <div class="deal-list">
+          <div class="deal-head"><span>Company</span><span>Match</span><span>Why now</span><span>Next action</span></div>
+          <div class="deal-row"><span class="deal-co">BioSense Labs</span><span class="deal-match">Perfect 94%</span><span class="deal-why">Round opening</span><span class="deal-next">Propose meeting</span></div>
+          <div class="deal-row"><span class="deal-co">Northline Robotics</span><span class="deal-match">Strong 81%</span><span class="deal-why">New lead investor</span><span class="deal-next">Review Scout Brief</span></div>
+          <div class="deal-row"><span class="deal-co">Vantage Grid</span><span class="deal-match">Good 68%</span><span class="deal-why">Traction milestone</span><span class="deal-next">Add to watchlist</span></div>
+          <div class="deal-row"><span class="deal-co">Cobalt Health</span><span class="deal-match">Perfect 91%</span><span class="deal-why">Thesis match</span><span class="deal-next">Propose meeting</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ CLAIM ============ -->
+<section class="sec claim-sec">
+  <div class="wrap">
+    <div class="claim-wrap">
+      <div class="rv in">
+        <span class="eyebrow">Already in our database</span>
+        <h2>Your firm may already be on Sherlock Deal.</h2>
+        <p>We have compiled verified profiles of hundreds of VC funds, family offices and business angels from public sources. Search for your organisation, claim your profile, verify your affiliation and take control — no duplicate profiles, no starting from zero.</p>
+        <p class="claim-trust">Claiming requires a verified work email and proportional proof of authority. Sensitive actions require stronger verification.</p>
+      </div>
+      <div class="claim-card rv in">
+        <span class="claim-badge">Not yet managed by the organisation</span>
+        <div class="claim-org">Northbridge Capital</div>
+        <div class="claim-meta">Seed &amp; Series A · Fintech, Climate · Berlin</div>
+        <a class="claim-btn" href="/signup?as=investor">Claim this profile</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HOW ============ -->
+<section class="sec how" id="how">
+  <div class="wrap">
+    <div class="sec-head rv in">
+      <span class="eyebrow">The method</span>
+      <h2>Three steps to a pipeline you can trust</h2>
+    </div>
+    <div class="steps">
+      <div class="step rv in"><span class="num">1</span><span class="tagline">Claim &amp; verify</span><h3>Claim &amp; verify</h3><p>Find your organisation, verify your work email and your role. Verification is proportional: light to collaborate, strong to administer.</p></div>
+      <div class="step rv in"><span class="num">2</span><span class="tagline">Build your mandate</span><h3>Build your mandate</h3><p>Turn your thesis into an operational mandate: hard criteria, weighted preferences, exclusions, cheque range. Usable in your first session.</p></div>
+      <div class="step rv in"><span class="num">3</span><span class="tagline">Qualify and decide</span><h3>Qualify and decide</h3><p>Forward your own deal flow to your mandate's inbox, get Scout Briefs with fit, evidence and risks, and run your pipeline end to end. As the network grows, Sherlock also brings you companies you did not know.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section class="sec" id="features">
+  <div class="wrap">
+    <div class="sec-head rv in">
+      <span class="eyebrow">What you get</span>
+      <h2>Built for how investment teams actually decide</h2>
+      <p>Not a lead marketplace — an analysis layer on top of your own mandate.</p>
+    </div>
+    <div class="grid3">
+      <div class="fcard rv in"><h3>Mandate Builder</h3><p>Versioned, shareable investment mandates.</p></div>
+      <div class="fcard rv in"><h3>Qualification Inbox</h3><p>Forward a deck, get a qualified opportunity with fit, risks and questions. Private by default.</p></div>
+      <div class="fcard rv in"><h3>Scout Brief</h3><p>A one-page brief per opportunity: fit criterion by criterion, evidence with sources, recommended next action.</p></div>
+      <div class="fcard rv in"><h3>Pipeline OS</h3><p>Owners, deadlines, decision reasons and full audit trail. Replace the spreadsheet.</p></div>
+      <div class="fcard rv in"><h3>Evidence you can trust</h3><p>Every claim labelled: fact, company claim, estimate, unknown or stale. Nothing invented, ever.</p></div>
+      <div class="fcard rv in"><h3>Consent-based introductions<span class="soon-tag">Coming soon</span></h3><p>Startups see who is asking; both sides agree before anything is shared.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TRUST SPLIT ============ -->
+<section class="sec">
+  <div class="wrap">
+    <div class="split">
+      <div class="rv in">
+        <span class="eyebrow">Access</span>
+        <h2>Verified investors only.</h2>
+        <p>Every investor organisation on Sherlock Deal is claimed and verified. No anonymous browsing, no tourists: startup identities are visible only to verified, complete investor profiles — and startups always see who is looking.</p>
+      </div>
+      <div class="panel rv in">
+        <div class="fact"><div class="f-l">Organisation profile<small>verified</small></div><span class="pill ok">Complete</span></div>
+        <div class="fact"><div class="f-l">Investment mandate<small>hard criteria set</small></div><span class="pill ok">Active</span></div>
+        <div class="fact"><div class="f-l">Startup identities<small>gated by mandate completeness</small></div><span class="pill ok">Unlocked</span></div>
+      </div>
+    </div>
+    <div class="split">
+      <div class="panel rv in">
+        <div class="meter">
+          <div class="row"><span>Mandate completeness</span><span>100%</span></div>
+          <div class="track"><div class="fill" style="width:100%"></div></div>
+          <div class="row"><span>Organisation profile</span><span>90%</span></div>
+          <div class="track"><div class="fill" style="width:90%"></div></div>
+          <div class="row"><span>Perfect Match alerts</span><span>Priority</span></div>
+          <div class="track"><div class="fill gold" style="width:100%"></div></div>
+        </div>
+      </div>
+      <div class="rv in">
+        <span class="eyebrow">Priority</span>
+        <h2>Give a little, see a lot.</h2>
+        <p>Access grows with your profile. Complete your mandate to unlock matches; complete your organisation profile to see who they are. Complete, up-to-date mandates are alerted first when a Perfect Match appears.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PRICING ============ -->
+<section class="sec" id="pricing" style="background:#fff;border-top:1px solid var(--line)">
+  <div class="wrap">
+    <div class="sec-head rv in">
+      <span class="eyebrow">Pricing</span>
+      <h2>Plans built for how funds actually work</h2>
+      <p>No free tier. Every plan is verified access, from day one.</p>
+    </div>
+    <div class="toggle rv in">
+      <span>Monthly</span><div class="switch"></div><span>Annual <span class="save">save ~20%</span></span>
+    </div>
+    <div class="plans">
+      <div class="plan rv in">
+        <h3>Boy Scout</h3><p class="who">For angels and first funds</p>
+        <div class="price"><span>€130</span><small>/month</small></div>
+        <p class="per-year">billed monthly + VAT · €100/mo annual (€1,200/yr)</p>
+        <ul><li>1 mandate</li><li>2 seats</li><li>Up to 60 qualified opportunities/mo</li><li>Qualification Inbox</li><li>Pipeline OS &amp; Scout Briefs</li></ul>
+        <a class="btn btn-ghost-light" href="/signup?as=investor">Claim your profile</a>
+      </div>
+      <div class="plan pop rv in">
+        <span class="flag">Most popular</span>
+        <h3>Pro Spotter</h3><p class="who">For active VC and FO teams</p>
+        <div class="price"><span>€240</span><small>/month</small></div>
+        <p class="per-year">billed monthly + VAT · €185/mo annual (€2,220/yr, TODO: pending confirmation)</p>
+        <ul><li>3 mandates</li><li>5 seats</li><li>Up to 120 qualified opportunities/mo</li><li>Everything in Boy Scout</li><li>Configurable alerts</li><li>Quarterly directed discovery run</li></ul>
+        <a class="btn btn-teal" href="/signup?as=investor">Claim your profile</a>
+      </div>
+      <div class="plan rv in">
+        <h3>Ace Sleuth</h3><p class="who">For high-volume funds</p>
+        <div class="price"><span>€450</span><small>/month</small></div>
+        <p class="per-year">billed monthly + VAT · €345/mo annual (€4,140/yr, TODO: pending confirmation)</p>
+        <ul><li>10 mandates</li><li>15 seats</li><li>Up to 250 qualified opportunities/mo</li><li>Everything in Pro Spotter</li><li>Monthly directed discovery run</li><li>Priority support</li></ul>
+        <a class="btn btn-ghost-light" href="/signup?as=investor">Claim your profile</a>
+      </div>
+    </div>
+    <p class="teaser rv in">Up to 250 thesis-qualified opportunities analysed every month. Sherlock delivers only the matches that deserve your team's attention.</p>
+    <p class="vat-note rv in">All plans: verified access, consent-based data, no lead dumps. Prices exclude VAT.</p>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section class="sec">
+  <div class="wrap">
+    <div class="sec-head rv in"><span class="eyebrow">Questions</span><h2>Frequently asked</h2></div>
+    <div class="faq rv in">
+      <details class="faq-item"><summary>Is my deal flow private?</summary><p>Yes. Anything you forward to your Qualification Inbox is private to your organisation by default. It is never used to grow the marketplace or train shared models without your explicit consent.</p></details>
+      <details class="faq-item"><summary>Who can see startup data?</summary><p>Only verified investor organisations with a complete profile and an active mandate — and startups always control what is shared and see who viewed their profile.</p></details>
+      <details class="faq-item"><summary>How do you verify investors?</summary><p>Work email and domain for collaboration; stronger proof — including official registry checks — for organisation control and sensitive actions.</p></details>
+      <details class="faq-item"><summary>What does "qualified opportunity" mean?</summary><p>A company that passed your mandate's hard criteria and received a full analysis: fit, evidence, risks and a recommended action. Raw names on a list do not count against your capacity.</p></details>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CTA ============ -->
+<section class="sec">
+  <div class="wrap">
+    <div class="band rv in">
+      <h2>Find the right startups before everyone else.</h2>
+      <p>Claim your profile, build your mandate, and put your deal flow to work today.</p>
+      <a class="btn btn-primary" href="/signup?as=investor">Claim your investor profile</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <a class="logo" href="#top">sherlock<span class="deal">deal</span></a>
+    <div class="fl">
+      <a href="#how">How it works</a>
+      <a href="#pricing">Pricing</a>
+      <a href="/">For Startups</a>
+      <a href="/investors">For Investors</a>
+      <a href="/login?as=investor">Sign in</a>
+    </div>
+    <p class="cp">© 2026 Sherlock Deal · Investor relations, investigated.</p>
+  </div>
+</footer>
+
+</body>
+</html>

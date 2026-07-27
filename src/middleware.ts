@@ -1,6 +1,7 @@
 // Auth gate. If Supabase env is configured, unauthenticated users are sent to /login.
-// Public routes: '/' (the marketing landing), /login, /signup, /auth/*, /portal
-// (investor magic-link area), static assets.
+// Public routes: '/' and '/investors' (the marketing landing, Startup and
+// Investor sides of the toggle), /login, /signup, /auth/*, /portal (investor
+// magic-link area), static assets.
 //
 // Note on '/': the entry `'/'` only ever matches the root exactly — the
 // startsWith(p + '/') arm becomes startsWith('//'), which is never true — so
@@ -8,7 +9,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-const PUBLIC = ['/', '/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/api/stripe/webhook'];
+const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/api/stripe/webhook'];
 
 // Where a signed-in user belongs. '/' is the public landing now, so the app
 // home is the pipeline.

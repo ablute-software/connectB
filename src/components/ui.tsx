@@ -299,6 +299,45 @@ export function PrivateBadge() {
   );
 }
 
+// Generic in-page tab bar for pages that merged several routes together
+// (Today/Agenda, Dashboard/Review & Optimization, Queue, Settings). Roving
+// tabindex + arrow-key navigation per the WAI-ARIA tabs pattern. Active tab
+// is owned by the caller (paired with useTabParam so it lives in the URL,
+// not component state) — this component only renders and dispatches.
+export interface TabItem { key: string; label: string; badge?: number }
+
+export function Tabs({ items, active, onChange }: {
+  items: TabItem[]; active: string; onChange: (key: string) => void;
+}) {
+  function onKeyDown(e: React.KeyboardEvent, idx: number) {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    e.preventDefault();
+    const dir = e.key === 'ArrowRight' ? 1 : -1;
+    const next = items[(idx + dir + items.length) % items.length];
+    onChange(next.key);
+    (e.currentTarget.parentElement?.children[(idx + dir + items.length) % items.length] as HTMLElement | undefined)?.focus();
+  }
+
+  return (
+    <div role="tablist" aria-label="Sections" className="mb-4 flex gap-1 border-b border-gray-100">
+      {items.map((it, idx) => {
+        const selected = it.key === active;
+        return (
+          <button key={it.key} role="tab" aria-selected={selected} tabIndex={selected ? 0 : -1}
+            onClick={() => onChange(it.key)} onKeyDown={(e) => onKeyDown(e, idx)}
+            className={`relative flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition ${
+              selected ? 'border-[#0E7490] text-[#0E7490]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
+            {it.label}
+            {!!it.badge && (
+              <span className="rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{it.badge}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function fmtEur(n?: number) {
   if (n == null) return '—';
   if (n >= 1_000_000) return `€${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M`;

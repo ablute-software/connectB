@@ -126,3 +126,64 @@ export function planEntitlements(plan: PlanTier, isPlatformOrg: boolean): Entitl
     reviewOptimization: false,
   };
 }
+
+// --- Investor plans (Investor Workspace landing, /investors) -------------
+// Separate from PlanTier/PLANS above: those gate the founder-side app's
+// entitlements against org.plan in the DB. Investor plans have no DB column
+// or gate yet — they exist only to price the /investors landing page (and,
+// later, an investor Plans surface) from one place, the same way PLANS does
+// for founders. No free tier for investors (product decision).
+export type InvestorPlanTier = 'boy_scout' | 'pro_spotter' | 'ace_sleuth';
+
+export interface InvestorPlanRow {
+  tier: InvestorPlanTier;
+  name: string;
+  tagline: string;
+  monthlyEur: number;
+  annualEur: number;
+  annualPerMonthEur: number;
+  /** True while the annual price is a placeholder pending founder confirmation. */
+  annualPending?: boolean;
+  mandates: number;
+  seats: number;
+  monthlyCap: number;
+  bullets: string[];
+}
+
+export const INVESTOR_PLANS: InvestorPlanRow[] = [
+  {
+    tier: 'boy_scout', name: 'Boy Scout', tagline: 'For angels and first funds',
+    monthlyEur: 130, annualEur: 1200, annualPerMonthEur: 100,
+    mandates: 1, seats: 2, monthlyCap: 60,
+    bullets: [
+      '1 mandate', '2 seats', 'Up to 60 qualified opportunities/mo',
+      'Qualification Inbox', 'Pipeline OS & Scout Briefs',
+    ],
+  },
+  {
+    tier: 'pro_spotter', name: 'Pro Spotter', tagline: 'For active VC and FO teams',
+    monthlyEur: 240,
+    // TODO: annual price pending confirmation — placeholder from the spec.
+    annualEur: 2220, annualPerMonthEur: 185, annualPending: true,
+    mandates: 3, seats: 5, monthlyCap: 120,
+    bullets: [
+      '3 mandates', '5 seats', 'Up to 120 qualified opportunities/mo',
+      'Everything in Boy Scout', 'Configurable alerts', 'Quarterly directed discovery run',
+    ],
+  },
+  {
+    tier: 'ace_sleuth', name: 'Ace Sleuth', tagline: 'For high-volume funds',
+    monthlyEur: 450,
+    // TODO: annual price pending confirmation — placeholder from the spec.
+    annualEur: 4140, annualPerMonthEur: 345, annualPending: true,
+    mandates: 10, seats: 15, monthlyCap: 250,
+    bullets: [
+      '10 mandates', '15 seats', 'Up to 250 qualified opportunities/mo',
+      'Everything in Pro Spotter', 'Monthly directed discovery run', 'Priority support',
+    ],
+  },
+];
+
+export function investorPlanRow(tier: InvestorPlanTier): InvestorPlanRow {
+  return INVESTOR_PLANS.find((p) => p.tier === tier) ?? INVESTOR_PLANS[0];
+}

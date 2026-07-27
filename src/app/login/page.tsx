@@ -1,5 +1,8 @@
 'use client';
-// connectB sign-in — founders & developers use email+password; investors use a magic link.
+// connectB sign-in — founders & developers use email+password; investors use
+// a magic link. Which form renders is decided by ?as=investor on the URL
+// (set by the Startup/Investor toggle on the landing page), not by an
+// in-page switch — each audience only ever sees its own flow.
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -9,10 +12,10 @@ import { AuthShell } from '@/components/auth/AuthShell';
 
 function LoginInner() {
   const sp = useSearchParams();
-  const next = sp.get('next') ?? '/pipeline';
+  const investorMode = sp.get('as') === 'investor';
+  const next = sp.get('next') ?? (investorMode ? '/portal' : '/pipeline');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [mode, setMode] = useState<'password' | 'magic'>('password');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -44,7 +47,9 @@ function LoginInner() {
         <div className="mb-1 flex items-center gap-2 text-2xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
           <LogoLockup size={28} accentClassName="text-[#2a7f8e]" />
         </div>
-        <p className="mb-5 text-sm text-gray-500">Sign in to your investor relations workspace.</p>
+        <p className="mb-5 text-sm text-gray-500">
+          {investorMode ? 'Sign in to your investor data room.' : 'Sign in to your investor relations workspace.'}
+        </p>
 
         {!authEnabled && (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -56,7 +61,12 @@ function LoginInner() {
         <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@company.com"
           className="mb-3 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
 
-        {mode === 'password' && (
+        {investorMode ? (
+          <button disabled={busy || !email} onClick={magicLink}
+            className="w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+            {busy ? 'Sending…' : 'Email me a sign-in link'}
+          </button>
+        ) : (
           <>
             <label className="mb-1 block text-xs font-medium text-gray-500">Password</label>
             <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="••••••••"
@@ -66,31 +76,21 @@ function LoginInner() {
               className="w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
-            <button onClick={() => setMode('magic')} className="mt-3 w-full text-center text-xs text-gray-500 hover:underline">
-              Investor? Sign in with a magic link
-            </button>
-            <Link href="/forgot-password" className="mt-2 block w-full text-center text-xs text-gray-400 hover:underline">
-              Forgot your password?
-            </Link>
           </>
         )}
 
-        {mode === 'magic' && (
-          <>
-            <button disabled={busy || !email} onClick={magicLink}
-              className="w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
-              {busy ? 'Sending…' : 'Email me a sign-in link'}
-            </button>
-            <button onClick={() => setMode('password')} className="mt-3 w-full text-center text-xs text-gray-500 hover:underline">
-              Back to password sign-in
-            </button>
-          </>
-        )}
+        <Link href="/forgot-password" className="mt-3 block w-full text-center text-xs text-gray-400 hover:underline">
+          Forgot your password?
+        </Link>
 
         {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">{msg}</div>}
 
         <div className="mt-5 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
-          New founder? <Link href="/signup" className="font-medium text-[#0E7490] hover:underline">Create an account</Link>
+          {investorMode ? (
+            <>New investor on Sherlock Deal? <Link href="/signup?as=investor" className="font-medium text-[#0E7490] hover:underline">Create an account</Link>.</>
+          ) : (
+            <>New founder? <Link href="/signup" className="font-medium text-[#0E7490] hover:underline">Create an account for free!</Link></>
+          )}
         </div>
       </div>
     </AuthShell>

@@ -1,19 +1,33 @@
 'use client';
-// Settings — org, plan, caps, AI Review (paid), local-storage reset (demo mode only)
+// Settings — org config (General), Automations, Data & imports, Plans &
+// billing, as separadores. Merges the former standalone /automations,
+// /import and /plans routes in — each keeps its logic completely unchanged,
+// only moved into a named panel. The active separador lives in ?tab=
+// (useTabParam), never component state alone.
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
-import { Card } from '@/components/ui';
+import { Card, Tabs } from '@/components/ui';
+import { useTabParam } from '@/lib/use-tab';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { ORG_ROLES, ROLE_LABELS, can, canAssignRole, canActOnMember, type OrgRole } from '@/lib/permissions';
 import { OrganisationCard } from '@/components/OrganisationCard';
 import { CompanyFactsPanel } from '@/components/CompanyFactsPanel';
 import { AutomationsPanel } from '@/components/AutomationsPanel';
 import { PermissionsMatrixCard } from '@/components/PermissionsMatrixCard';
+import { ImportPanel } from '@/components/settings/ImportPanel';
+import { PlansPanel } from '@/components/settings/PlansPanel';
 import { APP_URL } from '@/lib/brand';
 
 type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
 type Member = { userId: string; email: string; role: OrgRole; isSelf: boolean };
+
+const TABS = [
+  { key: 'general', label: 'General' },
+  { key: 'automations', label: 'Automations' },
+  { key: 'data-imports', label: 'Data & imports' },
+  { key: 'plans-billing', label: 'Plans & billing' },
+];
 
 function RosterCard({ myRole }: { myRole: OrgRole | null }) {
   const [members, setMembers] = useState<Member[] | null>(null);
@@ -72,7 +86,7 @@ function RosterCard({ myRole }: { myRole: OrgRole | null }) {
               )}
               {actable && (
                 <button disabled={busy === m.userId} onClick={() => remove(m.userId)}
-                  className="ml-auto text-xs text-gray-400 hover:text-[#B00000] hover:underline disabled:opacity-40">Remove</button>
+                  className="ml-auto text-xs text-gray-400 hover:text-[#B00000] hover:underline">Remove</button>
               )}
             </li>
           );
@@ -232,18 +246,10 @@ function GmailConnectionCard() {
   );
 }
 
-export default function SettingsPage() {
+function GeneralPanel() {
   const { db, resetDemo } = useStore();
-  const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
-  useEffect(() => {
-    if (!authEnabled) return;
-    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => setOrgRole(me.orgRole ?? null)).catch(() => {});
-  }, []);
-
   return (
     <div className="max-w-3xl space-y-4">
-      <h1 className="text-lg font-bold">Settings</h1>
-
       <OrganisationCard />
 
       <Card title="Company facts">
@@ -253,10 +259,6 @@ export default function SettingsPage() {
       {authEnabled && <TeamCard orgId={db.org.id} />}
       {authEnabled && <PermissionsMatrixCard />}
       {authEnabled && <Suspense fallback={null}><GmailConnectionCard /></Suspense>}
-
-      <Card title="Automations">
-        <AutomationsPanel orgRole={authEnabled ? orgRole : undefined} />
-      </Card>
 
       {!authEnabled && (
         <Card title="Demo data">
@@ -271,4 +273,32 @@ export default function SettingsPage() {
       )}
     </div>
   );
+}
+
+function SettingsInner() {
+  const [tab, setTab] = useTabParam('general');
+  const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
+  useEffect(() => {
+    if (!authEnabled) return;
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => setOrgRole(me.orgRole ?? null)).catch(() => {});
+  }, []);
+
+  return (
+    <div>
+      <h1 className="mb-1 text-lg font-bold">Settings</h1>
+      <Tabs items={TABS} active={tab} onChange={setTab} />
+      {tab === 'automations' && (
+        <Card title="Automations">
+          <AutomationsPanel orgRole={authEnabled ? orgRole : undefined} />
+        </Card>
+      )}
+      {tab === 'data-imports' && <ImportPanel />}
+      {tab === 'plans-billing' && <PlansPanel />}
+      {tab !== 'automations' && tab !== 'data-imports' && tab !== 'plans-billing' && <GeneralPanel />}
+    </div>
+  );
+}
+
+export default function SettingsPage() {
+  return <Suspense fallback={null}><SettingsInner /></Suspense>;
 }
