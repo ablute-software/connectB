@@ -5,7 +5,7 @@
 // backend is mounted.
 import { createContext, useContext } from 'react';
 import type {
-  AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, Db,
+  AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, CompanyPerson, Db,
   Direction, DocumentItem, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
   PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem,
 } from './types';
@@ -200,6 +200,14 @@ export interface StoreApi {
   // runs server-side only on fact confirmation (never here).
   approveReawakening: (proposalId: string, overrides?: { wave?: number; fit?: FitScore }) => void;
   rejectReawakening: (proposalId: string) => void;
+
+  // Company tab redesign (migration 0037, capability-gated). The startup's
+  // own team — org-scoped, RLS-open to org members (same pattern as
+  // interactions/tasks), so the Supabase provider writes these directly via
+  // the browser client rather than through a custom API route.
+  addCompanyPerson: (p: Omit<CompanyPerson, 'id' | 'org_id' | 'sort_order' | 'created_at' | 'updated_at'>) => void;
+  updateCompanyPerson: (id: string, patch: Partial<CompanyPerson>) => void;
+  removeCompanyPerson: (id: string) => void;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);

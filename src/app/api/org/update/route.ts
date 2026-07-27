@@ -12,7 +12,19 @@ import { loadOrgMatrix } from '@/lib/org-matrix-server';
 import { canWithMatrix } from '@/lib/org-permissions';
 
 // Only these columns are editable here — never plan/credits/id/bcc_email.
-const EDITABLE = ['name', 'sender_email', 'website', 'sector', 'stage', 'round_target_eur', 'country', 'one_liner', 'daily_cap', 'weekly_cap'] as const;
+// Company tab redesign (migration 0037) added everything from legal_name
+// down — capability-gated client-side (the Company panel hides the fields
+// until companyProfileAvailable), but this whitelist itself doesn't need to
+// gate: `orgs.update` on a column that doesn't exist yet just errors, same
+// as any other pre-migration write, and the UI never sends those keys until
+// the probe says yes.
+const EDITABLE = [
+  'name', 'sender_email', 'website', 'sector', 'stage', 'round_target_eur', 'country', 'one_liner', 'daily_cap', 'weekly_cap',
+  'legal_name', 'logo_url', 'hq_city', 'postal_code', 'founded_year', 'description', 'sectors',
+  'employee_count', 'founder_count_override', 'stage_other',
+  'round_raising', 'round_secured_eur', 'round_instruments', 'round_instrument_other', 'round_valuation_eur',
+  'round_runway_months', 'round_target_close_date', 'round_use_of_funds', 'round_flexible', 'round_flexible_note',
+] as const;
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

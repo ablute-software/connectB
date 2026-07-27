@@ -14,12 +14,12 @@ import { Card, Tabs } from '@/components/ui';
 import { useTabParam } from '@/lib/use-tab';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { ORG_ROLES, ROLE_LABELS, can, canAssignRole, canActOnMember, type OrgRole } from '@/lib/permissions';
-import { OrganisationCard } from '@/components/OrganisationCard';
-import { CompanyFactsPanel } from '@/components/CompanyFactsPanel';
 import { AutomationsPanel } from '@/components/AutomationsPanel';
 import { PermissionsMatrixCard } from '@/components/PermissionsMatrixCard';
 import { ImportPanel } from '@/components/settings/ImportPanel';
 import { NeedsReviewPanel } from '@/components/queue/NeedsReviewPanel';
+import { CompanyPanel } from '@/components/company/CompanyPanel';
+import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { APP_URL } from '@/lib/brand';
 
 type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
@@ -246,31 +246,6 @@ function GmailConnectionCard() {
   );
 }
 
-function CompanyPanel() {
-  const { resetDemo } = useStore();
-  return (
-    <div className="max-w-3xl space-y-4">
-      <OrganisationCard />
-
-      <Card title="Company facts">
-        <CompanyFactsPanel />
-      </Card>
-
-      {!authEnabled && (
-        <Card title="Demo data">
-          <button onClick={() => { if (window.confirm('Reset all demo data to the seeded pipeline?')) resetDemo(); }}
-            className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-[#B00000] hover:bg-red-50">
-            Reset demo to seed
-          </button>
-          <p className="mt-2 text-xs text-gray-400">
-            This workspace runs on local browser storage for now. Connecting a real database later replaces this with production data.
-          </p>
-        </Card>
-      )}
-    </div>
-  );
-}
-
 function TeamPanel() {
   const { db } = useStore();
   return (
@@ -297,12 +272,21 @@ function SettingsInner() {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => setOrgRole(me.orgRole ?? null)).catch(() => {});
   }, []);
 
+  // Profile Strength (v0.3) — same calc CompanyPanel's own bar uses. Only
+  // ever reaches 100 once migration 0037 is applied (the new fields don't
+  // exist before that), so this naturally stays dark pre-migration with no
+  // extra gating needed.
+  const companyComplete = calcCompanyCompleteness(db.org, db.companyPeople).pct === 100;
+
   const tabs = [
-    { key: 'company', label: 'Company' },
+    { key: 'company', label: 'Company', glow: companyComplete, glowTitle: 'Profile 100% complete' },
     { key: 'import-history', label: 'Import history' },
     { key: 'needs-review', label: 'Needs review', badge: needsReviewBadge(db) },
     { key: 'automations', label: 'Automations' },
-    { key: 'team', label: 'Team' },
+    // "App access" — who can log into this workspace (roster/invites/
+    // permissions). Distinct from Company's own Team card (who the startup
+    // is) — renamed so the two stop reading as duplicates.
+    { key: 'team', label: 'App access' },
   ];
 
   return (

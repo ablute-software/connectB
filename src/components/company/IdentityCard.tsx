@@ -1,0 +1,166 @@
+'use client';
+// Company tab redesign — Identity card: legal/commercial name, logo,
+// website, HQ, founding year, sector tags, one-liner, short description.
+// Logo uploads into the existing `data-room` Storage bucket (no new
+// bucket) under `${org_id}/logo/…`; org.logo_url stores that PATH, not a
+// public URL — resolved to a signed URL here at render time (private
+// bucket, same RLS every other data-room object uses).
+import { useEffect, useRef, useState } from 'react';
+import { useStore } from '@/lib/store';
+import { Card } from '@/components/ui';
+import { browserClient } from '@/lib/supabase';
+import { CompletenessField } from './CompletenessField';
+import type { CompletenessField as Field } from '@/lib/companyCompleteness';
+
+export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; missing: Field[]; flashId: string | null }) {
+  const { db, updateOrg } = useStore();
+  const org = db.org;
+  const missingIds = new Set(missing.map((f) => f.id));
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [logoSignedUrl, setLogoSignedUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!org.logo_url) { setLogoSignedUrl(null); return; }
+    browserClient().storage.from('data-room').createSignedUrl(org.logo_url, 3600)
+      .then(({ data }) => setLogoSignedUrl(data?.signedUrl ?? null));
+  }, [org.logo_url]);
+
+  function startEdit() {
+    setDraft({
+      legal_name: org.legal_name ?? '', name: org.name ?? '', website: org.website ?? '',
+      country: org.country ?? '', hq_city: org.hq_city ?? '', postal_code: org.postal_code ?? '',
+      founded_year: org.founded_year != null ? String(org.founded_year) : '',
+      sectors: (org.sectors ?? []).join(', '),
+      one_liner: org.one_liner ?? '', description: org.description ?? '',
+    });
+    setEditing(true);
+  }
+
+  function save() {
+    const sectors = draft.sectors.split(',').map((s) => s.trim()).filter(Boolean);
+    updateOrg({
+      legal_name: draft.legal_name.trim() || undefined,
+      name: draft.name.trim() || org.name,
+      website: draft.website.trim() || undefined,
+      country: draft.country.trim() || undefined,
+      hq_city: draft.hq_city.trim() || undefined,
+      postal_code: draft.postal_code.trim() || undefined,
+      founded_year: draft.founded_year ? Number(draft.founded_year) : undefined,
+      sectors,
+      // Legacy single-value field, kept in sync so composer.ts /
+      // ReviewOptimizationPanel (which still read org.sector) never go stale.
+      sector: sectors.join(', ') || undefined,
+      one_liner: draft.one_liner.trim() || undefined,
+      description: draft.description.trim() || undefined,
+    });
+    setEditing(false);
+  }
+
+  async function uploadLogo(file: File) {
+    setUploadErr(''); setUploading(true);
+    try {
+      const sb = browserClient();
+      const path = `${org.id}/logo/${crypto.randomUUID()}-${file.name}`;
+      const { error } = await sb.storage.from('data-room').upload(path, file, { upsert: true });
+      if (error) throw error;
+      updateOrg({ logo_url: path });
+    } catch (e) {
+      setUploadErr((e as Error).message);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  const input = (k: string, label: string, id: string, type = 'text') => (
+    <CompletenessField id={id} label={label} missing={missingIds.has(id)} flashing={flashId === id}>
+      <input type={type} value={draft[k] ?? ''} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
+        className="rounded border border-gray-300 px-2 py-1 text-sm" />
+    </CompletenessField>
+  );
+
+  return (
+    <Card title="Identity" right={canEdit && !editing ? <button onClick={startEdit} className="text-xs text-cyan-700 hover:underline">Edit</button> : undefined}>
+      {editing ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            {input('legal_name', 'Legal name', 'identity.legal_name')}
+            {input('name', 'Commercial name', 'identity.name')}
+            {input('website', 'Website', 'identity.website')}
+            {input('country', 'HQ country', 'identity.country')}
+            {input('hq_city', 'HQ city', 'identity.hq_city')}
+            {input('postal_code', 'Postal code', 'identity.postal_code')}
+            {input('founded_year', 'Year founded', 'identity.founded_year', 'number')}
+          </div>
+          <CompletenessField id="identity.sectors" label="Sector / vertical (comma-separated)" missing={missingIds.has('identity.sectors')} flashing={flashId === 'identity.sectors'}>
+            <input value={draft.sectors ?? ''} onChange={(e) => setDraft({ ...draft, sectors: e.target.value })}
+              placeholder="e.g. Health, Wellness, AI" className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+          </CompletenessField>
+          <CompletenessField id="identity.one_liner" label="One-liner" missing={missingIds.has('identity.one_liner')} flashing={flashId === 'identity.one_liner'}>
+            <input value={draft.one_liner ?? ''} onChange={(e) => setDraft({ ...draft, one_liner: e.target.value })}
+              className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+          </CompletenessField>
+          <CompletenessField id="identity.description" label="Short description (2-3 sentences)" missing={missingIds.has('identity.description')} flashing={flashId === 'identity.description'}>
+            <textarea value={draft.description ?? ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} rows={3}
+              className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+          </CompletenessField>
+          <div className="flex gap-2">
+            <button onClick={save} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">Save</button>
+            <button onClick={() => setEditing(false)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <div id="identity.logo" className={`flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50 transition-colors duration-700 ${flashId === 'identity.logo' ? 'ring-2 ring-amber-300' : ''}`}>
+              {logoSignedUrl ? <img src={logoSignedUrl} alt="Logo" className="h-full w-full object-cover" /> : <span className="text-[10px] text-gray-300">No logo</span>}
+            </div>
+            {canEdit && (
+              <div>
+                <input ref={fileRef} type="file" accept="image/*" disabled={uploading}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadLogo(f); }} className="text-xs" />
+                {uploading && <p className="text-[11px] text-gray-400">Uploading…</p>}
+                {uploadErr && <p className="text-[11px] text-[#B00000]">{uploadErr}</p>}
+                {missingIds.has('identity.logo') && <span className="mt-0.5 block text-[9px] font-semibold text-amber-700">needed for 100%</span>}
+              </div>
+            )}
+          </div>
+          <dl className="grid grid-cols-2 gap-2 text-sm">
+            {([
+              ['identity.legal_name', 'Legal name', org.legal_name],
+              ['identity.name', 'Commercial name', org.name],
+              ['identity.website', 'Website', org.website],
+              ['identity.hq_city', 'HQ city', org.hq_city],
+              ['identity.country', 'HQ country', org.country],
+              ['identity.postal_code', 'Postal code', org.postal_code],
+              ['identity.founded_year', 'Founded', org.founded_year],
+              ['identity.sectors', 'Sector', (org.sectors ?? []).join(', ')],
+            ] as [string, string, string | number | undefined][]).map(([id, label, value]) => (
+              <div key={id} id={id} className={`rounded p-1 transition-colors duration-700 ${flashId === id ? 'bg-amber-50 ring-2 ring-amber-300' : ''}`}>
+                <dt className="flex items-center gap-1.5 text-xs text-gray-500">
+                  {label}
+                  {missingIds.has(id) && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">needed for 100%</span>}
+                </dt>
+                <dd>{value || '—'}</dd>
+              </div>
+            ))}
+          </dl>
+          <div id="identity.one_liner" className={`rounded p-1 text-sm transition-colors duration-700 ${flashId === 'identity.one_liner' ? 'bg-amber-50 ring-2 ring-amber-300' : ''}`}>
+            {org.one_liner ? <p className="text-gray-700">{org.one_liner}</p> : missingIds.has('identity.one_liner') && (
+              <p className="text-xs text-amber-700">One-liner needed for 100%</p>
+            )}
+          </div>
+          <div id="identity.description" className={`rounded p-1 text-xs transition-colors duration-700 ${flashId === 'identity.description' ? 'bg-amber-50 ring-2 ring-amber-300' : ''}`}>
+            {org.description ? <p className="text-gray-500">{org.description}</p> : missingIds.has('identity.description') && (
+              <p className="text-amber-700">Short description needed for 100%</p>
+            )}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}

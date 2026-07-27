@@ -443,6 +443,7 @@ export const seed: Db = {
   runs: [],
   aiReviews: [],
   companyFacts: [],
+  companyPeople: [],
   ndas: [],
   documentVersions: [],
   reawakeningProposals: [],

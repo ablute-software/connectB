@@ -304,7 +304,13 @@ export function PrivateBadge() {
 // tabindex + arrow-key navigation per the WAI-ARIA tabs pattern. Active tab
 // is owned by the caller (paired with useTabParam so it lives in the URL,
 // not component state) — this component only renders and dispatches.
-export interface TabItem { key: string; label: string; badge?: number }
+export interface TabItem {
+  key: string; label: string; badge?: number;
+  // Persistent "light" state — used today for the Company tab's 100%-
+  // complete star (companyCompleteness.ts). Not tied to `selected`; stays on
+  // whenever the caller says so, active tab or not.
+  glow?: boolean; glowTitle?: string;
+}
 
 export function Tabs({ items, active, onChange }: {
   items: TabItem[]; active: string; onChange: (key: string) => void;
@@ -323,11 +329,12 @@ export function Tabs({ items, active, onChange }: {
       {items.map((it, idx) => {
         const selected = it.key === active;
         return (
-          <button key={it.key} role="tab" aria-selected={selected} tabIndex={selected ? 0 : -1}
+          <button key={it.key} role="tab" aria-selected={selected} tabIndex={selected ? 0 : -1} title={it.glowTitle}
             onClick={() => onChange(it.key)} onKeyDown={(e) => onKeyDown(e, idx)}
             className={`relative flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition ${
-              selected ? 'border-[#0E7490] text-[#0E7490]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
+              selected ? 'border-[#0E7490] text-[#0E7490]' : it.glow ? 'border-transparent text-amber-600' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
             {it.label}
+            {it.glow && <span aria-hidden="true" className="text-amber-500">✦</span>}
             {!!it.badge && (
               <span className="rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{it.badge}</span>
             )}

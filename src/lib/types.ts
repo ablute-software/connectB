@@ -3,7 +3,10 @@
 export type EntityType =
   | 'vc' | 'corporate_vc' | 'family_office' | 'angel_fund'
   | 'angel_network' | 'public_body' | 'accelerator';
-export type Stage = 'pre_seed' | 'seed' | 'series_a' | 'later';
+// 'other' added for migration 0037 (Company tab redesign, Round card) — the
+// enum only needed an escape hatch there; entities.stage_min/max never use
+// it (investor stage ranges are always one of the original four).
+export type Stage = 'pre_seed' | 'seed' | 'series_a' | 'later' | 'other';
 export type FitScore = 'high' | 'medium_high' | 'medium' | 'low';
 export type HardFilterStatus = 'open' | 'resolved_ok' | 'resolved_blocked' | 'not_applicable';
 export type EntityStatus =
@@ -84,6 +87,55 @@ export interface Org {
   stripe_customer_id?: string;
   stripe_subscription_id?: string;
   stripe_billing_period?: string; // 'monthly' | 'annual'
+
+  // Company tab redesign (migration 0037, capability-gated —
+  // companyProfileAvailable). `name` above is the commercial name; `sector`
+  // above is legacy (still read by composer.ts/ReviewOptimizationPanel) and
+  // stays in sync with `sectors` below on every save, so those callers never
+  // need to change. `stage` above is reused as the Round card's Estádio,
+  // extended with an 'other' enum value + stage_other here.
+  legal_name?: string;
+  // A Storage PATH in the `data-room` bucket (${org_id}/logo/...), NOT a
+  // public URL — resolved to a signed URL client-side at render time.
+  logo_url?: string;
+  hq_city?: string;
+  postal_code?: string;
+  founded_year?: number;
+  description?: string;
+  sectors?: string[];
+  employee_count?: number;
+  // Founder count is normally derived from company_people (is_founder=true);
+  // this is the manual override for when that count is wrong/incomplete.
+  founder_count_override?: number;
+  stage_other?: string;
+  round_raising?: boolean;
+  round_secured_eur?: number;
+  round_instruments?: string[];
+  round_instrument_other?: string;
+  round_valuation_eur?: number;
+  round_runway_months?: number;
+  round_target_close_date?: string; // ISO date
+  round_use_of_funds?: string;
+  round_flexible?: boolean;
+  round_flexible_note?: string;
+}
+
+// Company tab redesign — the startup's own team (not the app-access roster
+// in org_members/App access). One row per person; sort_order is set at
+// creation time (append-only for now, no drag-reorder UI yet).
+export interface CompanyPerson {
+  id: string;
+  org_id: string;
+  full_name: string;
+  title?: string;
+  is_founder: boolean;
+  linkedin_url?: string;
+  email?: string;
+  bio?: string;
+  photo_url?: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Entity {
@@ -546,6 +598,7 @@ export interface Db {
   runs: AutomationRun[];
   aiReviews: AiReview[];
   companyFacts: CompanyFact[];
+  companyPeople: CompanyPerson[];
   ndas: Nda[];
   documentVersions: DocumentVersion[];
   reawakeningProposals: ReawakeningProposal[];

@@ -9,7 +9,7 @@ import React, { useEffect, useMemo, useReducer, useRef } from 'react';
 import { browserClient } from './supabase';
 import { StoreCtx, type StoreApi, type LogInput } from './store-context';
 import type {
-  AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, CompanyFact, Db, DocumentItem,
+  AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, CompanyFact, CompanyPerson, Db, DocumentItem,
   DocumentVersion, DocumentView, Entity, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview,
@@ -25,7 +25,7 @@ const EMPTY_ORG: Org = { id: '', name: '', plan: 'idea', daily_cap: 5, weekly_ca
 const EMPTY_DB: Db = {
   org: EMPTY_ORG, entities: [], people: [], personAffiliations: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
-  runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], ndas: [],
+  runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
   documentVersions: [], reawakeningProposals: [],
 };
 
@@ -63,7 +63,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     foldersRes, documentsRes, grantsRes, viewsRes, templatesRes, automationsRes,
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
-    documentVersionsRes, reawakeningProposalsRes,
+    documentVersionsRes, reawakeningProposalsRes, companyPeopleRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -100,6 +100,9 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // capability-gated tables above.
     sb.from('document_versions').select('*').eq('org_id', orgId),
     sb.from('reawakening_proposals').select('*').eq('org_id', orgId),
+    // Company tab redesign (0037) — company_people may not exist yet. Same
+    // missing-table-safe pattern as company_facts/ndas above.
+    sb.from('company_people').select('*').eq('org_id', orgId).order('sort_order', { ascending: true }),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -156,6 +159,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     unlocks,
     submissions,
     companyFacts: ((companyFactsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<CompanyFact>(r)),
+    companyPeople: ((companyPeopleRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<CompanyPerson>(r)),
     ndas: ((ndasRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<Nda>(r)),
     documentVersions: ((documentVersionsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<DocumentVersion>(r)),
     reawakeningProposals: ((reawakeningProposalsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<ReawakeningProposal>(r)),
@@ -435,6 +439,27 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       fetch('/api/org/update', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
       }).then((r) => r.json()).then((b) => { if (!b.ok) console.error('[supabase-store] updateOrg failed:', b.error); }).catch((e) => console.error('[supabase-store] updateOrg failed:', e));
+    },
+
+    addCompanyPerson(p) {
+      const prev = dbRef.current;
+      const sortOrder = prev.companyPeople.length
+        ? Math.max(...prev.companyPeople.map((x) => x.sort_order)) + 1 : 0;
+      const now = new Date().toISOString();
+      const row: CompanyPerson = { ...p, id: uuid(), org_id: prev.org.id, sort_order: sortOrder, created_at: now, updated_at: now };
+      commit({ ...prev, companyPeople: [...prev.companyPeople, row] });
+      const o = orgIdRef.current;
+      if (o) persist(sb.from('company_people').insert({ ...row, org_id: o }), 'addCompanyPerson');
+    },
+    updateCompanyPerson(id, patch) {
+      const prev = dbRef.current;
+      commit({ ...prev, companyPeople: prev.companyPeople.map((p) => (p.id === id ? { ...p, ...patch, updated_at: new Date().toISOString() } : p)) });
+      persist(sb.from('company_people').update(nullify(patch)).eq('id', id), 'updateCompanyPerson');
+    },
+    removeCompanyPerson(id) {
+      const prev = dbRef.current;
+      commit({ ...prev, companyPeople: prev.companyPeople.filter((p) => p.id !== id) });
+      persist(sb.from('company_people').delete().eq('id', id), 'removeCompanyPerson');
     },
 
     setEntityStatus(id: string, status: EntityStatus, reason?: string) {

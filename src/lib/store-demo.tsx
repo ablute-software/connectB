@@ -193,6 +193,20 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, org: { ...prev.org, ...patch } }));
     },
 
+    addCompanyPerson(p) {
+      setDb((prev) => {
+        const sortOrder = prev.companyPeople.length ? Math.max(...prev.companyPeople.map((x) => x.sort_order)) + 1 : 0;
+        const now = new Date().toISOString();
+        return { ...prev, companyPeople: [...prev.companyPeople, { ...p, id: uid('cp'), org_id: prev.org.id, sort_order: sortOrder, created_at: now, updated_at: now }] };
+      });
+    },
+    updateCompanyPerson(id, patch) {
+      setDb((prev) => ({ ...prev, companyPeople: prev.companyPeople.map((p) => (p.id === id ? { ...p, ...patch, updated_at: new Date().toISOString() } : p)) }));
+    },
+    removeCompanyPerson(id) {
+      setDb((prev) => ({ ...prev, companyPeople: prev.companyPeople.filter((p) => p.id !== id) }));
+    },
+
     setEntityStatus(id, status, reason) {
       setDb((prev) => ({
         ...prev,
