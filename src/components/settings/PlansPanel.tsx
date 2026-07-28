@@ -102,6 +102,16 @@ export function PlansPanel() {
   const pending: { tier: PlanTier; period: BillingPeriod } | null =
     requestedLocal ?? (db.org.plan_change_requested ? parsePlanRequest(db.org.plan_change_requested) : null);
 
+  // The redemption that's ACTUALLY granting `current` right now, if any —
+  // plan-server.ts already resolves `current` to the higher tier a 100%-off
+  // trial covers, but "Your plan" was still showing that tier's sticker
+  // price (€149) instead of the €0 the org actually owes. Bug, caught live
+  // with the real ablute_ org + NUNO100: the card said "Suspect list
+  // €85/month" even once the tier itself had already been fixed to resolve
+  // correctly server-side — the price line just never read from the same
+  // promo data the plan cards below it already use.
+  const grantingPromo = activePromos.find((ap) => ap.discount_pct === 100 && ap.applicable_plans.includes(current));
+
   const billing = !!me?.capabilities?.billing;
   const requestsEnabled = !!me?.authEnabled && !!me?.capabilities?.planAccounts;
   const canManage = !!me?.orgRole && can(me.orgRole, 'manage_org_settings');
@@ -234,57 +244,72 @@ export function PlansPanel() {
 
       {notice && <div className="rounded-lg border border-cyan-100 bg-[#E8F4F8] px-3 py-2 text-xs text-[#0E7490]">{notice}</div>}
 
-      <Card title="Your plan" tint="blue"
-        right={billing && hasSubscription && canManage ? (
-          <button onClick={openPortal} disabled={busy === 'portal'}
-            className="rounded-lg border border-cyan-200 bg-white px-2.5 py-1 text-xs font-medium text-[#0E7490] hover:bg-cyan-50 disabled:opacity-40">
-            {busy === 'portal' ? 'Opening…' : 'Manage subscription'}
-          </button>
-        ) : undefined}>
-        <div className="flex flex-wrap items-baseline gap-2">
-          <span className="text-xl font-bold text-[#0E7490]">{planName(current)}</span>
-          {currentRow && <span className="text-sm text-gray-500">{planPriceLabel(currentRow, period)}</span>}
-        </div>
-        {!billing && pending && (
-          <p className="mt-1.5 text-xs text-amber-700">
-            Request to switch to <b>{planName(pending.tier)}</b> ({PERIOD_LABEL[pending.period]}) sent — the team will take care of it. No automatic charge.
-          </p>
-        )}
-        {err && <p className="mt-1.5 text-xs text-[#B00000]">{err}</p>}
-      </Card>
-
-      <Card title="Promo code">
-        {activePromos.length > 0 && (
-          <div className="mb-2.5 space-y-1">
-            {activePromos.map((ap) => {
-              const until = fmtPromoDate(ap.benefit_ends_at);
-              return (
-                <div key={ap.code} className="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-800">
-                  <b>{ap.code}</b> — {ap.discount_pct}% off {ap.applicable_plans.map((t) => planName(t)).join(', ')}
-                  {until ? ` until ${until}` : ' (no expiry)'}
-                </div>
-              );
-            })}
+      {/* Side by side from md up (matches the 3-plan-card row's own
+          breakpoint below, so the page doesn't have two rows switching
+          layout at different widths); stacked full-width on mobile. */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card title="Your plan" tint="blue"
+          right={billing && hasSubscription && canManage ? (
+            <button onClick={openPortal} disabled={busy === 'portal'}
+              className="rounded-lg border border-cyan-200 bg-white px-2.5 py-1 text-xs font-medium text-[#0E7490] hover:bg-cyan-50 disabled:opacity-40">
+              {busy === 'portal' ? 'Opening…' : 'Manage subscription'}
+            </button>
+          ) : undefined}>
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-xl font-bold text-[#0E7490]">{planName(current)}</span>
+            {grantingPromo ? (
+              <span className="text-sm font-semibold text-emerald-700">€0/month</span>
+            ) : (
+              currentRow && <span className="text-sm text-gray-500">{planPriceLabel(currentRow, period)}</span>
+            )}
           </div>
-        )}
-        {!canManage ? (
-          <p className="text-xs text-gray-400">Only the owner/admin can apply a promo code.</p>
-        ) : (
-          <>
-            <div className="flex gap-1.5">
-              <input value={promoCodeInput} onChange={(e) => setPromoCodeInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') applyPromoCode(); }}
-                placeholder="Enter a promo code" autoCapitalize="none" autoCorrect="off"
-                className="flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
-              <button onClick={applyPromoCode} disabled={promoBusy || !promoCodeInput.trim()}
-                className="shrink-0 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
-                {promoBusy ? 'Applying…' : 'Apply'}
-              </button>
+          {grantingPromo && (
+            <p className="mt-1 text-xs text-emerald-700">
+              Free trial via <b>{grantingPromo.code}</b>
+              {fmtPromoDate(grantingPromo.benefit_ends_at) ? ` — until ${fmtPromoDate(grantingPromo.benefit_ends_at)}` : ''}
+            </p>
+          )}
+          {!billing && pending && (
+            <p className="mt-1.5 text-xs text-amber-700">
+              Request to switch to <b>{planName(pending.tier)}</b> ({PERIOD_LABEL[pending.period]}) sent — the team will take care of it. No automatic charge.
+            </p>
+          )}
+          {err && <p className="mt-1.5 text-xs text-[#B00000]">{err}</p>}
+        </Card>
+
+        <Card title="Promo code">
+          {activePromos.length > 0 && (
+            <div className="mb-2.5 space-y-1">
+              {activePromos.map((ap) => {
+                const until = fmtPromoDate(ap.benefit_ends_at);
+                return (
+                  <div key={ap.code} className="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-800">
+                    <b>{ap.code}</b> — {ap.discount_pct}% off {ap.applicable_plans.map((t) => planName(t)).join(', ')}
+                    {until ? ` until ${until}` : ' (no expiry)'}
+                  </div>
+                );
+              })}
             </div>
-            {promoErr && <p className="mt-1.5 text-xs text-[#B00000]">{promoErr}</p>}
-          </>
-        )}
-      </Card>
+          )}
+          {!canManage ? (
+            <p className="text-xs text-gray-400">Only the owner/admin can apply a promo code.</p>
+          ) : (
+            <>
+              <div className="flex gap-1.5">
+                <input value={promoCodeInput} onChange={(e) => setPromoCodeInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') applyPromoCode(); }}
+                  placeholder="Enter a promo code" autoCapitalize="none" autoCorrect="off"
+                  className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
+                <button onClick={applyPromoCode} disabled={promoBusy || !promoCodeInput.trim()}
+                  className="shrink-0 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+                  {promoBusy ? 'Applying…' : 'Apply'}
+                </button>
+              </div>
+              {promoErr && <p className="mt-1.5 text-xs text-[#B00000]">{promoErr}</p>}
+            </>
+          )}
+        </Card>
+      </div>
 
       {/* Billing period toggle — drives every price below. */}
       <div className="flex w-fit items-center gap-1 rounded-full border border-gray-200 bg-white p-0.5 text-xs">
