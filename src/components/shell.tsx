@@ -109,14 +109,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
-          {/* Opens a modal, not a route — same top-level treatment as Plans
-              & billing (always visible, not tucked inside "about {org}"),
-              per the connectB entry-point prompt this was built from. */}
-          <button onClick={() => setShowMatchDeal(true)}
-            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13.5px] text-gray-600 transition hover:bg-gray-50">
-            <span className="w-4 text-center text-gray-400">♥</span>
-            MatchDeal
-          </button>
           <div className="px-3 pt-3">
             <HelpSupportWidget source="founder_app" />
           </div>
@@ -157,6 +149,23 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <span className="text-sm text-gray-300">Outreach discipline, enforced</span>
           </div>
           <div className="flex items-center gap-4">
+            {/* Permanent, colour-highlighted header button — moved out of the
+                sidebar so it's always visible regardless of which page/tab is
+                open, not one click away inside the nav. Mint (#3FDBA0) is
+                MatchDeal's own brand accent (its dark-teal-and-mint palette),
+                deliberately distinct from Sherlock Deal's teal everywhere
+                else in this header, so it reads as its own thing at a glance.
+                Label collapses to icon-only below sm: this row already ran
+                edge-to-edge with zero slack at ~680px before this button
+                existed (org name + caps pill + Log interaction alone), so on
+                an actual phone width the full-width version would overflow
+                the header instead of staying "permanent". */}
+            <Tooltip text="Connect the MatchDeal app — swipe-based matching with investors." side="bottom">
+              <button onClick={() => setShowMatchDeal(true)}
+                className="flex items-center gap-1.5 rounded-xl bg-[#3FDBA0] px-2.5 py-1.5 text-sm font-semibold text-[#0E3A3F] shadow-sm transition hover:bg-[#35c491] sm:px-3">
+                <span aria-hidden="true">⚡</span> <span className="hidden sm:inline">MatchDeal</span>
+              </button>
+            </Tooltip>
             <Tooltip text="Outbound messages sent today and this week, against your daily/weekly discipline caps." side="bottom">
               <span className={`rounded-full border border-gray-100 bg-white px-3 py-1 text-xs ${capClass}`}>
                 Today {caps.today}/{caps.dailyCap} · Week {caps.week}/{caps.weeklyCap}
@@ -192,9 +201,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </Link>
           );
         })}
-        <button onClick={() => setShowMatchDeal(true)} className="relative shrink-0 px-2.5 py-1 text-xs text-gray-400">
-          MatchDeal
-        </button>
       </nav>
 
       {showMatchDeal && <MatchDealModal onClose={() => setShowMatchDeal(false)} />}
