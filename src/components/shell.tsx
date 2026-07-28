@@ -151,20 +151,31 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-4">
             {/* Permanent, colour-highlighted header button — moved out of the
                 sidebar so it's always visible regardless of which page/tab is
-                open, not one click away inside the nav. Amber (#D9A441 on
-                #0C272E) is the landing page's own --amber/--ink pair, the
-                exact colour of its "Create account" CTA (landing.module.css
-                .btnPrimary) — reused verbatim rather than picking a new gold,
-                so this reads as "the same kind of important" as that CTA.
+                open, not one click away inside the nav. Blue -> violet ->
+                orange gradient (a "matchmaking" pairing of two ends, tied
+                together by a warm middle) with a continuous light-sweep
+                overlay — same shimmer technique as CompletenessBar.tsx's
+                100%-complete celebration (translateX -100%->100% via a
+                translucent gradient stripe), just looping instead of
+                one-shot, so the highlight is a permanent, ambient effect
+                rather than an event. Text is white — the previous dark ink
+                only read against the flat amber, not across a gradient that
+                spans blue through orange.
                 Label collapses to icon-only below sm: this row already ran
                 edge-to-edge with zero slack at ~680px before this button
                 existed (org name + caps pill + Log interaction alone), so on
                 an actual phone width the full-width version would overflow
                 the header instead of staying "permanent". */}
+            <style>{`
+              @keyframes sd-header-shine { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+              .sd-matchdeal-shine { animation: sd-header-shine 2.6s ease-in-out infinite; }
+            `}</style>
             <Tooltip text="Connect the MatchDeal app — swipe-based matching with investors." side="bottom">
               <button onClick={() => setShowMatchDeal(true)}
-                className="flex items-center gap-1.5 rounded-xl bg-[#D9A441] px-2.5 py-1.5 text-sm font-semibold text-[#0C272E] shadow-sm transition hover:shadow-[0_10px_24px_rgba(217,164,65,.35)] sm:px-3">
-                <span aria-hidden="true">⚡</span> <span className="hidden sm:inline">MatchDeal</span>
+                className="relative flex items-center gap-1.5 overflow-hidden rounded-xl bg-gradient-to-r from-blue-500 via-violet-500 to-orange-500 px-2.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-[0_10px_24px_rgba(139,92,246,.4)] sm:px-3">
+                <span aria-hidden="true" className="sd-matchdeal-shine pointer-events-none absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/50 to-transparent" />
+                <span aria-hidden="true" className="relative text-base leading-none">🤝</span>
+                <span className="relative hidden sm:inline">MatchDeal</span>
               </button>
             </Tooltip>
             <Tooltip text="Outbound messages sent today and this week, against your daily/weekly discipline caps." side="bottom">
