@@ -151,16 +151,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-4">
             {/* Permanent, colour-highlighted header button — moved out of the
                 sidebar so it's always visible regardless of which page/tab is
-                open, not one click away inside the nav. Blue -> violet ->
-                orange gradient (a "matchmaking" pairing of two ends, tied
-                together by a warm middle) with a continuous light-sweep
-                overlay — same shimmer technique as CompletenessBar.tsx's
-                100%-complete celebration (translateX -100%->100% via a
-                translucent gradient stripe), just looping instead of
-                one-shot, so the highlight is a permanent, ambient effect
-                rather than an event. Text is white — the previous dark ink
-                only read against the flat amber, not across a gradient that
-                spans blue through orange.
+                open, not one click away inside the nav. NOT a static
+                multi-colour gradient — the button's own background-color
+                cycles through one solid colour at a time (blue -> green ->
+                orange -> back to blue), looping. A light-sweep overlay runs
+                on top the whole time — same shimmer technique as
+                CompletenessBar.tsx's 100%-complete celebration (a translucent
+                stripe animated translateX(-100%)->translateX(100%)), just
+                looping instead of one-shot. White text reads fine across all
+                three colours in the cycle.
                 Label collapses to icon-only below sm: this row already ran
                 edge-to-edge with zero slack at ~680px before this button
                 existed (org name + caps pill + Log interaction alone), so on
@@ -168,11 +167,20 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 the header instead of staying "permanent". */}
             <style>{`
               @keyframes sd-header-shine { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+              @keyframes sd-matchdeal-cycle {
+                0%, 20%    { background-color: #3B82F6; }
+                33.33%     { background-color: #22C55E; }
+                53.33%     { background-color: #22C55E; }
+                66.66%     { background-color: #F97316; }
+                86.66%     { background-color: #F97316; }
+                100%       { background-color: #3B82F6; }
+              }
               .sd-matchdeal-shine { animation: sd-header-shine 2.6s ease-in-out infinite; }
+              .sd-matchdeal-cycle { animation: sd-matchdeal-cycle 9s ease-in-out infinite; }
             `}</style>
             <Tooltip text="Connect the MatchDeal app — swipe-based matching with investors." side="bottom">
               <button onClick={() => setShowMatchDeal(true)}
-                className="relative flex items-center gap-1.5 overflow-hidden rounded-xl bg-gradient-to-r from-blue-500 via-violet-500 to-orange-500 px-2.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-[0_10px_24px_rgba(139,92,246,.4)] sm:px-3">
+                className="sd-matchdeal-cycle relative flex items-center gap-1.5 overflow-hidden rounded-xl px-2.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-[0_10px_24px_rgba(34,197,94,.4)] sm:px-3">
                 <span aria-hidden="true" className="sd-matchdeal-shine pointer-events-none absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/50 to-transparent" />
                 <span aria-hidden="true" className="relative text-base leading-none">🤝</span>
                 <span className="relative hidden sm:inline">MatchDeal</span>
