@@ -40,6 +40,31 @@ function nextAction(db: Db, e: Entity): TaskItem | undefined {
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''))[0];
 }
 
+// "Last update" tag for the top-of-page summary cards. Built entirely from
+// real fields (interaction channel/direction/classification, open task
+// deadlines) — no mockup was available to match exactly (asked for a
+// resend), so this is a best-effort reading of the same underlying data
+// rather than a pixel-match; the shape (name + one short status tag) is
+// what was specified even without the image.
+function lastUpdateTag(db: Db, e: Entity): string | null {
+  const task = nextAction(db, e);
+  if (task?.due_at) {
+    const daysOut = (new Date(task.due_at).getTime() - Date.now()) / 86_400_000;
+    if (daysOut < 0) return 'Follow-up overdue';
+    if (daysOut <= 3) return `Follow-up due · ${task.due_at.slice(5, 10)}`;
+  }
+  const interactions = db.interactions.filter((i) => i.entity_id === e.id).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
+  const latest = interactions[0];
+  if (!latest) return null;
+  if (latest.classification === 'meeting_request' || latest.channel === 'meeting') return 'Meeting requested';
+  if (latest.classification === 'interested') return 'Warm — interested';
+  if (latest.direction === 'in') return 'Replied';
+  const isFirstOutbound = latest.direction === 'out' && interactions.length === 1;
+  if (isFirstOutbound) return 'Intro sent';
+  if (latest.direction === 'out') return 'Follow-up sent';
+  return null;
+}
+
 function readiness(db: Db, e: Entity): boolean | null {
   if (['in_conversation', 'diligence', 'invested', 'dormant', 'passed'].includes(e.status)) return null;
   const rank1 = db.people.filter((p) => p.entity_id === e.id).sort((a, b) => a.seniority_rank - b.seniority_rank)[0];
@@ -103,8 +128,49 @@ export default function PipelinePage() {
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
   const personCandidates = db.entities.filter((e) => isPersonCandidate(db, e));
 
+  // Top-of-page summary — counts + up to 6 most-recently-updated relationships.
+  // "In talks" is in_conversation's display label here specifically (matches
+  // the landing page's own wording for this summary); the raw status value
+  // and its label everywhere else in the app (StatusPill etc.) are untouched.
+  const contactedCount = db.entities.filter((e) => e.status === 'contacted').length;
+  const inTalksCount = db.entities.filter((e) => e.status === 'in_conversation').length;
+  const diligenceCount = db.entities.filter((e) => e.status === 'diligence').length;
+  const updateCards = db.entities
+    .map((e) => ({ entity: e, tag: lastUpdateTag(db, e), latest: db.interactions.filter((i) => i.entity_id === e.id).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0] }))
+    .filter((r) => r.tag)
+    .sort((a, b) => (b.latest?.occurred_at ?? '').localeCompare(a.latest?.occurred_at ?? ''))
+    .slice(0, 6);
+
   return (
     <div className="space-y-4">
+      <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Contacted</span>
+            <span className="text-lg font-bold text-gray-800">{contactedCount}</span>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">In talks</span>
+            <span className="text-lg font-bold text-[#0E7490]">{inTalksCount}</span>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Diligence</span>
+            <span className="text-lg font-bold text-amber-600">{diligenceCount}</span>
+          </div>
+        </div>
+        {updateCards.length > 0 && (
+          <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
+            {updateCards.map(({ entity, tag }) => (
+              <Link key={entity.id} href={`/entities/${entity.id}`}
+                className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 transition hover:border-[#0E7490] hover:bg-[#E8F4F8]">
+                <div className="truncate text-sm font-medium text-gray-800">{entity.name}</div>
+                <div className="mt-0.5 truncate text-xs text-gray-500">{tag}</div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
       <ReawakeningQueue />
       {personCandidates.length > 0 && (
         <div className="rounded-2xl border-l-4 border-purple-400 bg-purple-50 p-4">

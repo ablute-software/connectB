@@ -42,12 +42,21 @@ export function TodayPanel() {
   const softCircled = db.entities.reduce((s, e) => s + (e.interest_eur ?? 0), 0);
   const activeConvos = db.entities.filter((e) => ['in_conversation', 'diligence'].includes(e.status)).length;
 
+  // "Follow-ups on time" — of the follow-ups still open right now, what %
+  // aren't overdue. No completed_at field exists to measure "was it done
+  // before its deadline" retroactively, so this is a live snapshot (are
+  // your CURRENT follow-ups on schedule), not a historical on-time rate —
+  // the honest metric the real data actually supports.
+  const openFollowUps = db.tasks.filter((t) => t.kind === 'follow_up' && t.due_at && !t.done);
+  const followUpsOnTime = openFollowUps.filter((t) => new Date(t.due_at!) >= now);
+  const followUpsOnTimePct = openFollowUps.length ? Math.round((followUpsOnTime.length / openFollowUps.length) * 100) : 100;
+
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       <div className="space-y-4 lg:col-span-2">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold">Today</h1>
-          <span className="text-sm text-gray-500">{now.toISOString().slice(0, 10)} · outbounds {caps.today}/{caps.dailyCap} today, {caps.week}/{caps.weeklyCap} week</span>
+          <span className="text-sm text-gray-500">{now.toISOString().slice(0, 10)}</span>
         </div>
 
         <Card title={<span className="text-[#B00000]">Overdue ({overdue.length})</span>}>
@@ -129,6 +138,41 @@ export function TodayPanel() {
       </div>
 
       <div className="space-y-4">
+        <Card title="Outreach discipline">
+          <div className="space-y-3">
+            <div>
+              <div className="flex items-baseline justify-between text-xs">
+                <span className="font-medium text-gray-600">Today&apos;s outreach</span>
+                <span className="text-gray-500">{caps.today} / {caps.dailyCap}</span>
+              </div>
+              <div className="mt-1 h-2 overflow-hidden rounded bg-gray-100">
+                <div className={`h-full ${caps.today >= caps.dailyCap ? 'bg-[#B00000]' : 'bg-[#0E7490]'}`}
+                  style={{ width: `${Math.min(100, (caps.today / caps.dailyCap) * 100)}%` }} />
+              </div>
+            </div>
+            <div>
+              <div className="flex items-baseline justify-between text-xs">
+                <span className="font-medium text-gray-600">This week</span>
+                <span className="text-gray-500">{caps.week} / {caps.weeklyCap}</span>
+              </div>
+              <div className="mt-1 h-2 overflow-hidden rounded bg-gray-100">
+                <div className={`h-full ${caps.week >= caps.weeklyCap ? 'bg-[#B00000]' : 'bg-[#0E7490]'}`}
+                  style={{ width: `${Math.min(100, (caps.week / caps.weeklyCap) * 100)}%` }} />
+              </div>
+            </div>
+            <div>
+              <div className="flex items-baseline justify-between text-xs">
+                <span className="font-medium text-gray-600">Follow-ups on time</span>
+                <span className="text-gray-500">{followUpsOnTimePct}%</span>
+              </div>
+              <div className="mt-1 h-2 overflow-hidden rounded bg-gray-100">
+                <div className={`h-full ${followUpsOnTimePct < 70 ? 'bg-amber-500' : 'bg-green-600'}`}
+                  style={{ width: `${followUpsOnTimePct}%` }} />
+              </div>
+            </div>
+          </div>
+        </Card>
+
         <Card title="Round progress" tint="blue">
           <div className="text-2xl font-bold text-[#0E7490]">{fmtEur(softCircled)} <span className="text-sm font-normal text-gray-500">/ €1.3M</span></div>
           <div className="mt-2 h-2 overflow-hidden rounded bg-white">

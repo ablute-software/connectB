@@ -12,19 +12,19 @@
 import { useCallback } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
-export function useTabParam(defaultTab: string): [string, (tab: string) => void] {
+export function useTabParam(defaultTab: string, paramName = 'tab'): [string, (tab: string) => void] {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
-  const active = sp.get('tab') || defaultTab;
+  const active = sp.get(paramName) || defaultTab;
 
   const setActive = useCallback((tab: string) => {
     const params = new URLSearchParams(sp.toString());
-    if (tab === defaultTab) params.delete('tab');
-    else params.set('tab', tab);
+    if (tab === defaultTab) params.delete(paramName);
+    else params.set(paramName, tab);
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }, [router, pathname, sp, defaultTab]);
+  }, [router, pathname, sp, defaultTab, paramName]);
 
   return [active, setActive];
 }

@@ -265,6 +265,7 @@ function TeamPanel() {
 
 function SettingsInner() {
   const [tab, setTab] = useTabParam('company');
+  const [importSubtab, setImportSubtab] = useTabParam('history', 'subtab');
   const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
   const { db } = useStore();
   useEffect(() => {
@@ -277,11 +278,13 @@ function SettingsInner() {
   // exist before that), so this naturally stays dark pre-migration with no
   // extra gating needed.
   const companyComplete = calcCompanyCompleteness(db.org, db.companyPeople).pct === 100;
+  const reviewBadge = needsReviewBadge(db);
 
   const tabs = [
     { key: 'company', label: 'Company', glow: companyComplete, glowTitle: 'Profile 100% complete' },
-    { key: 'import-history', label: 'Import history' },
-    { key: 'needs-review', label: 'Needs review', badge: needsReviewBadge(db) },
+    // Needs review lives INSIDE this tab now (see importSubtab below) — its
+    // pending count still surfaces here so it isn't lost a level down.
+    { key: 'import-history', label: 'Import history', badge: reviewBadge },
     { key: 'automations', label: 'Automations' },
     // "App access" — who can log into this workspace (roster/invites/
     // permissions). Distinct from Company's own Team card (who the startup
@@ -289,19 +292,34 @@ function SettingsInner() {
     { key: 'team', label: 'App access' },
   ];
 
+  // Old bookmarks/links to ?tab=needs-review (its former top-level slot)
+  // must keep working — read as "Import history" tab, "Needs review" subtab,
+  // without needing a redirect or ever 404ing.
+  const effectiveTab = tab === 'needs-review' ? 'import-history' : tab;
+  const effectiveSubtab = tab === 'needs-review' ? 'needs-review' : importSubtab;
+
+  const importSubtabs = [
+    { key: 'history', label: 'History' },
+    { key: 'needs-review', label: 'Needs review', badge: reviewBadge },
+  ];
+
   return (
     <div>
       <h1 className="mb-1 text-lg font-bold">About {db.org.name || 'your company'}</h1>
-      <Tabs items={tabs} active={tab} onChange={setTab} />
-      {tab === 'automations' && (
+      <Tabs items={tabs} active={effectiveTab} onChange={setTab} />
+      {effectiveTab === 'automations' && (
         <Card title="Automations">
           <AutomationsPanel orgRole={authEnabled ? orgRole : undefined} />
         </Card>
       )}
-      {tab === 'import-history' && <ImportPanel />}
-      {tab === 'needs-review' && <NeedsReviewPanel />}
-      {tab === 'team' && <TeamPanel />}
-      {tab !== 'automations' && tab !== 'import-history' && tab !== 'needs-review' && tab !== 'team' && <CompanyPanel />}
+      {effectiveTab === 'import-history' && (
+        <div>
+          <Tabs items={importSubtabs} active={effectiveSubtab} onChange={setImportSubtab} />
+          {effectiveSubtab === 'needs-review' ? <NeedsReviewPanel /> : <ImportPanel />}
+        </div>
+      )}
+      {effectiveTab === 'team' && <TeamPanel />}
+      {effectiveTab !== 'automations' && effectiveTab !== 'import-history' && effectiveTab !== 'team' && <CompanyPanel />}
     </div>
   );
 }
