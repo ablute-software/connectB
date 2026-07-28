@@ -151,10 +151,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-4">
             {/* Permanent, colour-highlighted header button — moved out of the
                 sidebar so it's always visible regardless of which page/tab is
-                open, not one click away inside the nav. Mint (#3FDBA0) is
-                MatchDeal's own brand accent (its dark-teal-and-mint palette),
-                deliberately distinct from Sherlock Deal's teal everywhere
-                else in this header, so it reads as its own thing at a glance.
+                open, not one click away inside the nav. Amber (#D9A441 on
+                #0C272E) is the landing page's own --amber/--ink pair, the
+                exact colour of its "Create account" CTA (landing.module.css
+                .btnPrimary) — reused verbatim rather than picking a new gold,
+                so this reads as "the same kind of important" as that CTA.
                 Label collapses to icon-only below sm: this row already ran
                 edge-to-edge with zero slack at ~680px before this button
                 existed (org name + caps pill + Log interaction alone), so on
@@ -162,7 +163,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 the header instead of staying "permanent". */}
             <Tooltip text="Connect the MatchDeal app — swipe-based matching with investors." side="bottom">
               <button onClick={() => setShowMatchDeal(true)}
-                className="flex items-center gap-1.5 rounded-xl bg-[#3FDBA0] px-2.5 py-1.5 text-sm font-semibold text-[#0E3A3F] shadow-sm transition hover:bg-[#35c491] sm:px-3">
+                className="flex items-center gap-1.5 rounded-xl bg-[#D9A441] px-2.5 py-1.5 text-sm font-semibold text-[#0C272E] shadow-sm transition hover:shadow-[0_10px_24px_rgba(217,164,65,.35)] sm:px-3">
                 <span aria-hidden="true">⚡</span> <span className="hidden sm:inline">MatchDeal</span>
               </button>
             </Tooltip>
