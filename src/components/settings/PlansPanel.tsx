@@ -86,6 +86,13 @@ export function PlansPanel() {
       if (!body.ok) { setPromoErr(body.error ?? 'Could not apply that code.'); return; }
       setPromoCodeInput('');
       refreshPromoStatus();
+      // A free-trial redemption can raise the org's EFFECTIVE plan
+      // (plan-server.ts) — `me`, fetched once on mount, would otherwise
+      // stay stale and leave the "Current plan" badge on the old tier even
+      // though /api/me itself already reflects the boost. Confirmed live:
+      // without this, the badge stayed on the real subscription while the
+      // discounted-price note correctly appeared on the trial tier.
+      fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then(setMe).catch(() => {});
     } finally {
       setPromoBusy(false);
     }
@@ -162,7 +169,12 @@ export function PlansPanel() {
       priceLabel: planPriceLabel(p, period),
       priceSubLabel: p.paid ? undefined : 'free forever',
       bullets: p.bullets,
-      popular: p.tier === 'garage',
+      // "Most popular" only makes the annual-commitment case (that's the
+      // period it's nudging toward) — showing it on Monthly too was
+      // claiming a distinction that isn't there for a plan someone can
+      // cancel any time.
+      popular: p.tier === 'garage' && period === 'annual',
+      bestPrice: p.tier === 'motherfunding',
       promoNote: bestPromo
         ? `🎉 Promo ${bestPromo.code} — you pay €${discounted}/month${until ? ` until ${until}` : ' (permanently)'}`
         : undefined,

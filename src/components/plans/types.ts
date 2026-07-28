@@ -19,7 +19,12 @@ export interface PlanCardData {
    * ComparisonTable build its feature-row order from first appearance.
    */
   bullets: string[];
+  /** Teal "Most popular" badge. */
   popular?: boolean;
+  /** Orange "Best price" badge — a separate flag from `popular` rather than
+   *  a shared "which one, and which color" field, since a caller may want
+   *  neither, either, or (in principle) both on different cards. */
+  bestPrice?: boolean;
   /** e.g. "🎉 Promo applied — you pay €43/month until 28 Oct 2026". Shown as
    *  a small highlighted line under the price when a founder has an active
    *  promo code covering this plan. Optional — most callers never set it. */

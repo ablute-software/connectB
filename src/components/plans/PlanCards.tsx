@@ -29,11 +29,18 @@ export function PlanCards({
         return (
           <div key={p.id}
             className={`relative flex flex-col rounded-2xl border bg-white p-5 shadow-sm ${
-              p.popular ? 'border-[#0E7490] ring-2 ring-[#0E7490]' : isCurrent ? 'border-[#0E7490] ring-1 ring-[#0E7490]' : 'border-gray-100'
+              p.popular ? 'border-[#0E7490] ring-2 ring-[#0E7490]'
+                : p.bestPrice ? 'border-orange-500 ring-2 ring-orange-500'
+                : isCurrent ? 'border-[#0E7490] ring-1 ring-[#0E7490]' : 'border-gray-100'
             }`}>
             {p.popular && (
               <span className="absolute -top-3 left-4 rounded-full bg-[#0E7490] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
                 Most popular
+              </span>
+            )}
+            {p.bestPrice && (
+              <span className="absolute -top-3 left-4 rounded-full bg-orange-500 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
+                Best price
               </span>
             )}
             <div className="text-sm font-bold text-gray-800">{p.name}</div>
