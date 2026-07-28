@@ -42,6 +42,11 @@ export function PlanCards({
               <span className="text-lg font-bold text-[#0E7490]">{p.priceLabel}</span>
             </div>
             {p.priceSubLabel && <div className="text-[11px] text-gray-400">{p.priceSubLabel}</div>}
+            {p.promoNote && (
+              <div className="mt-1.5 rounded-lg bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
+                {p.promoNote}
+              </div>
+            )}
 
             <ul className="mt-4 flex-1 space-y-1.5 text-xs text-gray-600">
               {p.bullets.map((b) => (

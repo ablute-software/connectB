@@ -20,6 +20,10 @@ export interface PlanCardData {
    */
   bullets: string[];
   popular?: boolean;
+  /** e.g. "🎉 Promo applied — you pay €43/month until 28 Oct 2026". Shown as
+   *  a small highlighted line under the price when a founder has an active
+   *  promo code covering this plan. Optional — most callers never set it. */
+  promoNote?: string;
 }
 
 /** Bullets in `plan` not present in `previous` — "what you gain" either way this is used. */

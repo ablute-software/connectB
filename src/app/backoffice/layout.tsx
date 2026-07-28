@@ -18,6 +18,7 @@ const NAV = [
   { href: '/backoffice/investors', label: 'Investors' },
   { href: '/backoffice/startups', label: 'Startups' },
   { href: '/backoffice/support', label: 'Assistência ao Cliente' },
+  { href: '/backoffice/promo-codes', label: 'Promo Codes & Offers' },
   { href: '/backoffice/metrics', label: 'Métricas' },
 ];
 

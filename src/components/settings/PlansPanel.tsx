@@ -32,10 +32,18 @@ import {
   planPriceLabel, parsePlanRequest, normalizePlan, planName, type BillingPeriod,
 } from '@/lib/plans';
 import { SECURE_PAYMENT_COPY } from '@/lib/billing';
+import { discountedPriceEur } from '@/lib/promo';
 import { can, type OrgRole } from '@/lib/permissions';
 import type { PlanTier } from '@/lib/types';
 
 const PERIOD_LABEL: Record<BillingPeriod, string> = { monthly: 'Monthly', annual: 'Annual' };
+
+type ActivePromo = { code: string; kind: string; discount_pct: number; applicable_plans: PlanTier[]; benefit_ends_at: string | null };
+
+function fmtPromoDate(iso: string | null) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
 
 export function PlansPanel() {
   const { db } = useStore();
@@ -47,15 +55,41 @@ export function PlansPanel() {
   const [notice, setNotice] = useState('');
   const [showCompare, setShowCompare] = useState(false);
   const [confirmTier, setConfirmTier] = useState<PlanTier | null>(null);
+  const [activePromos, setActivePromos] = useState<ActivePromo[]>([]);
+  const [promoCodeInput, setPromoCodeInput] = useState('');
+  const [promoBusy, setPromoBusy] = useState(false);
+  const [promoErr, setPromoErr] = useState('');
+
+  function refreshPromoStatus() {
+    fetch('/api/promo/status', { cache: 'no-store' }).then((r) => r.json())
+      .then((body) => { if (body.ok) setActivePromos(body.active ?? []); }).catch(() => {});
+  }
 
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false }));
+    refreshPromoStatus();
     // Post-checkout return (?checkout=success|cancel) — read client-side to
     // avoid a Suspense boundary for useSearchParams.
     const q = new URLSearchParams(window.location.search).get('checkout');
     if (q === 'success') setNotice('Subscription confirmed — your plan updates automatically within seconds.');
     else if (q === 'cancel') setNotice('Payment cancelled — nothing was charged.');
   }, []);
+
+  async function applyPromoCode() {
+    if (!promoCodeInput.trim()) return;
+    setPromoErr(''); setPromoBusy(true);
+    try {
+      const res = await fetch('/api/promo/redeem', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: promoCodeInput }),
+      });
+      const body = await res.json();
+      if (!body.ok) { setPromoErr(body.error ?? 'Could not apply that code.'); return; }
+      setPromoCodeInput('');
+      refreshPromoStatus();
+    } finally {
+      setPromoBusy(false);
+    }
+  }
 
   const current: PlanTier = me?.plan ?? normalizePlan(db.org.plan);
   const pending: { tier: PlanTier; period: BillingPeriod } | null =
@@ -108,16 +142,32 @@ export function PlansPanel() {
 
   // Adapt PLANS -> the generic PlanCardData shape PlanCards/ComparisonTable/
   // UpgradeConfirmModal actually render. Recomputed on every period toggle
-  // since the price label depends on it.
-  const cardPlans: PlanCardData[] = PLANS.map((p) => ({
-    id: p.tier,
-    name: p.name,
-    tagline: p.tagline,
-    priceLabel: planPriceLabel(p, period),
-    priceSubLabel: p.paid ? undefined : 'free forever',
-    bullets: p.bullets,
-    popular: p.tier === 'garage',
-  }));
+  // since the price label depends on it. If more than one active promo
+  // covers the same plan, the best (highest) discount is the one shown —
+  // an org shouldn't see a worse number than what actually applies.
+  const cardPlans: PlanCardData[] = PLANS.map((p) => {
+    const bestPromo = activePromos
+      .filter((ap) => ap.applicable_plans.includes(p.tier))
+      .sort((a, b) => b.discount_pct - a.discount_pct)[0];
+    // Always off monthlyEur, regardless of the Monthly/Annual toggle above —
+    // combining a % promo with the annual plan's own discounted rate would
+    // need its own explicit rule (compound? replace?) that was never
+    // specified, so this stays a monthly-price preview rather than guessing.
+    const discounted = bestPromo ? discountedPriceEur(p.monthlyEur, bestPromo.discount_pct) : null;
+    const until = bestPromo ? fmtPromoDate(bestPromo.benefit_ends_at) : null;
+    return {
+      id: p.tier,
+      name: p.name,
+      tagline: p.tagline,
+      priceLabel: planPriceLabel(p, period),
+      priceSubLabel: p.paid ? undefined : 'free forever',
+      bullets: p.bullets,
+      popular: p.tier === 'garage',
+      promoNote: bestPromo
+        ? `🎉 Promo ${bestPromo.code} — you pay €${discounted}/month${until ? ` until ${until}` : ' (permanently)'}`
+        : undefined,
+    };
+  });
   const confirmToPlan = confirmTier ? cardPlans.find((p) => p.id === confirmTier) : undefined;
   const confirmFromPlan = cardPlans.find((p) => p.id === current);
 
@@ -189,6 +239,39 @@ export function PlansPanel() {
           </p>
         )}
         {err && <p className="mt-1.5 text-xs text-[#B00000]">{err}</p>}
+      </Card>
+
+      <Card title="Promo code">
+        {activePromos.length > 0 && (
+          <div className="mb-2.5 space-y-1">
+            {activePromos.map((ap) => {
+              const until = fmtPromoDate(ap.benefit_ends_at);
+              return (
+                <div key={ap.code} className="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-800">
+                  <b>{ap.code}</b> — {ap.discount_pct}% off {ap.applicable_plans.map((t) => planName(t)).join(', ')}
+                  {until ? ` until ${until}` : ' (no expiry)'}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {!canManage ? (
+          <p className="text-xs text-gray-400">Only the owner/admin can apply a promo code.</p>
+        ) : (
+          <>
+            <div className="flex gap-1.5">
+              <input value={promoCodeInput} onChange={(e) => setPromoCodeInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') applyPromoCode(); }}
+                placeholder="Enter a promo code" autoCapitalize="none" autoCorrect="off"
+                className="flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
+              <button onClick={applyPromoCode} disabled={promoBusy || !promoCodeInput.trim()}
+                className="shrink-0 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+                {promoBusy ? 'Applying…' : 'Apply'}
+              </button>
+            </div>
+            {promoErr && <p className="mt-1.5 text-xs text-[#B00000]">{promoErr}</p>}
+          </>
+        )}
       </Card>
 
       {/* Billing period toggle — drives every price below. */}
