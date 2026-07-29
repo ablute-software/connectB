@@ -38,6 +38,34 @@ import { serverClient } from '@/lib/supabase-server';
 import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { grantIsActive, grantStatus } from '@/lib/access-grants';
 
+// Prompt 54 Bloco 1 — Zona 1 snapshot card data. Reads the same orgs
+// columns the founder-side Company tab (RoundCard.tsx) already writes —
+// no parallel data source, no fabricated values: a field that's genuinely
+// unset comes back null/undefined and the client renders "not shared yet",
+// never a zero.
+async function buildSnapshot(admin: SupabaseClient, orgId: string) {
+  const [{ data: org }, { data: metrics }] = await Promise.all([
+    admin.from('orgs').select(
+      'name, one_liner, description, stage, stage_other, sectors, hq_city, country, ' +
+      'round_raising, round_target_eur, round_secured_eur, round_min_ticket_eur, round_instruments, ' +
+      'round_instrument_other, round_valuation_eur, round_runway_months, round_runway_post_months, ' +
+      'round_target_close_date, round_use_of_funds, round_flexible',
+    ).eq('id', orgId).single(),
+    admin.from('org_traction_metrics').select('id, label, value').eq('org_id', orgId).order('sort_order', { ascending: true }),
+  ]);
+  if (!org) return null;
+  return { ...(org as unknown as Record<string, unknown>), tractionMetrics: metrics ?? [] };
+}
+
+// Prompt 54 Bloco 2 — the investor's own most recent ticket signal, so the
+// selector opens pre-selected on reload instead of always starting blank.
+// "Current" = latest row, never an UPDATE (see migration 0055).
+async function latestTicketSignal(admin: SupabaseClient, orgId: string, email: string) {
+  const { data } = await admin.from('investor_ticket_signals').select('range_label, range_min_eur, range_max_eur')
+    .eq('org_id', orgId).eq('investor_email', email).order('created_at', { ascending: false }).limit(1).maybeSingle();
+  return data ?? null;
+}
+
 async function toPortalDoc(admin: SupabaseClient, d: Record<string, unknown>) {
   let signedUrl: string | null = (d.external_url as string | null) ?? null;
   if (!signedUrl && d.storage_path) {
@@ -120,10 +148,16 @@ export async function GET() {
           admin.from('documents').select('*').eq('org_id', orgId),
         ]);
         const documents = await Promise.all((allDocs ?? []).map((d) => toPortalDoc(admin, d)));
+        const snapshot = await buildSnapshot(admin, orgId);
         return NextResponse.json({
           orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
           pendingNdaCount: 0, folders: allFolders ?? [], documents,
-          pendingConfirmation, qaAccess: true,
+          pendingConfirmation, qaAccess: true, snapshot, orgId,
+          // Never populated for QA — the write route itself refuses to
+          // insert for is_ablute_developer() sessions (see
+          // /api/portal/ticket-signal), so there is nothing real to read
+          // back here either.
+          currentTicketSignal: null,
         });
       }
     }
@@ -172,10 +206,12 @@ export async function GET() {
 
   const visibleDocs = candidateDocs.filter((d) => visibleIds.includes(d.id as string));
   const documents = await Promise.all(visibleDocs.map((d) => toPortalDoc(admin, d)));
+  const snapshot = await buildSnapshot(admin, orgId);
+  const currentTicketSignal = await latestTicketSignal(admin, orgId, email);
 
   return NextResponse.json({
     orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
     pendingNdaCount: folderPendingCount + docPendingCount, folders: folders ?? [], documents,
-    pendingConfirmation,
+    pendingConfirmation, snapshot, orgId, currentTicketSignal,
   });
 }

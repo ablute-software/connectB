@@ -16,6 +16,7 @@ import { CompletenessBar } from './CompletenessBar';
 import { IdentityCard } from './IdentityCard';
 import { StartupTeamCard } from './StartupTeamCard';
 import { RoundCard } from './RoundCard';
+import { TractionCard } from './TractionCard';
 import { OutreachSettingsCard } from './OutreachSettingsCard';
 
 function DemoResetCard() {
@@ -70,6 +71,7 @@ export function CompanyPanel() {
       <IdentityCard canEdit={canEdit} missing={missing} flashId={flashId} />
       <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
       <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
+      <TractionCard canEdit={canEdit} />
       <Card title="Company facts"><CompanyFactsPanel /></Card>
       <OutreachSettingsCard canEdit={canEdit} />
       <DemoResetCard />

@@ -13,6 +13,7 @@ import { isPersonCandidate, isUnverifiedStub, relatedContacts } from '@/lib/rela
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { browserClient } from '@/lib/supabase';
 import { EntityClassificationEditor } from '@/components/EntityClassificationEditor';
+import { TicketSignalCard } from '@/components/TicketSignalCard';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -323,6 +324,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               ))}
             </Card>
           )}
+          <TicketSignalCard orgId={db.org.id} people={people} />
         </div>
       </div>
 

@@ -30,6 +30,22 @@ interface PortalDoc {
   downloadable: boolean; folder_id?: string; url: string | null;
 }
 interface PendingConfirmation { grantId: string; invitedName: string | null; orgName: string | null }
+// Prompt 54 Bloco 1 — Zona 1 snapshot. Every field is nullable on purpose:
+// this mirrors exactly what /api/portal/access's buildSnapshot() reads off
+// `orgs`/`org_traction_metrics`, and a genuinely-unset value must render as
+// "not shared yet," never a fabricated zero.
+interface PortalSnapshot {
+  name: string | null; one_liner: string | null; description: string | null;
+  stage: string | null; stage_other: string | null; sectors: string[] | null;
+  hq_city: string | null; country: string | null;
+  round_raising: boolean | null;
+  round_target_eur: number | null; round_secured_eur: number | null; round_min_ticket_eur: number | null;
+  round_instruments: string[] | null; round_instrument_other: string | null;
+  round_valuation_eur: number | null;
+  round_runway_months: number | null; round_runway_post_months: number | null;
+  round_target_close_date: string | null; round_use_of_funds: string | null; round_flexible: boolean | null;
+  tractionMetrics: { id: string; label: string; value: string }[];
+}
 interface PortalData {
   orgName: string | null; senderEmail?: string | null; pendingNdaCount: number;
   folders: { id: string; name: string }[]; documents: PortalDoc[];
@@ -38,6 +54,154 @@ interface PortalData {
   // access_grants behind it. Shown as a banner, not folded into the normal
   // "signed in as" line, so it can never be mistaken for a real investor.
   qaAccess?: boolean;
+  snapshot?: PortalSnapshot | null;
+  orgId?: string;
+  currentTicketSignal?: { range_label: string; range_min_eur: number | null; range_max_eur: number | null } | null;
+}
+
+// Prompt 54 Bloco 2 — fixed ranges per the spec, plus a free "Other" input.
+const TICKET_RANGES: { label: string; min: number | null; max: number | null }[] = [
+  { label: '€10k–25k', min: 10000, max: 25000 },
+  { label: '€25k–50k', min: 25000, max: 50000 },
+  { label: '€50k–100k', min: 50000, max: 100000 },
+  { label: '€100k+', min: 100000, max: null },
+];
+
+function TicketSelector({ orgId, current, qaAccess }: {
+  orgId: string; current: PortalData['currentTicketSignal']; qaAccess?: boolean;
+}) {
+  const [selected, setSelected] = useState<string | null>(current?.range_label ?? null);
+  const [otherOpen, setOtherOpen] = useState(false);
+  const [otherValue, setOtherValue] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function choose(label: string, min: number | null, max: number | null) {
+    setSelected(label); setOtherOpen(false); setSaving(true); setSaved(false);
+    try {
+      const res = await fetch('/api/portal/ticket-signal', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ org_id: orgId, range_min_eur: min, range_max_eur: max, range_label: label }),
+      });
+      const body = await res.json();
+      if (body.ok) setSaved(true);
+    } finally { setSaving(false); }
+  }
+
+  function submitOther() {
+    const v = otherValue.trim();
+    if (!v) return;
+    choose(v, null, null);
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <h2 className="text-sm font-semibold text-gray-900">What ticket range are you considering?</h2>
+      <p className="mt-0.5 text-xs text-gray-400">Editable any time — helps the founder understand who's looking and with what budget.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {TICKET_RANGES.map((r) => (
+          <button key={r.label} onClick={() => choose(r.label, r.min, r.max)} disabled={saving}
+            className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${selected === r.label ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490] font-medium' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+            {r.label}
+          </button>
+        ))}
+        <button onClick={() => setOtherOpen((v) => !v)} disabled={saving}
+          className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${selected && !TICKET_RANGES.some((r) => r.label === selected) ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490] font-medium' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+          Other
+        </button>
+      </div>
+      {otherOpen && (
+        <div className="mt-2 flex gap-2">
+          <input value={otherValue} onChange={(e) => setOtherValue(e.target.value)} placeholder="e.g. €150k–200k"
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+          <button onClick={submitOther} disabled={!otherValue.trim() || saving} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Save</button>
+        </div>
+      )}
+      {saved && <p className="mt-2 text-xs text-green-700">{qaAccess ? 'Selection updated (QA session — not saved for real).' : 'Saved.'}</p>}
+    </div>
+  );
+}
+
+const STAGE_LABELS: Record<string, string> = {
+  pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', later: 'Later',
+};
+const INSTRUMENT_LABELS: Record<string, string> = {
+  equity: 'Equity', safe: 'SAFE', convertible_note: 'Convertible note',
+  venture_debt: 'Venture debt', grant: 'Grant / subsidy', revenue_based: 'Revenue-based',
+};
+function fmtEur(n: number | null | undefined) {
+  return n != null ? `€${n.toLocaleString('en-US')}` : null;
+}
+
+function SnapshotCard({ s }: { s: PortalSnapshot }) {
+  const stageLabel = s.stage === 'other' ? (s.stage_other || 'Other') : STAGE_LABELS[s.stage ?? ''] ?? s.stage;
+  const location = [s.hq_city, s.country].filter(Boolean).join(', ');
+  const instruments = (s.round_instruments ?? []).map((v) => INSTRUMENT_LABELS[v] ?? v)
+    .concat(s.round_instruments?.includes('other') && s.round_instrument_other ? [] : []).join(', ');
+  // Round card only renders once there's genuinely something to show — never
+  // a 0/0 progress bar or empty headline numbers when the founder hasn't
+  // filled the round in yet (round_raising===false is a real "not raising"
+  // answer, distinct from "hasn't answered/filled it").
+  const hasRoundData = s.round_raising !== false && (
+    s.round_target_eur != null || s.round_secured_eur != null || s.round_valuation_eur != null
+    || s.round_min_ticket_eur != null || instruments || s.round_use_of_funds || s.round_target_close_date
+  );
+  const progressPct = s.round_target_eur && s.round_secured_eur != null
+    ? Math.min(100, Math.round((s.round_secured_eur / s.round_target_eur) * 100)) : null;
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-5">
+      <h1 className="text-lg font-bold text-gray-900">{s.name}</h1>
+      {s.one_liner && <p className="mt-0.5 text-sm text-gray-600">{s.one_liner}</p>}
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
+        {stageLabel && <span>{stageLabel}</span>}
+        {(s.sectors ?? []).length > 0 && <span>{(s.sectors ?? []).join(', ')}</span>}
+        {location && <span>{location}</span>}
+      </div>
+
+      {hasRoundData ? (
+        <div className="mt-4 border-t border-gray-100 pt-4">
+          {progressPct != null && (
+            <div className="mb-3">
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>{fmtEur(s.round_secured_eur)} committed</span>
+                <span>{fmtEur(s.round_target_eur)} target</span>
+              </div>
+              <div className="mt-1 h-2 rounded-full bg-gray-100">
+                <div className="h-2 rounded-full bg-[#0E7490]" style={{ width: `${progressPct}%` }} />
+              </div>
+            </div>
+          )}
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
+            {s.round_valuation_eur != null && <div><dt className="text-xs text-gray-400">Valuation</dt><dd>{fmtEur(s.round_valuation_eur)}</dd></div>}
+            {s.round_min_ticket_eur != null && <div><dt className="text-xs text-gray-400">Min ticket</dt><dd>{fmtEur(s.round_min_ticket_eur)}</dd></div>}
+            {instruments && <div><dt className="text-xs text-gray-400">Instrument</dt><dd>{instruments}</dd></div>}
+            {s.round_runway_months != null && <div><dt className="text-xs text-gray-400">Runway now</dt><dd>{s.round_runway_months} mo</dd></div>}
+            {s.round_runway_post_months != null && <div><dt className="text-xs text-gray-400">Runway post-round</dt><dd>{s.round_runway_post_months} mo</dd></div>}
+            {s.round_target_close_date && <div><dt className="text-xs text-gray-400">Target close</dt><dd>{s.round_target_close_date}</dd></div>}
+          </dl>
+          {s.round_use_of_funds && (
+            <div className="mt-3">
+              <dt className="text-xs text-gray-400">Use of funds</dt>
+              <ul className="mt-1 list-disc pl-4 text-sm text-gray-700">
+                {s.round_use_of_funds.split('\n').map((line) => line.trim()).filter(Boolean).map((line, i) => <li key={i}>{line}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="mt-4 border-t border-gray-100 pt-4 text-xs text-gray-400">Round details not shared yet.</p>
+      )}
+
+      {s.tractionMetrics.length > 0 && (
+        <div className="mt-4 flex flex-wrap gap-4 border-t border-gray-100 pt-4">
+          {s.tractionMetrics.map((m) => (
+            <div key={m.id}><div className="text-xs text-gray-400">{m.label}</div><div className="text-sm font-semibold text-gray-900">{m.value}</div></div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function PortalPage() {
@@ -357,6 +521,10 @@ export default function PortalPage() {
                 (is_ablute_developer() checks in each write route) instead
                 of being disclosed here. See DECISIONS.md for the full
                 audit of every write path this covers. */}
+            {authEnabled && real?.snapshot && <SnapshotCard s={real.snapshot} />}
+            {authEnabled && real?.orgId && (
+              <TicketSelector orgId={real.orgId} current={real.currentTicketSignal} qaAccess={real.qaAccess} />
+            )}
             <p className="text-sm text-gray-500">Signed in as <b>{authEnabled ? sessionEmail : email}</b>{orgName ? <> · <b>{orgName}</b></> : ''}. You can see only the items granted to you.</p>
             {pendingNdaCount > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
