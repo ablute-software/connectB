@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  promoEligibility, computeBenefitEndsAt, benefitStillActive, discountedPriceEur,
+  promoEligibility, computeBenefitEndsAt, benefitStillActive, isRedemptionCurrentlyActive, discountedPriceEur,
   normalizeDiscountForKind, normalizePromoCodeInput, generatePromoCode,
 } from './promo';
 
@@ -81,6 +81,31 @@ describe('benefitStillActive', () => {
 
   it('past end date -> not active', () => {
     expect(benefitStillActive('2026-01-01T00:00:00Z', NOW)).toBe(false);
+  });
+});
+
+describe('isRedemptionCurrentlyActive', () => {
+  it('active promo, benefit window open -> active', () => {
+    expect(isRedemptionCurrentlyActive({ deleted_at: null }, null, NOW)).toBe(true);
+    expect(isRedemptionCurrentlyActive({ deleted_at: null }, '2027-01-01T00:00:00Z', NOW)).toBe(true);
+  });
+
+  it('back-office DEACTIVATED the code -> existing redemption KEEPS its benefit until natural expiry (confirmed rule: deactivate blocks new redemptions only, never revokes current holders)', () => {
+    // isRedemptionCurrentlyActive deliberately doesn't take `active` at all —
+    // this test documents that deactivation must never reach this function.
+    expect(isRedemptionCurrentlyActive({ deleted_at: null }, '2027-01-01T00:00:00Z', NOW)).toBe(true);
+  });
+
+  it('back-office DELETED the code -> not active, even with time left on the benefit — the one action that revokes every current holder immediately', () => {
+    expect(isRedemptionCurrentlyActive({ deleted_at: '2026-07-28T00:00:00Z' }, '2027-01-01T00:00:00Z', NOW)).toBe(false);
+  });
+
+  it('benefit window already passed -> not active, independent of deletion', () => {
+    expect(isRedemptionCurrentlyActive({ deleted_at: null }, '2026-01-01T00:00:00Z', NOW)).toBe(false);
+  });
+
+  it('null promo -> not active', () => {
+    expect(isRedemptionCurrentlyActive(null, null, NOW)).toBe(false);
   });
 });
 

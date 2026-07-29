@@ -5,6 +5,7 @@
 // with a live adherent count, expand a code to see who redeemed it (org,
 // join date, until when), deactivate, or delete (soft, with a confirm step).
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Card } from '@/components/ui';
 import { PLANS, planPriceLabel } from '@/lib/plans';
 import { PROMO_ELIGIBLE_PLANS, discountedPriceEur, generatePromoCode, normalizeDiscountForKind, type PromoKind } from '@/lib/promo';
@@ -159,6 +160,7 @@ function PromoRow({ promo, onChanged }: { promo: Promo; onChanged: () => void })
   const [redemptions, setRedemptions] = useState<Redemption[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteTyped, setDeleteTyped] = useState('');
 
   async function toggleExpand() {
     if (!expanded && !redemptions) {
@@ -180,11 +182,12 @@ function PromoRow({ promo, onChanged }: { promo: Promo; onChanged: () => void })
   }
 
   async function confirmDelete() {
+    if (deleteTyped !== 'DELETE') return;
     setBusy(true);
     try {
       await fetch(`/api/backoffice/promo-codes/${promo.id}`, { method: 'DELETE' });
       onChanged();
-    } finally { setBusy(false); setConfirmingDelete(false); }
+    } finally { setBusy(false); setConfirmingDelete(false); setDeleteTyped(''); }
   }
 
   const isExpired = promo.redeemable_until && new Date(promo.redeemable_until) < new Date();
@@ -209,16 +212,42 @@ function PromoRow({ promo, onChanged }: { promo: Promo; onChanged: () => void })
           className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
           {promo.active ? 'Deactivate' : 'Activate'}
         </button>
-        {confirmingDelete ? (
-          <span className="flex items-center gap-1.5">
-            <span className="text-xs text-[#B00000]">Delete permanently?</span>
-            <button onClick={confirmDelete} disabled={busy} className="rounded-lg bg-[#B00000] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#900000]">Confirm</button>
-            <button onClick={() => setConfirmingDelete(false)} className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">Cancel</button>
-          </span>
-        ) : (
-          <button onClick={() => setConfirmingDelete(true)} className="rounded-lg border border-red-200 px-2.5 py-1 text-xs text-[#B00000] hover:bg-red-50">Delete</button>
-        )}
+        <button onClick={() => setConfirmingDelete(true)} className="rounded-lg border border-red-200 px-2.5 py-1 text-xs text-[#B00000] hover:bg-red-50">Delete</button>
       </div>
+
+      {confirmingDelete && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => { setConfirmingDelete(false); setDeleteTyped(''); }}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-[440px] rounded-2xl bg-white p-6 shadow-2xl">
+            <h2 className="mb-2 text-lg font-semibold text-gray-900">Delete promo code {promo.code}?</h2>
+            <p className="text-sm leading-relaxed text-gray-600">
+              Once you confirm this deletion, <b>every user currently benefiting from this promo
+              will immediately lose it</b> — not just future redemptions. This is different from
+              Deactivate, which only stops new redemptions and leaves existing ones untouched
+              until they naturally expire.
+              {promo.redemption_count > 0 && (
+                <> This will affect <b>{promo.redemption_count} adherent{promo.redemption_count === 1 ? '' : 's'}</b> right now.</>
+              )}
+              {' '}This action cannot be undone.
+            </p>
+            <p className="mt-3 text-xs font-medium text-gray-500">Type DELETE to confirm.</p>
+            <input value={deleteTyped} onChange={(e) => setDeleteTyped(e.target.value)} placeholder="DELETE"
+              className="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm uppercase tracking-wide"
+              autoFocus />
+            <div className="mt-4 flex gap-2">
+              <button onClick={confirmDelete} disabled={busy || deleteTyped !== 'DELETE'}
+                className="rounded-lg bg-[#B00000] px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-[#900000] disabled:cursor-not-allowed disabled:opacity-40">
+                {busy ? 'Deleting…' : 'Delete permanently'}
+              </button>
+              <button onClick={() => { setConfirmingDelete(false); setDeleteTyped(''); }}
+                className="rounded-lg border border-gray-200 px-3.5 py-1.5 text-sm text-gray-600 hover:bg-gray-50">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
 
       {expanded && (
         <div className="border-t border-gray-100 px-3 py-2.5">

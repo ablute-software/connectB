@@ -4,7 +4,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { benefitStillActive } from '@/lib/promo';
+import { isRedemptionCurrentlyActive } from '@/lib/promo';
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -21,12 +21,14 @@ export async function GET() {
 
   const { data: redemptions } = await admin
     .from('promo_redemptions')
-    .select('benefit_ends_at, promo_codes(code, kind, discount_pct, applicable_plans)')
+    .select('benefit_ends_at, promo_codes(code, kind, discount_pct, applicable_plans, active, deleted_at)')
     .eq('org_id', member.org_id);
 
   const now = new Date();
   const active = (redemptions ?? [])
-    .filter((r) => benefitStillActive(r.benefit_ends_at, now))
+    .filter((r) => isRedemptionCurrentlyActive(
+      r.promo_codes as unknown as { active: boolean; deleted_at: string | null } | null, r.benefit_ends_at, now,
+    ))
     .map((r) => {
       const promo = r.promo_codes as unknown as { code: string; kind: string; discount_pct: number; applicable_plans: string[] } | null;
       return promo && {

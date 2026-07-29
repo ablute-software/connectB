@@ -60,6 +60,29 @@ export function benefitStillActive(benefitEndsAt: string | null, now: Date): boo
   return benefitEndsAt == null || new Date(benefitEndsAt) > now;
 }
 
+// Whether a specific redemption is CURRENTLY granting its benefit —
+// deliberately narrower than "is the promo code active": Deactivate and
+// Delete mean two different things, confirmed by the founder (not the
+// original design here, which wrongly conflated them):
+//   - Deactivate (`active=false`) only blocks NEW redemptions going
+//     forward. Anyone who already redeemed keeps their benefit until it
+//     naturally expires — that's the whole point of "deactivate" rather
+//     than "delete" existing as a separate, softer action.
+//   - Delete (`deleted_at` set) is the one that revokes EVERY current
+//     holder's benefit immediately, everywhere — the founder-facing Plans
+//     page, the effective plan tier (plan-server.ts), and this promo's own
+//     redemptions list. Irreversible, which is why the back-office delete
+//     action requires typing DELETE to confirm (see promo-codes/page.tsx).
+// So this function checks `deleted_at` only, never `active`.
+export function isRedemptionCurrentlyActive(
+  promo: Pick<PromoCode, 'deleted_at'> | null,
+  benefitEndsAt: string | null,
+  now: Date,
+): boolean {
+  if (!promo || promo.deleted_at) return false;
+  return benefitStillActive(benefitEndsAt, now);
+}
+
 export function discountedPriceEur(originalEur: number, discountPct: number): number {
   return Math.round(originalEur * (100 - discountPct) / 100);
 }

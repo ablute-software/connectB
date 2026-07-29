@@ -5,7 +5,7 @@
 import 'server-only';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { normalizePlan, PLAN_TIERS } from './plans';
-import { benefitStillActive } from './promo';
+import { isRedemptionCurrentlyActive } from './promo';
 import type { PlanTier } from './types';
 
 function tierRank(t: PlanTier): number {
@@ -49,15 +49,15 @@ async function bestFreeTrialTier(orgId: string): Promise<PlanTier | null> {
 
   const { data: redemptions } = await admin
     .from('promo_redemptions')
-    .select('benefit_ends_at, promo_codes(discount_pct, applicable_plans)')
+    .select('benefit_ends_at, promo_codes(discount_pct, applicable_plans, active, deleted_at)')
     .eq('org_id', orgId);
   if (!redemptions) return null;
 
   const now = new Date();
   let best: PlanTier | null = null;
   for (const r of redemptions) {
-    if (!benefitStillActive(r.benefit_ends_at, now)) continue;
-    const promo = r.promo_codes as unknown as { discount_pct: number; applicable_plans: PlanTier[] } | null;
+    const promo = r.promo_codes as unknown as { discount_pct: number; applicable_plans: PlanTier[]; active: boolean; deleted_at: string | null } | null;
+    if (!isRedemptionCurrentlyActive(promo, r.benefit_ends_at, now)) continue;
     if (!promo || promo.discount_pct !== 100) continue;
     for (const tier of promo.applicable_plans) {
       if (!best || tierRank(tier) > tierRank(best)) best = tier;

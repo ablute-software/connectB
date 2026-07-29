@@ -3,7 +3,7 @@
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { logAdminAction } from '@/lib/audit';
-import { benefitStillActive } from '@/lib/promo';
+import { isRedemptionCurrentlyActive } from '@/lib/promo';
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const auth = await requirePlatformAdmin();
@@ -30,7 +30,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       org_name: (r.orgs as unknown as { name: string } | null)?.name ?? '(deleted org)',
       redeemed_at: r.redeemed_at,
       benefit_ends_at: r.benefit_ends_at,
-      benefit_active: benefitStillActive(r.benefit_ends_at, now),
+      benefit_active: isRedemptionCurrentlyActive(promo, r.benefit_ends_at, now),
     })),
   });
 }
