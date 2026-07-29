@@ -12,7 +12,7 @@ import type {
   AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, CompanyFact, CompanyPerson, Db, DocumentItem,
   DocumentVersion, DocumentView, Entity, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
-  RelationshipState, RuleOverride, TaskItem, AiReview,
+  RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric,
 } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate, buildFollowUpTask } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
@@ -26,7 +26,7 @@ const EMPTY_DB: Db = {
   org: EMPTY_ORG, entities: [], people: [], personAffiliations: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
-  documentVersions: [], reawakeningProposals: [],
+  documentVersions: [], reawakeningProposals: [], tractionMetrics: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -63,7 +63,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     foldersRes, documentsRes, grantsRes, viewsRes, templatesRes, automationsRes,
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
-    documentVersionsRes, reawakeningProposalsRes, companyPeopleRes,
+    documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -103,6 +103,9 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // Company tab redesign (0037) — company_people may not exist yet. Same
     // missing-table-safe pattern as company_facts/ndas above.
     sb.from('company_people').select('*').eq('org_id', orgId).order('sort_order', { ascending: true }),
+    // Investor Workspace Fase 1 (0054) — org_traction_metrics may not exist
+    // yet. Same missing-table-safe pattern as company_facts/ndas above.
+    sb.from('org_traction_metrics').select('*').eq('org_id', orgId).order('sort_order', { ascending: true }),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -163,6 +166,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     ndas: ((ndasRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<Nda>(r)),
     documentVersions: ((documentVersionsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<DocumentVersion>(r)),
     reawakeningProposals: ((reawakeningProposalsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<ReawakeningProposal>(r)),
+    tractionMetrics: ((tractionMetricsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<TractionMetric>(r)),
   };
 }
 
@@ -460,6 +464,27 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const prev = dbRef.current;
       commit({ ...prev, companyPeople: prev.companyPeople.filter((p) => p.id !== id) });
       persist(sb.from('company_people').delete().eq('id', id), 'removeCompanyPerson');
+    },
+
+    addTractionMetric(m) {
+      const prev = dbRef.current;
+      const sortOrder = prev.tractionMetrics.length
+        ? Math.max(...prev.tractionMetrics.map((x) => x.sort_order)) + 1 : 0;
+      const now = new Date().toISOString();
+      const row: TractionMetric = { ...m, id: uuid(), org_id: prev.org.id, sort_order: sortOrder, created_at: now, updated_at: now };
+      commit({ ...prev, tractionMetrics: [...prev.tractionMetrics, row] });
+      const o = orgIdRef.current;
+      if (o) persist(sb.from('org_traction_metrics').insert({ ...row, org_id: o }), 'addTractionMetric');
+    },
+    updateTractionMetric(id, patch) {
+      const prev = dbRef.current;
+      commit({ ...prev, tractionMetrics: prev.tractionMetrics.map((m) => (m.id === id ? { ...m, ...patch, updated_at: new Date().toISOString() } : m)) });
+      persist(sb.from('org_traction_metrics').update(nullify(patch)).eq('id', id), 'updateTractionMetric');
+    },
+    removeTractionMetric(id) {
+      const prev = dbRef.current;
+      commit({ ...prev, tractionMetrics: prev.tractionMetrics.filter((m) => m.id !== id) });
+      persist(sb.from('org_traction_metrics').delete().eq('id', id), 'removeTractionMetric');
     },
 
     setEntityStatus(id: string, status: EntityStatus, reason?: string) {

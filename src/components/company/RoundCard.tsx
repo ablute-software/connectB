@@ -27,8 +27,8 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<{
     raising: string; stage: string; stage_other: string; target: string; secured: string;
-    instruments: string[]; instrument_other: string; valuation: string; runway: string;
-    close_date: string; use_of_funds: string; flexible: boolean; flexible_note: string;
+    instruments: string[]; instrument_other: string; valuation: string; runway: string; runway_post: string;
+    min_ticket: string; close_date: string; use_of_funds: string; flexible: boolean; flexible_note: string;
   } | null>(null);
 
   function startEdit() {
@@ -40,6 +40,9 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
       instruments: org.round_instruments ?? [], instrument_other: org.round_instrument_other ?? '',
       valuation: org.round_valuation_eur != null ? String(org.round_valuation_eur) : '',
       runway: org.round_runway_months != null ? String(org.round_runway_months) : '',
+      // Investor Workspace Fase 1 (prompt 54) — min ticket + post-round runway.
+      runway_post: org.round_runway_post_months != null ? String(org.round_runway_post_months) : '',
+      min_ticket: org.round_min_ticket_eur != null ? String(org.round_min_ticket_eur) : '',
       close_date: org.round_target_close_date ?? '', use_of_funds: org.round_use_of_funds ?? '',
       flexible: !!org.round_flexible, flexible_note: org.round_flexible_note ?? '',
     });
@@ -63,6 +66,8 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
       round_instrument_other: draft.instruments.includes('other') ? draft.instrument_other.trim() || undefined : undefined,
       round_valuation_eur: draft.valuation ? Number(draft.valuation) : undefined,
       round_runway_months: draft.runway ? Number(draft.runway) : undefined,
+      round_runway_post_months: draft.runway_post ? Number(draft.runway_post) : undefined,
+      round_min_ticket_eur: draft.min_ticket ? Number(draft.min_ticket) : undefined,
       round_target_close_date: draft.close_date || undefined,
       round_use_of_funds: draft.use_of_funds.trim() || undefined,
       round_flexible: draft.flexible,
@@ -109,9 +114,17 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
                   <span className="text-gray-500">Valuation / cap (EUR, optional)</span>
                   <input type="number" value={draft.valuation} onChange={(e) => setDraft({ ...draft, valuation: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
                 </label>
-                <CompletenessField id="round.runway" label="Runway (months)" missing={missingIds.has('round.runway')} flashing={flashId === 'round.runway'}>
+                <label className="flex flex-col gap-0.5 text-xs">
+                  <span className="text-gray-500">Minimum ticket (EUR, optional)</span>
+                  <input type="number" value={draft.min_ticket} onChange={(e) => setDraft({ ...draft, min_ticket: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
+                </label>
+                <CompletenessField id="round.runway" label="Runway now (months)" missing={missingIds.has('round.runway')} flashing={flashId === 'round.runway'}>
                   <input type="number" value={draft.runway} onChange={(e) => setDraft({ ...draft, runway: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
                 </CompletenessField>
+                <label className="flex flex-col gap-0.5 text-xs">
+                  <span className="text-gray-500">Runway post-round (months, optional)</span>
+                  <input type="number" value={draft.runway_post} onChange={(e) => setDraft({ ...draft, runway_post: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
+                </label>
                 <CompletenessField id="round.target_close_date" label="Target close date" missing={missingIds.has('round.target_close_date')} flashing={flashId === 'round.target_close_date'}>
                   <input type="date" value={draft.close_date} onChange={(e) => setDraft({ ...draft, close_date: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
                 </CompletenessField>
@@ -171,7 +184,9 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
                   ['round.target', 'Target', org.round_target_eur != null ? `${eur(org.round_target_eur)}${org.round_flexible ? ' · FLEXIBLE' : ''}` : ''],
                   ['round.secured', 'Secured', org.round_secured_eur != null ? eur(org.round_secured_eur) : ''],
                   ['round.valuation', 'Valuation', org.round_valuation_eur != null ? eur(org.round_valuation_eur) : ''],
-                  ['round.runway', 'Runway', org.round_runway_months != null ? `${org.round_runway_months} mo` : ''],
+                  ['round.min_ticket', 'Min ticket', org.round_min_ticket_eur != null ? eur(org.round_min_ticket_eur) : ''],
+                  ['round.runway', 'Runway now', org.round_runway_months != null ? `${org.round_runway_months} mo` : ''],
+                  ['round.runway_post', 'Runway post-round', org.round_runway_post_months != null ? `${org.round_runway_post_months} mo` : ''],
                   ['round.target_close_date', 'Target close', org.round_target_close_date ?? ''],
                 ] as [string, string, string][]).map(([id, label, value]) => (
                   <div key={id} id={id} className={`rounded p-1 transition-colors duration-700 ${flashId === id ? 'bg-amber-50 ring-2 ring-amber-300' : ''}`}>

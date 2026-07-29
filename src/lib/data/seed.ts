@@ -444,6 +444,7 @@ export const seed: Db = {
   aiReviews: [],
   companyFacts: [],
   companyPeople: [],
+  tractionMetrics: [],
   ndas: [],
   documentVersions: [],
   reawakeningProposals: [],

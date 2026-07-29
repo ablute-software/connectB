@@ -1,0 +1,11 @@
+# Minimal Supabase CLI config, added retroactively (prompt 52) purely to
+# carry the matchdeal-pair Edge Function's deployment settings — this repo
+# never had a supabase/config.toml before. Not a full `supabase init`
+# output; only what's needed to redeploy this one function faithfully
+# (`verify_jwt = true` matches the ACTIVE version in production, captured
+# 2026-07-29). Extend this file when/if other functions are added or the
+# project adopts the Supabase CLI for local dev.
+project_id = "wkjcaoqdvhykrfacsylr"
+
+[functions.matchdeal-pair]
+verify_jwt = true

@@ -118,6 +118,39 @@ export interface Org {
   round_use_of_funds?: string;
   round_flexible?: boolean;
   round_flexible_note?: string;
+  // Investor Workspace Fase 1 (prompt 54, migration 0054) — Zona 1 snapshot.
+  round_min_ticket_eur?: number;
+  round_runway_post_months?: number;
+}
+
+// Investor Workspace Fase 1 — founder-chosen traction metrics (label+value
+// pairs, e.g. "MRR" / "€12k"), shown on the portal snapshot card. Same
+// shape/RLS pattern as CompanyPerson (0037): small ordered child table.
+export interface TractionMetric {
+  id: string;
+  org_id: string;
+  label: string;
+  value: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Investor Workspace Fase 1 — append-only history of an investor's stated
+// ticket range (never updated in place; "current" = the latest row per
+// investor_email). Written only by /api/portal/ticket-signal
+// (service-role, session-scoped), never by a client-side store action —
+// investors are never org_members, so there's nothing here for the
+// founder-side store to insert.
+export interface InvestorTicketSignal {
+  id: string;
+  org_id: string;
+  person_id?: string;
+  investor_email: string;
+  range_min_eur?: number;
+  range_max_eur?: number;
+  range_label: string;
+  created_at: string;
 }
 
 // Company tab redesign — the startup's own team (not the app-access roster
@@ -623,6 +656,7 @@ export interface Db {
   aiReviews: AiReview[];
   companyFacts: CompanyFact[];
   companyPeople: CompanyPerson[];
+  tractionMetrics: TractionMetric[];
   ndas: Nda[];
   documentVersions: DocumentVersion[];
   reawakeningProposals: ReawakeningProposal[];

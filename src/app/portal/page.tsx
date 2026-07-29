@@ -348,11 +348,15 @@ export default function PortalPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {real?.qaAccess && (
-              <div className="rounded-lg border border-purple-200 bg-purple-50 p-2 text-center text-xs font-medium text-purple-700">
-                QA access — ablute_ team. Not a real investor grant; read-only, never logged as a view.
-              </div>
-            )}
+            {/* Prompt 54 Bloco 0 — the "QA access" banner is gone on
+                purpose: the whole point of @ablute.pt QA sessions is to see
+                EXACTLY what a real investor sees, pixel for pixel. The
+                non-contamination guarantee (no document_views row, no
+                ticket-signal row visible to the founder, nothing in any
+                dashboard) still holds — it's just enforced server-side now
+                (is_ablute_developer() checks in each write route) instead
+                of being disclosed here. See DECISIONS.md for the full
+                audit of every write path this covers. */}
             <p className="text-sm text-gray-500">Signed in as <b>{authEnabled ? sessionEmail : email}</b>{orgName ? <> · <b>{orgName}</b></> : ''}. You can see only the items granted to you.</p>
             {pendingNdaCount > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">

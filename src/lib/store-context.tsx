@@ -7,7 +7,7 @@ import { createContext, useContext } from 'react';
 import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, CompanyPerson, Db,
   Direction, DocumentItem, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
-  PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem,
+  PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric,
 } from './types';
 
 export type LogInput = {
@@ -222,6 +222,11 @@ export interface StoreApi {
   addCompanyPerson: (p: Omit<CompanyPerson, 'id' | 'org_id' | 'sort_order' | 'created_at' | 'updated_at'>) => void;
   updateCompanyPerson: (id: string, patch: Partial<CompanyPerson>) => void;
   removeCompanyPerson: (id: string) => void;
+  // Investor Workspace Fase 1 (prompt 54) — Zona 1 traction metrics, same
+  // shape/pattern as company people above.
+  addTractionMetric: (m: Omit<TractionMetric, 'id' | 'org_id' | 'sort_order' | 'created_at' | 'updated_at'>) => void;
+  updateTractionMetric: (id: string, patch: Partial<TractionMetric>) => void;
+  removeTractionMetric: (id: string) => void;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);

@@ -207,6 +207,20 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, companyPeople: prev.companyPeople.filter((p) => p.id !== id) }));
     },
 
+    addTractionMetric(m) {
+      setDb((prev) => {
+        const sortOrder = prev.tractionMetrics.length ? Math.max(...prev.tractionMetrics.map((x) => x.sort_order)) + 1 : 0;
+        const now = new Date().toISOString();
+        return { ...prev, tractionMetrics: [...prev.tractionMetrics, { ...m, id: uid('tm'), org_id: prev.org.id, sort_order: sortOrder, created_at: now, updated_at: now }] };
+      });
+    },
+    updateTractionMetric(id, patch) {
+      setDb((prev) => ({ ...prev, tractionMetrics: prev.tractionMetrics.map((m) => (m.id === id ? { ...m, ...patch, updated_at: new Date().toISOString() } : m)) }));
+    },
+    removeTractionMetric(id) {
+      setDb((prev) => ({ ...prev, tractionMetrics: prev.tractionMetrics.filter((m) => m.id !== id) }));
+    },
+
     setEntityStatus(id, status, reason) {
       setDb((prev) => ({
         ...prev,

@@ -24,6 +24,8 @@ const EDITABLE = [
   'employee_count', 'founder_count_override', 'stage_other',
   'round_raising', 'round_secured_eur', 'round_instruments', 'round_instrument_other', 'round_valuation_eur',
   'round_runway_months', 'round_target_close_date', 'round_use_of_funds', 'round_flexible', 'round_flexible_note',
+  // Investor Workspace Fase 1 (prompt 54) — Zona 1 snapshot round data.
+  'round_min_ticket_eur', 'round_runway_post_months',
 ] as const;
 
 export async function POST(req: Request) {
