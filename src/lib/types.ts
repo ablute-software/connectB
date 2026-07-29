@@ -210,6 +210,22 @@ export interface Entity {
   alignment_status?: EntityAlignmentStatus;
   alignment_notes?: string;
   alignment_assessed_at?: string;
+  // Plan-based catalog visibility (migration 0042, DECISIONS.md). 'catalog'
+  // rows are subject to the org's accumulated plan quota (enforced by RLS —
+  // a row the API ever returns to this client is, by construction, already
+  // unlocked); 'manual' (submitInvestor / "+ Add investor" / history
+  // imports) and 'match_deal' (not wired yet) are always unlocked and
+  // additional to the quota. Every entity that existed before this
+  // migration is 'manual'.
+  source: 'catalog' | 'manual' | 'match_deal';
+  // §1c(ii) — set by human review only, never inferred (prompt 42): this
+  // entity has no proof of its own independent existence (no website/
+  // email_domain/phone/address, or a source_url that documents something
+  // else, not this specific entity). See relationship.ts's
+  // isUnverifiedStub — a thin accessor, not a derivation, because telling
+  // "real evidence" apart from "evidence that doesn't actually prove this
+  // entity" needs a human judgment call.
+  unverified_stub_at?: string;
 }
 
 export interface Person {
@@ -412,6 +428,14 @@ export interface AccessGrant {
   nda_required: boolean;
   nda_accepted_at?: string;
   note?: string;
+  // Grant Access rebuild (prompt 33 part 2, migration 0045). Set only by
+  // the founder "+ Invite someone new" flow — never for a grant to an
+  // already-known person. Status is derived, not stored: see grantStatus()
+  // in src/lib/access-grants.ts.
+  invited_email?: string;
+  invited_name?: string;
+  confirmed_at?: string;
+  self_verified?: boolean;
 }
 
 export interface DocumentView {

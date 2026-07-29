@@ -179,11 +179,9 @@ export function PlansPanel() {
       priceLabel: planPriceLabel(p, period),
       priceSubLabel: p.paid ? undefined : 'free forever',
       bullets: p.bullets,
-      // "Most popular" only makes the annual-commitment case (that's the
-      // period it's nudging toward) — showing it on Monthly too was
-      // claiming a distinction that isn't there for a plan someone can
-      // cancel any time.
-      popular: p.tier === 'garage' && period === 'annual',
+      // "Most popular" nudges toward Suspect list on the Monthly view —
+      // the lower-commitment entry point most people actually pick first.
+      popular: p.tier === 'garage' && period === 'monthly',
       bestPrice: p.tier === 'motherfunding',
       promoNote: bestPromo
         ? `🎉 Promo ${bestPromo.code} — you pay €${discounted}/month${until ? ` until ${until}` : ' (permanently)'}`

@@ -19,10 +19,36 @@
 // those out here, server-side, before anything is even fetched — a locked
 // item never reaches this response at all, and the client just shows a
 // count of how many are still pending.
+//
+// Prompt 48 — @ablute.pt QA bypass, so the team can see the Investor
+// Workspace working today without waiting on the real request→approval
+// flow (Prompt 41). Deliberately a FALLBACK, checked only when the normal
+// access_grants lookup finds nothing: a real grant for this email (however
+// that ever comes to exist) always wins, this path never overrides it. No
+// access_grants rows are fabricated — this reads folders/documents directly
+// for the @ablute.pt user's own org, entirely parallel to the grants table.
+// Read-only by construction (this route has no write path at all); the
+// response is flagged `qaAccess: true` so the client can label it and so it
+// stays structurally distinct from a real investor's session — nothing
+// here writes a document_views row either (see /api/portal/view), so it
+// can never surface as investor activity on any founder-facing dashboard.
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
+import { grantIsActive, grantStatus } from '@/lib/access-grants';
+
+async function toPortalDoc(admin: SupabaseClient, d: Record<string, unknown>) {
+  let signedUrl: string | null = (d.external_url as string | null) ?? null;
+  if (!signedUrl && d.storage_path) {
+    const { data: signed } = await admin.storage.from('data-room').createSignedUrl(d.storage_path as string, 300);
+    signedUrl = signed?.signedUrl ?? null;
+  }
+  return {
+    id: d.id, name: d.name, version: d.version, watermark: d.watermark,
+    downloadable: d.downloadable, folder_id: d.folder_id, url: signedUrl,
+  };
+}
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -38,15 +64,70 @@ export async function GET() {
 
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
 
-  const orParts = [`grantee_email.eq.${email}`];
+  // invited_email must be its own match arm, not folded into the person_id
+  // lookup above: a founder-invited person (Prompt 47) only ever gets
+  // email_guess, never email_verified, until they self-confirm — so without
+  // this the grant that's supposed to trigger the "Is this you?" screen is
+  // invisible to this route and never reaches pendingConfirmation below.
+  const orParts = [`grantee_email.eq.${email}`, `invited_email.eq.${email}`];
   if (person) orParts.push(`person_id.eq.${person.id}`);
   const { data: grants, error: grantsErr } = await admin.from('access_grants').select('*')
     .is('revoked_at', null).or(orParts.join(','));
   if (grantsErr) return NextResponse.json({ error: grantsErr.message }, { status: 500 });
 
-  const activeGrants = (grants ?? []).filter((g) => !g.expires_at || new Date(g.expires_at) > new Date());
+  // prompt 33 part 2 (decision 2026-07-29): a pending_confirmation grant
+  // (invited_email set, confirmed_at still null — see migration 0045 /
+  // access-grants.ts) must never reach this response, same as a revoked or
+  // expired one. Forward-compatible before the migration even runs: until
+  // invited_email/confirmed_at exist, they're simply undefined on every row
+  // here, which grantIsActive treats exactly like null — every grant
+  // created before this column existed stays active, nothing changes for
+  // today's grants.
+  const now = new Date();
+  const activeGrants = (grants ?? []).filter((g) => grantIsActive(g as any, now));
+
+  // Prompt 47 — surfaced to the portal page so it can show the "Is this
+  // you?" screen BEFORE anything else, even though this response's own
+  // documents/folders below already exclude these grants entirely (nothing
+  // here leaks past the id/invited_name/org name needed to render the
+  // confirm screen — never a folder id, document id, or signed URL).
+  const pendingGrants = (grants ?? []).filter((g) => grantStatus(g as any, now) === 'pending_confirmation');
+  let pendingConfirmation: { grantId: string; invitedName: string | null; orgName: string | null }[] = [];
+  if (pendingGrants.length) {
+    const orgIds = [...new Set(pendingGrants.map((g) => g.org_id as string))];
+    const { data: pendingOrgs } = await admin.from('orgs').select('id, name').in('id', orgIds);
+    const orgNameById = new Map((pendingOrgs ?? []).map((o) => [o.id as string, o.name as string]));
+    pendingConfirmation = pendingGrants.map((g) => ({
+      grantId: g.id as string, invitedName: (g.invited_name as string | null) ?? null,
+      orgName: orgNameById.get(g.org_id as string) ?? null,
+    }));
+  }
+
   if (activeGrants.length === 0) {
-    return NextResponse.json({ orgName: null, pendingNdaCount: 0, folders: [], documents: [] });
+    // QA fallback only when there is genuinely nothing real to show —
+    // .rpc runs on the session-scoped client (`sb`), not `admin`, because
+    // is_ablute_developer() reads auth.uid() and a service-role call has no
+    // user context to check. If this fails/returns false, falls through to
+    // the existing empty response unchanged.
+    const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
+    if (isAbluteQa) {
+      const { data: membership } = await admin.from('org_members').select('org_id').eq('user_id', user!.id).limit(1).maybeSingle();
+      if (membership) {
+        const orgId = membership.org_id as string;
+        const { data: org } = await admin.from('orgs').select('name, sender_email').eq('id', orgId).single();
+        const [{ data: allFolders }, { data: allDocs }] = await Promise.all([
+          admin.from('folders').select('id, name').eq('org_id', orgId),
+          admin.from('documents').select('*').eq('org_id', orgId),
+        ]);
+        const documents = await Promise.all((allDocs ?? []).map((d) => toPortalDoc(admin, d)));
+        return NextResponse.json({
+          orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
+          pendingNdaCount: 0, folders: allFolders ?? [], documents,
+          pendingConfirmation, qaAccess: true,
+        });
+      }
+    }
+    return NextResponse.json({ orgName: null, pendingNdaCount: 0, folders: [], documents: [], pendingConfirmation });
   }
 
   // MVP: one investor identity = one org's grants at a time (the first match).
@@ -90,20 +171,11 @@ export async function GET() {
     : { data: [] };
 
   const visibleDocs = candidateDocs.filter((d) => visibleIds.includes(d.id as string));
-  const documents = await Promise.all(visibleDocs.map(async (d) => {
-    let signedUrl: string | null = (d.external_url as string | null) ?? null;
-    if (!signedUrl && d.storage_path) {
-      const { data: signed } = await admin.storage.from('data-room').createSignedUrl(d.storage_path as string, 300);
-      signedUrl = signed?.signedUrl ?? null;
-    }
-    return {
-      id: d.id, name: d.name, version: d.version, watermark: d.watermark,
-      downloadable: d.downloadable, folder_id: d.folder_id, url: signedUrl,
-    };
-  }));
+  const documents = await Promise.all(visibleDocs.map((d) => toPortalDoc(admin, d)));
 
   return NextResponse.json({
     orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
     pendingNdaCount: folderPendingCount + docPendingCount, folders: folders ?? [], documents,
+    pendingConfirmation,
   });
 }

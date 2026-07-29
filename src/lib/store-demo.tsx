@@ -251,33 +251,6 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       return person;
     },
 
-    convertEntityToPerson(entityId) {
-      setDb((prev) => {
-        const entity = prev.entities.find((e) => e.id === entityId);
-        if (!entity) return prev;
-        const personId = uid('p');
-        const newPerson: Person = {
-          id: personId, entity_id: entityId, full_name: entity.name, seniority_rank: 1,
-          linkedin_verified: false, bounce_count: 0, linked_companies: [], linked_funds: [],
-          hook_status: 'to_research', kill_words: [], preferred_language: 'en',
-          privacy_notice_sent: false, do_not_contact: false,
-        };
-        const newAffiliation: PersonAffiliation = {
-          id: uid('aff'), person_id: personId, entity_id: undefined, kind: 'angel', current: true,
-          is_primary: true, notes: 'Converted from a mis-imported VC-type entity — solo angel investor, no fund.',
-        };
-        return {
-          ...prev,
-          entities: prev.entities.map((e) => e.id === entityId
-            ? { ...e, type: 'angel_fund', last_verified: new Date().toISOString().slice(0, 10) } : e),
-          people: [...prev.people, newPerson],
-          personAffiliations: [...prev.personAffiliations, newAffiliation],
-          interactions: prev.interactions.map((i) =>
-            i.entity_id === entityId && !i.person_id ? { ...i, person_id: personId } : i),
-        };
-      });
-    },
-
     markEntityVerified(entityId) {
       setDb((prev) => ({
         ...prev,
@@ -503,6 +476,29 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, grants: prev.grants.map((g) => g.id === id ? { ...g, revoked_at: new Date().toISOString() } : g) }));
     },
 
+    async invitePersonForGrant(entityId, email, name) {
+      const normalizedEmail = email.trim().toLowerCase();
+      const existing = db.people.find((p) =>
+        p.entity_id === entityId && (p.email_verified?.toLowerCase() === normalizedEmail || p.email_guess?.toLowerCase() === normalizedEmail));
+      if (existing) return existing;
+
+      const siblings = db.people.filter((x) => x.entity_id === entityId);
+      const seniority_rank = siblings.length ? Math.max(...siblings.map((x) => x.seniority_rank)) + 1 : 1;
+      const person: Person = {
+        id: uid('p'), entity_id: entityId, full_name: name, email_guess: normalizedEmail,
+        seniority_rank, linkedin_verified: false, bounce_count: 0, linked_companies: [], linked_funds: [],
+        hook_status: 'to_research', kill_words: [], preferred_language: 'en',
+        privacy_notice_sent: false, do_not_contact: false, identity_verified: false,
+        data_source: 'founder_invite',
+      };
+      const affiliation: PersonAffiliation = {
+        id: uid('pa'), person_id: person.id, entity_id: entityId, kind: 'other', current: true,
+        notes: `Added via founder access invite (${new Date().toISOString().slice(0, 10)}).`,
+      };
+      setDb((prev) => ({ ...prev, people: [...prev.people, person], personAffiliations: [...prev.personAffiliations, affiliation] }));
+      return person;
+    },
+
     recordNdaUpload(nda: Nda, unlockedGrantIds: string[]) {
       setDb((prev) => ({
         ...prev,
@@ -663,7 +659,7 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
             check_min_eur: c.check_min_eur, check_max_eur: c.check_max_eur,
             sectors: c.sectors, thesis: c.thesis, fit_score: 'medium', wave: 3,
             submission_channel_type: 'unknown', hard_filter_status: 'not_applicable',
-            status: 'not_contacted',
+            status: 'not_contacted', source: 'catalog',
           });
         }
         delivered = newEntities.length;
@@ -690,7 +686,7 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
           invests_in_geographies: [], website: payload.website, website_verified: false,
           email_domain_verified: false, sectors: payload.sectors,
           submission_channel_type: 'unknown', hard_filter_status: 'not_applicable',
-          status: 'not_contacted', fit_score: 'medium', wave: 3,
+          status: 'not_contacted', fit_score: 'medium', wave: 3, source: 'manual',
         }],
         submissions: [...prev.submissions, {
           id: uid('sub'), payload, submitted_by: prev.org.name,

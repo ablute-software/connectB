@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
       org_id: orgId, name: e.name, type: 'vc', invests_in_geographies: [], website: e.website || null,
       website_verified: false, email_domain_verified: false, sectors: [],
       submission_channel_type: 'unknown', hard_filter_status: 'not_applicable', status: 'not_contacted',
+      source: 'manual',
     }).select().single();
     if (error) return NextResponse.json({ ok: false, error: `entity "${e.name}": ${error.message}` }, { status: 500 });
     entityIdByName.set(key, created.id);

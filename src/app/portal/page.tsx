@@ -23,14 +23,21 @@ import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
+import { getMagicLinkSent, setMagicLinkSent, clearMagicLinkSent } from '@/lib/magic-link-storage';
 
 interface PortalDoc {
   id: string; name: string; version?: string; watermark: boolean;
   downloadable: boolean; folder_id?: string; url: string | null;
 }
+interface PendingConfirmation { grantId: string; invitedName: string | null; orgName: string | null }
 interface PortalData {
   orgName: string | null; senderEmail?: string | null; pendingNdaCount: number;
   folders: { id: string; name: string }[]; documents: PortalDoc[];
+  pendingConfirmation?: PendingConfirmation[];
+  // Prompt 48 — @ablute.pt QA fallback in /api/portal/access, no real
+  // access_grants behind it. Shown as a banner, not folded into the normal
+  // "signed in as" line, so it can never be mistaken for a real investor.
+  qaAccess?: boolean;
 }
 
 export default function PortalPage() {
@@ -44,22 +51,97 @@ export default function PortalPage() {
   const [linkSending, setLinkSending] = useState(false);
   const [linkSent, setLinkSent] = useState(false);
   const [linkErr, setLinkErr] = useState('');
+  // Prompt 44 — the "or enter the code" fallback (verifyOtp), and the
+  // localStorage-backed "already sent" state that survives a reload. See
+  // src/lib/magic-link-storage.ts for why: @supabase/ssr hardcodes PKCE
+  // flowType, so every new signInWithOtp call silently invalidates any
+  // link already sent — a reload handing back a fresh, ready-to-fire form
+  // is the single most common way that happens by accident.
+  const [showCodeEntry, setShowCodeEntry] = useState(false);
+  const [code, setCode] = useState('');
+  const [codeBusy, setCodeBusy] = useState(false);
+  const [codeErr, setCodeErr] = useState('');
 
   // Demo-mode-only sign-in toggle (no real auth exists in demo mode).
   const [demoSignedIn, setDemoSignedIn] = useState(false);
+
+  // Prompt 33 part 2 / 47 — "Is this you?", shown before anything else on
+  // first login for a founder-invited grant. dismissedGrantIds handles
+  // "This access isn't for me": the grant is deliberately left
+  // pending_confirmation forever (no document exposure either way), not
+  // declined via any new endpoint — there's nothing to revert.
+  const [confirmName, setConfirmName] = useState('');
+  const [confirmRole, setConfirmRole] = useState('');
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmErr, setConfirmErr] = useState('');
+  const [dismissedGrantIds, setDismissedGrantIds] = useState<string[]>([]);
+
+  // Prompt 50 — captured once via a lazy initializer, not re-read live
+  // inside the effect below: React 18 dev Strict Mode runs that effect
+  // twice, and the effect's own replaceState call (clearing `linkFailed`
+  // from the URL) would make the SECOND invocation read a URL that's
+  // already clean, silently falling through to the "check your email"
+  // branch and overwriting the code-entry UI the first invocation had just
+  // set up. A lazy initializer runs before any effect (and before any
+  // replaceState), so both Strict Mode invocations see the same value.
+  const [linkFailed] = useState(() =>
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('linkFailed') === '1');
 
   useEffect(() => {
     if (!authEnabled) return;
     browserClient().auth.getUser().then(({ data }) => {
       setSessionEmail(data.user?.email?.toLowerCase() ?? null);
     });
-  }, []);
+    const stored = getMagicLinkSent();
+    // /auth/callback couldn't exchange the code for a session (most
+    // likely: the link was opened in a different browser/device than the
+    // one that requested it, so the PKCE code_verifier cookie isn't here;
+    // or an email client's link-scanner already consumed the one-time code
+    // before the human clicked). Landing back on a blank "enter your
+    // email" form reads as a silent loop with no way out — the code field
+    // (same OTP, verified a different way) still works regardless of which
+    // browser is asking, so jump straight to it instead, pre-filled with
+    // the email if this browser still has it.
+    if (linkFailed) {
+      if (stored) setEmail(stored.email);
+      setShowCodeEntry(true);
+      setLinkErr('That sign-in link didn’t complete — enter the code from the same email instead.');
+      window.history.replaceState(null, '', window.location.pathname);
+      return;
+    }
+    if (stored) { setEmail(stored.email); setLinkSent(true); }
+  }, [linkFailed]);
 
   useEffect(() => {
     if (!authEnabled || !sessionEmail) return;
     setLoading(true);
-    fetch('/api/portal/access').then((r) => r.json()).then((d) => { setReal(d); setLoading(false); });
+    fetch('/api/portal/access').then((r) => r.json()).then((d: PortalData) => {
+      setReal(d);
+      setLoading(false);
+      const firstPending = d.pendingConfirmation?.[0];
+      if (firstPending?.invitedName) setConfirmName(firstPending.invitedName);
+    });
   }, [sessionEmail]);
+
+  const activePendingConfirmation = (real?.pendingConfirmation ?? []).filter((p) => !dismissedGrantIds.includes(p.grantId));
+
+  async function confirmIdentity(grantId: string) {
+    setConfirmErr(''); setConfirmBusy(true);
+    try {
+      const res = await fetch('/api/portal/confirm-identity', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ grantId, name: confirmName, role: confirmRole || undefined }),
+      });
+      const result = await res.json();
+      if (!result.ok) { setConfirmErr(result.error ?? 'Could not confirm.'); return; }
+      // Reload from the server rather than patching local state — the
+      // confirmed grant may now unlock real documents this response never
+      // carried while it was pending_confirmation.
+      setLoading(true);
+      const refreshed = await fetch('/api/portal/access').then((r) => r.json());
+      setReal(refreshed); setLoading(false); setConfirmRole('');
+    } finally { setConfirmBusy(false); }
+  }
 
   // ---- demo-mode data (unchanged behaviour, mirrors the real route's
   // per-item NDA gate so the demo preview matches production exactly) ----
@@ -100,8 +182,28 @@ export default function PortalPage() {
         },
       });
       if (error) { setLinkErr(error.message); return; }
+      setMagicLinkSent(email);
       setLinkSent(true);
     } finally { setLinkSending(false); }
+  }
+
+  async function verifyCode() {
+    setCodeErr(''); setCodeBusy(true);
+    try {
+      const sb = browserClient();
+      const { error } = await sb.auth.verifyOtp({ email, token: code, type: 'email' });
+      if (error) { setCodeErr(error.message); return; }
+      clearMagicLinkSent();
+      window.location.reload();
+    } finally { setCodeBusy(false); }
+  }
+
+  // "Not you? Start over" — the deliberate escape hatch from state B, since
+  // the primary email input is hidden once a link/code cycle is in
+  // progress (see the JSX below).
+  function startOver() {
+    clearMagicLinkSent();
+    setLinkSent(false); setEmail(''); setLinkErr(''); setCode(''); setCodeErr(''); setShowCodeEntry(false);
   }
 
   function openDoc(doc: PortalDoc | { id: string; external_url?: string }) {
@@ -163,7 +265,11 @@ export default function PortalPage() {
             <h1 className="text-lg font-semibold">Sign in</h1>
             <p className="mt-1 text-sm text-gray-500">Enter the email your access was granted to. We’ll send a magic link — no password.</p>
             {linkSent ? (
-              <p className="mt-4 text-sm text-green-700">Check your email for the sign-in link.</p>
+              <>
+                <p className="mt-4 text-sm text-green-700">Check your email for the sign-in link — sent to {email}.</p>
+                <p className="mt-2 text-xs text-gray-400">Open the link on this same device and browser you used to request it. Checking email on your phone instead? Use the code below.</p>
+                <button onClick={startOver} className="mt-2 text-xs text-gray-400 hover:underline">Not you? Start over</button>
+              </>
             ) : (
               <>
                 <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@fund.com"
@@ -175,9 +281,64 @@ export default function PortalPage() {
                 {linkErr && <p className="mt-2 text-xs text-[#B00000]">{linkErr}</p>}
               </>
             )}
+            {/* Prompt 44 — visible in BOTH states, not just after sending:
+                a link requested on another device (e.g. a laptop, then
+                checked on a phone) never has this browser's "already sent"
+                state, so the code fallback has to be reachable from the
+                fresh form too, not only after a link this same browser sent. */}
+            {showCodeEntry ? (
+              <div className="mt-4 border-t border-gray-100 pt-4 text-left">
+                <label className="mb-1 block text-xs font-medium text-gray-500">6-digit code from the email</label>
+                <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="123456" inputMode="numeric"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+                <button onClick={verifyCode} disabled={!email.includes('@') || !code || codeBusy}
+                  className="mt-2 w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-medium text-white disabled:opacity-40">
+                  {codeBusy ? 'Checking…' : 'Use code'}
+                </button>
+                {codeErr && <p className="mt-2 text-xs text-[#B00000]">{codeErr}</p>}
+              </div>
+            ) : (
+              <button onClick={() => setShowCodeEntry(true)} className="mt-3 text-xs text-gray-400 hover:underline">
+                Have a sign-in code instead?
+              </button>
+            )}
           </div>
         ) : loading ? (
           <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>
+        ) : authEnabled && activePendingConfirmation.length > 0 ? (
+          // Prompt 33 part 2 / 47 — shown before ANY document/folder, even
+          // if this same email also has other already-active grants. No
+          // document content or metadata reaches this page while pending —
+          // /api/portal/access already excludes it server-side; this screen
+          // only ever received {grantId, invitedName, orgName}.
+          (() => {
+            const pending = activePendingConfirmation[0];
+            return (
+              <div className="mx-auto mt-16 max-w-sm rounded-lg border border-gray-200 bg-white p-6 text-center">
+                <h1 className="text-lg font-semibold">Is this you?</h1>
+                <p className="mt-1 text-sm text-gray-500">
+                  {pending.orgName ?? 'A startup'} gave you access to documents as <b>{pending.invitedName ?? 'you'}</b>.
+                </p>
+                <div className="mt-4 text-left">
+                  <label className="mb-1 block text-xs font-medium text-gray-500">Your name</label>
+                  <input value={confirmName} onChange={(e) => setConfirmName(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+                  <label className="mb-1 mt-3 block text-xs font-medium text-gray-500">Your role (optional)</label>
+                  <input value={confirmRole} onChange={(e) => setConfirmRole(e.target.value)} placeholder="e.g. Principal"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+                </div>
+                <button onClick={() => confirmIdentity(pending.grantId)} disabled={!confirmName.trim() || confirmBusy}
+                  className="mt-4 w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-medium text-white disabled:opacity-40">
+                  {confirmBusy ? 'Confirming…' : 'Confirm'}
+                </button>
+                <button onClick={() => setDismissedGrantIds((prev) => [...prev, pending.grantId])}
+                  className="mt-2 w-full text-xs text-gray-400 hover:underline">
+                  This access isn’t for me
+                </button>
+                {confirmErr && <p className="mt-2 text-xs text-[#B00000]">{confirmErr}</p>}
+              </div>
+            );
+          })()
         ) : !hasAccess ? (
           // Deliberately generic — identical wording whether this email has
           // no grant, an expired grant, or was never invited. Never reveals
@@ -187,6 +348,11 @@ export default function PortalPage() {
           </div>
         ) : (
           <div className="space-y-4">
+            {real?.qaAccess && (
+              <div className="rounded-lg border border-purple-200 bg-purple-50 p-2 text-center text-xs font-medium text-purple-700">
+                QA access — ablute_ team. Not a real investor grant; read-only, never logged as a view.
+              </div>
+            )}
             <p className="text-sm text-gray-500">Signed in as <b>{authEnabled ? sessionEmail : email}</b>{orgName ? <> · <b>{orgName}</b></> : ''}. You can see only the items granted to you.</p>
             {pendingNdaCount > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">

@@ -6,11 +6,22 @@ import { looksLikePersonName } from './structured-import';
 
 // §1c data-quality guard — flags a live entity that is very likely an
 // individual person mistyped as an organization (e.g. a solo angel
-// imported with no fund). Never auto-converts: surfaced for the founder to
-// confirm via convertEntityToPerson/markEntityVerified. last_verified
-// doubles as "already reviewed" so a dismissed candidate doesn't keep
-// resurfacing; having zero people already on record is a strong signal
-// that the "entity" row itself IS the only contact.
+// imported with no fund). Never auto-converts: surfaced for the founder,
+// who can only dismiss it (markEntityVerified) — the actual conversion is
+// now a platform_admin-only server action (prompt 33), not something a
+// founder can trigger. last_verified doubles as "already reviewed" so a
+// dismissed candidate doesn't keep resurfacing; having zero people already
+// on record is a strong signal that the "entity" row itself IS the only
+// contact.
+// §1c(ii) — a thin accessor, not a derivation (prompt 42): unverified_stub_at
+// is only ever set by human review (see migration 0049), never inferred from
+// field presence, because a source_url can exist and still not prove THIS
+// entity specifically (e.g. it points at the real firm's page while this row
+// is a barely-documented personal vehicle of one of that firm's partners).
+export function isUnverifiedStub(entity: Entity): boolean {
+  return !!entity.unverified_stub_at;
+}
+
 export function isPersonCandidate(db: Db, entity: Entity): boolean {
   if (entity.last_verified) return false;
   if (db.people.some((p) => p.entity_id === entity.id)) return false;

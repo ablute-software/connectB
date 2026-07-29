@@ -16,6 +16,11 @@ export type LogInput = {
   direction: 'out' | 'in';
   channel: Channel;
   content: string;
+  // Prompt 49 §5 — when the interaction itself happened, distinct from
+  // next_action_due below. Optional: both store implementations already
+  // default occurred_at to "now" and merge input over that default, so
+  // omitting this changes nothing for every existing caller.
+  occurred_at?: string;
   sent_from?: string;
   document_id?: string;
   classification?: Classification;
@@ -139,6 +144,16 @@ export interface StoreApi {
   deleteFolder: (id: string, moveContentsToParent: boolean) => void;
   addGrant: (g: Omit<AccessGrant, 'id' | 'granted_at'>) => void;
   revokeGrant: (id: string) => void;
+  // Grant Access rebuild (prompt 33 part 2 / 47) — "+ Invite someone new".
+  // Creates or reconciles (by email) a `people` row at the given entity
+  // (data_source='founder_invite', low confidence — it's the founder's own
+  // claim, not verified) plus a `person_affiliations` row, and returns the
+  // person so the caller can pass its id into addGrant. Does NOT create the
+  // access_grants row itself — the caller still calls addGrant per
+  // folder/document node, same as for an already-known person, just also
+  // setting invited_email/invited_name on each of those calls so the grant
+  // is born pending_confirmation.
+  invitePersonForGrant: (entityId: string, email: string, name: string) => Promise<Person>;
   // Data Room V2 (F5) — capability-gated on capabilities.ndaSystem
   // (migration 0023). The actual upload + AI cross-check happen server-side
   // in /api/data-room/nda-upload (needs ANTHROPIC_API_KEY, never exposed to
@@ -169,14 +184,13 @@ export interface StoreApi {
   endAffiliation: (id: string) => void;
   // §1c data-quality fix: some imported "entities" are really individual
   // people (solo angels) mistyped as an organization — see DECISIONS.md
-  // "Entities that are people". Creates a real Person + an independent
-  // (entity_id-less) angel PersonAffiliation, migrates any interactions
-  // already logged against this entity to that person, and relabels the
-  // entity's type — the entity row itself is kept as the person's
-  // technical "home" (Person.entity_id/Interaction.entity_id stay non-null).
-  convertEntityToPerson: (entityId: string) => void;
-  // Dismisses the "looks like a person" sweep suggestion without converting
-  // — stamps last_verified so it stops being flagged.
+  // "Entities that are people" and "Convert to person moved server-side".
+  // Removed from the store contract (prompt 33) — this is a shared-catalog
+  // correction, not a founder pipeline opinion, and now lives behind
+  // POST /api/entities/[id]/convert-to-person (platform_admin only), not a
+  // client-callable store action. Dismisses the "looks like a person" sweep
+  // suggestion without converting — stamps last_verified so it stops being
+  // flagged; this one stays founder-facing, it's just local curation.
   markEntityVerified: (entityId: string) => void;
 
   // IRM_SPEC §11 — Company Canon. Capability-gated: the Company nav link and

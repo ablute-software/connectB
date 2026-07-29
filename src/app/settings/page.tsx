@@ -19,6 +19,7 @@ import { PermissionsMatrixCard } from '@/components/PermissionsMatrixCard';
 import { ImportPanel } from '@/components/settings/ImportPanel';
 import { NeedsReviewPanel } from '@/components/queue/NeedsReviewPanel';
 import { CompanyPanel } from '@/components/company/CompanyPanel';
+import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { APP_URL } from '@/lib/brand';
 
@@ -263,6 +264,22 @@ function TeamPanel() {
   );
 }
 
+// "Definições -> Rever dicas" (onboarding_sherlockdeal_v2.md §7): clears
+// `seen` so every onboarding moment can resurface — cheap to build,
+// avoids the "dismissed by accident" support request. Does not touch the
+// session budget (§2), so the normal 1-modal-per-session /
+// 24h-between-modals rules still apply after a reset.
+function RevisitTipsButton() {
+  const { resetSeen } = useOnboarding();
+  const [done, setDone] = useState(false);
+  return (
+    <button onClick={() => { resetSeen(); setDone(true); setTimeout(() => setDone(false), 2000); }}
+      className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-500 hover:bg-gray-50">
+      {done ? 'Dicas repostas ✓' : 'Rever dicas'}
+    </button>
+  );
+}
+
 function SettingsInner() {
   const [tab, setTab] = useTabParam('company');
   const [importSubtab, setImportSubtab] = useTabParam('history', 'subtab');
@@ -305,7 +322,10 @@ function SettingsInner() {
 
   return (
     <div>
-      <h1 className="mb-1 text-lg font-bold">About {db.org.name || 'your company'}</h1>
+      <div className="mb-1 flex items-center justify-between">
+        <h1 className="text-lg font-bold">About {db.org.name || 'your company'}</h1>
+        <RevisitTipsButton />
+      </div>
       <Tabs items={tabs} active={effectiveTab} onChange={setTab} />
       {effectiveTab === 'automations' && (
         <Card title="Automations">

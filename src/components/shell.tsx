@@ -8,6 +8,9 @@ import { browserClient } from '@/lib/supabase';
 import { Tooltip } from '@/components/ui';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
 import { MatchDealModal } from '@/components/MatchDealModal';
+import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
+import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
+import { W1Badge } from '@/components/onboarding/W1Badge';
 import { BRAND_NAME } from '@/lib/brand';
 
 type Me = {
@@ -78,6 +81,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   if (path === '/' || path === '/investors' || isStandaloneAuthPage || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
 
   return (
+    <OnboardingProvider>
     <div className="flex min-h-screen bg-[#F7F9FA] text-[#1A1A1A]">
       <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-gray-100 bg-white md:flex">
         <div className="px-6 pb-3 pt-6">
@@ -186,6 +190,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 <span className="relative hidden sm:inline">MatchDeal</span>
               </button>
             </Tooltip>
+            <W1Badge />
             <Tooltip text="Outbound messages sent today and this week, against your daily/weekly discipline caps." side="bottom">
               <span className={`rounded-full border border-gray-100 bg-white px-3 py-1 text-xs ${capClass}`}>
                 Today {caps.today}/{caps.dailyCap} · Week {caps.week}/{caps.weeklyCap}
@@ -224,6 +229,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </nav>
 
       {showMatchDeal && <MatchDealModal onClose={() => setShowMatchDeal(false)} />}
+      <WelcomeModal />
     </div>
+    </OnboardingProvider>
   );
 }

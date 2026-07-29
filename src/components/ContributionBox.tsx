@@ -254,6 +254,24 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
                     className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 hover:bg-amber-200">
                     por verificar
                   </button>
+                ) : c.status === 'rejected' ? (
+                  // Prompt 49 §1 — a bare "rejected" pill next to a value
+                  // read as if the value itself were a fact with a status
+                  // tag, not a proposal that got turned down. Strike the
+                  // proposed value through and say explicitly that the
+                  // field's existing data was kept; the reviewer's own
+                  // reason (when one was given) goes in the tooltip rather
+                  // than inline — most are short enough to want a hover,
+                  // not a permanent second line per rejected field.
+                  <>
+                    <span className="text-gray-400 line-through">{formatContributionValue(c.value)}</span>
+                    <span
+                      className="ml-1.5 cursor-help rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
+                      title={c.reviewer_notes ? `Rejected: ${c.reviewer_notes}` : 'Rejected in review — no reason recorded.'}
+                    >
+                      suggested value rejected — kept previous data
+                    </span>
+                  </>
                 ) : (
                   <>
                     {formatContributionValue(c.value)}

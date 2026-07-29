@@ -34,6 +34,10 @@ function LogForm() {
   const [classification, setClassification] = useState<Classification>('awaiting');
   const [passCat, setPassCat] = useState<PassReasonCategory>('other');
   const [passReason, setPassReason] = useState('');
+  // Prompt 49 §5 — when the interaction itself happened. Optional, blank =
+  // now (the store's existing default); the calendar widget already exists
+  // for "3 · Next action", this reuses the same UI a step earlier.
+  const [whatDate, setWhatDate] = useState('');
   const [nextAction, setNextAction] = useState('');
   const [nextDue, setNextDue] = useState('');
   const [nextActionType, setNextActionType] = useState<ActionType>('other');
@@ -186,6 +190,7 @@ function LogForm() {
     const fullContent = channel === 'email' && subject ? `Subject: ${subject}\n\n${content}` : content;
     logInteraction({
       entity_id: entityId, person_id: personId || undefined, direction, channel, content: fullContent,
+      occurred_at: whatDate ? new Date(whatDate).toISOString() : undefined,
       sent_from: direction === 'out' && channel === 'email' ? (sentFrom ?? db.org.sender_email) : undefined,
       document_id: docId || undefined,
       classification: direction === 'in' ? classification : direction === 'out' ? 'awaiting' : undefined,
@@ -283,6 +288,9 @@ function LogForm() {
               className="rounded border border-gray-300 px-2 py-1.5 text-sm">
               {CHANNELS.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}
             </select>
+            <input type="date" value={whatDate} onChange={(e) => setWhatDate(e.target.value)}
+              title="When this happened — defaults to now if left blank"
+              className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
             {direction === 'out' && channel === 'email' && (
               <span className="text-xs text-gray-400">from {db.org.sender_email}</span>
             )}

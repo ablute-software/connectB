@@ -64,6 +64,7 @@ export async function POST(req: Request) {
         website: (item.patch.website as string) ?? null, email_domain: (item.patch.email_domain as string) ?? null,
         reopen_trigger: (item.patch.reopen_trigger as string) ?? null,
         contact_lock_until: (item.patch.contact_lock_until as string) ?? null,
+        source: 'manual',
       }).select('id').single();
       if (error) return NextResponse.json({ ok: false, error: `entity "${item.key}": ${error.message}` }, { status: 500 });
       entityIdByKey.set(item.key, created.id);

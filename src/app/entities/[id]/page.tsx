@@ -9,18 +9,17 @@ import { ThreadDrawer } from '@/components/ThreadDrawer';
 import { ContributionBox } from '@/components/ContributionBox';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
 import { entityCompleteness, qualifiesForContactEnrichment } from '@/lib/completeness';
-import { isPersonCandidate, relatedContacts } from '@/lib/relationship';
+import { isPersonCandidate, isUnverifiedStub, relatedContacts } from '@/lib/relationship';
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { browserClient } from '@/lib/supabase';
 import { EntityClassificationEditor } from '@/components/EntityClassificationEditor';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
-  const { db, setInterest, setEntityStatus, convertEntityToPerson, markEntityVerified, updateEntity } = useStore();
+  const { db, setInterest, setEntityStatus, markEntityVerified, updateEntity } = useStore();
   const entity = db.entities.find((e) => e.id === id);
   const [interest, setInterestLocal] = useState<string>('');
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [confirmConvert, setConfirmConvert] = useState(false);
   const [contactAvailable, setContactAvailable] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
   const [contactDraft, setContactDraft] = useState({ website: '', email: '', phone: '', address: '' });
@@ -66,7 +65,14 @@ export default function EntityPage({ params }: { params: { id: string } }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">{entity.name}</h1>
+          <h1 className="text-xl font-bold text-gray-900">
+            {entity.name}
+            {isUnverifiedStub(entity) && (
+              <span className="ml-2 inline-block rounded-full bg-amber-50 px-2 py-0.5 align-middle text-xs font-semibold text-amber-700" title="No independent proof this entity exists yet — website, domain, phone, address, or a source specific to it.">
+                not yet verified
+              </span>
+            )}
+          </h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500">
             <StatusPill status={entity.status} /> <FitTag fit={entity.fit_score} /> <WaveTag wave={entity.wave} />
             <span>{entity.type.replace('_', ' ')}</span>
@@ -79,20 +85,15 @@ export default function EntityPage({ params }: { params: { id: string } }) {
             <button onClick={() => setEntityStatus(entity.id, 'dormant', 'Manually parked')}
               className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600">Mark dormant</button>
           )}
-          {confirmConvert ? (
-            <div className="flex items-center gap-1 rounded-lg border border-purple-300 bg-purple-50 px-2 py-1">
-              <span className="text-xs text-purple-800">Convert to a person?</span>
-              <button onClick={() => { convertEntityToPerson(entity.id); setConfirmConvert(false); }}
-                className="rounded bg-purple-700 px-2 py-1 text-xs font-medium text-white hover:bg-purple-800">Confirm</button>
-              <button onClick={() => setConfirmConvert(false)} className="rounded border border-gray-300 px-2 py-1 text-xs">Cancel</button>
-            </div>
-          ) : (
-            <button onClick={() => setConfirmConvert(true)}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600">Convert to person (angel)</button>
-          )}
         </div>
       </div>
 
+      {/* "Convert to person (angel)" removed from every founder-facing
+          surface (prompt 33) — it's a shared-catalog type correction, not a
+          founder pipeline opinion, and now requires platform_admin via
+          POST /api/entities/[id]/convert-to-person. "Not a person" stays:
+          it only dismisses this founder's own flag (last_verified), no
+          catalog-wide effect. */}
       {personCandidate && (
         <div className="flex items-start justify-between gap-4 rounded-lg border-l-4 border-purple-400 bg-purple-50 px-4 py-3">
           <div>
@@ -102,8 +103,6 @@ export default function EntityPage({ params }: { params: { id: string } }) {
             </div>
           </div>
           <div className="flex shrink-0 gap-2">
-            <button onClick={() => convertEntityToPerson(entity.id)}
-              className="rounded bg-purple-700 px-2 py-1 text-xs font-medium text-white hover:bg-purple-800">Convert to person (angel)</button>
             <button onClick={() => markEntityVerified(entity.id)}
               className="rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50">Not a person</button>
           </div>
@@ -289,7 +288,13 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               <div><dt className="text-xs text-gray-500">The ask (one, small)</dt><dd className="font-medium">{entity.the_ask ?? '—'}</dd></div>
               {entity.submission_channel && (
                 <div><dt className="text-xs text-gray-500">Official channel — use first</dt>
-                  <dd className="font-mono text-xs">{entity.submission_channel}</dd></div>
+                  <dd className="font-mono text-xs">
+                    {entity.submission_channel_type === 'form' ? (
+                      <a href={entity.submission_channel} target="_blank" rel="noopener noreferrer" className="text-[#0E7490] hover:underline">
+                        {entity.submission_channel}
+                      </a>
+                    ) : entity.submission_channel}
+                  </dd></div>
               )}
             </dl>
           </Card>

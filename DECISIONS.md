@@ -3459,3 +3459,79 @@ and the investor side of the app exist, the same rule must extend to give
 the same way they already can on the founder side via back-office. Not
 built now (there is no investor side yet to extend); flagged here so Phase
 0's design doesn't have to rediscover this requirement.
+
+## resolveRole priority: access_grants (investor) now outranks the ablute.pt domain fallback, 2026-07-28
+
+Fulfils the requirement flagged above, and fixes a real bug: an
+`@ablute.pt` account could never resolve as `investor`, because the
+domain-based `developer` grant was checked (and returned) before the
+`access_grants` lookup ever ran — no amount of granting that email
+`access_grants` rows changed the outcome. Reported by Nuno testing his own
+`@ablute.pt` account against the investor portal.
+
+`resolveRole` (`supabase-server.ts`) now checks, in order: `platform_admins`
+→ `org_members` (founder) → `access_grants` (investor) → the `@ablute.pt`
+domain fallback (developer) → `none`. An explicit `access_grants` row — a
+founder sharing their data room, or a back-office admin approving an
+investor access request (`/backoffice` → Investor access requests, backed
+by migration 0041) — is a deliberate, specific act; it now outranks the
+blanket domain default, which stays only as the fallback for `@ablute.pt`
+accounts with no explicit grant. `platform_admins` is untouched and still
+checked first — a real platform admin never loses back-office access this
+way, whatever else is granted to their email.
+
+## Catalog deliverability tiers, 2026-07-28
+
+Tester feedback surfaced that the catalog problem isn't "needs enrichment" —
+it's that a name+website row doesn't deliver the product's actual promise
+(direct contact with a specific person, personalized outreach, a real hook).
+Reprioritized: catalog quality now comes before the matching engine
+(`MATCHING_ENGINE_SPEC.md`) — ranking an unusable list still produces an
+unusable list.
+
+**Three tiers**, by what a founder can actually do with the row:
+- **Tier A** — qualified investor entity + thesis + stage + ticket + geography
+  + at least one named person (role + contact path) + at least one dated,
+  sourced hook.
+- **Tier B** — same entity-level fields, no named person, but a real
+  institutional submission path (pitch form, verified general inbox).
+- **Tier C** — name + website only. Stays in the catalog as a lead to
+  enrich; never delivered, never counted toward a plan's quota, never shown.
+
+Four distinct defects were being treated as one, with very different fixes:
+(a) qualification — non-investors in the catalog (e.g. an audit/consulting
+firm), costs trust in the whole list, not just its own row; (b) mapping —
+systematic import bugs (e.g. domain populated, `website` left empty) fixed
+once via remapping + backfill, not row by row; (c) liveness — dead investor
+domains, needs a periodic sweep, nobody currently checks; (d) depth — no
+people/thesis/hooks, the real content work, tiered above.
+
+**Pilot before industrializing**: 30 records taken to Tier A by hand first,
+shown back to the testers whose complaint motivated this — if the complaint
+changes, the doctrine is right and scales; if not, something here was
+missed, cheaper to find at 30 records than at 3,000.
+
+**Tier A's own definition is still moving**: an early pilot (UK sample, 155
+named people) found only 7 had a publicly listed email — most firms simply
+don't publish one, and Cloudflare email-obfuscation hides several of the
+rest. Tier A's contact-path requirement will end up satisfied by verified
+email OR the named person's LinkedIn OR an institutional submission path
+that still names a specific person and their scope — not email alone.
+
+**Migration 0042 decision**: added `entities.tier` (nullable, `A|B|C`) and
+`tier_classified_at` (nullable) — purely additive, no function in 0042
+reads either column. Explicitly NOT gating quota/visibility on tier in
+0042: every row is unclassified today, so a hard gate would immediately
+zero out new (non-sticky-unlocked) visibility for every org, and Tier A's
+definition isn't finalized yet either — gating against a definition that's
+still moving means rewriting the gate anyway. The actual gate is deferred
+to its own migration (0044), applied only once the qualification pass has
+real coverage over the catalog. Until then `catalog_is_visible`/
+`plan_catalog_quota`/`catalog_blocked_count` are unchanged, exactly as
+already reviewed — rank-based visibility, not tier-based.
+
+**Consequence already agreed for when 0044 ships**: the plan quota will
+count only Tier A/B rows (a "40 investors" plan promising 40 unusable rows
+isn't actually delivering 40 of anything), and the matching engine
+(whenever built) will rank only Tier A/B — a Tier C row never enters any
+wave.

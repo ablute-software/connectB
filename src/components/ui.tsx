@@ -39,6 +39,29 @@ export function Tooltip({ text, children, side = 'top', block }: {
   );
 }
 
+// Prompt 49 §4 — a clickable "(i)" for jargon inside free-text copy (e.g.
+// "run pre-flight" in the pipeline's next-step line). Deliberately
+// click-toggled, not hover-only like Tooltip above: this sits inline in a
+// sentence someone is reading, and hover has no equivalent on a touch
+// device — a founder on their phone would never be able to see it at all.
+export function TermHint({ text }: { text: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span className="relative inline-flex">
+      <button type="button" onClick={() => setShow((s) => !s)} aria-label="What does this mean?"
+        className="ml-0.5 inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-current text-[9px] font-bold leading-none opacity-60 hover:opacity-100">
+        i
+      </button>
+      {show && (
+        <span role="tooltip"
+          className="pointer-events-none absolute z-50 top-full left-1/2 mt-1.5 w-max max-w-[220px] -translate-x-1/2 rounded-lg bg-gray-900 px-2 py-1 text-center text-[11px] font-medium leading-snug text-white shadow-lg">
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function Card({ title, children, tint, right }: {
   title?: React.ReactNode; children: React.ReactNode;
   tint?: 'red' | 'amber' | 'blue'; right?: React.ReactNode;

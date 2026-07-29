@@ -22,6 +22,15 @@ export async function POST(req: NextRequest) {
   const email = user?.email?.trim().toLowerCase();
   if (!email) return NextResponse.json({ ok: false, error: 'not signed in' }, { status: 401 });
 
+  // Prompt 48 — an @ablute.pt QA session (access/route.ts's fallback path)
+  // never has a real access_grants row backing it, so a logged "view" here
+  // would be a phantom entry with no grant to explain it — and the whole
+  // point of the QA path is that it must never look like real investor
+  // activity anywhere. Skip the write, not just the display: `ok: true` so
+  // the client's fire-and-forget call doesn't surface an error either.
+  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
+  if (isAbluteQa) return NextResponse.json({ ok: true });
+
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { data: doc, error: docErr } = await admin.from('documents').select('org_id').eq('id', documentId).single();
   if (docErr || !doc) return NextResponse.json({ ok: false, error: docErr?.message ?? 'document not found' }, { status: 404 });

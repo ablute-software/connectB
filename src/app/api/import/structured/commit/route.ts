@@ -59,6 +59,7 @@ export async function POST(req: Request) {
         hard_filter: r.hard_filter ?? null, hard_filter_status: r.hard_filter_status ?? 'not_applicable',
         status: r.status ?? 'not_contacted',
         last_verified: r.last_verified ?? null, source_url: r.source_url ?? null,
+        source: 'manual',
       }).select('id').single();
       if (error) return NextResponse.json({ ok: false, error: `entity "${item.key}": ${error.message}` }, { status: 500 });
       entityIdByKey.set(item.key, created.id);

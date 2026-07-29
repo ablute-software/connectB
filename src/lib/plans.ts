@@ -12,6 +12,22 @@ import type { PlanTier } from './types';
 export type { PlanTier };
 export const PLAN_TIERS: PlanTier[] = ['idea', 'garage', 'motherfunding'];
 
+// Day-one catalog-investor quota BASELINE per tier (pipeline "vidro fosco"
+// blocking — DECISIONS.md, migration 0042). Display/reference copy ONLY,
+// and only accurate for a freshly-seeded org: the real, live number is
+// `orgs.catalog_quota` in Postgres, an accumulating counter seeded from
+// these values but never reset (a monthly delivery job — not yet built —
+// is meant to grow it further; this constant does not). RLS on entities
+// enforces against `orgs.catalog_quota` via plan_catalog_quota(), never
+// against this TypeScript constant. Applies only to entities.source
+// ='catalog'; 'manual' and 'match_deal' entities are always unlocked and
+// don't count against this.
+export const CATALOG_QUOTA: Record<PlanTier, number> = {
+  idea: 3,
+  garage: 15,
+  motherfunding: 40,
+};
+
 export interface PlanRow {
   tier: PlanTier;
   /** Verbatim plan name — do not translate or rephrase. */

@@ -19,7 +19,7 @@ export const seed: Db = {
 
   entities: [
     {
-      id: 'ent-bynd', name: 'Bynd VC', type: 'vc', hq_city: 'Porto', hq_country: 'PT',
+      source: 'manual', id: 'ent-bynd', name: 'Bynd VC', type: 'vc', hq_city: 'Porto', hq_country: 'PT',
       invests_in_geographies: ['Portugal', 'Iberia'], website: 'https://bynd.vc', website_verified: false,
       email_domain: 'bynd.vc', email_domain_verified: true,
       stage_min: 'seed', stage_max: 'series_a', check_min_eur: 1000000, check_max_eur: 2500000,
@@ -33,7 +33,7 @@ export const seed: Db = {
       status: 'not_contacted',
     },
     {
-      id: 'ent-coreangels-porto', name: 'COREangels Porto', type: 'angel_network', hq_city: 'Porto', hq_country: 'PT',
+      source: 'manual', id: 'ent-coreangels-porto', name: 'COREangels Porto', type: 'angel_network', hq_city: 'Porto', hq_country: 'PT',
       invests_in_geographies: ['Portugal'], website: 'https://coreangels.com', website_verified: false,
       email_domain: 'coreangels.com', email_domain_verified: false,
       stage_min: 'pre_seed', stage_max: 'seed', check_min_eur: 50000, check_max_eur: 500000,
@@ -47,7 +47,7 @@ export const seed: Db = {
       status: 'not_contacted',
     },
     {
-      id: 'ent-coreangels-health', name: 'COREangels Health Ventures', type: 'angel_network', hq_country: 'PT',
+      source: 'manual', id: 'ent-coreangels-health', name: 'COREangels Health Ventures', type: 'angel_network', hq_country: 'PT',
       invests_in_geographies: ['Europe'], website_verified: false, email_domain_verified: false,
       stage_min: 'pre_seed', stage_max: 'seed', sectors: ['healthtech'], fit_score: 'medium_high', wave: 2,
       our_angle: 'Health-focused angel group; route via David Alves (COREangels Porto).',
@@ -57,7 +57,7 @@ export const seed: Db = {
       status: 'not_contacted',
     },
     {
-      id: 'ent-nina', name: 'Nina Capital', type: 'vc', hq_city: 'Barcelona', hq_country: 'ES',
+      source: 'manual', id: 'ent-nina', name: 'Nina Capital', type: 'vc', hq_city: 'Barcelona', hq_country: 'ES',
       invests_in_geographies: ['Europe'], website: 'https://nina.capital', website_verified: true,
       email_domain: 'nina.capital', email_domain_verified: true,
       stage_min: 'pre_seed', stage_max: 'seed', check_min_eur: 500000, check_max_eur: 1500000,
@@ -69,7 +69,7 @@ export const seed: Db = {
       hard_filter_status: 'not_applicable', status: 'not_contacted',
     },
     {
-      id: 'ent-calmstorm', name: 'Calm/Storm Ventures', type: 'vc', hq_city: 'Vienna', hq_country: 'AT',
+      source: 'manual', id: 'ent-calmstorm', name: 'Calm/Storm Ventures', type: 'vc', hq_city: 'Vienna', hq_country: 'AT',
       invests_in_geographies: ['Europe'], website: 'https://calmstorm.vc', website_verified: true,
       email_domain: 'calmstorm.vc', email_domain_verified: true,
       stage_min: 'pre_seed', stage_max: 'seed', check_min_eur: 25000, check_max_eur: 250000,
@@ -83,7 +83,7 @@ export const seed: Db = {
       network_cluster_notes: 'Polagnoli built Speedinvest’s health team — these funds’ people know each other; keep messaging consistent.',
     },
     {
-      id: 'ent-cristagalli', name: 'Crista Galli Ventures', type: 'family_office', hq_city: 'London', hq_country: 'UK',
+      source: 'manual', id: 'ent-cristagalli', name: 'Crista Galli Ventures', type: 'family_office', hq_city: 'London', hq_country: 'UK',
       invests_in_geographies: ['Europe'], website: 'https://cristagalli.com', website_verified: true,
       email_domain: 'ipqcap.com', email_domain_verified: true,
       stage_min: 'seed', stage_max: 'series_a', check_min_eur: 500000, check_max_eur: 2000000,
@@ -95,7 +95,7 @@ export const seed: Db = {
       hard_filter_status: 'not_applicable', status: 'not_contacted',
     },
     {
-      id: 'ent-speedinvest', name: 'Speedinvest Health', type: 'vc', hq_city: 'Vienna', hq_country: 'AT',
+      source: 'manual', id: 'ent-speedinvest', name: 'Speedinvest Health', type: 'vc', hq_city: 'Vienna', hq_country: 'AT',
       invests_in_geographies: ['Europe'], website: 'https://speedinvest.com', website_verified: false,
       email_domain: 'speedinvest.com', email_domain_verified: true,
       stage_min: 'pre_seed', stage_max: 'seed', check_min_eur: 500000, check_max_eur: 1500000,
@@ -106,7 +106,7 @@ export const seed: Db = {
       network_cluster_notes: 'Polagnoli (Calm/Storm) built Speedinvest’s health team — keep messaging consistent across both.',
     },
     {
-      id: 'ent-armilar', name: 'Armilar Venture Partners', type: 'vc', hq_city: 'Lisbon', hq_country: 'PT',
+      source: 'manual', id: 'ent-armilar', name: 'Armilar Venture Partners', type: 'vc', hq_city: 'Lisbon', hq_country: 'PT',
       invests_in_geographies: ['Portugal', 'Europe'], website: 'https://armilar.com', website_verified: false,
       email_domain: 'armilar.com', email_domain_verified: true,
       stage_min: 'seed', stage_max: 'series_a', check_min_eur: 1000000, check_max_eur: 3000000,
@@ -116,7 +116,7 @@ export const seed: Db = {
       submission_channel_type: 'unknown', hard_filter_status: 'not_applicable', status: 'not_contacted',
     },
     {
-      id: 'ent-brightpixel', name: 'Bright Pixel Capital', type: 'corporate_vc', hq_city: 'Porto', hq_country: 'PT',
+      source: 'manual', id: 'ent-brightpixel', name: 'Bright Pixel Capital', type: 'corporate_vc', hq_city: 'Porto', hq_country: 'PT',
       invests_in_geographies: ['Iberia', 'Europe'], website: 'https://brightpixel.vc', website_verified: false,
       email_domain: 'brightpixel.vc', email_domain_verified: false,
       stage_min: 'seed', stage_max: 'series_a', check_min_eur: 500000, check_max_eur: 3000000,
@@ -127,7 +127,7 @@ export const seed: Db = {
       network_cluster_notes: 'Watch-out: don’t let a corporate VC set terms on a €1.3M seed.',
     },
     {
-      id: 'ent-northzone', name: 'Northzone', type: 'vc', hq_city: 'Berlin', hq_country: 'DE',
+      source: 'manual', id: 'ent-northzone', name: 'Northzone', type: 'vc', hq_city: 'Berlin', hq_country: 'DE',
       invests_in_geographies: ['Europe', 'US'], website: 'https://northzone.com', website_verified: false,
       email_domain: 'northzone.com', email_domain_verified: true,
       stage_min: 'series_a', stage_max: 'later', check_min_eur: 3000000, check_max_eur: 15000000,
@@ -139,7 +139,7 @@ export const seed: Db = {
       hard_filter_status: 'open', status: 'not_contacted',
     },
     {
-      id: 'ent-angelssante', name: 'Angels Santé', type: 'angel_network', hq_city: 'Paris', hq_country: 'FR',
+      source: 'manual', id: 'ent-angelssante', name: 'Angels Santé', type: 'angel_network', hq_city: 'Paris', hq_country: 'FR',
       invests_in_geographies: ['France', 'Europe'], website: 'https://angelssante.fr', website_verified: false,
       email_domain_verified: false,
       stage_min: 'pre_seed', stage_max: 'seed', check_min_eur: 100000, check_max_eur: 600000,
@@ -151,7 +151,7 @@ export const seed: Db = {
       hard_filter_status: 'open', status: 'not_contacted',
     },
     {
-      id: 'ent-elaia', name: 'Elaia Partners', type: 'vc', hq_city: 'Paris', hq_country: 'FR',
+      source: 'manual', id: 'ent-elaia', name: 'Elaia Partners', type: 'vc', hq_city: 'Paris', hq_country: 'FR',
       invests_in_geographies: ['Europe'], website: 'https://elaia.com', website_verified: false,
       email_domain: 'elaia.com', email_domain_verified: true,
       stage_min: 'seed', stage_max: 'series_a', check_min_eur: 1000000, check_max_eur: 5000000,
@@ -161,7 +161,7 @@ export const seed: Db = {
       submission_channel_type: 'unknown', hard_filter_status: 'not_applicable', status: 'not_contacted',
     },
     {
-      id: 'ent-bpifrance', name: 'Bpifrance', type: 'public_body', hq_city: 'Paris', hq_country: 'FR',
+      source: 'manual', id: 'ent-bpifrance', name: 'Bpifrance', type: 'public_body', hq_city: 'Paris', hq_country: 'FR',
       invests_in_geographies: ['France'], website: 'https://bpifrance.fr', website_verified: false,
       email_domain: 'bpifrance.fr', email_domain_verified: true,
       stage_min: 'pre_seed', stage_max: 'later', sectors: ['generalist'], fit_score: 'low', wave: 3,
@@ -172,7 +172,7 @@ export const seed: Db = {
       hard_filter_status: 'open', status: 'not_contacted',
     },
     {
-      id: 'ent-sofinnova', name: 'Sofinnova MD Start', type: 'vc', hq_city: 'Paris', hq_country: 'FR',
+      source: 'manual', id: 'ent-sofinnova', name: 'Sofinnova MD Start', type: 'vc', hq_city: 'Paris', hq_country: 'FR',
       invests_in_geographies: ['Europe'], website: 'https://sofinnovapartners.com', website_verified: false,
       email_domain: 'sofinnovapartners.com', email_domain_verified: true,
       stage_min: 'pre_seed', stage_max: 'pre_seed', sectors: ['medtech'], fit_score: 'low', wave: 3,
@@ -184,7 +184,7 @@ export const seed: Db = {
       dormant_since: '2026-07-17T00:00:00Z', dormant_reason: 'Model mismatch — parked by choice.',
     },
     {
-      id: 'ent-ptventures', name: 'Portugal Ventures', type: 'vc', hq_city: 'Porto', hq_country: 'PT',
+      source: 'manual', id: 'ent-ptventures', name: 'Portugal Ventures', type: 'vc', hq_city: 'Porto', hq_country: 'PT',
       invests_in_geographies: ['Portugal'], website: 'https://portugalventures.pt', website_verified: false,
       email_domain: 'portugalventures.pt', email_domain_verified: false,
       stage_min: 'pre_seed', stage_max: 'seed', check_min_eur: 200000, check_max_eur: 1000000,

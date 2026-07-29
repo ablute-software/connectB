@@ -14,7 +14,7 @@ function entity(overrides: Partial<Entity> & { id: string }): Entity {
   return {
     name: overrides.id, type: 'vc', invests_in_geographies: [], website_verified: false,
     email_domain_verified: false, sectors: [], submission_channel_type: 'unknown',
-    hard_filter_status: 'not_applicable', status: 'not_contacted',
+    hard_filter_status: 'not_applicable', status: 'not_contacted', source: 'manual',
     ...overrides,
   };
 }

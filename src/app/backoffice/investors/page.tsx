@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
+import type { DomainMatchVerdict } from '@/lib/investor-domain-match';
 
 type Totals = {
   total: number; verified: number; imported: number; demo: number; backfilled: number;
@@ -15,6 +16,137 @@ type Totals = {
 type CountryRow = { country: string; total: number; verified: number };
 type PackRow = { id: string; name: string; description: string | null; price_eur: number; active: boolean; items: number };
 type DeliveryRow = { orgId: string; orgName: string; total: number; viaPack: number };
+type AccessRequest = {
+  id: string; created_at: string; email: string; firm_name: string | null; note: string | null;
+  status: 'pending' | 'approved' | 'rejected'; contacted_at: string | null; reviewed_at: string | null;
+  domainMatch: DomainMatchVerdict;
+};
+
+// Anexo B claim-decision matrix, surfaced plainly to the reviewing admin —
+// see src/lib/investor-domain-match.ts for the underlying rule.
+function DomainMatchBadge({ v }: { v: DomainMatchVerdict }) {
+  if (v.kind === 'match') {
+    return (
+      <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-semibold text-green-700">
+        ✅ Email domain matches {v.entityDomain} — auto-eligible for V1
+      </span>
+    );
+  }
+  const reason =
+    v.kind === 'mismatch' ? `Email domain (${v.emailDomain}) does NOT match claimed entity's domain (${v.entityDomain})`
+    : v.kind === 'generic_email' ? `Generic email provider (${v.emailDomain}) — never auto-eligible`
+    : v.kind === 'no_entity_website' ? `"${v.entityName}" has no website on file — nothing to verify against`
+    : v.firmName ? `"${v.firmName}" doesn't match any catalog entity` : 'No firm name given to verify against';
+  return (
+    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+      ⚠️ {reason} — manual verification required
+    </span>
+  );
+}
+
+// Approving a request grants investor access — it can only be undone by
+// manually revoking the resulting access_grants row, so this asks for one
+// explicit click of confirmation rather than acting on the first click.
+function AccessRequestsQueue() {
+  const [requests, setRequests] = useState<AccessRequest[] | null>(null);
+  const [err, setErr] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
+  function refresh() {
+    fetch('/api/backoffice/investor-access-requests').then((r) => r.json()).then((body) => {
+      if (body.ok === false) { setErr(body.error); return; }
+      setRequests(body.requests);
+    });
+  }
+  useEffect(refresh, []);
+
+  async function approve(id: string) {
+    setBusyId(id); setConfirmingId(null);
+    const res = await fetch(`/api/backoffice/investor-access-requests/${id}/approve`, { method: 'POST' });
+    const body = await res.json();
+    setBusyId(null);
+    if (body.ok === false) { setErr(body.error); return; }
+    refresh();
+  }
+  async function reject(id: string) {
+    setBusyId(id);
+    const res = await fetch(`/api/backoffice/investor-access-requests/${id}/reject`, { method: 'POST' });
+    const body = await res.json();
+    setBusyId(null);
+    if (body.ok === false) { setErr(body.error); return; }
+    refresh();
+  }
+
+  if (err) return <Card title="Investor access requests"><p className="text-sm text-[#B00000]">{err}</p></Card>;
+  if (!requests) return <Card title="Investor access requests"><p className="text-sm text-gray-400">A carregar…</p></Card>;
+
+  const pending = requests.filter((r) => r.status === 'pending');
+  const resolved = requests.filter((r) => r.status !== 'pending');
+
+  return (
+    <Card title={`Investor access requests (${pending.length} pending)`}>
+      <p className="mb-3 text-xs text-gray-500">
+        Leads from the public &quot;request access&quot; form. Approving grants the email an
+        access_grants row against ablute_&apos;s Data Room — the mechanism resolveRole() checks
+        for the investor role, so the requester can then sign in as an investor.
+      </p>
+      {pending.length === 0 ? <p className="text-sm text-gray-400">No pending requests.</p> : (
+        <ul className="mb-4 space-y-2">
+          {pending.map((r) => (
+            <li key={r.id} className={`rounded-xl border p-3 text-sm ${
+              r.domainMatch.kind === 'match' ? 'border-green-200 bg-green-50/40' : 'border-amber-200 bg-amber-50/50'}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{r.email}</span>
+                {r.firm_name && <span className="text-gray-500">· {r.firm_name}</span>}
+                <span className="text-xs text-gray-400">{r.created_at.slice(0, 10)}</span>
+                <div className="ml-auto flex gap-2">
+                  {confirmingId === r.id ? (
+                    <>
+                      <span className="text-xs text-amber-800">Grant investor access?</span>
+                      <button disabled={busyId === r.id} onClick={() => approve(r.id)}
+                        className="rounded-lg bg-green-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-green-800 disabled:opacity-40">
+                        Confirm
+                      </button>
+                      <button onClick={() => setConfirmingId(null)} className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs">Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      <button disabled={busyId === r.id} onClick={() => setConfirmingId(r.id)}
+                        className="rounded-lg bg-green-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-green-800 disabled:opacity-40">
+                        Approve
+                      </button>
+                      <button disabled={busyId === r.id} onClick={() => reject(r.id)}
+                        className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                        Reject
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="mt-1.5"><DomainMatchBadge v={r.domainMatch} /></div>
+              {r.note && <p className="mt-1 text-xs text-gray-600">{r.note}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {resolved.length > 0 && (
+        <details>
+          <summary className="cursor-pointer text-xs text-gray-400">{resolved.length} resolved</summary>
+          <ul className="mt-2 space-y-1">
+            {resolved.map((r) => (
+              <li key={r.id} className="flex items-center gap-2 text-xs text-gray-500">
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${r.status === 'approved' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{r.status}</span>
+                <span>{r.email}</span>
+                {r.reviewed_at && <span className="text-gray-400">{r.reviewed_at.slice(0, 10)}</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </Card>
+  );
+}
 
 function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
@@ -64,6 +196,8 @@ export default function InvestorsPage() {
         <Stat label="Vindas do backfill" value={totals.backfilled} hint="com proveniência" />
         <Stat label="Packs" value={packs.length} />
       </div>
+
+      <AccessRequestsQueue />
 
       <Card title={`Por país (${byCountry.length})`}>
         <div className="max-h-[420px] overflow-y-auto">

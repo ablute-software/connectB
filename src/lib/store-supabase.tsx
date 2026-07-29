@@ -526,45 +526,6 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       return person;
     },
 
-    convertEntityToPerson(entityId: string) {
-      const prev = dbRef.current;
-      const entity = prev.entities.find((e) => e.id === entityId);
-      if (!entity) return;
-      const personId = uuid();
-      const newPerson: Person = {
-        id: personId, entity_id: entityId, full_name: entity.name, seniority_rank: 1,
-        linkedin_verified: false, bounce_count: 0, linked_companies: [], linked_funds: [],
-        hook_status: 'to_research', kill_words: [], preferred_language: 'en',
-        privacy_notice_sent: false, do_not_contact: false,
-      };
-      const newAffiliation: PersonAffiliation = {
-        id: uuid(), person_id: personId, entity_id: undefined, kind: 'angel', current: true,
-        is_primary: true, notes: 'Converted from a mis-imported VC-type entity — solo angel investor, no fund.',
-      };
-      const last_verified = new Date().toISOString().slice(0, 10);
-      const migratedInteractionIds = prev.interactions
-        .filter((i) => i.entity_id === entityId && !i.person_id).map((i) => i.id);
-
-      commit({
-        ...prev,
-        entities: prev.entities.map((e) => e.id === entityId ? { ...e, type: 'angel_fund', last_verified } : e),
-        people: [...prev.people, newPerson],
-        personAffiliations: [...prev.personAffiliations, newAffiliation],
-        interactions: prev.interactions.map((i) =>
-          i.entity_id === entityId && !i.person_id ? { ...i, person_id: personId } : i),
-      });
-
-      const o = orgIdRef.current;
-      if (o) {
-        persist(sb.from('entities').update({ type: 'angel_fund', last_verified }).eq('id', entityId), 'convertEntityToPerson:entity');
-        persist(sb.from('people').insert({ ...newPerson, org_id: o }), 'convertEntityToPerson:person');
-        persist(sb.from('person_affiliations').insert({ ...newAffiliation, org_id: o }), 'convertEntityToPerson:affiliation');
-        if (migratedInteractionIds.length) {
-          persist(sb.from('interactions').update({ person_id: personId }).in('id', migratedInteractionIds), 'convertEntityToPerson:interactions');
-        }
-      }
-    },
-
     markEntityVerified(entityId: string) {
       const prev = dbRef.current;
       const last_verified = new Date().toISOString().slice(0, 10);
@@ -875,6 +836,49 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('access_grants').update({ revoked_at }).eq('id', id), 'revokeGrant');
     },
 
+    async invitePersonForGrant(entityId: string, email: string, name: string): Promise<Person> {
+      const prev = dbRef.current;
+      const normalizedEmail = email.trim().toLowerCase();
+      // Reconcile by email first — inviting the same person to a second
+      // folder later shouldn't spawn a duplicate `people` row.
+      const existing = prev.people.find((p) =>
+        p.entity_id === entityId && (p.email_verified?.toLowerCase() === normalizedEmail || p.email_guess?.toLowerCase() === normalizedEmail));
+      if (existing) return existing;
+
+      const siblings = prev.people.filter((x) => x.entity_id === entityId);
+      const seniority_rank = siblings.length ? Math.max(...siblings.map((x) => x.seniority_rank)) + 1 : 1;
+      const person: Person = {
+        id: uuid(), entity_id: entityId, full_name: name, email_guess: normalizedEmail,
+        seniority_rank, linkedin_verified: false, bounce_count: 0, linked_companies: [], linked_funds: [],
+        hook_status: 'to_research', kill_words: [], preferred_language: 'en',
+        privacy_notice_sent: false, do_not_contact: false, identity_verified: false,
+        // §1c provenance — this is the founder's own claim about who this
+        // person is, not a confirmed fact. Distinct from the person's own
+        // later self-confirmation (self_verified on the resulting grant),
+        // which is a much stronger signal — see the "Is this you?" flow.
+        data_source: 'founder_invite',
+      };
+      const affiliation: PersonAffiliation = {
+        id: uuid(), person_id: person.id, entity_id: entityId, kind: 'other', current: true,
+        notes: `Added via founder access invite (${new Date().toISOString().slice(0, 10)}).`,
+      };
+      commit({ ...prev, people: [...prev.people, person], personAffiliations: [...prev.personAffiliations, affiliation] });
+      const o = orgIdRef.current;
+      if (o) {
+        // person_affiliations.person_id (and access_grants.person_id, set by
+        // the caller right after this returns) both FK into people.id — the
+        // affiliation insert must wait for the person row to actually land,
+        // not just fire in parallel (that raced and violated the FK live).
+        const { error: personErr } = await sb.from('people').insert({ ...person, org_id: o });
+        if (personErr) {
+          console.error('[supabase-store] invitePersonForGrant:person failed:', personErr.message);
+          return person;
+        }
+        persist(sb.from('person_affiliations').insert({ ...affiliation, org_id: o }), 'invitePersonForGrant:affiliation');
+      }
+      return person;
+    },
+
     // No persist() here — /api/data-room/nda-upload already wrote both the
     // ndas row and the grants' nda_accepted_at server-side; this only syncs
     // local state to match what's already on disk.
@@ -1076,7 +1080,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
           check_min_eur: c.check_min_eur, check_max_eur: c.check_max_eur,
           sectors: c.sectors, thesis: c.thesis, fit_score: 'medium', wave: 3,
           submission_channel_type: 'unknown', hard_filter_status: 'not_applicable',
-          status: 'not_contacted',
+          status: 'not_contacted', source: 'catalog',
         });
       }
 
@@ -1109,7 +1113,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         invests_in_geographies: [], website: payload.website, website_verified: false,
         email_domain_verified: false, sectors: payload.sectors,
         submission_channel_type: 'unknown', hard_filter_status: 'not_applicable',
-        status: 'not_contacted', fit_score: 'medium', wave: 3,
+        status: 'not_contacted', fit_score: 'medium', wave: 3, source: 'manual',
       };
       const submission: InvestorSubmission = {
         id: uuid(), payload, submitted_by: prev.org.name,

@@ -3,6 +3,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { isAbluteTeamEmail } from '@/lib/supabase-server';
+import { ABLUTE_ORG_ID } from '@/lib/ablute-org';
+import { logAdminAction } from '@/lib/audit';
 
 // The platform owner. Signing up with either of these two specific,
 // hardcoded addresses links to the real ablute_ org (already seeded) as
@@ -15,7 +17,6 @@ import { isAbluteTeamEmail } from '@/lib/supabase-server';
 // empty org and no back-office — locking the owner out of the platform
 // console with no error to explain why. Both addresses stay valid.
 const OWNER_EMAILS = ['ablutecompany@gmail.com', 'sherlockdeal.com@gmail.com'];
-const ABLUTE_ORG_ID = 'bca54499-03c8-469b-a48d-b9f442e44f69';
 
 export async function POST(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -51,9 +52,23 @@ export async function POST(req: NextRequest) {
   const isOwner = isLegacyOwner || isAbluteTeam;
   const profileFields = { full_name, title, phone: phone || null, linkedin_url: linkedin_url || null };
 
-  // Owner always gets platform (back-office) access — best effort, never blocks sign-up.
+  // Owner always gets platform (back-office) access — best effort, never
+  // blocks sign-up. Prompt 43/44: this used to swallow a failure silently
+  // (`catch { /* ignore */ }`) — a confirmed @ablute.pt teammate could fail
+  // to get backoffice access with nothing to show for it. Still never
+  // blocks sign-up (the outer flow continues either way — is_platform_admin()
+  // also has the domain-based fallback now, see migration 0050), but a
+  // failure here is at least visible in admin_audit_log instead of invisible.
   if (isOwner) {
-    try { await admin.from('platform_admins').upsert({ user_id }, { onConflict: 'user_id' }); } catch { /* ignore */ }
+    const { error: adminGrantErr } = await admin.from('platform_admins').upsert({ user_id }, { onConflict: 'user_id' });
+    if (adminGrantErr) {
+      try {
+        await logAdminAction(admin, {
+          adminUserId: user_id, action: 'platform_admin_grant_failed', subjectType: 'user',
+          subjectId: user_id, detail: { email, error: adminGrantErr.message },
+        });
+      } catch { /* logging itself must never block sign-up either */ }
+    }
   }
 
   const { data: existing } = await admin.from('org_members').select('org_id').eq('user_id', user_id).maybeSingle();

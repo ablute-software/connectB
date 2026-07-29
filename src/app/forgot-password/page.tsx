@@ -1,14 +1,25 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { browserClient, authEnabled } from '@/lib/supabase';
 import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
+import { getMagicLinkSent, setMagicLinkSent, clearMagicLinkSent } from '@/lib/magic-link-storage';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  // Prompt 44 — same reload-guard as /portal and /login, parts 1+3 only
+  // (no code fallback here: this is resetPasswordForEmail, a recovery
+  // flow, not signInWithOtp — there's no verifyOtp code path for it in
+  // this app today). See src/lib/magic-link-storage.ts.
+  const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    const stored = getMagicLinkSent();
+    if (stored) { setEmail(stored.email); setSent(true); }
+  }, []);
 
   async function send() {
     setBusy(true); setMsg('');
@@ -17,8 +28,15 @@ export default function ForgotPasswordPage() {
       const { error } = await sb.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent('/reset-password')}`,
       });
-      setMsg(error ? error.message : "If that email has an account, we've sent a reset link.");
+      if (error) { setMsg(error.message); return; }
+      setMagicLinkSent(email);
+      setSent(true);
     } finally { setBusy(false); }
+  }
+
+  function startOver() {
+    clearMagicLinkSent();
+    setSent(false); setEmail(''); setMsg('');
   }
 
   return (
@@ -32,6 +50,12 @@ export default function ForgotPasswordPage() {
         {!authEnabled ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             Demo mode — authentication is not configured. <Link href="/pipeline" className="underline">Enter the app</Link>.
+          </div>
+        ) : sent ? (
+          <div className="rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">
+            <p>If {email} has an account, we've sent a reset link.</p>
+            <p className="mt-1 text-gray-500">Open the link on this same device and browser you used to request it — requesting again before you click it will invalidate this one.</p>
+            <button onClick={startOver} className="mt-1 text-gray-400 hover:underline">Not you? Start over</button>
           </div>
         ) : (
           <>

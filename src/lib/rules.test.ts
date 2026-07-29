@@ -6,7 +6,7 @@ function makeEntity(overrides: Partial<Entity> & { id: string }): Entity {
   return {
     name: overrides.id, type: 'vc', invests_in_geographies: [], website_verified: false,
     email_domain_verified: false, sectors: [], submission_channel_type: 'unknown',
-    hard_filter_status: 'not_applicable', status: 'not_contacted',
+    hard_filter_status: 'not_applicable', status: 'not_contacted', source: 'manual',
     ...overrides,
   };
 }
@@ -27,6 +27,7 @@ function makeDb(entities: Entity[], people: Person[], interactions: Interaction[
     entities, people, personAffiliations: [], interactions,
     tasks: [], relationshipState: [], overrides: [], folders: [], documents: [],
     grants: [], views: [], templates: [], automations: [], runs: [], aiReviews: [], companyFacts: [], ndas: [], documentVersions: [], reawakeningProposals: [],
+    companyPeople: [],
   };
 }
 

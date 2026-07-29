@@ -6,9 +6,10 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card, PersonLink } from '@/components/ui';
 import type { Folder, FolderKind } from '@/lib/types';
 import {
-  collectFolderSelectionKeys, cycleGrantState, diffGrantSelection,
+  collectFolderSelectionKeys, cycleGrantState,
   normalizeDocumentUrl, reorderByDrag, sanitizeStorageKey, type GrantState,
 } from '@/lib/data-room';
+import { grantStatus } from '@/lib/access-grants';
 
 function fmtBytes(n?: number): string | undefined {
   if (n == null) return undefined;
@@ -22,6 +23,7 @@ export default function DocumentsPage() {
     db, addDocument, deleteDocument, renameDocument, updateDocumentDetails,
     moveDocumentToFolder, reorderDocuments, replaceDocumentFile, addDocumentVersion,
     createFolder, renameFolder, deleteFolder, addGrant, revokeGrant, recordNdaUpload,
+    invitePersonForGrant,
   } = useStore();
   const [selFolder, setSelFolder] = useState<string>('');
   const [storageSizes, setStorageSizes] = useState<Record<string, number>>({});
@@ -90,13 +92,56 @@ export default function DocumentsPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // F4 — grant by selection tree. Picking an investor loads their current
-  // grants into `selection` (keyed 'folder:<id>'/'doc:<id>'); the tree
-  // itself is just this map plus a click handler, and diffGrantSelection
-  // turns "what changed" into the minimal add/revoke plan on submit.
-  const [grantPerson, setGrantPerson] = useState('');
+  // Grant Access rebuild (prompt 33 part 2 / 47) — stepped flow: entity
+  // first (mandatory, never the reverse), then scope, then the same tree
+  // picker as before. Unlike the old single-person flow, this one never
+  // pre-loads "existing grants" into the tree — a multi-person submission
+  // has no single existing state to diff against, so it's purely additive;
+  // revoking an existing grant stays a separate action on the grants list
+  // below, unchanged.
+  const [grantEntityId, setGrantEntityId] = useState('');
+  const [grantScope, setGrantScope] = useState<'' | 'everyone' | 'specific'>('');
+  const [grantSpecificIds, setGrantSpecificIds] = useState<string[]>([]);
+  const [grantShowInvite, setGrantShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteName, setInviteName] = useState('');
   const [grantExpiry, setGrantExpiry] = useState('');
   const [selection, setSelection] = useState<Record<string, GrantState>>({});
+
+  // "Everyone confirmed at this entity" — resolved live from
+  // person_affiliations at grant-creation time, per the decision that this
+  // must never be a frozen snapshot (same lesson as the 0042 quota sticky-
+  // unlock backfill). This is still a one-time resolution at the moment the
+  // founder clicks submit, not a truly dynamic per-login re-check — a fully
+  // dynamic entity-wide grant would need access_grants to carry an
+  // entity_id of its own, which the confirmed 29/07 schema decision doesn't
+  // include (it only added invited_email/invited_name/confirmed_at/
+  // self_verified). Flagged, not silently built past the confirmed schema —
+  // re-running "Everyone confirmed" after a team change re-syncs it.
+  const entityAffiliatedPeople = useMemo(() => {
+    if (!grantEntityId) return [];
+    const ids = new Set(db.personAffiliations.filter((a) => a.entity_id === grantEntityId && a.current).map((a) => a.person_id));
+    return db.people.filter((p) => ids.has(p.id) || p.entity_id === grantEntityId);
+  }, [db.personAffiliations, db.people, grantEntityId]);
+  const grantEntity = db.entities.find((e) => e.id === grantEntityId);
+
+  // Prompt 47 point 5/6 — "Resend invite". A founder-triggered
+  // signInWithOtp for someone else's email can't rely on the resulting
+  // LINK working (PKCE's code_verifier lives in the browser that requested
+  // it, not the founder's) — but the same email also carries the 6-digit
+  // code (prompt 44's fallback), which the invitee can use from their own
+  // device regardless of who triggered the send. That's the real mechanism
+  // here, not a link that's expected to work.
+  const [resendMsg, setResendMsg] = useState('');
+  async function resendInvite(email: string) {
+    setResendMsg('');
+    const sb = browserClient();
+    const { error } = await sb.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/portal`, shouldCreateUser: true },
+    });
+    setResendMsg(error ? error.message : `Sign-in link sent to ${email}.`);
+  }
 
   // Data Room V2 — per-document management
   const [renamingDocId, setRenamingDocId] = useState<string | null>(null);
@@ -121,27 +166,20 @@ export default function DocumentsPage() {
   const docsIn = (id: string) => db.documents
     .filter((d) => d.folder_id === id)
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || (a.created_at ?? '').localeCompare(b.created_at ?? ''));
-  const activeGrants = db.grants.filter((g) => !g.revoked_at && (!g.expires_at || new Date(g.expires_at) > new Date()));
+  // Prompt 33/47 — "active grants" used to mean exactly one thing (not
+  // revoked, not expired). Now a grant can also be pending_confirmation
+  // (invited_email set, confirmed_at still null) — visible in the app's own
+  // list below so the founder can track/resend/revoke it, but grantStatus()
+  // (not this filter) is what actually decides whether it's usable
+  // elsewhere (e.g. counted toward "awaiting NDA").
+  const visibleGrants = db.grants.filter((g) => !g.revoked_at && (!g.expires_at || new Date(g.expires_at) > new Date()));
+  const confirmedActiveGrants = visibleGrants.filter((g) => grantStatus(g, new Date()) === 'active');
 
-  // F4 — this investor's current grants, keyed the same way the tree is, so
-  // opening the panel shows what's already shared instead of a blank slate.
-  const existingGrantsByKey = useMemo(() => {
-    const map: Record<string, { id: string; nda_required: boolean }> = {};
-    if (!grantPerson) return map;
-    for (const g of activeGrants) {
-      if (g.person_id !== grantPerson) continue;
-      if (g.document_id) map[`doc:${g.document_id}`] = { id: g.id, nda_required: g.nda_required };
-      if (g.folder_id) map[`folder:${g.folder_id}`] = { id: g.id, nda_required: g.nda_required };
-    }
-    return map;
-  }, [activeGrants, grantPerson]);
-
-  useEffect(() => {
-    const init: Record<string, GrantState> = {};
-    for (const [key, g] of Object.entries(existingGrantsByKey)) init[key] = g.nda_required ? 'shared_nda' : 'shared';
-    setSelection(init);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grantPerson]);
+  function resetGrantFlow() {
+    setGrantEntityId(''); setGrantScope(''); setGrantSpecificIds([]);
+    setGrantShowInvite(false); setInviteEmail(''); setInviteName('');
+    setGrantExpiry(''); setSelection({});
+  }
 
   function toggleFolderSelection(folderId: string) {
     const current = selection[`folder:${folderId}`] ?? 'none';
@@ -159,21 +197,44 @@ export default function DocumentsPage() {
     setSelection((prev) => ({ ...prev, [`doc:${docId}`]: cycleGrantState(current) }));
   }
 
-  function submitGrantTree() {
-    if (!grantPerson) return;
+  async function submitGrantTree() {
+    if (!grantEntityId || !grantScope) return;
     const expires_at = grantExpiry ? `${grantExpiry}T23:59:59Z` : undefined;
-    const diff = diffGrantSelection(selection, existingGrantsByKey);
-    for (const item of diff) {
-      if (item.action === 'revoke' && item.existingId) revokeGrant(item.existingId);
-      if (item.action === 'add') {
-        const [kind, id] = item.key.split(':');
+    const selectedNodes = Object.entries(selection).filter(([, s]) => s !== 'none');
+    if (!selectedNodes.length) return;
+
+    // Resolve WHO, per the chosen scope. "Everyone confirmed" is resolved
+    // right here, at submit time — see the note on entityAffiliatedPeople.
+    let targetIds: string[] = grantScope === 'everyone'
+      ? entityAffiliatedPeople.map((p) => p.id)
+      : [...grantSpecificIds];
+
+    // "+ Invite someone new" — only meaningful under "specific people".
+    // Creates/reconciles the person now, and this grant (only this one)
+    // carries invited_email/invited_name so it's born pending_confirmation.
+    let invitedPersonId: string | null = null;
+    if (grantScope === 'specific' && inviteEmail.trim() && inviteName.trim()) {
+      const person = await invitePersonForGrant(grantEntityId, inviteEmail.trim(), inviteName.trim());
+      invitedPersonId = person.id;
+      if (!targetIds.includes(person.id)) targetIds = [...targetIds, person.id];
+    }
+    if (!targetIds.length) return;
+
+    for (const personId of targetIds) {
+      const isInvite = personId === invitedPersonId;
+      for (const [key, state] of selectedNodes) {
+        const [kind, id] = key.split(':');
         addGrant({
-          person_id: grantPerson, document_id: kind === 'doc' ? id : undefined,
-          folder_id: kind === 'folder' ? id : undefined, expires_at, nda_required: item.ndaRequired,
+          person_id: personId, document_id: kind === 'doc' ? id : undefined,
+          folder_id: kind === 'folder' ? id : undefined, expires_at, nda_required: state === 'shared_nda',
+          invited_email: isInvite ? inviteEmail.trim().toLowerCase() : undefined,
+          invited_name: isInvite ? inviteName.trim() : undefined,
         });
       }
     }
-    setGrantPerson(''); setGrantExpiry(''); setSelection({});
+    const invitedEmailToNotify = invitedPersonId ? inviteEmail.trim().toLowerCase() : null;
+    resetGrantFlow();
+    if (invitedEmailToNotify) await resendInvite(invitedEmailToNotify);
   }
 
   async function uploadNda(file: File, inv: { personId?: string; email?: string }) {
@@ -196,7 +257,7 @@ export default function DocumentsPage() {
 
   const pendingNdaInvestors = useMemo(() => {
     const map = new Map<string, { personId?: string; email?: string; label: string; count: number }>();
-    for (const g of activeGrants) {
+    for (const g of confirmedActiveGrants) {
       if (!g.nda_required || g.nda_accepted_at) continue;
       const key = g.person_id ?? g.grantee_email ?? '';
       if (!key) continue;
@@ -205,7 +266,7 @@ export default function DocumentsPage() {
       map.set(key, { personId: g.person_id, email: g.grantee_email, label, count: (existing?.count ?? 0) + 1 });
     }
     return [...map.values()];
-  }, [activeGrants, db.people]);
+  }, [confirmedActiveGrants, db.people]);
 
   // File size isn't a DB column — Supabase Storage already tracks it, so a
   // single listing of the org's prefix is cheaper than a schema change.
@@ -469,7 +530,7 @@ export default function DocumentsPage() {
             {docsIn(selFolder).length === 0 ? <p className="text-sm text-gray-400">Empty.</p> : (
               <ul className="divide-y divide-gray-100">
                 {docsIn(selFolder).map((d) => {
-                  const grants = activeGrants.filter((g) => g.document_id === d.id || g.folder_id === d.folder_id);
+                  const grants = visibleGrants.filter((g) => g.document_id === d.id || g.folder_id === d.folder_id);
                   const views = db.views.filter((v) => v.document_id === d.id);
                   const size = d.storage_path ? fmtBytes(storageSizes[d.storage_path]) : undefined;
                   const canDrag = documentOrderingAvailable && renamingDocId !== d.id;
@@ -631,37 +692,127 @@ export default function DocumentsPage() {
           </Card>
 
           <Card title="Access grants — the owner consents, access follows">
-            {activeGrants.length === 0 ? <p className="text-sm text-gray-400">No active grants. Grant access as conversations advance to diligence.</p> : (
+            {resendMsg && <p className="mb-2 text-xs text-gray-500">{resendMsg}</p>}
+            {visibleGrants.length === 0 ? <p className="text-sm text-gray-400">No grants yet. Grant access as conversations advance to diligence.</p> : (
               <ul className="divide-y divide-gray-100 text-sm">
-                {activeGrants.map((g) => (
-                  <li key={g.id} className="flex flex-wrap items-center gap-2 py-2">
-                    <span>
-                      {g.person_id ? <PersonLink id={g.person_id}>{db.people.find((p) => p.id === g.person_id)?.full_name}</PersonLink> : g.grantee_email}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      → {g.document_id ? db.documents.find((d) => d.id === g.document_id)?.name : db.folders.find((f) => f.id === g.folder_id)?.name}
-                    </span>
-                    {g.expires_at && <span className="text-xs text-gray-400">until {g.expires_at.slice(0, 10)}</span>}
-                    {g.nda_required && <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${g.nda_accepted_at ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
-                      NDA {g.nda_accepted_at ? 'accepted' : 'pending'}</span>}
-                    <button onClick={() => revokeGrant(g.id)} className="ml-auto rounded border border-red-200 px-2 py-0.5 text-xs text-[#B00000] hover:bg-red-50">Revoke</button>
-                  </li>
-                ))}
+                {visibleGrants.map((g) => {
+                  const status = grantStatus(g, new Date());
+                  const label = g.person_id
+                    ? <PersonLink id={g.person_id}>{db.people.find((p) => p.id === g.person_id)?.full_name ?? g.invited_name}</PersonLink>
+                    : (g.invited_name ?? g.grantee_email ?? g.invited_email);
+                  return (
+                    <li key={g.id} className="flex flex-wrap items-center gap-2 py-2">
+                      <span>{label}</span>
+                      {status === 'pending_confirmation' ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                          awaiting confirmation from {g.invited_name ?? 'invitee'}
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-800">active</span>
+                      )}
+                      <span className="text-xs text-gray-500">
+                        → {g.document_id ? db.documents.find((d) => d.id === g.document_id)?.name : db.folders.find((f) => f.id === g.folder_id)?.name}
+                      </span>
+                      {g.expires_at && <span className="text-xs text-gray-400">until {g.expires_at.slice(0, 10)}</span>}
+                      {g.nda_required && <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${g.nda_accepted_at ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+                        NDA {g.nda_accepted_at ? 'accepted' : 'pending'}</span>}
+                      <div className="ml-auto flex gap-2">
+                        {status === 'pending_confirmation' && g.invited_email && (
+                          <button onClick={() => resendInvite(g.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
+                            Resend invite
+                          </button>
+                        )}
+                        <button onClick={() => revokeGrant(g.id)} className="rounded border border-red-200 px-2 py-0.5 text-xs text-[#B00000] hover:bg-red-50">Revoke</button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
+
+            {/* Prompt 33/47 — stepped flow. Entity first, always — never the
+                reverse. Nothing below step 1 renders until an entity is chosen. */}
             <div className="mt-3 border-t border-gray-100 pt-3">
-              <div className="text-xs font-medium text-gray-500">Grant access — pick the investor, then click items in the tree</div>
-              <div className="mt-1 flex flex-wrap gap-2">
-                <select value={grantPerson} onChange={(e) => setGrantPerson(e.target.value)} className="rounded border border-gray-300 px-2 py-1.5 text-sm">
-                  <option value="">Person…</option>
-                  {db.people.filter((p) => !p.do_not_contact).map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+              <div className="text-xs font-medium text-gray-500">Grant access</div>
+
+              <div className="mt-2">
+                <label className="mb-1 block text-[11px] font-medium text-gray-400">1. Which investor entity?</label>
+                <select value={grantEntityId}
+                  onChange={(e) => { setGrantEntityId(e.target.value); setGrantScope(''); setGrantSpecificIds([]); setGrantShowInvite(false); setSelection({}); }}
+                  className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
+                  <option value="">Choose an entity in your pipeline…</option>
+                  {db.entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
                 </select>
-                <input type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
-                  className="rounded border border-gray-300 px-2 py-1.5 text-sm" title="Expiry (optional)" />
               </div>
-              {grantPerson && (
-                <>
-                  <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50 p-2">
+
+              {grantEntityId && (
+                <div className="mt-3">
+                  <label className="mb-1 block text-[11px] font-medium text-gray-400">2. Who gets access?</label>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => { setGrantScope('everyone'); setGrantShowInvite(false); }}
+                      className={`rounded-lg border px-3 py-1.5 text-sm ${grantScope === 'everyone' ? 'border-[#0E7490] bg-cyan-50 text-[#0E7490]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                      Everyone confirmed at this entity {entityAffiliatedPeople.length > 0 && `(${entityAffiliatedPeople.length})`}
+                    </button>
+                    <button onClick={() => setGrantScope('specific')}
+                      className={`rounded-lg border px-3 py-1.5 text-sm ${grantScope === 'specific' ? 'border-[#0E7490] bg-cyan-50 text-[#0E7490]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                      Specific people
+                    </button>
+                  </div>
+                  {grantScope === 'everyone' && entityAffiliatedPeople.length === 0 && (
+                    <p className="mt-1 text-xs text-amber-700">No confirmed people at this entity yet — add someone via “Specific people” → “+ Invite someone new”.</p>
+                  )}
+                  {grantScope === 'everyone' && entityAffiliatedPeople.length > 0 && (
+                    <p className="mt-1 text-xs text-gray-400">
+                      Resolved live at grant time: {entityAffiliatedPeople.map((p) => p.full_name).join(', ')}. Re-run this if the team changes — it isn't re-checked automatically after granting.
+                    </p>
+                  )}
+
+                  {grantScope === 'specific' && (
+                    <div className="mt-2 space-y-2">
+                      <div className="max-h-32 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50 p-2">
+                        {entityAffiliatedPeople.length === 0 && <p className="text-xs text-gray-400">No known people at this entity yet.</p>}
+                        {entityAffiliatedPeople.map((p) => (
+                          <label key={p.id} className="flex items-center gap-2 py-0.5 text-sm">
+                            <input type="checkbox" checked={grantSpecificIds.includes(p.id)}
+                              onChange={(e) => setGrantSpecificIds((prev) => e.target.checked ? [...prev, p.id] : prev.filter((id) => id !== p.id))} />
+                            {p.full_name}
+                          </label>
+                        ))}
+                      </div>
+                      {!grantShowInvite ? (
+                        <button onClick={() => setGrantShowInvite(true)} className="text-xs font-medium text-[#0E7490] hover:underline">
+                          + Invite someone new
+                        </button>
+                      ) : (
+                        <div className="rounded-lg border border-gray-100 bg-gray-50 p-2">
+                          <div className="flex flex-wrap gap-2">
+                            <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Their name"
+                              className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                            <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Their email" type="email"
+                              className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                          </div>
+                          {inviteEmail && grantEntity && (() => {
+                            const domain = grantEntity.email_domain || (grantEntity.website ? grantEntity.website.replace(/^https?:\/\/(www\.)?/, '').split('/')[0] : undefined);
+                            const emailDomain = inviteEmail.split('@')[1]?.toLowerCase();
+                            if (domain && emailDomain && !domain.toLowerCase().includes(emailDomain) && !emailDomain.includes(domain.toLowerCase())) {
+                              return <p className="mt-1 text-xs text-amber-700">This email doesn’t look like it belongs to {grantEntity.name} — continue if that’s expected (associates often use a personal or another firm’s email).</p>;
+                            }
+                            return null;
+                          })()}
+                          <p className="mt-1 text-[11px] text-gray-400">
+                            Creates a low-confidence contact record and grants access — nothing is visible to them until they sign in and confirm “Is this you?”.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {grantEntityId && grantScope && (grantScope === 'everyone' ? entityAffiliatedPeople.length > 0 : (grantSpecificIds.length > 0 || (grantShowInvite && inviteEmail && inviteName))) && (
+                <div className="mt-3">
+                  <label className="mb-1 block text-[11px] font-medium text-gray-400">3. What do they see?</label>
+                  <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50 p-2">
                     {roots.map((f) => <GrantTreeNode key={f.id} f={f} depth={0} />)}
                   </div>
                   <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-400">
@@ -669,15 +820,22 @@ export default function DocumentsPage() {
                     <span className="flex items-center gap-1"><TriStateBox state="shared_nda" onClick={() => {}} /> shared + NDA required</span>
                     <span className="flex items-center gap-1"><TriStateBox state="none" onClick={() => {}} /> not shared</span>
                   </div>
-                  <button onClick={submitGrantTree} className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">
-                    Save access
-                  </button>
-                </>
+                  <input type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
+                    className="mt-2 rounded border border-gray-300 px-2 py-1.5 text-sm" title="Expiry (optional)" />
+                  <div>
+                    <button onClick={submitGrantTree} className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">
+                      4. Confirm — grant access
+                    </button>
+                    <button onClick={resetGrantFlow} className="mt-2 ml-2 text-sm text-gray-400 hover:underline">Cancel</button>
+                  </div>
+                </div>
               )}
-              <p className="mt-2 text-[11px] text-gray-400">
-                Granting fires the “grant activated” automation: an access email drafts (or sends, in full-auto) and every
-                view is logged back to the entity. Investors sign in via magic link and see only their granted items.
-                Folder-level clicks cascade to everything inside it — click an individual document afterward to override just that one.
+
+              <p className="mt-3 text-[11px] text-gray-400">
+                Granting fires the “grant activated” automation for an already-known person: an access email drafts (or sends,
+                in full-auto) and every view is logged back to the entity. An invited new person's grant stays hidden — no
+                document or metadata — until they sign in via magic link and confirm “Is this you?”. Folder-level clicks
+                cascade to everything inside it — click an individual document afterward to override just that one.
               </p>
             </div>
           </Card>

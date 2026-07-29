@@ -46,12 +46,18 @@ export async function resolveRole(
     sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle(),
   ]);
   if (admin) return 'developer';
-  if (emailConfirmedAt && isAbluteTeamEmail(email)) return 'developer';
   if (member) return 'founder';
+  // An explicit access_grants row (a deliberate act — a founder sharing
+  // their data room, or a back-office admin approving an investor access
+  // request) outranks the blanket @ablute.pt-domain fallback below. Without
+  // this order, a confirmed @ablute.pt account could never resolve as
+  // 'investor' no matter what it's been granted — which is exactly what
+  // blocked using an @ablute.pt account to test the investor portal.
   if (email) {
     const { data: grant } = await sb.from('access_grants').select('id').eq('grantee_email', email).limit(1).maybeSingle();
     if (grant) return 'investor';
   }
+  if (emailConfirmedAt && isAbluteTeamEmail(email)) return 'developer';
   return 'none';
 }
 

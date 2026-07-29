@@ -3,24 +3,32 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
+import { authEnabled, browserClient } from '@/lib/supabase';
 import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur } from '@/components/ui';
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 import { AddInvestorModal } from '@/components/AddInvestorModal';
-import { preflight, preflightSummary } from '@/lib/rules';
-import { isPersonCandidate } from '@/lib/relationship';
+import { isPersonCandidate, isUnverifiedStub } from '@/lib/relationship';
+import { CoachMark } from '@/components/onboarding/CoachMark';
+import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import type { Db, Entity, TaskItem } from '@/lib/types';
 
 const fitOrder = { high: 0, medium_high: 1, medium: 2, low: 3 };
 const SORT_STORAGE_KEY = 'ablute-pipeline-sort-v1';
 
+// Column widths sum to 100% — table-fixed (below) then holds the table to
+// the container's width at every "wave" filter setting instead of growing
+// with content and forcing horizontal scroll. Cell text wraps instead of
+// truncating (see the td classes below) so nothing gets cut off silently.
 const SORT_COLUMNS = [
-  { key: 'name', label: 'Entity' }, { key: 'type', label: 'Type' }, { key: 'hq', label: 'HQ' },
-  { key: 'check', label: 'Check' }, { key: 'sectors', label: 'Sectors' }, { key: 'fit', label: 'Fit' },
-  { key: 'wave', label: 'Wave' }, { key: 'status', label: 'Status' }, { key: 'next_action', label: 'Next action' },
-  { key: 'ready', label: 'Ready', title: 'Rank-1 pre-flight' },
+  { key: 'name', label: 'Entity', width: '22%' }, { key: 'type', label: 'Type', width: '8%' },
+  { key: 'hq', label: 'HQ', width: '10%' }, { key: 'check', label: 'Check', width: '10%' },
+  { key: 'sectors', label: 'Sectors', width: '14%' }, { key: 'fit', label: 'Fit', width: '7%' },
+  { key: 'wave', label: 'Wave', width: '6%' }, { key: 'status', label: 'Status', width: '10%' },
+  { key: 'next_action', label: 'Next action', width: '13%' },
 ] as const;
 type SortKey = typeof SORT_COLUMNS[number]['key'];
+const SORT_KEYS = SORT_COLUMNS.map((c) => c.key) as SortKey[];
 
 // Generic nulls-last comparator so every column sorts sensibly without a
 // bespoke comparator per key — string/number/boolean all handled the same
@@ -65,11 +73,60 @@ function lastUpdateTag(db: Db, e: Entity): string | null {
   return null;
 }
 
-function readiness(db: Db, e: Entity): boolean | null {
-  if (['in_conversation', 'diligence', 'invested', 'dormant', 'passed'].includes(e.status)) return null;
-  const rank1 = db.people.filter((p) => p.entity_id === e.id).sort((a, b) => a.seniority_rank - b.seniority_rank)[0];
-  if (!rank1) return null;
-  return preflightSummary(preflight(db, rank1, null)).green;
+// Wave/Status/Sectors are all multi-select and combinable (AND across the
+// three, OR within each one's selected values) — <details>/<summary> gives a
+// keyboard-accessible dropdown with no extra open/close state, matching the
+// <details> pattern already used elsewhere in the app (e.g. PacksPanel).
+function MultiSelectFilter({ label, options, selected, onChange }: {
+  label: string; options: { value: string; label: string }[]; selected: string[]; onChange: (next: string[]) => void;
+}) {
+  function toggle(v: string) {
+    onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
+  }
+  return (
+    <details className="relative">
+      <summary className="cursor-pointer select-none list-none rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-700 marker:content-none">
+        {label}{selected.length > 0 && <span className="ml-1 text-[#0E7490]">({selected.length})</span>}
+      </summary>
+      <div className="absolute z-10 mt-1 max-h-64 w-52 overflow-y-auto rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
+        {options.length === 0 && <p className="px-1.5 py-1 text-xs text-gray-400">No options.</p>}
+        {options.map((o) => (
+          <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-gray-50">
+            <input type="checkbox" checked={selected.includes(o.value)} onChange={() => toggle(o.value)} />
+            {o.label}
+          </label>
+        ))}
+        {selected.length > 0 && (
+          <button onClick={() => onChange([])} className="mt-1 w-full rounded px-1.5 py-1 text-left text-xs text-gray-400 hover:underline">Clear</button>
+        )}
+      </div>
+    </details>
+  );
+}
+
+// pipeline.empty (onboarding_sherlockdeal_v2.md §3, §1.1) — deliberately
+// NOT part of the onboarding engine: no persistence, no dismiss button,
+// no `seen` key. It's computed live from db.entities every render and
+// disappears the instant it stops being true. `screen` replaces the whole
+// page when there are zero entities at all; `banner` sits above the table
+// when entities exist but none are wave-classified yet — same copy, same
+// key, different container per the implementation note in §3.
+function EmptyCompanyBlock({ variant }: { variant: 'screen' | 'banner' }) {
+  return (
+    <div className={variant === 'screen' ? 'flex min-h-[50vh] items-center justify-center' : 'rounded-2xl border border-gray-100 bg-white p-6 shadow-sm'}>
+      <div className="mx-auto max-w-[420px] text-center">
+        <div className="mx-auto mb-5 flex h-[80px] w-[80px] items-center justify-center rounded-full bg-gray-50 text-3xl">🔍</div>
+        <h2 className="mb-2 text-lg font-semibold text-gray-900">Ainda sem investidores na pipeline</h2>
+        <p className="mb-5 text-sm text-gray-500">
+          Assim que lhe atribuirmos investidores do catálogo, ou importar os seus próprios
+          contactos, eles aparecem aqui.
+        </p>
+        <Link href="/settings" className="inline-block rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b]">
+          Importar contactos
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 function sortValue(db: Db, key: SortKey, e: Entity): unknown {
@@ -83,24 +140,54 @@ function sortValue(db: Db, key: SortKey, e: Entity): unknown {
     case 'wave': return e.wave ?? null;
     case 'status': return e.status;
     case 'next_action': return nextAction(db, e)?.due_at ?? null;
-    case 'ready': return readiness(db, e);
   }
 }
 
 export default function PipelinePage() {
-  const { db, convertEntityToPerson, markEntityVerified } = useStore();
+  const { db, markEntityVerified } = useStore();
   const [q, setQ] = useState('');
-  const [wave, setWave] = useState('');
-  const [status, setStatus] = useState('');
+  const [wave, setWave] = useState<string[]>([]);
+  const [status, setStatus] = useState<string[]>([]);
+  const [sectors, setSectors] = useState<string[]>([]);
   const [country, setCountry] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('wave');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [addInvestorOpen, setAddInvestorOpen] = useState(false);
+  // How many catalog-sourced investors are blocked by the plan's accumulated
+  // quota — a COUNT only, via the catalog_blocked_count() RPC (migration
+  // 0042). Blocked rows themselves never reach this client at all: the
+  // entities RLS SELECT policy already excludes them from every
+  // `sb.from('entities')` read (including the one useStore's initial load
+  // does), so there is nothing to filter here — this is purely "how many
+  // more are there" for the frosted-glass message below.
+  const [blockedCount, setBlockedCount] = useState(0);
+  const { setCondition } = useOnboarding();
+
+  // waves coach mark (§3): fires the first time the pipeline shows
+  // investors already classified by wave.
+  useEffect(() => {
+    setCondition('waves', db.entities.some((e) => e.wave != null));
+  }, [db.entities, setCondition]);
+
+  useEffect(() => {
+    if (!authEnabled || !db.org.id) return;
+    browserClient().rpc('catalog_blocked_count', { check_org: db.org.id })
+      .then(({ data, error }) => setBlockedCount(!error && typeof data === 'number' ? data : 0));
+    // Re-checked whenever the entity count changes (unlock, manual add,
+    // import) — an upgrade/repriorization/new catalog delivery should make
+    // the frosted-glass count shrink without needing a page reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db.org.id, db.entities.length]);
 
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(SORT_STORAGE_KEY) ?? 'null');
-      if (saved?.key) { setSortKey(saved.key); setSortDir(saved.dir === 'desc' ? 'desc' : 'asc'); }
+      // The removed 'ready' key may still be sitting in an old visitor's
+      // localStorage — ignore it and fall back to the default rather than
+      // sorting by a column that no longer exists.
+      if (saved?.key && (SORT_KEYS as string[]).includes(saved.key)) {
+        setSortKey(saved.key); setSortDir(saved.dir === 'desc' ? 'desc' : 'asc');
+      }
     } catch { /* ignore malformed storage */ }
   }, []);
   useEffect(() => {
@@ -116,17 +203,21 @@ export default function PipelinePage() {
     let list = [...db.entities];
     if (q) list = list.filter((e) => e.name.toLowerCase().includes(q.toLowerCase())
       || e.sectors.some((s) => s.toLowerCase().includes(q.toLowerCase())));
-    if (wave) list = list.filter((e) => String(e.wave) === wave);
-    if (status) list = list.filter((e) => e.status === status);
+    if (wave.length) list = list.filter((e) => wave.includes(String(e.wave)));
+    if (status.length) list = list.filter((e) => status.includes(e.status));
+    if (sectors.length) list = list.filter((e) => e.sectors.some((s) => sectors.includes(s)));
     if (country) list = list.filter((e) => e.hq_country === country);
     const dir = sortDir === 'asc' ? 1 : -1;
     list.sort((a, b) => cmp(sortValue(db, sortKey, a), sortValue(db, sortKey, b)) * dir
       || (a.wave ?? 9) - (b.wave ?? 9) || (fitOrder[a.fit_score ?? 'low'] - fitOrder[b.fit_score ?? 'low']));
     return list;
-  }, [db, q, wave, status, country, sortKey, sortDir]);
+  }, [db, q, wave, status, sectors, country, sortKey, sortDir]);
 
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
+  const sectorOptions = Array.from(new Set(db.entities.flatMap((e) => e.sectors))).sort();
   const personCandidates = db.entities.filter((e) => isPersonCandidate(db, e));
+  const noEntities = db.entities.length === 0;
+  const noneClassified = !noEntities && db.entities.every((e) => e.wave == null);
 
   // Top-of-page summary — counts + up to 6 most-recently-updated relationships.
   // "In talks" is in_conversation's display label here specifically (matches
@@ -141,8 +232,17 @@ export default function PipelinePage() {
     .sort((a, b) => (b.latest?.occurred_at ?? '').localeCompare(a.latest?.occurred_at ?? ''))
     .slice(0, 6);
 
+  if (noEntities) {
+    return (
+      <div className="space-y-4">
+        <EmptyCompanyBlock variant="screen" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
+      {noneClassified && <EmptyCompanyBlock variant="banner" />}
       <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <div className="flex items-baseline gap-1.5">
@@ -183,8 +283,6 @@ export default function PipelinePage() {
                 <Link href={`/entities/${e.id}`} className="font-medium text-gray-900 hover:text-[#0E7490]">{e.name}</Link>
                 <span className="text-xs text-gray-400">{e.type.replace('_', ' ')} · no website · no email domain · no contacts on file</span>
                 <div className="ml-auto flex gap-2">
-                  <button onClick={() => convertEntityToPerson(e.id)}
-                    className="rounded bg-purple-700 px-2 py-1 text-xs font-medium text-white hover:bg-purple-800">Convert to person (angel)</button>
                   <button onClick={() => markEntityVerified(e.id)}
                     className="rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50">Not a person</button>
                 </div>
@@ -197,54 +295,72 @@ export default function PipelinePage() {
       <div className="flex flex-wrap items-center gap-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name or sector…"
           className="w-56 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
-        <select value={wave} onChange={(e) => setWave(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
-          <option value="">All waves</option><option value="1">Wave 1</option><option value="2">Wave 2</option><option value="3">Wave 3</option>
-        </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
-          <option value="">All statuses</option>
-          {['not_contacted','contacted','in_conversation','diligence','passed','invested','dormant'].map((s) =>
-            <option key={s} value={s}>{s.replace('_',' ')}</option>)}
-        </select>
+        <MultiSelectFilter label="Wave" selected={wave} onChange={setWave}
+          options={[1, 2, 3].map((w) => ({ value: String(w), label: `Wave ${w}` }))} />
+        <MultiSelectFilter label="Status" selected={status} onChange={setStatus}
+          options={['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'invested', 'dormant']
+            .map((s) => ({ value: s, label: s.replace('_', ' ') }))} />
+        <MultiSelectFilter label="Sectors" selected={sectors} onChange={setSectors}
+          options={sectorOptions.map((s) => ({ value: s, label: s }))} />
         <select value={country} onChange={(e) => setCountry(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
           <option value="">All countries</option>
           {countries.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
-        {(q || wave || status || country) && (
-          <button onClick={() => { setQ(''); setWave(''); setStatus(''); setCountry(''); }} className="text-sm text-gray-500 hover:underline">Clear</button>
+        {(q || wave.length > 0 || status.length > 0 || sectors.length > 0 || country) && (
+          <button onClick={() => { setQ(''); setWave([]); setStatus([]); setSectors([]); setCountry(''); }} className="text-sm text-gray-500 hover:underline">Clear</button>
         )}
         <span className="ml-auto text-xs text-gray-400">{rows.length} entities</span>
         <button onClick={() => setAddInvestorOpen(true)} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-[#0E7490] hover:bg-[#E8F4F8]">+ Add investor</button>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
-        <table className="w-full text-sm">
+        {/* table-fixed + explicit column widths (colgroup) so the table
+            holds to the container's width at every wave filter setting
+            instead of growing with content and forcing horizontal scroll;
+            cells wrap (see td classes) rather than truncate. */}
+        <table className="w-full table-fixed text-sm">
+          <colgroup>
+            {SORT_COLUMNS.map((c) => <col key={c.key} style={{ width: c.width }} />)}
+          </colgroup>
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
-              {SORT_COLUMNS.map((c) => (
-                <th key={c.key} className="px-3 py-2" title={'title' in c ? c.title : undefined}>
+              {SORT_COLUMNS.map((c) => {
+                const headerButton = (
                   <Tooltip text={`Sort by ${c.label.toLowerCase()}.`} side="bottom">
                     <button onClick={() => toggleSort(c.key)}
                       className={`flex items-center gap-1 font-medium uppercase tracking-wide hover:text-gray-700 ${sortKey === c.key ? 'text-[#0E7490]' : ''}`}>
                       {c.label} {sortKey === c.key && <span className="text-[10px]">{sortDir === 'asc' ? '▲' : '▼'}</span>}
                     </button>
                   </Tooltip>
-                </th>
-              ))}
+                );
+                return (
+                  <th key={c.key} className="px-3 py-2">
+                    {c.key === 'wave' ? <CoachMark itemKey="waves">{headerButton}</CoachMark> : headerButton}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
             {rows.map((e) => {
-              const ready = readiness(db, e);
               const task = nextAction(db, e);
               const overdue = task?.due_at && new Date(task.due_at) < new Date();
               const hf = e.hard_filter_status === 'open';
               return (
                 <tr key={e.id}
-                  className={`border-b border-gray-100 hover:bg-[#E8F4F8]/60 ${e.status === 'dormant' ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''}`}>
-                  <td className="px-3 py-2 font-medium">
+                  className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${e.status === 'dormant' ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''}`}>
+                  <td className="break-words px-3 py-2 font-medium">
                     <Link href={`/entities/${e.id}`} className="text-gray-900 hover:text-[#0E7490]">
                       {e.name} {hf && <span title={e.hard_filter} className="text-[#B00000]">⚑</span>}
                     </Link>
+                    {/* §1c(ii) prompt 42 — a stub with no proof of its own
+                        existence reads as an incomplete real profile
+                        (blank fields with dashes) unless flagged explicitly. */}
+                    {isUnverifiedStub(e) && (
+                      <span className="ml-1.5 inline-block rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" title="No independent proof this entity exists yet — website, domain, phone, address, or a source specific to it.">
+                        not yet verified
+                      </span>
+                    )}
                     <RelationshipCompactLine entityId={e.id} />
                     {/* E2 — a previously-passed/dormant investor that carries a
                         reopen trigger has resurfaced via the reopen doctrine;
@@ -256,19 +372,19 @@ export default function PipelinePage() {
                       </div>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-gray-500">{e.type.replace('_', ' ')}</td>
-                  <td className="px-3 py-2 text-gray-500">{e.hq_city ? `${e.hq_city}, ` : ''}{e.hq_country}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-gray-500">{fmtEur(e.check_min_eur)}–{fmtEur(e.check_max_eur)}</td>
+                  <td className="break-words px-3 py-2 text-gray-500">{e.type.replace('_', ' ')}</td>
+                  <td className="break-words px-3 py-2 text-gray-500">{e.hq_city ? `${e.hq_city}, ` : ''}{e.hq_country}</td>
+                  <td className="break-words px-3 py-2 text-gray-500">{fmtEur(e.check_min_eur)}–{fmtEur(e.check_max_eur)}</td>
                   <td className="px-3 py-2">
                     {e.sectors.slice(0, 2).map((s) => (
-                      <span key={s} className="mr-1 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">{s}</span>
+                      <span key={s} className="mb-1 mr-1 inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">{s}</span>
                     ))}
                     {e.sectors.length > 2 && <span className="text-[11px] text-gray-400">+{e.sectors.length - 2}</span>}
                   </td>
                   <td className="px-3 py-2"><FitTag fit={e.fit_score} /></td>
                   <td className="px-3 py-2"><WaveTag wave={e.wave} /></td>
                   <td className="px-3 py-2"><StatusPill status={e.status} /></td>
-                  <td className="px-3 py-2 max-w-[220px]">
+                  <td className="break-words px-3 py-2">
                     {task ? (
                       <span className="text-xs">
                         <span className="text-gray-700">{task.title}</span>
@@ -278,17 +394,29 @@ export default function PipelinePage() {
                       </span>
                     ) : <span className="text-gray-300">—</span>}
                   </td>
-                  <td className="px-3 py-2 text-center">
-                    {ready === null ? <span className="text-gray-300">·</span>
-                      : ready ? <span title="Pre-flight green" className="text-green-600">●</span>
-                      : <span title="Pre-flight failing — open the entity for details" className="text-[#B00000]">●</span>}
-                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+
+      {/* Blocked-by-plan panel — appears right after the last unlocked
+          investor. Purely a count (blockedCount, from the catalog_blocked_
+          count RPC); the blocked rows themselves are never fetched, so
+          there's nothing here to hide via CSS — this section has no data
+          about the blocked entities at all, by construction. */}
+      {blockedCount > 0 && (
+        <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white/60 p-6 text-center shadow-sm backdrop-blur-sm">
+          <div className="text-2xl">🔒</div>
+          <p className="mt-2 text-sm font-medium text-gray-700">Investidores adicionais bloqueados no seu plano atual.</p>
+          <p className="mt-1 text-xs text-gray-500">{blockedCount} investidor{blockedCount === 1 ? '' : 'es'} de catálogo adicional{blockedCount === 1 ? '' : 'is'} disponíve{blockedCount === 1 ? 'l' : 'is'} com upgrade.</p>
+          <Link href="/plans" className="mt-3 inline-block rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#0c637b]">
+            Ver planos
+          </Link>
+        </div>
+      )}
+
       {addInvestorOpen && <AddInvestorModal onClose={() => setAddInvestorOpen(false)} />}
     </div>
   );

@@ -10,7 +10,20 @@ type CatalogEntity = {
   id: string; name: string; type: string; hq_city: string | null; hq_country: string | null;
   sectors: string[]; website: string | null; verification_status: 'verified' | 'pending' | 'rejected';
   verified_at: string | null; source: string; notes: string | null; aliases: string[];
+  stage_min: string | null; stage_max: string | null; check_min_eur: number | null; check_max_eur: number | null;
 };
+
+function fmtCheck(min: number | null, max: number | null) {
+  if (!min && !max) return '—';
+  const f = (n: number) => n >= 1_000_000 ? `€${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M` : `€${Math.round(n / 1000)}k`;
+  if (min && max) return `${f(min)}–${f(max)}`;
+  return f((min ?? max)!);
+}
+function fmtStage(min: string | null, max: string | null) {
+  if (!min && !max) return '—';
+  if (min && max && min !== max) return `${min}–${max}`;
+  return min ?? max ?? '—';
+}
 
 function MergeDuplicatesTool({ onMerged }: { onMerged: () => void }) {
   const [clusters, setClusters] = useState<{ reasons: string[]; members: CatalogEntity[] }[] | null>(null);
@@ -83,6 +96,10 @@ function MergeDuplicatesTool({ onMerged }: { onMerged: () => void }) {
 function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh: () => void }) {
   const [newRow, setNewRow] = useState({ name: '', type: 'vc', website: '' });
   const [creating, setCreating] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const q = search.trim().toLowerCase();
+  const filtered = q ? catalog.filter((c) => c.name.toLowerCase().includes(q)) : catalog;
 
   async function create() {
     if (!newRow.name) return;
@@ -100,7 +117,7 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
   }
 
   return (
-    <Card title={`Catalog (${catalog.length})`}>
+    <Card title={`Catalog (${filtered.length}${q ? ` of ${catalog.length}` : ''})`}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input placeholder="New investor name" value={newRow.name} onChange={(e) => setNewRow({ ...newRow, name: e.target.value })}
           className="min-w-[200px] flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
@@ -111,34 +128,48 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
           className="min-w-[160px] rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
         <button disabled={!newRow.name || creating} onClick={create} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Add</button>
       </div>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
-            <th className="py-1.5">Investor</th><th>Type</th><th>HQ</th><th>Status</th><th>Aliases</th><th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {catalog.map((c) => (
-            <tr key={c.id} className="border-t border-gray-50 align-top">
-              <td className="py-2 font-medium">{c.name}{c.website && <div className="text-xs font-normal text-gray-400">{c.website}</div>}</td>
-              <td className="text-gray-500">{c.type.replace('_', ' ')}</td>
-              <td className="text-gray-500">{[c.hq_city, c.hq_country].filter(Boolean).join(', ')}</td>
-              <td>
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                  c.verification_status === 'verified' ? 'bg-green-50 text-green-700' : c.verification_status === 'pending' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
-                  {c.verification_status}
-                </span>
-              </td>
-              <td className="text-xs text-gray-400">{c.aliases.join(', ') || '—'}</td>
-              <td className="whitespace-nowrap text-right">
-                {c.verification_status !== 'verified' && <button onClick={() => setStatus(c.id, 'verified')} className="mr-1 text-xs text-green-700 hover:underline">Verify</button>}
-                {c.verification_status !== 'rejected' && <button onClick={() => setStatus(c.id, 'rejected')} className="mr-1 text-xs text-amber-700 hover:underline">Reject</button>}
-                <button onClick={() => remove(c.id)} className="text-xs text-[#B00000] hover:underline">Delete</button>
-              </td>
+      {/* Free-text name search — mainly to spot duplicate/similar catalog
+          entries for manual merging without opening each row individually.
+          The extra columns below (check/stage/sectors) exist for the same
+          reason: enough on one line to tell two rows apart at a glance. */}
+      <input placeholder="Search by name…" value={search} onChange={(e) => setSearch(e.target.value)}
+        className="mb-3 w-full max-w-sm rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
+              <th className="py-1.5">Investor</th><th>Type</th><th>HQ</th><th>Check</th><th>Stage</th><th>Sectors</th><th>Status</th><th>Aliases</th><th></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {filtered.map((c) => (
+              <tr key={c.id} className="border-t border-gray-50 align-top">
+                <td className="py-2 font-medium">{c.name}{c.website && <div className="text-xs font-normal text-gray-400">{c.website}</div>}</td>
+                <td className="text-gray-500">{c.type.replace('_', ' ')}</td>
+                <td className="text-gray-500">{[c.hq_city, c.hq_country].filter(Boolean).join(', ') || '—'}</td>
+                <td className="whitespace-nowrap text-gray-500">{fmtCheck(c.check_min_eur, c.check_max_eur)}</td>
+                <td className="text-gray-500">{fmtStage(c.stage_min, c.stage_max)}</td>
+                <td className="max-w-[220px] text-xs text-gray-500">{c.sectors.length ? c.sectors.join(', ') : '—'}</td>
+                <td>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    c.verification_status === 'verified' ? 'bg-green-50 text-green-700' : c.verification_status === 'pending' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
+                    {c.verification_status}
+                  </span>
+                </td>
+                <td className="text-xs text-gray-400">{c.aliases.join(', ') || '—'}</td>
+                <td className="whitespace-nowrap text-right">
+                  {c.verification_status !== 'verified' && <button onClick={() => setStatus(c.id, 'verified')} className="mr-1 text-xs text-green-700 hover:underline">Verify</button>}
+                  {c.verification_status !== 'rejected' && <button onClick={() => setStatus(c.id, 'rejected')} className="mr-1 text-xs text-amber-700 hover:underline">Reject</button>}
+                  <button onClick={() => remove(c.id)} className="text-xs text-[#B00000] hover:underline">Delete</button>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr><td colSpan={9} className="py-4 text-center text-sm text-gray-400">No matches.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </Card>
   );
 }

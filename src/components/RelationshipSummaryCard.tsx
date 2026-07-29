@@ -1,10 +1,35 @@
 'use client';
 // IRM_SPEC §4b — Relationship summary card. Compact chip for the pipeline row;
 // full stage stepper + one-liner + CTAs for the entity page header.
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import type { Entity } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import { STAGE_ORDER, STAGE_LABEL, relationshipSummary, nextBestAction, type WhoseTurn, type Health } from '@/lib/relationship';
+import { LOCK_DAYS } from '@/lib/rules';
+import { TermHint } from '@/components/ui';
+
+// Prompt 49 §4 — jargon inside nextBestAction()'s free-text copy gets a
+// clickable (i) the first time it appears in the string. First-match-only
+// (not global): these are short one-liners, a single term is what's ever
+// actually present, and replacing every occurrence would need a much less
+// readable regex-split-map dance for no real benefit today.
+const NEXT_STEP_GLOSSARY: { pattern: RegExp; explain: string }[] = [
+  { pattern: /pre-flight/i, explain: 'An automatic check run just before a first message — flags missing hook research, banned phrases, or reaching out too soon.' },
+  { pattern: /^Locked/, explain: `Outreach to this investor is paused for ${LOCK_DAYS} days after your last message, so a reply has time to arrive before you follow up again.` },
+];
+
+function annotateNextStep(text: string): ReactNode {
+  for (const term of NEXT_STEP_GLOSSARY) {
+    const m = text.match(term.pattern);
+    if (m?.index === undefined) continue;
+    const before = text.slice(0, m.index);
+    const match = m[0];
+    const after = text.slice(m.index + match.length);
+    return <>{before}{match}<TermHint text={term.explain} />{after}</>;
+  }
+  return text;
+}
 
 const WHOSE_TURN_STYLE: Record<WhoseTurn, string> = {
   us: 'bg-cyan-100 text-cyan-900',
@@ -88,7 +113,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread }: { entity: Enti
           {s.touchCount > 0 && ` · ${s.touchCount} touch${s.touchCount === 1 ? '' : 'es'}`}
         </span>
       </div>
-      {action && <div className="mt-1.5 text-xs font-medium text-[#0E7490]">Next: {action}</div>}
+      {action && <div className="mt-1.5 text-xs font-medium text-[#0E7490]">Next: {annotateNextStep(action)}</div>}
 
       <div className="mt-3 flex gap-2">
         {onOpenThread && (
