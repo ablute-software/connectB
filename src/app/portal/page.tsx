@@ -24,6 +24,7 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
 import { getMagicLinkSent, setMagicLinkSent, clearMagicLinkSent } from '@/lib/magic-link-storage';
+import { InvestorWorkspaceShell } from '@/components/investor-workspace/InvestorWorkspaceShell';
 
 interface PortalDoc {
   id: string; name: string; version?: string; watermark: boolean;
@@ -391,6 +392,52 @@ export default function PortalPage() {
   const hasAccess = authEnabled
     ? ((real?.documents.length ?? 0) + (real?.folders.length ?? 0) + (real?.pendingNdaCount ?? 0)) > 0
     : demoAllGrants.length > 0;
+
+  // Investor Workspace shell (prompt 57) — once there's real access to
+  // show, the page switches from the plain header+card layout (used for
+  // every pre-auth/pending/no-access state above) to the sidebar shell.
+  // Demo mode keeps the old flat layout unchanged (no sidebar concept
+  // there yet) — only the real-auth + real-access path gets it.
+  if (authEnabled && signedIn && hasAccess && !loading && activePendingConfirmation.length === 0) {
+    const startupCard = (
+      <div className="space-y-4">
+        {authEnabled && real?.snapshot && <SnapshotCard s={real.snapshot} />}
+        {authEnabled && real?.orgId && (
+          <TicketSelector orgId={real.orgId} current={real.currentTicketSignal} qaAccess={real.qaAccess} />
+        )}
+        {pendingNdaCount > 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            Awaiting NDA — {pendingNdaCount} more item{pendingNdaCount === 1 ? '' : 's'} will appear here once your signed NDA is on file.
+          </div>
+        )}
+        {folders.map((f) => (
+          <div key={f.id} className="rounded-lg border border-gray-200 bg-white p-4">
+            <h2 className="text-sm font-semibold">{f.name}</h2>
+            <p className="text-xs text-gray-400">Folder access — documents appear here as they are added.</p>
+          </div>
+        ))}
+        {documents.map((d) => (
+          <div key={d.id} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-4">
+            <span className="text-xl">▤</span>
+            <div className="flex-1">
+              <div className="text-sm font-medium">{d.name}</div>
+              <div className="text-xs text-gray-400">{d.version} {d.watermark && '· watermarked'} {!d.downloadable && '· view only, no download'}</div>
+            </div>
+            <button onClick={() => openDoc(d)} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">Open</button>
+          </div>
+        ))}
+        <p className="text-center text-[10px] text-gray-400">Every access is logged. ablute_ · Seed Round 2026</p>
+        <ClaimProfileSection />
+      </div>
+    );
+    const sessionLabel = (
+      <div className="min-w-0">
+        <div className="truncate text-[12px] font-medium text-gray-700">{sessionEmail}</div>
+        <div className="text-[10px] uppercase tracking-wide text-[#0E7490]">investor</div>
+      </div>
+    );
+    return <InvestorWorkspaceShell entityName={real?.snapshot?.name ?? orgName ?? null} startupCard={startupCard} sessionLabel={sessionLabel} />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
