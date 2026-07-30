@@ -9,19 +9,11 @@ import { InvestorProfilePanel } from './InvestorProfilePanel';
 import { PipelinePanel } from './PipelinePanel';
 import { InvestorAgendaPanel } from './InvestorAgendaPanel';
 import { InvestorTodayPanel } from './InvestorTodayPanel';
+import { ArchivePanel } from './ArchivePanel';
 
 type Tab = 'pipeline' | 'about' | 'agenda' | 'today' | 'archive';
 
 const COMPLETENESS_GATE = 50;
-
-function ComingSoon({ label }: { label: string }) {
-  return (
-    <div className="mt-16 text-center text-sm text-gray-400">
-      <p className="text-lg font-semibold text-gray-300">{label}</p>
-      <p className="mt-1">Coming soon.</p>
-    </div>
-  );
-}
 
 export function InvestorWorkspaceShell({
   entityName, startupCard, sessionLabel,
@@ -101,7 +93,7 @@ export function InvestorWorkspaceShell({
           {tab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} onEntityNameChange={setInvestorFirmName} />}
           {tab === 'agenda' && <InvestorAgendaPanel />}
           {tab === 'today' && <InvestorTodayPanel />}
-          {tab === 'archive' && <ComingSoon label="Archive" />}
+          {tab === 'archive' && <ArchivePanel />}
         </main>
       </div>
     </div>

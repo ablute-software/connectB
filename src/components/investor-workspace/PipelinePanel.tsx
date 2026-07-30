@@ -87,8 +87,12 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
             </p>
           )}
           <div className="space-y-3">
-            {wave.items.map((c) => (
-              <div key={c.orgId} className={`rounded-lg border bg-white p-4 ${c.status === 'passed' ? 'border-gray-100 opacity-50' : 'border-gray-200'}`}>
+            {/* Prompt 60 — a passed card moves to the Archive tab, not just
+                grayed out here; still counted server-side toward this
+                wave's unlock (see the API route), just not duplicated in
+                both places. */}
+            {wave.items.filter((c) => c.status !== 'passed').map((c) => (
+              <div key={c.orgId} className="rounded-lg border border-gray-200 bg-white p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold text-gray-900">{c.name}</div>

@@ -10,6 +10,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { type OrgRole } from '@/lib/permissions';
 import { loadOrgMatrix } from '@/lib/org-matrix-server';
 import { canWithMatrix } from '@/lib/org-permissions';
+import { patchTouchesArchiveRelevantFields, regenerateNowSummary } from '@/lib/startup-snapshot';
 
 // Only these columns are editable here — never plan/credits/id/bcc_email.
 // Company tab redesign (migration 0037) added everything from legal_name
@@ -56,5 +57,17 @@ export async function POST(req: Request) {
 
   const { error } = await admin.from('orgs').update(patch).eq('id', member.org_id);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  // Archive "Now" regeneration (prompt 60) — fact-triggered, not periodic.
+  // Awaited (not fire-and-forget): a serverless function can be frozen the
+  // instant its response is sent, so an un-awaited background call has no
+  // reliability guarantee here. This only runs when the patch touches an
+  // archive-relevant field AND at least one org has archived this startup,
+  // so the added latency on a founder's save is both rare and cheap — a
+  // single short AI call, never blocking on every save.
+  if (patchTouchesArchiveRelevantFields(patch)) {
+    await regenerateNowSummary(admin, member.org_id as string).catch(() => {});
+  }
+
   return NextResponse.json({ ok: true });
 }

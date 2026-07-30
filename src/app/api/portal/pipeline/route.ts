@@ -19,6 +19,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from '@/lib/investor-match-score';
 import { activeGrantOrgIds, eligibleOrgIds, resolveInvestorProfile } from '@/lib/portal-access';
+import { createArchiveEntry } from '@/lib/investor-archive';
 
 const WAVE_SIZE = 8;
 const PASS_REASONS = ['ticket_too_small', 'outside_thesis', 'too_early', 'other'] as const;
@@ -139,6 +140,11 @@ export async function POST(req: Request) {
       org_id: orgId, person_id: person?.id ?? null, investor_email: email,
       range_min_eur: ticket_min, range_max_eur: ticket_max, range_label: 'Interested via Pipeline',
     });
+  } else {
+    // A pass automatically archives (Prompt 60 bullet 1) — the startup
+    // isn't discarded, it's deal flow the investor can reopen later with
+    // full history intact.
+    await createArchiveEntry(admin, orgId, email, 'pass', reason ?? null);
   }
 
   return NextResponse.json({ ok: true });
