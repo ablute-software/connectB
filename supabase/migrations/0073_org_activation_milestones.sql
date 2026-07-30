@@ -1,0 +1,11 @@
+-- SherlockDeal_Metricas_BackOffice_V1, Section 6.1 indicator 3/6 (startup
+-- activation) needs a first-crossing TIMESTAMP, not just a live "is it
+-- >=80% right now" check — calcCompanyCompleteness (companyCompleteness.ts)
+-- is a pure function with no stored history, so "quando cruzou 80%" can't
+-- be reconstructed retroactively. One nullable timestamp, set once, the
+-- same "milestone, not a level" pattern the onboarding engine already uses
+-- (onboarding_state). From today forward this is exact; before today it's
+-- unknown for any org that already happened to be >=80% — same "recolher
+-- desde o dia 1, adiar apresentação nunca resposta" principle the spec
+-- itself states for late-added metrics.
+alter table orgs add column if not exists profile_reached_80_at timestamptz;

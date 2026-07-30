@@ -11,6 +11,8 @@ import { type OrgRole } from '@/lib/permissions';
 import { loadOrgMatrix } from '@/lib/org-matrix-server';
 import { canWithMatrix } from '@/lib/org-permissions';
 import { patchTouchesArchiveRelevantFields, regenerateNowSummary } from '@/lib/startup-snapshot';
+import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
+import { logEvent } from '@/lib/analytics-events';
 
 // Only these columns are editable here — never plan/credits/id/bcc_email.
 // Company tab redesign (migration 0037) added everything from legal_name
@@ -67,6 +69,29 @@ export async function POST(req: Request) {
   // single short AI call, never blocking on every save.
   if (patchTouchesArchiveRelevantFields(patch)) {
     await regenerateNowSummary(admin, member.org_id as string).catch(() => {});
+  }
+
+  // SherlockDeal_Metricas_BackOffice_V1, Section 6.1 indicator 3/6 — a
+  // "when did this org first reach 80% complete" milestone, since
+  // calcCompanyCompleteness has no stored history of its own (see
+  // migration "org_activation_milestones"). Checked on every save, not
+  // just ones that touch a completeness-relevant field, since the same
+  // field whitelist (EDITABLE above) already covers everything the
+  // formula reads — cheap to re-check, not worth a second whitelist that
+  // could drift out of sync with the first.
+  const { data: freshOrg } = await admin.from('orgs').select('*').eq('id', member.org_id).single();
+  if (freshOrg && !freshOrg.profile_reached_80_at) {
+    const { data: people } = await admin.from('company_people').select('*').eq('org_id', member.org_id);
+    const { pct } = calcCompanyCompleteness(freshOrg, people ?? []);
+    if (pct >= 80) {
+      const reachedAt = new Date().toISOString();
+      await admin.from('orgs').update({ profile_reached_80_at: reachedAt }).eq('id', member.org_id);
+      await logEvent(admin, {
+        organizationId: member.org_id as string, organizationType: 'startup', eventType: 'profile_completeness_reached',
+        eventTimestamp: reachedAt, planAtEventTime: freshOrg.plan, countryAtEventTime: freshOrg.country, sectorAtEventTime: freshOrg.sector,
+        result: '80', sourceOfAction: 'manual',
+      });
+    }
   }
 
   return NextResponse.json({ ok: true });
