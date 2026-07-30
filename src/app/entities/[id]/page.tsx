@@ -14,6 +14,7 @@ import { computeAlignment } from '@/lib/company-canon-logic';
 import { browserClient } from '@/lib/supabase';
 import { EntityClassificationEditor } from '@/components/EntityClassificationEditor';
 import { TicketSignalCard } from '@/components/TicketSignalCard';
+import { FormAssistModal } from '@/components/FormAssistModal';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -25,6 +26,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const [editingContact, setEditingContact] = useState(false);
   const [contactDraft, setContactDraft] = useState({ website: '', email: '', phone: '', address: '' });
   const [contributionsRefreshKey, setContributionsRefreshKey] = useState(0);
+  const [showFormAssist, setShowFormAssist] = useState(false);
 
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then((me) => setContactAvailable(!!me.capabilities?.entityContactFields)).catch(() => {});
@@ -295,10 +297,18 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                         {entity.submission_channel}
                       </a>
                     ) : entity.submission_channel}
-                  </dd></div>
+                  </dd>
+                  {entity.submission_channel_type === 'form' && (
+                    <button onClick={() => setShowFormAssist(true)}
+                      className="mt-1.5 rounded-lg border border-cyan-200 px-2.5 py-1 text-xs font-medium text-cyan-800 hover:bg-cyan-50">
+                      ✨ Prepare form answers
+                    </button>
+                  )}
+                </div>
               )}
             </dl>
           </Card>
+          {showFormAssist && <FormAssistModal db={db} entityId={entity.id} onClose={() => setShowFormAssist(false)} />}
           <Card title="Round">
             <div className="text-sm">
               <div className="text-xs text-gray-500">Soft-circled / committed</div>
