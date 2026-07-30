@@ -19,7 +19,6 @@ export async function GET() {
     { count: totalUnlocks },
     { count: emailsThisWeek },
     { count: failedAutomationsThisWeek },
-    { data: auditLog },
   ] = await Promise.all([
     admin.from('orgs').select('id', { count: 'exact', head: true }),
     admin.from('interactions').select('org_id').gte('occurred_at', weekAgo),
@@ -27,7 +26,6 @@ export async function GET() {
     admin.from('pack_unlocks').select('id', { count: 'exact', head: true }),
     admin.from('interactions').select('id', { count: 'exact', head: true }).eq('channel', 'email').eq('direction', 'out').gte('occurred_at', weekAgo),
     admin.from('automation_runs').select('id', { count: 'exact', head: true }).eq('status', 'failed').gte('created_at', weekAgo),
-    admin.from('admin_audit_log').select('*').order('created_at', { ascending: false }).limit(50),
   ]);
 
   const activeOrgIds = new Set((recentInteractions ?? []).map((i) => i.org_id));
@@ -42,6 +40,5 @@ export async function GET() {
       emailsThisWeek: emailsThisWeek ?? 0,
       failedAutomationsThisWeek: failedAutomationsThisWeek ?? 0,
     },
-    auditLog: auditLog ?? [],
   });
 }
