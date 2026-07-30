@@ -6,6 +6,7 @@
 // component to serve both would need capability branching throughout.
 import { useState } from 'react';
 import { InvestorProfilePanel } from './InvestorProfilePanel';
+import { PipelinePanel } from './PipelinePanel';
 
 type Tab = 'pipeline' | 'about' | 'agenda' | 'today' | 'archive';
 
@@ -84,14 +85,7 @@ export function InvestorWorkspaceShell({
                   {startupCard}
                 </div>
               ) : (
-                <div className="space-y-3">
-                  <h1 className="text-lg font-bold text-gray-900">Pipeline</h1>
-                  <button onClick={() => setOpenStartup(true)}
-                    className="w-full rounded-lg border border-gray-200 bg-white p-4 text-left transition hover:border-[#0E7490]">
-                    <div className="text-sm font-semibold text-gray-900">{entityName ?? 'ablute_'}</div>
-                    <div className="mt-0.5 text-xs text-gray-400">Open data room →</div>
-                  </button>
-                </div>
+                <PipelinePanel onOpenStartup={() => setOpenStartup(true)} />
               )
             ) : (
               <div className="mx-auto mt-16 max-w-sm rounded-lg border border-gray-200 bg-white p-6 text-center">
