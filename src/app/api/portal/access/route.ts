@@ -63,7 +63,7 @@ function buildSections(
 // unset comes back null/undefined and the client renders "not shared yet",
 // never a zero.
 async function buildSnapshot(admin: SupabaseClient, orgId: string) {
-  const [{ data: org }, { data: metrics }] = await Promise.all([
+  const [{ data: org }, { data: metrics }, { data: confirmedCommits }] = await Promise.all([
     admin.from('orgs').select(
       'name, one_liner, description, stage, stage_other, sectors, hq_city, country, ' +
       'round_raising, round_target_eur, round_secured_eur, round_min_ticket_eur, round_instruments, ' +
@@ -71,9 +71,18 @@ async function buildSnapshot(admin: SupabaseClient, orgId: string) {
       'round_target_close_date, round_use_of_funds, round_flexible',
     ).eq('id', orgId).single(),
     admin.from('org_traction_metrics').select('id, label, value').eq('org_id', orgId).order('sort_order', { ascending: true }),
+    // Prompt 56 Bloco 3 — confirmed soft commits ADD ON TOP of the
+    // founder's manually-entered round_secured_eur, never overwrite it:
+    // securedShown is a computed overlay so re-running this never
+    // double-counts and the founder's own figure stays exactly what they
+    // typed.
+    admin.from('investor_soft_commits').select('amount_eur').eq('org_id', orgId).eq('confirmed_by_founder', true),
   ]);
   if (!org) return null;
-  return { ...(org as unknown as Record<string, unknown>), tractionMetrics: metrics ?? [] };
+  const orgRecord = org as unknown as Record<string, unknown>;
+  const softCommittedEur = (confirmedCommits ?? []).reduce((sum, c) => sum + Number(c.amount_eur), 0);
+  const securedShown = ((orgRecord.round_secured_eur as number | null) ?? 0) + softCommittedEur;
+  return { ...orgRecord, tractionMetrics: metrics ?? [], softCommittedEur, securedShown };
 }
 
 // Prompt 54 Bloco 2 — the investor's own most recent ticket signal, so the

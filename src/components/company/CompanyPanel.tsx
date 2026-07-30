@@ -19,6 +19,7 @@ import { RoundCard } from './RoundCard';
 import { TractionCard } from './TractionCard';
 import { OutreachSettingsCard } from './OutreachSettingsCard';
 import { DataroomChecklistCard } from './DataroomChecklistCard';
+import { InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEngagementCards';
 
 function DemoResetCard() {
   const { resetDemo } = useStore();
@@ -74,6 +75,9 @@ export function CompanyPanel() {
       <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
       <TractionCard canEdit={canEdit} />
       <DataroomChecklistCard />
+      <SoftCommitsCard />
+      <RoundUpdatesCard />
+      <InvestorQACard />
       <Card title="Company facts"><CompanyFactsPanel /></Card>
       <OutreachSettingsCard canEdit={canEdit} />
       <DemoResetCard />

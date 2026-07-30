@@ -25,6 +25,9 @@ import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
 import { getMagicLinkSent, setMagicLinkSent, clearMagicLinkSent } from '@/lib/magic-link-storage';
 import { InvestorWorkspaceShell } from '@/components/investor-workspace/InvestorWorkspaceShell';
+import { RoundUpdatesFeed } from '@/components/investor-workspace/RoundUpdatesFeed';
+import { QAPanel } from '@/components/investor-workspace/QAPanel';
+import { SoftCommitButton } from '@/components/investor-workspace/SoftCommitButton';
 
 interface PortalDoc {
   id: string; name: string; version?: string; watermark: boolean;
@@ -46,6 +49,10 @@ interface PortalSnapshot {
   round_runway_months: number | null; round_runway_post_months: number | null;
   round_target_close_date: string | null; round_use_of_funds: string | null; round_flexible: boolean | null;
   tractionMetrics: { id: string; label: string; value: string }[];
+  // Prompt 56 Bloco 3 — round_secured_eur plus confirmed soft commits,
+  // computed server-side; the progress bar reads this, never the raw
+  // manually-entered field alone.
+  securedShown?: number | null; softCommittedEur?: number;
 }
 interface PortalData {
   orgName: string | null; senderEmail?: string | null; pendingNdaCount: number;
@@ -147,12 +154,13 @@ function SnapshotCard({ s }: { s: PortalSnapshot }) {
   // a 0/0 progress bar or empty headline numbers when the founder hasn't
   // filled the round in yet (round_raising===false is a real "not raising"
   // answer, distinct from "hasn't answered/filled it").
+  const securedShown = s.securedShown ?? s.round_secured_eur;
   const hasRoundData = s.round_raising !== false && (
-    s.round_target_eur != null || s.round_secured_eur != null || s.round_valuation_eur != null
+    s.round_target_eur != null || securedShown != null || s.round_valuation_eur != null
     || s.round_min_ticket_eur != null || instruments || s.round_use_of_funds || s.round_target_close_date
   );
-  const progressPct = s.round_target_eur && s.round_secured_eur != null
-    ? Math.min(100, Math.round((s.round_secured_eur / s.round_target_eur) * 100)) : null;
+  const progressPct = s.round_target_eur && securedShown != null
+    ? Math.min(100, Math.round((securedShown / s.round_target_eur) * 100)) : null;
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-5">
@@ -169,7 +177,7 @@ function SnapshotCard({ s }: { s: PortalSnapshot }) {
           {progressPct != null && (
             <div className="mb-3">
               <div className="flex items-center justify-between text-xs text-gray-500">
-                <span>{fmtEur(s.round_secured_eur)} committed</span>
+                <span>{fmtEur(securedShown)} committed</span>
                 <span>{fmtEur(s.round_target_eur)} target</span>
               </div>
               <div className="mt-1 h-2 rounded-full bg-gray-100">
@@ -405,10 +413,13 @@ export default function PortalPage() {
   if (authEnabled && signedIn && hasAccess && !loading && activePendingConfirmation.length === 0) {
     const startupCard = (
       <div className="space-y-4">
+        {authEnabled && real?.orgId && <RoundUpdatesFeed orgId={real.orgId} />}
         {authEnabled && real?.snapshot && <SnapshotCard s={real.snapshot} />}
         {authEnabled && real?.orgId && (
           <TicketSelector orgId={real.orgId} current={real.currentTicketSignal} qaAccess={real.qaAccess} />
         )}
+        {authEnabled && real?.orgId && <SoftCommitButton orgId={real.orgId} />}
+        {authEnabled && real?.orgId && <QAPanel orgId={real.orgId} />}
         {pendingNdaCount > 0 && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             Awaiting NDA — {pendingNdaCount} more item{pendingNdaCount === 1 ? '' : 's'} will appear here once your signed NDA is on file.
