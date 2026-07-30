@@ -27,7 +27,10 @@ export function InvestorTodayPanel() {
         <span className="text-sm text-gray-500">{new Date().toISOString().slice(0, 10)}</span>
       </div>
       {items.length === 0 ? (
-        <p className="text-sm text-gray-400">Nothing needs your attention today.</p>
+        <div className="mx-auto mt-8 max-w-sm rounded-lg border border-gray-200 bg-white p-6 text-center">
+          <p className="text-sm text-gray-600">Nothing needs your attention today.</p>
+          <p className="mt-1 text-xs text-gray-400">New matches, meeting reminders, and answered questions will show up here as they happen.</p>
+        </div>
       ) : (
         <div className="space-y-1.5">
           {items.map((it, i) => (

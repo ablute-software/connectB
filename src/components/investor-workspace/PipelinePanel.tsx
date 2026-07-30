@@ -156,8 +156,19 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
                       </div>
                     </div>
                   </div>
-                  <div className="shrink-0 rounded-full bg-[#E8F4F8] px-2.5 py-1 text-xs font-semibold text-[#0E7490]">
-                    {c.matchScore}% match{c.matchReasons.length > 0 && ` — ${c.matchReasons.join(', ')}`}
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {/* Bloco 3 — a per-card chip, not just the section header
+                        above (which only renders when there's more than one
+                        wave, i.e. never yet in practice with a single
+                        startup in the network) — Today already says "1 new
+                        match in your Wave 1", this is that same number made
+                        visible on the card itself. */}
+                    <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500" title={`Wave ${wave.index + 1}`}>
+                      W{wave.index + 1}
+                    </span>
+                    <div className="rounded-full bg-[#E8F4F8] px-2.5 py-1 text-xs font-semibold text-[#0E7490]">
+                      {c.matchScore}% match{c.matchReasons.length > 0 && ` — ${c.matchReasons.join(', ')}`}
+                    </div>
                   </div>
                 </div>
 

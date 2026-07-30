@@ -31,7 +31,8 @@ export function InvestorAgendaPanel() {
   if (items.length === 0) {
     return (
       <div className="mx-auto mt-16 max-w-sm rounded-lg border border-gray-200 bg-white p-6 text-center">
-        <p className="text-sm text-gray-600">Nothing scheduled yet.</p>
+        <p className="text-sm text-gray-600">No meetings yet — express interest on a startup to start a conversation.</p>
+        <p className="mt-1 text-xs text-gray-400">Round deadlines and reminders you set from a Pipeline card show up here too.</p>
       </div>
     );
   }
