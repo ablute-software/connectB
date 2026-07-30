@@ -1,31 +1,29 @@
 'use client';
-// BLOCO 3 — Metrics: platform-wide counts + the audit log.
-//
-// Prompt 69 Bloco 2 — the audit log used to be a flat, always-open list of
-// raw JSON events dumped on page load. Redesigned: collapsed by default (it
-// doesn't need to occupy the screen until someone actually wants it), each
-// row reads as a plain-English sentence (see src/lib/audit-log-format.ts)
-// instead of a technical payload, the raw JSON is still there but behind a
-// per-row "Details" toggle, and it's filterable by date range + admin with
-// simple "Load more" pagination instead of dumping everything at once.
+// SherlockDeal_Metricas_BackOffice_V1 — the backoffice metrics dashboard,
+// rebuilt as 5 tabs per Section 5 (Overview, Growth & Revenue, Activation
+// & Retention, Fundraising Outcomes, Organizations), replacing the earlier
+// flat 6-stat-card page. "Product & Network" is deliberately not a 6th tab
+// (spec: adiado para V2); "Operations" folds into Overview's alerts area
+// (kept) plus this page's own Audit log panel (Prompt 69, kept as-is).
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
 import { describeAuditEvent, type AuditLogRow } from '@/lib/audit-log-format';
+import { GrowthRevenueTab } from '@/components/backoffice/metrics/GrowthRevenueTab';
+import { ActivationRetentionTab } from '@/components/backoffice/metrics/ActivationRetentionTab';
+import { FundraisingOutcomesTab } from '@/components/backoffice/metrics/FundraisingOutcomesTab';
+import { OrganizationsTab } from '@/components/backoffice/metrics/OrganizationsTab';
+import { PeriodPicker, type Period } from '@/components/backoffice/metrics/PeriodPicker';
 
-interface Metrics {
-  totalOrgs: number; activeOrgsThisWeek: number; contributionsThisWeek: number;
-  totalUnlocks: number; emailsThisWeek: number; failedAutomationsThisWeek: number;
-}
+type Tab = 'overview' | 'growth' | 'activation' | 'fundraising' | 'organizations';
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'growth', label: 'Growth & Revenue' },
+  { key: 'activation', label: 'Activation & Retention' },
+  { key: 'fundraising', label: 'Fundraising Outcomes' },
+  { key: 'organizations', label: 'Organizations' },
+];
+
 type AuditRow = AuditLogRow & { adminName: string };
-
-function StatCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-      <div className="text-2xl font-bold text-[#0E7490]">{value}</div>
-      <div className="mt-1 text-xs text-gray-500">{label}</div>
-    </div>
-  );
-}
 
 function AuditLogRowView({ row }: { row: AuditRow }) {
   const [open, setOpen] = useState(false);
@@ -138,33 +136,121 @@ function AuditLogPanel() {
   );
 }
 
-export default function BackofficeMetricsPage() {
-  const [metrics, setMetrics] = useState<Metrics | null>(null);
+interface OverviewData {
+  growth: {
+    newStartups: { value: number; deltaPct: number | null };
+    newInvestors: { value: number; deltaPct: number | null };
+    activatedStartups: number; activeFundraisingStartups: number; startupsWithRelevantActivity: number;
+    activationRate7d: number | null; retention30d: number | null;
+  };
+  revenue: { mrr: number; netNewMrr: number; freeToPaidConversion: { rate: number | null; normal: number; promo: number }; monthlyRevenueChurnPct: number | null };
+  valueProof: { qualifiedConversations: number; medianDaysToFirstResponse: number | null };
+  alerts: { failedAutomations: number; hardBounces: number; overduePipelines: number; failedPayments: number };
+}
+
+function Stat({ label, value, hint, delta }: { label: string; value: string | number; hint?: string; delta?: number | null }) {
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xl font-bold text-[#0E7490]">{value}</span>
+        {delta != null && (
+          <span className={`text-xs font-semibold ${delta >= 0 ? 'text-green-700' : 'text-[#B00000]'}`}>
+            {delta >= 0 ? '+' : ''}{delta}%
+          </span>
+        )}
+      </div>
+      <div className="mt-1 text-xs text-gray-500">{label}</div>
+      {hint && <div className="mt-0.5 text-[10px] text-gray-400">{hint}</div>}
+    </div>
+  );
+}
+
+function OverviewTab() {
+  const [period, setPeriod] = useState<Period>('30d');
+  const [data, setData] = useState<OverviewData | null>(null);
   const [err, setErr] = useState('');
 
   useEffect(() => {
-    fetch('/api/backoffice/metrics').then((r) => r.json()).then((body) => {
+    fetch(`/api/backoffice/metrics/overview?period=${period}`).then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
-      setMetrics(body.metrics);
-    });
-  }, []);
-
-  if (err) return <p className="text-sm text-[#B00000]">{err}</p>;
-  if (!metrics) return <p className="text-sm text-gray-400">Loading…</p>;
+      setData(body); setErr('');
+    }).catch(() => setErr('Failed to load.'));
+  }, [period]);
 
   return (
     <div className="space-y-5">
-      <h1 className="text-lg font-bold">Metrics</h1>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <StatCard label="Total orgs (signups)" value={metrics.totalOrgs} />
-        <StatCard label="Active orgs this week" value={metrics.activeOrgsThisWeek} />
-        <StatCard label="Contributions this week" value={metrics.contributionsThisWeek} />
-        <StatCard label="Pack unlocks (total)" value={metrics.totalUnlocks} />
-        <StatCard label="Emails sent this week" value={metrics.emailsThisWeek} />
-        <StatCard label="Failed automations this week" value={metrics.failedAutomationsThisWeek} />
-      </div>
+      <PeriodPicker period={period} onChange={setPeriod} />
+      {err && <p className="text-sm text-[#B00000]">{err}</p>}
+      {!data ? <p className="text-sm text-gray-400">Loading…</p> : (
+        <>
+          <div>
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Growth</h2>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Stat label="New startups" value={data.growth.newStartups.value} delta={data.growth.newStartups.deltaPct} />
+              <Stat label="New investors" value={data.growth.newInvestors.value} delta={data.growth.newInvestors.deltaPct} />
+              <Stat label="Startups activated" value={data.growth.activatedStartups} />
+              <Stat label="Startups with active round" value={data.growth.activeFundraisingStartups} />
+              <Stat label="Relevant activity" value={data.growth.startupsWithRelevantActivity} hint="in the selected period" />
+              <Stat label="7-day activation rate" value={data.growth.activationRate7d != null ? `${data.growth.activationRate7d}%` : '—'} />
+              <Stat label="30-day retention" value={data.growth.retention30d != null ? `${data.growth.retention30d}%` : '—'} />
+            </div>
+          </div>
 
-      <AuditLogPanel />
+          <div>
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Revenue</h2>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Stat label="MRR" value={`€${data.revenue.mrr.toLocaleString()}`} />
+              <Stat label="Net New MRR" value={`€${data.revenue.netNewMrr.toLocaleString()}`} />
+              <Stat label="Free → Paid conversion" value={data.revenue.freeToPaidConversion.rate != null ? `${data.revenue.freeToPaidConversion.rate}%` : '—'}
+                hint={`${data.revenue.freeToPaidConversion.normal} at list price · ${data.revenue.freeToPaidConversion.promo} via promo`} />
+              <Stat label="Monthly revenue churn" value={data.revenue.monthlyRevenueChurnPct != null ? `${data.revenue.monthlyRevenueChurnPct}%` : '—'} />
+            </div>
+          </div>
+
+          <div>
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Proof of value</h2>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Stat label="Qualified conversations / active round" value={data.valueProof.qualifiedConversations}
+                hint="relations that reached In conversation, Diligence, or Invested" />
+              <Stat label="Median days to first response" value={data.valueProof.medianDaysToFirstResponse ?? '—'} />
+            </div>
+          </div>
+
+          <Card title="Operational alerts">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Stat label="Failed automations (30d)" value={data.alerts.failedAutomations} />
+              <Stat label="Hard bounces (30d)" value={data.alerts.hardBounces} />
+              <Stat label="Overdue pipelines" value={data.alerts.overduePipelines} hint="registered >48h, no pipeline yet" />
+              <Stat label="Failed payments" value={data.alerts.failedPayments} hint="not wired yet — see report" />
+            </div>
+          </Card>
+
+          <AuditLogPanel />
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function BackofficeMetricsPage() {
+  const [tab, setTab] = useState<Tab>('overview');
+  return (
+    <div className="space-y-5">
+      <h1 className="text-lg font-bold">Metrics</h1>
+      <nav className="flex gap-1 overflow-x-auto border-b border-gray-100">
+        {TABS.map((t) => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${
+              tab === t.key ? 'border-[#0E7490] text-[#0E7490]' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+            {t.label}
+          </button>
+        ))}
+      </nav>
+      {tab === 'overview' && <OverviewTab />}
+      {tab === 'growth' && <GrowthRevenueTab />}
+      {tab === 'activation' && <ActivationRetentionTab />}
+      {tab === 'fundraising' && <FundraisingOutcomesTab />}
+      {tab === 'organizations' && <OrganizationsTab />}
     </div>
   );
 }
