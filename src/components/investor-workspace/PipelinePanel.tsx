@@ -33,6 +33,7 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
   const [data, setData] = useState<PipelineResponse | null>(null);
   const [passingOrgId, setPassingOrgId] = useState<string | null>(null);
   const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
+  const [remindedOrgId, setRemindedOrgId] = useState<string | null>(null);
 
   function load() {
     fetch('/api/portal/pipeline').then((r) => r.json()).then(setData);
@@ -49,6 +50,18 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
       setPassingOrgId(null);
       load();
     } finally { setBusyOrgId(null); }
+  }
+
+  // Agenda (prompt 59) — "remind me in 2 weeks" straight from a Pipeline
+  // card. No custom date picker for v1: two weeks is the one duration the
+  // prompt names explicitly, and it's the common "circle back later" gap.
+  async function remindIn2Weeks(orgId: string) {
+    const remindAt = new Date(Date.now() + 14 * 86400000).toISOString();
+    await fetch('/api/portal/agenda', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId, remindAt }),
+    });
+    setRemindedOrgId(orgId);
   }
 
   if (!data) return <p className="text-sm text-gray-400">Loading…</p>;
@@ -106,6 +119,13 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
                       className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
                       Express interest
                     </button>
+                    {remindedOrgId === c.orgId ? (
+                      <span className="text-xs text-gray-400">Reminder set for 2 weeks</span>
+                    ) : (
+                      <button onClick={() => remindIn2Weeks(c.orgId)} className="text-xs text-gray-400 hover:underline">
+                        Remind me in 2 weeks
+                      </button>
+                    )}
                     {passingOrgId === c.orgId ? (
                       <div className="flex items-center gap-1.5">
                         {PASS_REASONS.map((r) => (

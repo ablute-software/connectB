@@ -7,6 +7,8 @@
 import { useState } from 'react';
 import { InvestorProfilePanel } from './InvestorProfilePanel';
 import { PipelinePanel } from './PipelinePanel';
+import { InvestorAgendaPanel } from './InvestorAgendaPanel';
+import { InvestorTodayPanel } from './InvestorTodayPanel';
 
 type Tab = 'pipeline' | 'about' | 'agenda' | 'today' | 'archive';
 
@@ -97,8 +99,8 @@ export function InvestorWorkspaceShell({
             )
           )}
           {tab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} onEntityNameChange={setInvestorFirmName} />}
-          {tab === 'agenda' && <ComingSoon label="Agenda" />}
-          {tab === 'today' && <ComingSoon label="Today" />}
+          {tab === 'agenda' && <InvestorAgendaPanel />}
+          {tab === 'today' && <InvestorTodayPanel />}
           {tab === 'archive' && <ComingSoon label="Archive" />}
         </main>
       </div>

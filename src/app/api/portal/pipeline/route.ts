@@ -15,51 +15,13 @@
 // investor_ticket_signals row (Prompt 54/56's existing mechanism) so the
 // founder sees it exactly where ticket signals already surface.
 import { NextResponse } from 'next/server';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from '@/lib/investor-match-score';
+import { activeGrantOrgIds, eligibleOrgIds, resolveInvestorProfile } from '@/lib/portal-access';
 
 const WAVE_SIZE = 8;
 const PASS_REASONS = ['ticket_too_small', 'outside_thesis', 'too_early', 'other'] as const;
-
-async function resolveInvestorProfile(admin: SupabaseClient, userId: string) {
-  const { data: member } = await admin.from('matchdeal_investor_members').select('id')
-    .eq('user_id', userId).eq('status', 'active').maybeSingle();
-  if (!member) return null;
-  const { data: profile } = await admin.from('matchdeal_profiles').select('id, sectors, stages_invested, geographies, instruments, ticket_min, ticket_max')
-    .eq('membership_id', member.id).eq('kind', 'investor').maybeSingle();
-  return profile ?? null;
-}
-
-async function activeGrantOrgIds(admin: SupabaseClient, email: string, personId: string | null) {
-  const orParts = [`grantee_email.eq.${email}`, `invited_email.eq.${email}`];
-  if (personId) orParts.push(`person_id.eq.${personId}`);
-  const { data: grants } = await admin.from('access_grants').select('org_id, confirmed_at, invited_email, revoked_at, expires_at')
-    .is('revoked_at', null).or(orParts.join(','));
-  const now = new Date();
-  const ids = new Set<string>();
-  for (const g of grants ?? []) {
-    const notExpired = !g.expires_at || new Date(g.expires_at as string) > now;
-    const confirmedIfInvited = !g.invited_email || g.confirmed_at;
-    if (notExpired && confirmedIfInvited) ids.add(g.org_id as string);
-  }
-  return [...ids];
-}
-
-// Same QA fallback as /api/portal/access — @ablute.pt sessions get into
-// the shell at all via is_ablute_developer(), not a real access_grants
-// row, so without this the Pipeline would silently show nothing for QA
-// while every other tab looks identical to a real investor's. Read-only:
-// falls back to the QA user's own org (org_members), never fabricates a
-// grant, and POST already refuses to write for these sessions regardless.
-async function eligibleOrgIds(sb: SupabaseClient, admin: SupabaseClient, userId: string, email: string, personId: string | null) {
-  const granted = await activeGrantOrgIds(admin, email, personId);
-  if (granted.length > 0) return granted;
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (!isAbluteQa) return granted;
-  const { data: membership } = await admin.from('org_members').select('org_id').eq('user_id', userId).limit(1).maybeSingle();
-  return membership ? [membership.org_id as string] : [];
-}
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
