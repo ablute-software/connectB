@@ -12,6 +12,7 @@ import { InvestorTodayPanel } from './InvestorTodayPanel';
 import { ArchivePanel } from './ArchivePanel';
 import { MatchDealPairingModal } from '@/components/matchdeal/MatchDealPairingModal';
 import { InvestorPlansPanel } from './InvestorPlansPanel';
+import { browserClient } from '@/lib/supabase';
 import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
 
 type Tab = 'pipeline' | 'about' | 'agenda' | 'today' | 'archive' | 'plans';
@@ -93,6 +94,14 @@ export function InvestorWorkspaceShell({
             </span>
           )}
           {sessionLabel}
+          {/* BUG-01 — founder shell has always had this; the investor
+              shell never did (confirmed by screenshot). Same
+              signOut()-then-redirect pattern shell.tsx uses. */}
+          <button
+            onClick={async () => { try { await browserClient().auth.signOut(); } catch { /* ignore */ } window.location.href = '/login'; }}
+            className="mt-2 w-full rounded-lg border border-gray-200 px-2 py-1 text-[11px] text-gray-500 hover:bg-gray-50">
+            Log out
+          </button>
         </div>
       </aside>
 

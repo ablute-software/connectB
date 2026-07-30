@@ -13,6 +13,7 @@ import { ActivationRetentionTab } from '@/components/backoffice/metrics/Activati
 import { FundraisingOutcomesTab } from '@/components/backoffice/metrics/FundraisingOutcomesTab';
 import { OrganizationsTab } from '@/components/backoffice/metrics/OrganizationsTab';
 import { PeriodPicker, type Period } from '@/components/backoffice/metrics/PeriodPicker';
+import { HistoricalDataNotice } from '@/components/backoffice/metrics/HistoricalDataNotice';
 
 type Tab = 'overview' | 'growth' | 'activation' | 'fundraising' | 'organizations';
 const TABS: { key: Tab; label: string }[] = [
@@ -214,6 +215,7 @@ function OverviewTab() {
                 hint="relations that reached In conversation, Diligence, or Invested" />
               <Stat label="Median days to first response" value={data.valueProof.medianDaysToFirstResponse ?? '—'} />
             </div>
+            <HistoricalDataNotice />
           </div>
 
           <Card title="Operational alerts">

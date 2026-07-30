@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
 import { FunnelView, type FunnelResult } from './FunnelView';
+import { HistoricalDataNotice } from './HistoricalDataNotice';
 
 interface FundraisingData {
   funnel: FunnelResult;
@@ -50,12 +51,8 @@ export function FundraisingOutcomesTab() {
   return (
     <div className="space-y-5">
       <Card title="Main funnel">
-        <p className="mb-2 text-xs text-gray-400">
-          Reads current relation status only — stage-history events only started logging with this build, so a relation that reached
-          &quot;In conversation&quot; and later regressed to &quot;Passed&quot; before today isn&apos;t counted at that earlier stage. Self-corrects
-          as event history accumulates.
-        </p>
         <FunnelView funnel={data.funnel} />
+        <HistoricalDataNotice />
       </Card>
 
       <Card title="Key rates">
@@ -99,6 +96,21 @@ export function FundraisingOutcomesTab() {
             </li>
           ))}
         </ul>
+        {/* MET-06 — confirmed via schema: entities.source is already
+            per RELATION (one entities row = one org's own relationship
+            with that investor, set independently at insert time), not a
+            fixed investor-level value — the ambiguity MET-06 asked about
+            doesn't apply here. The real gap is value coverage: the check
+            constraint only allows catalog/manual/match_deal, not the
+            spec's 7 categories, so bulk imports, invites, and "already
+            known contact" are all indistinguishable from a plain manual
+            add today. See the chat report for the proposed value-set
+            expansion — not implemented yet, pending sign-off. */}
+        <p className="mt-2 text-[11px] text-amber-700">
+          ⚠ Already per relation (each startup&apos;s own pipeline entry has its own source), not per investor — but only 3 of the
+          spec&apos;s 7 categories exist today, so most relations show as &quot;Manually added&quot; even when they arrived a more
+          specific way. See MET-06 for the proposed fix.
+        </p>
       </Card>
 
       <Card title="Data Room & access">
