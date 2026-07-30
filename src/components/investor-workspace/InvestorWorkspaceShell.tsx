@@ -4,15 +4,17 @@
 // classes) — a genuinely separate component, not a shared one, since the
 // two audiences' nav items don't overlap at all and forcing one shared
 // component to serve both would need capability branching throughout.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { InvestorProfilePanel } from './InvestorProfilePanel';
 import { PipelinePanel } from './PipelinePanel';
 import { InvestorAgendaPanel } from './InvestorAgendaPanel';
 import { InvestorTodayPanel } from './InvestorTodayPanel';
 import { ArchivePanel } from './ArchivePanel';
+import { InvestorMatchDealModal } from './InvestorMatchDealModal';
+import { InvestorPlansPanel } from './InvestorPlansPanel';
 import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
 
-type Tab = 'pipeline' | 'about' | 'agenda' | 'today' | 'archive';
+type Tab = 'pipeline' | 'about' | 'agenda' | 'today' | 'archive' | 'plans';
 
 const COMPLETENESS_GATE = 50;
 
@@ -42,6 +44,16 @@ export function InvestorWorkspaceShell({
   // the prompt asked for) for a fraction of the wiring three separate
   // fetches would need.
   const [identityStatus, setIdentityStatus] = useState<IdentityStatus | null>(null);
+  const [showMatchDeal, setShowMatchDeal] = useState(false);
+  // Top bar activity counter (Bloco 1) — reuses Today's own item list rather
+  // than a second aggregation query; a plain count, not a kind-by-kind
+  // breakdown, since Today's items already vary in shape per kind and this
+  // bar is meant to be a glance, not a summary.
+  const [todayCount, setTodayCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch('/api/portal/today').then((r) => r.json()).then((d) => setTodayCount((d.items ?? []).length)).catch(() => setTodayCount(null));
+  }, []);
 
   const aboutLabel = investorFirmName ? `About ${investorFirmName}` : 'About your firm';
   const gateOpen = pct != null && pct >= COMPLETENESS_GATE;
@@ -52,6 +64,7 @@ export function InvestorWorkspaceShell({
     { key: 'agenda', label: 'Agenda', icon: '◔' },
     { key: 'today', label: 'Today', icon: '☀' },
     { key: 'archive', label: 'Archive', icon: '▣' },
+    { key: 'plans', label: 'Plans & billing', icon: '◈' },
   ];
 
   return (
@@ -84,6 +97,31 @@ export function InvestorWorkspaceShell({
       </aside>
 
       <div className="flex-1 md:ml-60">
+        <style>{`
+          @keyframes sd-header-shine { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+          @keyframes sd-matchdeal-cycle {
+            0%, 20%    { background-color: #3B82F6; }
+            33.33%     { background-color: #22C55E; }
+            53.33%     { background-color: #22C55E; }
+            66.66%     { background-color: #F97316; }
+            86.66%     { background-color: #F97316; }
+            100%       { background-color: #3B82F6; }
+          }
+          .sd-matchdeal-shine { animation: sd-header-shine 2.6s ease-in-out infinite; }
+          .sd-matchdeal-cycle { animation: sd-matchdeal-cycle 9s ease-in-out infinite; }
+        `}</style>
+        <header className="sticky top-0 z-10 flex items-center justify-end gap-3 border-b border-gray-100 bg-white/85 px-4 py-2.5 backdrop-blur md:px-8">
+          <button onClick={() => setShowMatchDeal(true)} title="Connect the MatchDeal app — swipe-based matching with startups."
+            className="sd-matchdeal-cycle relative flex items-center gap-1.5 overflow-hidden rounded-xl px-2.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-[0_10px_24px_rgba(34,197,94,.4)] sm:px-3">
+            <span aria-hidden="true" className="sd-matchdeal-shine pointer-events-none absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/50 to-transparent" />
+            <span aria-hidden="true" className="relative text-base leading-none">🤝</span>
+            <span className="relative hidden sm:inline">MatchDeal</span>
+          </button>
+          <span title="Items on your Today tab — new matches, meetings, answers, and closing rounds."
+            className="rounded-full border border-gray-100 bg-white px-3 py-1 text-xs text-gray-500">
+            {todayCount == null ? 'Today —' : `Today ${todayCount} update${todayCount === 1 ? '' : 's'}`}
+          </span>
+        </header>
         <main className="mx-auto max-w-3xl p-4 md:p-8">
           {tab === 'pipeline' && (
             gateOpen ? (
@@ -108,8 +146,10 @@ export function InvestorWorkspaceShell({
           {tab === 'agenda' && <InvestorAgendaPanel />}
           {tab === 'today' && <InvestorTodayPanel />}
           {tab === 'archive' && <ArchivePanel />}
+          {tab === 'plans' && <InvestorPlansPanel />}
         </main>
       </div>
+      {showMatchDeal && <InvestorMatchDealModal onClose={() => setShowMatchDeal(false)} />}
     </div>
   );
 }
