@@ -116,13 +116,13 @@ function EmptyCompanyBlock({ variant }: { variant: 'screen' | 'banner' }) {
     <div className={variant === 'screen' ? 'flex min-h-[50vh] items-center justify-center' : 'rounded-2xl border border-gray-100 bg-white p-6 shadow-sm'}>
       <div className="mx-auto max-w-[420px] text-center">
         <div className="mx-auto mb-5 flex h-[80px] w-[80px] items-center justify-center rounded-full bg-gray-50 text-3xl">🔍</div>
-        <h2 className="mb-2 text-lg font-semibold text-gray-900">Ainda sem investidores na pipeline</h2>
+        <h2 className="mb-2 text-lg font-semibold text-gray-900">No investors in the pipeline yet</h2>
         <p className="mb-5 text-sm text-gray-500">
-          Assim que lhe atribuirmos investidores do catálogo, ou importar os seus próprios
-          contactos, eles aparecem aqui.
+          As soon as we assign you investors from the catalog, or you import your own
+          contacts, they'll show up here.
         </p>
         <Link href="/settings" className="inline-block rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b]">
-          Importar contactos
+          Import contacts
         </Link>
       </div>
     </div>

@@ -615,7 +615,7 @@ export default function DocumentsPage() {
                         if (versions.length === 0) return null;
                         return (
                           <details className="mt-1.5">
-                            <summary className="cursor-pointer text-[11px] text-gray-500">Versões ({versions.length})</summary>
+                            <summary className="cursor-pointer text-[11px] text-gray-500">Versions ({versions.length})</summary>
                             <ul className="mt-1 space-y-1">
                               {versions.map((v) => {
                                 const isCurrent = v.storage_path === d.storage_path;

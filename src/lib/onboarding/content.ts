@@ -25,9 +25,9 @@ export interface OnboardingItem {
 export const ONBOARDING_CONTENT: OnboardingItem[] = [
   {
     key: 'welcome', type: 'modal', order: 1,
-    title: 'Bem-vindo ao Sherlock Deal',
-    body: 'Vamos encontrar os investidores certos para a sua startup — não uma lista genérica, mas os que encaixam no seu setor, na sua fase e no seu ticket. Comece por nos contar quem é. É isso que põe o motor a trabalhar.',
-    primaryCta: 'Contar sobre a minha empresa', secondaryCta: 'Explorar primeiro',
+    title: 'Welcome to Sherlock Deal',
+    body: 'Let’s find the right investors for your startup — not a generic list, but the ones that fit your sector, stage and ticket size. Start by telling us who you are. That’s what puts the engine to work.',
+    primaryCta: 'Tell us about my company', secondaryCta: 'Explore first',
   },
   {
     // Corrected per prompt 34/35 (auditoria A1): wave/fit are hardcoded
@@ -35,9 +35,9 @@ export const ONBOARDING_CONTENT: OnboardingItem[] = [
     // alinhamento") claimed a matching engine that doesn't exist yet. This
     // is an honesty fix, independent of the rest of onboarding v2.
     key: 'waves', type: 'coachmark', order: 2,
-    title: 'O que estes números significam, por agora',
-    body: 'Estes números indicam o volume de investidores por fase — a ordenação por alinhamento chega numa próxima atualização.',
-    primaryCta: 'Percebi',
+    title: 'What these numbers mean, for now',
+    body: 'These numbers show the volume of investors per stage — ranking by fit is coming in a future update.',
+    primaryCta: 'Got it',
   },
 ];
 

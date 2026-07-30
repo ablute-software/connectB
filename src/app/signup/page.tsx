@@ -194,7 +194,7 @@ function FounderSignupForm() {
         <div className="mb-2 grid grid-cols-2 gap-2">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name *"
             className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Role / cargo *"
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Role *"
             className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         </div>
         <div className="mb-4 grid grid-cols-2 gap-2">

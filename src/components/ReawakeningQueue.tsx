@@ -52,7 +52,7 @@ export function ReawakeningQueue() {
       title={
         <span className="flex items-center gap-2">
           <span>↻ {pending.length} investidor{pending.length === 1 ? '' : 'es'} pode{pending.length === 1 ? '' : 'm'} renascer</span>
-          <Tooltip text="Um facto confirmado da empresa pode ter mudado o porquê de um “não”. Reavalia — nada se move sem a tua aprovação.">
+          <Tooltip text="A confirmed company fact may have changed the reason behind a “no”. Re-evaluate — nothing moves without your approval.">
             <span className="cursor-help text-xs text-amber-600">?</span>
           </Tooltip>
         </span>

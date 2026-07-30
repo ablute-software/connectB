@@ -165,12 +165,12 @@ export function NeedsReviewPanel() {
   function classify(item: Interaction, classification: Classification) {
     const prev = { classification: item.classification, needs_review: item.needs_review };
     updateInteraction(item.id, { classification, needs_review: false });
-    pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, `Classificado: ${classification}`);
+    pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, `Classified: ${classification}`);
   }
   function confirmNoSignal(item: Interaction) {
     const prev = { needs_review: item.needs_review };
     updateInteraction(item.id, { needs_review: false });
-    pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, 'Sem sinal — resolvido');
+    pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, 'No signal — resolved');
   }
 
   function openEdit(item: Interaction) {
@@ -193,20 +193,20 @@ export function NeedsReviewPanel() {
     if (newClass !== item.classification) { patch.classification = newClass; prev.classification = item.classification; }
     if (Object.keys(patch).length) {
       updateInteraction(item.id, patch);
-      pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, 'Item editado');
+      pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, 'Item edited');
     }
     setPanel(null);
   }
   function acceptDateSuggestion(item: Interaction, isoDate: string) {
     const prev = { occurred_at: item.occurred_at };
     updateInteraction(item.id, { occurred_at: `${isoDate}T12:00:00.000Z` });
-    pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, `Data corrigida: ${isoDate}`);
+    pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, `Date corrected: ${isoDate}`);
   }
 
   function onPersonCreated(item: Interaction, personId: string, personName: string) {
     const prevPersonId = item.person_id;
     updateInteraction(item.id, { person_id: personId });
-    pushUndo({ type: 'routePerson', personId, links: [{ interactionId: item.id, prevPersonId }] }, `Pessoa criada: ${personName}`);
+    pushUndo({ type: 'routePerson', personId, links: [{ interactionId: item.id, prevPersonId }] }, `Person created: ${personName}`);
     const candidateIds = thread.filter((i) => i.channel !== 'stage_change' && !i.person_id && i.id !== item.id).map((i) => i.id);
     setPanel(null);
     if (candidateIds.length) setLinkMore({ personId, personName, candidateIds });
@@ -219,7 +219,7 @@ export function NeedsReviewPanel() {
     const sourceLinks = (lastAction && lastAction.type === 'routePerson') ? lastAction.links : [];
     for (const id of linkMore.candidateIds) updateInteraction(id, { person_id: linkMore.personId });
     const allLinks = [...sourceLinks, ...linkMore.candidateIds.map((id) => ({ interactionId: id, prevPersonId: undefined }))];
-    pushUndo({ type: 'routePerson', personId: linkMore.personId, links: allLinks }, `Pessoa criada + ${linkMore.candidateIds.length} itens vinculados`);
+    pushUndo({ type: 'routePerson', personId: linkMore.personId, links: allLinks }, `Person created + ${linkMore.candidateIds.length} item(s) linked`);
     setLinkMore(null);
   }
 
@@ -251,14 +251,14 @@ export function NeedsReviewPanel() {
     fill('website', parsed.website);
     fill('email_domain', parsed.emailDomain ?? domain);
     const dateStr = new Date().toISOString().slice(0, 10);
-    const noteBlock = `Ficha de contacto (importada) — ${dateStr}\n${item.content}`;
+    const noteBlock = `Contact card (imported) — ${dateStr}\n${item.content}`;
     patch.notes = entity.notes ? `${entity.notes}\n\n${noteBlock}` : noteBlock;
     prevEntity.notes = entity.notes;
 
     updateEntity(entity.id, patch as Partial<typeof entity>);
     const prevNeedsReview = item.needs_review ?? false;
     updateInteraction(item.id, { needs_review: false });
-    pushUndo({ type: 'routeEntityData', entityId: entity.id, interactionId: item.id, prevEntity: prevEntity as Partial<typeof entity>, prevNeedsReview }, 'Dados guardados na entidade');
+    pushUndo({ type: 'routeEntityData', entityId: entity.id, interactionId: item.id, prevEntity: prevEntity as Partial<typeof entity>, prevNeedsReview }, 'Data saved to entity');
     setPanel(null);
   }
 
@@ -273,7 +273,7 @@ export function NeedsReviewPanel() {
       occurred_at: `${addDraft.date}T12:00:00.000Z`, direction: addDraft.direction,
       channel: addDraft.channel, content: addDraft.content.trim(),
     });
-    pushUndo({ type: 'addInteraction', interactionId: created.id }, 'Interação adicionada ao fio');
+    pushUndo({ type: 'addInteraction', interactionId: created.id }, 'Interaction added to thread');
     setPanel(null);
   }
 
@@ -481,8 +481,8 @@ export function NeedsReviewPanel() {
                   <div className={`rounded-lg p-2 ${isFocused ? 'ring-2 ring-[#0E7490]' : ''}`}>
                     <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
                       {placeholder ? (
-                        <Tooltip text="A data original não veio no import (fonte marcada '(sem data)') — ficou com um marcador 2018-01-01. Corrige com a sugestão ou editando.">
-                          <span className="rounded bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-700">data por confirmar</span>
+                        <Tooltip text="The original date wasn't in the import (source marked '(no date)') — it got a 2018-01-01 placeholder. Fix it with the suggestion or by editing.">
+                          <span className="rounded bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-700">date to confirm</span>
                         </Tooltip>
                       ) : (
                         <span>{item.occurred_at.slice(0, 10)}</span>
@@ -490,7 +490,7 @@ export function NeedsReviewPanel() {
                       {suggestion && (
                         <button onClick={() => acceptDateSuggestion(item, suggestion)}
                           className="rounded bg-cyan-100 px-1.5 py-0.5 font-semibold text-cyan-800 hover:bg-cyan-200">
-                          📅 usar {suggestion}
+                          📅 use {suggestion}
                         </button>
                       )}
                       <span>· {item.channel.replace('_', ' ')}</span>
@@ -521,7 +521,7 @@ export function NeedsReviewPanel() {
                           </label>
                           {suggestion && (
                             <button onClick={() => setEditDraft({ ...editDraft, date: suggestion })} className="rounded bg-cyan-100 px-1.5 py-0.5 font-semibold text-cyan-800 hover:bg-cyan-200">
-                              usar {suggestion}
+                              use {suggestion}
                             </button>
                           )}
                           <select value={editDraft.channel} onChange={(e) => setEditDraft({ ...editDraft, channel: e.target.value as Channel })} className="rounded border border-gray-300 px-1.5 py-1">
@@ -531,11 +531,11 @@ export function NeedsReviewPanel() {
                             <option value="out">outbound</option><option value="in">inbound</option>
                           </select>
                           <select value={editDraft.classification} onChange={(e) => setEditDraft({ ...editDraft, classification: e.target.value as Classification | '' })} className="rounded border border-gray-300 px-1.5 py-1">
-                            <option value="">— sem classificação</option>
+                            <option value="">— no classification</option>
                             {CLASSIFICATIONS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
                           </select>
                         </div>
-                        <button onClick={() => saveEdit(item)} className="rounded-lg bg-[#0E7490] px-3 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">Guardar</button>
+                        <button onClick={() => saveEdit(item)} className="rounded-lg bg-[#0E7490] px-3 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">Save</button>
                       </div>
                     ) : (
                       <p className="mt-2 whitespace-pre-wrap rounded-lg bg-gray-50 p-2 text-sm text-gray-700">{item.content}</p>
@@ -559,9 +559,9 @@ export function NeedsReviewPanel() {
                           <button onClick={() => confirmNoSignal(item)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">r · No real signal</button>
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                          <button onClick={() => setPanel({ itemId: item.id, kind: 'person' })} className="rounded border border-gray-200 px-2 py-1 text-gray-600 hover:bg-gray-50">👤 Criar pessoa daqui</button>
-                          <button onClick={() => saveEntityData(item)} className="rounded border border-gray-200 px-2 py-1 text-gray-600 hover:bg-gray-50">🏢 Guardar como dados da entidade</button>
-                          <button onClick={() => openAddInteraction(item)} className="rounded border border-gray-200 px-2 py-1 text-gray-600 hover:bg-gray-50">➕ Adicionar interação ao fio</button>
+                          <button onClick={() => setPanel({ itemId: item.id, kind: 'person' })} className="rounded border border-gray-200 px-2 py-1 text-gray-600 hover:bg-gray-50">👤 Create person from this</button>
+                          <button onClick={() => saveEntityData(item)} className="rounded border border-gray-200 px-2 py-1 text-gray-600 hover:bg-gray-50">🏢 Save as entity data</button>
+                          <button onClick={() => openAddInteraction(item)} className="rounded border border-gray-200 px-2 py-1 text-gray-600 hover:bg-gray-50">➕ Add interaction to thread</button>
                         </div>
                       </>
                     )}
@@ -570,7 +570,7 @@ export function NeedsReviewPanel() {
                       const hint = parsePersonHint(item.content);
                       return (
                         <QuickCreatePerson entityId={entity.id} initialName={hint.name} initialEmail={hint.email}
-                          onCreated={(pid) => onPersonCreated(item, pid, db.people.find((p) => p.id === pid)?.full_name ?? hint.name ?? 'pessoa')}
+                          onCreated={(pid) => onPersonCreated(item, pid, db.people.find((p) => p.id === pid)?.full_name ?? hint.name ?? 'person')}
                           onCancel={() => setPanel(null)} />
                       );
                     })()}
@@ -586,26 +586,26 @@ export function NeedsReviewPanel() {
                             <option value="out">outbound</option><option value="in">inbound</option>
                           </select>
                           <select value={addDraft.personId} onChange={(e) => setAddDraft({ ...addDraft, personId: e.target.value })} className="rounded border border-gray-300 px-1.5 py-1">
-                            <option value="">— sem pessoa</option>
+                            <option value="">— no person</option>
                             {people.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
                           </select>
                         </div>
                         <textarea value={addDraft.content} onChange={(e) => setAddDraft({ ...addDraft, content: e.target.value })} rows={2}
-                          placeholder="O que aconteceu — ex. 'Reunião remota, mostraram interesse mas queriam ver tração.'"
+                          placeholder="What happened — e.g. 'Remote meeting, they showed interest but wanted to see traction.'"
                           className="w-full rounded border border-gray-300 p-2" />
                         <div className="flex gap-2">
                           <button disabled={!addDraft.content.trim() || !addDraft.date} onClick={saveAddInteraction}
-                            className="rounded bg-[#0E7490] px-2 py-1 font-medium text-white disabled:opacity-40">Adicionar</button>
-                          <button onClick={() => setPanel(null)} className="rounded border border-gray-300 px-2 py-1">Cancelar</button>
+                            className="rounded bg-[#0E7490] px-2 py-1 font-medium text-white disabled:opacity-40">Add</button>
+                          <button onClick={() => setPanel(null)} className="rounded border border-gray-300 px-2 py-1">Cancel</button>
                         </div>
                       </div>
                     )}
 
                     {linkMore && lastAction?.type === 'routePerson' && lastAction.links[0]?.interactionId === item.id && (
                       <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-cyan-900">
-                        <span>{linkMore.candidateIds.length} outros itens neste dossier sem pessoa — vincular a {linkMore.personName}?</span>
-                        <button onClick={linkRestToPerson} className="rounded bg-[#0E7490] px-2 py-1 font-medium text-white">Sim, vincular</button>
-                        <button onClick={() => setLinkMore(null)} className="rounded border border-gray-300 bg-white px-2 py-1">Não</button>
+                        <span>{linkMore.candidateIds.length} other item(s) in this dossier have no person — link them to {linkMore.personName}?</span>
+                        <button onClick={linkRestToPerson} className="rounded bg-[#0E7490] px-2 py-1 font-medium text-white">Yes, link</button>
+                        <button onClick={() => setLinkMore(null)} className="rounded border border-gray-300 bg-white px-2 py-1">No</button>
                       </div>
                     )}
                   </div>
@@ -623,7 +623,7 @@ function UndoBar({ label, onUndo }: { label: string; onUndo: () => void }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
       <span className="text-gray-600">✔ {label}</span>
-      <button onClick={onUndo} className="ml-auto rounded-lg border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100">↩ Desfazer (u)</button>
+      <button onClick={onUndo} className="ml-auto rounded-lg border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100">↩ Undo (u)</button>
     </div>
   );
 }

@@ -162,7 +162,7 @@ export function ReviewOptimizationPanel() {
               {REVIEW_OPTIMIZATION_PREVIEW_COPY}
             </span>
             <span className="max-w-xs text-[11px] text-gray-500">
-              A leitura de investabilidade e as revisões com AI da tua empresa vão viver aqui.
+              Your investability reading and AI reviews will live here.
             </span>
           </div>
         )}

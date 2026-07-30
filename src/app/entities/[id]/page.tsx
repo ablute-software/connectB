@@ -147,7 +147,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                   n.match_status === 'match' ? 'bg-green-100 text-green-800'
                   : n.match_status === 'mismatch' ? 'bg-red-100 text-[#B00000]'
                   : 'bg-amber-100 text-amber-800'}`} title={n.match_notes}>
-                  {n.match_status === 'match' ? 'AI check: match' : n.match_status === 'mismatch' ? 'AI check: correspondência incerta — verificar' : 'AI check: uncertain'}
+                  {n.match_status === 'match' ? 'AI check: match' : n.match_status === 'mismatch' ? 'AI check: mismatch — verify' : 'AI check: uncertain'}
                 </span>
                 <button
                   onClick={async () => {

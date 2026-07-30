@@ -275,7 +275,7 @@ function RevisitTipsButton() {
   return (
     <button onClick={() => { resetSeen(); setDone(true); setTimeout(() => setDone(false), 2000); }}
       className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-500 hover:bg-gray-50">
-      {done ? 'Dicas repostas ✓' : 'Rever dicas'}
+      {done ? 'Tips reset ✓' : 'Review tips'}
     </button>
   );
 }
