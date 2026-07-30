@@ -3,7 +3,7 @@
 // (§9b-3, "ferramenta prioritária"), packs, the quality panel (completeness
 // + enrichment queue + Research AI — moved here from the old single-page
 // back-office), and the cross-org distribution log.
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
 
 type CatalogEntity = {
@@ -11,6 +11,7 @@ type CatalogEntity = {
   sectors: string[]; website: string | null; verification_status: 'verified' | 'pending' | 'rejected';
   verified_at: string | null; source: string; notes: string | null; aliases: string[];
   stage_min: string | null; stage_max: string | null; check_min_eur: number | null; check_max_eur: number | null;
+  geographies: string[] | null;
 };
 
 function fmtCheck(min: number | null, max: number | null) {
@@ -93,10 +94,98 @@ function MergeDuplicatesTool({ onMerged }: { onMerged: () => void }) {
   );
 }
 
+type OrgAction = {
+  id: string; action_type: string; starts_at: string; ends_at: string | null;
+  value: string | null; reason: string; status: 'active' | 'expired' | 'revoked'; created_at: string;
+};
+
+const ACTION_TYPE_LABELS: Record<string, string> = {
+  discount: 'Discount', extension: 'Extension', pack_unlock: 'Pack unlock',
+  feature_unlock: 'Feature unlock', flag_commercial_contact: 'Flagged for commercial contact', other: 'Other',
+};
+
+// SherlockDeal_Metricas_BackOffice_V1, Section 1.2 — the actions the doc
+// asks to be able to apply from customer assistance (discount, extension,
+// pack/feature unlock, flag for commercial contact), scoped to a catalog
+// investor org. Verify/reject/claim/access-request approval already exist
+// elsewhere in the backoffice — this fills the one gap: benefits that
+// aren't a yes/no decision on an existing request.
+function OrgActionsPanel({ orgRefId }: { orgRefId: string }) {
+  const [actions, setActions] = useState<OrgAction[] | null>(null);
+  const [actionType, setActionType] = useState('discount');
+  const [value, setValue] = useState('');
+  const [endsAt, setEndsAt] = useState('');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  function refresh() {
+    fetch(`/api/backoffice/org-actions?orgType=investor&orgRefId=${orgRefId}`).then((r) => r.json()).then((body) => {
+      if (body.ok === false) { setErr(body.error); return; }
+      setActions(body.actions);
+    });
+  }
+  useEffect(refresh, [orgRefId]);
+
+  async function grant() {
+    if (!reason.trim()) { setErr('A reason is required.'); return; }
+    setBusy(true); setErr('');
+    const res = await fetch('/api/backoffice/org-actions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orgType: 'investor', orgRefId, actionType, value: value || null, endsAt: endsAt || null, reason }),
+    });
+    const body = await res.json();
+    setBusy(false);
+    if (body.ok === false) { setErr(body.error); return; }
+    setValue(''); setEndsAt(''); setReason(''); refresh();
+  }
+
+  async function revoke(id: string) {
+    await fetch('/api/backoffice/org-actions', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+    refresh();
+  }
+
+  return (
+    <div className="rounded-lg border border-cyan-100 bg-cyan-50/40 p-3 text-sm">
+      {err && <p className="mb-2 text-xs text-[#B00000]">{err}</p>}
+      {actions === null ? <p className="text-xs text-gray-400">Loading…</p> : actions.length === 0 ? (
+        <p className="mb-2 text-xs text-gray-400">No benefits or flags on record for this org.</p>
+      ) : (
+        <ul className="mb-3 space-y-1">
+          {actions.map((a) => (
+            <li key={a.id} className="flex flex-wrap items-center gap-2 text-xs">
+              <span className={`rounded-full px-1.5 py-0.5 font-semibold ${a.status === 'active' ? 'bg-cyan-100 text-cyan-800' : 'bg-gray-100 text-gray-400'}`}>
+                {ACTION_TYPE_LABELS[a.action_type] ?? a.action_type}
+              </span>
+              {a.value && <span className="text-gray-600">{a.value}</span>}
+              <span className="text-gray-400">{a.reason}</span>
+              {a.ends_at && <span className="text-gray-400">until {a.ends_at.slice(0, 10)}</span>}
+              <span className="text-gray-300">{a.created_at.slice(0, 10)}</span>
+              {a.status === 'active' && <button onClick={() => revoke(a.id)} className="text-[#B00000] hover:underline">Revoke</button>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <select value={actionType} onChange={(e) => setActionType(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1 text-xs">
+          {Object.entries(ACTION_TYPE_LABELS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+        </select>
+        <input placeholder="Value (e.g. 20%)" value={value} onChange={(e) => setValue(e.target.value)} className="w-28 rounded-lg border border-gray-300 px-2 py-1 text-xs" />
+        <input type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} title="Ends at (optional)" className="rounded-lg border border-gray-300 px-2 py-1 text-xs" />
+        <input placeholder="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} className="min-w-[160px] flex-1 rounded-lg border border-gray-300 px-2 py-1 text-xs" />
+        <button disabled={busy} onClick={grant} className="rounded-lg bg-cyan-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-cyan-800 disabled:opacity-40">
+          {busy ? 'Saving…' : 'Grant'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh: () => void }) {
   const [newRow, setNewRow] = useState({ name: '', type: 'vc', website: '' });
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState('');
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null);
 
   const q = search.trim().toLowerCase();
   const filtered = q ? catalog.filter((c) => c.name.toLowerCase().includes(q)) : catalog;
@@ -138,34 +227,45 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
-              <th className="py-1.5">Investor</th><th>Type</th><th>HQ</th><th>Check</th><th>Stage</th><th>Sectors</th><th>Status</th><th>Aliases</th><th></th>
+              <th className="py-1.5">Investor</th><th>Type</th><th>HQ</th><th>Geographies</th><th>Check</th><th>Stage</th><th>Sectors</th><th>Status</th><th>Aliases</th><th></th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((c) => (
-              <tr key={c.id} className="border-t border-gray-50 align-top">
-                <td className="py-2 font-medium">{c.name}{c.website && <div className="text-xs font-normal text-gray-400">{c.website}</div>}</td>
-                <td className="text-gray-500">{c.type.replace('_', ' ')}</td>
-                <td className="text-gray-500">{[c.hq_city, c.hq_country].filter(Boolean).join(', ') || '—'}</td>
-                <td className="whitespace-nowrap text-gray-500">{fmtCheck(c.check_min_eur, c.check_max_eur)}</td>
-                <td className="text-gray-500">{fmtStage(c.stage_min, c.stage_max)}</td>
-                <td className="max-w-[220px] text-xs text-gray-500">{c.sectors.length ? c.sectors.join(', ') : '—'}</td>
-                <td>
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                    c.verification_status === 'verified' ? 'bg-green-50 text-green-700' : c.verification_status === 'pending' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
-                    {c.verification_status}
-                  </span>
-                </td>
-                <td className="text-xs text-gray-400">{c.aliases.join(', ') || '—'}</td>
-                <td className="whitespace-nowrap text-right">
-                  {c.verification_status !== 'verified' && <button onClick={() => setStatus(c.id, 'verified')} className="mr-1 text-xs text-green-700 hover:underline">Verify</button>}
-                  {c.verification_status !== 'rejected' && <button onClick={() => setStatus(c.id, 'rejected')} className="mr-1 text-xs text-amber-700 hover:underline">Reject</button>}
-                  <button onClick={() => remove(c.id)} className="text-xs text-[#B00000] hover:underline">Delete</button>
-                </td>
-              </tr>
+              <Fragment key={c.id}>
+                <tr className="border-t border-gray-50 align-top">
+                  <td className="py-2 font-medium">{c.name}{c.website && <div className="text-xs font-normal text-gray-400">{c.website}</div>}</td>
+                  <td className="text-gray-500">{c.type.replace('_', ' ')}</td>
+                  <td className="text-gray-500">{[c.hq_city, c.hq_country].filter(Boolean).join(', ') || '—'}</td>
+                  <td className="max-w-[160px] text-xs text-gray-500">{c.geographies?.length ? c.geographies.join(', ') : '—'}</td>
+                  <td className="whitespace-nowrap text-gray-500">{fmtCheck(c.check_min_eur, c.check_max_eur)}</td>
+                  <td className="text-gray-500">{fmtStage(c.stage_min, c.stage_max)}</td>
+                  <td className="max-w-[220px] text-xs text-gray-500">{c.sectors.length ? c.sectors.join(', ') : '—'}</td>
+                  <td>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      c.verification_status === 'verified' ? 'bg-green-50 text-green-700' : c.verification_status === 'pending' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
+                      {c.verification_status}
+                    </span>
+                  </td>
+                  <td className="text-xs text-gray-400">{c.aliases.join(', ') || '—'}</td>
+                  <td className="whitespace-nowrap text-right">
+                    {c.verification_status !== 'verified' && <button onClick={() => setStatus(c.id, 'verified')} className="mr-1 text-xs text-green-700 hover:underline">Verify</button>}
+                    {c.verification_status !== 'rejected' && <button onClick={() => setStatus(c.id, 'rejected')} className="mr-1 text-xs text-amber-700 hover:underline">Reject</button>}
+                    <button onClick={() => setOpenActionsId(openActionsId === c.id ? null : c.id)} className="mr-1 text-xs text-cyan-700 hover:underline">
+                      {openActionsId === c.id ? 'Close' : 'Assist'}
+                    </button>
+                    <button onClick={() => remove(c.id)} className="text-xs text-[#B00000] hover:underline">Delete</button>
+                  </td>
+                </tr>
+                {openActionsId === c.id && (
+                  <tr className="border-t border-gray-50">
+                    <td colSpan={10} className="py-2"><OrgActionsPanel orgRefId={c.id} /></td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={9} className="py-4 text-center text-sm text-gray-400">No matches.</td></tr>
+              <tr><td colSpan={10} className="py-4 text-center text-sm text-gray-400">No matches.</td></tr>
             )}
           </tbody>
         </table>

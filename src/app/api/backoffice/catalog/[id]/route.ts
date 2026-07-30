@@ -3,7 +3,7 @@ import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { logAdminAction } from '@/lib/audit';
 
 const EDITABLE_FIELDS = [
-  'name', 'type', 'hq_city', 'hq_country', 'sectors', 'stage_min', 'stage_max',
+  'name', 'type', 'hq_city', 'hq_country', 'sectors', 'geographies', 'stage_min', 'stage_max',
   'check_min_eur', 'check_max_eur', 'thesis', 'website', 'notes',
 ] as const;
 
