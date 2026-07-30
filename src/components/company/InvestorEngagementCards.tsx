@@ -9,6 +9,7 @@ import { Card } from '@/components/ui';
 interface Question { id: string; question: string; answer: string | null; is_faq: boolean; asked_by_email: string; created_at: string }
 interface Update { id: string; title: string; body: string; created_at: string }
 interface SoftCommit { id: string; investor_email: string; amount_eur: number; confirmed_by_founder: boolean; created_at: string }
+interface InvestorDecision { id: string; decision: 'interested' | 'passed'; reasonDetail: string | null; decidedAt: string; investorName: string }
 
 function fmtEur(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
@@ -135,6 +136,39 @@ export function RoundUpdatesCard() {
           ))}
         </div>
       )}
+    </Card>
+  );
+}
+
+// AP-11 — every Interested/Pass an investor records on this org's Pipeline
+// card, with the free-text reason for a Pass. Org-level (AP-14): whichever
+// teammate on the investor's side decided, this is the one decision the
+// founder sees — there's no per-teammate view to reconcile.
+export function InvestorDecisionsCard() {
+  const [decisions, setDecisions] = useState<InvestorDecision[] | null>(null);
+
+  useEffect(() => {
+    fetch('/api/org/investor-decisions').then((r) => r.json()).then((d) => setDecisions(d.decisions ?? []));
+  }, []);
+
+  if (!decisions || decisions.length === 0) return null;
+
+  return (
+    <Card title="Investor decisions">
+      <div className="space-y-2">
+        {decisions.map((d) => (
+          <div key={d.id} className="rounded-lg border border-gray-100 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium text-gray-800">{d.investorName}</span>
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${d.decision === 'passed' ? 'bg-gray-100 text-gray-500' : 'bg-[#E8F4F8] text-[#0E7490]'}`}>
+                {d.decision === 'passed' ? 'Passed' : 'Interested'}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-gray-400">{new Date(d.decidedAt).toLocaleDateString()}</p>
+            {d.reasonDetail && <p className="mt-1.5 text-xs text-gray-600">{d.reasonDetail}</p>}
+          </div>
+        ))}
+      </div>
     </Card>
   );
 }

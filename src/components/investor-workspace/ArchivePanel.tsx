@@ -9,6 +9,7 @@ interface SnapshotView {
 }
 interface ArchiveEntry {
   id: string; orgId: string; orgName: string; source: string; reasonDetail: string | null; archivedAt: string;
+  restricted?: boolean;
   firstContact: SnapshotView | null; lastContact: SnapshotView | null;
   now: { text: string; generatedAt: string } | null;
   badges: { raisedSinceYouPassed: boolean; newRoundOpen: boolean; nowMatchesThesis: boolean; trending: boolean } | null;
@@ -84,34 +85,45 @@ export function ArchivePanel() {
                   {' · '}{new Date(e.archivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </div>
               </div>
-              <button onClick={() => reopen(e.id)} disabled={busyId === e.id}
-                className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490] disabled:opacity-40">
-                {busyId === e.id ? 'Reopening…' : 'Reopen'}
-              </button>
+              {!e.restricted && (
+                <button onClick={() => reopen(e.id)} disabled={busyId === e.id}
+                  className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490] disabled:opacity-40">
+                  {busyId === e.id ? 'Reopening…' : 'Reopen'}
+                </button>
+              )}
             </div>
 
-            {activeBadges.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {activeBadges.map((b) => (
-                  <span key={b.key} className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">{b.label}</span>
-                ))}
-              </div>
+            {e.restricted ? (
+              // AP-10 — a final Pass decision restricts the investor's own
+              // view back down to name/reason/tag; the diligence history
+              // (then/now, badges) is no longer shown here.
+              <p className="mt-2 text-xs text-gray-400">Decision recorded — this relationship is closed and can&apos;t be reopened.</p>
+            ) : (
+              <>
+                {activeBadges.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {activeBadges.map((b) => (
+                      <span key={b.key} className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">{b.label}</span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-3 grid grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <div className="mb-1 font-semibold uppercase tracking-wide text-gray-400">First contact</div>
+                    <p className="text-gray-600">{columnSummary(e.firstContact)}</p>
+                  </div>
+                  <div>
+                    <div className="mb-1 font-semibold uppercase tracking-wide text-gray-400">Last contact</div>
+                    <p className="text-gray-600">{columnSummary(e.lastContact)}</p>
+                  </div>
+                  <div>
+                    <div className="mb-1 font-semibold uppercase tracking-wide text-[#0E7490]">Now</div>
+                    <p className="text-gray-600">{e.now ? e.now.text : 'Not regenerated yet — will update on the founder\'s next round/profile edit.'}</p>
+                  </div>
+                </div>
+              </>
             )}
-
-            <div className="mt-3 grid grid-cols-3 gap-3 text-xs">
-              <div>
-                <div className="mb-1 font-semibold uppercase tracking-wide text-gray-400">First contact</div>
-                <p className="text-gray-600">{columnSummary(e.firstContact)}</p>
-              </div>
-              <div>
-                <div className="mb-1 font-semibold uppercase tracking-wide text-gray-400">Last contact</div>
-                <p className="text-gray-600">{columnSummary(e.lastContact)}</p>
-              </div>
-              <div>
-                <div className="mb-1 font-semibold uppercase tracking-wide text-[#0E7490]">Now</div>
-                <p className="text-gray-600">{e.now ? e.now.text : 'Not regenerated yet — will update on the founder\'s next round/profile edit.'}</p>
-              </div>
-            </div>
           </div>
         );
       })}

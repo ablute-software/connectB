@@ -145,6 +145,57 @@ function AccessRequestsQueue() {
   );
 }
 
+// AP-15 — every Pipeline Interested/Pass decision, across all orgs, with
+// the revocation/notification audit trail so support can answer "did the
+// data room actually get revoked" without a raw SQL query.
+type PipelineDecision = {
+  id: string; orgName: string; investorName: string; decision: 'interested' | 'passed';
+  reasonDetail: string | null; decidedAt: string; accessRevokedCount: number;
+  notifiedAt: string | null; notifyFailed: boolean;
+};
+
+function PipelineDecisionsPanel() {
+  const [decisions, setDecisions] = useState<PipelineDecision[] | null>(null);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    fetch('/api/backoffice/pipeline-decisions').then((r) => r.json()).then((body) => {
+      if (body.ok === false) { setErr(body.error); return; }
+      setDecisions(body.decisions);
+    }).catch(() => setErr('Failed to load.'));
+  }, []);
+
+  return (
+    <Card title="Pipeline decisions">
+      {err && <p className="text-sm text-[#B00000]">{err}</p>}
+      {!decisions ? (
+        <p className="text-sm text-gray-400">Loading…</p>
+      ) : decisions.length === 0 ? (
+        <p className="text-sm text-gray-400">No Interested/Pass decisions recorded yet.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {decisions.map((d) => (
+            <div key={d.id} className="rounded-lg border border-gray-100 px-3 py-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-gray-800">{d.investorName} → {d.orgName}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${d.decision === 'passed' ? 'bg-gray-100 text-gray-500' : 'bg-[#E8F4F8] text-[#0E7490]'}`}>
+                  {d.decision === 'passed' ? 'Passed' : 'Interested'}
+                </span>
+              </div>
+              <div className="mt-0.5 text-[11px] text-gray-400">
+                {new Date(d.decidedAt).toLocaleString()}
+                {d.decision === 'passed' && ` · ${d.accessRevokedCount} grant(s) revoked`}
+                {' · '}{d.notifyFailed ? 'notification failed' : d.notifiedAt ? 'founder notified' : 'not yet notified'}
+              </div>
+              {d.reasonDetail && <p className="mt-1 text-gray-600">{d.reasonDetail}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-3">
@@ -192,6 +243,8 @@ export default function InvestorsPage() {
       </div>
 
       <AccessRequestsQueue />
+
+      <PipelineDecisionsPanel />
 
       <p className="text-sm text-gray-500">
         To edit, verify, or merge entities:{' '}

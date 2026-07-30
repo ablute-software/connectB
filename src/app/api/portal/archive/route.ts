@@ -7,7 +7,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { activeGrantOrgIds, resolveInvestorProfile } from '@/lib/portal-access';
+import { activeGrantOrgIds, resolveInvestorCatalogEntityId, resolveInvestorProfile } from '@/lib/portal-access';
 import { createArchiveEntry, getArchiveEntries } from '@/lib/investor-archive';
 
 export async function GET() {
@@ -77,6 +77,18 @@ export async function POST(req: Request) {
   const { data: entry } = await admin.from('investor_archive_entries').select('id, org_id')
     .eq('id', body.entryId).eq('investor_email', email).is('reopened_at', null).maybeSingle();
   if (!entry) return NextResponse.json({ ok: false, error: 'Archive entry not found.' }, { status: 404 });
+
+  // AP-06 — an org-level Pass (investor_relationship_decisions) is final;
+  // it can't be reopened back into an active Pipeline card the way a
+  // pre-AP-06 swipe-only pass or a manual archive still can. Checking here
+  // (not just hiding the button client-side) is what actually makes it
+  // final — a raw POST replay must fail the same way the UI does.
+  const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
+  if (investorCatalogEntityId) {
+    const { data: decision } = await admin.from('investor_relationship_decisions').select('decision')
+      .eq('org_id', entry.org_id).eq('investor_catalog_entity_id', investorCatalogEntityId).eq('decision', 'passed').maybeSingle();
+    if (decision) return NextResponse.json({ ok: false, error: 'This decision is final and cannot be reopened.' }, { status: 403 });
+  }
 
   // Reopen: mark this archive entry closed (its own row stays forever —
   // "histórico contínuo") and clear the pass swipe so Pipeline shows the

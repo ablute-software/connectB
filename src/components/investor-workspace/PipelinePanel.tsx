@@ -18,13 +18,11 @@ interface Card {
 interface Wave { index: number; items: Card[]; unlocked: boolean }
 interface PipelineResponse { linked: boolean; waves?: Wave[]; usualCoInvestors?: string | null }
 
-const PASS_REASONS: { value: string; label: string }[] = [
-  { value: 'ticket_too_small', label: 'Ticket too small' },
-  { value: 'outside_thesis', label: 'Outside thesis' },
-  { value: 'too_early', label: 'Too early' },
-  { value: 'other', label: 'Other' },
-];
+const REASON_MAX_LEN = 1000;
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
+const STATUS_FILTERS: { value: 'all' | 'open' | 'interested' | 'passed'; label: string }[] = [
+  { value: 'all', label: 'All' }, { value: 'open', label: 'No decision' }, { value: 'interested', label: 'Interested' }, { value: 'passed', label: 'Passed' },
+];
 
 function fmtEur(n: number | null) {
   return n == null ? null : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
@@ -36,11 +34,18 @@ function fmtEur(n: number | null) {
 // grows past ablute_.
 export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) {
   const [data, setData] = useState<PipelineResponse | null>(null);
-  const [passingOrgId, setPassingOrgId] = useState<string | null>(null);
+  // AP-07/08 — confirming holds the card + action awaiting Cancel/Confirm;
+  // reasonDraft is the free-text Pass reason (AP-08: required, not a fixed
+  // category list). Cancel/close must change nothing — it only clears this
+  // local state, no request is ever sent.
+  const [confirming, setConfirming] = useState<{ orgId: string; action: 'pass' | 'interest' } | null>(null);
+  const [reasonDraft, setReasonDraft] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
   const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
   const [remindedOrgId, setRemindedOrgId] = useState<string | null>(null);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [showComparison, setShowComparison] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'interested' | 'passed'>('all');
 
   function toggleCompare(orgId: string) {
     setCompareIds((ids) => (ids.includes(orgId) ? ids.filter((id) => id !== orgId) : ids.length < MAX_COMPARE ? [...ids, orgId] : ids));
@@ -51,14 +56,34 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
   }
   useEffect(load, []);
 
+  function startConfirm(orgId: string, action: 'pass' | 'interest') {
+    setActionError(null);
+    setReasonDraft('');
+    setConfirming({ orgId, action });
+  }
+  function cancelConfirm() {
+    // Deliberately a pure local reset — no fetch, nothing written.
+    setConfirming(null);
+    setReasonDraft('');
+  }
+
   async function act(orgId: string, action: 'pass' | 'interest', reason?: string) {
     setBusyOrgId(orgId);
+    setActionError(null);
     try {
-      await fetch('/api/portal/pipeline', {
+      const res = await fetch('/api/portal/pipeline', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ orgId, action, reason }),
       });
-      setPassingOrgId(null);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.ok === false) {
+        // AP-14 — a teammate may have decided first; surface it plainly and
+        // reload so this card reflects the actual (org-level) outcome.
+        setActionError(body.error ?? 'Something went wrong — please try again.');
+      } else {
+        setConfirming(null);
+        setReasonDraft('');
+      }
       load();
     } finally { setBusyOrgId(null); }
   }
@@ -102,6 +127,13 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
 
   const allCards = waves.flatMap((w) => w.items);
   const compareCards = compareIds.map((id) => allCards.find((c) => c.orgId === id)).filter((c): c is Card => !!c);
+  // AP-13 — "All" keeps Prompt 60's existing behaviour (passed cards live
+  // in Archive, not duplicated here); "Passed" is the one filter that
+  // deliberately surfaces them back in this view anyway.
+  function passesFilter(c: Card) {
+    if (statusFilter === 'all') return c.status !== 'passed';
+    return c.status === statusFilter;
+  }
 
   return (
     <div className="max-w-2xl space-y-4">
@@ -109,7 +141,16 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
         <h1 className="text-lg font-bold text-gray-900">Pipeline</h1>
         <a href="/api/portal/export?type=pipeline" className="text-xs text-gray-400 hover:underline">Export CSV</a>
       </div>
+      <div className="flex items-center gap-1.5">
+        {STATUS_FILTERS.map((f) => (
+          <button key={f.value} onClick={() => setStatusFilter(f.value)}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${statusFilter === f.value ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            {f.label}
+          </button>
+        ))}
+      </div>
       {data.usualCoInvestors && <p className="text-xs text-gray-400">Usually co-invests with: {data.usualCoInvestors}</p>}
+      {actionError && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
 
       {compareIds.length > 0 && !showComparison && (
         <div className="flex items-center justify-between rounded-lg border border-[#0E7490] bg-[#E8F4F8] px-3 py-2 text-xs">
@@ -138,8 +179,9 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
             {/* Prompt 60 — a passed card moves to the Archive tab, not just
                 grayed out here; still counted server-side toward this
                 wave's unlock (see the API route), just not duplicated in
-                both places. */}
-            {wave.items.filter((c) => c.status !== 'passed').map((c) => (
+                both places. AP-13's "Passed" filter is the one exception
+                that brings them back into view. */}
+            {wave.items.filter(passesFilter).map((c) => (
               <div key={c.orgId} className="rounded-lg border border-gray-200 bg-white p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-2">
@@ -184,7 +226,7 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
 
                 {c.status === 'passed' ? (
                   <p className="mt-3 text-xs text-gray-400">
-                    Passed{c.passReason && ` — ${PASS_REASONS.find((r) => r.value === c.passReason)?.label ?? c.passReason}`}
+                    Passed{c.passReason && ` — ${c.passReason}`}
                   </p>
                 ) : c.status === 'interested' ? (
                   <div className="mt-3 flex items-center gap-2">
@@ -193,12 +235,41 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
                       Archive
                     </button>
                   </div>
+                ) : wave.unlocked && confirming?.orgId === c.orgId ? (
+                  // AP-07/08 — a confirmation step before either decision is
+                  // recorded; Pass requires a free-text reason (max 1000
+                  // chars). Cancel only clears local state, see cancelConfirm.
+                  <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    {confirming.action === 'interest' ? (
+                      <p className="text-xs text-gray-700">Confirm you&apos;re interested in {c.name}? The founder will be notified.</p>
+                    ) : (
+                      <>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">Reason for passing (required)</label>
+                        <textarea value={reasonDraft} onChange={(e) => setReasonDraft(e.target.value.slice(0, REASON_MAX_LEN))}
+                          rows={3} placeholder="Why isn't this a fit right now?"
+                          className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs" />
+                        <p className="mt-0.5 text-[10px] text-gray-400">{reasonDraft.length}/{REASON_MAX_LEN} · This decision is final — the data room will be revoked and it can&apos;t be undone.</p>
+                      </>
+                    )}
+                    <div className="mt-2 flex items-center gap-2">
+                      <button onClick={cancelConfirm} disabled={busyOrgId === c.orgId}
+                        className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-white disabled:opacity-40">
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => act(c.orgId, confirming.action, confirming.action === 'pass' ? reasonDraft : undefined)}
+                        disabled={busyOrgId === c.orgId || (confirming.action === 'pass' && reasonDraft.trim().length === 0)}
+                        className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                        {busyOrgId === c.orgId ? 'Saving…' : confirming.action === 'interest' ? 'Confirm interest' : 'Confirm pass'}
+                      </button>
+                    </div>
+                  </div>
                 ) : wave.unlocked ? (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button onClick={onOpenStartup} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
                       Open data room
                     </button>
-                    <button onClick={() => act(c.orgId, 'interest')} disabled={busyOrgId === c.orgId}
+                    <button onClick={() => startConfirm(c.orgId, 'interest')} disabled={busyOrgId === c.orgId}
                       className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
                       Express interest
                     </button>
@@ -209,18 +280,7 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
                         Remind me in 2 weeks
                       </button>
                     )}
-                    {passingOrgId === c.orgId ? (
-                      <div className="flex items-center gap-1.5">
-                        {PASS_REASONS.map((r) => (
-                          <button key={r.value} onClick={() => act(c.orgId, 'pass', r.value)} disabled={busyOrgId === c.orgId}
-                            className="rounded-full border border-gray-300 px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-50 disabled:opacity-40">
-                            {r.label}
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <button onClick={() => setPassingOrgId(c.orgId)} className="text-xs text-gray-400 hover:underline">Pass</button>
-                    )}
+                    <button onClick={() => startConfirm(c.orgId, 'pass')} className="text-xs text-gray-400 hover:underline">Pass</button>
                     <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId} className="text-xs text-gray-400 hover:underline disabled:opacity-40">
                       Archive
                     </button>

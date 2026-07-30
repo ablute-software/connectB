@@ -3,7 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { captureSnapshot } from './startup-snapshot';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from './investor-match-score';
-import { resolveInvestorProfile } from './portal-access';
+import { resolveInvestorCatalogEntityId, resolveInvestorProfile } from './portal-access';
 
 export async function createArchiveEntry(
   admin: SupabaseClient, orgId: string, investorEmail: string,
@@ -108,14 +108,37 @@ export async function getArchiveEntries(admin: SupabaseClient, userId: string, e
     ticketMin: investorProfile.ticket_min, ticketMax: investorProfile.ticket_max,
   } : null;
 
+  // AP-10 — once the ORG has passed (investor_relationship_decisions,
+  // authoritative over this per-email archive table), the investor's own
+  // view of that entry restricts back down to name/reason/tag: continuing
+  // to show the full then/now diligence snapshot to someone who already
+  // declined would defeat the point of a final, non-reversible decision
+  // (AP-06 — no changing Interested<->Passed after the fact).
+  const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, userId);
+  const { data: decisions } = investorCatalogEntityId
+    ? await admin.from('investor_relationship_decisions').select('org_id, decision')
+      .eq('investor_catalog_entity_id', investorCatalogEntityId).eq('decision', 'passed').in('org_id', orgIds)
+    : { data: [] as { org_id: string }[] };
+  const passedOrgIds = new Set((decisions ?? []).map((d) => d.org_id as string));
+
   return Promise.all(entries.map(async (e) => {
+    const orgId = e.org_id as string;
+    const restricted = passedOrgIds.has(orgId);
+    if (restricted) {
+      return {
+        id: e.id as string, orgId, orgName: orgNameById.get(orgId) ?? 'Unknown',
+        source: e.source as string, reasonDetail: e.reason_detail as string | null, archivedAt: e.archived_at as string,
+        restricted: true as const, firstContact: null, lastContact: null, now: null, badges: null,
+      };
+    }
     const firstContact = snapshotById.get(e.first_contact_snapshot_id as string);
     const lastContact = snapshotById.get(e.archived_snapshot_id as string);
-    const now = nowByOrg.get(e.org_id as string);
-    const badges = lastContact ? await computeBadges(admin, e.org_id as string, lastContact.data as Record<string, unknown>, thesis) : null;
+    const now = nowByOrg.get(orgId);
+    const badges = lastContact ? await computeBadges(admin, orgId, lastContact.data as Record<string, unknown>, thesis) : null;
     return {
-      id: e.id as string, orgId: e.org_id as string, orgName: orgNameById.get(e.org_id as string) ?? 'Unknown',
+      id: e.id as string, orgId, orgName: orgNameById.get(orgId) ?? 'Unknown',
       source: e.source as string, reasonDetail: e.reason_detail as string | null, archivedAt: e.archived_at as string,
+      restricted: false as const,
       firstContact: firstContact ? { data: firstContact.data, capturedAt: firstContact.captured_at } : null,
       lastContact: lastContact ? { data: lastContact.data, capturedAt: lastContact.captured_at } : null,
       now: now ? { text: now.summary_text as string, generatedAt: now.generated_at as string } : null,

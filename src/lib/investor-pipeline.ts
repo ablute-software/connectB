@@ -4,7 +4,7 @@
 // "what's in my Pipeline" would drift.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from './investor-match-score';
-import { eligibleOrgIds, resolveInvestorProfile } from './portal-access';
+import { eligibleOrgIds, resolveInvestorCatalogEntityId, resolveInvestorProfile } from './portal-access';
 
 const WAVE_SIZE = 8;
 const TRACKING_WINDOW_DAYS = 30;
@@ -66,6 +66,17 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     : { data: [] as { target_profile_id: string; direction: string; pass_reason: string | null }[] };
   const swipeByStartupProfile = new Map((swipes ?? []).map((s) => [s.target_profile_id as string, s]));
 
+  // AP-14 — investor_relationship_decisions is the org-level source of
+  // truth (any teammate's decision must show the same status to every
+  // other teammate); matchdeal_swipes above is per-user and only used as a
+  // fallback for signals recorded before this table existed.
+  const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, userId);
+  const { data: decisions } = investorCatalogEntityId && orgIds.length
+    ? await admin.from('investor_relationship_decisions').select('org_id, decision, reason_detail')
+      .eq('investor_catalog_entity_id', investorCatalogEntityId).in('org_id', orgIds)
+    : { data: [] as { org_id: string; decision: string; reason_detail: string | null }[] };
+  const decisionByOrg = new Map((decisions ?? []).map((d) => [d.org_id as string, d]));
+
   // "Other investors tracking this" (prompt 62.3) — aggregated by stage
   // ACROSS THE WHOLE PLATFORM, never per-startup, and never resolved back to
   // an identity: the privacy limit from Prompt 61's scoping is non-negotiable
@@ -82,13 +93,16 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     const { score, reasons } = computeMatchScore(thesis, round);
     const startupProfileId = profileByOrg.get(org.id as string) ?? null;
     const swipe = startupProfileId ? swipeByStartupProfile.get(startupProfileId) : null;
-    const status = swipe?.direction === 'pass' ? 'passed' : swipe?.direction === 'like' ? 'interested' : 'open';
+    const decision = decisionByOrg.get(org.id as string);
+    const status = decision
+      ? (decision.decision === 'passed' ? 'passed' : 'interested')
+      : (swipe?.direction === 'pass' ? 'passed' : swipe?.direction === 'like' ? 'interested' : 'open');
     return {
       orgId: org.id, name: org.name, oneLiner: org.one_liner, sectors: org.sectors ?? [], stage: org.stage,
       hqCity: org.hq_city, country: org.country, roundTargetEur: org.round_target_eur,
       roundValuationEur: org.round_valuation_eur,
       roundInstruments: org.round_instruments ?? [], matchScore: score, matchReasons: reasons,
-      status, passReason: swipe?.pass_reason ?? null,
+      status, passReason: decision ? decision.reason_detail : (swipe?.pass_reason ?? null),
       trackingCount: org.stage ? (trackingCountByStage.get(org.stage as string)?.size ?? 0) : 0,
     };
   }).sort((a, b) => b.matchScore - a.matchScore);

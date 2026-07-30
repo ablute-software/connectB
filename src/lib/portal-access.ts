@@ -13,6 +13,17 @@ export async function resolveInvestorProfile(admin: SupabaseClient, userId: stri
   return profile ?? null;
 }
 
+// AP-14 — the stable per-organization investor identity (same convention
+// admin_org_actions.org_ref_id and matchdeal_pairings already use), as
+// distinct from matchdeal_investor_members.id which is per TEAM MEMBER.
+// Needed anywhere a Pipeline decision must be read/written at the org
+// level so every teammate sees the same status.
+export async function resolveInvestorCatalogEntityId(admin: SupabaseClient, userId: string) {
+  const { data: membership } = await admin.from('matchdeal_investor_members').select('catalog_entity_id')
+    .eq('user_id', userId).eq('status', 'active').maybeSingle();
+  return (membership?.catalog_entity_id as string | undefined) ?? null;
+}
+
 export async function activeGrantOrgIds(admin: SupabaseClient, email: string, personId: string | null) {
   const orParts = [`grantee_email.eq.${email}`, `invited_email.eq.${email}`];
   if (personId) orParts.push(`person_id.eq.${personId}`);
