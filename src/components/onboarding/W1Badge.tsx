@@ -20,19 +20,19 @@ export function useW1Milestones(): Milestone[] {
   const { db } = useStore();
   return [
     {
-      key: 'profile', label: 'Perfil da empresa', href: '/settings',
+      key: 'profile', label: 'Company profile', href: '/settings',
       done: !!(db.org.sector && db.org.stage && db.org.round_target_eur),
     },
     {
-      key: 'pipeline', label: 'Primeiro investidor', href: '/pipeline',
+      key: 'pipeline', label: 'First investor', href: '/pipeline',
       done: db.entities.length > 0,
     },
     {
-      key: 'outreach', label: 'Primeiro contacto', href: '/today',
+      key: 'outreach', label: 'First contact', href: '/today',
       done: db.interactions.length > 0,
     },
     {
-      key: 'dataroom', label: 'Data Room pronta', href: '/documents',
+      key: 'dataroom', label: 'Data room ready', href: '/documents',
       done: db.documents.length > 0,
     },
   ];
@@ -48,7 +48,7 @@ export function W1Badge() {
     <Link href={next.href}
       className="hidden items-center gap-1.5 rounded-full border border-gray-100 bg-white px-3 py-1 text-xs text-gray-500 transition hover:border-gray-200 hover:text-gray-700 sm:flex"
       title={milestones.map((m) => `${m.done ? '✓' : '○'} ${m.label}`).join('  ·  ')}>
-      <span className="font-medium text-[#0E7490]">Primeiros passos {done}/{milestones.length}</span>
+      <span className="font-medium text-[#0E7490]">First steps {done}/{milestones.length}</span>
       <span className="text-gray-300">·</span>
       <span>{next.label}</span>
     </Link>
