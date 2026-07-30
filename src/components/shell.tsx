@@ -7,7 +7,7 @@ import { outboundCounts } from '@/lib/rules';
 import { browserClient } from '@/lib/supabase';
 import { Tooltip } from '@/components/ui';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
-import { MatchDealModal } from '@/components/MatchDealModal';
+import { MatchDealPairingModal } from '@/components/matchdeal/MatchDealPairingModal';
 import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
 import { W1Badge } from '@/components/onboarding/W1Badge';
@@ -228,7 +228,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         })}
       </nav>
 
-      {showMatchDeal && <MatchDealModal onClose={() => setShowMatchDeal(false)} />}
+      {showMatchDeal && <MatchDealPairingModal kind="startup" onClose={() => setShowMatchDeal(false)} />}
       <WelcomeModal />
     </div>
     </OnboardingProvider>

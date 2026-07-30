@@ -10,7 +10,7 @@ import { PipelinePanel } from './PipelinePanel';
 import { InvestorAgendaPanel } from './InvestorAgendaPanel';
 import { InvestorTodayPanel } from './InvestorTodayPanel';
 import { ArchivePanel } from './ArchivePanel';
-import { InvestorMatchDealModal } from './InvestorMatchDealModal';
+import { MatchDealPairingModal } from '@/components/matchdeal/MatchDealPairingModal';
 import { InvestorPlansPanel } from './InvestorPlansPanel';
 import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
 
@@ -149,7 +149,7 @@ export function InvestorWorkspaceShell({
           {tab === 'plans' && <InvestorPlansPanel />}
         </main>
       </div>
-      {showMatchDeal && <InvestorMatchDealModal onClose={() => setShowMatchDeal(false)} />}
+      {showMatchDeal && <MatchDealPairingModal kind="investor" onClose={() => setShowMatchDeal(false)} />}
     </div>
   );
 }
