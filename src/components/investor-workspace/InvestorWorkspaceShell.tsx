@@ -23,6 +23,11 @@ function ComingSoon({ label }: { label: string }) {
 export function InvestorWorkspaceShell({
   entityName, startupCard, sessionLabel,
 }: {
+  // The startup shown in the Pipeline tab (ablute_ today) — NOT the
+  // investor's own firm. Kept as a separate concept from the About tab's
+  // label, which comes from the investor's own linked catalog entity
+  // (fetched inside InvestorProfilePanel, not known by this shell until
+  // it reports back via onEntityNameChange).
   entityName: string | null;
   // The existing snapshot + ticket selector + data room content (built in
   // Prompt 54) — rendered as-is inside the Pipeline tab once a card is
@@ -34,8 +39,9 @@ export function InvestorWorkspaceShell({
   const [tab, setTab] = useState<Tab>('pipeline');
   const [pct, setPct] = useState<number | null>(null);
   const [openStartup, setOpenStartup] = useState(false);
+  const [investorFirmName, setInvestorFirmName] = useState<string | null>(null);
 
-  const aboutLabel = entityName ? `About ${entityName}` : 'About your firm';
+  const aboutLabel = investorFirmName ? `About ${investorFirmName}` : 'About your firm';
   const gateOpen = pct != null && pct >= COMPLETENESS_GATE;
 
   const NAV: { key: Tab; label: string; icon: string }[] = [
@@ -96,7 +102,7 @@ export function InvestorWorkspaceShell({
               </div>
             )
           )}
-          {tab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} />}
+          {tab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} onEntityNameChange={setInvestorFirmName} />}
           {tab === 'agenda' && <ComingSoon label="Agenda" />}
           {tab === 'today' && <ComingSoon label="Today" />}
           {tab === 'archive' && <ComingSoon label="Archive" />}

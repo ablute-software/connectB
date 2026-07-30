@@ -92,7 +92,7 @@ function LinkEntityFlow({ onLinked }: { onLinked: () => void }) {
   );
 }
 
-export function InvestorProfilePanel({ onCompletenessChange }: { onCompletenessChange?: (pct: number) => void }) {
+export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange }: { onCompletenessChange?: (pct: number) => void; onEntityNameChange?: (name: string | null) => void }) {
   const [data, setData] = useState<ProfileResponse | null>(null);
   const [draft, setDraft] = useState<Profile | null>(null);
   const [saving, setSaving] = useState(false);
@@ -102,6 +102,7 @@ export function InvestorProfilePanel({ onCompletenessChange }: { onCompletenessC
       setData(d);
       if (d.profile) setDraft(d.profile);
       if (d.completeness != null) onCompletenessChange?.(d.completeness);
+      onEntityNameChange?.(d.linked ? d.entityName ?? null : null);
     });
   }
   useEffect(load, []); // eslint-disable-line react-hooks/exhaustive-deps
