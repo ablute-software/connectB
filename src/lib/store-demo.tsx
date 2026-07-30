@@ -8,7 +8,7 @@ import type {
   AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation,
 } from './types';
 import { seed } from './data/seed';
-import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate, buildFollowUpTask } from './rules';
+import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval } from './reawakening';
 import { STAGE_LABEL, getStage } from './relationship';
@@ -59,16 +59,17 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
 
         if (input.direction === 'out') {
           const lockUntil = new Date(Date.now() + LOCK_DAYS * 24 * 3600 * 1000).toISOString();
-          const person = prev.people.find((p) => p.id === input.person_id);
-          const entityName = prev.entities.find((e) => e.id === input.entity_id)?.name ?? '';
           next.entities = next.entities.map((e) =>
             e.id === input.entity_id
               ? { ...e, contact_lock_until: lockUntil, status: e.status === 'not_contacted' ? 'contacted' : e.status }
               : e);
-          next.tasks = [...next.tasks, {
-            id: uid('t'), done: false,
-            ...buildFollowUpTask(input.entity_id, input.person_id, entityName, person?.full_name, interaction.occurred_at),
-          }];
+          // Prompt 65 Bloco 4 — no more blind buildFollowUpTask here. The
+          // contact lock above is the real, independent guardrail (nothing
+          // about outreach discipline changes); the follow-up TASK itself
+          // now comes from the relationship engine's visible, confirmable
+          // suggestion (log/page.tsx calls suggestNextAction + addTask
+          // after this returns), never a silently-created generic one the
+          // founder never saw.
         } else {
           if (input.classification && ['interested', 'meeting_request', 'question'].includes(input.classification)) {
             next.entities = next.entities.map((e) =>
@@ -77,14 +78,13 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
           }
         }
         // The founder's own explicit next step (Log Interaction's "Next
-        // action" fields) becomes a real, visible Agenda task — separate
-        // from the automatic 14-day lock-reminder above, since they serve
-        // different purposes (a generic safety net vs. a specific plan).
+        // action" fields) becomes a real, visible Agenda task, tagged
+        // 'manual' — they typed it themselves, no suggestion involved.
         if (input.next_action) {
           next.tasks = [...next.tasks, {
             id: uid('t'), kind: 'follow_up', action_type: input.next_action_type ?? 'other', done: false,
             due_at: input.next_action_due ? `${input.next_action_due}T12:00:00Z` : undefined,
-            title: input.next_action, entity_id: input.entity_id, person_id: input.person_id,
+            title: input.next_action, entity_id: input.entity_id, person_id: input.person_id, source: 'manual',
           }];
         }
         return next;

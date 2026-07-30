@@ -1,6 +1,6 @@
 // IRM_SPEC §4 — interaction roadmap derivations. Pure functions, sibling to
 // rules.ts (kept separate so rules.ts stays scoped to its documented set).
-import type { ActionType, Db, Entity, Interaction, Person, RelationshipStage, TaskItem } from './types';
+import type { ActionType, Channel, Classification, Db, Direction, Entity, Interaction, Person, RelationshipStage, TaskItem } from './types';
 import { LOCK_DAYS } from './rules';
 import { looksLikePersonName } from './structured-import';
 
@@ -185,6 +185,67 @@ export function recommendedActionType(db: Db, entityId: string, personId?: strin
 
   const daysSince = (now.getTime() - new Date(last.occurred_at).getTime()) / 86_400_000;
   return daysSince >= LOCK_DAYS ? 'follow_up_no_reply' : 'other';
+}
+
+export interface NextActionSuggestion {
+  title: string;
+  dueAt: string; // ISO date
+  actionType: ActionType;
+}
+
+// Prompt 65 Bloco 4 — "the next action should come from the engine, not the
+// founder." Channel/classification -> suggestion table, shown here (this IS
+// the table the prompt asked to see before applying it):
+//
+//   Outbound, by channel (waiting for a reply):
+//     web_form, email, linkedin_dm, linkedin_note, intro -> "Wait for a
+//       reply until <occurred_at + 14d> — then follow up <via that channel>"
+//       (follow_up_no_reply, 14 days — same LOCK_DAYS window the contact
+//       lock itself already uses, so the suggestion and the lock always
+//       agree on when it's legitimate to re-approach).
+//     call, meeting, event -> shorter windows (3d / 2d / 3d) tagged
+//       follow_up_thread: these are synchronous touches with momentum to
+//       protect, not a cold message waiting on a reply.
+//
+//   Inbound, by classification:
+//     meeting_request -> "Schedule the meeting" (follow_up_thread, 2d)
+//     interested       -> "Move the conversation forward" (follow_up_thread, 3d)
+//     question         -> "Answer their question" (follow_up_thread, 2d)
+//     out_of_office    -> "Follow up once they're back" (follow_up_no_reply, 10d)
+//     pass, awaiting, bounce, unclear -> no suggestion (a pass closes the
+//       relationship rather than opening a next step; the other three are
+//       either not yet actionable or need a human read first).
+const OUTBOUND_CHANNEL_SUGGESTION: Partial<Record<Channel, { verb: string; dueInDays: number; actionType: ActionType }>> = {
+  web_form: { verb: 'follow up via the same form', dueInDays: LOCK_DAYS, actionType: 'follow_up_no_reply' },
+  email: { verb: 'follow up by email', dueInDays: LOCK_DAYS, actionType: 'follow_up_no_reply' },
+  linkedin_dm: { verb: 'follow up on LinkedIn', dueInDays: LOCK_DAYS, actionType: 'follow_up_no_reply' },
+  linkedin_note: { verb: 'follow up on LinkedIn', dueInDays: LOCK_DAYS, actionType: 'follow_up_no_reply' },
+  intro: { verb: 'follow up on the introduction', dueInDays: LOCK_DAYS, actionType: 'follow_up_no_reply' },
+  call: { verb: 'follow up after the call', dueInDays: 3, actionType: 'follow_up_thread' },
+  meeting: { verb: 'follow up after the meeting', dueInDays: 2, actionType: 'follow_up_thread' },
+  event: { verb: 'follow up after the event', dueInDays: 3, actionType: 'follow_up_thread' },
+};
+
+const INBOUND_CLASSIFICATION_SUGGESTION: Partial<Record<Classification, { title: string; dueInDays: number; actionType: ActionType }>> = {
+  meeting_request: { title: 'Schedule the meeting', dueInDays: 2, actionType: 'follow_up_thread' },
+  interested: { title: 'Move the conversation forward', dueInDays: 3, actionType: 'follow_up_thread' },
+  question: { title: 'Answer their question', dueInDays: 2, actionType: 'follow_up_thread' },
+  out_of_office: { title: "Follow up once they're back", dueInDays: 10, actionType: 'follow_up_no_reply' },
+};
+
+export function suggestNextAction(
+  direction: Direction, channel: Channel, classification: Classification | undefined, occurredAt: string,
+): NextActionSuggestion | null {
+  if (direction === 'out') {
+    const rule = OUTBOUND_CHANNEL_SUGGESTION[channel];
+    if (!rule) return null;
+    const dueAt = new Date(new Date(occurredAt).getTime() + rule.dueInDays * 86_400_000).toISOString();
+    return { title: `Wait for a reply until ${dueAt.slice(0, 10)} — then ${rule.verb}`, dueAt, actionType: rule.actionType };
+  }
+  const rule = classification ? INBOUND_CLASSIFICATION_SUGGESTION[classification] : undefined;
+  if (!rule) return null;
+  const dueAt = new Date(new Date(occurredAt).getTime() + rule.dueInDays * 86_400_000).toISOString();
+  return { title: rule.title, dueAt, actionType: rule.actionType };
 }
 
 export interface RelatedContact {

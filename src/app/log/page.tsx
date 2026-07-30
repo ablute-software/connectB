@@ -7,7 +7,7 @@ import { Card, PREFLIGHT_EXPLAIN, Tooltip } from '@/components/ui';
 import { QuickCreatePerson } from '@/components/QuickCreatePerson';
 import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
 import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
-import { ACTION_TYPE_LABEL, ACTION_TYPES, recommendedActionType, relationshipSummary } from '@/lib/relationship';
+import { ACTION_TYPE_LABEL, ACTION_TYPES, recommendedActionType, relationshipSummary, suggestNextAction, type NextActionSuggestion } from '@/lib/relationship';
 import { evaluateProvenanceGate, type ComposerClaim } from '@/lib/company-canon-logic';
 import { AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
 import type { ActionType, Channel, Classification, OverrideRule, PassReasonCategory } from '@/lib/types';
@@ -21,12 +21,18 @@ const CLASSIFICATIONS: Classification[] = ['awaiting', 'interested', 'meeting_re
 const PASS_CATS: PassReasonCategory[] = ['valuation', 'check_size', 'geography', 'stage_too_early', 'thesis_mismatch', 'team', 'traction', 'other'];
 
 function LogForm() {
-  const { db, logInteraction, addCompanyFact } = useStore();
+  const { db, logInteraction, addCompanyFact, addTask } = useStore();
   const router = useRouter();
   const sp = useSearchParams();
 
   const [entityId, setEntityId] = useState(sp.get('entity') ?? '');
   const [personId, setPersonId] = useState(sp.get('person') ?? '');
+  // Prompt 65 Bloco 1 — a real, valid state for "this went out to a
+  // general/website channel, not a named person" (a Typeform, an info@
+  // inbox, a company LinkedIn page). Deliberately NOT a fake `people` row —
+  // just an interaction with person_id left null, same as the DB column
+  // already allows (interactions.person_id was already nullable).
+  const [noSpecificPerson, setNoSpecificPerson] = useState(false);
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const [direction, setDirection] = useState<'out' | 'in'>('out');
   const [channel, setChannel] = useState<Channel>('linkedin_dm');
@@ -47,6 +53,14 @@ function LogForm() {
   const [justification, setJustification] = useState('');
   const [showOverride, setShowOverride] = useState(false);
   const [toast, setToast] = useState('');
+  // Prompt 65 Bloco 4 — the relationship engine's suggested next step,
+  // shown after a save that left "Next action" blank. Accept/Edit/Ignore;
+  // Ignore is a legitimate choice (the founder decided, not a forced field).
+  const [pendingSuggestion, setPendingSuggestion] = useState<NextActionSuggestion | null>(null);
+  const [pendingSuggestionTarget, setPendingSuggestionTarget] = useState<{ entityId: string; personId?: string } | null>(null);
+  const [editingSuggestion, setEditingSuggestion] = useState(false);
+  const [suggestionTitle, setSuggestionTitle] = useState('');
+  const [suggestionDue, setSuggestionDue] = useState('');
   const [intent, setIntent] = useState<ComposerIntent>('first_touch');
   const [composing, setComposing] = useState(false);
   const [composerNote, setComposerNote] = useState('');
@@ -98,7 +112,19 @@ function LogForm() {
   const hookNotResearched = !!person && person.hook_status !== 'researched';
   const reopenTrigger = entity?.status === 'dormant' ? entity.reopen_trigger : undefined;
   const reopenBlocked = direction === 'out' && !!reopenTrigger && !reopenAck;
-  const formReady = entityId && content.trim().length > 0 && (direction === 'in' ? !!person || true : !!person) && !passMissing && !reopenBlocked;
+  const formReady = entityId && content.trim().length > 0 && (direction === 'in' || !!person || noSpecificPerson) && !passMissing && !reopenBlocked;
+  // Prompt 65 Bloco 3 — the disabled Save button gave no indication of
+  // WHICH condition was blocking it (this was the actual cause behind the
+  // "Next action required" confusion — the real blocker was always the
+  // missing-person requirement, next_action has never been required by
+  // this form). Surfaced explicitly below the button instead of leaving
+  // the founder to guess.
+  const disabledReason = !entityId ? 'Select an entity.'
+    : content.trim().length === 0 ? 'Write the message content.'
+    : direction === 'out' && !person && !noSpecificPerson ? 'Select a person, or choose "No specific person" if this was sent to a general channel.'
+    : passMissing ? 'A pass reason is required.'
+    : reopenBlocked ? 'Confirm the reopening checkbox above.'
+    : null;
 
   useEffect(() => {
     if (entityId) setIntent(pickIntent(db, entityId));
@@ -182,13 +208,17 @@ function LogForm() {
     if (rest.length === 0) { setComposerNote(''); draftWithAi(); } // all answered — regenerate
   }
 
+  function goToEntity() {
+    router.push(entityId ? `/entities/${entityId}` : '/pipeline');
+  }
+
   function save(withOverrides: boolean, sentFrom?: string) {
     if (!formReady) return;
     const overrides = withOverrides
       ? summary.failed.filter((f) => f.overridable).map((f) => ({ rule: f.key as OverrideRule, justification }))
       : [];
     const fullContent = channel === 'email' && subject ? `Subject: ${subject}\n\n${content}` : content;
-    logInteraction({
+    const interaction = logInteraction({
       entity_id: entityId, person_id: personId || undefined, direction, channel, content: fullContent,
       occurred_at: whatDate ? new Date(whatDate).toISOString() : undefined,
       sent_from: direction === 'out' && channel === 'email' ? (sentFrom ?? db.org.sender_email) : undefined,
@@ -202,11 +232,51 @@ function LogForm() {
       ai_generated: aiGenerated || undefined,
     });
     if (direction === 'out') {
-      setToast(`${sentFrom ? `Sent from ${sentFrom} and logged` : 'Saved'}. Contact lock set for 14 days · follow-up task created.${overrides.length ? ' Override logged.' : ''}`);
+      setToast(`${sentFrom ? `Sent from ${sentFrom} and logged` : 'Saved'}. Contact lock set for 14 days.${overrides.length ? ' Override logged.' : ''}`);
     } else {
       setToast('Reply saved.');
     }
-    setTimeout(() => router.push(entityId ? `/entities/${entityId}` : '/pipeline'), 900);
+
+    // Prompt 65 Bloco 4 — only offer a suggestion when the founder didn't
+    // already tell us the next step themselves; a pass (classification
+    // already handled by logInteraction) also naturally yields no
+    // suggestion, since suggestNextAction returns null for it.
+    if (!nextAction) {
+      const suggestion = suggestNextAction(direction, channel, direction === 'in' ? classification : undefined, interaction.occurred_at);
+      if (suggestion) {
+        setPendingSuggestion(suggestion);
+        setPendingSuggestionTarget({ entityId, personId: personId || undefined });
+        setSuggestionTitle(suggestion.title);
+        setSuggestionDue(suggestion.dueAt.slice(0, 10));
+        return; // wait for Accept / Edit / Ignore below instead of redirecting immediately
+      }
+    }
+    setTimeout(goToEntity, 900);
+  }
+
+  function acceptSuggestion() {
+    if (!pendingSuggestion || !pendingSuggestionTarget) return;
+    addTask({
+      title: pendingSuggestion.title, due_at: pendingSuggestion.dueAt, action_type: pendingSuggestion.actionType,
+      kind: 'follow_up', entity_id: pendingSuggestionTarget.entityId, person_id: pendingSuggestionTarget.personId, source: 'suggested',
+    });
+    setPendingSuggestion(null);
+    goToEntity();
+  }
+
+  function saveEditedSuggestion() {
+    if (!pendingSuggestionTarget || !suggestionTitle.trim()) return;
+    addTask({
+      title: suggestionTitle.trim(), due_at: suggestionDue ? `${suggestionDue}T12:00:00Z` : undefined, action_type: pendingSuggestion?.actionType ?? 'other',
+      kind: 'follow_up', entity_id: pendingSuggestionTarget.entityId, person_id: pendingSuggestionTarget.personId, source: 'manual',
+    });
+    setPendingSuggestion(null);
+    goToEntity();
+  }
+
+  function ignoreSuggestion() {
+    setPendingSuggestion(null);
+    goToEntity();
   }
 
   async function sendViaGmail() {
@@ -237,7 +307,7 @@ function LogForm() {
   // meetings, etc.) keeps the plain "Save interaction" label.
   const needsManualSendConfirmation = direction === 'out'
     && ((channel === 'email' && !canSendViaGmail) || channel === 'linkedin_dm' || channel === 'linkedin_note');
-  const primarySaveLabel = needsManualSendConfirmation ? 'Confirmo que enviei' : 'Save interaction';
+  const primarySaveLabel = needsManualSendConfirmation ? 'I confirm this was sent' : 'Save interaction';
 
   return (
     <div className="grid gap-4 md:grid-cols-3">
@@ -246,15 +316,16 @@ function LogForm() {
 
         <Card title="1 · Who">
           <div className="grid gap-2 sm:grid-cols-2">
-            <select value={entityId} onChange={(e) => { setEntityId(e.target.value); setPersonId(''); setShowQuickCreate(false); }}
+            <select value={entityId} onChange={(e) => { setEntityId(e.target.value); setPersonId(''); setNoSpecificPerson(false); setShowQuickCreate(false); }}
               className="rounded border border-gray-300 px-2 py-1.5 text-sm">
               <option value="">Select entity…</option>
               {db.entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
-            <select value={showQuickCreate ? '__new__' : personId}
+            <select value={showQuickCreate ? '__new__' : noSpecificPerson ? '__none__' : personId}
               onChange={(e) => {
-                if (e.target.value === '__new__') { setShowQuickCreate(true); setPersonId(''); }
-                else { setShowQuickCreate(false); setPersonId(e.target.value); }
+                if (e.target.value === '__new__') { setShowQuickCreate(true); setPersonId(''); setNoSpecificPerson(false); }
+                else if (e.target.value === '__none__') { setShowQuickCreate(false); setPersonId(''); setNoSpecificPerson(true); }
+                else { setShowQuickCreate(false); setPersonId(e.target.value); setNoSpecificPerson(false); }
               }}
               disabled={!entityId}
               className="rounded border border-gray-300 px-2 py-1.5 text-sm">
@@ -264,9 +335,15 @@ function LogForm() {
                   {p.seniority_rank} · {p.full_name}{p.do_not_contact ? ' — DO NOT CONTACT' : ''}
                 </option>
               ))}
-              <option value="__new__">Outra pessoa…</option>
+              <option value="__none__">No specific person — general/website channel</option>
+              <option value="__new__">Another person…</option>
             </select>
           </div>
+          {noSpecificPerson && (
+            <p className="mt-2 text-xs text-gray-500">
+              Logged against {entity?.name ?? 'this entity'} only — the channel below tells the story (web form, info@ inbox, company page).
+            </p>
+          )}
           {showQuickCreate && entityId && (
             <QuickCreatePerson entityId={entityId}
               onCreated={(newId) => { setPersonId(newId); setShowQuickCreate(false); }}
@@ -300,8 +377,8 @@ function LogForm() {
             aiComposerLocked ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                 <span className="text-xs text-gray-500">✨ {AI_COMPOSER_LOCKED_COPY}.</span>
-                <a href="/plans" className="text-[11px] font-medium text-[#0E7490] hover:underline">Ver planos</a>
-                <span className="text-[11px] text-gray-400">Podes escrever a mensagem manualmente abaixo.</span>
+                <a href="/plans" className="text-[11px] font-medium text-[#0E7490] hover:underline">View plans</a>
+                <span className="text-[11px] text-gray-400">You can write the message manually below.</span>
               </div>
             ) : (
               <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-cyan-100 bg-[#E8F4F8]/50 px-3 py-2">
@@ -350,20 +427,20 @@ function LogForm() {
           {staleDraft && (
             <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 px-3 py-2">
               <span className="flex-1 text-sm font-medium text-amber-900">
-                Este rascunho foi composto para {staleDraft.label} — atualiza ou regenera antes de usar.
+                This draft was composed for {staleDraft.label} — update it or regenerate before using it.
               </span>
               {direction === 'out' && person && !aiComposerLocked && (
                 <Tooltip text="Redrafts the message for the currently selected person and entity.">
                   <button disabled={composing} onClick={draftWithAi}
                     className="rounded border border-amber-500 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-40">
-                    {composing ? 'Regenerando…' : '↻ Regenerar'}
+                    {composing ? 'Regenerating…' : '↻ Regenerate'}
                   </button>
                 </Tooltip>
               )}
               <Tooltip text="Empties the message field so you can start fresh.">
                 <button onClick={() => setContent('')}
                   className="rounded border border-amber-500 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100">
-                  Limpar
+                  Clear
                 </button>
               </Tooltip>
             </div>
@@ -378,9 +455,9 @@ function LogForm() {
           {direction === 'out' && (channel === 'linkedin_dm' || channel === 'linkedin_note') && content && (
             <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
               <span className="text-gray-500">
-                LinkedIn não permite envio automático (ToS) — copia e cola a mensagem manualmente, depois confirma abaixo para a registar.
-                {channel === 'linkedin_dm' && touchCount === 0 && ' Ainda sem contacto registado — talvez um pedido de ligação com nota (até 300 caracteres) em vez de DM, que exige ligação já feita.'}
-                {channel === 'linkedin_note' && touchCount > 0 && ' Já há contacto registado — provavelmente já estão ligados; um DM pode ser mais adequado que um pedido de ligação.'}
+                LinkedIn doesn't allow automatic sending (ToS) — copy and paste the message manually, then confirm below to log it.
+                {channel === 'linkedin_dm' && touchCount === 0 && " No contact logged yet — maybe a connection request with a note (up to 300 characters) instead of a DM, which requires an existing connection."}
+                {channel === 'linkedin_note' && touchCount > 0 && ' Contact already logged — you\'re probably already connected; a DM may fit better than a connection request.'}
               </span>
               <Tooltip text="Copies the message text so you can paste it into LinkedIn.">
                 <button onClick={() => navigator.clipboard.writeText(content)}
@@ -397,7 +474,7 @@ function LogForm() {
           {direction === 'out' && channel === 'email' && !canSendViaGmail && content && (
             <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
               <span className="text-gray-500">
-                {gmail?.configured ? 'Gmail não ligado a este contacto (sem email verificado ou conta não ligada) — copia e envia manualmente, depois confirma abaixo.' : 'Envia manualmente a partir do teu email, depois confirma abaixo para o registar.'}
+                {gmail?.configured ? "Gmail isn't connected for this contact (no verified email or account not connected) — copy and send manually, then confirm below." : 'Send manually from your own email, then confirm below to log it.'}
               </span>
               <Tooltip text="Copies the subject and body so you can paste them into your email client.">
                 <button onClick={() => navigator.clipboard.writeText(subject ? `Subject: ${subject}\n\n${content}` : content)}
@@ -455,7 +532,7 @@ function LogForm() {
               className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
           </div>
           <div className="mt-2">
-            <label className="text-xs text-gray-500">Tipo de compromisso {!actionTypeTouched && entityId && '(recomendado)'}</label>
+            <label className="text-xs text-gray-500">Commitment type {!actionTypeTouched && entityId && '(recommended)'}</label>
             <select value={nextActionType}
               onChange={(e) => { setNextActionType(e.target.value as ActionType); setActionTypeTouched(true); }}
               className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm sm:w-auto">
@@ -464,17 +541,17 @@ function LogForm() {
           </div>
           {hookNotResearched && (
             <div className="mt-2 rounded border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-900">
-              Hook não researched — pesquisar antes de contactar. (regra existente: nunca rascunhar sem hook researched)
+              Hook not researched — research before contacting. (existing rule: never draft without a researched hook)
             </div>
           )}
         </Card>
 
         {reopenTrigger && direction === 'out' && (
-          <Card title="Reabertura — cite o &ldquo;não&rdquo; anterior e o que mudou" tint="amber">
+          <Card title="Reopening — cite the earlier &ldquo;no&rdquo; and what changed" tint="amber">
             <p className="text-sm text-amber-900">{reopenTrigger}</p>
             <label className="mt-2 flex items-start gap-2 text-xs text-amber-800">
               <input type="checkbox" checked={reopenAck} onChange={(e) => setReopenAck(e.target.checked)} className="mt-0.5" />
-              <span>O rascunho cita o pass anterior e o que mudou, conforme a doutrina de reabertura.</span>
+              <span>The draft cites the earlier pass and what changed, per the reopening doctrine.</span>
             </label>
           </Card>
         )}
@@ -482,11 +559,41 @@ function LogForm() {
         <div>
           {toast && <div className="mb-2 rounded bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800">{toast}</div>}
           {sendErr && <div className="mb-2 rounded bg-red-50 border border-red-200 px-3 py-2 text-sm text-[#B00000]">{sendErr}</div>}
-          {direction === 'in' || summary.green ? (
+          {pendingSuggestion ? (
+            // Prompt 65 Bloco 4 — the interaction is already saved; this is
+            // the engine's suggested next step, shown instead of an
+            // immediately-required field. Accept as-is, edit it, or ignore
+            // it entirely — all three are legitimate.
+            <div className="rounded-lg border border-cyan-200 bg-[#E8F4F8]/60 p-3">
+              <p className="text-sm font-medium text-cyan-900">Suggested next: {pendingSuggestion.title}</p>
+              {editingSuggestion ? (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <input value={suggestionTitle} onChange={(e) => setSuggestionTitle(e.target.value)}
+                    className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                  <input type="date" value={suggestionDue} onChange={(e) => setSuggestionDue(e.target.value)}
+                    className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                </div>
+              ) : null}
+              <div className="mt-2 flex flex-wrap gap-2">
+                {editingSuggestion ? (
+                  <button onClick={saveEditedSuggestion} disabled={!suggestionTitle.trim()}
+                    className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                    Save edited next action
+                  </button>
+                ) : (
+                  <>
+                    <button onClick={acceptSuggestion} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">Accept</button>
+                    <button onClick={() => setEditingSuggestion(true)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">Edit</button>
+                  </>
+                )}
+                <button onClick={ignoreSuggestion} className="text-xs text-gray-400 hover:underline">Ignore — no next action</button>
+              </div>
+            </div>
+          ) : direction === 'in' || summary.green ? (
             <div className="flex flex-wrap items-center gap-2">
               <Tooltip text={needsManualSendConfirmation
-                ? 'Confirms you sent this yourself outside the app, then logs it and applies its follow-on effects (contact lock, follow-up task).'
-                : 'Logs this interaction and applies its follow-on effects (contact lock, next-step task).'}>
+                ? 'Confirms you sent this yourself outside the app, then logs it and applies its follow-on effects (contact lock, suggested next step).'
+                : 'Logs this interaction and applies its follow-on effects (contact lock, suggested next step).'}>
                 <button disabled={!formReady || (direction === 'out' && lintErrors.length > 0)} onClick={() => save(false)}
                   className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
                   {primarySaveLabel}
@@ -500,6 +607,7 @@ function LogForm() {
                   </button>
                 </Tooltip>
               )}
+              {!formReady && disabledReason && <p className="w-full text-xs text-gray-400">{disabledReason}</p>}
             </div>
           ) : blockedHard ? (
             <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-[#B00000]">

@@ -368,6 +368,11 @@ export interface TaskItem {
   kind: TaskKind;
   action_type: ActionType;
   done: boolean;
+  // Prompt 65 Bloco 4 — 'suggested' when accepted as-is (or edited before
+  // accepting) from the relationship engine's next-action suggestion,
+  // 'manual' when the founder typed it themselves from scratch. Undefined
+  // for every task created before this shipped.
+  source?: 'suggested' | 'manual';
 }
 
 export interface RelationshipState {

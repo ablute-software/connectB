@@ -14,7 +14,7 @@ import type {
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric,
 } from './types';
-import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate, buildFollowUpTask } from './rules';
+import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval } from './reawakening';
 import { STAGE_LABEL, getStage } from './relationship';
@@ -246,15 +246,14 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
 
       if (input.direction === 'out') {
         const lockUntil = new Date(Date.now() + LOCK_DAYS * 24 * 3600 * 1000).toISOString();
-        const person = prev.people.find((p) => p.id === input.person_id);
         const entity = prev.entities.find((e) => e.id === input.entity_id);
         const newStatus: EntityStatus | undefined = entity && entity.status === 'not_contacted' ? 'contacted' : undefined;
         entityPatch = { contact_lock_until: lockUntil, ...(newStatus ? { status: newStatus } : {}) };
         entities = entities.map((e) => e.id === input.entity_id ? { ...e, ...entityPatch } : e);
-        newTaskRows.push({
-          id: uuid(), done: false,
-          ...buildFollowUpTask(input.entity_id, input.person_id, entity?.name ?? '', person?.full_name, interaction.occurred_at),
-        });
+        // Prompt 65 Bloco 4 — no more blind buildFollowUpTask here; see the
+        // matching comment in store-demo.tsx. The lock above is unchanged
+        // (independent of task creation); the follow-up TASK now comes
+        // from the engine's visible, confirmable suggestion instead.
       } else if (input.classification && ['interested', 'meeting_request', 'question'].includes(input.classification)) {
         const entity = prev.entities.find((e) => e.id === input.entity_id);
         if (entity && ['not_contacted', 'contacted'].includes(entity.status)) {
@@ -264,13 +263,13 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       }
 
       // The founder's own explicit next step (Log Interaction's "Next
-      // action" fields) becomes a real, visible Agenda task — separate
-      // from the automatic 14-day lock-reminder above.
+      // action" fields) becomes a real, visible Agenda task, tagged
+      // 'manual' — they typed it themselves, no suggestion involved.
       if (input.next_action) {
         newTaskRows.push({
           id: uuid(), kind: 'follow_up', action_type: input.next_action_type ?? 'other', done: false,
           due_at: input.next_action_due ? `${input.next_action_due}T12:00:00Z` : undefined,
-          title: input.next_action, entity_id: input.entity_id, person_id: input.person_id,
+          title: input.next_action, entity_id: input.entity_id, person_id: input.person_id, source: 'manual',
         });
       }
       tasks = [...tasks, ...newTaskRows];
