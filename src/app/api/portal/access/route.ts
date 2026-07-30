@@ -37,6 +37,25 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { grantIsActive, grantStatus } from '@/lib/access-grants';
+import { PORTAL_SECTIONS } from '@/lib/dataroom-sections';
+
+// Investor Workspace Fase 2 (prompt 55) — groups documents into the 6 fixed
+// diligence-journey sections by their folder's portal_section (migration
+// 0058). A folder with no portal_section (a container shell, or simply not
+// mapped yet) contributes nothing here — its documents don't appear in the
+// portal at all, per the prompt. Every section is always present in the
+// response, even empty, so the client can render "In preparation" instead
+// of just omitting it.
+function buildSections(
+  folders: { id: string; portal_section: string | null }[],
+  documents: { id: unknown; folder_id: unknown }[],
+) {
+  const sectionByFolderId = new Map(folders.map((f) => [f.id, f.portal_section]));
+  return PORTAL_SECTIONS.map((s) => ({
+    key: s.key, label: s.label,
+    documents: documents.filter((d) => sectionByFolderId.get(d.folder_id as string) === s.key),
+  }));
+}
 
 // Prompt 54 Bloco 1 — Zona 1 snapshot card data. Reads the same orgs
 // columns the founder-side Company tab (RoundCard.tsx) already writes —
@@ -144,14 +163,15 @@ export async function GET() {
         const orgId = membership.org_id as string;
         const { data: org } = await admin.from('orgs').select('name, sender_email').eq('id', orgId).single();
         const [{ data: allFolders }, { data: allDocs }] = await Promise.all([
-          admin.from('folders').select('id, name').eq('org_id', orgId),
+          admin.from('folders').select('id, name, portal_section').eq('org_id', orgId),
           admin.from('documents').select('*').eq('org_id', orgId),
         ]);
         const documents = await Promise.all((allDocs ?? []).map((d) => toPortalDoc(admin, d)));
         const snapshot = await buildSnapshot(admin, orgId);
+        const sections = buildSections(allFolders ?? [], documents);
         return NextResponse.json({
           orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
-          pendingNdaCount: 0, folders: allFolders ?? [], documents,
+          pendingNdaCount: 0, folders: allFolders ?? [], documents, sections,
           pendingConfirmation, qaAccess: true, snapshot, orgId,
           // Never populated for QA — the write route itself refuses to
           // insert for is_ablute_developer() sessions (see
@@ -201,17 +221,18 @@ export async function GET() {
   const folderPendingCount = folderGrants.length - unlockedFolderGrants.length;
   const folderIds = unlockedFolderGrants.map((g) => g.folder_id as string);
   const { data: folders } = folderIds.length
-    ? await admin.from('folders').select('id, name').in('id', folderIds)
+    ? await admin.from('folders').select('id, name, portal_section').in('id', folderIds)
     : { data: [] };
 
   const visibleDocs = candidateDocs.filter((d) => visibleIds.includes(d.id as string));
   const documents = await Promise.all(visibleDocs.map((d) => toPortalDoc(admin, d)));
   const snapshot = await buildSnapshot(admin, orgId);
   const currentTicketSignal = await latestTicketSignal(admin, orgId, email);
+  const sections = buildSections(folders ?? [], documents);
 
   return NextResponse.json({
     orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
-    pendingNdaCount: folderPendingCount + docPendingCount, folders: folders ?? [], documents,
+    pendingNdaCount: folderPendingCount + docPendingCount, folders: folders ?? [], documents, sections,
     pendingConfirmation, snapshot, orgId, currentTicketSignal,
   });
 }

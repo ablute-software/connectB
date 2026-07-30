@@ -50,6 +50,10 @@ interface PortalSnapshot {
 interface PortalData {
   orgName: string | null; senderEmail?: string | null; pendingNdaCount: number;
   folders: { id: string; name: string }[]; documents: PortalDoc[];
+  // Prompt 55 — the 6 fixed diligence-journey sections, each always
+  // present (possibly with an empty documents array) so the client can
+  // render "In preparation" rather than treat a missing key as an error.
+  sections?: { key: string; label: string; documents: PortalDoc[] }[];
   pendingConfirmation?: PendingConfirmation[];
   // Prompt 48 — @ablute.pt QA fallback in /api/portal/access, no real
   // access_grants behind it. Shown as a banner, not folded into the normal
@@ -410,22 +414,52 @@ export default function PortalPage() {
             Awaiting NDA — {pendingNdaCount} more item{pendingNdaCount === 1 ? '' : 's'} will appear here once your signed NDA is on file.
           </div>
         )}
-        {folders.map((f) => (
-          <div key={f.id} className="rounded-lg border border-gray-200 bg-white p-4">
-            <h2 className="text-sm font-semibold">{f.name}</h2>
-            <p className="text-xs text-gray-400">Folder access — documents appear here as they are added.</p>
-          </div>
-        ))}
-        {documents.map((d) => (
-          <div key={d.id} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-4">
-            <span className="text-xl">▤</span>
-            <div className="flex-1">
-              <div className="text-sm font-medium">{d.name}</div>
-              <div className="text-xs text-gray-400">{d.version} {d.watermark && '· watermarked'} {!d.downloadable && '· view only, no download'}</div>
+        {authEnabled && real?.sections ? (
+          // Prompt 55 — data room as a diligence journey: 6 fixed sections
+          // in a fixed order, never a flat folder list. A section with no
+          // documents shows "In preparation" instead of just vanishing —
+          // an investor should never wonder if a section was skipped.
+          real.sections.map((s) => (
+            <div key={s.key} className="rounded-lg border border-gray-200 bg-white p-4">
+              <h2 className="text-sm font-semibold text-gray-900">{s.label}</h2>
+              {s.documents.length === 0 ? (
+                <p className="mt-1 text-xs text-gray-400">In preparation.</p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {s.documents.map((d) => (
+                    <div key={d.id} className="flex items-center gap-3 rounded-lg border border-gray-100 p-3">
+                      <span className="text-lg">▤</span>
+                      <div className="flex-1">
+                        <div className="text-sm font-medium">{d.name}</div>
+                        <div className="text-xs text-gray-400">{d.version} {d.watermark && '· watermarked'} {!d.downloadable && '· view only, no download'}</div>
+                      </div>
+                      <button onClick={() => openDoc(d)} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">Open</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <button onClick={() => openDoc(d)} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">Open</button>
-          </div>
-        ))}
+          ))
+        ) : (
+          <>
+            {folders.map((f) => (
+              <div key={f.id} className="rounded-lg border border-gray-200 bg-white p-4">
+                <h2 className="text-sm font-semibold">{f.name}</h2>
+                <p className="text-xs text-gray-400">Folder access — documents appear here as they are added.</p>
+              </div>
+            ))}
+            {documents.map((d) => (
+              <div key={d.id} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-4">
+                <span className="text-xl">▤</span>
+                <div className="flex-1">
+                  <div className="text-sm font-medium">{d.name}</div>
+                  <div className="text-xs text-gray-400">{d.version} {d.watermark && '· watermarked'} {!d.downloadable && '· view only, no download'}</div>
+                </div>
+                <button onClick={() => openDoc(d)} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">Open</button>
+              </div>
+            ))}
+          </>
+        )}
         <p className="text-center text-[10px] text-gray-400">Every access is logged. ablute_ · Seed Round 2026</p>
         <ClaimProfileSection />
       </div>
