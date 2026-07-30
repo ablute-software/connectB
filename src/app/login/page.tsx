@@ -120,8 +120,14 @@ function LoginInner() {
           <>
             {linkSent ? (
               <div className="mb-3 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">
-                <p>Check your email for the sign-in link — sent to {email}.</p>
-                <p className="mt-1 text-gray-500">Open the link on this same device and browser you used to request it. Checking email on your phone instead? Use the code below.</p>
+                <p>We sent one sign-in email to {email} with a link and a 6-digit code.</p>
+                <p className="mt-1 text-gray-500">
+                  <strong>Use only one of the two.</strong> The link and the code are the same one-time pass — some email apps
+                  &quot;preview&quot; links automatically, which can silently use up the link before you click it. If that
+                  happens, the code below will say it expired even though you never used it. If it does, just send yourself
+                  a new one.
+                </p>
+                <p className="mt-1 text-gray-500">On this device: click the link. Checking email on your phone: type the code below.</p>
                 <button onClick={startOver} className="mt-1 text-gray-400 hover:underline">Not you? Start over</button>
               </div>
             ) : (
@@ -139,7 +145,15 @@ function LoginInner() {
                   className="mt-2 w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40">
                   {codeBusy ? 'Checking…' : 'Use code'}
                 </button>
-                {codeErr && <p className="mt-2 text-xs text-[#B00000]">{codeErr}</p>}
+                {codeErr && (
+                  <div className="mt-2 rounded-lg bg-red-50 border border-red-100 px-2.5 py-2">
+                    <p className="text-xs text-[#B00000]">{codeErr}</p>
+                    <button onClick={() => { setCode(''); setCodeErr(''); magicLink(); }} disabled={busy}
+                      className="mt-1.5 text-xs font-medium text-[#0E7490] hover:underline disabled:opacity-40">
+                      {busy ? 'Sending…' : 'Send me a new code'}
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <button onClick={() => setShowCodeEntry(true)} className="mt-2 block w-full text-center text-xs text-gray-400 hover:underline">
