@@ -46,6 +46,21 @@ async function activeGrantOrgIds(admin: SupabaseClient, email: string, personId:
   return [...ids];
 }
 
+// Same QA fallback as /api/portal/access — @ablute.pt sessions get into
+// the shell at all via is_ablute_developer(), not a real access_grants
+// row, so without this the Pipeline would silently show nothing for QA
+// while every other tab looks identical to a real investor's. Read-only:
+// falls back to the QA user's own org (org_members), never fabricates a
+// grant, and POST already refuses to write for these sessions regardless.
+async function eligibleOrgIds(sb: SupabaseClient, admin: SupabaseClient, userId: string, email: string, personId: string | null) {
+  const granted = await activeGrantOrgIds(admin, email, personId);
+  if (granted.length > 0) return granted;
+  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
+  if (!isAbluteQa) return granted;
+  const { data: membership } = await admin.from('org_members').select('org_id').eq('user_id', userId).limit(1).maybeSingle();
+  return membership ? [membership.org_id as string] : [];
+}
+
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -61,7 +76,7 @@ export async function GET() {
   if (!investorProfile) return NextResponse.json({ linked: false });
 
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
-  const orgIds = await activeGrantOrgIds(admin, email, person?.id ?? null);
+  const orgIds = await eligibleOrgIds(sb, admin, user.id, email, person?.id ?? null);
   if (orgIds.length === 0) return NextResponse.json({ linked: true, waves: [] });
 
   const { data: orgs } = await admin.from('orgs').select(
