@@ -232,7 +232,12 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
 
     logInteraction(input: LogInput) {
       const prev = dbRef.current;
-      const interaction: Interaction = { id: uuid(), occurred_at: new Date().toISOString(), ...input };
+      // Spread after id, but occurred_at needs its own fallback below: /log
+      // passes occurred_at: undefined explicitly when the founder leaves
+      // "when this happened" blank, and an explicit `undefined` in a spread
+      // overwrites a default that comes before it. Every relationship.ts
+      // sort assumes occurred_at is always a real timestamp.
+      const interaction: Interaction = { id: uuid(), ...input, occurred_at: input.occurred_at ?? new Date().toISOString() };
       const overrideRows: RuleOverride[] = (input.overrides ?? []).map((o) => ({
         id: uuid(), rule: o.rule, justification: o.justification,
         entity_id: input.entity_id, person_id: input.person_id,
@@ -282,7 +287,14 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
 
       const o = orgIdRef.current;
       if (o) {
-        persist(sb.from('interactions').insert({ ...interaction, org_id: o }), 'logInteraction:interaction');
+        // `interaction` is built from LogInput, which carries two fields
+        // that only exist to drive local task/override construction above
+        // (overrides, next_action_type) and were never columns on
+        // `interactions` — inserting them verbatim makes PostgREST reject
+        // the whole row with a schema-cache error, silently (the local
+        // optimistic commit above already "succeeded" from the UI's POV).
+        const { overrides: _overrides, next_action_type: _nextActionType, ...interactionRow } = interaction as Interaction & { overrides?: unknown; next_action_type?: unknown };
+        persist(sb.from('interactions').insert({ ...interactionRow, org_id: o }), 'logInteraction:interaction');
         if (overrideRows.length) persist(sb.from('rule_overrides').insert(overrideRows.map((r) => ({ ...r, org_id: o }))), 'logInteraction:overrides');
         if (newTaskRows.length) persist(sb.from('tasks').insert(newTaskRows.map((t) => ({ ...t, org_id: o }))), 'logInteraction:task');
         if (entityPatch) persist(sb.from('entities').update(entityPatch).eq('id', input.entity_id), 'logInteraction:entity');

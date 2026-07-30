@@ -43,8 +43,14 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     logInteraction(input) {
       const interaction: Interaction = {
         id: uid('int'),
-        occurred_at: new Date().toISOString(),
         ...input,
+        // Spread after the id, but occurred_at still needs its own
+        // fallback: /log passes occurred_at: undefined explicitly when the
+        // founder leaves "when this happened" blank, and an explicit
+        // `undefined` in a spread overwrites any default that comes before
+        // it. Every relationship.ts sort assumes occurred_at is always a
+        // real timestamp, so this can never be allowed through as undefined.
+        occurred_at: input.occurred_at ?? new Date().toISOString(),
       };
       setDb((prev) => {
         const next: Db = { ...prev, interactions: [...prev.interactions, interaction] };
