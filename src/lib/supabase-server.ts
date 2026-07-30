@@ -1,14 +1,17 @@
 // Server-only Supabase helpers (uses next/headers). Import from route handlers / server components only.
 import 'server-only';
 import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
-import { SUPABASE_URL, SUPABASE_ANON, type Role } from './supabase';
+import { cookies, headers } from 'next/headers';
+import { SUPABASE_URL, SUPABASE_ANON, shareableCookieDomain, type Role } from './supabase';
 
 export { authEnabled } from './supabase';
 
 export async function serverClient() {
   const cookieStore = await cookies();
+  const host = (await headers()).get('host');
+  const domain = shareableCookieDomain(host);
   return createServerClient(SUPABASE_URL!, SUPABASE_ANON!, {
+    cookieOptions: domain ? { domain } : undefined,
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll: (list) => {

@@ -8,8 +8,9 @@
 // adding it does NOT open up the rest of the app.
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { shareableCookieDomain } from '@/lib/supabase';
 
-const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/api/stripe/webhook', '/contact', '/api/support', '/api/investor-access-request', '/matchdeal/pair'];
+const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/api/stripe/webhook', '/contact', '/api/support', '/api/investor-access-request', '/matchdeal/pair', '/pair', '/manifest.json'];
 
 // Where a signed-in user belongs. '/' is the public landing now, so the app
 // home is the pipeline.
@@ -25,7 +26,9 @@ export async function middleware(req: NextRequest) {
   const isPublic = PUBLIC.some((p) => pathname === p || pathname.startsWith(p + '/'));
 
   let res = NextResponse.next({ request: req });
+  const cookieDomain = shareableCookieDomain(req.headers.get('host'));
   const supabase = createServerClient(url, anon, {
+    cookieOptions: cookieDomain ? { domain: cookieDomain } : undefined,
     cookies: {
       getAll: () => req.cookies.getAll(),
       setAll: (list) => {

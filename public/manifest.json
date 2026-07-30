@@ -1,0 +1,13 @@
+{
+  "name": "MatchDeal — Sherlock Deal",
+  "short_name": "MatchDeal",
+  "description": "Pair your device and browse this week's MatchDeal candidates.",
+  "start_url": "/pair",
+  "scope": "/pair",
+  "display": "standalone",
+  "background_color": "#F7F9FA",
+  "theme_color": "#0E7490",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

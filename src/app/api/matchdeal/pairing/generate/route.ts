@@ -46,6 +46,11 @@ export async function POST(req: Request) {
   await logEvent(admin, { organizationId: orgId, organizationType: kind, eventType: 'matchdeal_pair_token_generated', sourceOfAction: 'manual' });
   await logEvent(admin, { organizationId: orgId, organizationType: kind, eventType: 'matchdeal_pair_qr_shown', sourceOfAction: 'manual' });
 
-  const origin = req.headers.get('origin') ?? 'https://sherlockdeal.com';
-  return NextResponse.json({ ok: true, token: raw, expiresAt, pairUrl: `${origin}/matchdeal/pair?token=${raw}` });
+  // v2 — always app.sherlockdeal.com, per the spec's own design: this is
+  // both the PWA's real home today AND the correct domain to register as
+  // the future native app's Universal Link / App Link, so the QR URL
+  // never needs to change again. Not origin-relative (unlike v1) — the
+  // whole point is a fixed domain the PWA and, later, iOS/Android both
+  // recognize regardless of which host generated the code.
+  return NextResponse.json({ ok: true, token: raw, expiresAt, pairUrl: `https://app.sherlockdeal.com/pair?token=${raw}` });
 }
