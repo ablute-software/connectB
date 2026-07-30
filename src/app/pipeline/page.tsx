@@ -353,6 +353,16 @@ export default function PipelinePage() {
                     <Link href={`/entities/${e.id}`} className="text-gray-900 hover:text-[#0E7490]">
                       {e.name} {hf && <span title={e.hard_filter} className="text-[#B00000]">⚑</span>}
                     </Link>
+                    {/* Prompt 73 — a mutual MatchDeal match is a materially
+                        different, hotter provenance than a manual add or a
+                        catalog unlock (both sides already showed direct
+                        interest) — worth surfacing at a glance, not buried
+                        one click away on the entity page. */}
+                    {e.source === 'match_deal' && (
+                      <span className="ml-1.5 inline-block rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700" title="This entity came from a mutual MatchDeal match.">
+                        🤝 MatchDeal
+                      </span>
+                    )}
                     {/* §1c(ii) prompt 42 — a stub with no proof of its own
                         existence reads as an incomplete real profile
                         (blank fields with dashes) unless flagged explicitly. */}
