@@ -208,7 +208,23 @@ export function planEntitlements(plan: PlanTier, isPlatformOrg: boolean): Entitl
 // or gate yet — they exist only to price the /investors landing page (and,
 // later, an investor Plans surface) from one place, the same way PLANS does
 // for founders. No free tier for investors (product decision).
-export type InvestorPlanTier = 'boy_scout' | 'pro_spotter' | 'ace_sleuth';
+//
+// PLAN-01 rename (2026-07-30): Boy Scout -> Pro Scout, Pro Spotter -> Ace
+// Spotter, Ace Sleuth -> The Legendary Sleuth. Only the tier identifiers and
+// display names changed here — the DB-facing MatchDeal tier codes
+// (tier_a/tier_b/tier_c in matchdeal_profiles.plan_tier) are a separate,
+// unrelated system (see InvestorPlansPanel.tsx's MATCHDEAL_TO_TIER map) and
+// are untouched by this rename.
+//
+// bullets is the FULL card content per tier, verbatim from the spec — not a
+// feature delta. Some lines repeat across tiers with an updated number
+// (seats, qualified opportunities, Data Room/DD limits); that's intentional
+// spec copy, not something to be deduped. The renderer prefixes tiers after
+// the first with "Everything in {previous tier's name}, plus:" purely from
+// array order (fixed: Pro Scout, Ace Spotter, The Legendary Sleuth) — no
+// separate field needed, and it can't accidentally skip a tier the way a
+// manually-written string could.
+export type InvestorPlanTier = 'pro_scout' | 'ace_spotter' | 'legendary_sleuth';
 
 export interface InvestorPlanRow {
   tier: InvestorPlanTier;
@@ -219,42 +235,69 @@ export interface InvestorPlanRow {
   annualPerMonthEur: number;
   /** True while the annual price is a placeholder pending founder confirmation. */
   annualPending?: boolean;
-  mandates: number;
   seats: number;
+  /** Qualified opportunities/month cap — also drives the landing page teaser line. */
   monthlyCap: number;
   bullets: string[];
 }
 
+// PLAN-05 — required on every card, per the spec's own footnote markers (*)
+// used inline in the bullets above.
+export const INVESTOR_PLAN_FOOTNOTES = {
+  dataRoom: '*Requires permission from the startup.',
+  dueDiligence: '**Requires a meeting with the startup and permission from the startup.',
+};
+
 export const INVESTOR_PLANS: InvestorPlanRow[] = [
   {
-    tier: 'boy_scout', name: 'Boy Scout', tagline: 'For angels and first funds',
+    tier: 'pro_scout', name: 'Pro Scout', tagline: 'For angels and first funds',
     monthlyEur: 130, annualEur: 1200, annualPerMonthEur: 100,
-    mandates: 1, seats: 2, monthlyCap: 60,
+    seats: 1, monthlyCap: 10,
     bullets: [
-      '1 mandate', '2 seats', 'Up to 60 qualified opportunities/mo',
-      'Qualification Inbox', 'Pipeline OS & Scout Briefs',
+      '1 seat',
+      'Startup Pipeline & Smart Calendar',
+      'Up to 10 qualified opportunities/month',
+      'Access to shared private limited Data Room content for up to 5 startups/month*',
+      'Access to shared private limited Due Diligence files for up to 2 startups/month**',
+      'Add & Invite Startups',
     ],
   },
   {
-    tier: 'pro_spotter', name: 'Pro Spotter', tagline: 'For active VC and FO teams',
+    tier: 'ace_spotter', name: 'Ace Spotter', tagline: 'For active VC and FO teams',
     monthlyEur: 240,
     // TODO: annual price pending confirmation — placeholder from the spec.
     annualEur: 2220, annualPerMonthEur: 185, annualPending: true,
-    mandates: 3, seats: 5, monthlyCap: 120,
+    seats: 2, monthlyCap: 22,
     bullets: [
-      '3 mandates', '5 seats', 'Up to 120 qualified opportunities/mo',
-      'Everything in Boy Scout', 'Configurable alerts', 'Quarterly directed discovery run',
+      '2 seats',
+      'Startup Pipeline & Smart Calendar',
+      'Up to 22 qualified opportunities/month',
+      'Access to shared private limited Data Room content for up to 11 startups/month*',
+      'Access to shared private limited Due Diligence files for up to 5 startups/month**',
+      'Access to MatchDeal mobile app',
+      '10 new startups/week on MatchDeal',
+      '5 Swipe Rights/week',
+      '2 Reconsiderations/week',
+      'Hype List limited to 5 startups',
     ],
   },
   {
-    tier: 'ace_sleuth', name: 'Ace Sleuth', tagline: 'For high-volume funds',
+    tier: 'legendary_sleuth', name: 'The Legendary Sleuth', tagline: 'For high-volume funds',
     monthlyEur: 450,
     // TODO: annual price pending confirmation — placeholder from the spec.
     annualEur: 4140, annualPerMonthEur: 345, annualPending: true,
-    mandates: 10, seats: 15, monthlyCap: 250,
+    seats: 5, monthlyCap: 46,
     bullets: [
-      '10 mandates', '15 seats', 'Up to 250 qualified opportunities/mo',
-      'Everything in Pro Spotter', 'Monthly directed discovery run', 'Priority support',
+      '5 seats',
+      'Startup Pipeline & Smart Calendar',
+      'Up to 46 qualified opportunities/month',
+      'Access to shared private limited Data Room content for up to 23 startups/month*',
+      'Access to shared private limited Due Diligence files for up to 11 startups/month**',
+      'Access to MatchDeal mobile app',
+      '20 new startups/week on MatchDeal',
+      '10 Swipe Rights/week',
+      'Unlimited Reconsiderations until the 10 weekly Swipe Rights have been used',
+      'Access to the entire Startup Hype List',
     ],
   },
 ];
@@ -262,3 +305,14 @@ export const INVESTOR_PLANS: InvestorPlanRow[] = [
 export function investorPlanRow(tier: InvestorPlanTier): InvestorPlanRow {
   return INVESTOR_PLANS.find((p) => p.tier === tier) ?? INVESTOR_PLANS[0];
 }
+
+// PLAN-02 — the 4th plan: no fixed price, a contact form instead of a
+// checkout/request CTA. Deliberately NOT part of INVESTOR_PLANS (which
+// models priced, structured plans with seats/caps/bullets) — the card and
+// its behaviour are different enough that folding it in would mean
+// nullable pricing fields leaking into every other reader of that array.
+export const PRIVATE_DETECTIVE_PLAN = {
+  name: 'Private Detective',
+  description: 'Get a personalized service and pricing.',
+  ctaLabel: 'Contact the Sherlock Team',
+};

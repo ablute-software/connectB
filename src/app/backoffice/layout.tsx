@@ -19,6 +19,7 @@ const NAV = [
   { href: '/backoffice/startups', label: 'Startups' },
   { href: '/backoffice/support', label: 'Customer Support' },
   { href: '/backoffice/promo-codes', label: 'Promo Codes & Offers' },
+  { href: '/backoffice/plan-requests', label: 'Plan Requests' },
   { href: '/backoffice/metrics', label: 'Metrics' },
 ];
 

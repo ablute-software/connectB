@@ -13,7 +13,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { INVESTOR_PLANS, type InvestorPlanTier } from '@/lib/plans';
 
 const TIER_TO_MATCHDEAL: Record<InvestorPlanTier, string> = {
-  boy_scout: 'tier_a', pro_spotter: 'tier_b', ace_sleuth: 'tier_c',
+  pro_scout: 'tier_a', ace_spotter: 'tier_b', legendary_sleuth: 'tier_c',
 };
 
 export async function POST(req: Request) {

@@ -5,7 +5,8 @@
 // `annualPending` until the founder confirms them (still rendered so the
 // page is functional, just easy to swap in plans.ts when confirmed).
 import { useState } from 'react';
-import { INVESTOR_PLANS } from '@/lib/plans';
+import { INVESTOR_PLANS, INVESTOR_PLAN_FOOTNOTES } from '@/lib/plans';
+import { PrivateDetectiveCard } from '@/components/plans/PrivateDetectiveCard';
 import s from '@/app/landing.module.css';
 
 function Check() {
@@ -41,9 +42,9 @@ export function InvestorPricingSection() {
           <span>Annual <span className={s.save}>save ~20%</span></span>
         </div>
 
-        <div className={s.plans}>
+        <div className={`${s.plans} ${s.plansInvestor}`}>
           {INVESTOR_PLANS.map((p, i) => {
-            const popular = p.tier === 'pro_spotter';
+            const popular = p.tier === 'ace_spotter';
             const delay = i === 1 ? s.d1 : i === 2 ? s.d2 : '';
             const amount = annual ? p.annualPerMonthEur : p.monthlyEur;
             const billing = annual
@@ -60,17 +61,26 @@ export function InvestorPricingSection() {
                   <small>/month</small>
                 </div>
                 <p className={s.perYear}>{billing}</p>
+                {/* PLAN-06 — from array order alone, never a hand-written
+                    string per tier: Ace Spotter says "...in Pro Scout",
+                    The Legendary Sleuth says "...in Ace Spotter", never both
+                    on the same card. */}
+                {i > 0 && <p className={s.who} style={{ fontWeight: 600 }}>Everything in {INVESTOR_PLANS[i - 1].name}, plus:</p>}
                 <ul>
                   {p.bullets.map((b) => (
                     <li key={b}><Check />{b}</li>
                   ))}
                 </ul>
+                <p className={s.perYear} style={{ marginTop: 8 }}>
+                  {INVESTOR_PLAN_FOOTNOTES.dataRoom}<br />{INVESTOR_PLAN_FOOTNOTES.dueDiligence}
+                </p>
                 {/* Investor plans don't exist in Stripe yet — CTA points at the
                     same signup entry point as the rest of the page, not checkout. */}
                 <a className={`${s.btn} ${popular ? s.btnTeal : s.btnGhostLight}`} href="/signup?as=investor">Claim your profile</a>
               </div>
             );
           })}
+          <PrivateDetectiveCard className={`${s.plan} ${s.rv} ${s.d2}`} />
         </div>
 
         <p className={`${s.teaser} ${s.rv}`} data-reveal>

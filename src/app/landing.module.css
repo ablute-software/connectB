@@ -189,6 +189,10 @@
 .switchOn::after { left: 29px; }
 .save { font-size: .72rem; font-weight: 700; background: var(--amber-soft); color: #8a6414; padding: 3px 10px; border-radius: 999px; }
 .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; align-items: stretch; }
+/* Investor pricing has a 4th (unpriced) plan — PLAN-02. Own modifier so the
+   founder-side 3-card .plans grid (PricingSection.tsx) is untouched. */
+.plansInvestor { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1100px) { .plansInvestor { grid-template-columns: repeat(2, 1fr); } }
 .plan { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 34px 30px; display: flex; flex-direction: column; box-shadow: var(--shadow); transition: transform .25s, box-shadow .25s; position: relative; }
 .plan:hover { transform: translateY(-6px); box-shadow: var(--shadow-lg); }
 .pop { border: 2px solid var(--teal); box-shadow: var(--shadow-lg); }
@@ -278,7 +282,7 @@
 @media (max-width: 900px) {
   .hero .wrap { grid-template-columns: 1fr; padding-bottom: 80px; }
   .mock { max-width: 520px; margin: 0 auto; }
-  .grid3, .steps, .plans { grid-template-columns: 1fr; }
+  .grid3, .steps, .plans, .plansInvestor { grid-template-columns: 1fr; }
   .split { grid-template-columns: 1fr; gap: 32px; }
   .navLinks a.link { display: none; }
   .c2 { left: -6px; }

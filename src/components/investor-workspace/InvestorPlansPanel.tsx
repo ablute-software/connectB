@@ -6,10 +6,11 @@
 // (INVESTOR_PLANS — names/prices are the founder's own spec, not invented
 // here), and a request button writing to matchdeal_profiles.plan_tier_requested.
 import { useEffect, useState } from 'react';
-import { INVESTOR_PLANS, type InvestorPlanTier } from '@/lib/plans';
+import { INVESTOR_PLANS, INVESTOR_PLAN_FOOTNOTES, type InvestorPlanTier } from '@/lib/plans';
+import { PrivateDetectiveCard } from '@/components/plans/PrivateDetectiveCard';
 
 const MATCHDEAL_TO_TIER: Record<string, InvestorPlanTier> = {
-  tier_a: 'boy_scout', tier_b: 'pro_spotter', tier_c: 'ace_sleuth',
+  tier_a: 'pro_scout', tier_b: 'ace_spotter', tier_c: 'legendary_sleuth',
 };
 
 interface Profile { plan_tier?: string | null; plan_tier_requested?: string | null }
@@ -27,7 +28,7 @@ export function InvestorPlansPanel() {
 
   if (!profile) return <p className="text-sm text-gray-400">Loading…</p>;
 
-  const current = MATCHDEAL_TO_TIER[profile.plan_tier ?? 'tier_a'] ?? 'boy_scout';
+  const current = MATCHDEAL_TO_TIER[profile.plan_tier ?? 'tier_a'] ?? 'pro_scout';
   const pendingRaw = requestedLocal ?? profile.plan_tier_requested ?? null;
   const pending = pendingRaw ? MATCHDEAL_TO_TIER[pendingRaw] ?? null : null;
 
@@ -56,7 +57,7 @@ export function InvestorPlansPanel() {
           <span className="text-sm text-gray-500">€{currentRow.monthlyEur}/month</span>
         </div>
         <p className="mt-1 text-xs text-gray-500">
-          {currentRow.mandates} mandate{currentRow.mandates === 1 ? '' : 's'} · {currentRow.seats} seats · up to {currentRow.monthlyCap} qualified opportunities/mo
+          {currentRow.seats} seat{currentRow.seats === 1 ? '' : 's'} · up to {currentRow.monthlyCap} qualified opportunities/mo
         </p>
         {pending && (
           <p className="mt-1.5 text-xs text-amber-700">
@@ -66,15 +67,18 @@ export function InvestorPlansPanel() {
         {err && <p className="mt-1.5 text-xs text-[#B00000]">{err}</p>}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        {INVESTOR_PLANS.map((p) => (
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {INVESTOR_PLANS.map((p, i) => (
           <div key={p.tier} className={`rounded-lg border p-4 ${p.tier === current ? 'border-[#0E7490]' : 'border-gray-200'}`}>
             <div className="text-sm font-bold text-gray-900">{p.name}</div>
             <div className="mt-0.5 text-xs text-gray-400">{p.tagline}</div>
             <div className="mt-2 text-lg font-semibold text-[#0E7490]">€{p.monthlyEur}<span className="text-xs font-normal text-gray-400">/mo</span></div>
+            {/* PLAN-06 — order-derived, so it can't skip a tier or repeat two headers on one card. */}
+            {i > 0 && <p className="mt-2 text-xs font-semibold text-gray-700">Everything in {INVESTOR_PLANS[i - 1].name}, plus:</p>}
             <ul className="mt-2 space-y-1 text-xs text-gray-600">
               {p.bullets.map((b) => <li key={b}>· {b}</li>)}
             </ul>
+            <p className="mt-2 text-[10px] text-gray-400">{INVESTOR_PLAN_FOOTNOTES.dataRoom} {INVESTOR_PLAN_FOOTNOTES.dueDiligence}</p>
             <div className="mt-3">
               {p.tier === current ? (
                 <span className="rounded-full bg-[#E8F4F8] px-3 py-1 text-xs font-semibold text-[#0E7490]">Current plan</span>
@@ -89,6 +93,7 @@ export function InvestorPlansPanel() {
             </div>
           </div>
         ))}
+        <PrivateDetectiveCard className="rounded-lg border border-gray-200 p-4" />
       </div>
 
       <p className="text-[11px] text-gray-400">No payment processing in this version — a plan-change request is recorded and the team applies it manually.</p>
