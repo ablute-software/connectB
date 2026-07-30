@@ -10,6 +10,7 @@ import { PipelinePanel } from './PipelinePanel';
 import { InvestorAgendaPanel } from './InvestorAgendaPanel';
 import { InvestorTodayPanel } from './InvestorTodayPanel';
 import { ArchivePanel } from './ArchivePanel';
+import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
 
 type Tab = 'pipeline' | 'about' | 'agenda' | 'today' | 'archive';
 
@@ -35,6 +36,12 @@ export function InvestorWorkspaceShell({
   const [pct, setPct] = useState<number | null>(null);
   const [openStartup, setOpenStartup] = useState(false);
   const [investorFirmName, setInvestorFirmName] = useState<string | null>(null);
+  // Identity verification Fase B (prompt 64), Bloco 1 — the badge lives in
+  // the sidebar rather than repeated separately in About/Pipeline/Archive's
+  // own headers: it's visible on every tab that way (a superset of what
+  // the prompt asked for) for a fraction of the wiring three separate
+  // fetches would need.
+  const [identityStatus, setIdentityStatus] = useState<IdentityStatus | null>(null);
 
   const aboutLabel = investorFirmName ? `About ${investorFirmName}` : 'About your firm';
   const gateOpen = pct != null && pct >= COMPLETENESS_GATE;
@@ -66,7 +73,14 @@ export function InvestorWorkspaceShell({
             </button>
           ))}
         </nav>
-        <div className="border-t border-gray-100 px-4 py-3">{sessionLabel}</div>
+        <div className="border-t border-gray-100 px-4 py-3">
+          {identityStatus && (
+            <span className={`mb-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${IDENTITY_BADGE_CLASS[identityStatus]}`}>
+              {IDENTITY_BADGE_LABEL[identityStatus]}
+            </span>
+          )}
+          {sessionLabel}
+        </div>
       </aside>
 
       <div className="flex-1 md:ml-60">
@@ -90,7 +104,7 @@ export function InvestorWorkspaceShell({
               </div>
             )
           )}
-          {tab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} onEntityNameChange={setInvestorFirmName} />}
+          {tab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} onEntityNameChange={setInvestorFirmName} onIdentityStatusChange={setIdentityStatus} />}
           {tab === 'agenda' && <InvestorAgendaPanel />}
           {tab === 'today' && <InvestorTodayPanel />}
           {tab === 'archive' && <ArchivePanel />}

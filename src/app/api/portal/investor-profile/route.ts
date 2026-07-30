@@ -7,6 +7,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { SECTOR_TAXONOMY } from '@/lib/investor-sector-taxonomy';
 import { computeIdentityStatus } from '@/lib/investor-identity';
+import { countDistinctVoucherEntities } from '@/lib/investor-vouching';
 
 // Identity verification Fase A (prompt 63), Bloco 2 — @ablute.pt sessions
 // never see the real "Which firm are you with?" search/match screen at
@@ -89,10 +90,12 @@ export async function GET() {
     profile = created;
   }
 
+  const distinctVoucherEntityCount = await countDistinctVoucherEntities(admin, member.catalog_entity_id);
   const identityStatus = computeIdentityStatus({
     selfDeclaredIndividual: !!profile?.self_declared_individual,
     domainVerified: !!member.domain_verified,
     entityVerificationStatus: entity?.verification_status ?? null,
+    distinctVoucherEntityCount,
   });
 
   return NextResponse.json({

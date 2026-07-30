@@ -6,6 +6,8 @@
 // migration 0056 added to matchdeal_profiles).
 import { useEffect, useState } from 'react';
 import { ColleaguesCard } from './ColleaguesCard';
+import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
+import { VouchingCard } from './VouchingCard';
 
 interface Profile {
   sectors: string[]; geographies: string[]; stages_invested: string[]; instruments: string[];
@@ -17,14 +19,8 @@ interface Profile {
 }
 interface ProfileResponse {
   linked: boolean; entityName?: string | null; profile?: Profile; completeness?: number; sectorOptions?: string[];
-  identityStatus?: 'verified' | 'pending_verification' | 'self_declared_individual';
+  identityStatus?: IdentityStatus;
 }
-
-const IDENTITY_BADGE: Record<string, { label: string; className: string }> = {
-  verified: { label: 'Verified fund', className: 'bg-green-50 text-green-700' },
-  pending_verification: { label: 'Pending verification', className: 'bg-amber-50 text-amber-700' },
-  self_declared_individual: { label: 'Individual investor', className: 'bg-gray-100 text-gray-600' },
-};
 
 // Bloco 4 placeholder legal text — EXACT strings from the prompt, never a
 // "finalized" version. See self-declare/route.ts's own header: do not edit
@@ -270,7 +266,10 @@ function VerificationUploadCard() {
   );
 }
 
-export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange }: { onCompletenessChange?: (pct: number) => void; onEntityNameChange?: (name: string | null) => void }) {
+export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange, onIdentityStatusChange }: {
+  onCompletenessChange?: (pct: number) => void; onEntityNameChange?: (name: string | null) => void;
+  onIdentityStatusChange?: (status: IdentityStatus | null) => void;
+}) {
   const [data, setData] = useState<ProfileResponse | null>(null);
   const [draft, setDraft] = useState<Profile | null>(null);
   const [saving, setSaving] = useState(false);
@@ -281,6 +280,7 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange 
       if (d.profile) setDraft(d.profile);
       if (d.completeness != null) onCompletenessChange?.(d.completeness);
       onEntityNameChange?.(d.linked ? d.entityName ?? null : null);
+      onIdentityStatusChange?.(d.linked ? d.identityStatus ?? null : null);
     });
   }
   useEffect(load, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -309,8 +309,8 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange 
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-semibold text-gray-900">About {data.entityName}</h2>
             {data.identityStatus && (
-              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${IDENTITY_BADGE[data.identityStatus].className}`}>
-                {IDENTITY_BADGE[data.identityStatus].label}
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${IDENTITY_BADGE_CLASS[data.identityStatus]}`}>
+                {IDENTITY_BADGE_LABEL[data.identityStatus]}
               </span>
             )}
           </div>
@@ -322,6 +322,7 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange 
       </div>
 
       {data.identityStatus === 'pending_verification' && <VerificationUploadCard />}
+      {data.identityStatus && data.identityStatus !== 'verified' && <VouchingCard />}
 
       <ColleaguesCard />
 
