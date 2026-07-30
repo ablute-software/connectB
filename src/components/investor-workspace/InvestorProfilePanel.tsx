@@ -17,7 +17,25 @@ interface Profile {
 }
 interface ProfileResponse {
   linked: boolean; entityName?: string | null; profile?: Profile; completeness?: number; sectorOptions?: string[];
+  identityStatus?: 'verified' | 'pending_verification' | 'self_declared_individual';
 }
+
+const IDENTITY_BADGE: Record<string, { label: string; className: string }> = {
+  verified: { label: 'Verified fund', className: 'bg-green-50 text-green-700' },
+  pending_verification: { label: 'Pending verification', className: 'bg-amber-50 text-amber-700' },
+  self_declared_individual: { label: 'Individual investor', className: 'bg-gray-100 text-gray-600' },
+};
+
+// Bloco 4 placeholder legal text — EXACT strings from the prompt, never a
+// "finalized" version. See self-declare/route.ts's own header: do not edit
+// this copy without an explicit instruction, and never call it production-
+// ready without a lawyer's review.
+const BA_ACK_TEXT = 'I confirm I am acting as an individual investor and not as a regulated entity. [Placeholder — legal copy pending review].';
+// This one's exact wording (no bracket) is the prompt's own example text,
+// not a compliance record like BA_ACK_TEXT above — the UI adds a separate
+// "placeholder" caption around it rather than folding a marker into the
+// sentence itself.
+const BA_WARNING_TEXT = 'As an individual investor, some platform features may be limited compared to verified funds.';
 
 const STAGES = ['pre_seed', 'seed', 'series_a', 'series_b_plus', 'growth'];
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
@@ -37,12 +55,114 @@ function MultiSelect({ options, selected, onChange }: { options: string[]; selec
   );
 }
 
+// Identity verification Fase A (prompt 63), Bloco 1 — "My firm isn't
+// listed." A small inline form rather than a separate screen, so it stays
+// one click away from the search box it's an alternative to.
+function AddFirmForm({ onLinked, onCancel }: { onLinked: () => void; onCancel: () => void }) {
+  const [name, setName] = useState('');
+  const [website, setWebsite] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function submit() {
+    if (!name.trim()) { setErr('Firm name is required.'); return; }
+    setBusy(true); setErr('');
+    try {
+      const res = await fetch('/api/portal/investor-profile/add-firm', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), website: website.trim() || undefined }),
+      });
+      const body = await res.json();
+      if (!body.ok) { setErr(body.error ?? 'Could not add firm.'); return; }
+      onLinked();
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3">
+      <p className="text-xs text-gray-500">
+        We'll add it to our catalog as pending — you can keep going with your profile right away, and we'll verify it shortly.
+      </p>
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Firm name"
+        className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+      <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="Website (optional)"
+        className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+      {err && <p className="mt-1.5 text-xs text-[#B00000]">{err}</p>}
+      <div className="mt-2 flex gap-2">
+        <button onClick={submit} disabled={busy} className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+          {busy ? 'Adding…' : 'Add my firm'}
+        </button>
+        <button onClick={onCancel} className="text-xs text-gray-400 hover:underline">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// Bloco 4 — Business Angel without a company. Checkbox text and popup
+// warning are BOTH placeholders — see the constants above and this
+// component's own comment: never treat this copy as final.
+function BusinessAngelFlow({ onLinked, onCancel }: { onLinked: () => void; onCancel: () => void }) {
+  const [isIndividual, setIsIndividual] = useState(false);
+  const [acked, setAcked] = useState(false);
+  const [showWarning, setShowWarning] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  function toggleAck(checked: boolean) {
+    setAcked(checked);
+    if (checked) setShowWarning(true);
+  }
+
+  async function submit() {
+    setBusy(true); setErr('');
+    try {
+      const res = await fetch('/api/portal/investor-profile/self-declare', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ackText: BA_ACK_TEXT }),
+      });
+      const body = await res.json();
+      if (!body.ok) { setErr(body.error ?? 'Could not save.'); return; }
+      onLinked();
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm">
+      <label className="flex items-start gap-2">
+        <input type="checkbox" checked={isIndividual} onChange={(e) => setIsIndividual(e.target.checked)} className="mt-0.5" />
+        <span>I am investing as an individual (Business Angel), not through a company</span>
+      </label>
+      {isIndividual && (
+        <label className="mt-2 flex items-start gap-2 text-xs text-gray-600">
+          <input type="checkbox" checked={acked} onChange={(e) => toggleAck(e.target.checked)} className="mt-0.5" />
+          <span>{BA_ACK_TEXT}</span>
+        </label>
+      )}
+      {showWarning && (
+        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          <p>{BA_WARNING_TEXT}</p>
+          <p className="mt-1 text-[10px] text-amber-600">(Placeholder text — pending legal review.)</p>
+          <div className="mt-2 flex gap-2">
+            <button onClick={submit} disabled={busy} className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
+              {busy ? 'Saving…' : 'Continue as individual investor'}
+            </button>
+            <button onClick={() => { setShowWarning(false); setAcked(false); }} className="text-xs text-gray-500 hover:underline">Back</button>
+          </div>
+        </div>
+      )}
+      {err && <p className="mt-1.5 text-xs text-[#B00000]">{err}</p>}
+      {!isIndividual && <button onClick={onCancel} className="mt-2 block text-xs text-gray-400 hover:underline">Cancel</button>}
+    </div>
+  );
+}
+
 function LinkEntityFlow({ onLinked }: { onLinked: () => void }) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<{ id: string; name: string; website: string | null }[]>([]);
   const [searching, setSearching] = useState(false);
   const [linking, setLinking] = useState<string | null>(null);
   const [err, setErr] = useState('');
+  const [showAddFirm, setShowAddFirm] = useState(false);
+  const [showBaFlow, setShowBaFlow] = useState(false);
 
   useEffect(() => {
     if (q.trim().length < 2) { setResults([]); return; }
@@ -61,16 +181,23 @@ function LinkEntityFlow({ onLinked }: { onLinked: () => void }) {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ catalog_entity_id: id }),
       });
       const body = await res.json();
+      // Identity verification Fase A (prompt 63) — a domain mismatch no
+      // longer blocks linking (link/route.ts always succeeds now); this
+      // branch only ever fires for a genuine failure (network, entity
+      // deleted, etc.), never "couldn't verify your domain."
       if (!body.ok) { setErr(body.error ?? 'Could not link.'); return; }
       onLinked();
     } finally { setLinking(null); }
   }
 
+  if (showAddFirm) return <AddFirmForm onLinked={onLinked} onCancel={() => setShowAddFirm(false)} />;
+  if (showBaFlow) return <BusinessAngelFlow onLinked={onLinked} onCancel={() => setShowBaFlow(false)} />;
+
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-5">
       <h2 className="text-sm font-semibold text-gray-900">Which firm are you with?</h2>
       <p className="mt-1 text-xs text-gray-400">
-        We verify this against your sign-in email's domain — no self-declared claim gets in without that match. If it doesn't match automatically, contact us and we'll check manually.
+        We verify this against your sign-in email's domain when we can. If it doesn't match automatically, you can still continue — we'll mark it pending and check manually.
       </p>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by firm name…"
         className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
@@ -89,6 +216,56 @@ function LinkEntityFlow({ onLinked }: { onLinked: () => void }) {
         </ul>
       )}
       {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}
+
+      <div className="mt-4 flex flex-wrap gap-3 border-t border-gray-100 pt-3 text-xs">
+        <button onClick={() => setShowAddFirm(true)} className="text-[#0E7490] hover:underline">None of these — add my firm</button>
+        <button onClick={() => setShowBaFlow(true)} className="text-gray-400 hover:underline">I'm investing as an individual, not a firm</button>
+      </div>
+    </div>
+  );
+}
+
+// Identity verification Fase A (prompt 63), Bloco 3 — "we couldn't
+// automatically verify your firm." Shown whenever identity_status is
+// pending_verification, regardless of how the investor got there (a
+// domain-mismatched search pick, or a self-added new firm).
+function VerificationUploadCard() {
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function upload() {
+    if (!file) return;
+    setBusy(true); setErr('');
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/portal/investor-profile/upload-document', { method: 'POST', body: form });
+      const body = await res.json();
+      if (!body.ok) { setErr(body.error ?? 'Could not upload.'); return; }
+      setDone(true);
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+      <h2 className="text-sm font-semibold text-gray-900">Strengthen your verification</h2>
+      <p className="mt-1 text-xs text-gray-600">
+        We couldn't automatically verify your firm. To activate full access, please upload a document showing your
+        registered activity (certificate of incorporation, business registry extract, or local equivalent).
+      </p>
+      {done ? (
+        <p className="mt-2 text-xs font-medium text-green-700">Uploaded — pending review.</p>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-xs" />
+          <button onClick={upload} disabled={!file || busy} className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+            {busy ? 'Uploading…' : 'Upload document'}
+          </button>
+        </div>
+      )}
+      {err && <p className="mt-1.5 text-xs text-[#B00000]">{err}</p>}
     </div>
   );
 }
@@ -129,13 +306,22 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange 
     <div className="max-w-2xl space-y-4">
       <div className="rounded-lg border border-gray-200 bg-white p-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-900">About {data.entityName}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-gray-900">About {data.entityName}</h2>
+            {data.identityStatus && (
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${IDENTITY_BADGE[data.identityStatus].className}`}>
+                {IDENTITY_BADGE[data.identityStatus].label}
+              </span>
+            )}
+          </div>
           <span className="text-xs font-medium text-gray-500">{data.completeness}% complete</span>
         </div>
         <div className="mt-2 h-1.5 rounded-full bg-gray-100">
           <div className="h-1.5 rounded-full bg-[#0E7490] transition-all" style={{ width: `${data.completeness}%` }} />
         </div>
       </div>
+
+      {data.identityStatus === 'pending_verification' && <VerificationUploadCard />}
 
       <ColleaguesCard />
 

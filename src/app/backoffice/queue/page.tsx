@@ -7,12 +7,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Card, Tooltip } from '@/components/ui';
 import { classifyConflict, type ConflictClass } from '@/lib/contribution-diff';
 
-type Tab = 'contributions' | 'submissions' | 'claims' | 'gdpr';
+type Tab = 'contributions' | 'submissions' | 'claims' | 'identity' | 'gdpr';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'contributions', label: 'Contributions' },
   { key: 'submissions', label: 'Submissions' },
   { key: 'claims', label: 'Claims' },
+  { key: 'identity', label: 'Investor identity' },
   { key: 'gdpr', label: 'GDPR' },
 ];
 
@@ -471,6 +472,92 @@ function GdprTab() {
   );
 }
 
+// Identity verification Fase A (prompt 63) — one queue for the two things
+// that make a catalog_entities row 'verified': an investor-proposed new
+// firm (Bloco 1), or an uploaded document against an existing/new firm
+// (Bloco 3). Same Card/Tooltip/Approve-Reject shape as SubmissionsTab above.
+interface PendingEntity { id: string; catalogEntityId: string; addedByEmail: string; createdAt: string; entityName: string; website: string | null }
+interface PendingDocument { id: string; investorEmail: string; catalogEntityId: string; fileName: string; createdAt: string; entityName: string; url: string | null }
+
+function InvestorIdentityTab() {
+  const [pendingEntities, setPendingEntities] = useState<PendingEntity[] | null>(null);
+  const [documents, setDocuments] = useState<PendingDocument[] | null>(null);
+  const [err, setErr] = useState('');
+
+  function refresh() {
+    fetch('/api/backoffice/investor-identity').then((r) => r.json()).then((body) => {
+      if (body.ok === false) { setErr(body.error); return; }
+      setPendingEntities(body.pendingEntities ?? []);
+      setDocuments(body.documents ?? []);
+    });
+  }
+  useEffect(refresh, []);
+
+  async function reviewEntity(catalogEntityId: string, decision: 'approved' | 'rejected') {
+    await fetch(`/api/backoffice/investor-identity/entities/${catalogEntityId}/review`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }),
+    });
+    refresh();
+  }
+  async function reviewDocument(id: string, decision: 'approved' | 'rejected') {
+    await fetch(`/api/backoffice/investor-identity/documents/${id}/review`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }),
+    });
+    refresh();
+  }
+
+  if (err) return <p className="text-sm text-[#B00000]">{err}</p>;
+  if (!pendingEntities || !documents) return <p className="text-sm text-gray-400">Loading…</p>;
+
+  return (
+    <div className="space-y-4">
+      <Card title={`Firms investors added themselves (${pendingEntities.length})`}>
+        <p className="mb-3 text-xs text-gray-500">
+          "My firm isn't listed" (Prompt 63 Bloco 1). Approving marks the catalog entity verified — every investor
+          linked to it shows the "Verified fund" badge, not just the one who added it.
+        </p>
+        {pendingEntities.length === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
+          <ul className="space-y-2">
+            {pendingEntities.map((e) => (
+              <li key={e.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm">
+                <span className="font-medium">{e.entityName}</span>
+                {e.website && <a href={e.website} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">{e.website}</a>}
+                <span className="text-xs text-gray-400">added by {e.addedByEmail} · {e.createdAt.slice(0, 10)}</span>
+                <div className="ml-auto flex gap-2">
+                  <button onClick={() => reviewEntity(e.catalogEntityId, 'approved')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Verify</button>
+                  <button onClick={() => reviewEntity(e.catalogEntityId, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card title={`Verification documents (${documents.length})`}>
+        <p className="mb-3 text-xs text-gray-500">
+          Uploaded incorporation/registry documents (Prompt 63 Bloco 3). Approving verifies the linked catalog entity.
+        </p>
+        {documents.length === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
+          <ul className="space-y-2">
+            {documents.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm">
+                <span className="font-medium">{d.entityName}</span>
+                <span className="text-xs text-gray-500">{d.investorEmail}</span>
+                {d.url ? <a href={d.url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">{d.fileName}</a> : <span className="text-xs text-gray-400">{d.fileName}</span>}
+                <span className="text-xs text-gray-400">{d.createdAt.slice(0, 10)}</span>
+                <div className="ml-auto flex gap-2">
+                  <button onClick={() => reviewDocument(d.id, 'approved')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Verify</button>
+                  <button onClick={() => reviewDocument(d.id, 'rejected')} className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50">Reject</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 export default function BackofficeQueuePage() {
   const [tab, setTab] = useState<Tab>('contributions');
   return (
@@ -487,6 +574,7 @@ export default function BackofficeQueuePage() {
       {tab === 'contributions' && <ContributionsTab />}
       {tab === 'submissions' && <SubmissionsTab />}
       {tab === 'claims' && <ClaimsTab />}
+      {tab === 'identity' && <InvestorIdentityTab />}
       {tab === 'gdpr' && <GdprTab />}
     </div>
   );

@@ -1,11 +1,17 @@
 // Investor Workspace shell (prompt 57) — link this session to a real
 // matchdeal_investor_members row, so the About tab has somewhere to write
 // the profile. Reuses investor-domain-match.ts (Prompt 41) rather than
-// reimplementing verification: a self-declared firm is not proof, the
-// signed-in email's domain has to actually match the catalog entity's own
-// domain for automatic linking, same V1 rule the investor-access-request
-// flow already enforces. No match -> no row created, same manual-review
-// message as Prompt 41 (nothing to build here, just point at support).
+// reimplementing verification: the signed-in email's domain matching the
+// catalog entity's own domain sets domain_verified=true immediately.
+//
+// Identity verification Fase A (prompt 63) — a domain mismatch used to hard
+// -block linking here (403, dead end: "encontrámos algo parecido mas o
+// domínio não bate", e.g. the LINCE Capital case). That's exactly the
+// "caminho sem saída" this prompt fixes: a mismatch now still links
+// (domain_verified=false, identity_status computes to
+// pending_verification — see investor-identity.ts), so onboarding
+// continues while the investor can strengthen verification later (document
+// upload, Bloco 3) or a founder manually verifies the entity in backoffice.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
@@ -33,17 +39,12 @@ export async function POST(req: Request) {
   const verdict = checkInvestorDomainMatch({
     email, firmName: entity.name, entities: [{ id: entity.id, name: entity.name, website: entity.website }],
   });
-  if (!isAutoEligible(verdict)) {
-    return NextResponse.json({
-      ok: false, error: 'Could not automatically verify your affiliation with this firm — this needs a manual check.',
-      verdict: verdict.kind,
-    }, { status: 403 });
-  }
+  const domainVerified = isAutoEligible(verdict);
 
   const { data: member, error } = await admin.from('matchdeal_investor_members')
-    .upsert({ user_id: user.id, catalog_entity_id, status: 'active' }, { onConflict: 'user_id,catalog_entity_id' })
+    .upsert({ user_id: user.id, catalog_entity_id, status: 'active', domain_verified: domainVerified }, { onConflict: 'user_id,catalog_entity_id' })
     .select('id').single();
   if (error || !member) return NextResponse.json({ ok: false, error: error?.message ?? 'Could not link.' }, { status: 500 });
 
-  return NextResponse.json({ ok: true, membershipId: member.id, entityName: entity.name });
+  return NextResponse.json({ ok: true, membershipId: member.id, entityName: entity.name, domainVerified, verdict: verdict.kind });
 }

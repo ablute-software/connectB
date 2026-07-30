@@ -6,6 +6,29 @@ import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { SECTOR_TAXONOMY } from '@/lib/investor-sector-taxonomy';
+import { computeIdentityStatus } from '@/lib/investor-identity';
+
+// Identity verification Fase A (prompt 63), Bloco 2 — @ablute.pt sessions
+// never see the real "Which firm are you with?" search/match screen at
+// all: they're linked straight to the single fixed "ablute_ — Internal QA"
+// catalog row (migration 0063), clearly marked, pre-verified (it's a known
+// fixture, not a real trust question), never a fabricated real-looking VC.
+const QA_ENTITY_NAME = 'ablute_ — Internal QA';
+
+async function autoLinkQaSession(sb: SupabaseClient, admin: SupabaseClient, userId: string) {
+  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
+  if (!isAbluteQa) return null;
+  const { data: qaEntity } = await admin.from('catalog_entities').select('id').eq('name', QA_ENTITY_NAME).maybeSingle();
+  if (!qaEntity) return null;
+  // domain_verified stays false here on purpose — this isn't a real domain
+  // match, it's an internal bypass. The QA entity's own
+  // verification_status='verified' (migration 0063 seed) is what makes
+  // identity_status compute to 'verified', an honest audit trail either way.
+  const { data: member } = await admin.from('matchdeal_investor_members')
+    .upsert({ user_id: userId, catalog_entity_id: qaEntity.id, status: 'active' }, { onConflict: 'user_id,catalog_entity_id' })
+    .select('id, catalog_entity_id, domain_verified').single();
+  return member ?? null;
+}
 
 const EDITABLE = [
   'sectors', 'geographies', 'stages_invested', 'instruments', 'instrument_other',
@@ -37,7 +60,7 @@ function completeness(profile: Record<string, unknown>) {
 }
 
 async function resolveMember(admin: SupabaseClient, userId: string) {
-  const { data } = await admin.from('matchdeal_investor_members').select('id, catalog_entity_id')
+  const { data } = await admin.from('matchdeal_investor_members').select('id, catalog_entity_id, domain_verified')
     .eq('user_id', userId).eq('status', 'active').maybeSingle();
   return data;
 }
@@ -52,10 +75,11 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const member = await resolveMember(admin, user.id);
+  let member = await resolveMember(admin, user.id);
+  if (!member) member = await autoLinkQaSession(sb, admin, user.id);
   if (!member) return NextResponse.json({ linked: false });
 
-  const { data: entity } = await admin.from('catalog_entities').select('name').eq('id', member.catalog_entity_id).maybeSingle();
+  const { data: entity } = await admin.from('catalog_entities').select('name, verification_status').eq('id', member.catalog_entity_id).maybeSingle();
   let { data: profile } = await admin.from('matchdeal_profiles').select('*')
     .eq('membership_id', member.id).eq('kind', 'investor').maybeSingle();
   if (!profile) {
@@ -65,7 +89,16 @@ export async function GET() {
     profile = created;
   }
 
-  return NextResponse.json({ linked: true, entityName: entity?.name ?? null, profile, completeness: completeness(profile ?? {}), sectorOptions: SECTOR_TAXONOMY });
+  const identityStatus = computeIdentityStatus({
+    selfDeclaredIndividual: !!profile?.self_declared_individual,
+    domainVerified: !!member.domain_verified,
+    entityVerificationStatus: entity?.verification_status ?? null,
+  });
+
+  return NextResponse.json({
+    linked: true, entityName: entity?.name ?? null, profile, completeness: completeness(profile ?? {}),
+    sectorOptions: SECTOR_TAXONOMY, identityStatus,
+  });
 }
 
 export async function POST(req: Request) {
