@@ -7,8 +7,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { resolveInvestorProfile } from '@/lib/portal-access';
-import { computeBadges } from '@/lib/investor-archive';
+import { activeGrantOrgIds, resolveInvestorProfile } from '@/lib/portal-access';
+import { computeBadges, createArchiveEntry } from '@/lib/investor-archive';
 import type { InvestorThesis } from '@/lib/investor-match-score';
 
 export async function GET() {
@@ -76,8 +76,36 @@ export async function POST(req: Request) {
   const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
   if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
 
-  const body = await req.json().catch(() => ({})) as { entryId?: string };
-  if (!body.entryId) return NextResponse.json({ ok: false, error: 'entryId is required.' }, { status: 400 });
+  const body = await req.json().catch(() => ({})) as { entryId?: string; archiveOrgId?: string; reason?: string };
+
+  // Manual archive (Prompt 60 bullet 1's other trigger, alongside pass) —
+  // no swipe involved, just an archive entry.
+  if (body.archiveOrgId) {
+    const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+    const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
+    const orgIds = await activeGrantOrgIds(admin, email, person?.id ?? null);
+    if (!orgIds.includes(body.archiveOrgId)) return NextResponse.json({ ok: false, error: 'No active access to this org.' }, { status: 403 });
+    const { error } = await createArchiveEntry(admin, body.archiveOrgId, email, 'manual', body.reason ?? null);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+    // Same swipe graph a pass writes to (see /api/portal/pipeline) — Pipeline's
+    // card status derives from matchdeal_swipes, so a manual archive has to
+    // land there too or the card would keep showing as open.
+    const investorProfile = await resolveInvestorProfile(admin, user.id);
+    if (investorProfile) {
+      const { data: startupProfile } = await admin.from('matchdeal_profiles').select('id').eq('kind', 'startup').eq('membership_id', body.archiveOrgId).maybeSingle();
+      if (startupProfile) {
+        await admin.from('matchdeal_swipes').upsert(
+          { actor_profile_id: investorProfile.id, target_profile_id: startupProfile.id, direction: 'pass', pass_reason: 'other' },
+          { onConflict: 'actor_profile_id,target_profile_id' },
+        );
+      }
+    }
+
+    return NextResponse.json({ ok: true });
+  }
+
+  if (!body.entryId) return NextResponse.json({ ok: false, error: 'entryId or archiveOrgId is required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { data: entry } = await admin.from('investor_archive_entries').select('id, org_id')

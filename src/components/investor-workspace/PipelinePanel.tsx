@@ -64,6 +64,19 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
     setRemindedOrgId(orgId);
   }
 
+  // Archive (prompt 60) — manual archive, distinct from a pass: the
+  // investor sets it aside without recording a "why not" swipe reason.
+  async function archiveManually(orgId: string) {
+    setBusyOrgId(orgId);
+    try {
+      await fetch('/api/portal/archive', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ archiveOrgId: orgId }),
+      });
+      load();
+    } finally { setBusyOrgId(null); }
+  }
+
   if (!data) return <p className="text-sm text-gray-400">Loading…</p>;
   const waves = data.waves ?? [];
   const firstUnlocked = waves.find((w) => w.unlocked);
@@ -113,7 +126,12 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
                     Passed{c.passReason && ` — ${PASS_REASONS.find((r) => r.value === c.passReason)?.label ?? c.passReason}`}
                   </p>
                 ) : c.status === 'interested' ? (
-                  <p className="mt-3 text-xs text-[#0E7490] font-medium">Interest expressed</p>
+                  <div className="mt-3 flex items-center gap-2">
+                    <p className="text-xs text-[#0E7490] font-medium">Interest expressed</p>
+                    <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId} className="text-xs text-gray-400 hover:underline disabled:opacity-40">
+                      Archive
+                    </button>
+                  </div>
                 ) : wave.unlocked ? (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button onClick={onOpenStartup} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
@@ -142,6 +160,9 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
                     ) : (
                       <button onClick={() => setPassingOrgId(c.orgId)} className="text-xs text-gray-400 hover:underline">Pass</button>
                     )}
+                    <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId} className="text-xs text-gray-400 hover:underline disabled:opacity-40">
+                      Archive
+                    </button>
                   </div>
                 ) : null}
               </div>
