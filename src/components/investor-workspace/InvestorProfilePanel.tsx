@@ -5,6 +5,7 @@
 // linked (editable thesis form + completeness bar, same field set as
 // migration 0056 added to matchdeal_profiles).
 import { useEffect, useState } from 'react';
+import { ColleaguesCard } from './ColleaguesCard';
 
 interface Profile {
   sectors: string[]; geographies: string[]; stages_invested: string[]; instruments: string[];
@@ -135,6 +136,8 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange 
           <div className="h-1.5 rounded-full bg-[#0E7490] transition-all" style={{ width: `${data.completeness}%` }} />
         </div>
       </div>
+
+      <ColleaguesCard />
 
       <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
         <div>

@@ -28,6 +28,7 @@ import { InvestorWorkspaceShell } from '@/components/investor-workspace/Investor
 import { RoundUpdatesFeed } from '@/components/investor-workspace/RoundUpdatesFeed';
 import { QAPanel } from '@/components/investor-workspace/QAPanel';
 import { SoftCommitButton } from '@/components/investor-workspace/SoftCommitButton';
+import { SectionReviewToggle } from '@/components/investor-workspace/SectionReviewToggle';
 
 interface PortalDoc {
   id: string; name: string; version?: string; watermark: boolean;
@@ -432,7 +433,10 @@ export default function PortalPage() {
           // an investor should never wonder if a section was skipped.
           real.sections.map((s) => (
             <div key={s.key} className="rounded-lg border border-gray-200 bg-white p-4">
-              <h2 className="text-sm font-semibold text-gray-900">{s.label}</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-gray-900">{s.label}</h2>
+                {real.orgId && <SectionReviewToggle orgId={real.orgId} sectionKey={s.key} />}
+              </div>
               {s.documents.length === 0 ? (
                 <p className="mt-1 text-xs text-gray-400">In preparation.</p>
               ) : (

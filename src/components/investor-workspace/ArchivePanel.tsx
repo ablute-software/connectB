@@ -36,10 +36,14 @@ function columnSummary(s: SnapshotView | null): string {
 
 export function ArchivePanel() {
   const [entries, setEntries] = useState<ArchiveEntry[] | null>(null);
+  const [usualCoInvestors, setUsualCoInvestors] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   function load() {
-    fetch('/api/portal/archive').then((r) => r.json()).then((d) => setEntries(d.entries ?? []));
+    fetch('/api/portal/archive').then((r) => r.json()).then((d) => {
+      setEntries(d.entries ?? []);
+      setUsualCoInvestors(d.usualCoInvestors ?? null);
+    });
   }
   useEffect(load, []);
 
@@ -62,7 +66,11 @@ export function ArchivePanel() {
 
   return (
     <div className="max-w-3xl space-y-4">
-      <h1 className="text-lg font-bold text-gray-900">Archive</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-bold text-gray-900">Archive</h1>
+        <a href="/api/portal/export?type=archive" className="text-xs text-gray-400 hover:underline">Export CSV</a>
+      </div>
+      {usualCoInvestors && <p className="text-xs text-gray-400">Usually co-invests with: {usualCoInvestors}</p>}
       {entries.map((e) => {
         const activeBadges = e.badges ? BADGE_LABELS.filter((b) => e.badges![b.key]) : [];
         return (

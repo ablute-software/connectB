@@ -17,11 +17,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { computeMatchScore, type InvestorThesis, type StartupRound } from '@/lib/investor-match-score';
-import { activeGrantOrgIds, eligibleOrgIds, resolveInvestorProfile } from '@/lib/portal-access';
+import { activeGrantOrgIds, resolveInvestorProfile } from '@/lib/portal-access';
 import { createArchiveEntry } from '@/lib/investor-archive';
+import { getPipelineWaves } from '@/lib/investor-pipeline';
 
-const WAVE_SIZE = 8;
 const PASS_REASONS = ['ticket_too_small', 'outside_thesis', 'too_early', 'other'] as const;
 
 export async function GET() {
@@ -35,59 +34,8 @@ export async function GET() {
   if (!user || !email) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const investorProfile = await resolveInvestorProfile(admin, user.id);
-  if (!investorProfile) return NextResponse.json({ linked: false });
-
-  const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
-  const orgIds = await eligibleOrgIds(sb, admin, user.id, email, person?.id ?? null);
-  if (orgIds.length === 0) return NextResponse.json({ linked: true, waves: [] });
-
-  const { data: orgs } = await admin.from('orgs').select(
-    'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country',
-  ).in('id', orgIds);
-  const { data: startupProfiles } = await admin.from('matchdeal_profiles').select('id, membership_id')
-    .eq('kind', 'startup').in('membership_id', orgIds);
-  const profileByOrg = new Map((startupProfiles ?? []).map((p) => [p.membership_id as string, p.id as string]));
-
-  const thesis: InvestorThesis = {
-    sectors: investorProfile.sectors ?? [], stagesInvested: investorProfile.stages_invested ?? [],
-    geographies: investorProfile.geographies ?? [], instruments: investorProfile.instruments ?? [],
-    ticketMin: investorProfile.ticket_min, ticketMax: investorProfile.ticket_max,
-  };
-
-  const startupProfileIds = [...profileByOrg.values()];
-  const { data: swipes } = startupProfileIds.length
-    ? await admin.from('matchdeal_swipes').select('target_profile_id, direction, pass_reason')
-      .eq('actor_profile_id', investorProfile.id).in('target_profile_id', startupProfileIds)
-    : { data: [] as { target_profile_id: string; direction: string; pass_reason: string | null }[] };
-  const swipeByStartupProfile = new Map((swipes ?? []).map((s) => [s.target_profile_id as string, s]));
-
-  const cards = (orgs ?? []).map((org) => {
-    const round: StartupRound = {
-      sectors: org.sectors ?? [], stage: org.stage, country: org.country,
-      roundTargetEur: org.round_target_eur, roundMinTicketEur: org.round_min_ticket_eur,
-      roundInstruments: org.round_instruments ?? [],
-    };
-    const { score, reasons } = computeMatchScore(thesis, round);
-    const startupProfileId = profileByOrg.get(org.id as string) ?? null;
-    const swipe = startupProfileId ? swipeByStartupProfile.get(startupProfileId) : null;
-    const status = swipe?.direction === 'pass' ? 'passed' : swipe?.direction === 'like' ? 'interested' : 'open';
-    return {
-      orgId: org.id, name: org.name, oneLiner: org.one_liner, sectors: org.sectors ?? [], stage: org.stage,
-      hqCity: org.hq_city, country: org.country, roundTargetEur: org.round_target_eur,
-      roundInstruments: org.round_instruments ?? [], matchScore: score, matchReasons: reasons,
-      status, passReason: swipe?.pass_reason ?? null,
-    };
-  }).sort((a, b) => b.matchScore - a.matchScore);
-
-  const waves = [];
-  for (let i = 0; i < cards.length; i += WAVE_SIZE) {
-    const items = cards.slice(i, i + WAVE_SIZE);
-    const priorTreated = cards.slice(0, i).every((c) => c.status !== 'open');
-    waves.push({ index: waves.length, items, unlocked: i === 0 || priorTreated });
-  }
-
-  return NextResponse.json({ linked: true, waves });
+  const result = await getPipelineWaves(sb, admin, user.id, email);
+  return NextResponse.json(result);
 }
 
 export async function POST(req: Request) {

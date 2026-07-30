@@ -8,8 +8,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { activeGrantOrgIds, resolveInvestorProfile } from '@/lib/portal-access';
-import { computeBadges, createArchiveEntry } from '@/lib/investor-archive';
-import type { InvestorThesis } from '@/lib/investor-match-score';
+import { createArchiveEntry, getArchiveEntries } from '@/lib/investor-archive';
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -22,45 +21,12 @@ export async function GET() {
   if (!user || !email) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data: entries } = await admin.from('investor_archive_entries')
-    .select('id, org_id, source, reason_detail, archived_at, first_contact_snapshot_id, archived_snapshot_id')
-    .eq('investor_email', email).is('reopened_at', null).order('archived_at', { ascending: false });
-  if (!entries || entries.length === 0) return NextResponse.json({ entries: [] });
-
-  const orgIds = [...new Set(entries.map((e) => e.org_id as string))];
-  const { data: orgs } = await admin.from('orgs').select('id, name').in('id', orgIds);
-  const orgNameById = new Map((orgs ?? []).map((o) => [o.id as string, o.name as string]));
-
-  const snapshotIds = [...new Set(entries.flatMap((e) => [e.first_contact_snapshot_id, e.archived_snapshot_id] as string[]))];
-  const { data: snapshots } = await admin.from('startup_profile_snapshots').select('id, data, captured_at').in('id', snapshotIds);
-  const snapshotById = new Map((snapshots ?? []).map((s) => [s.id as string, s]));
-
-  const { data: nowSummaries } = await admin.from('startup_now_summaries').select('org_id, summary_text, generated_at').in('org_id', orgIds);
-  const nowByOrg = new Map((nowSummaries ?? []).map((s) => [s.org_id as string, s]));
-
-  const investorProfile = await resolveInvestorProfile(admin, user.id);
-  const thesis: InvestorThesis | null = investorProfile ? {
-    sectors: investorProfile.sectors ?? [], stagesInvested: investorProfile.stages_invested ?? [],
-    geographies: investorProfile.geographies ?? [], instruments: investorProfile.instruments ?? [],
-    ticketMin: investorProfile.ticket_min, ticketMax: investorProfile.ticket_max,
-  } : null;
-
-  const result = await Promise.all(entries.map(async (e) => {
-    const firstContact = snapshotById.get(e.first_contact_snapshot_id as string);
-    const lastContact = snapshotById.get(e.archived_snapshot_id as string);
-    const now = nowByOrg.get(e.org_id as string);
-    const badges = lastContact ? await computeBadges(admin, e.org_id as string, lastContact.data as Record<string, unknown>, thesis) : null;
-    return {
-      id: e.id, orgId: e.org_id, orgName: orgNameById.get(e.org_id as string) ?? 'Unknown',
-      source: e.source, reasonDetail: e.reason_detail, archivedAt: e.archived_at,
-      firstContact: firstContact ? { data: firstContact.data, capturedAt: firstContact.captured_at } : null,
-      lastContact: lastContact ? { data: lastContact.data, capturedAt: lastContact.captured_at } : null,
-      now: now ? { text: now.summary_text, generatedAt: now.generated_at } : null,
-      badges,
-    };
-  }));
-
-  return NextResponse.json({ entries: result });
+  const [entries, investorProfile] = await Promise.all([
+    getArchiveEntries(admin, user.id, email),
+    resolveInvestorProfile(admin, user.id),
+  ]);
+  const usualCoInvestors = (investorProfile as { usual_co_investors: string | null } | null)?.usual_co_investors ?? null;
+  return NextResponse.json({ entries, usualCoInvestors });
 }
 
 export async function POST(req: Request) {

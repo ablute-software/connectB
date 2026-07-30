@@ -8,7 +8,7 @@ export async function resolveInvestorProfile(admin: SupabaseClient, userId: stri
   const { data: member } = await admin.from('matchdeal_investor_members').select('id')
     .eq('user_id', userId).eq('status', 'active').maybeSingle();
   if (!member) return null;
-  const { data: profile } = await admin.from('matchdeal_profiles').select('id, sectors, stages_invested, geographies, instruments, ticket_min, ticket_max')
+  const { data: profile } = await admin.from('matchdeal_profiles').select('id, sectors, stages_invested, geographies, instruments, ticket_min, ticket_max, usual_co_investors')
     .eq('membership_id', member.id).eq('kind', 'investor').maybeSingle();
   return profile ?? null;
 }

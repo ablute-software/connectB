@@ -4,14 +4,19 @@
 // only the current wave is actionable, the rest stay locked until it's
 // fully treated (every card passed or expressed interest on).
 import { useEffect, useState } from 'react';
+import { OwnershipCalculator } from './OwnershipCalculator';
+import { ComparisonView } from './ComparisonView';
+
+const MAX_COMPARE = 3;
 
 interface Card {
   orgId: string; name: string; oneLiner: string | null; sectors: string[]; stage: string | null;
-  hqCity: string | null; country: string | null; roundTargetEur: number | null; roundInstruments: string[];
+  hqCity: string | null; country: string | null; roundTargetEur: number | null; roundValuationEur: number | null; roundInstruments: string[];
   matchScore: number; matchReasons: string[]; status: 'open' | 'passed' | 'interested'; passReason: string | null;
+  trackingCount: number;
 }
 interface Wave { index: number; items: Card[]; unlocked: boolean }
-interface PipelineResponse { linked: boolean; waves?: Wave[] }
+interface PipelineResponse { linked: boolean; waves?: Wave[]; usualCoInvestors?: string | null }
 
 const PASS_REASONS: { value: string; label: string }[] = [
   { value: 'ticket_too_small', label: 'Ticket too small' },
@@ -34,6 +39,12 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
   const [passingOrgId, setPassingOrgId] = useState<string | null>(null);
   const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
   const [remindedOrgId, setRemindedOrgId] = useState<string | null>(null);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [showComparison, setShowComparison] = useState(false);
+
+  function toggleCompare(orgId: string) {
+    setCompareIds((ids) => (ids.includes(orgId) ? ids.filter((id) => id !== orgId) : ids.length < MAX_COMPARE ? [...ids, orgId] : ids));
+  }
 
   function load() {
     fetch('/api/portal/pipeline').then((r) => r.json()).then(setData);
@@ -89,9 +100,33 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
     );
   }
 
+  const allCards = waves.flatMap((w) => w.items);
+  const compareCards = compareIds.map((id) => allCards.find((c) => c.orgId === id)).filter((c): c is Card => !!c);
+
   return (
     <div className="max-w-2xl space-y-4">
-      <h1 className="text-lg font-bold text-gray-900">Pipeline</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-bold text-gray-900">Pipeline</h1>
+        <a href="/api/portal/export?type=pipeline" className="text-xs text-gray-400 hover:underline">Export CSV</a>
+      </div>
+      {data.usualCoInvestors && <p className="text-xs text-gray-400">Usually co-invests with: {data.usualCoInvestors}</p>}
+
+      {compareIds.length > 0 && !showComparison && (
+        <div className="flex items-center justify-between rounded-lg border border-[#0E7490] bg-[#E8F4F8] px-3 py-2 text-xs">
+          <span>{compareIds.length} selected to compare</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setCompareIds([])} className="text-gray-500 hover:underline">Clear</button>
+            <button onClick={() => setShowComparison(true)} disabled={compareIds.length < 2}
+              className="rounded-lg bg-[#0E7490] px-2.5 py-1 font-medium text-white disabled:opacity-40">
+              Compare
+            </button>
+          </div>
+        </div>
+      )}
+      {showComparison && compareCards.length >= 2 && (
+        <ComparisonView cards={compareCards} onClose={() => setShowComparison(false)} />
+      )}
+
       {waves.map((wave) => (
         <div key={wave.index} className={wave.unlocked ? '' : 'opacity-50'}>
           {waves.length > 1 && (
@@ -107,18 +142,33 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
             {wave.items.filter((c) => c.status !== 'passed').map((c) => (
               <div key={c.orgId} className="rounded-lg border border-gray-200 bg-white p-4">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-gray-900">{c.name}</div>
-                    {c.oneLiner && <div className="text-xs text-gray-500">{c.oneLiner}</div>}
-                    <div className="mt-1 text-xs text-gray-400">
-                      {c.stage && (STAGE_LABELS[c.stage] ?? c.stage)}
-                      {c.sectors.length > 0 && ` · ${c.sectors.join(', ')}`}
-                      {fmtEur(c.roundTargetEur) && ` · raising ${fmtEur(c.roundTargetEur)}`}
+                  <div className="flex items-start gap-2">
+                    <input type="checkbox" checked={compareIds.includes(c.orgId)} onChange={() => toggleCompare(c.orgId)}
+                      disabled={!compareIds.includes(c.orgId) && compareIds.length >= MAX_COMPARE}
+                      className="mt-1" title="Select to compare" />
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">{c.name}</div>
+                      {c.oneLiner && <div className="text-xs text-gray-500">{c.oneLiner}</div>}
+                      <div className="mt-1 text-xs text-gray-400">
+                        {c.stage && (STAGE_LABELS[c.stage] ?? c.stage)}
+                        {c.sectors.length > 0 && ` · ${c.sectors.join(', ')}`}
+                        {fmtEur(c.roundTargetEur) && ` · raising ${fmtEur(c.roundTargetEur)}`}
+                      </div>
                     </div>
                   </div>
                   <div className="shrink-0 rounded-full bg-[#E8F4F8] px-2.5 py-1 text-xs font-semibold text-[#0E7490]">
                     {c.matchScore}% match{c.matchReasons.length > 0 && ` — ${c.matchReasons.join(', ')}`}
                   </div>
+                </div>
+
+                {c.trackingCount > 0 && (
+                  <p className="mt-1.5 text-xs text-gray-400">
+                    {c.trackingCount} other investor{c.trackingCount === 1 ? ' is' : 's are'} tracking {c.stage ? (STAGE_LABELS[c.stage] ?? c.stage) : 'this stage'} rounds
+                  </p>
+                )}
+
+                <div className="mt-2">
+                  <OwnershipCalculator roundValuationEur={c.roundValuationEur} roundTargetEur={c.roundTargetEur} />
                 </div>
 
                 {c.status === 'passed' ? (

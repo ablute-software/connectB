@@ -3,6 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { captureSnapshot } from './startup-snapshot';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from './investor-match-score';
+import { resolveInvestorProfile } from './portal-access';
 
 export async function createArchiveEntry(
   admin: SupabaseClient, orgId: string, investorEmail: string,
@@ -79,4 +80,46 @@ export async function computeBadges(
   }
 
   return { raisedSinceYouPassed, newRoundOpen, nowMatchesThesis, trending };
+}
+
+// Extracted so the CSV export (prompt 62.4) can reuse the exact same
+// then/now/badges computation the Archive tab itself uses.
+export async function getArchiveEntries(admin: SupabaseClient, userId: string, email: string) {
+  const { data: entries } = await admin.from('investor_archive_entries')
+    .select('id, org_id, source, reason_detail, archived_at, first_contact_snapshot_id, archived_snapshot_id')
+    .eq('investor_email', email).is('reopened_at', null).order('archived_at', { ascending: false });
+  if (!entries || entries.length === 0) return [];
+
+  const orgIds = [...new Set(entries.map((e) => e.org_id as string))];
+  const { data: orgs } = await admin.from('orgs').select('id, name').in('id', orgIds);
+  const orgNameById = new Map((orgs ?? []).map((o) => [o.id as string, o.name as string]));
+
+  const snapshotIds = [...new Set(entries.flatMap((e) => [e.first_contact_snapshot_id, e.archived_snapshot_id] as string[]))];
+  const { data: snapshots } = await admin.from('startup_profile_snapshots').select('id, data, captured_at').in('id', snapshotIds);
+  const snapshotById = new Map((snapshots ?? []).map((s) => [s.id as string, s]));
+
+  const { data: nowSummaries } = await admin.from('startup_now_summaries').select('org_id, summary_text, generated_at').in('org_id', orgIds);
+  const nowByOrg = new Map((nowSummaries ?? []).map((s) => [s.org_id as string, s]));
+
+  const investorProfile = await resolveInvestorProfile(admin, userId);
+  const thesis: InvestorThesis | null = investorProfile ? {
+    sectors: investorProfile.sectors ?? [], stagesInvested: investorProfile.stages_invested ?? [],
+    geographies: investorProfile.geographies ?? [], instruments: investorProfile.instruments ?? [],
+    ticketMin: investorProfile.ticket_min, ticketMax: investorProfile.ticket_max,
+  } : null;
+
+  return Promise.all(entries.map(async (e) => {
+    const firstContact = snapshotById.get(e.first_contact_snapshot_id as string);
+    const lastContact = snapshotById.get(e.archived_snapshot_id as string);
+    const now = nowByOrg.get(e.org_id as string);
+    const badges = lastContact ? await computeBadges(admin, e.org_id as string, lastContact.data as Record<string, unknown>, thesis) : null;
+    return {
+      id: e.id as string, orgId: e.org_id as string, orgName: orgNameById.get(e.org_id as string) ?? 'Unknown',
+      source: e.source as string, reasonDetail: e.reason_detail as string | null, archivedAt: e.archived_at as string,
+      firstContact: firstContact ? { data: firstContact.data, capturedAt: firstContact.captured_at } : null,
+      lastContact: lastContact ? { data: lastContact.data, capturedAt: lastContact.captured_at } : null,
+      now: now ? { text: now.summary_text as string, generatedAt: now.generated_at as string } : null,
+      badges,
+    };
+  }));
 }
