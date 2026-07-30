@@ -52,7 +52,7 @@ export default function BackofficeTodayPage() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-lg font-bold">Hoje</h1>
+      <h1 className="text-lg font-bold">Today</h1>
 
       {nothingUrgent && <Card><p className="text-sm text-gray-400">Nothing needs attention right now.</p></Card>}
 
@@ -111,7 +111,7 @@ export default function BackofficeTodayPage() {
 
       {data.stalledContributions.length > 0 && (
         <Card title={`Contributions stalled >7d (${data.stalledContributions.length})`}>
-          <p className="mb-2 text-xs text-gray-500">Review in detail on the Fila tab (grouped by subject with sources side by side).</p>
+          <p className="mb-2 text-xs text-gray-500">Review in detail on the Queue tab (grouped by subject with sources side by side).</p>
           <ul className="space-y-1 text-sm">
             {data.stalledContributions.map((c) => (
               <li key={c.id} className="flex items-center gap-2 text-gray-600">
@@ -120,7 +120,7 @@ export default function BackofficeTodayPage() {
               </li>
             ))}
           </ul>
-          <Link href="/backoffice/queue" className="mt-2 inline-block text-xs text-[#0E7490] hover:underline">Open Fila →</Link>
+          <Link href="/backoffice/queue" className="mt-2 inline-block text-xs text-[#0E7490] hover:underline">Open Queue →</Link>
         </Card>
       )}
 

@@ -49,38 +49,16 @@ export async function GET() {
     .map(([country, v]) => ({ country, ...v }))
     .sort((a, b) => b.verified - a.verified || b.total - a.total || a.country.localeCompare(b.country));
 
-  // Packs + their sizes, and deliveries per org.
-  const { data: packs } = await admin.from('packs').select('id, name, description, price_eur, active').order('name');
-  const { data: items } = await admin.from('pack_items').select('pack_id');
-  const itemCount = new Map<string, number>();
-  for (const it of items ?? []) itemCount.set(it.pack_id, (itemCount.get(it.pack_id) ?? 0) + 1);
-
-  const { data: deliveries } = await admin.from('catalog_deliveries').select('org_id, via_pack');
-  const perOrg = new Map<string, { total: number; viaPack: number }>();
-  for (const d of deliveries ?? []) {
-    const bucket = perOrg.get(d.org_id) ?? { total: 0, viaPack: 0 };
-    bucket.total += 1;
-    if (d.via_pack) bucket.viaPack += 1;
-    perOrg.set(d.org_id, bucket);
-  }
-  const { data: orgs } = await admin.from('orgs').select('id, name');
-  const orgName = new Map((orgs ?? []).map((o) => [o.id, o.name]));
-
   return NextResponse.json({
     ok: true,
     totals: {
       total, verified, imported, demo, backfilled,
       withPerson, withEmail,
-      // Share of the *packable* catalogue (demo rows never enter packs) that
-      // has a named person — the number that decides whether a pack is
-      // actually actionable for a founder.
+      // Share of the catalogue (excluding demo rows) that has a named
+      // person — the number that decides whether an entity is actually
+      // actionable for a founder.
       personPct: total - demo > 0 ? Math.round((withPerson / (total - demo)) * 100) : 0,
       countries: byCountry.filter((c) => c.country !== '—').length,
     },
-    byCountry,
-    packs: (packs ?? []).map((p) => ({ ...p, items: itemCount.get(p.id) ?? 0 })),
-    deliveries: [...perOrg.entries()]
-      .map(([orgId, v]) => ({ orgId, orgName: orgName.get(orgId) ?? orgId.slice(0, 8), ...v }))
-      .sort((a, b) => b.total - a.total),
   });
 }

@@ -12,14 +12,14 @@ import { usePathname, useRouter } from 'next/navigation';
 import { BRAND_NAME } from '@/lib/brand';
 
 const NAV = [
-  { href: '/backoffice', label: 'Hoje' },
-  { href: '/backoffice/queue', label: 'Fila' },
-  { href: '/backoffice/catalog', label: 'Catálogo' },
+  { href: '/backoffice', label: 'Today' },
+  { href: '/backoffice/queue', label: 'Queue' },
+  { href: '/backoffice/catalog', label: 'Catalog' },
   { href: '/backoffice/investors', label: 'Investors' },
   { href: '/backoffice/startups', label: 'Startups' },
-  { href: '/backoffice/support', label: 'Assistência ao Cliente' },
+  { href: '/backoffice/support', label: 'Customer Support' },
   { href: '/backoffice/promo-codes', label: 'Promo Codes & Offers' },
-  { href: '/backoffice/metrics', label: 'Métricas' },
+  { href: '/backoffice/metrics', label: 'Metrics' },
 ];
 
 export default function BackofficeLayout({ children }: { children: React.ReactNode }) {
@@ -74,7 +74,7 @@ export default function BackofficeLayout({ children }: { children: React.ReactNo
           </nav>
           {me?.orgRole && (
             <Link href="/pipeline" className="rounded-lg border border-white/20 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-white/10">
-              ← ablute_ (founder)
+              ← Back to ablute_ (founder)
             </Link>
           )}
         </div>

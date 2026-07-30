@@ -562,7 +562,7 @@ export default function BackofficeQueuePage() {
   const [tab, setTab] = useState<Tab>('contributions');
   return (
     <div className="space-y-5">
-      <h1 className="text-lg font-bold">Fila</h1>
+      <h1 className="text-lg font-bold">Queue</h1>
       <div className="flex gap-1 border-b border-gray-200">
         {TABS.map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)}

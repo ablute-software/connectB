@@ -277,7 +277,7 @@ function QualityPanel() {
     <div className="space-y-4">
       <EnrichmentQueueTable
         title="Quality — profiles below 70% (firmographic)"
-        subtitle="Ranked by demand. &quot;Research with AI&quot; proposes fields with source + confidence, queued for verification in Fila → Contributions."
+        subtitle="Ranked by demand. &quot;Research with AI&quot; proposes fields with source + confidence, queued for verification in Queue → Contributions."
         emptyLabel="Nothing below the firmographic completeness threshold right now."
         queue={profileQueue} research={research} onResearch={researchRow}
       />
@@ -288,87 +288,6 @@ function QualityPanel() {
         queue={contactQueue} research={research} onResearch={researchRow}
       />
     </div>
-  );
-}
-
-type Pack = { id: string; name: string; description: string | null; price_eur: number; active: boolean; catalogIds: string[] };
-
-function PacksPanel({ catalog }: { catalog: CatalogEntity[] }) {
-  const [packs, setPacks] = useState<Pack[] | null>(null);
-  const [newName, setNewName] = useState('');
-
-  function refresh() {
-    fetch('/api/backoffice/packs').then((r) => r.json()).then((body) => { if (body.ok) setPacks(body.packs); });
-  }
-  useEffect(refresh, []);
-
-  async function create() {
-    if (!newName) return;
-    await fetch('/api/backoffice/packs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newName }) });
-    setNewName(''); refresh();
-  }
-  async function toggleItem(packId: string, catalogId: string, has: boolean) {
-    await fetch(`/api/backoffice/packs/${packId}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(has ? { removeCatalogId: catalogId } : { addCatalogId: catalogId }),
-    });
-    refresh();
-  }
-
-  if (!packs) return <Card title="Packs"><p className="text-sm text-gray-400">Loading…</p></Card>;
-
-  return (
-    <Card title={`Packs (${packs.length})`}>
-      <div className="mb-3 flex gap-2">
-        <input placeholder="New pack name" value={newName} onChange={(e) => setNewName(e.target.value)} className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
-        <button disabled={!newName} onClick={create} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Create pack</button>
-      </div>
-      <div className="space-y-3">
-        {packs.map((p) => (
-          <details key={p.id} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-            <summary className="cursor-pointer text-sm font-semibold">{p.name} <span className="font-normal text-gray-400">— {p.catalogIds.length} investor(s){p.active ? '' : ' · inactive'}</span></summary>
-            <div className="mt-2 max-h-48 space-y-1 overflow-y-auto text-sm">
-              {catalog.filter((c) => c.verification_status === 'verified').map((c) => {
-                const has = p.catalogIds.includes(c.id);
-                return (
-                  <label key={c.id} className="flex items-center gap-2">
-                    <input type="checkbox" checked={has} onChange={() => toggleItem(p.id, c.id, has)} /> {c.name}
-                  </label>
-                );
-              })}
-            </div>
-          </details>
-        ))}
-      </div>
-    </Card>
-  );
-}
-
-function DistributionLog() {
-  const [deliveries, setDeliveries] = useState<{ id: string; orgName: string; catalogName: string; packName: string | null; delivered_at: string }[] | null>(null);
-  useEffect(() => {
-    fetch('/api/backoffice/distribution').then((r) => r.json()).then((body) => { if (body.ok) setDeliveries(body.deliveries); });
-  }, []);
-  if (!deliveries) return <Card title="Distribution log"><p className="text-sm text-gray-400">Loading…</p></Card>;
-  return (
-    <Card title="Distribution log — who received what (cross-org)">
-      {deliveries.length === 0 ? <p className="text-sm text-gray-400">No deliveries yet.</p> : (
-        <table className="w-full text-sm">
-          <thead><tr className="text-left text-[11px] uppercase tracking-wide text-gray-400"><th className="py-1.5">Date</th><th>Org</th><th>Investor</th><th>Pack</th></tr></thead>
-          <tbody>
-            {deliveries.map((d) => (
-              <tr key={d.id} className="border-t border-gray-50">
-                <td className="py-2 text-xs text-gray-400">{d.delivered_at.slice(0, 10)}</td>
-                <td className="text-xs font-medium">{d.orgName}</td>
-                <td className="text-xs">{d.catalogName}</td>
-                <td className="text-xs text-gray-500">{d.packName ?? '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      <p className="mt-2 text-[11px] text-gray-400">An investor is never delivered twice to the same org (unique org+catalog constraint).</p>
-    </Card>
   );
 }
 
@@ -386,13 +305,11 @@ export default function BackofficeCatalogPage() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-lg font-bold">Catálogo</h1>
+      <h1 className="text-lg font-bold">Catalog</h1>
       <MergeDuplicatesTool onMerged={refresh} />
       {err && <p className="text-sm text-[#B00000]">{err}</p>}
       {catalog && <CatalogTable catalog={catalog} refresh={refresh} />}
-      {catalog && <PacksPanel catalog={catalog} />}
       <QualityPanel />
-      <DistributionLog />
     </div>
   );
 }
