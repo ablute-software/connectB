@@ -67,7 +67,15 @@ export function InvestorPlansPanel() {
         {err && <p className="mt-1.5 text-xs text-[#B00000]">{err}</p>}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* BUG-03 — this panel's own container is capped at max-w-3xl (768px,
+          InvestorWorkspaceShell's <main>), which Tailwind's viewport-based
+          `lg:` breakpoint doesn't know about: `lg:grid-cols-4` fires at
+          1024px+ VIEWPORT width regardless of how narrow this container
+          actually renders, which would squeeze each card into ~183px —
+          the same "thin, tall card" bug as the public pricing page, just
+          via a different mechanism. Capped at 2 columns, the most this
+          container can comfortably fit these bullet-heavy cards. */}
+      <div className="grid gap-3 sm:grid-cols-2">
         {INVESTOR_PLANS.map((p, i) => (
           <div key={p.tier} className={`rounded-lg border p-4 ${p.tier === current ? 'border-[#0E7490]' : 'border-gray-200'}`}>
             <div className="text-sm font-bold text-gray-900">{p.name}</div>

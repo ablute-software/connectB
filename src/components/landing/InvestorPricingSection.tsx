@@ -22,7 +22,7 @@ export function InvestorPricingSection() {
 
   return (
     <section className={`${s.sec} ${s.pricingSec}`} id="pricing">
-      <div className={s.wrap}>
+      <div className={`${s.wrap} ${s.wrapPricingInvestor}`}>
         <div className={s.secHead} data-reveal>
           <span className={s.eyebrow}>Pricing</span>
           <h2>Plans built for how funds actually work</h2>

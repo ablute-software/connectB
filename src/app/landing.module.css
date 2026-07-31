@@ -189,10 +189,26 @@
 .switchOn::after { left: 29px; }
 .save { font-size: .72rem; font-weight: 700; background: var(--amber-soft); color: #8a6414; padding: 3px 10px; border-radius: 999px; }
 .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; align-items: stretch; }
-/* Investor pricing has a 4th (unpriced) plan — PLAN-02. Own modifier so the
-   founder-side 3-card .plans grid (PricingSection.tsx) is untouched. */
+/* BUG-03 root cause (measured live, 2026-07-31): .wrap's 1140px max-width
+   was sized for 3 cards (~348px each) — dividing that same width 4 ways
+   left each investor plan column at 255px, and each card carries up to 10
+   bullet lines of real copy (not deltas — see plans.ts), so the text wrap
+   forced card height to ~1220px. Not a broken grid-template-columns
+   override (repeat(4,1fr) WAS applying) — the container itself was too
+   narrow for 4 cards' worth of this content. Fix is a wider wrap scoped to
+   this section (.wrapPricingInvestor, applied alongside .wrap in
+   InvestorPricingSection.tsx — later in the cascade wins), not a fixed
+   width on the cards themselves, which would only re-break at a different
+   card count or content length.
+   Investor pricing has a 4th (unpriced) plan — PLAN-02. .plansInvestor is
+   its own modifier so the founder-side 3-card .plans grid (PricingSection.tsx)
+   is untouched. */
 .plansInvestor { grid-template-columns: repeat(4, 1fr); }
-@media (max-width: 1100px) { .plansInvestor { grid-template-columns: repeat(2, 1fr); } }
+.wrapPricingInvestor { max-width: 1400px; }
+/* Re-derived for the wider wrap: 4 columns stay comfortable (>=300px each)
+   down to ~1300px viewport; below that, drop to 2 columns rather than let
+   them get thin again. */
+@media (max-width: 1300px) { .plansInvestor { grid-template-columns: repeat(2, 1fr); } }
 .plan { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 34px 30px; display: flex; flex-direction: column; box-shadow: var(--shadow); transition: transform .25s, box-shadow .25s; position: relative; }
 .plan:hover { transform: translateY(-6px); box-shadow: var(--shadow-lg); }
 .pop { border: 2px solid var(--teal); box-shadow: var(--shadow-lg); }
