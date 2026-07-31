@@ -182,7 +182,14 @@ export function PlansPanel() {
       // "Most popular" nudges toward Suspect list on the Monthly view —
       // the lower-commitment entry point most people actually pick first.
       popular: p.tier === 'garage' && period === 'monthly',
-      bestPrice: p.tier === 'motherfunding',
+      // Prompt 76 — was hard-coded to the motherfunding tier regardless of
+      // which period was showing, so it appeared on the (more expensive)
+      // Monthly price too. Computed instead: true only when this card is
+      // actually displaying its own cheaper option — the annual rate,
+      // whenever one exists and undercuts the monthly price — so it
+      // naturally follows the toggle and applies to every paid plan
+      // uniformly, not just one hard-coded tier.
+      bestPrice: p.paid && period === 'annual' && p.annualPerMonthEur !== undefined && p.annualPerMonthEur < p.monthlyEur,
       promoNote: bestPromo
         ? `🎉 Promo ${bestPromo.code} — you pay €${discounted}/month${until ? ` until ${until}` : ' (permanently)'}`
         : undefined,
