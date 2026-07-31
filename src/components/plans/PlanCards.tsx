@@ -40,7 +40,7 @@ export function PlanCards({
             )}
             {p.bestPrice && (
               <span className="absolute -top-3 left-4 rounded-full bg-orange-500 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
-                Best price
+                Best value
               </span>
             )}
             <div className="text-sm font-bold text-gray-800">{p.name}</div>

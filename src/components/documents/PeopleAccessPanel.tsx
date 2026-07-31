@@ -69,18 +69,25 @@ export function PeopleAccessPanel() {
   // The whole pipeline, not just entities that already have a grant — per
   // Nuno's review, "no access yet" belongs IN this list, visibly, not
   // filtered out of it. Grant count (0 for most) makes that state honest.
+  //
+  // Post-Lote-1 adjustment: `db.entities` is already org-scoped (`.eq(
+  // 'org_id', orgId)` in store-supabase.tsx) — it's the org's own pipeline,
+  // never "everything". The real problem ablute_ surfaced is scale, not
+  // scope: 600+ entities makes an always-rendered flat list unusable.
+  // Search is the primary path per the spec's own intent — collapse to
+  // "has access" by default, and only searching reveals the rest.
+  const hasAccess = (entityId: string) => peopleForEntity(entityId).some((p) => grantedPersonIds.has(p.id));
+  const query_ = query.trim().toLowerCase();
   const allEntities = useMemo(() => {
-    const q = query.trim().toLowerCase();
     return db.entities
-      .filter((e) => !q || e.name.toLowerCase().includes(q))
+      .filter((e) => (query_ ? e.name.toLowerCase().includes(query_) : hasAccess(e.id)))
       .sort((a, b) => {
-        const aHas = peopleForEntity(a.id).some((p) => grantedPersonIds.has(p.id));
-        const bHas = peopleForEntity(b.id).some((p) => grantedPersonIds.has(p.id));
+        const aHas = hasAccess(a.id), bHas = hasAccess(b.id);
         if (aHas !== bHas) return aHas ? -1 : 1; // entities with access float to the top
         return a.name.localeCompare(b.name);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db.entities, db.personAffiliations, db.people, grantedPersonIds, query]);
+  }, [db.entities, db.personAffiliations, db.people, grantedPersonIds, query_]);
 
   const selectedEntity = db.entities.find((e) => e.id === selectedEntityId);
   const selectedPeople = selectedEntityId ? peopleForEntity(selectedEntityId) : [];
@@ -143,6 +150,7 @@ export function PeopleAccessPanel() {
           )}
         </div>
 
+        {!query_ && <p className="mb-1.5 text-[11px] text-gray-400">Showing entities with access. Search to find any other entity in your pipeline.</p>}
         <ul className="space-y-0.5">
           {allEntities.map((e) => {
             const grantCount = peopleForEntity(e.id).filter((p) => grantedPersonIds.has(p.id)).length;
@@ -158,7 +166,8 @@ export function PeopleAccessPanel() {
               </li>
             );
           })}
-          {allEntities.length === 0 && <p className="text-xs text-gray-400">No entity matches “{query}”.</p>}
+          {allEntities.length === 0 && query_ && <p className="text-xs text-gray-400">No entity matches “{query}”.</p>}
+          {allEntities.length === 0 && !query_ && <p className="text-xs text-gray-400">No entity has any access yet — search to pick one from your pipeline.</p>}
         </ul>
       </Card>
 

@@ -21,7 +21,7 @@ export interface PlanCardData {
   bullets: string[];
   /** Teal "Most popular" badge. */
   popular?: boolean;
-  /** Orange "Best price" badge — a separate flag from `popular` rather than
+  /** Orange "Best value" badge — a separate flag from `popular` rather than
    *  a shared "which one, and which color" field, since a caller may want
    *  neither, either, or (in principle) both on different cards. */
   bestPrice?: boolean;
