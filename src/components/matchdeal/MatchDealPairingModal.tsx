@@ -183,17 +183,16 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
               ))}
             </ul>
             {/* Prompt 75 — "connected" was a dead end: no way to pair another
-                device, re-show the QR, or just open the deck here. All
-                three matter for rehearsing a demo. */}
+                device or re-show the QR. Prompt 82 removed the third
+                action that used to live here ("Open MatchDeal on this
+                device") — MatchDeal is mobile-only now, and that button
+                was explicitly the desktop escape hatch Nuno wants gone,
+                not a mobile feature. */}
             <div className="mt-3 flex flex-col gap-2 border-t border-gray-100 pt-3">
               <button onClick={generate} disabled={busy}
                 className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 hover:border-[#0E7490] disabled:opacity-40">
                 Show QR / pairing code
               </button>
-              <a href="/pair" target="_blank" rel="noreferrer"
-                className="rounded-lg bg-[#0E7490] px-3 py-2 text-center text-xs font-semibold text-white hover:bg-[#0c637b]">
-                Open MatchDeal on this device
-              </a>
             </div>
           </div>
         )}

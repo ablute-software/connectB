@@ -19,8 +19,13 @@
 import { useEffect, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { MatchDealDeck } from '@/components/matchdeal/MatchDealDeck';
+import { detectMobileClient } from '@/lib/is-mobile-client';
 
 type Stage = 'checking' | 'need_login' | 'consuming' | 'paired' | 'error';
+// Prompt 82 — checked before anything else on this route. UX gate only
+// (see is-mobile-client.ts's own header) — a spoofed UA still reaches the
+// deck, and that's an accepted, explicitly-scoped gap, not an oversight.
+type DeviceCheck = 'checking' | 'mobile' | 'desktop';
 
 const DEVICE_ID_KEY = 'sherlockdeal_pwa_device_id';
 
@@ -51,6 +56,7 @@ function Wordmark({ compact = false }: { compact?: boolean }) {
 }
 
 export default function PairPage() {
+  const [device, setDevice] = useState<DeviceCheck>('checking');
   const [stage, setStage] = useState<Stage>('checking');
   const [token, setToken] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
@@ -59,6 +65,11 @@ export default function PairPage() {
   const [pairedAt, setPairedAt] = useState<string | null>(null);
 
   useEffect(() => {
+    setDevice(detectMobileClient() ? 'mobile' : 'desktop');
+  }, []);
+
+  useEffect(() => {
+    if (device !== 'mobile') return; // desktop never reaches the auth/pairing flow below
     const t = new URLSearchParams(window.location.search).get('token');
     setToken(t);
 
@@ -100,9 +111,38 @@ export default function PairPage() {
         setErrorMsg('Network error — try again.'); setStage('error');
       }
     })();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [device]);
 
   const loginUrl = token ? `/login?next=${encodeURIComponent(`/pair?token=${token}`)}` : '/login';
+
+  // Prompt 82 — checked before the auth/pairing flow above ever runs, so a
+  // desktop browser never even reaches "Checking your session…" or spends
+  // a pairing token. 'checking' renders nothing (not even the wordmark)
+  // for the one client-render tick before navigator.userAgent is read, to
+  // avoid a flash of the deck-shell chrome on a desktop that's about to
+  // get turned away.
+  if (device === 'checking') {
+    return <div className="min-h-[100dvh] bg-[#0B1220]" />;
+  }
+  if (device === 'desktop') {
+    return (
+      <div
+        className="relative flex w-full min-h-[100dvh] flex-col items-center justify-center bg-[#0B1220] px-6 text-center text-white"
+        style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <Wordmark />
+        <div className="mt-7 w-full max-w-sm rounded-3xl border border-white/10 bg-white/[0.07] p-6 backdrop-blur-xl">
+          <div className="text-3xl">📱</div>
+          <h1 className="mt-2 text-[17px] font-bold text-white">MatchDeal only opens on your phone</h1>
+          <p className="mt-2 text-[13.5px] leading-relaxed text-white/65">
+            Scan the QR code from Sherlock Deal, or open this same link on your mobile — MatchDeal
+            isn&apos;t available in a desktop browser.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
