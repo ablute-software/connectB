@@ -24,42 +24,38 @@ interface Profile {
 // preference, which is why this is a separate constant from
 // SECTOR_TAXONOMY/sectorOptions rather than reusing "Sectors invested in"'s
 // list. "human ethics" (his own wording) is decomposed into concrete,
-// selectable items per his follow-up instruction, and — also per that
-// follow-up — the list isn't a hard ceiling: ExclusionsPicker below adds a
-// free-text TagInput beneath these preset chips so a firm can still write
-// in something that isn't on this list.
+// selectable items per his follow-up instruction.
+//
+// Deliberately CLOSED, no free-text escape hatch (resolved 2026-07-31,
+// mini_prompt_resolucao_lista_11_exclusions): "opção de livre escrita" in
+// his follow-up described focus_keywords below, not this field — a legal/
+// ethical exclusion list stays curated, an investor can't type in an
+// arbitrary 12th item. An earlier version of this component wired a
+// TagInput onto this picker too; that was a misreading of the same chat
+// line and has been removed.
 const EXCLUSION_PRESETS = [
   'Adult content / pornography', 'Defense & weapons', 'Gambling', 'Tobacco', 'Alcohol',
   'Predatory lending / payday loans', 'Fossil fuels extraction', 'Animal testing (non-medical)',
   'Child labor', 'Discrimination', 'Mass surveillance',
 ];
 
-// Preset chips (toggle) + a TagInput for anything not on the list — both
-// halves write into the same exclusions_sectors string[], a preset is just
-// a value that happens to match one of the strings above.
 function ExclusionsPicker({ selected, onChange }: { selected: string[]; onChange: (v: string[]) => void }) {
   function toggle(preset: string) {
     const k = preset.toLowerCase();
     const has = selected.some((s) => s.toLowerCase() === k);
     onChange(has ? selected.filter((s) => s.toLowerCase() !== k) : [...selected, preset]);
   }
-  const presetKeys = new Set(EXCLUSION_PRESETS.map((p) => p.toLowerCase()));
-  const custom = selected.filter((s) => !presetKeys.has(s.toLowerCase()));
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5">
-        {EXCLUSION_PRESETS.map((p) => {
-          const active = selected.some((s) => s.toLowerCase() === p.toLowerCase());
-          return (
-            <button key={p} type="button" onClick={() => toggle(p)}
-              className={`rounded-full border px-2.5 py-1 text-xs ${active ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490] font-medium' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-              {p}
-            </button>
-          );
-        })}
-      </div>
-      <TagInput tags={custom} placeholder="Add another exclusion and press Enter…"
-        onChange={(nextCustom) => onChange([...selected.filter((s) => presetKeys.has(s.toLowerCase())), ...nextCustom])} />
+    <div className="flex flex-wrap gap-1.5">
+      {EXCLUSION_PRESETS.map((p) => {
+        const active = selected.some((s) => s.toLowerCase() === p.toLowerCase());
+        return (
+          <button key={p} type="button" onClick={() => toggle(p)}
+            className={`rounded-full border px-2.5 py-1 text-xs ${active ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490] font-medium' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+            {p}
+          </button>
+        );
+      })}
     </div>
   );
 }
