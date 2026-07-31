@@ -98,10 +98,30 @@ export async function consumePairingToken(
     return { ok: false, error: 'MATCHDEAL_TOKEN_INVALID' };
   }
 
-  const { data: pairing, error: pairingErr } = await admin.from('matchdeal_pairings').insert({
-    org_id: tokenRow.org_id, kind: tokenRow.kind, user_id: userId, device_id: deviceId,
-  }).select('id, paired_at').single();
-  if (pairingErr || !pairing) return { ok: false, error: 'MATCHDEAL_SERVER_ERROR' };
+  // Prompt 75 follow-up (found live, 31/07): this used to always insert a
+  // new row, so re-pairing the SAME browser (device_id is a localStorage
+  // UUID, not a hardware fingerprint — re-generating a code and consuming
+  // it again on the same browser is a completely normal thing to do, e.g.
+  // testing "Show QR / pairing code" from the modal, or re-scanning after
+  // a session expired) accumulated a fresh `active` row every time,
+  // with no unique constraint stopping it. Reuse the existing active
+  // pairing for this exact (org, kind, user, device) instead of stacking —
+  // same "reopen, don't duplicate" pattern matchdeal_grant_dataroom()
+  // already uses for access_grants.
+  const { data: existing } = await admin.from('matchdeal_pairings')
+    .select('id, paired_at').eq('org_id', tokenRow.org_id).eq('kind', tokenRow.kind)
+    .eq('user_id', userId).eq('device_id', deviceId).eq('status', 'active').maybeSingle();
+
+  let pairing: { id: string; paired_at: string } | null = existing ?? null;
+  if (pairing) {
+    await admin.from('matchdeal_pairings').update({ last_seen_at: new Date().toISOString() }).eq('id', pairing.id);
+  } else {
+    const { data: inserted, error: pairingErr } = await admin.from('matchdeal_pairings').insert({
+      org_id: tokenRow.org_id, kind: tokenRow.kind, user_id: userId, device_id: deviceId,
+    }).select('id, paired_at').single();
+    if (pairingErr || !inserted) return { ok: false, error: 'MATCHDEAL_SERVER_ERROR' };
+    pairing = inserted;
+  }
 
   await audit('completed', tokenRow.org_id, callerOrgId);
   await logEvent(admin, { organizationId: tokenRow.org_id, organizationType: tokenRow.kind, eventType: 'matchdeal_pair_completed', sourceOfAction: 'manual' });
