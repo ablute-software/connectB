@@ -135,6 +135,11 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
                 <a href={pairUrl} className="text-[#0E7490] hover:underline">Open this link</a>
               </p>
             )}
+            {pairings.length > 0 && (
+              <button onClick={() => { stopPolling(); setState('paired'); }} className="mt-3 text-xs text-gray-400 hover:underline">
+                ← Back to connected devices
+              </button>
+            )}
           </div>
         )}
 
@@ -144,6 +149,15 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
             <button onClick={generate} disabled={busy} className="mt-3 rounded-lg bg-[#0E7490] px-3.5 py-2 text-sm font-semibold text-white disabled:opacity-40">
               Generate a new code
             </button>
+            {/* Prompt 75 — "connected" is never a terminal state to fall out
+                of by accident: an expired NEW code shouldn't strand someone
+                who already had working pairings before they clicked
+                "Show QR code". */}
+            {pairings.length > 0 && (
+              <button onClick={() => setState('paired')} className="mt-2 block w-full text-xs text-gray-400 hover:underline">
+                ← Back to connected devices
+              </button>
+            )}
           </div>
         )}
 
@@ -168,6 +182,19 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
                 </li>
               ))}
             </ul>
+            {/* Prompt 75 — "connected" was a dead end: no way to pair another
+                device, re-show the QR, or just open the deck here. All
+                three matter for rehearsing a demo. */}
+            <div className="mt-3 flex flex-col gap-2 border-t border-gray-100 pt-3">
+              <button onClick={generate} disabled={busy}
+                className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 hover:border-[#0E7490] disabled:opacity-40">
+                Show QR / pairing code
+              </button>
+              <a href="/pair" target="_blank" rel="noreferrer"
+                className="rounded-lg bg-[#0E7490] px-3 py-2 text-center text-xs font-semibold text-white hover:bg-[#0c637b]">
+                Open MatchDeal on this device
+              </a>
+            </div>
           </div>
         )}
 

@@ -61,11 +61,31 @@ export default function PairPage() {
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('token');
     setToken(t);
-    if (!t) { setErrorMsg('Missing pairing code.'); setStage('error'); return; }
 
     (async () => {
       const { data: { user } } = await browserClient().auth.getUser();
       if (!user) { setStage('need_login'); return; }
+
+      // Prompt 75 — "Open MatchDeal on this device": no token means this
+      // IS the account's own already-signed-in browser, viewing its own
+      // deck, not a new device joining via QR. Resolve the profile
+      // directly instead of erroring "Missing pairing code" — that error
+      // was a genuine dead end for the one path meant as the demo's
+      // emergency fallback.
+      if (!t) {
+        setStage('consuming');
+        try {
+          const res = await fetch('/api/matchdeal/pairing/self');
+          const body = await res.json();
+          if (!body.ok || !body.kind) { setErrorMsg('No linked MatchDeal profile for this account.'); setStage('error'); return; }
+          setKind(body.kind); setOwnProfileId(body.ownProfileId ?? null); setPairedAt(null);
+          setStage('paired');
+        } catch {
+          setErrorMsg('Network error — try again.'); setStage('error');
+        }
+        return;
+      }
+
       setStage('consuming');
       try {
         const res = await fetch('/api/matchdeal/pairing/consume', {
@@ -150,7 +170,7 @@ export default function PairPage() {
               title={pairedAt ? `Paired on ${new Date(pairedAt).toLocaleDateString()}` : undefined}
             >
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              Paired
+              {pairedAt ? 'Paired' : 'This device'}
             </span>
           </header>
 
