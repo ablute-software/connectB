@@ -16,7 +16,7 @@
 // surface, MatchDeal wordmark, deck edge-to-edge, safe-area insets so it
 // survives a notch and a home indicator when installed to the home
 // screen.
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { MatchDealDeck } from '@/components/matchdeal/MatchDealDeck';
 import { detectMobileClient } from '@/lib/is-mobile-client';
@@ -68,6 +68,27 @@ export default function PairPage() {
     setDevice(detectMobileClient() ? 'mobile' : 'desktop');
   }, []);
 
+  // Prompt 84 — pulled out of the mount effect so "Check again" and the
+  // visibility-change re-check (below) can call the exact same self-check
+  // instead of duplicating it. This is the fix for the actual reported
+  // symptom: resolution used to run exactly once per page load and never
+  // retry, so if it resolved null the moment before a profile finished
+  // being filled in (or, per the addenda, resolved the WRONG kind), the
+  // installed PWA stayed stuck on a stale result until someone force-
+  // reloaded — which nothing in that screen ever prompted them to do.
+  const recheckSelf = useCallback(async () => {
+    setStage('consuming');
+    try {
+      const res = await fetch(`/api/matchdeal/pairing/self?deviceId=${encodeURIComponent(getOrCreateDeviceId())}`);
+      const body = await res.json();
+      if (!body.ok || !body.kind) { setErrorMsg('No linked MatchDeal profile for this account.'); setStage('error'); return; }
+      setKind(body.kind); setOwnProfileId(body.ownProfileId ?? null); setPairedAt(null);
+      setStage('paired');
+    } catch {
+      setErrorMsg('Network error — try again.'); setStage('error');
+    }
+  }, []);
+
   useEffect(() => {
     if (device !== 'mobile') return; // desktop never reaches the auth/pairing flow below
     const t = new URLSearchParams(window.location.search).get('token');
@@ -83,19 +104,7 @@ export default function PairPage() {
       // directly instead of erroring "Missing pairing code" — that error
       // was a genuine dead end for the one path meant as the demo's
       // emergency fallback.
-      if (!t) {
-        setStage('consuming');
-        try {
-          const res = await fetch('/api/matchdeal/pairing/self');
-          const body = await res.json();
-          if (!body.ok || !body.kind) { setErrorMsg('No linked MatchDeal profile for this account.'); setStage('error'); return; }
-          setKind(body.kind); setOwnProfileId(body.ownProfileId ?? null); setPairedAt(null);
-          setStage('paired');
-        } catch {
-          setErrorMsg('Network error — try again.'); setStage('error');
-        }
-        return;
-      }
+      if (!t) { await recheckSelf(); return; }
 
       setStage('consuming');
       try {
@@ -113,6 +122,19 @@ export default function PairPage() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device]);
+
+  // Prompt 84 — the installed PWA can sit backgrounded (not reloaded) for
+  // hours between "isn't set up yet" and the profile actually becoming
+  // resolvable; re-check automatically the moment it's foregrounded again,
+  // instead of only ever checking once at mount. Scoped to exactly the
+  // stuck state (paired + no profile) so it doesn't re-fire pointless
+  // requests from every other screen.
+  useEffect(() => {
+    if (!(stage === 'paired' && !ownProfileId)) return;
+    function onVisible() { if (document.visibilityState === 'visible') void recheckSelf(); }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [stage, ownProfileId, recheckSelf]);
 
   const loginUrl = token ? `/login?next=${encodeURIComponent(`/pair?token=${token}`)}` : '/login';
 
@@ -223,6 +245,14 @@ export default function PairPage() {
               <p className="mt-1.5 text-[13px] leading-relaxed text-white/60">
                 Finish it on sherlockdeal.com and this screen will start showing candidates.
               </p>
+              {/* Prompt 84 — already refreshed automatically when this tab
+                  is foregrounded (see the visibilitychange effect above);
+                  this is the explicit fallback for a browser/PWA that
+                  doesn't fire that event reliably. */}
+              <button onClick={() => void recheckSelf()}
+                className="mt-4 rounded-2xl border border-white/15 px-4 py-2 text-[13px] font-medium text-white/80 hover:bg-white/5">
+                Check again
+              </button>
             </div>
           )}
         </div>

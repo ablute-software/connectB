@@ -9,7 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveOwnMatchdealProfileId } from '@/lib/matchdeal-pairing';
 
-export async function GET() {
+export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -20,14 +20,35 @@ export async function GET() {
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
 
-  // A dual-role account (founder AND investor, like the @ablute.pt QA
-  // account) could have both — try startup first, same precedence the
-  // rest of the app uses when a role must be picked (resolveRole).
-  const startupProfileId = await resolveOwnMatchdealProfileId(admin, user.id, 'startup');
-  if (startupProfileId) return NextResponse.json({ ok: true, kind: 'startup', ownProfileId: startupProfileId });
+  // Prompt 84 addenda (2026-07-31) — a dual-role account (founder AND
+  // investor, like nunomarujo@ablute.pt) has a real profile on BOTH sides,
+  // and this route used to always try 'startup' first regardless of which
+  // one the caller actually paired as — the PWA's manifest.json start_url
+  // is a static "/pair" with no token, so every re-open of the installed
+  // icon hit this exact branch. Confirmed live: that account paired via QR
+  // as kind='investor', but reopening the icon silently handed them back
+  // their (incomplete, invisible) startup profile instead — never showing
+  // "isn't set up yet" for the reason they'd assume (it wasn't reading
+  // is_complete at all, on either kind), but silently the WRONG kind.
+  // deviceId (already computed client-side for the token-consume path) is
+  // the actual signal for "which did this device pair as" — matchdeal_pairings
+  // has the answer, so prefer that kind when we have it, before falling
+  // back to the old startup-first default for a device with no pairing on
+  // record at all (e.g. first-ever self-check).
+  const deviceId = new URL(req.url).searchParams.get('deviceId');
+  let preferredKind: 'startup' | 'investor' | null = null;
+  if (deviceId) {
+    const { data: pairing } = await admin.from('matchdeal_pairings').select('kind')
+      .eq('user_id', user.id).eq('device_id', deviceId).eq('status', 'active')
+      .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
+    preferredKind = (pairing?.kind as 'startup' | 'investor' | undefined) ?? null;
+  }
+  const order: ('startup' | 'investor')[] = preferredKind === 'investor' ? ['investor', 'startup'] : ['startup', 'investor'];
 
-  const investorProfileId = await resolveOwnMatchdealProfileId(admin, user.id, 'investor');
-  if (investorProfileId) return NextResponse.json({ ok: true, kind: 'investor', ownProfileId: investorProfileId });
+  for (const kind of order) {
+    const profileId = await resolveOwnMatchdealProfileId(admin, user.id, kind);
+    if (profileId) return NextResponse.json({ ok: true, kind, ownProfileId: profileId });
+  }
 
   return NextResponse.json({ ok: true, kind: null, ownProfileId: null });
 }
