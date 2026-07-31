@@ -38,11 +38,20 @@ export const COMPLETENESS_FIELDS: CompletenessField[] = [
   { id: 'identity.description', label: 'Short description', weight: 5, card: 'identity', isFilled: (o) => !!o.description?.trim() },
   { id: 'identity.logo', label: 'Logo', weight: 2, card: 'identity', isFilled: (o) => !!o.logo_url },
   { id: 'identity.postal_code', label: 'Postal code', weight: 1, card: 'identity', isFilled: (o) => !!o.postal_code?.trim() },
+  // Prompt 85 Correction 1 — product/company maturity, NOT the round's
+  // stage (that's identity's sibling round.stage, a different question).
+  { id: 'identity.current_phase', label: 'Current phase', weight: 4, card: 'identity', isFilled: (o) => !!o.current_phase },
+  { id: 'identity.revenue', label: 'Revenue', weight: 3, card: 'identity', isFilled: (o) => o.revenue_eur != null },
 
   // Team — having a team at all matters much more than headcount precision.
   { id: 'team.people', label: 'At least one team member', weight: 10, card: 'team', isFilled: (_o, p) => p.length > 0 },
   { id: 'team.founder', label: 'At least one founder marked', weight: 6, card: 'team', isFilled: (_o, p) => p.some((x) => x.is_founder) },
   { id: 'team.employee_count', label: 'Employee count', weight: 2, card: 'team', isFilled: (o) => o.employee_count != null },
+  // Prompt 85 Correction 1 — a real FK into company_people, checked here
+  // for both "is it set" AND "does it still point at a real team member"
+  // (a removed person leaves this null via the FK's own ON DELETE SET NULL,
+  // but a stale value should never silently count as filled either way).
+  { id: 'team.primary_contact', label: 'Primary contact', weight: 4, card: 'team', isFilled: (o, p) => !!o.primary_contact_person_id && p.some((x) => x.id === o.primary_contact_person_id) },
 
   // Round — 'raising?' itself always counts; the rest only while raising.
   { id: 'round.raising', label: 'Raising now? answered', weight: 5, card: 'round', isFilled: (o) => o.round_raising != null },

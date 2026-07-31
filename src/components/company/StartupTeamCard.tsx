@@ -122,6 +122,28 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
         </CompletenessField>
         <div className="text-xs text-gray-500">Founders: <b className="text-gray-800">{founderCount}</b> (from the list above{org.founder_count_override != null ? ', overridden' : ''})</div>
       </div>
+
+      {/* Prompt 85 Correction 1 — a selection from people already
+          associated with the startup (company_people, this same card's
+          list), never free text. Matches the exact concept the spec asked
+          for ("membros ou contactos já associados"); not org_members
+          (Supabase login roster) — this page never showed that list. */}
+      <div className="mt-3 border-t border-gray-100 pt-3">
+        <CompletenessField id="team.primary_contact" label="Primary contact" missing={missingIds.has('team.primary_contact')} flashing={flashId === 'team.primary_contact'}>
+          {people.length === 0 ? (
+            <p className="text-xs text-gray-400">Add a team member above first, then pick your primary contact.</p>
+          ) : canEdit ? (
+            <select value={org.primary_contact_person_id ?? ''}
+              onChange={(e) => updateOrg({ primary_contact_person_id: e.target.value || undefined })}
+              className="w-full max-w-xs rounded border border-gray-300 px-2 py-1 text-sm">
+              <option value="">— none selected —</option>
+              {people.map((p) => <option key={p.id} value={p.id}>{p.full_name}{p.title ? ` — ${p.title}` : ''}</option>)}
+            </select>
+          ) : (
+            <span>{people.find((p) => p.id === org.primary_contact_person_id)?.full_name ?? '—'}</span>
+          )}
+        </CompletenessField>
+      </div>
     </Card>
   );
 }

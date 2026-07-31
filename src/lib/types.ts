@@ -121,7 +121,15 @@ export interface Org {
   // Investor Workspace Fase 1 (prompt 54, migration 0054) — Zona 1 snapshot.
   round_min_ticket_eur?: number;
   round_runway_post_months?: number;
+  // Prompt 85 Correction 1 (migration 0082) — deliberately separate from
+  // `stage` (the round's stage) and from matchdeal_profiles.company_phase/
+  // contact (a different system entirely, see the migration's own comment).
+  current_phase?: CompanyPhase;
+  revenue_eur?: number;
+  primary_contact_person_id?: string;
 }
+
+export type CompanyPhase = 'concept_idea' | 'prototype' | 'pilot' | 'launch_early_adopters' | 'growth';
 
 // Investor Workspace Fase 1 — founder-chosen traction metrics (label+value
 // pairs, e.g. "MRR" / "€12k"), shown on the portal snapshot card. Same

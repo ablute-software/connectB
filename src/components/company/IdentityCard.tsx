@@ -11,6 +11,19 @@ import { Card } from '@/components/ui';
 import { browserClient } from '@/lib/supabase';
 import { CompletenessField } from './CompletenessField';
 import type { CompletenessField as Field } from '@/lib/companyCompleteness';
+import type { CompanyPhase } from '@/lib/types';
+
+// Prompt 85 Correction 1 — the 5 options are the spec's own wording,
+// verbatim. Deliberately a different concept from RoundCard's Stage
+// (pre-seed/seed/Series A/...): that's the funding round; this is how far
+// along the product/company itself is, independent of fundraising status.
+const CURRENT_PHASES: { value: CompanyPhase; label: string }[] = [
+  { value: 'concept_idea', label: 'Concept / Idea' },
+  { value: 'prototype', label: 'Prototype' },
+  { value: 'pilot', label: 'Pilot' },
+  { value: 'launch_early_adopters', label: 'Launch / Early Adopters' },
+  { value: 'growth', label: 'Growth' },
+];
 
 export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; missing: Field[]; flashId: string | null }) {
   const { db, updateOrg } = useStore();
@@ -36,6 +49,7 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
       founded_year: org.founded_year != null ? String(org.founded_year) : '',
       sectors: (org.sectors ?? []).join(', '),
       one_liner: org.one_liner ?? '', description: org.description ?? '',
+      current_phase: org.current_phase ?? '', revenue_eur: org.revenue_eur != null ? String(org.revenue_eur) : '',
     });
     setEditing(true);
   }
@@ -56,6 +70,8 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
       sector: sectors.join(', ') || undefined,
       one_liner: draft.one_liner.trim() || undefined,
       description: draft.description.trim() || undefined,
+      current_phase: (draft.current_phase || undefined) as CompanyPhase | undefined,
+      revenue_eur: draft.revenue_eur ? Number(draft.revenue_eur) : undefined,
     });
     setEditing(false);
   }
@@ -95,7 +111,15 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
             {input('hq_city', 'HQ city', 'identity.hq_city')}
             {input('postal_code', 'Postal code', 'identity.postal_code')}
             {input('founded_year', 'Year founded', 'identity.founded_year', 'number')}
+            {input('revenue_eur', 'Revenue (EUR)', 'identity.revenue', 'number')}
           </div>
+          <CompletenessField id="identity.current_phase" label="Current phase" missing={missingIds.has('identity.current_phase')} flashing={flashId === 'identity.current_phase'}>
+            <select value={draft.current_phase ?? ''} onChange={(e) => setDraft({ ...draft, current_phase: e.target.value })}
+              className="rounded border border-gray-300 px-2 py-1 text-sm">
+              <option value="">—</option>
+              {CURRENT_PHASES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+          </CompletenessField>
           <CompletenessField id="identity.sectors" label="Sector / vertical (comma-separated)" missing={missingIds.has('identity.sectors')} flashing={flashId === 'identity.sectors'}>
             <input value={draft.sectors ?? ''} onChange={(e) => setDraft({ ...draft, sectors: e.target.value })}
               placeholder="e.g. Health, Wellness, AI" className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
@@ -139,6 +163,8 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
               ['identity.postal_code', 'Postal code', org.postal_code],
               ['identity.founded_year', 'Founded', org.founded_year],
               ['identity.sectors', 'Sector', (org.sectors ?? []).join(', ')],
+              ['identity.current_phase', 'Current phase', CURRENT_PHASES.find((p) => p.value === org.current_phase)?.label],
+              ['identity.revenue', 'Revenue', org.revenue_eur != null ? `€${org.revenue_eur.toLocaleString('en-US')}` : undefined],
             ] as [string, string, string | number | undefined][]).map(([id, label, value]) => (
               <div key={id} id={id} className={`rounded p-1 transition-colors duration-700 ${flashId === id ? 'bg-amber-50 ring-2 ring-amber-300' : ''}`}>
                 <dt className="flex items-center gap-1.5 text-xs text-gray-500">
