@@ -35,7 +35,7 @@ const EDITABLE = [
   'sectors', 'geographies', 'stages_invested', 'instruments', 'instrument_other',
   'ticket_min', 'ticket_max', 'lead_or_colead', 'country',
   'investments_per_year', 'capital_to_deploy_eur', 'usual_co_investors',
-  'exclusions_sectors', 'exclusions_notes', 'specific_criteria',
+  'exclusions_sectors', 'exclusions_notes', 'specific_criteria', 'focus_keywords',
 ] as const;
 
 // Weighted the same way companyCompleteness.ts does — essentials (ticket,

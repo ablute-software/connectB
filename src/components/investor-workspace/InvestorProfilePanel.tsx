@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { ColleaguesCard } from './ColleaguesCard';
 import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
 import { VouchingCard } from './VouchingCard';
+import { TagInput } from './TagInput';
 
 interface Profile {
   sectors: string[]; geographies: string[]; stages_invested: string[]; instruments: string[];
@@ -15,7 +16,52 @@ interface Profile {
   lead_or_colead: string | null; country: string | null;
   investments_per_year: number | null; capital_to_deploy_eur: number | null;
   usual_co_investors: string | null; exclusions_sectors: string[]; exclusions_notes: string | null;
-  specific_criteria: string | null;
+  specific_criteria: string | null; focus_keywords: string[];
+}
+
+// Prompt 80 addenda — the closed list Nuno actually asked for: categories a
+// firm typically excludes by POLICY (moral/legal), not by market
+// preference, which is why this is a separate constant from
+// SECTOR_TAXONOMY/sectorOptions rather than reusing "Sectors invested in"'s
+// list. "human ethics" (his own wording) is decomposed into concrete,
+// selectable items per his follow-up instruction, and — also per that
+// follow-up — the list isn't a hard ceiling: ExclusionsPicker below adds a
+// free-text TagInput beneath these preset chips so a firm can still write
+// in something that isn't on this list.
+const EXCLUSION_PRESETS = [
+  'Adult content / pornography', 'Defense & weapons', 'Gambling', 'Tobacco', 'Alcohol',
+  'Predatory lending / payday loans', 'Fossil fuels extraction', 'Animal testing (non-medical)',
+  'Child labor', 'Discrimination', 'Mass surveillance',
+];
+
+// Preset chips (toggle) + a TagInput for anything not on the list — both
+// halves write into the same exclusions_sectors string[], a preset is just
+// a value that happens to match one of the strings above.
+function ExclusionsPicker({ selected, onChange }: { selected: string[]; onChange: (v: string[]) => void }) {
+  function toggle(preset: string) {
+    const k = preset.toLowerCase();
+    const has = selected.some((s) => s.toLowerCase() === k);
+    onChange(has ? selected.filter((s) => s.toLowerCase() !== k) : [...selected, preset]);
+  }
+  const presetKeys = new Set(EXCLUSION_PRESETS.map((p) => p.toLowerCase()));
+  const custom = selected.filter((s) => !presetKeys.has(s.toLowerCase()));
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {EXCLUSION_PRESETS.map((p) => {
+          const active = selected.some((s) => s.toLowerCase() === p.toLowerCase());
+          return (
+            <button key={p} type="button" onClick={() => toggle(p)}
+              className={`rounded-full border px-2.5 py-1 text-xs ${active ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490] font-medium' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+              {p}
+            </button>
+          );
+        })}
+      </div>
+      <TagInput tags={custom} placeholder="Add another exclusion and press Enter…"
+        onChange={(nextCustom) => onChange([...selected.filter((s) => presetKeys.has(s.toLowerCase())), ...nextCustom])} />
+    </div>
+  );
 }
 interface ProfileResponse {
   linked: boolean; entityName?: string | null; profile?: Profile; completeness?: number; sectorOptions?: string[];
@@ -390,9 +436,20 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange,
 
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-500">Exclusions — we never invest in</label>
-          <MultiSelect options={sectorOptions} selected={draft.exclusions_sectors ?? []} onChange={(v) => setDraft({ ...draft, exclusions_sectors: v })} />
+          <ExclusionsPicker selected={draft.exclusions_sectors ?? []} onChange={(v) => setDraft({ ...draft, exclusions_sectors: v })} />
           <input value={draft.exclusions_notes ?? ''} onChange={(e) => setDraft({ ...draft, exclusions_notes: e.target.value })} placeholder="Anything else to exclude (free text)"
             className="mt-1.5 w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+        </div>
+
+        <div>
+          {/* Prompt 80 addenda — deliberately NOT read by the match-score
+              function or any scoring path (see matchdeal-match-score.ts /
+              investor-pipeline.ts, both untouched by this field). Wiring
+              these keywords into matching is its own future decision, not
+              an implicit side effect of adding this input. */}
+          <label className="mb-1 block text-xs font-medium text-gray-500">Focus keywords (optional)</label>
+          <TagInput tags={draft.focus_keywords ?? []} onChange={(v) => setDraft({ ...draft, focus_keywords: v })}
+            placeholder="e.g. health, agriculture, fintech B2B…" />
         </div>
 
         <label className="flex flex-col gap-1 text-xs text-gray-500">
