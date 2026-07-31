@@ -7,10 +7,15 @@
 // domain, the OS intercepts the URL before it ever reaches this page —
 // no code change needed here when that happens.
 //
-// Reachable today at sherlockdeal.com/pair (same deployment); becomes
-// reachable at app.sherlockdeal.com/pair the moment that domain is added
-// in Vercel (see the chat report for exactly what that requires) — no
-// different code path, this page doesn't care which host served it.
+// MD-08: this screen used to render inside the founder CRM Shell, which
+// on a phone meant a sticky "ablute_" header, the outreach caps pill, a
+// "+ Log interaction" button and a horizontally-scrolling CRM nav bar
+// wrapped around a small white card — i.e. "sherlockdeal.com badly
+// scaled", not MatchDeal. /pair is now a standalone route (see the
+// early-return list in shell.tsx) and owns its full viewport: dark
+// surface, MatchDeal wordmark, deck edge-to-edge, safe-area insets so it
+// survives a notch and a home indicator when installed to the home
+// screen.
 import { useEffect, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { MatchDealDeck } from '@/components/matchdeal/MatchDealDeck';
@@ -23,6 +28,26 @@ function getOrCreateDeviceId(): string {
   let id = localStorage.getItem(DEVICE_ID_KEY);
   if (!id) { id = crypto.randomUUID(); localStorage.setItem(DEVICE_ID_KEY, id); }
   return id;
+}
+
+function Wordmark({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        aria-hidden="true"
+        className="flex items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 via-emerald-500 to-orange-400 text-white shadow-lg"
+        style={{ width: compact ? 30 : 42, height: compact ? 30 : 42, fontSize: compact ? 15 : 21 }}
+      >
+        🤝
+      </span>
+      <span
+        className={`font-extrabold tracking-tight text-white ${compact ? 'text-[17px]' : 'text-[24px]'}`}
+        style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}
+      >
+        Match<span className="bg-gradient-to-r from-emerald-300 to-orange-300 bg-clip-text text-transparent">Deal</span>
+      </span>
+    </div>
+  );
 }
 
 export default function PairPage() {
@@ -60,46 +85,85 @@ export default function PairPage() {
   const loginUrl = token ? `/login?next=${encodeURIComponent(`/pair?token=${token}`)}` : '/login';
 
   return (
-    <div className="min-h-screen bg-[#F7F9FA]">
-      {stage !== 'paired' && (
-        <div className="flex min-h-screen items-center justify-center p-6">
-          <div className="w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-6 text-center shadow-sm">
-            <div className="text-2xl">🤝</div>
-            <h1 className="mt-2 text-lg font-bold text-gray-900">MatchDeal</h1>
+    <div
+      className="relative flex w-full flex-col overflow-hidden bg-[#0B1220] text-white"
+      style={{
+        minHeight: '100dvh',
+        paddingTop: 'env(safe-area-inset-top)',
+        paddingBottom: 'env(safe-area-inset-bottom)',
+      }}
+    >
+      {/* Ambient colour — the same blue/green/orange the MatchDeal button
+          in the app header cycles through, so the phone screen and the
+          desktop entry point read as one product. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-blue-600/25 blur-3xl" />
+        <div className="absolute -right-20 top-1/3 h-64 w-64 rounded-full bg-emerald-500/20 blur-3xl" />
+        <div className="absolute -bottom-24 left-1/4 h-72 w-72 rounded-full bg-orange-500/20 blur-3xl" />
+      </div>
 
-            {stage === 'checking' && <p className="mt-3 text-sm text-gray-400">Checking your session…</p>}
+      {stage !== 'paired' ? (
+        <div className="relative flex flex-1 flex-col items-center justify-center px-6 py-10">
+          <Wordmark />
+          <div className="mt-7 w-full max-w-sm rounded-3xl border border-white/10 bg-white/[0.07] p-6 text-center backdrop-blur-xl">
+            {stage === 'checking' && <p className="text-sm text-white/60">Checking your session…</p>}
 
             {stage === 'need_login' && (
               <>
-                <p className="mt-2 text-sm text-gray-600">Sign in with the same account you use on sherlockdeal.com to pair this device.</p>
-                <a href={loginUrl} className="mt-4 block rounded-lg bg-[#0E7490] px-3.5 py-2 text-sm font-semibold text-white">Sign in</a>
+                <h1 className="text-[19px] font-bold text-white">Pair this device</h1>
+                <p className="mt-2 text-[13.5px] leading-relaxed text-white/65">
+                  Sign in with the same account you use on sherlockdeal.com to finish pairing.
+                </p>
+                <a
+                  href={loginUrl}
+                  className="mt-5 block rounded-2xl bg-gradient-to-r from-blue-500 to-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-lg transition active:scale-[.98]"
+                >
+                  Sign in
+                </a>
               </>
             )}
 
-            {stage === 'consuming' && <p className="mt-3 text-sm text-gray-400">Pairing…</p>}
+            {stage === 'consuming' && (
+              <>
+                <div className="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-white/20 border-t-emerald-400" />
+                <p className="mt-3 text-sm text-white/60">Pairing this device…</p>
+              </>
+            )}
 
             {stage === 'error' && (
               <>
-                <p className="mt-2 text-sm text-gray-600">{errorMsg}</p>
-                <p className="mt-2 text-xs text-gray-400">Go back to sherlockdeal.com and generate a new code from the MatchDeal button.</p>
+                <div className="text-3xl">⚠️</div>
+                <p className="mt-2 text-[14px] font-medium text-white">{errorMsg}</p>
+                <p className="mt-2 text-[12.5px] leading-relaxed text-white/55">
+                  Go back to sherlockdeal.com and generate a new code from the MatchDeal button.
+                </p>
               </>
             )}
           </div>
         </div>
-      )}
+      ) : (
+        <div className="relative flex flex-1 flex-col">
+          <header className="flex shrink-0 items-center justify-between px-4 pb-1 pt-3">
+            <Wordmark compact />
+            <span
+              className="flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-300"
+              title={pairedAt ? `Paired on ${new Date(pairedAt).toLocaleDateString()}` : undefined}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Paired
+            </span>
+          </header>
 
-      {stage === 'paired' && kind && (
-        <div className="mx-auto max-w-md p-4">
-          <div className="mb-3 flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800">
-            <span>✓</span>
-            <span>Connected to Sherlock Deal{pairedAt ? ` on ${new Date(pairedAt).toLocaleDateString()}` : ''}.</span>
-          </div>
-          {ownProfileId ? (
+          {ownProfileId && kind ? (
             <MatchDealDeck viewerProfileId={ownProfileId} viewerKind={kind} />
           ) : (
-            <p className="text-sm text-gray-500">
-              Your MatchDeal profile isn&apos;t set up yet — finish it in the app to start seeing matches here.
-            </p>
+            <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
+              <div className="text-4xl">👤</div>
+              <p className="mt-3 text-[15px] font-semibold text-white">Your MatchDeal profile isn&apos;t set up yet</p>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-white/60">
+                Finish it on sherlockdeal.com and this screen will start showing candidates.
+              </p>
+            </div>
           )}
         </div>
       )}

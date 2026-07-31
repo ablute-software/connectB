@@ -78,7 +78,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // for a signed-in visitor who followed the landing footer link, not get
   // the founder app chrome wrapped around it.
   const isStandaloneAuthPage = path === '/login' || path === '/signup' || path === '/forgot-password' || path === '/reset-password' || path === '/contact';
-  if (path === '/' || path === '/investors' || isStandaloneAuthPage || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
+  // /pair is the MatchDeal PWA (MD-08). It was missing from this list, so
+  // the phone screen behind the QR code inherited the founder CRM chrome —
+  // "ablute_" header, outreach caps pill, "+ Log interaction", and the
+  // horizontally-scrolling CRM nav pinned over the deck. That is what made
+  // it read as "sherlockdeal.com badly scaled" rather than as MatchDeal.
+  // It owns its whole viewport and brings its own chrome; nothing from the
+  // founder app belongs on top of it.
+  if (path === '/' || path === '/investors' || path === '/pair' || isStandaloneAuthPage || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
 
   return (
     <OnboardingProvider>
