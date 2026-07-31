@@ -392,12 +392,20 @@ export interface RuleOverride {
   created_at: string;
 }
 
+// P78 — real DB column (migration, portal section grouping) since before
+// this session; only just surfaced in the type. CHECK-constrained in the
+// DB to these 6 values; a folder predating that constraint (or never
+// assigned one) reads as undefined here, grouped as "Uncategorized" by
+// PeopleAccessPanel rather than dropped.
+export type PortalSection = 'start_here' | 'product_market' | 'traction_commercial' | 'financial' | 'team_governance' | 'round_terms';
+
 export interface Folder {
   id: string;
   name: string;
   parent_id?: string;
   kind: FolderKind;
   position: number;
+  portal_section?: PortalSection;
 }
 
 export interface DocumentItem {

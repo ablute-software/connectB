@@ -10,6 +10,7 @@ import {
   normalizeDocumentUrl, reorderByDrag, sanitizeStorageKey, type GrantState,
 } from '@/lib/data-room';
 import { grantStatus } from '@/lib/access-grants';
+import { PeopleAccessPanel } from '@/components/documents/PeopleAccessPanel';
 
 function fmtBytes(n?: number): string | undefined {
   if (n == null) return undefined;
@@ -25,6 +26,11 @@ export default function DocumentsPage() {
     createFolder, renameFolder, deleteFolder, addGrant, revokeGrant, recordNdaUpload,
     invitePersonForGrant,
   } = useStore();
+  // P78 Bloco 1 — "sit alongside Documents & Data Room", read as a tab
+  // within the same page area rather than a separate route: both views
+  // read the same useStore() db, just organized differently (folder-first
+  // vs. person-first).
+  const [tab, setTab] = useState<'documents' | 'people'>('documents');
   const [selFolder, setSelFolder] = useState<string>('');
   const [storageSizes, setStorageSizes] = useState<Record<string, number>>({});
   const [documentDetailsAvailable, setDocumentDetailsAvailable] = useState(false);
@@ -494,7 +500,20 @@ export default function DocumentsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-bold">Documents & Data Room</h1>
+      <div className="flex items-center gap-1.5">
+        <h1 className="text-lg font-bold">{tab === 'documents' ? 'Documents & Data Room' : 'People & Access'}</h1>
+      </div>
+      <div className="flex gap-1.5 border-b border-gray-100 pb-2">
+        <button onClick={() => setTab('documents')}
+          className={`rounded-full px-3 py-1 text-xs font-medium ${tab === 'documents' ? 'bg-[#0E7490] text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+          Documents & Data Room
+        </button>
+        <button onClick={() => setTab('people')}
+          className={`rounded-full px-3 py-1 text-xs font-medium ${tab === 'people' ? 'bg-[#0E7490] text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+          People & Access
+        </button>
+      </div>
+      {tab === 'people' ? <PeopleAccessPanel /> : (
       <div className="grid gap-4 md:grid-cols-3">
         <Card title="Folders">
           {roots.map((f) => <FolderNode key={f.id} f={f} depth={0} />)}
@@ -862,6 +881,7 @@ export default function DocumentsPage() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }
