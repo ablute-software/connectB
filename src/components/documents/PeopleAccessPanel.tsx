@@ -5,10 +5,19 @@
 // Bloco 2+). Reuses the exact grant/person resolution the Grant Access flow
 // in documents/page.tsx already established (person_affiliations, current
 // only, entity_id fallback) — not a second mechanism.
+//
+// Revised 2026-07-31 per Nuno's own review of the first pass (adenda ao
+// Prompt 78): that pass filtered the left column down to entities that
+// already had a grant, which is backwards — this is meant to be a working
+// view of the WHOLE pipeline (any entity in contact), where "no access
+// yet" is itself a normal, visible state, not an exclusion filter. Also
+// added: document descriptions, the private-document 4th effect state, and
+// the granted/expires dates per cell (spec §9 — these existed on the
+// access_grants row the whole time, just never surfaced here).
 import { useMemo, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
-import { computeCellEffect, type CellEffect } from '@/lib/people-access-matrix';
+import { computeCellEffect, findEffectiveGrant, type CellEffect } from '@/lib/people-access-matrix';
 import type { Folder, PortalSection } from '@/lib/types';
 
 const SECTION_LABELS: Record<PortalSection, string> = {
@@ -24,10 +33,19 @@ const EFFECT_STYLE: Record<CellEffect, string> = {
   shared_pending_nda: 'bg-amber-100 text-amber-800',
   shared_pending_confirmation: 'bg-amber-100 text-amber-800',
   not_shared: 'bg-gray-100 text-gray-400',
+  no_effect_private: 'bg-gray-50 text-gray-300 italic',
 };
+// Deliberately English (this workspace's UI language), but the 4 states are
+// exactly the spec's own 4 ("Vê" / "Vê após NDA" / "Não vê" / "Sem efeito —
+// documento privado") — same meanings, not a 5th invented state.
 const EFFECT_LABEL: Record<CellEffect, string> = {
-  shared: '✓ shared', shared_pending_nda: 'NDA pending', shared_pending_confirmation: 'awaiting confirmation', not_shared: 'not shared',
+  shared: '✓ Can view', shared_pending_nda: 'Can view after NDA', shared_pending_confirmation: 'Awaiting confirmation',
+  not_shared: "Can't view", no_effect_private: 'No effect — private document',
 };
+
+function fmtDate(iso?: string) {
+  return iso ? new Date(iso).toLocaleDateString() : undefined;
+}
 
 export function PeopleAccessPanel() {
   const { db } = useStore();
@@ -48,12 +66,19 @@ export function PeopleAccessPanel() {
   // a guess. Founder-driven association is a Bloco 2+ action, not built here.
   const orphanGrants = useMemo(() => db.grants.filter((g) => !g.person_id && !g.revoked_at), [db.grants]);
 
-  const entitiesWithAccess = useMemo(() => {
+  // The whole pipeline, not just entities that already have a grant — per
+  // Nuno's review, "no access yet" belongs IN this list, visibly, not
+  // filtered out of it. Grant count (0 for most) makes that state honest.
+  const allEntities = useMemo(() => {
     const q = query.trim().toLowerCase();
     return db.entities
-      .filter((e) => peopleForEntity(e.id).some((p) => grantedPersonIds.has(p.id)))
       .filter((e) => !q || e.name.toLowerCase().includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => {
+        const aHas = peopleForEntity(a.id).some((p) => grantedPersonIds.has(p.id));
+        const bHas = peopleForEntity(b.id).some((p) => grantedPersonIds.has(p.id));
+        if (aHas !== bHas) return aHas ? -1 : 1; // entities with access float to the top
+        return a.name.localeCompare(b.name);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [db.entities, db.personAffiliations, db.people, grantedPersonIds, query]);
 
@@ -76,9 +101,21 @@ export function PeopleAccessPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [db.folders]);
 
+  function DateHint({ grant }: { grant: ReturnType<typeof findEffectiveGrant> }) {
+    if (!grant) return null;
+    const granted = fmtDate(grant.granted_at);
+    const expires = fmtDate(grant.expires_at ?? undefined);
+    if (!granted && !expires) return null;
+    return (
+      <span className="ml-1.5 text-[9px] font-normal text-gray-400">
+        {granted && `granted ${granted}`}{granted && expires && ' · '}{expires && `expires ${expires}`}
+      </span>
+    );
+  }
+
   return (
     <div className="grid gap-4 md:grid-cols-3">
-      <Card title="Entities with access">
+      <Card title="Entities">
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search entity…"
           className="mb-3 w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
 
@@ -107,16 +144,21 @@ export function PeopleAccessPanel() {
         </div>
 
         <ul className="space-y-0.5">
-          {entitiesWithAccess.map((e) => (
-            <li key={e.id}>
-              <button onClick={() => setSelectedEntityId(e.id)}
-                className={`block w-full rounded px-2 py-1.5 text-left text-sm ${selectedEntityId === e.id ? 'bg-[#E8F4F8] font-medium text-[#0E7490]' : 'text-gray-700 hover:bg-gray-50'}`}>
-                {e.name}
-                <span className="ml-1.5 text-xs text-gray-400">({peopleForEntity(e.id).filter((p) => grantedPersonIds.has(p.id)).length})</span>
-              </button>
-            </li>
-          ))}
-          {entitiesWithAccess.length === 0 && <p className="text-xs text-gray-400">No entity has any confirmed access yet.</p>}
+          {allEntities.map((e) => {
+            const grantCount = peopleForEntity(e.id).filter((p) => grantedPersonIds.has(p.id)).length;
+            return (
+              <li key={e.id}>
+                <button onClick={() => setSelectedEntityId(e.id)}
+                  className={`block w-full rounded px-2 py-1.5 text-left text-sm ${selectedEntityId === e.id ? 'bg-[#E8F4F8] font-medium text-[#0E7490]' : 'text-gray-700 hover:bg-gray-50'}`}>
+                  {e.name}
+                  <span className={`ml-1.5 text-xs ${grantCount > 0 ? 'text-[#0E7490]' : 'text-gray-300'}`}>
+                    {grantCount > 0 ? `(${grantCount} with access)` : '(no access yet)'}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+          {allEntities.length === 0 && <p className="text-xs text-gray-400">No entity matches “{query}”.</p>}
         </ul>
       </Card>
 
@@ -141,21 +183,30 @@ export function PeopleAccessPanel() {
                     <div className="space-y-2">
                       {folders.map((f) => {
                         const docs = docsIn(f.id);
-                        const folderEffect = computeCellEffect(db.grants, '__folder_row__', f.id, selectedPersonIds, now);
+                        const folderGrant = findEffectiveGrant(db.grants, undefined, f.id, selectedPersonIds);
+                        const folderEffect = computeCellEffect(folderGrant, now);
                         return (
                           <div key={f.id} className="rounded-lg border border-gray-100 p-2">
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-sm font-medium text-gray-800">▣ {f.name}</span>
-                              <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${EFFECT_STYLE[folderEffect]}`}>{EFFECT_LABEL[folderEffect]}</span>
+                              <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${EFFECT_STYLE[folderEffect]}`}>
+                                {EFFECT_LABEL[folderEffect]}<DateHint grant={folderGrant} />
+                              </span>
                             </div>
                             {docs.length > 0 && (
                               <ul className="mt-1.5 space-y-1 border-t border-gray-50 pt-1.5">
                                 {docs.map((d) => {
-                                  const effect = computeCellEffect(db.grants, d.id, f.id, selectedPersonIds, now);
+                                  const docGrant = findEffectiveGrant(db.grants, d.id, f.id, selectedPersonIds);
+                                  const effect = computeCellEffect(docGrant, now, d.visibility);
                                   return (
-                                    <li key={d.id} className="flex items-center justify-between gap-2 pl-4 text-xs">
-                                      <span className="text-gray-600">{d.name}</span>
-                                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${EFFECT_STYLE[effect]}`}>{EFFECT_LABEL[effect]}</span>
+                                    <li key={d.id} className="flex items-start justify-between gap-2 pl-4 text-xs">
+                                      <span className="text-gray-600">
+                                        {d.name}
+                                        {d.details && <span className="block text-[10px] text-gray-400">{d.details}</span>}
+                                      </span>
+                                      <span className={`shrink-0 rounded px-1.5 py-0.5 text-right text-[10px] font-semibold ${EFFECT_STYLE[effect]}`}>
+                                        {EFFECT_LABEL[effect]}<DateHint grant={docGrant} />
+                                      </span>
                                     </li>
                                   );
                                 })}
