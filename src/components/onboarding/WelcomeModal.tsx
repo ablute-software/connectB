@@ -50,9 +50,15 @@ export function WelcomeModal() {
   if (!open || typeof document === 'undefined') return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]" onClick={close}>
+    // Prompt 77 Bloco 0 — this backdrop used to carry onClick={close}, so
+    // ANY click anywhere on the page while the modal was mounted marked it
+    // seen, whether or not the user ever read it. Confirmed live: a real
+    // new signup's seen.welcome was written 11.5s after account creation —
+    // consistent with a stray click during page settle, not a deliberate
+    // dismissal. The backdrop is now inert; close() only fires from the two
+    // buttons and Escape, all of which are real acknowledgements.
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]">
       <div ref={cardRef} role="dialog" aria-modal="true" aria-labelledby="onboarding-welcome-title"
-        onClick={(e) => e.stopPropagation()}
         className="onboarding-modal-enter w-full max-w-[480px] rounded-2xl bg-white p-8 shadow-2xl">
         <h2 id="onboarding-welcome-title" className="mb-2 text-xl font-semibold text-gray-900">{item.title}</h2>
         <p className="text-[15px] leading-[1.55] text-gray-900/80">{item.body}</p>
