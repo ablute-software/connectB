@@ -51,7 +51,7 @@ const COPY: Record<PlanTier, { who: string; cta: string; features: { label: stri
     who: 'For serious, multi-investor raises',
     cta: 'Choose this plan',
     features: [
-      { label: 'Everything in Suspect list' },
+      { label: 'Everything in List of Suspects' },
       { label: 'Advanced review & optimisation' },
       { label: 'Investability reports' },
       { label: 'Priority support' },

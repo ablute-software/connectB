@@ -45,6 +45,12 @@ export interface PlanRow {
   annualEur?: number;
   /** Effective per-month price when billed annually. */
   annualPerMonthEur?: number;
+  // Prompt 79 — deliberately NOT computed from price. The raw numbers don't
+  // support a "cheapest" story (garage's annual rate, €63/mo, undercuts
+  // motherfunding's €109/mo) — the founder's actual call is an editorial
+  // "best value" pick on the top paid tier, not a price comparison, so it's
+  // a plain per-plan flag instead of forcing a calculation to land on it.
+  bestValue?: boolean;
   /** One line: who this plan is for. */
   tagline: string;
   /**
@@ -77,7 +83,7 @@ export const PLANS: PlanRow[] = [
     ],
   },
   {
-    tier: 'garage', name: 'Suspect list', monthly: '€85/month', annual: '€756/year (equivalent to €63/month)', paid: true, monthlyEur: 85, annualEur: 756, annualPerMonthEur: 63,
+    tier: 'garage', name: 'List of Suspects', monthly: '€85/month', annual: '€756/year (equivalent to €63/month)', paid: true, monthlyEur: 85, annualEur: 756, annualPerMonthEur: 63,
     tagline: 'For rounds already in motion',
     bullets: [
       'Investor pipeline & agenda',
@@ -95,6 +101,7 @@ export const PLANS: PlanRow[] = [
   },
   {
     tier: 'motherfunding', name: "It's the buttler!", monthly: '€149/month', annual: '€1,308/year (equivalent to €109/month)', paid: true, monthlyEur: 149, annualEur: 1308, annualPerMonthEur: 109,
+    bestValue: true,
     tagline: 'For serious, multi-investor raises',
     bullets: [
       'Investor pipeline & agenda',

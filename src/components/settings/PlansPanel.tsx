@@ -106,7 +106,7 @@ export function PlansPanel() {
   // plan-server.ts already resolves `current` to the higher tier a 100%-off
   // trial covers, but "Your plan" was still showing that tier's sticker
   // price (€149) instead of the €0 the org actually owes. Bug, caught live
-  // with the real ablute_ org + NUNO100: the card said "Suspect list
+  // with the real ablute_ org + NUNO100: the card said "List of Suspects
   // €85/month" even once the tier itself had already been fixed to resolve
   // correctly server-side — the price line just never read from the same
   // promo data the plan cards below it already use.
@@ -179,17 +179,19 @@ export function PlansPanel() {
       priceLabel: planPriceLabel(p, period),
       priceSubLabel: p.paid ? undefined : 'free forever',
       bullets: p.bullets,
-      // "Most popular" nudges toward Suspect list on the Monthly view —
+      // "Most popular" nudges toward List of Suspects on the Monthly view —
       // the lower-commitment entry point most people actually pick first.
       popular: p.tier === 'garage' && period === 'monthly',
-      // Prompt 76 — was hard-coded to the motherfunding tier regardless of
-      // which period was showing, so it appeared on the (more expensive)
-      // Monthly price too. Computed instead: true only when this card is
-      // actually displaying its own cheaper option — the annual rate,
-      // whenever one exists and undercuts the monthly price — so it
-      // naturally follows the toggle and applies to every paid plan
-      // uniformly, not just one hard-coded tier.
-      bestPrice: p.paid && period === 'annual' && p.annualPerMonthEur !== undefined && p.annualPerMonthEur < p.monthlyEur,
+      // Prompt 76 fixed one bug (badge showing on Monthly too) by
+      // introducing another (Prompt 79): `annualPerMonthEur < monthlyEur`
+      // compares a plan against ITSELF, so it was true for every paid plan
+      // at once on the Annual view — garage's own annual rate undercuts its
+      // own monthly rate just as much as motherfunding's does. There's no
+      // price-comparison rule that picks motherfunding exclusively (its
+      // annual rate, €109/mo, is actually higher than garage's, €63/mo) —
+      // this is a plain editorial "best value" pick (plans.ts's own
+      // `bestValue` flag), not a calculation forced to look like one.
+      bestPrice: p.paid && period === 'annual' && p.bestValue === true,
       promoNote: bestPromo
         ? `🎉 Promo ${bestPromo.code} — you pay €${discounted}/month${until ? ` until ${until}` : ' (permanently)'}`
         : undefined,
