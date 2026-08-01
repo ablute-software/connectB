@@ -29,7 +29,9 @@ export function WelcomeModal() {
     focusables[0]?.focus();
 
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') { close(); return; }
+      // Prompt 86 §3/§14 — this is the one popup Escape must NOT close
+      // (page tutorials, built later, do close on Escape). Not dismissible
+      // by accident, only by one of the two buttons.
       if (e.key !== 'Tab' || !card) return;
       const list = Array.from(card.querySelectorAll<HTMLElement>('button, a, [tabindex]'));
       if (list.length === 0) return;

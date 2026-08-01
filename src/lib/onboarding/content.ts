@@ -24,9 +24,11 @@ export interface OnboardingItem {
 // enforced by the assertion in engine.test.ts, not just this comment.
 export const ONBOARDING_CONTENT: OnboardingItem[] = [
   {
+    // Prompt 86 §4 — rewritten copy, Version C (chosen by Nuno, 01/08).
+    // Not dispensable by outside click or Escape — see WelcomeModal.tsx.
     key: 'welcome', type: 'modal', order: 1,
-    title: 'Welcome to Sherlock Deal',
-    body: 'Let’s find the right investors for your startup — not a generic list, but the ones that fit your sector, stage and ticket size. Start by telling us who you are. That’s what puts the engine to work.',
+    title: 'Welcome — let’s get you in front of the right investors',
+    body: 'We built Sherlock Deal because founders were wasting months on lists that ignored their sector and their stage. To do better than that, we need to know your company. Start with your profile — everything else in the platform gets better once it’s filled in.',
     primaryCta: 'Tell us about my company', secondaryCta: 'Explore first',
   },
   {
