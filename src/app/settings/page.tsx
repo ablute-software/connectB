@@ -264,16 +264,17 @@ function TeamPanel() {
   );
 }
 
-// "Definições -> Rever dicas" (onboarding_sherlockdeal_v2.md §7): clears
-// `seen` so every onboarding moment can resurface — cheap to build,
-// avoids the "dismissed by accident" support request. Does not touch the
-// session budget (§2), so the normal 1-modal-per-session /
-// 24h-between-modals rules still apply after a reset.
+// "Definições -> Rever dicas": rearms just the welcome popup so it can
+// resurface. Was wired to resetSeen() (wipes every onboarding_state.seen
+// key at once) — a single click here destroyed an unrelated key (`waves`)
+// on a real account, found live while verifying Prompt 86 Bloco 1. Scoped
+// to rearmKey('welcome') now; the button itself is a stand-in until it's
+// absorbed into the per-page "?" icon (Prompt 86 §7).
 function RevisitTipsButton() {
-  const { resetSeen } = useOnboarding();
+  const { rearmKey } = useOnboarding();
   const [done, setDone] = useState(false);
   return (
-    <button onClick={() => { resetSeen(); setDone(true); setTimeout(() => setDone(false), 2000); }}
+    <button onClick={() => { rearmKey('welcome'); setDone(true); setTimeout(() => setDone(false), 2000); }}
       className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-500 hover:bg-gray-50">
       {done ? 'Tips reset ✓' : 'Review tips'}
     </button>

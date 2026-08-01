@@ -18,7 +18,12 @@ interface OnboardingContextValue {
   setCondition: (key: string, value: boolean) => void;
   /** Mark a key as shown+dismissed — persists to onboarding_state and updates session counters. */
   markSeen: (key: string) => void;
-  /** Settings -> "Rever dicas": clears `seen` so everything can resurface. Does not reset session counters/budget. */
+  /** Rearms a single key so just that one moment can resurface — the "?" per-page icon (Prompt 86 §7)
+   *  and the settings "Review tips" button. Read-modify-write like markSeen, never touches other keys. */
+  rearmKey: (key: string) => void;
+  /** Clears `seen` entirely so everything can resurface. Does not reset session counters/budget.
+   *  Destructive across every tracked key — only for a genuine "reset all onboarding" action, never
+   *  wired to a single item's replay (that bug wiped `waves` from a real account, see Prompt 86 report). */
   resetSeen: () => void;
   loaded: boolean;
 }
@@ -87,6 +92,26 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     })();
   }, []);
 
+  const rearmKey = useCallback((key: string) => {
+    setRow((prev) => {
+      const nextSeen = { ...prev.seen };
+      delete nextSeen[key];
+      return { ...prev, seen: nextSeen };
+    });
+    if (!authEnabled) return;
+    (async () => {
+      const sb = browserClient();
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user) return;
+      // Same read-modify-write shape as markSeen — re-select fresh so a
+      // concurrent write to a different key isn't clobbered.
+      const { data } = await sb.from('onboarding_state').select('seen').eq('user_id', user.id).maybeSingle();
+      const nextSeen = { ...((data?.seen as Record<string, string>) ?? {}) };
+      delete nextSeen[key];
+      await sb.from('onboarding_state').update({ seen: nextSeen }).eq('user_id', user.id);
+    })();
+  }, []);
+
   const resetSeen = useCallback(() => {
     setRow((prev) => ({ ...prev, seen: {} }));
     if (!authEnabled) return;
@@ -99,7 +124,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   return (
-    <OnboardingContext.Provider value={{ eligibleKey, setCondition, markSeen, resetSeen, loaded }}>
+    <OnboardingContext.Provider value={{ eligibleKey, setCondition, markSeen, rearmKey, resetSeen, loaded }}>
       {children}
     </OnboardingContext.Provider>
   );
