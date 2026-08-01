@@ -14,6 +14,9 @@ interface OnboardingRow { seen: Record<string, string>; opted_out: boolean; last
 interface OnboardingContextValue {
   /** The single item currently eligible to render, or null. Components compare their own key against this. */
   eligibleKey: string | null;
+  /** Raw seen map — Prompt 86 page tours (PageTour.tsx) key their own open state off
+   *  `!seen[pageKey]` directly, independent of the modal/coachmark budget in engine.ts. */
+  seen: Record<string, string>;
   /** A component registers whether ITS item's trigger condition currently holds (default false until set). */
   setCondition: (key: string, value: boolean) => void;
   /** Mark a key as shown+dismissed — persists to onboarding_state and updates session counters. */
@@ -124,7 +127,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   return (
-    <OnboardingContext.Provider value={{ eligibleKey, setCondition, markSeen, rearmKey, resetSeen, loaded }}>
+    <OnboardingContext.Provider value={{ eligibleKey, seen: row.seen, setCondition, markSeen, rearmKey, resetSeen, loaded }}>
       {children}
     </OnboardingContext.Provider>
   );

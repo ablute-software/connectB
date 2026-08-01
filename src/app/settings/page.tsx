@@ -19,9 +19,10 @@ import { PermissionsMatrixCard } from '@/components/PermissionsMatrixCard';
 import { ImportPanel } from '@/components/settings/ImportPanel';
 import { NeedsReviewPanel } from '@/components/queue/NeedsReviewPanel';
 import { CompanyPanel } from '@/components/company/CompanyPanel';
-import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { APP_URL } from '@/lib/brand';
+import { PageTour } from '@/components/onboarding/PageTour';
+import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 
 type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
 type Member = { userId: string; email: string; role: OrgRole; isSelf: boolean };
@@ -264,23 +265,6 @@ function TeamPanel() {
   );
 }
 
-// "Definições -> Rever dicas": rearms just the welcome popup so it can
-// resurface. Was wired to resetSeen() (wipes every onboarding_state.seen
-// key at once) — a single click here destroyed an unrelated key (`waves`)
-// on a real account, found live while verifying Prompt 86 Bloco 1. Scoped
-// to rearmKey('welcome') now; the button itself is a stand-in until it's
-// absorbed into the per-page "?" icon (Prompt 86 §7).
-function RevisitTipsButton() {
-  const { rearmKey } = useOnboarding();
-  const [done, setDone] = useState(false);
-  return (
-    <button onClick={() => { rearmKey('welcome'); setDone(true); setTimeout(() => setDone(false), 2000); }}
-      className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-500 hover:bg-gray-50">
-      {done ? 'Tips reset ✓' : 'Review tips'}
-    </button>
-  );
-}
-
 function SettingsInner() {
   const [tab, setTab] = useTabParam('company');
   const [importSubtab, setImportSubtab] = useTabParam('history', 'subtab');
@@ -325,9 +309,13 @@ function SettingsInner() {
     <div>
       <div className="mb-1 flex items-center justify-between">
         <h1 className="text-lg font-bold">About {db.org.name || 'your company'}</h1>
-        <RevisitTipsButton />
+        <PageGuideButton pageKey="guide_settings" />
       </div>
       <Tabs items={tabs} active={effectiveTab} onChange={setTab} />
+      {/* Anchors (data-tour-id) live inside CompanyPanel, on the default "company" tab only. */}
+      {effectiveTab !== 'automations' && effectiveTab !== 'import-history' && effectiveTab !== 'team' && (
+        <PageTour pageKey="guide_settings" />
+      )}
       {effectiveTab === 'automations' && (
         <Card title="Automations">
           <AutomationsPanel orgRole={authEnabled ? orgRole : undefined} />

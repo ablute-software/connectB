@@ -69,11 +69,19 @@ export function CompanyPanel() {
 
   return (
     <div className="max-w-3xl space-y-4">
-      <CompletenessBar pct={pct} missing={missing} orgId={db.org.id} onFlash={setFlashId} />
-      <IdentityCard canEdit={canEdit} missing={missing} flashId={flashId} />
+      <div data-tour-id="settings-completeness">
+        <CompletenessBar pct={pct} missing={missing} orgId={db.org.id} onFlash={setFlashId} />
+      </div>
+      <div data-tour-id="settings-identity">
+        <IdentityCard canEdit={canEdit} missing={missing} flashId={flashId} />
+      </div>
       <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
-      <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
-      <TractionCard canEdit={canEdit} />
+      <div data-tour-id="settings-round">
+        <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
+      </div>
+      <div data-tour-id="settings-traction">
+        <TractionCard canEdit={canEdit} />
+      </div>
       <DataroomChecklistCard />
       <InvestorDecisionsCard />
       <SoftCommitsCard />
