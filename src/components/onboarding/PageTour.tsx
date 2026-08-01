@@ -89,28 +89,45 @@ export function PageTour({ pageKey }: { pageKey: string }) {
   // above nor below has room — useLayoutEffect runs before paint, so
   // there's no visible flash at the wrong position.
   const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(null);
-
-  useEffect(() => {
-    if (!current) return;
-    const el = document.querySelector<HTMLElement>(`[data-tour-id="${current.selector}"]`);
-    el?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
-    balloonRef.current?.focus();
-  }, [current, reducedMotion]);
+  // Round 2 of the same bug, found live: with 4 anchors stacked ~1000px
+  // deep on this page alone, a later step's anchor can start the step
+  // already scrolled OUT of the viewport (rect.top/bottom way past
+  // innerHeight) — clamping relative to that anchor produces a panel
+  // that's correctly placed *next to the anchor* and still entirely off
+  // screen, because the anchor itself never was on screen. Scrolling it
+  // into view has to happen, and be re-measured, BEFORE the clamp math —
+  // not as a separate effect that fires after paint (that raced and lost:
+  // the wrong position painted first, and nothing re-triggered a redo).
+  const resolvedRef = useRef(resolved);
+  resolvedRef.current = resolved;
 
   useLayoutEffect(() => {
-    if (!current || !balloonRef.current) { setPanelPos(null); return; }
+    const step = resolvedRef.current?.[stepIndex];
+    if (!step || !balloonRef.current) { setPanelPos(null); return; }
+    const el = document.querySelector<HTMLElement>(`[data-tour-id="${step.selector}"]`);
+    if (!el) { setPanelPos(null); return; }
+    // Instant, not smooth — a smooth scroll animates over several frames,
+    // so getBoundingClientRect() right after it would still read the
+    // pre-scroll position. Correctness over the animation here.
+    el.scrollIntoView({ behavior: 'auto', block: 'center' });
+    const freshRect = el.getBoundingClientRect();
+    setResolved((prev) => prev?.map((s, i) => (i === stepIndex ? { ...s, rect: freshRect } : s)) ?? prev);
+
     const margin = 12;
-    const r = current.rect;
     const panelHeight = balloonRef.current.offsetHeight;
-    const spaceBelow = window.innerHeight - r.bottom - BALLOON_GAP;
-    const spaceAbove = r.top - BALLOON_GAP;
+    const spaceBelow = window.innerHeight - freshRect.bottom - BALLOON_GAP;
+    const spaceAbove = freshRect.top - BALLOON_GAP;
     let top: number;
-    if (spaceBelow >= panelHeight) top = r.bottom + BALLOON_GAP;
-    else if (spaceAbove >= panelHeight) top = r.top - BALLOON_GAP - panelHeight;
-    else top = Math.max(margin, Math.min(r.bottom + BALLOON_GAP, window.innerHeight - panelHeight - margin));
-    const left = Math.min(Math.max(r.left, margin), window.innerWidth - BALLOON_WIDTH - margin);
+    if (spaceBelow >= panelHeight) top = freshRect.bottom + BALLOON_GAP;
+    else if (spaceAbove >= panelHeight) top = freshRect.top - BALLOON_GAP - panelHeight;
+    else top = Math.max(margin, Math.min(freshRect.bottom + BALLOON_GAP, window.innerHeight - panelHeight - margin));
+    const left = Math.min(Math.max(freshRect.left, margin), window.innerWidth - BALLOON_WIDTH - margin);
     setPanelPos({ top, left });
-  }, [current]);
+    balloonRef.current.focus();
+    // resolved !== null (not resolved itself) — this effect's own setResolved
+    // call above must not retrigger it; only a real step change should.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIndex, resolved !== null]);
 
   // Keep the highlighted rect current across scroll/resize while open.
   useEffect(() => {
