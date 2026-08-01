@@ -12,7 +12,7 @@
 // anchor isn't there is dropped, never invented, and the counter reflects
 // only the steps that survived. Fewer than 2 valid steps -> the tour does
 // not open at all this pass (nothing to walk through).
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import { TOUR_CONTENT, type TourStep } from '@/lib/onboarding/tourContent';
@@ -79,6 +79,16 @@ export function PageTour({ pageKey }: { pageKey: string }) {
   }, [wantsOpen, nonce]);
 
   const current = resolved?.[stepIndex] ?? null;
+  // Measured after render, not guessed from the anchor's height alone —
+  // found live: a tall anchor (e.g. the Identity card, 472px) was placing
+  // the panel below it unconditionally whenever the anchor's own top was
+  // < 160px, overflowing the viewport with no way to scroll to it (the
+  // tour overlay is position:fixed; scroll was locked). Two-pass layout:
+  // render once to measure this panel's real height via balloonRef, then
+  // clamp its top so it always fits, overlapping the spotlight if neither
+  // above nor below has room — useLayoutEffect runs before paint, so
+  // there's no visible flash at the wrong position.
+  const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => {
     if (!current) return;
@@ -86,6 +96,21 @@ export function PageTour({ pageKey }: { pageKey: string }) {
     el?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
     balloonRef.current?.focus();
   }, [current, reducedMotion]);
+
+  useLayoutEffect(() => {
+    if (!current || !balloonRef.current) { setPanelPos(null); return; }
+    const margin = 12;
+    const r = current.rect;
+    const panelHeight = balloonRef.current.offsetHeight;
+    const spaceBelow = window.innerHeight - r.bottom - BALLOON_GAP;
+    const spaceAbove = r.top - BALLOON_GAP;
+    let top: number;
+    if (spaceBelow >= panelHeight) top = r.bottom + BALLOON_GAP;
+    else if (spaceAbove >= panelHeight) top = r.top - BALLOON_GAP - panelHeight;
+    else top = Math.max(margin, Math.min(r.bottom + BALLOON_GAP, window.innerHeight - panelHeight - margin));
+    const left = Math.min(Math.max(r.left, margin), window.innerWidth - BALLOON_WIDTH - margin);
+    setPanelPos({ top, left });
+  }, [current]);
 
   // Keep the highlighted rect current across scroll/resize while open.
   useEffect(() => {
@@ -122,13 +147,6 @@ export function PageTour({ pageKey }: { pageKey: string }) {
   const pad = 8;
   const r = current.rect;
 
-  // Balloon placement: below the target if there's room, otherwise above.
-  const spaceBelow = window.innerHeight - r.bottom;
-  const placeBelow = spaceBelow > 160 || r.top < 160;
-  const top = placeBelow ? r.bottom + BALLOON_GAP : undefined;
-  const bottom = !placeBelow ? window.innerHeight - r.top + BALLOON_GAP : undefined;
-  const left = Math.min(Math.max(r.left, 12), window.innerWidth - BALLOON_WIDTH - 12);
-
   return createPortal(
     <div className="fixed inset-0 z-[60]" onClick={close}>
       {/* Spotlight: dims the page, cuts a hole around the current anchor via SVG mask. */}
@@ -148,7 +166,12 @@ export function PageTour({ pageKey }: { pageKey: string }) {
       <div ref={balloonRef} tabIndex={-1} role="dialog" aria-live="polite" aria-label={current.title}
         onClick={(e) => e.stopPropagation()}
         className={`absolute rounded-2xl bg-white p-5 shadow-2xl ${reducedMotion ? '' : 'onboarding-modal-enter'}`}
-        style={{ width: BALLOON_WIDTH, left, top, bottom }}>
+        style={{
+          width: BALLOON_WIDTH,
+          left: panelPos?.left ?? r.left,
+          top: panelPos?.top ?? r.bottom + BALLOON_GAP,
+          visibility: panelPos ? 'visible' : 'hidden',
+        }}>
         <button onClick={close} aria-label="Close tour"
           className="absolute right-3 top-3 text-gray-400 hover:text-gray-600">✕</button>
         <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#0E7490]">{stepIndex + 1} / {total}</p>
