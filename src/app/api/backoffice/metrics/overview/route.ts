@@ -54,7 +54,7 @@ export async function GET(req: Request) {
       monthlyRevenueChurnPct: churn,
     },
     valueProof: {
-      qualifiedConversations: conversations,
+      qualifiedConversations: conversations.conversations,
       medianDaysToFirstResponse: timeToFirstResponse,
     },
     alerts,
