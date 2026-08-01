@@ -10,6 +10,8 @@ import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 import { AddInvestorModal } from '@/components/AddInvestorModal';
 import { isPersonCandidate, isUnverifiedStub } from '@/lib/relationship';
 import { CoachMark } from '@/components/onboarding/CoachMark';
+import { PageTour } from '@/components/onboarding/PageTour';
+import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import type { Db, Entity, TaskItem } from '@/lib/types';
 
@@ -242,6 +244,10 @@ export default function PipelinePage() {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        <PageGuideButton pageKey="guide_pipeline" />
+      </div>
+      <PageTour pageKey="guide_pipeline" />
       {noneClassified && <EmptyCompanyBlock variant="banner" />}
       <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
@@ -297,9 +303,11 @@ export default function PipelinePage() {
           className="w-56 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
         <MultiSelectFilter label="Wave" selected={wave} onChange={setWave}
           options={[1, 2, 3].map((w) => ({ value: String(w), label: `Wave ${w}` }))} />
-        <MultiSelectFilter label="Status" selected={status} onChange={setStatus}
-          options={['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'invested', 'dormant']
-            .map((s) => ({ value: s, label: s.replace('_', ' ') }))} />
+        <div data-tour-id="pipeline-filters">
+          <MultiSelectFilter label="Status" selected={status} onChange={setStatus}
+            options={['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'invested', 'dormant']
+              .map((s) => ({ value: s, label: s.replace('_', ' ') }))} />
+        </div>
         <MultiSelectFilter label="Sectors" selected={sectors} onChange={setSectors}
           options={sectorOptions.map((s) => ({ value: s, label: s }))} />
         <select value={country} onChange={(e) => setCountry(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
@@ -310,10 +318,10 @@ export default function PipelinePage() {
           <button onClick={() => { setQ(''); setWave([]); setStatus([]); setSectors([]); setCountry(''); }} className="text-sm text-gray-500 hover:underline">Clear</button>
         )}
         <span className="ml-auto text-xs text-gray-400">{rows.length} entities</span>
-        <button onClick={() => setAddInvestorOpen(true)} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-[#0E7490] hover:bg-[#E8F4F8]">+ Add investor</button>
+        <button data-tour-id="pipeline-import" onClick={() => setAddInvestorOpen(true)} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-[#0E7490] hover:bg-[#E8F4F8]">+ Add investor</button>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
+      <div data-tour-id="pipeline-list" className="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
         {/* table-fixed + explicit column widths (colgroup) so the table
             holds to the container's width at every wave filter setting
             instead of growing with content and forcing horizontal scroll;

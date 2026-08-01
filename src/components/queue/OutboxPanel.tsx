@@ -7,6 +7,8 @@ import { useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink, PersonLink } from '@/components/ui';
 import { lintMessage } from '@/lib/rules';
+import { PageTour } from '@/components/onboarding/PageTour';
+import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 
 export function OutboxPanel() {
   const { db, approveRun, rejectRun, updateRunDraft, runAutomationTick } = useStore();
@@ -17,12 +19,16 @@ export function OutboxPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <PageTour pageKey="guide_outbox" />
+      <div data-tour-id="outbox-header" className="flex items-center justify-between">
         <h1 className="text-lg font-bold">Outbox — pending review ({pending.length})</h1>
-        <button onClick={() => { const n = runAutomationTick(); setTickMsg(`Engine tick: ${n} new run(s)/task(s).`); }}
-          className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50">
-          Run engine tick now
-        </button>
+        <div className="flex items-center gap-2">
+          <button data-tour-id="outbox-tick" onClick={() => { const n = runAutomationTick(); setTickMsg(`Engine tick: ${n} new run(s)/task(s).`); }}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50">
+            Run engine tick now
+          </button>
+          <PageGuideButton pageKey="guide_outbox" />
+        </div>
       </div>
       {tickMsg && <div className="rounded bg-[#E8F4F8] px-3 py-2 text-sm text-cyan-900">{tickMsg}</div>}
       <p className="text-xs text-gray-400">
@@ -32,46 +38,49 @@ export function OutboxPanel() {
 
       {pending.length === 0 ? (
         <Card><p className="text-sm text-gray-400">Nothing waiting for review.</p></Card>
-      ) : pending.map((r) => {
+      ) : pending.map((r, i) => {
         const auto = db.automations.find((a) => a.id === r.automation_id);
         const person = db.people.find((p) => p.id === r.person_id);
         const entity = db.entities.find((e) => e.id === r.entity_id);
         const lint = r.payload.draft && person ? lintMessage(r.payload.draft, person, entity, r.payload.channel ?? 'email') : [];
         const lintErrors = lint.filter((f) => f.severity === 'error');
         return (
-          <Card key={r.id} title={
-            <span>{auto?.name}
-              {entity && <> — <EntityLink id={entity.id}>{entity.name}</EntityLink></>}
-              {person && <> · <PersonLink id={person.id}>{person.full_name}</PersonLink></>}
-            </span>}>
-            {r.blocked_reason && <div className="mb-2 rounded bg-amber-50 border border-amber-200 px-2 py-1 text-xs text-amber-800">{r.blocked_reason}</div>}
-            {r.payload.draft != null ? (
-              <>
-                {r.payload.subject && <div className="mb-1 text-sm"><span className="text-xs text-gray-500">Subject:</span> {r.payload.subject}</div>}
-                <textarea value={r.payload.draft} onChange={(e) => updateRunDraft(r.id, e.target.value)} rows={7}
-                  className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
-                {lint.map((f, i) => (
-                  <div key={i} className={`mt-1 text-xs ${f.severity === 'error' ? 'text-[#B00000]' : f.severity === 'warning' ? 'text-amber-700' : 'text-gray-400'}`}>
-                    {f.severity === 'error' ? '✗' : f.severity === 'warning' ? '⚠' : 'ℹ'} {f.message}
-                  </div>
-                ))}
-              </>
-            ) : (
-              <p className="text-sm text-gray-700">{r.payload.note}</p>
-            )}
-            <div className="mt-3 flex gap-2">
-              <button disabled={lintErrors.length > 0} onClick={() => approveRun(r.id)}
-                className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-                Approve & execute
-              </button>
-              <button onClick={() => rejectRun(r.id)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">Reject</button>
-              {lintErrors.length > 0 && <span className="self-center text-xs text-[#B00000]">Fix linter errors to approve.</span>}
-            </div>
-          </Card>
+          <div key={r.id} data-tour-id={i === 0 ? 'outbox-card' : undefined}>
+            <Card title={
+              <span>{auto?.name}
+                {entity && <> — <EntityLink id={entity.id}>{entity.name}</EntityLink></>}
+                {person && <> · <PersonLink id={person.id}>{person.full_name}</PersonLink></>}
+              </span>}>
+              {r.blocked_reason && <div className="mb-2 rounded bg-amber-50 border border-amber-200 px-2 py-1 text-xs text-amber-800">{r.blocked_reason}</div>}
+              {r.payload.draft != null ? (
+                <>
+                  {r.payload.subject && <div className="mb-1 text-sm"><span className="text-xs text-gray-500">Subject:</span> {r.payload.subject}</div>}
+                  <textarea value={r.payload.draft} onChange={(e) => updateRunDraft(r.id, e.target.value)} rows={7}
+                    className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
+                  {lint.map((f, i) => (
+                    <div key={i} className={`mt-1 text-xs ${f.severity === 'error' ? 'text-[#B00000]' : f.severity === 'warning' ? 'text-amber-700' : 'text-gray-400'}`}>
+                      {f.severity === 'error' ? '✗' : f.severity === 'warning' ? '⚠' : 'ℹ'} {f.message}
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <p className="text-sm text-gray-700">{r.payload.note}</p>
+              )}
+              <div className="mt-3 flex gap-2">
+                <button disabled={lintErrors.length > 0} onClick={() => approveRun(r.id)}
+                  className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+                  Approve & execute
+                </button>
+                <button onClick={() => rejectRun(r.id)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">Reject</button>
+                {lintErrors.length > 0 && <span className="self-center text-xs text-[#B00000]">Fix linter errors to approve.</span>}
+              </div>
+            </Card>
+          </div>
         );
       })}
 
       {recent.length > 0 && (
+        <div data-tour-id="outbox-recent">
         <Card title="Recent runs">
           <ul className="divide-y divide-gray-100 text-sm">
             {recent.map((r) => (
@@ -87,6 +96,7 @@ export function OutboxPanel() {
             ))}
           </ul>
         </Card>
+        </div>
       )}
     </div>
   );
