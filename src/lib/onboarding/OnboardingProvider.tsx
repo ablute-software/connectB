@@ -24,6 +24,10 @@ interface OnboardingContextValue {
   /** Rearms a single key so just that one moment can resurface — the "?" per-page icon (Prompt 86 §7)
    *  and the settings "Review tips" button. Read-modify-write like markSeen, never touches other keys. */
   rearmKey: (key: string) => void;
+  /** Bumped by rearmKey on every call, per key. PageTour depends on this (not just !seen[key]) so a
+   *  click on "?" reopens even when the key was already unseen — found live: a boolean-only dependency
+   *  meant the button was a no-op whenever the tour had never fired yet (Prompt 86 Bloco 2 bug report). */
+  guideNonce: Record<string, number>;
   /** Clears `seen` entirely so everything can resurface. Does not reset session counters/budget.
    *  Destructive across every tracked key — only for a genuine "reset all onboarding" action, never
    *  wired to a single item's replay (that bug wiped `waves` from a real account, see Prompt 86 report). */
@@ -39,6 +43,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const [conditions, setConditions] = useState<Record<string, boolean>>({});
   const [sessionModalsShown, setSessionModalsShown] = useState(0);
   const [sessionCoachmarksShown, setSessionCoachmarksShown] = useState(0);
+  const [guideNonce, setGuideNonce] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!authEnabled) { setLoaded(true); return; }
@@ -101,6 +106,11 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       delete nextSeen[key];
       return { ...prev, seen: nextSeen };
     });
+    // Always bumped, even when `key` was already absent from `seen` — a
+    // consumer keying its "should I (re)open" effect off !seen[key] alone
+    // sees no change in that case and never re-runs. This is the signal
+    // that says "open regardless," independent of the seen/unseen edge.
+    setGuideNonce((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
     if (!authEnabled) return;
     (async () => {
       const sb = browserClient();
@@ -127,7 +137,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   return (
-    <OnboardingContext.Provider value={{ eligibleKey, seen: row.seen, setCondition, markSeen, rearmKey, resetSeen, loaded }}>
+    <OnboardingContext.Provider value={{ eligibleKey, seen: row.seen, setCondition, markSeen, rearmKey, guideNonce, resetSeen, loaded }}>
       {children}
     </OnboardingContext.Provider>
   );

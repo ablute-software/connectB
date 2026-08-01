@@ -2,9 +2,10 @@
 // Prompt 86 Bloco 2 (§5, §6, §9, §13) — per-page step-by-step tour. Distinct
 // from WelcomeModal on purpose: dismissible at any point (backdrop click,
 // Escape, X) — the popup is a decision, this is help. Fires automatically
-// once per pageKey (reactive on `seen[pageKey]` from OnboardingProvider,
-// see its doc comment), and re-fires from step 1 whenever a "?" button
-// calls rearmKey(pageKey).
+// once per pageKey (reactive on `seen[pageKey]` from OnboardingProvider),
+// and re-fires from step 1 whenever a "?" button calls rearmKey(pageKey) —
+// tracked via `guideNonce`, not just the seen/unseen edge (see the effect
+// below and OnboardingProvider's doc comment for why both are needed).
 //
 // Adapting to missing elements (§9): steps are resolved against
 // `[data-tour-id="<selector>"]` in the real DOM at open time. A step whose
@@ -34,34 +35,48 @@ function usePrefersReducedMotion() {
 }
 
 export function PageTour({ pageKey }: { pageKey: string }) {
-  const { seen, loaded, markSeen } = useOnboarding();
+  const { seen, loaded, markSeen, guideNonce } = useOnboarding();
   const steps = TOUR_CONTENT[pageKey] ?? [];
   const alreadySeen = !!seen[pageKey];
+  const nonce = guideNonce[pageKey] ?? 0;
   const [stepIndex, setStepIndex] = useState(0);
   const [resolved, setResolved] = useState<ResolvedStep[] | null>(null);
   const reducedMotion = usePrefersReducedMotion();
   const balloonRef = useRef<HTMLDivElement>(null);
 
-  // The tour is eligible once, reactively, whenever this page's key isn't
-  // in `seen` yet — the "?" button rearms by deleting the key, which flips
-  // this back to true and (via the effect below) restarts at step 0.
+  // The tour is eligible once loaded and not yet seen for this key. `nonce`
+  // is the "?" button's own re-open signal — it bumps on every click,
+  // independent of the seen/unseen edge, so a click still does something
+  // even when the key had never been seen in the first place (a
+  // !seen[key]-only dependency misses that case: nothing "changes").
   const wantsOpen = loaded && !alreadySeen && steps.length > 0;
 
   useEffect(() => {
     if (!wantsOpen) { setResolved(null); return; }
     setStepIndex(0);
-    // Resolve anchors on open, not on every render — the DOM is settled by
-    // the time this page's real content (not a loading placeholder) is
-    // mounted, which is when PageTour itself gets mounted by the caller.
-    const found: ResolvedStep[] = [];
-    for (const step of steps) {
-      const el = document.querySelector<HTMLElement>(`[data-tour-id="${step.selector}"]`);
-      if (el) found.push({ ...step, rect: el.getBoundingClientRect() });
+    let cancelled = false;
+    let attempt = 0;
+    // Anchors resolve against the real DOM, but the page around them can
+    // still be mid-load (e.g. CompanyPanel's own async /api/me fetch) at
+    // the exact moment this effect first runs — a single immediate query
+    // found live to silently and permanently fail the tour (Prompt 86
+    // Bloco 2 bug report). Retry on a short interval instead of once.
+    function tryResolve() {
+      if (cancelled) return;
+      const found: ResolvedStep[] = [];
+      for (const step of steps) {
+        const el = document.querySelector<HTMLElement>(`[data-tour-id="${step.selector}"]`);
+        if (el) found.push({ ...step, rect: el.getBoundingClientRect() });
+      }
+      if (found.length >= 2) { setResolved(found); return; }
+      attempt += 1;
+      if (attempt < 20) setTimeout(tryResolve, 150); // ~3s total before giving up quietly
+      else setResolved(null);
     }
-    if (found.length < 2) { setResolved(null); return; }
-    setResolved(found);
+    tryResolve();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wantsOpen]);
+  }, [wantsOpen, nonce]);
 
   const current = resolved?.[stepIndex] ?? null;
 
