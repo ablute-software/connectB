@@ -29,7 +29,7 @@ export function useW1Milestones(): Milestone[] {
       done: db.entities.length > 0,
     },
     {
-      key: 'outreach', label: 'First contact', href: '/today',
+      key: 'outreach', label: 'First contact', href: '/tasks',
       done: db.interactions.length > 0,
     },
     {

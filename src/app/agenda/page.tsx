@@ -1,9 +1,10 @@
-// /agenda merged into /today (separador "Agenda"). Permanent redirect so no
-// old link/bookmark 404s — permanentRedirect() issues a 308, the correct
-// status for a route that has moved for good (this target never changes at
-// runtime, unlike /company below, so a cached 308 is safe here).
-import { permanentRedirect } from 'next/navigation';
+'use client';
+// Agenda — Prompt 94's restructuring. Split back out from Today into its
+// own top-level route (undoing the 27/07 merge that used to redirect here);
+// AgendaPanel itself is unchanged (month grid + Today rail + ICS export),
+// same component the merged /today page rendered under its "Agenda" tab.
+import { AgendaPanel } from '@/components/today/AgendaPanel';
 
-export default function AgendaRedirect() {
-  permanentRedirect('/today?tab=agenda');
+export default function AgendaPage() {
+  return <AgendaPanel />;
 }

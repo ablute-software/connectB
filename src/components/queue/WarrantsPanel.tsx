@@ -1,41 +1,33 @@
 'use client';
-// Outbox — approval queue for automation runs (draft_review mode). Moved
-// from src/app/outbox/page.tsx (formerly its own route) into the Needs
-// review/Outbox separadores on /queue — logic unchanged, only the export
-// changed from a page default to a named panel.
+// Warrants — Prompt 94's restructuring of the former top-level Outbox page
+// into a Tasks sub-tab with two sub-tabs of its own. The two things this
+// page already conflated ("everything pending review" and "specifically
+// the data-room-mail automation's own pending runs" — they were the same
+// undifferentiated list, just distinguishable by auto?.name) become real,
+// separate sub-tabs: "Pending Review" (everything except the data-room-mail
+// automation) and "Data Room Mail Access" (only that automation's runs).
+// Logic/rendering is otherwise unchanged from the old OutboxPanel.
 import { useState } from 'react';
 import { useStore } from '@/lib/store';
-import { Card, EntityLink, PersonLink } from '@/components/ui';
+import { Card, EntityLink, PersonLink, Tabs } from '@/components/ui';
 import { lintMessage } from '@/lib/rules';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
+import { useTabParam } from '@/lib/use-tab';
+import type { AutomationRun } from '@/lib/types';
 
-export function OutboxPanel() {
-  const { db, approveRun, rejectRun, updateRunDraft, runAutomationTick } = useStore();
-  const [tickMsg, setTickMsg] = useState('');
-  const pending = db.runs.filter((r) => r.status === 'pending_review');
-  const recent = db.runs.filter((r) => r.status !== 'pending_review')
-    .sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 10);
+// The automation this sub-tab split hinges on — same id seed.ts always used.
+const DATA_ROOM_MAIL_AUTOMATION_ID = 'auto-grant';
 
+const SUBTABS = [
+  { key: 'pending', label: 'Pending Review' },
+  { key: 'dataroom', label: 'Data Room Mail Access' },
+];
+
+function RunsList({ pending, recent, tourPrefix }: { pending: AutomationRun[]; recent: AutomationRun[]; tourPrefix: string }) {
+  const { db, approveRun, rejectRun, updateRunDraft } = useStore();
   return (
-    <div className="space-y-4">
-      <PageTour pageKey="guide_outbox" />
-      <div data-tour-id="outbox-header" className="flex items-center justify-between">
-        <h1 className="text-lg font-bold">Outbox — pending review ({pending.length})</h1>
-        <div className="flex items-center gap-2">
-          <button data-tour-id="outbox-tick" onClick={() => { const n = runAutomationTick(); setTickMsg(`Engine tick: ${n} new run(s)/task(s).`); }}
-            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50">
-            Run engine tick now
-          </button>
-          <PageGuideButton pageKey="guide_outbox" />
-        </div>
-      </div>
-      {tickMsg && <div className="rounded bg-[#E8F4F8] px-3 py-2 text-sm text-cyan-900">{tickMsg}</div>}
-      <p className="text-xs text-gray-400">
-        The engine also runs automatically on a schedule, and full-auto runs execute without stopping here — but only
-        when pre-flight is green. Anything blocked lands in this queue with the reason.
-      </p>
-
+    <>
       {pending.length === 0 ? (
         <Card><p className="text-sm text-gray-400">Nothing waiting for review.</p></Card>
       ) : pending.map((r, i) => {
@@ -45,7 +37,7 @@ export function OutboxPanel() {
         const lint = r.payload.draft && person ? lintMessage(r.payload.draft, person, entity, r.payload.channel ?? 'email') : [];
         const lintErrors = lint.filter((f) => f.severity === 'error');
         return (
-          <div key={r.id} data-tour-id={i === 0 ? 'outbox-card' : undefined}>
+          <div key={r.id} data-tour-id={i === 0 ? `${tourPrefix}-card` : undefined}>
             <Card title={
               <span>{auto?.name}
                 {entity && <> — <EntityLink id={entity.id}>{entity.name}</EntityLink></>}
@@ -80,7 +72,7 @@ export function OutboxPanel() {
       })}
 
       {recent.length > 0 && (
-        <div data-tour-id="outbox-recent">
+        <div data-tour-id={`${tourPrefix}-recent`}>
         <Card title="Recent runs">
           <ul className="divide-y divide-gray-100 text-sm">
             {recent.map((r) => (
@@ -98,6 +90,46 @@ export function OutboxPanel() {
         </Card>
         </div>
       )}
+    </>
+  );
+}
+
+export function WarrantsPanel() {
+  const { db, runAutomationTick } = useStore();
+  const [tickMsg, setTickMsg] = useState('');
+  const [subtab, setSubtab] = useTabParam('pending', 'subtab');
+
+  const isDataRoom = (r: AutomationRun) => r.automation_id === DATA_ROOM_MAIL_AUTOMATION_ID;
+  const allPending = db.runs.filter((r) => r.status === 'pending_review');
+  const allRecent = db.runs.filter((r) => r.status !== 'pending_review')
+    .sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 10);
+
+  const pending = subtab === 'dataroom' ? allPending.filter(isDataRoom) : allPending.filter((r) => !isDataRoom(r));
+  const recent = subtab === 'dataroom' ? allRecent.filter(isDataRoom) : allRecent.filter((r) => !isDataRoom(r));
+  const totalPending = allPending.length;
+
+  return (
+    <div className="space-y-4">
+      <PageTour pageKey="guide_warrants" />
+      <div data-tour-id="warrants-header" className="flex items-center justify-between">
+        <h1 className="text-lg font-bold">Warrants — pending review ({totalPending})</h1>
+        <div className="flex items-center gap-2">
+          <button data-tour-id="warrants-tick" onClick={() => { const n = runAutomationTick(); setTickMsg(`Engine tick: ${n} new run(s)/task(s).`); }}
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50">
+            Run engine tick now
+          </button>
+          <PageGuideButton pageKey="guide_warrants" />
+        </div>
+      </div>
+      {tickMsg && <div className="rounded bg-[#E8F4F8] px-3 py-2 text-sm text-cyan-900">{tickMsg}</div>}
+      <p className="text-xs text-gray-400">
+        The engine also runs automatically on a schedule, and full-auto runs execute without stopping here — but only
+        when pre-flight is green. Anything blocked lands in this queue with the reason.
+      </p>
+
+      <Tabs items={SUBTABS} active={subtab} onChange={setSubtab} />
+
+      <RunsList pending={pending} recent={recent} tourPrefix={subtab === 'dataroom' ? 'warrants-dataroom' : 'warrants-pending'} />
     </div>
   );
 }

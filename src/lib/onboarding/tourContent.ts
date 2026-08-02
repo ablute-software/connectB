@@ -58,26 +58,30 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
     },
   ],
 
-  guide_outbox: [
+  // Prompt 94 — was guide_outbox; renamed along with the page (Outbox is
+  // now the Warrants sub-tab of Tasks, itself split into Pending Review /
+  // Data Room Mail Access). Selectors point at warrants-* data-tour-ids
+  // now (WarrantsPanel.tsx); content is otherwise the same tour.
+  guide_warrants: [
     {
-      selector: 'outbox-header',
+      selector: 'warrants-header',
       title: 'Nothing leaves without passing here',
       body: 'The engine drafts, you approve. Anything it can’t do safely stops in this queue with the reason attached.',
     },
     {
       // Dropped if pending.length === 0 — no card exists to anchor to.
-      selector: 'outbox-card',
+      selector: 'warrants-pending-card',
       title: 'Each card says exactly what will happen',
       body: 'The title is the action, the line under it is the reason it was held. Approve executes it; Reject drops it.',
     },
     {
-      selector: 'outbox-tick',
+      selector: 'warrants-tick',
       title: 'You can ask for a pass right now',
       body: 'The engine runs on its own schedule too. This button just brings the next pass forward.',
     },
     {
       // Dropped if there's no run history yet.
-      selector: 'outbox-recent',
+      selector: 'warrants-pending-recent',
       title: 'Every decision is on the record',
       body: 'Executed and rejected, with timestamps. Nothing the engine did is invisible after the fact.',
     },

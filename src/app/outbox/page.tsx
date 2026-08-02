@@ -1,9 +1,9 @@
-'use client';
-// Outbox — back to its own top-level page (it briefly lived merged with
-// Needs review under /queue; that merge is undone — see /app/queue's
-// redirect). Renders the same OutboxPanel unchanged, just not behind a tab.
-import { OutboxPanel } from '@/components/queue/OutboxPanel';
+// Prompt 94 — /outbox is superseded: it's now the "Warrants" sub-tab of the
+// new /tasks (see WarrantsPanel.tsx, which also splits it further into
+// Pending Review / Data Room Mail Access). Permanent redirect so no old
+// link/bookmark 404s.
+import { permanentRedirect } from 'next/navigation';
 
-export default function OutboxPage() {
-  return <OutboxPanel />;
+export default function OutboxRedirect() {
+  permanentRedirect('/tasks?tab=warrants');
 }

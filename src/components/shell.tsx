@@ -28,13 +28,16 @@ type Me = {
 // companyCanon capability, but one level down (Dashboard decides whether
 // its own tab renders) — nothing here needs capability-based filtering.
 //
+// Prompt 94 — Today+Outbox merge into "Tasks" (Today/Warrants sub-tabs);
+// Agenda splits back out to its own top-level item. Still 7 entries.
+//
 // The 6th item's label is set at render time (`about {org.name}`), not
 // here — see aboutLabel below.
 const NAV: { href: string; label: string; icon: string }[] = [
   { href: '/pipeline', label: 'Pipeline', icon: '▤' },
-  { href: '/today', label: 'Today', icon: '☀' },
-  { href: '/dashboard', label: 'Dashboard', icon: '◔' },
-  { href: '/outbox', label: 'Outbox', icon: '✉' },
+  { href: '/tasks', label: 'Tasks', icon: '☀' },
+  { href: '/agenda', label: 'Agenda', icon: '◔' },
+  { href: '/dashboard', label: 'Dashboard', icon: '◈' },
   { href: '/documents', label: 'Data Room', icon: '▣' },
   { href: '/settings', label: 'about your company', icon: '⋯' },
   { href: '/plans', label: 'Plans & billing', icon: '◇' },
@@ -111,7 +114,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                     the slightly heavier weight + tracking sets it apart from
                     the rest of the list, active or not. */}
                 <span className={isAbout ? 'font-semibold tracking-wide' : undefined}>{isAbout ? aboutLabel : n.label}</span>
-                {n.href === '/outbox' && pendingRuns > 0 && (
+                {n.href === '/tasks' && pendingRuns > 0 && (
                   <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{pendingRuns}</span>
                 )}
                 {isAbout && needsReviewCount > 0 && (
@@ -224,7 +227,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <Link key={n.href} href={n.href}
               className={`relative shrink-0 px-2.5 py-1 text-xs ${path === n.href ? 'font-semibold text-[#0E7490]' : 'text-gray-400'} ${isAbout ? 'tracking-wide' : ''}`}>
               {isAbout ? aboutLabel : n.label}
-              {n.href === '/outbox' && pendingRuns > 0 && (
+              {n.href === '/tasks' && pendingRuns > 0 && (
                 <span className="absolute -right-0.5 -top-0.5 rounded-full bg-amber-400 px-1 text-[9px] font-bold text-white">{pendingRuns}</span>
               )}
               {isAbout && needsReviewCount > 0 && (

@@ -435,7 +435,7 @@ export const seed: Db = {
     { id: 'auto-dormant', name: 'Propose dormant after follow-up + 14 days', trigger: 'followup_no_reply_14d', action: 'propose_dormant', mode: 'draft_review', enabled: true, config: { days: 14 } },
     { id: 'auto-meeting', name: 'Meeting request → scheduling task', trigger: 'inbound_meeting_request', action: 'create_task', mode: 'full_auto', enabled: true, config: {} },
     { id: 'auto-lock', name: 'Notify when contact lock expires', trigger: 'contact_lock_expired', action: 'notify_owner', mode: 'full_auto', enabled: true, config: {} },
-    { id: 'auto-grant', name: 'Email data-room link when a grant is activated', trigger: 'grant_activated', action: 'send_grant_email', mode: 'draft_review', channel: 'email', enabled: true, config: {} },
+    { id: 'auto-grant', name: 'Data Room Mail Access', trigger: 'grant_activated', action: 'send_grant_email', mode: 'draft_review', channel: 'email', enabled: true, config: {} },
     { id: 'auto-viewed', name: 'Notify when an investor views a document', trigger: 'document_viewed', action: 'notify_owner', mode: 'full_auto', enabled: true, config: {} },
     { id: 'auto-hook', name: 'Create research task when hook missing in active wave', trigger: 'hook_missing', action: 'create_task', mode: 'full_auto', enabled: true, config: {} },
   ],

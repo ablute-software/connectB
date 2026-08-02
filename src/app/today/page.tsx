@@ -1,24 +1,17 @@
-'use client';
-// Today — merges the former /today and /agenda routes into separadores.
-// The active tab lives in ?tab= (useTabParam), never component state alone.
-import { Suspense } from 'react';
-import { Tabs } from '@/components/ui';
-import { useTabParam } from '@/lib/use-tab';
-import { TodayPanel } from '@/components/today/TodayPanel';
-import { AgendaPanel } from '@/components/today/AgendaPanel';
+// Prompt 94 — /today (with its Today/Agenda separadores) is superseded:
+// Today moved under the new /tasks (alongside the former Outbox, now
+// "Warrants"); Agenda split back out to its own top-level /agenda. Old
+// links/bookmarks still land somewhere real rather than 404ing — the old
+// ?tab=agenda distinction is preserved by routing it to the new Agenda
+// page specifically, everything else (bare /today, ?tab=today) goes to
+// Tasks's own default (Today) tab.
+import { permanentRedirect } from 'next/navigation';
 
-const TABS = [{ key: 'today', label: 'Today' }, { key: 'agenda', label: 'Agenda' }];
+// Reading searchParams already makes this dynamic in Next 14, but stated
+// explicitly (same as /company's redirect) so a build never bakes in one
+// answer for every visitor regardless of their actual ?tab=.
+export const dynamic = 'force-dynamic';
 
-function TodayInner() {
-  const [tab, setTab] = useTabParam('today');
-  return (
-    <div>
-      <Tabs items={TABS} active={tab} onChange={setTab} />
-      {tab === 'agenda' ? <AgendaPanel /> : <TodayPanel />}
-    </div>
-  );
-}
-
-export default function TodayPage() {
-  return <Suspense fallback={null}><TodayInner /></Suspense>;
+export default function TodayRedirect({ searchParams }: { searchParams: { tab?: string } }) {
+  permanentRedirect(searchParams.tab === 'agenda' ? '/agenda' : '/tasks');
 }

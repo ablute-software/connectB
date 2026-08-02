@@ -20,7 +20,11 @@ export const MATRIX_CAPABILITIES: { key: MatrixCapability; label: string; note?:
   { key: 'data_room_upload', label: 'Data room — upload / import' },
   { key: 'data_room_manage', label: 'Data room — manage (delete / rename)' },
   { key: 'access_grants', label: 'Access grants' },
-  { key: 'outbox_approval', label: 'Outbox — approve sends' },
+  // Prompt 94 — label only. The key stays outbox_approval: it's what's
+  // actually stored in orgs.permission_matrix jsonb for every org already
+  // using this override, and renaming the key would silently break those
+  // rows' meaning without a migration nobody asked for.
+  { key: 'outbox_approval', label: 'Warrants — approve sends' },
   { key: 'automations_config', label: 'Automations — configure' },
   { key: 'packs_unlock', label: 'Packs — unlock' },
   { key: 'backoffice_access', label: 'Back-office access', note: 'Platform-admin is still required — this toggle only restricts further, never grants.' },
