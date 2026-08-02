@@ -119,17 +119,32 @@ export function InvestorWorkspaceShell({
           .sd-matchdeal-shine { animation: sd-header-shine 2.6s ease-in-out infinite; }
           .sd-matchdeal-cycle { animation: sd-matchdeal-cycle 9s ease-in-out infinite; }
         `}</style>
-        <header className="sticky top-0 z-10 flex items-center justify-end gap-3 border-b border-gray-100 bg-white/85 px-4 py-2.5 backdrop-blur md:px-8">
-          <button onClick={() => setShowMatchDeal(true)} title="Connect the MatchDeal app — swipe-based matching with startups."
-            className="sd-matchdeal-cycle relative flex items-center gap-1.5 overflow-hidden rounded-xl px-2.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-[0_10px_24px_rgba(34,197,94,.4)] sm:px-3">
-            <span aria-hidden="true" className="sd-matchdeal-shine pointer-events-none absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/50 to-transparent" />
-            <span aria-hidden="true" className="relative text-base leading-none">🤝</span>
-            <span className="relative hidden sm:inline">MatchDeal</span>
+        <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-gray-100 bg-white/85 px-4 py-2.5 backdrop-blur md:justify-end md:px-8">
+          {/* Prompt 90 item 2 — the sidebar (with the only Log out button)
+              is `hidden md:flex`: below the md breakpoint there was no way
+              to sign out at all, not an intermittent bug but a 100%
+              reproducible gap below ~768px. This header, unlike the
+              sidebar, already renders at every width, so it's the natural
+              place for a mobile-only way out — md:hidden so desktop still
+              uses the sidebar's own button, not a duplicate. */}
+          <button
+            onClick={async () => { try { await browserClient().auth.signOut(); } catch { /* ignore */ } window.location.href = '/login'; }}
+            className="rounded-lg border border-gray-200 px-2 py-1 text-[11px] text-gray-500 hover:bg-gray-50 md:hidden"
+          >
+            Log out
           </button>
-          <span title="Items on your Today tab — new matches, meetings, answers, and closing rounds."
-            className="rounded-full border border-gray-100 bg-white px-3 py-1 text-xs text-gray-500">
-            {todayCount == null ? 'Today —' : `Today ${todayCount} update${todayCount === 1 ? '' : 's'}`}
-          </span>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setShowMatchDeal(true)} title="Connect the MatchDeal app — swipe-based matching with startups."
+              className="sd-matchdeal-cycle relative flex items-center gap-1.5 overflow-hidden rounded-xl px-2.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-[0_10px_24px_rgba(34,197,94,.4)] sm:px-3">
+              <span aria-hidden="true" className="sd-matchdeal-shine pointer-events-none absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/50 to-transparent" />
+              <span aria-hidden="true" className="relative text-base leading-none">🤝</span>
+              <span className="relative hidden sm:inline">MatchDeal</span>
+            </button>
+            <span title="Items on your Today tab — new matches, meetings, answers, and closing rounds."
+              className="rounded-full border border-gray-100 bg-white px-3 py-1 text-xs text-gray-500">
+              {todayCount == null ? 'Today —' : `Today ${todayCount} update${todayCount === 1 ? '' : 's'}`}
+            </span>
+          </div>
         </header>
         <main className="mx-auto max-w-3xl p-4 md:p-8">
           {tab === 'pipeline' && (
