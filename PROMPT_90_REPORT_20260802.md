@@ -139,6 +139,13 @@ novos exatos e de onde/quando foram pedidos** para agir — não vou adivinhar n
 
 ---
 
+## Deploy confirmado
+
+Commit `1135a23` em produção — confirmado por comportamento direto (GitHub Deployments API sem quota,
+mesma situação da corrida da noite anterior): o chunk JS de `/portal` mudou de hash
+(`page-60e121c696676144.js` → `page-d22d973fa10f1057.js`) e passou a conter 2 ocorrências de "Log out"
+(a da barra lateral + a nova do cabeçalho mobile), batendo exatamente com o fix aplicado.
+
 ## Disciplina seguida
 
 Evidência sempre, nunca memória — todas as causas acima confirmadas por grep/leitura de código ou SQL
