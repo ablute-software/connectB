@@ -62,6 +62,10 @@ os pesos (ainda não recebidos — proponho iguais por defeito, sinalizado, não
 
 ---
 
+## Deploy confirmado
+
+Commit `871795d` — GitHub Deployments API, deployment `5715630927`, `state: success`.
+
 ## Disciplina seguida
 
 `access_grants` e o motor de matching intocados em ambos os itens. A única escrita em produção foi o
