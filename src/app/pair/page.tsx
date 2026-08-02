@@ -18,7 +18,7 @@
 // screen.
 import { useCallback, useEffect, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
-import { MatchDealDeck } from '@/components/matchdeal/MatchDealDeck';
+import { MatchDealShell } from '@/components/matchdeal/MatchDealShell';
 import { InstallPrompt } from '@/components/matchdeal/InstallPrompt';
 import { detectMobileClient } from '@/lib/is-mobile-client';
 
@@ -262,7 +262,7 @@ export default function PairPage() {
           </header>
 
           {ownProfileId && kind ? (
-            <MatchDealDeck viewerProfileId={ownProfileId} viewerKind={kind} />
+            <MatchDealShell viewerProfileId={ownProfileId} viewerKind={kind} />
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
               <div className="text-4xl">👤</div>
