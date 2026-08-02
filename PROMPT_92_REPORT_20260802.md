@@ -104,6 +104,10 @@ construir"). À espera de OK para arrancar.
 
 ---
 
+## Deploy confirmado
+
+Commit `dafedf8` — GitHub Deployments API, deployment `5713857659`, `state: success`.
+
 ## Disciplina seguida
 
 `access_grants` e o motor de matching intocados (a decisão de não filtrar os fictícios por email dentro
