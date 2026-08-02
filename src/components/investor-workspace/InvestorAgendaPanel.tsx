@@ -1,10 +1,11 @@
 'use client';
 // Investor Workspace Agenda (prompt 59) — merged timeline of meetings, round
-// deadlines, and manual follow-ups. iCal export deliberately NOT built this
-// pass — a read-only subscription feed needs a stable per-investor secret
-// token (generation, storage, revocation) to avoid leaking calendar data to
-// anyone who guesses a URL, which isn't the "cheap to do now" case the
-// prompt allows skipping; registered for Prompt 61 instead.
+// deadlines, and manual follow-ups. Prompt 83 Bloco 5 — iCal export, the one
+// documented omission. This is a session-gated snapshot download (Export
+// .ics button, same security model as the Pipeline/Archive CSV export), not
+// a webcal:// subscription feed: a live feed needs a stable per-investor
+// secret token (generation/storage/revocation), which is a real schema
+// change and stays a separate, unbuilt proposal.
 import { useEffect, useState } from 'react';
 
 interface AgendaItem {
@@ -40,7 +41,15 @@ export function InvestorAgendaPanel() {
   const now = new Date();
   return (
     <div className="max-w-2xl space-y-2">
-      <h1 className="text-lg font-bold text-gray-900">Agenda</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-bold text-gray-900">Agenda</h1>
+        <a
+          href="/api/portal/agenda/ical"
+          className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:border-[#0E7490]"
+        >
+          Export .ics
+        </a>
+      </div>
       {items.map((it, i) => {
         const isPast = new Date(it.date) < now;
         return (

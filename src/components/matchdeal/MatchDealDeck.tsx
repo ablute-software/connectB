@@ -76,7 +76,14 @@ function Chip({ children }: { children: React.ReactNode }) {
   );
 }
 
-function CardFace({ p }: { p: MatchDealProfile }) {
+// Prompt 81 Bloco 1 — three stories-style sub-cards per profile, reached by
+// swiping down (and back up). Card 0 is the original at-a-glance view
+// (unchanged); cards 1/2 surface fields the deck already fetched but never
+// rendered anywhere (specific_criteria, team_summary, founded_year, the full
+// sector list) — no new data, just more of what's already in the payload.
+const SUB_CARD_COUNT = 3;
+
+function CardFace({ p, subIndex, active }: { p: MatchDealProfile; subIndex?: number; active?: boolean }) {
   const name = p.entity_name || (p.kind === 'startup' ? 'A startup' : 'An investor');
   const image = p.photo_url ?? p.entity_logo_url;
   const [from, to] = GRADIENTS[hashString(name) % GRADIENTS.length];
@@ -86,6 +93,7 @@ function CardFace({ p }: { p: MatchDealProfile }) {
   const money = p.kind === 'startup'
     ? (fmtEur(p.target_round_amount) ? `Raising ${fmtEur(p.target_round_amount)}` : null)
     : (fmtEur(p.ticket_min) || fmtEur(p.ticket_max) ? `Ticket ${fmtEur(p.ticket_min) ?? '—'}–${fmtEur(p.ticket_max) ?? '—'}` : null);
+  const i = subIndex ?? 0;
 
   return (
     <div
@@ -103,6 +111,16 @@ function CardFace({ p }: { p: MatchDealProfile }) {
         </div>
       )}
 
+      {active && (
+        <div className="absolute inset-x-3 top-3 z-10 flex gap-1.5">
+          {Array.from({ length: SUB_CARD_COUNT }, (_, s) => (
+            <div key={s} className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/30">
+              <div className={`h-full rounded-full bg-white transition-all ${s <= i ? 'w-full' : 'w-0'}`} />
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Legibility scrim — the text below sits on top of either the photo
           or the gradient, and needs the same contrast floor in both cases. */}
       <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/85 via-black/45 to-transparent" />
@@ -117,16 +135,66 @@ function CardFace({ p }: { p: MatchDealProfile }) {
         {p.representative_name && (
           <p className="mt-1 text-[13px] font-medium text-white/80">{p.representative_name}</p>
         )}
-        {p.description && (
+
+        {i === 0 && p.description && (
           <p className="mt-2 line-clamp-3 text-[13px] leading-snug text-white/85">{p.description}</p>
         )}
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {p.country && <Chip>{p.country}</Chip>}
-          {stages.slice(0, 3).map((s) => <Chip key={s}>{s}</Chip>)}
-          {money && <Chip>{money}</Chip>}
-        </div>
-        {p.sectors.length > 0 && (
+        {i === 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {p.country && <Chip>{p.country}</Chip>}
+            {stages.slice(0, 3).map((s) => <Chip key={s}>{s}</Chip>)}
+            {money && <Chip>{money}</Chip>}
+          </div>
+        )}
+        {i === 0 && p.sectors.length > 0 && (
           <p className="mt-2.5 truncate text-[11px] text-white/60">{p.sectors.slice(0, 6).join(' · ')}</p>
+        )}
+
+        {i === 1 && (
+          <div className="mt-2 space-y-2.5">
+            {p.description && <p className="text-[13px] leading-snug text-white/85">{p.description}</p>}
+            {p.kind === 'startup' && p.team_summary && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Team</p>
+                <p className="text-[13px] leading-snug text-white/85">{p.team_summary}</p>
+              </div>
+            )}
+            {p.kind === 'investor' && p.specific_criteria && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">What they look for</p>
+                <p className="text-[13px] leading-snug text-white/85">{p.specific_criteria}</p>
+              </div>
+            )}
+            {!p.team_summary && !p.specific_criteria && !p.description && (
+              <p className="text-[13px] text-white/50">Nothing more here yet.</p>
+            )}
+          </div>
+        )}
+
+        {i === 2 && (
+          <div className="mt-2 space-y-2.5">
+            {p.founded_year && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Founded</p>
+                <p className="text-[13px] text-white/85">{p.founded_year}</p>
+              </div>
+            )}
+            {p.sectors.length > 0 && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Sectors</p>
+                <p className="text-[13px] leading-snug text-white/85">{p.sectors.join(' · ')}</p>
+              </div>
+            )}
+            {stages.length > 0 && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Stages</p>
+                <p className="text-[13px] leading-snug text-white/85">{stages.join(' · ')}</p>
+              </div>
+            )}
+            {!p.founded_year && p.sectors.length === 0 && stages.length === 0 && (
+              <p className="text-[13px] text-white/50">Nothing more here yet.</p>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -147,6 +215,8 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
   const [loadError, setLoadError] = useState(false);
   const [drag, setDrag] = useState({ x: 0, y: 0, active: false });
   const [flyOut, setFlyOut] = useState<'like' | 'pass' | null>(null);
+  const [subIndex, setSubIndex] = useState(0);
+  const [showBoostSheet, setShowBoostSheet] = useState(false);
   const startRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
@@ -160,6 +230,8 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
 
   const current = deck?.[index] ?? null;
   const next = deck?.[index + 1] ?? null;
+
+  useEffect(() => { setSubIndex(0); }, [index]);
 
   useEffect(() => {
     if (!current) return;
@@ -221,10 +293,24 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
     if (!startRef.current) return;
     setDrag({ x: e.clientX - startRef.current.x, y: e.clientY - startRef.current.y, active: true });
   }
+  // Prompt 81 Bloco 1 — vertical gesture, entirely separate from like/pass:
+  // down reveals the next stories-style sub-card, up goes back a sub-card
+  // or (at the first one) opens the Boost confirmation. Whichever axis moved
+  // further wins, so a mostly-horizontal drag never triggers this by accident.
   function onPointerUp() {
     if (!startRef.current) return;
-    const { x } = drag;
+    const { x, y } = drag;
     startRef.current = null;
+    if (Math.abs(y) > Math.abs(x) && Math.abs(y) > SWIPE_THRESHOLD) {
+      if (y < 0) {
+        if (subIndex > 0) setSubIndex((s) => s - 1);
+        else setShowBoostSheet(true);
+      } else {
+        setSubIndex((s) => Math.min(s + 1, SUB_CARD_COUNT - 1));
+      }
+      setDrag({ x: 0, y: 0, active: false });
+      return;
+    }
     if (x > SWIPE_THRESHOLD) { void commit('like'); return; }
     if (x < -SWIPE_THRESHOLD) { void commit('pass'); return; }
     setDrag({ x: 0, y: 0, active: false });
@@ -280,7 +366,7 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
 
         <div
           role="group"
-          aria-label={`${current.entity_name ?? 'Profile'} — drag right to like, left to pass`}
+          aria-label={`${current.entity_name ?? 'Profile'} — drag right to like, left to pass, down for more, up to boost`}
           className="absolute inset-x-4 inset-y-1 touch-none select-none"
           style={{
             transform: `translate(${offsetX}px, ${offsetY}px) rotate(${rotation}deg)`,
@@ -292,7 +378,7 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         >
-          <CardFace p={current} />
+          <CardFace p={current} subIndex={subIndex} active />
 
           <div
             className="pointer-events-none absolute left-5 top-5 rotate-[-12deg] rounded-xl border-[3px] border-emerald-400 px-3 py-1 text-[22px] font-black tracking-wider text-emerald-400"
@@ -330,6 +416,37 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
         </div>
       )}
 
+      {/* Prompt 81 Bloco 1 — swipe-up opens this, it never boosts on its
+          own. Boost itself (Bloco 3: matchdeal_boosts, cadence per tier) is
+          schema-only tonight — zero rows, zero code wired to it — so this is
+          an honest "not live yet" state rather than a Confirm button with
+          nothing real behind it. */}
+      {showBoostSheet && (
+        <div
+          role="dialog" aria-label="Boost this profile"
+          className="absolute inset-0 z-20 flex flex-col items-center justify-end bg-[#0B1220]/70 backdrop-blur-sm"
+          onClick={() => setShowBoostSheet(false)}
+        >
+          <div
+            className="w-full rounded-t-3xl border-t border-white/10 bg-[#111a2e] p-6 pb-8 text-center"
+            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 24px)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-3xl">🚀</div>
+            <h2 className="mt-2 text-[17px] font-bold text-white">Boost this profile</h2>
+            <p className="mt-2 text-[13.5px] leading-relaxed text-white/65">
+              Boosting isn&apos;t live yet — it&apos;s coming to MatchDeal soon.
+            </p>
+            <button
+              type="button" onClick={() => setShowBoostSheet(false)}
+              className="mt-5 w-full rounded-full bg-white/10 py-3 text-[14px] font-semibold text-white"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="relative shrink-0 px-4 pb-2 pt-3">
         {toast && (
           <div className="absolute inset-x-4 -top-9 rounded-2xl bg-slate-800/95 px-4 py-2.5 text-center text-[13px] font-medium text-white shadow-lg">
@@ -353,7 +470,7 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
         </div>
 
         <p className="mt-3 text-center text-[11px] font-medium tracking-wide text-white/45">
-          {counter} · swipe or tap
+          {counter} · swipe or tap · ↓ for more, ↑ to boost
         </p>
       </div>
     </div>
