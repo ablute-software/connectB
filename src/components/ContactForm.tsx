@@ -32,6 +32,19 @@ export function ContactForm({ source, defaultName = '', defaultEmail = '', showC
   const canSubmit = !!name.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     && !!subject.trim() && message.trim().length >= 10 && message.length <= 5000;
 
+  // Reported live (screenshot): Name/Email/Category/subject+message all
+  // "filled" (message was "test", 4 chars) and the button just stayed
+  // disabled with nothing on screen explaining why — the 10-character
+  // minimum on message was invisible. This surfaces exactly what's still
+  // missing, only once the visitor has actually started filling the form
+  // (no wall of red text on a blank load).
+  const touched = !!(name || email || subject || message);
+  const missingReasons: string[] = [];
+  if (!name.trim()) missingReasons.push('your name');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) missingReasons.push('a valid email');
+  if (!subject.trim()) missingReasons.push('a subject');
+  if (message.trim().length < 10) missingReasons.push(`a message of at least 10 characters (${message.trim().length}/10 so far)`);
+
   async function submit() {
     setStatus('sending'); setError('');
     try {
@@ -93,6 +106,9 @@ export function ContactForm({ source, defaultName = '', defaultEmail = '', showC
           value={website} onChange={(e) => setWebsite(e.target.value)} />
       </div>
 
+      {!canSubmit && touched && missingReasons.length > 0 && (
+        <p className="text-xs text-amber-600">Still needs: {missingReasons.join(', ')}.</p>
+      )}
       {error && <p className="text-xs text-[#B00000]">{error}</p>}
       <button onClick={submit} disabled={!canSubmit || status === 'sending'}
         className="w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-medium text-white disabled:opacity-40">
