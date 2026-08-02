@@ -293,20 +293,22 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
     if (!startRef.current) return;
     setDrag({ x: e.clientX - startRef.current.x, y: e.clientY - startRef.current.y, active: true });
   }
-  // Prompt 81 Bloco 1 — vertical gesture, entirely separate from like/pass:
-  // down reveals the next stories-style sub-card, up goes back a sub-card
-  // or (at the first one) opens the Boost confirmation. Whichever axis moved
-  // further wins, so a mostly-horizontal drag never triggers this by accident.
+  // Prompt 91 §2.1 — direction corrected (found live, reported wrong the
+  // moment Bloco 1 shipped): up reveals the next stories-style sub-card
+  // (the mini-pitch, moving forward), down goes back a sub-card or — at the
+  // first one, nothing left to go back to — opens the Boost confirmation.
+  // Whichever axis moved further wins, so a mostly-horizontal drag never
+  // triggers this by accident.
   function onPointerUp() {
     if (!startRef.current) return;
     const { x, y } = drag;
     startRef.current = null;
     if (Math.abs(y) > Math.abs(x) && Math.abs(y) > SWIPE_THRESHOLD) {
       if (y < 0) {
+        setSubIndex((s) => Math.min(s + 1, SUB_CARD_COUNT - 1));
+      } else {
         if (subIndex > 0) setSubIndex((s) => s - 1);
         else setShowBoostSheet(true);
-      } else {
-        setSubIndex((s) => Math.min(s + 1, SUB_CARD_COUNT - 1));
       }
       setDrag({ x: 0, y: 0, active: false });
       return;
@@ -366,7 +368,7 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
 
         <div
           role="group"
-          aria-label={`${current.entity_name ?? 'Profile'} — drag right to like, left to pass, down for more, up to boost`}
+          aria-label={`${current.entity_name ?? 'Profile'} — drag right to like, left to pass, up for more, down to boost`}
           className="absolute inset-x-4 inset-y-1 touch-none select-none"
           style={{
             transform: `translate(${offsetX}px, ${offsetY}px) rotate(${rotation}deg)`,
@@ -470,7 +472,7 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
         </div>
 
         <p className="mt-3 text-center text-[11px] font-medium tracking-wide text-white/45">
-          {counter} · swipe or tap · ↓ for more, ↑ to boost
+          {counter} · swipe or tap · ↑ for more, ↓ to boost
         </p>
       </div>
     </div>
