@@ -34,6 +34,8 @@ import {
 import { SECURE_PAYMENT_COPY } from '@/lib/billing';
 import { discountedPriceEur } from '@/lib/promo';
 import { can, type OrgRole } from '@/lib/permissions';
+import { PageTour } from '@/components/onboarding/PageTour';
+import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import type { PlanTier } from '@/lib/types';
 
 const PERIOD_LABEL: Record<BillingPeriod, string> = { monthly: 'Monthly', annual: 'Annual' };
@@ -247,7 +249,11 @@ export function PlansPanel() {
 
   return (
     <div className="max-w-4xl space-y-4">
-      <h1 className="text-lg font-bold">Plans &amp; billing</h1>
+      <PageTour pageKey="guide_plans" />
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-bold">Plans &amp; billing</h1>
+        <PageGuideButton pageKey="guide_plans" />
+      </div>
 
       {notice && <div className="rounded-lg border border-cyan-100 bg-[#E8F4F8] px-3 py-2 text-xs text-[#0E7490]">{notice}</div>}
 
@@ -255,6 +261,7 @@ export function PlansPanel() {
           breakpoint below, so the page doesn't have two rows switching
           layout at different widths); stacked full-width on mobile. */}
       <div className="grid gap-4 md:grid-cols-2">
+        <div data-tour-id="plans-current">
         <Card title="Your plan" tint="blue"
           right={billing && hasSubscription && canManage ? (
             <button onClick={openPortal} disabled={busy === 'portal'}
@@ -283,6 +290,7 @@ export function PlansPanel() {
           )}
           {err && <p className="mt-1.5 text-xs text-[#B00000]">{err}</p>}
         </Card>
+        </div>
 
         <Card title="Promo code">
           {activePromos.length > 0 && (
@@ -319,7 +327,7 @@ export function PlansPanel() {
       </div>
 
       {/* Billing period toggle — drives every price below. */}
-      <div className="flex w-fit items-center gap-1 rounded-full border border-gray-200 bg-white p-0.5 text-xs">
+      <div data-tour-id="plans-toggle" className="flex w-fit items-center gap-1 rounded-full border border-gray-200 bg-white p-0.5 text-xs">
         {BILLING_PERIODS.map((pd) => (
           <button key={pd} onClick={() => setPeriod(pd)}
             className={`rounded-full px-3 py-1 font-medium transition ${period === pd ? 'bg-[#0E7490] text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}>

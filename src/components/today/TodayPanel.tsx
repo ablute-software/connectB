@@ -8,6 +8,8 @@ import { useStore } from '@/lib/store';
 import { Card, EntityLink, PersonLink, WaveTag, fmtEur } from '@/components/ui';
 import { outboundCounts, preflight, preflightSummary } from '@/lib/rules';
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, recommendedActionType } from '@/lib/relationship';
+import { PageTour } from '@/components/onboarding/PageTour';
+import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import type { ActionType } from '@/lib/types';
 
 function ActionTypePill({ type }: { type: ActionType }) {
@@ -53,10 +55,14 @@ export function TodayPanel() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-3">
+      <PageTour pageKey="guide_today" />
       <div className="space-y-4 lg:col-span-2">
-        <div className="flex items-center justify-between">
+        <div data-tour-id="today-header" className="flex items-center justify-between">
           <h1 className="text-lg font-bold">Today</h1>
-          <span className="text-sm text-gray-500">{now.toISOString().slice(0, 10)}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">{now.toISOString().slice(0, 10)}</span>
+            <PageGuideButton pageKey="guide_today" />
+          </div>
         </div>
 
         <Card title={<span className="text-[#B00000]">Overdue ({overdue.length})</span>}>
@@ -92,6 +98,7 @@ export function TodayPanel() {
           )}
         </Card>
 
+        <div data-tour-id="today-ready">
         <Card title={<span className="text-green-700">Ready to contact ({capReached ? 0 : ready.length})</span>}>
           {capReached ? (
             <p className="text-sm text-gray-500">Daily cap reached ({caps.today}/{caps.dailyCap}). Queue resumes tomorrow — research below.</p>
@@ -119,7 +126,9 @@ export function TodayPanel() {
             </ul>
           )}
         </Card>
+        </div>
 
+        <div data-tour-id="today-research">
         <Card title={<span className="text-[#0E7490]">Research needed ({research.length})</span>}>
           {research.length === 0 ? <p className="text-sm text-gray-400">No research tasks.</p> : (
             <ul className="divide-y divide-gray-100">
@@ -135,9 +144,11 @@ export function TodayPanel() {
           )}
           <p className="mt-2 text-xs text-gray-400">No hook = no message. Generic messages burn contacts permanently.</p>
         </Card>
+        </div>
       </div>
 
       <div className="space-y-4">
+        <div data-tour-id="today-discipline">
         <Card title="Outreach discipline">
           <div className="space-y-3">
             <div>
@@ -172,6 +183,7 @@ export function TodayPanel() {
             </div>
           </div>
         </Card>
+        </div>
 
         <Card title="Round progress" tint="blue">
           <div className="text-2xl font-bold text-[#0E7490]">{fmtEur(softCircled)} <span className="text-sm font-normal text-gray-500">/ €1.3M</span></div>

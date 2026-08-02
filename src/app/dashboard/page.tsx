@@ -12,7 +12,7 @@ import { OverviewPanel } from '@/components/dashboard/OverviewPanel';
 import { ReviewOptimizationPanel } from '@/components/dashboard/ReviewOptimizationPanel';
 
 const BASE_TABS = [{ key: 'overview', label: 'Overview' }];
-const REVIEW_TAB = { key: 'review-optimization', label: 'Review & Optimization' };
+const REVIEW_TAB = { key: 'review-optimization', label: 'Review & Optimization', tourId: 'dashboard-review-tab' };
 
 function TabsSkeleton() {
   return <div className="mb-4 h-[41px] animate-pulse rounded bg-gray-50" />;

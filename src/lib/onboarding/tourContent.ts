@@ -82,4 +82,93 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
       body: 'Executed and rejected, with timestamps. Nothing the engine did is invisible after the fact.',
     },
   ],
+
+  guide_today: [
+    {
+      selector: 'today-header',
+      title: 'Today is the only page you need to open',
+      body: 'It tells you what to do now, in order. If nothing is here, there is nothing to do — that’s a valid answer.',
+    },
+    {
+      selector: 'today-ready',
+      title: 'Ready means we found you a hook',
+      body: 'These investors have a specific reason to hear from you. The W1/W2 badge is the wave they belong to, and the official channel is listed first.',
+    },
+    {
+      selector: 'today-research',
+      title: 'Research needed is not a backlog',
+      body: 'An investor without a hook doesn’t get a generic message — they wait. A burnt contact doesn’t come back.',
+    },
+    {
+      selector: 'today-discipline',
+      title: 'The caps are the strategy',
+      body: 'Four a day, twenty a week. A €1.3M round closes on 15–40 real conversations, not on volume.',
+    },
+  ],
+
+  guide_dashboard: [
+    {
+      selector: 'dashboard-top-cards',
+      title: 'Where the round actually stands',
+      body: 'Active conversations, messages sent this week, follow-ups due. These are counts, not estimates.',
+    },
+    {
+      selector: 'dashboard-funnel',
+      title: 'Read the drop, not the total',
+      body: 'Contacted → replied → meeting → diligence → committed. The step where the numbers collapse is the step to fix.',
+    },
+    {
+      selector: 'dashboard-pass-reasons',
+      title: 'A no with a reason is worth keeping',
+      body: 'Every pass is recorded with why. Patterns here change who we put in front of you next.',
+    },
+    {
+      // Dropped if the companyCanon capability is off — this tab doesn't
+      // exist for every account.
+      selector: 'dashboard-review-tab',
+      title: 'Second tab, slower questions',
+      body: 'Overview is for this week. Review & Optimization is for what to change about the round itself.',
+    },
+  ],
+
+  guide_documents: [
+    {
+      selector: 'documents-folders',
+      title: 'Two shelves, not one',
+      body: 'Materials is what you send openly — deck, one-pager. Data Room is what you open under access control, numbered 00 to 08 for diligence.',
+    },
+    {
+      selector: 'documents-panel',
+      title: 'Every document has a state',
+      body: 'Current or superseded, view-only or downloadable, open or on-grant. The state travels with the document, not with the person.',
+    },
+    {
+      selector: 'documents-grants',
+      title: 'Access follows consent',
+      body: 'You grant to a person, not to a link. An invited person sees nothing — no document, no metadata — until they sign in and confirm it’s them.',
+    },
+    {
+      // Dropped when the selected folder has no documents — there's no
+      // counter to point at.
+      selector: 'documents-views',
+      title: 'You see what they read',
+      body: 'Views are logged back to the investor entity, so the pipeline knows who is actually doing diligence.',
+    },
+  ],
+
+  guide_plans: [
+    {
+      selector: 'plans-current',
+      title: 'What you’re on, and what it unlocks',
+      body: 'Your current plan is marked. Features listed with “coming soon” aren’t live yet — they’re on the roadmap, not in your hands today.',
+    },
+    {
+      // §13 bundles the toggle and the promo code field into one step;
+      // the toggle is the anchor (Promo code sits directly above it,
+      // already visible, just not separately spotlighted).
+      selector: 'plans-toggle',
+      title: 'Two ways to pay less',
+      body: 'Switch to annual, or enter a promo code here. Cancel anytime — nothing here locks you in.',
+    },
+  ],
 };

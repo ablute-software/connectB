@@ -11,6 +11,8 @@ import {
 } from '@/lib/data-room';
 import { grantStatus } from '@/lib/access-grants';
 import { PeopleAccessPanel } from '@/components/documents/PeopleAccessPanel';
+import { PageTour } from '@/components/onboarding/PageTour';
+import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 
 function fmtBytes(n?: number): string | undefined {
   if (n == null) return undefined;
@@ -500,8 +502,10 @@ export default function DocumentsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-1.5">
+      {tab === 'documents' && <PageTour pageKey="guide_documents" />}
+      <div className="flex items-center justify-between gap-1.5">
         <h1 className="text-lg font-bold">{tab === 'documents' ? 'Documents & Data Room' : 'People & Access'}</h1>
+        {tab === 'documents' && <PageGuideButton pageKey="guide_documents" />}
       </div>
       <div className="flex gap-1.5 border-b border-gray-100 pb-2">
         <button onClick={() => setTab('documents')}
@@ -515,6 +519,7 @@ export default function DocumentsPage() {
       </div>
       {tab === 'people' ? <PeopleAccessPanel /> : (
       <div className="grid gap-4 md:grid-cols-3">
+        <div data-tour-id="documents-folders">
         <Card title="Folders">
           {roots.map((f) => <FolderNode key={f.id} f={f} depth={0} />)}
           <div className="mt-3 border-t border-gray-100 pt-3 text-xs">
@@ -540,8 +545,9 @@ export default function DocumentsPage() {
             {folderErr && <div className="mt-1 text-[#B00000]">{folderErr}</div>}
           </div>
         </Card>
+        </div>
 
-        <div className="space-y-4 md:col-span-2">
+        <div data-tour-id="documents-panel" className="space-y-4 md:col-span-2">
           <Card title={`Documents in “${selected?.name ?? ''}”`}>
             {documentOrderingAvailable && docsIn(selFolder).length > 1 && (
               <p className="mb-2 text-[11px] text-gray-400">Drag ⠿ to reorder, or drop a document onto a folder on the left to move it.</p>
@@ -613,7 +619,7 @@ export default function DocumentsPage() {
                           </button>
                         </div>
                       </div>
-                      <div className="mt-1 text-xs text-gray-500">
+                      <div data-tour-id="documents-views" className="mt-1 text-xs text-gray-500">
                         {grants.length} active grant(s) · {views.length} view(s)
                         {views.length > 0 && ` · last ${views[views.length - 1].viewed_at.slice(0, 16).replace('T', ' ')}`}
                       </div>
@@ -710,6 +716,7 @@ export default function DocumentsPage() {
             )}
           </Card>
 
+          <div data-tour-id="documents-grants">
           <Card title="Access grants — the owner consents, access follows">
             {resendMsg && <p className="mb-2 text-xs text-gray-500">{resendMsg}</p>}
             {visibleGrants.length === 0 ? <p className="text-sm text-gray-400">No grants yet. Grant access as conversations advance to diligence.</p> : (
@@ -858,6 +865,7 @@ export default function DocumentsPage() {
               </p>
             </div>
           </Card>
+          </div>
 
           {ndaSystemAvailable && pendingNdaInvestors.length > 0 && (
             <Card title="Awaiting NDA">

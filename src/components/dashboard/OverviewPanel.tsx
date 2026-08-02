@@ -7,6 +7,8 @@ import { useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink, fmtEur } from '@/components/ui';
 import { outboundCounts, passReasonAlert } from '@/lib/rules';
+import { PageTour } from '@/components/onboarding/PageTour';
+import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import type { EntityStatus } from '@/lib/types';
 
 const STATUS_ORDER: EntityStatus[] = ['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'invested', 'dormant'];
@@ -48,7 +50,11 @@ export function OverviewPanel() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-bold">Dashboard</h1>
+      <PageTour pageKey="guide_dashboard" />
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-bold">Dashboard</h1>
+        <PageGuideButton pageKey="guide_dashboard" />
+      </div>
 
       {alert && (
         <div className="rounded-lg border-l-4 border-[#B00000] bg-red-50 px-4 py-3 text-sm">
@@ -56,7 +62,7 @@ export function OverviewPanel() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div data-tour-id="dashboard-top-cards" className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Card><div className="text-2xl font-bold text-[#0E7490]">{active}</div>
           <div className="text-xs text-gray-500">Active conversations<br />benchmark: seeds close on 15–40</div></Card>
         <Card><div className="text-2xl font-bold">{caps.week}<span className="text-sm font-normal text-gray-400">/{caps.weeklyCap}</span></div>
@@ -108,7 +114,7 @@ export function OverviewPanel() {
           <div className="mt-2 h-3 overflow-hidden rounded bg-white">
             <div className="h-full bg-[#0E7490]" style={{ width: `${Math.min(100, softCircled / 1300000 * 100)}%` }} />
           </div>
-          <div className="mt-4 space-y-1">
+          <div data-tour-id="dashboard-funnel" className="mt-4 space-y-1">
             {funnel.map((f, i) => (
               <div key={f.label} className="flex items-center gap-2 text-sm">
                 <span className="w-20 text-xs text-gray-500">{f.label}</span>
@@ -135,6 +141,7 @@ export function OverviewPanel() {
           </div>
         </Card>
 
+        <div data-tour-id="dashboard-pass-reasons">
         <Card title="Pass reasons">
           {passCounts.size === 0 ? <p className="text-sm text-gray-400">No passes yet — when they come, the reasons are the most valuable data you collect.</p> : (
             <ul className="space-y-1.5 text-sm">
@@ -147,6 +154,7 @@ export function OverviewPanel() {
             </ul>
           )}
         </Card>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
