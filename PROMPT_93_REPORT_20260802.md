@@ -54,6 +54,10 @@ minha — fica registada, sem ação de código.
 
 ---
 
+## Deploy confirmado
+
+Commit `c5a87d6` — GitHub Deployments API, deployment `5714836067`, `state: success`.
+
 ## Disciplina seguida
 
 `matchdeal_eligible_deck()` **não foi alterada** — o fix ficou inteiramente do lado do cliente
