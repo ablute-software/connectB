@@ -219,14 +219,32 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
   const [showBoostSheet, setShowBoostSheet] = useState(false);
   const startRef = useRef<{ x: number; y: number } | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      const sb = browserClient();
-      const { data, error } = await sb.rpc('matchdeal_eligible_deck', { p_viewer_profile_id: viewerProfileId, p_limit: 10 });
-      if (error) { setLoadError(true); setDeck([]); return; }
-      setDeck((data ?? []) as MatchDealProfile[]);
-    })();
+  // Prompt 93 — fetchDeck used to only ever run once per true React mount
+  // (deps: [viewerProfileId], which never changes across a session). An
+  // installed PWA left backgrounded rather than killed can sit on that one
+  // stale fetch for days — found live: matchdeal_eligible_deck's own
+  // replay-mode reset (deleting swipes once every candidate has been
+  // liked) is correct and fires the instant the function is actually
+  // called, but a component that never re-mounts never calls it again, so
+  // the reset condition can sit true for days with nothing to trigger it.
+  // Re-running this on visibilitychange (same pattern /pair/page.tsx
+  // already uses for its own self-check) closes that gap without touching
+  // matchdeal_eligible_deck itself at all.
+  const fetchDeck = useCallback(async () => {
+    const sb = browserClient();
+    const { data, error } = await sb.rpc('matchdeal_eligible_deck', { p_viewer_profile_id: viewerProfileId, p_limit: 10 });
+    if (error) { setLoadError(true); setDeck([]); return; }
+    setDeck((data ?? []) as MatchDealProfile[]);
+    setIndex(0);
   }, [viewerProfileId]);
+
+  useEffect(() => { void fetchDeck(); }, [fetchDeck]);
+
+  useEffect(() => {
+    function onVisible() { if (document.visibilityState === 'visible') void fetchDeck(); }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [fetchDeck]);
 
   const current = deck?.[index] ?? null;
   const next = deck?.[index + 1] ?? null;
