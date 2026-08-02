@@ -209,7 +209,7 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
                 not a mobile feature. */}
             <div className="mt-3 flex flex-col gap-2 border-t border-gray-100 pt-3">
               <button onClick={generate} disabled={busy}
-                className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 hover:border-[#0E7490] disabled:opacity-40">
+                className="rounded-lg bg-gradient-to-r from-blue-500 via-emerald-500 to-orange-400 px-3 py-2 text-xs font-semibold text-white shadow-sm disabled:opacity-40">
                 Show QR / pairing code
               </button>
             </div>
