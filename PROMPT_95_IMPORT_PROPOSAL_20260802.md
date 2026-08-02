@@ -1,6 +1,25 @@
-# Prompt 95 — import de 67 investidores — script pronto, 3 pontos a confirmar antes de aplicar
+# Prompt 95 — import de 66 investidores — APLICADO
 
-Nada foi aplicado. CSV lido diretamente do ficheiro (parser CSV próprio, não transcrição manual — evita
+**Confirmado por SQL, depois de aplicar**: `entities` tinha 691 linhas antes, tem **757 agora** — os 66
+INSERTs corridos, todos com `returning id, name`, todos com o `org_id` correto (`757` no total = `757`
+com esse `org_id`, ou seja nenhuma linha ficou fora). Breakdown por `type` das 66 novas, confirmado por
+SQL: **58 vc, 7 public_body, 1 family_office** (bate: eram 59 vc nas 67 originais, menos 1 pela
+Bertelsmann Investments excluída, que era `vc`).
+
+## As duas decisões do Nuno, aplicadas exatamente como respondidas
+
+1. **`source = 'manual'`** — usado tal como escolhido, sem alargar a `entities_source_check`. Proveniência
+   fica só em `notes` (lote + "triagem Google Drive Tipo B"), como combinado.
+2. **"Bertelsmann Investments" excluída** — não foi criada nenhuma linha nova para esta. A entidade já
+   existente (`f3084ea1-febc-406e-89f3-a47ee293a4a8`) não foi tocada — fica registado, como pedido, que
+   um possível UPDATE futuro (juntar o ângulo "BHI healthcare" às notas) é uma decisão separada, não
+   feita agora.
+
+**Contagem final: 66 entidades novas, não 68 nem 67** — a segunda correção do Nuno (68→66) confirmada.
+
+---
+
+CSV lido diretamente do ficheiro (parser CSV próprio, não transcrição manual — evita
 exatamente o erro que "não inventem dados que não estão lá" queria prevenir). Confirmado: **67 linhas de
 dados** no ficheiro (68 linhas incluindo cabeçalho) — bate com a correção do Nuno, sem duplicados de
 `website` dentro do lote.
