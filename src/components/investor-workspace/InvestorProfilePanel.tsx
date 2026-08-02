@@ -9,6 +9,7 @@ import { ColleaguesCard } from './ColleaguesCard';
 import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
 import { VouchingCard } from './VouchingCard';
 import { TagInput } from './TagInput';
+import { TicketAmountSlider } from '../TicketAmountSlider';
 
 interface Profile {
   sectors: string[]; geographies: string[]; stages_invested: string[]; instruments: string[];
@@ -371,11 +372,11 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange,
       <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-500">Ticket range (EUR)</label>
-          <div className="flex gap-2">
-            <input type="number" placeholder="Min" value={draft.ticket_min ?? ''} onChange={(e) => setDraft({ ...draft, ticket_min: e.target.value ? Number(e.target.value) : null })}
-              className="w-32 rounded border border-gray-300 px-2 py-1 text-sm" />
-            <input type="number" placeholder="Max" value={draft.ticket_max ?? ''} onChange={(e) => setDraft({ ...draft, ticket_max: e.target.value ? Number(e.target.value) : null })}
-              className="w-32 rounded border border-gray-300 px-2 py-1 text-sm" />
+          <div className="grid grid-cols-2 gap-4">
+            <TicketAmountSlider label="Min" value={draft.ticket_min}
+              onChange={(v) => setDraft({ ...draft, ticket_min: draft.ticket_max != null && v > draft.ticket_max ? draft.ticket_max : v })} />
+            <TicketAmountSlider label="Max" value={draft.ticket_max}
+              onChange={(v) => setDraft({ ...draft, ticket_max: draft.ticket_min != null && v < draft.ticket_min ? draft.ticket_min : v })} />
           </div>
         </div>
 
