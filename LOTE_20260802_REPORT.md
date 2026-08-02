@@ -89,6 +89,13 @@ li schema e código, não mudei ordenação nem elegibilidade do baralho.
 
 ---
 
+## Deploy confirmado
+
+Commit `1af1b08` — GitHub Deployments API, deployment `5713047399`, `state: success`. (Nota técnica:
+o primeiro script de verificação usava `python3` para parsear o JSON, que não existe neste ambiente —
+20 tentativas silenciosamente vazias, não um deploy demorado. Repetido com `grep`, confirmado à
+primeira.)
+
 ## Disciplina seguida
 
 Schema novo: só proposto (Hype List), nunca aplicado sem OK — exatamente como o próprio lote pediu.
