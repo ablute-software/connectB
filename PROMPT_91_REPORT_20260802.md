@@ -78,6 +78,10 @@ código para nenhum ainda. Ficam prontos para entrar na fila quando for a vez de
 
 ---
 
+## Deploy confirmado
+
+Commit `ef9df5a` — GitHub Deployments API, deployment `5713382594`, `state: success`.
+
 ## Disciplina seguida
 
 Evidência sempre — os três achados do §2 vêm de SQL/código lidos agora, incluindo uma chamada direta e
