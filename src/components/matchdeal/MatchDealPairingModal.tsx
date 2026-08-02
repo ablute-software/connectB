@@ -21,7 +21,7 @@ import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 
 type PairingKind = 'startup' | 'investor';
-type ModalState = 'loading' | 'not_paired' | 'waiting' | 'expired' | 'paired' | 'error';
+type ModalState = 'loading' | 'not_paired' | 'waiting' | 'expired' | 'paired' | 'error' | 'launch_gate';
 interface Pairing { id: string; device_id: string; paired_at: string; last_seen_at: string }
 
 const POLL_INTERVAL_MS = 3000;
@@ -83,6 +83,17 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
 
   useEffect(() => {
     (async () => {
+      // Prompt 92 — launch gate, checked before anything else this modal
+      // does. Same reasoning as /pair: pre-September, only @ablute.pt gets
+      // a working MatchDeal, so this never even generates a QR code (or
+      // shows an existing pairing) for anyone else.
+      try {
+        const gateRes = await fetch('/api/matchdeal/launch-gate');
+        const gateBody = await gateRes.json();
+        if (!gateBody.allowed) { setState('launch_gate'); return; }
+      } catch {
+        setErrorMsg('Network error — try again.'); setState('error'); return;
+      }
       const status = await checkStatus();
       if (!status) { setErrorMsg('Could not check MatchDeal status.'); setState('error'); return; }
       if (!status.linked) { setErrorMsg('No linked organization for this account.'); setState('error'); return; }
@@ -119,6 +130,14 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
         </div>
 
         {state === 'loading' && <p className="mt-3 text-sm text-gray-400">Checking status…</p>}
+
+        {state === 'launch_gate' && (
+          <div className="mt-3 text-center">
+            <div className="text-3xl">🚀</div>
+            <p className="mt-2 text-sm font-semibold text-gray-800">MatchDeal launches in September 2026</p>
+            <p className="mt-1 text-xs text-gray-500">Check back soon — we&apos;re not quite ready for you yet.</p>
+          </div>
+        )}
 
         {state === 'waiting' && qrDataUrl && (
           <div className="mt-3 text-center">

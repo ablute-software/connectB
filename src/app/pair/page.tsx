@@ -21,7 +21,7 @@ import { browserClient } from '@/lib/supabase';
 import { MatchDealDeck } from '@/components/matchdeal/MatchDealDeck';
 import { detectMobileClient } from '@/lib/is-mobile-client';
 
-type Stage = 'checking' | 'need_login' | 'consuming' | 'paired' | 'error';
+type Stage = 'checking' | 'need_login' | 'launch_gate' | 'consuming' | 'paired' | 'error';
 // Prompt 82 — checked before anything else on this route. UX gate only
 // (see is-mobile-client.ts's own header) — a spoofed UA still reaches the
 // deck, and that's an accepted, explicitly-scoped gap, not an oversight.
@@ -97,6 +97,19 @@ export default function PairPage() {
     (async () => {
       const { data: { user } } = await browserClient().auth.getUser();
       if (!user) { setStage('need_login'); return; }
+
+      // Prompt 92 — launch gate. Checked right after login, before any
+      // token consumption or self-check, so a non-@ablute.pt account never
+      // reaches the deck (which today only has fictional demo data) no
+      // matter which path — QR token, "open on this device", re-check on
+      // foreground — got them here.
+      try {
+        const gateRes = await fetch('/api/matchdeal/launch-gate');
+        const gateBody = await gateRes.json();
+        if (!gateBody.allowed) { setStage('launch_gate'); return; }
+      } catch {
+        setErrorMsg('Network error — try again.'); setStage('error'); return;
+      }
 
       // Prompt 75 — "Open MatchDeal on this device": no token means this
       // IS the account's own already-signed-in browser, viewing its own
@@ -202,6 +215,16 @@ export default function PairPage() {
                 >
                   Sign in
                 </a>
+              </>
+            )}
+
+            {stage === 'launch_gate' && (
+              <>
+                <div className="text-3xl">🚀</div>
+                <h1 className="mt-2 text-[19px] font-bold text-white">MatchDeal launches in September 2026</h1>
+                <p className="mt-2 text-[13.5px] leading-relaxed text-white/65">
+                  Check back soon — we&apos;re not quite ready for you yet.
+                </p>
               </>
             )}
 
