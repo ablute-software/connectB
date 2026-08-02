@@ -1,5 +1,21 @@
 # Prompt 91 — os três achados, um a um
 
+## Correção de preços (02/08, mini_prompt_correcao_precos_boost_investidor_e_copy_aprovada)
+
+Antes de mais: confirmei por grep (`€75`, `€63`, `€54`, "3x"/"boost") que **nenhum código chegou a ser
+escrito com a leitura errada do "3x"** — Boost/packs (Bloco 3/4 do Prompt 81) continua por construir,
+exatamente como registado no §0 abaixo. Não havia nada para corrigir em produção. Registo aqui os
+números certos, para quando essa parte entrar na fila:
+
+- **Lado investidor, Boost avulso**: 1 Boost = €50; 5 Boosts = €200 (preço do pacote, não €40×5); 10
+  Boosts = €300 (preço do pacote). Descartada a leitura "3x" (€75/€63/€54) que eu tinha assumido no
+  Prompt 91 sem números confirmados.
+- **Lado startup**: inalterado — 1/€25, 5/€21 cada, 10/€18 cada (Prompt 81 §7.3 original).
+- **Expiração**: 120 dias. **Ordem de consumo**: primeiro o Boost do plano, só depois o avulso.
+- **Copy do gate "sem Boost no plano grátis"**: aprovada tal como proposta, sem alterações —
+  ["Boosts aren't included in your plan." / Upgrade to a paid plan, or buy Boost credits à la carte. /
+  [ View plans ] [ Buy Boosts ]].
+
 ## 2.1 — gestos trocados — CORRIGIDO
 
 Confirmado exatamente como descrito: os dois blocos (`y < 0` / `y > 0`) estavam trocados face ao
