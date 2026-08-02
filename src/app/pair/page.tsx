@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { MatchDealDeck } from '@/components/matchdeal/MatchDealDeck';
+import { InstallPrompt } from '@/components/matchdeal/InstallPrompt';
 import { detectMobileClient } from '@/lib/is-mobile-client';
 
 type Stage = 'checking' | 'need_login' | 'launch_gate' | 'consuming' | 'paired' | 'error';
@@ -248,6 +249,7 @@ export default function PairPage() {
         </div>
       ) : (
         <div className="relative flex flex-1 flex-col">
+          <InstallPrompt />
           <header className="flex shrink-0 items-center justify-between px-4 pb-1 pt-3">
             <Wordmark compact />
             <span
