@@ -213,15 +213,32 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, companyPeople: prev.companyPeople.filter((p) => p.id !== id) }));
     },
 
-    addTractionMetric(m) {
+    async addTractionMetric(m) {
+      let blocked = false;
       setDb((prev) => {
+        if (m.show_on_dealdigger === true) {
+          const featuredCount = prev.tractionMetrics.filter((x) => x.show_on_dealdigger).length;
+          if (featuredCount >= 2) { blocked = true; return prev; }
+        }
         const sortOrder = prev.tractionMetrics.length ? Math.max(...prev.tractionMetrics.map((x) => x.sort_order)) + 1 : 0;
         const now = new Date().toISOString();
         return { ...prev, tractionMetrics: [...prev.tractionMetrics, { ...m, id: uid('tm'), org_id: prev.org.id, sort_order: sortOrder, created_at: now, updated_at: now }] };
       });
+      return blocked ? { error: 'Only 2 metrics can be featured on DealDigger — unfeature one first.' } : {};
     },
-    updateTractionMetric(id, patch) {
-      setDb((prev) => ({ ...prev, tractionMetrics: prev.tractionMetrics.map((m) => (m.id === id ? { ...m, ...patch, updated_at: new Date().toISOString() } : m)) }));
+    async updateTractionMetric(id, patch) {
+      // Demo mode has no DB, so no org_traction_metrics_dealdigger_limit
+      // trigger to reject this — replicate the same max-2-featured rule
+      // here only, so the toggle behaves the same in both modes.
+      let blocked = false;
+      setDb((prev) => {
+        if (patch.show_on_dealdigger === true) {
+          const featuredCount = prev.tractionMetrics.filter((m) => m.show_on_dealdigger && m.id !== id).length;
+          if (featuredCount >= 2) { blocked = true; return prev; }
+        }
+        return { ...prev, tractionMetrics: prev.tractionMetrics.map((m) => (m.id === id ? { ...m, ...patch, updated_at: new Date().toISOString() } : m)) };
+      });
+      return blocked ? { error: 'Only 2 metrics can be featured on DealDigger — unfeature one first.' } : {};
     },
     removeTractionMetric(id) {
       setDb((prev) => ({ ...prev, tractionMetrics: prev.tractionMetrics.filter((m) => m.id !== id) }));

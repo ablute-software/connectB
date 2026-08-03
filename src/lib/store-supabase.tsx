@@ -57,6 +57,15 @@ function nullify(patch: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
+// org_traction_metrics_dealdigger_limit (0095) raises a raw Postgres
+// exception — translate its known code to the copy P102 asked for; any
+// other error passes through unchanged rather than being swallowed.
+function friendlyTractionError(message: string): string {
+  return message.includes('MATCHDEAL_DEALDIGGER_TRACTION_LIMIT')
+    ? 'Only 2 metrics can be featured on DealDigger — unfeature one first.'
+    : message;
+}
+
 async function loadAll(sb: SB, orgId: string): Promise<Db> {
   const [
     orgRes, entitiesRes, peopleRes, interactionsRes, tasksRes, overridesRes,
@@ -477,20 +486,33 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       persist(sb.from('company_people').delete().eq('id', id), 'removeCompanyPerson');
     },
 
-    addTractionMetric(m) {
+    async addTractionMetric(m) {
       const prev = dbRef.current;
       const sortOrder = prev.tractionMetrics.length
         ? Math.max(...prev.tractionMetrics.map((x) => x.sort_order)) + 1 : 0;
       const now = new Date().toISOString();
       const row: TractionMetric = { ...m, id: uuid(), org_id: prev.org.id, sort_order: sortOrder, created_at: now, updated_at: now };
-      commit({ ...prev, tractionMetrics: [...prev.tractionMetrics, row] });
       const o = orgIdRef.current;
-      if (o) persist(sb.from('org_traction_metrics').insert({ ...row, org_id: o }), 'addTractionMetric');
+      if (o) {
+        // Awaited, not fire-and-forget — a brand-new metric created already
+        // featured can also hit org_traction_metrics_dealdigger_limit; on
+        // rejection the whole row must never appear locally at all.
+        const { error } = await sb.from('org_traction_metrics').insert({ ...row, org_id: o });
+        if (error) return { error: friendlyTractionError(error.message) };
+      }
+      commit({ ...prev, tractionMetrics: [...prev.tractionMetrics, row] });
+      return {};
     },
-    updateTractionMetric(id, patch) {
+    async updateTractionMetric(id, patch) {
+      // Awaited (not fire-and-forget like the other persist() calls) because
+      // org_traction_metrics_dealdigger_limit can reject this one (max 2
+      // featured per org) — commit locally only after the DB confirms, so a
+      // rejected toggle never leaves the optimistic UI state wrong.
+      const { error } = await sb.from('org_traction_metrics').update(nullify(patch)).eq('id', id);
+      if (error) return { error: friendlyTractionError(error.message) };
       const prev = dbRef.current;
       commit({ ...prev, tractionMetrics: prev.tractionMetrics.map((m) => (m.id === id ? { ...m, ...patch, updated_at: new Date().toISOString() } : m)) });
-      persist(sb.from('org_traction_metrics').update(nullify(patch)).eq('id', id), 'updateTractionMetric');
+      return {};
     },
     removeTractionMetric(id) {
       const prev = dbRef.current;

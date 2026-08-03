@@ -142,6 +142,8 @@ export interface TractionMetric {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  dealdigger_type: string | null;
+  show_on_dealdigger: boolean;
 }
 
 // Investor Workspace Fase 1 — append-only history of an investor's stated

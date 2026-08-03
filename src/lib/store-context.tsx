@@ -224,8 +224,11 @@ export interface StoreApi {
   removeCompanyPerson: (id: string) => void;
   // Investor Workspace Fase 1 (prompt 54) — Zona 1 traction metrics, same
   // shape/pattern as company people above.
-  addTractionMetric: (m: Omit<TractionMetric, 'id' | 'org_id' | 'sort_order' | 'created_at' | 'updated_at'>) => void;
-  updateTractionMetric: (id: string, patch: Partial<TractionMetric>) => void;
+  // P102 — both async + return an error message so the caller can surface a
+  // rejection from org_traction_metrics_dealdigger_limit (max 2 featured)
+  // instead of silently leaving the optimistic UI state wrong.
+  addTractionMetric: (m: Omit<TractionMetric, 'id' | 'org_id' | 'sort_order' | 'created_at' | 'updated_at'>) => Promise<{ error?: string }>;
+  updateTractionMetric: (id: string, patch: Partial<TractionMetric>) => Promise<{ error?: string }>;
   removeTractionMetric: (id: string) => void;
 }
 
