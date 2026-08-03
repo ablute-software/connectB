@@ -37,6 +37,8 @@ const EDITABLE = [
   'ticket_min', 'ticket_max', 'lead_or_colead', 'country',
   'investments_per_year', 'capital_to_deploy_eur', 'usual_co_investors',
   'exclusions_sectors', 'exclusions_notes', 'specific_criteria', 'focus_keywords',
+  // Prompt 110 Block D (migration 0107).
+  'accepts_cold_contact', 'typical_decision_weeks', 'decision_process', 'does_follow_on', 'takes_board_seat',
 ] as const;
 
 // Weighted the same way companyCompleteness.ts does — essentials (ticket,

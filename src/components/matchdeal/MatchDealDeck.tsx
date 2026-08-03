@@ -21,6 +21,7 @@
 // RPCs called under RLS. No schema change ships with this.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
+import { INSTRUMENT_LABELS, LEAD_OR_COLEAD_LABELS } from '@/lib/investor-taxonomy';
 
 interface MatchDealProfile {
   id: string; kind: 'startup' | 'investor'; entity_name: string | null; photo_url: string | null;
@@ -28,6 +29,34 @@ interface MatchDealProfile {
   investment_stage_sought: string | null; stages_invested: string[]; founded_year: number | null;
   target_round_amount: number | null; team_summary: string | null; ticket_min: number | null; ticket_max: number | null;
   specific_criteria: string | null; representative_name: string | null; entity_type: string | null;
+  // Prompt 110 — investor-slide fields. All already exist on
+  // matchdeal_profiles and already reach the client in the RPC's payload
+  // (matchdeal_eligible_deck is RETURNS SETOF matchdeal_profiles, no
+  // column projection) — this is a TypeScript-only change, no backend
+  // change ships with Block A.
+  lead_or_colead: string | null;
+  instruments: string[];
+  capital_to_deploy_eur: number | null;
+  investments_per_year: number | null;
+  active_fund: string | null;
+  portfolio_companies: string | null;
+  recent_investments: string | null;
+  usual_co_investors: string | null;
+  geographies: string[];
+  phases_accepted: string[];
+  company_types: string[];
+  exclusions_sectors: string[];
+  exclusions_notes: string | null;
+  focus_keywords: string[];
+  website: string | null;
+  created_at: string;
+  // Prompt 110 Block D — new columns (migration 0107), also already
+  // reaching the client payload with zero backend change.
+  accepts_cold_contact: boolean | null;
+  typical_decision_weeks: number | null;
+  decision_process: string | null;
+  does_follow_on: boolean | null;
+  takes_board_seat: string | null;
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -76,14 +105,30 @@ function Chip({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Prompt 110 — the label/value pattern the investor slides 2-4 share,
+// lifted out once instead of repeated inline. `warn` is the "Does not
+// invest in" treatment (A.5) — never color-only, the label text itself
+// still says what it is.
+function Field({ label, children, warn }: { label: string; children: React.ReactNode; warn?: boolean }) {
+  return (
+    <div className={warn ? 'rounded-lg border border-red-400/30 bg-red-500/15 p-2' : undefined}>
+      <p className={`text-[11px] font-semibold uppercase tracking-[0.1em] ${warn ? 'text-red-200/80' : 'text-white/60'}`}>{label}</p>
+      <p className="text-[13px] leading-snug text-white/85">{children}</p>
+    </div>
+  );
+}
+
 // Prompt 81 Bloco 1 — stories-style sub-cards per profile, reached by
-// swiping down (and back up). Investor-kind cards keep the original 3
-// (unchanged, see the p.kind === 'investor' branch in CardFace below).
-// Startup-kind cards were rewritten by Prompt 98 into a fixed 4-slide
-// mini-pitch (see StartupMiniPitch) — "só perfis de startup", investor side
-// untouched.
+// swiping down (and back up). Startup-kind cards were rewritten by
+// Prompt 98 into a fixed 4-slide mini-pitch (see StartupMiniPitch).
+// Prompt 110 Block A.0 — investor-kind now also gets 4, up from the
+// original 3, to match. Both counts are still CONSTANT per kind here —
+// Block B's per-profile calculated count (skipping empty slides) is
+// explicitly deferred until Prompt 109's gesture rewrite lands first, per
+// Prompt 110's own ordering instruction (same lines, sequenced not
+// parallel).
 function subCardCountFor(kind: 'startup' | 'investor') {
-  return kind === 'startup' ? 4 : 3;
+  return 4;
 }
 
 const TRACTION_LABELS: Record<string, string> = {
@@ -241,6 +286,69 @@ function StartupMiniPitch({ i, pitchData, phaseChip }: { i: number; pitchData: P
   );
 }
 
+// Prompt 110 Block C — the platform-activity band on the investor's Track
+// record slide. The only content on the card an investor can't inflate:
+// everything else is self-declared, this is measured by the product
+// itself. RLS blocks a startup from reading another org's swipes/
+// exposures/matches directly, so this reads matchdeal_investor_activity
+// (a new SECURITY DEFINER RPC that returns only bucketed aggregates —
+// never exact counts, dates, or identities; see the migration's own
+// header for the non-negotiable design rules). Cached client-side per
+// profile_id for the session, and fetched at most once per VISIBLE card
+// (gated on `active`, not called for the backer/"next" card rendered
+// behind it).
+interface ActivitySummary {
+  member_since: string | null;
+  likes_ratio_bucket: string | null;
+  replies_bucket: string | null;
+  matches_bucket: string | null;
+}
+const activityCache = new Map<string, ActivitySummary | null>();
+function useInvestorActivity(profileId: string | null): ActivitySummary | null | undefined {
+  const [activity, setActivity] = useState<ActivitySummary | null | undefined>(
+    profileId ? activityCache.get(profileId) : undefined,
+  );
+  useEffect(() => {
+    if (!profileId) { setActivity(undefined); return; }
+    if (activityCache.has(profileId)) { setActivity(activityCache.get(profileId)); return; }
+    let cancelled = false;
+    browserClient().rpc('matchdeal_investor_activity', { p_profile_id: profileId }).then(({ data, error }) => {
+      if (cancelled) return;
+      const row = (!error && data && data.length ? data[0] : null) as ActivitySummary | null;
+      activityCache.set(profileId, row);
+      setActivity(row);
+    });
+    return () => { cancelled = true; };
+  }, [profileId]);
+  return activity;
+}
+
+function memberSinceLabel(iso: string | null) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+}
+const LIKES_RATIO_LABEL: Record<string, string> = { selective: 'Selective', balanced: 'Balanced', broad: 'Broad' };
+const REPLIES_LABEL: Record<string, string> = { fast: 'Replies fast', within_days: 'Replies within days', slow: 'Slower to reply' };
+const MATCHES_LABEL: Record<string, string> = { '1-5': '1–5 matches', '6-20': '6–20 matches', '20+': '20+ matches' };
+
+function ActivityBand({ activity }: { activity: ActivitySummary | null | undefined }) {
+  if (!activity) return null;
+  const since = memberSinceLabel(activity.member_since);
+  const parts = [
+    since && `Member since ${since}`,
+    activity.likes_ratio_bucket && LIKES_RATIO_LABEL[activity.likes_ratio_bucket],
+    activity.replies_bucket && REPLIES_LABEL[activity.replies_bucket],
+    activity.matches_bucket && MATCHES_LABEL[activity.matches_bucket],
+  ].filter(Boolean) as string[];
+  if (parts.length === 0) return null;
+  return (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">On the platform</p>
+      <p className="text-[13px] leading-snug text-white/85">{parts.join(' · ')}</p>
+    </div>
+  );
+}
+
 function CardFace({ p, subIndex, active, pitchData }: { p: MatchDealProfile; subIndex?: number; active?: boolean; pitchData?: PitchData | null }) {
   const name = p.entity_name || (p.kind === 'startup' ? 'A startup' : 'An investor');
   const image = p.photo_url ?? p.entity_logo_url;
@@ -253,6 +361,7 @@ function CardFace({ p, subIndex, active, pitchData }: { p: MatchDealProfile; sub
     : (fmtEur(p.ticket_min) || fmtEur(p.ticket_max) ? `Ticket ${fmtEur(p.ticket_min) ?? '—'}–${fmtEur(p.ticket_max) ?? '—'}` : null);
   const i = subIndex ?? 0;
   const cardCount = subCardCountFor(p.kind);
+  const activity = useInvestorActivity(active && p.kind === 'investor' ? p.id : null);
 
   return (
     <div
@@ -297,6 +406,9 @@ function CardFace({ p, subIndex, active, pitchData }: { p: MatchDealProfile; sub
 
         {p.kind === 'investor' ? (
           <>
+            {/* Slide 1 (i=0) — who they are. Unchanged from before Prompt 110:
+                already the one slide that worked, not worth the risk of
+                touching it (A.2). */}
             {i === 0 && p.description && (
               <p className="mt-2 line-clamp-3 text-[13px] leading-snug text-white/85">{p.description}</p>
             )}
@@ -311,46 +423,80 @@ function CardFace({ p, subIndex, active, pitchData }: { p: MatchDealProfile; sub
               <p className="mt-2.5 truncate text-[11px] text-white/60">{p.sectors.slice(0, 6).join(' · ')}</p>
             )}
 
-            {i === 1 && (
-              <div className="mt-2 space-y-2.5">
-                {p.description && <p className="text-[13px] leading-snug text-white/85">{p.description}</p>}
-                {p.specific_criteria && (
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">What they look for</p>
-                    <p className="text-[13px] leading-snug text-white/85">{p.specific_criteria}</p>
-                  </div>
-                )}
-                {!p.specific_criteria && !p.description && (
-                  <p className="text-[13px] text-white/50">Nothing more here yet.</p>
-                )}
-              </div>
-            )}
+            {/* Slide 2 (i=1) — "The cheque" (A.3). The single question a
+                founder asks before any other: is this money the right
+                size, and in what form? */}
+            {i === 1 && (() => {
+              const min = fmtEur(p.ticket_min);
+              const max = fmtEur(p.ticket_max);
+              const ticket = min && max ? `${min}–${max}` : min ? `From ${min}` : max ? `Up to ${max}` : null;
+              const instruments = p.instruments.map((v) => INSTRUMENT_LABELS[v] ?? v).join(' · ') || null;
+              const role = p.lead_or_colead ? LEAD_OR_COLEAD_LABELS[p.lead_or_colead] ?? p.lead_or_colead : null;
+              const deploy = fmtEur(p.capital_to_deploy_eur);
+              const perYear = p.investments_per_year && p.investments_per_year > 0 ? String(p.investments_per_year) : null;
+              const decisionTime = p.typical_decision_weeks && p.typical_decision_weeks > 0 ? `~${p.typical_decision_weeks} weeks` : null;
+              const followOn = p.does_follow_on == null ? null : (p.does_follow_on ? 'Reserves for follow-on' : 'First cheque only');
+              const empty = !ticket && !instruments && !role && !deploy && !perYear && !p.active_fund
+                && !decisionTime && !p.decision_process && !followOn;
+              return empty ? <p className="mt-3 text-[13px] text-white/50">Nothing more here yet.</p> : (
+                <div className="mt-2 space-y-2.5">
+                  {ticket && <Field label="Ticket">{ticket}</Field>}
+                  {instruments && <Field label="Instruments">{instruments}</Field>}
+                  {role && <Field label="Role in the round">{role}</Field>}
+                  {deploy && <Field label="Capital to deploy">{deploy}</Field>}
+                  {perYear && <Field label="Deals per year">{perYear}</Field>}
+                  {p.active_fund && <Field label="Active fund">{p.active_fund}</Field>}
+                  {decisionTime && <Field label="Typical decision time">{decisionTime}</Field>}
+                  {p.decision_process && <Field label="Who decides">{p.decision_process}</Field>}
+                  {followOn && <Field label="Follow-on">{followOn}</Field>}
+                </div>
+              );
+            })()}
 
-            {i === 2 && (
-              <div className="mt-2 space-y-2.5">
-                {p.founded_year && (
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Founded</p>
-                    <p className="text-[13px] text-white/85">{p.founded_year}</p>
-                  </div>
-                )}
-                {p.sectors.length > 0 && (
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Sectors</p>
-                    <p className="text-[13px] leading-snug text-white/85">{p.sectors.join(' · ')}</p>
-                  </div>
-                )}
-                {stages.length > 0 && (
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Stages</p>
-                    <p className="text-[13px] leading-snug text-white/85">{stages.join(' · ')}</p>
-                  </div>
-                )}
-                {!p.founded_year && p.sectors.length === 0 && stages.length === 0 && (
-                  <p className="text-[13px] text-white/50">Nothing more here yet.</p>
-                )}
-              </div>
-            )}
+            {/* Slide 3 (i=2) — Track record (A.4). founded_year deliberately
+                dropped (0/9 profiles have it — never rendered to anyone
+                since it existed); member_since (Block C) is the safe
+                always-available substitute. */}
+            {i === 2 && (() => {
+              const empty = !p.portfolio_companies && !p.recent_investments && !p.usual_co_investors && !activity;
+              return empty ? <p className="mt-3 text-[13px] text-white/50">Nothing more here yet.</p> : (
+                <div className="mt-2 space-y-2.5">
+                  {p.portfolio_companies && <Field label="Portfolio">{p.portfolio_companies}</Field>}
+                  {p.recent_investments && <Field label="Recent investments">{p.recent_investments}</Field>}
+                  {p.usual_co_investors && <Field label="Usually invests with">{p.usual_co_investors}</Field>}
+                  <ActivityBand activity={activity} />
+                </div>
+              );
+            })()}
+
+            {/* Slide 4 (i=3) — Fit & fences (A.5): where this investor fits,
+                and where they never will. "Does not invest in" is the most
+                valuable field on the whole card — visually distinct on
+                purpose, never color-only (the label itself says what it is). */}
+            {i === 3 && (() => {
+              const exclusions = [...p.exclusions_sectors, ...(p.exclusions_notes ? [p.exclusions_notes] : [])];
+              const coldContact = p.accepts_cold_contact == null ? null : (p.accepts_cold_contact ? 'Open to cold approaches' : 'Warm intros only');
+              const boardSeat = p.takes_board_seat
+                ? { always: 'Always takes a board seat', sometimes: 'Sometimes takes a board seat', never: "Doesn't take board seats" }[p.takes_board_seat] ?? p.takes_board_seat
+                : null;
+              const empty = p.geographies.length === 0 && p.sectors.length === 0 && stages.length === 0
+                && p.phases_accepted.length === 0 && p.company_types.length === 0 && !p.specific_criteria
+                && p.focus_keywords.length === 0 && exclusions.length === 0 && !coldContact && !boardSeat;
+              return empty ? <p className="mt-3 text-[13px] text-white/50">Nothing more here yet.</p> : (
+                <div className="mt-2 space-y-2.5">
+                  {coldContact && <Field label="Cold contact">{coldContact}</Field>}
+                  {p.geographies.length > 0 && <Field label="Geographies">{p.geographies.join(' · ')}</Field>}
+                  {p.sectors.length > 0 && <Field label="Sectors">{p.sectors.join(' · ')}</Field>}
+                  {stages.length > 0 && <Field label="Stages">{stages.join(' · ')}</Field>}
+                  {p.phases_accepted.length > 0 && <Field label="Company phases">{p.phases_accepted.join(' · ')}</Field>}
+                  {p.company_types.length > 0 && <Field label="Company types">{p.company_types.join(' · ')}</Field>}
+                  {p.specific_criteria && <Field label="What they look for">{p.specific_criteria}</Field>}
+                  {p.focus_keywords.length > 0 && <Field label="Focus">{p.focus_keywords.join(' · ')}</Field>}
+                  {boardSeat && <Field label="Board seat">{boardSeat}</Field>}
+                  {exclusions.length > 0 && <Field label="Does not invest in" warn>{exclusions.join(' · ')}</Field>}
+                </div>
+              );
+            })()}
           </>
         ) : (
           <StartupMiniPitch i={i} pitchData={pitchData ?? null} phaseChip={stages} />

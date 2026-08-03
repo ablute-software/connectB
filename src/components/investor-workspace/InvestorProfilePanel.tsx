@@ -11,6 +11,7 @@ import { VouchingCard } from './VouchingCard';
 import { TagInput } from './TagInput';
 import { TicketAmountSlider } from '../TicketAmountSlider';
 import { VisibilityToggle } from '../VisibilityToggle';
+import { INSTRUMENT_LABELS } from '@/lib/investor-taxonomy';
 
 interface Profile {
   sectors: string[]; geographies: string[]; stages_invested: string[]; instruments: string[];
@@ -19,6 +20,9 @@ interface Profile {
   investments_per_year: number | null; capital_to_deploy_eur: number | null;
   usual_co_investors: string | null; exclusions_sectors: string[]; exclusions_notes: string | null;
   specific_criteria: string | null; focus_keywords: string[];
+  // Prompt 110 Block D — five founder-first-call questions (migration 0107).
+  accepts_cold_contact: boolean | null; typical_decision_weeks: number | null;
+  decision_process: string | null; does_follow_on: boolean | null; takes_board_seat: string | null;
 }
 
 // Prompt 80 addenda — the closed list Nuno actually asked for: categories a
@@ -80,7 +84,6 @@ const BA_WARNING_TEXT = 'As an individual investor, some platform features may b
 const STAGES = ['pre_seed', 'seed', 'series_a', 'series_b_plus', 'growth'];
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
 const INSTRUMENTS = ['equity', 'safe', 'convertible_note', 'venture_debt', 'grant', 'revenue_based'];
-const INSTRUMENT_LABELS: Record<string, string> = { equity: 'Equity', safe: 'SAFE', convertible_note: 'Convertible note', venture_debt: 'Venture debt', grant: 'Grant / subsidy', revenue_based: 'Revenue-based' };
 
 function MultiSelect({ options, selected, onChange }: { options: string[]; selected: string[]; onChange: (v: string[]) => void }) {
   return (
@@ -432,6 +435,56 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange,
           Usual co-investors (optional)
           <input value={draft.usual_co_investors ?? ''} onChange={(e) => setDraft({ ...draft, usual_co_investors: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
         </label>
+
+        {/* Prompt 110 Block D — the "first call" questions the deck's Block
+            A cheque slide now surfaces. All five optional, all null by
+            default (migration 0107 is purely additive). */}
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500">Cold contact</label>
+          <div className="flex gap-3 text-sm">
+            {([[true, 'Open to cold approaches'], [false, 'Warm intros only']] as const).map(([v, label]) => (
+              <label key={String(v)} className="flex items-center gap-1.5">
+                <input type="radio" checked={draft.accepts_cold_contact === v} onChange={() => setDraft({ ...draft, accepts_cold_contact: v })} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1 text-xs text-gray-500">
+            Typical decision time (weeks, optional)
+            <input type="number" min={0} value={draft.typical_decision_weeks ?? ''} onChange={(e) => setDraft({ ...draft, typical_decision_weeks: e.target.value ? Number(e.target.value) : null })} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-gray-500">
+            Who decides (optional)
+            <input value={draft.decision_process ?? ''} onChange={(e) => setDraft({ ...draft, decision_process: e.target.value })} placeholder="e.g. Full partnership vote" className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
+          </label>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500">Follow-on</label>
+          <div className="flex gap-3 text-sm">
+            {([[true, 'Reserves for follow-on'], [false, 'First cheque only']] as const).map(([v, label]) => (
+              <label key={String(v)} className="flex items-center gap-1.5">
+                <input type="radio" checked={draft.does_follow_on === v} onChange={() => setDraft({ ...draft, does_follow_on: v })} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500">Board seat</label>
+          <div className="flex gap-3 text-sm">
+            {(['always', 'sometimes', 'never'] as const).map((v) => (
+              <label key={v} className="flex items-center gap-1.5">
+                <input type="radio" checked={draft.takes_board_seat === v} onChange={() => setDraft({ ...draft, takes_board_seat: v })} />
+                {v === 'always' ? 'Always' : v === 'sometimes' ? 'Sometimes' : 'Never'}
+              </label>
+            ))}
+          </div>
+        </div>
 
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-500">Exclusions — we never invest in</label>

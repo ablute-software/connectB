@@ -28,6 +28,7 @@ import { InvestorWorkspaceShell } from '@/components/investor-workspace/Investor
 import { RoundUpdatesFeed } from '@/components/investor-workspace/RoundUpdatesFeed';
 import { QAPanel } from '@/components/investor-workspace/QAPanel';
 import { SoftCommitButton } from '@/components/investor-workspace/SoftCommitButton';
+import { INSTRUMENT_LABELS } from '@/lib/investor-taxonomy';
 import { SectionReviewToggle } from '@/components/investor-workspace/SectionReviewToggle';
 
 interface PortalDoc {
@@ -137,10 +138,6 @@ function TicketSelector({ orgId, current, qaAccess }: {
 
 const STAGE_LABELS: Record<string, string> = {
   pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', later: 'Later',
-};
-const INSTRUMENT_LABELS: Record<string, string> = {
-  equity: 'Equity', safe: 'SAFE', convertible_note: 'Convertible note',
-  venture_debt: 'Venture debt', grant: 'Grant / subsidy', revenue_based: 'Revenue-based',
 };
 function fmtEur(n: number | null | undefined) {
   return n != null ? `€${n.toLocaleString('en-US')}` : null;
