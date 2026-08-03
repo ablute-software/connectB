@@ -17,7 +17,7 @@ import { reawakeningAvailable } from '@/lib/reawakening-capability';
 import { planAccountsAvailable } from '@/lib/plan-accounts-capability';
 import { companyProfileAvailable } from '@/lib/company-profile-capability';
 import { resolveUserPlan } from '@/lib/plan-server';
-import { planEntitlements } from '@/lib/plans';
+import { planEntitlements, WATSON_DRAFT_QUOTA } from '@/lib/plans';
 import { stripeConfigured } from '@/lib/stripe-env';
 
 export async function GET() {
@@ -41,7 +41,7 @@ export async function GET() {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ authEnabled: true, user: null, role: 'none', capabilities });
-  const [role, orgRole, { plan }] = await Promise.all([
+  const [role, orgRole, { orgId, plan }] = await Promise.all([
     resolveRole(user.id, user.email, sb, user.email_confirmed_at),
     getOrgRole(user.id, sb),
     resolveUserPlan(user.id, sb),
@@ -51,5 +51,15 @@ export async function GET() {
   // write path (e.g. the compose route), so this is display-truth, not the
   // enforcement point. Platform admins (role 'developer') get full access.
   const entitlements = planEntitlements(plan, role === 'developer');
-  return NextResponse.json({ authEnabled: true, user: { id: user.id, email: user.email }, role, orgRole, plan, entitlements, capabilities });
+  // Prompt 106 §B — Watson drafts-left, for the "/log" card. Display-truth
+  // only, same as `entitlements` above; /api/compose re-checks and is the
+  // real enforcement point. Not resolved for the platform org (unlimited).
+  let watson: { quota: number; used: number; remaining: number; resetAt: string } | null = null;
+  const watsonQuota = WATSON_DRAFT_QUOTA[plan];
+  if (orgId && role !== 'developer' && watsonQuota > 0) {
+    const { data: statusRow } = await sb.rpc('watson_drafts_status', { p_org_id: orgId, p_quota: watsonQuota });
+    const status = (statusRow as { used: number; remaining: number; reset_at: string }[] | null)?.[0];
+    if (status) watson = { quota: watsonQuota, used: status.used, remaining: status.remaining, resetAt: status.reset_at };
+  }
+  return NextResponse.json({ authEnabled: true, user: { id: user.id, email: user.email }, role, orgRole, plan, entitlements, capabilities, watson });
 }

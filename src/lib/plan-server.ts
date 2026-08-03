@@ -25,7 +25,7 @@ export async function resolveUserPlan(
   // A redeemed promo never writes org.plan — it's a billing-display concern
   // (see /api/promo/redeem), not a real subscription change. But a genuine
   // FREE TRIAL (100% off) still has to grant the actual entitlements of the
-  // plan it covers, or "3 months free of It's the buttler!" would just be a
+  // plan it covers, or "3 months free of It's the butler!" would just be a
   // price preview with nothing to try. A PARTIAL discount (30% off, say)
   // does NOT do this — the org still has to actually subscribe/request at
   // the discounted price to get that tier's features; only a 0-euro

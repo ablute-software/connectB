@@ -36,7 +36,7 @@ describe('plan metadata', () => {
   it('keeps the founder-verbatim names', () => {
     expect(planName('idea')).toBe('Elementary, my dear');
     expect(planName('garage')).toBe('List of Suspects');
-    expect(planName('motherfunding')).toBe("It's the buttler!");
+    expect(planName('motherfunding')).toBe("It's the butler!");
   });
 
   it('only idea is free', () => {

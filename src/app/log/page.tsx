@@ -82,12 +82,23 @@ function LogForm() {
   // is authed AND its plan doesn't include AI personalization. Default false
   // keeps the button in demo mode / while /api/me loads.
   const [aiComposerLocked, setAiComposerLocked] = useState(false);
+  // Prompt 106 §B — Watson (AI composer) monthly draft balance. null means
+  // "not applicable" (idea plan, demo mode, or the platform org) — the card
+  // stays hidden in that case, not shown at 0.
+  const [watson, setWatson] = useState<{ quota: number; used: number; remaining: number; resetAt: string } | null>(null);
+
+  function refreshMe() {
+    return fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
+      .then((me) => {
+        setAiComposerLocked(!!me.authEnabled && !!me.entitlements && !me.entitlements.aiComposer);
+        setWatson(me.watson ?? null);
+      })
+      .catch(() => {});
+  }
 
   useEffect(() => {
     fetch('/api/oauth/google/status').then((r) => r.json()).then(setGmail).catch(() => setGmail({ configured: false, connected: false }));
-    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
-      .then((me) => setAiComposerLocked(!!me.authEnabled && !!me.entitlements && !me.entitlements.aiComposer))
-      .catch(() => {});
+    refreshMe();
   }, []);
 
   const entity = db.entities.find((e) => e.id === entityId);
@@ -150,7 +161,7 @@ function LogForm() {
     ? draftedFor : null;
 
   async function draftWithAi() {
-    if (!person || !entity) return;
+    if (!entity || (!person && !noSpecificPerson)) return;
     setComposing(true); setComposerNote(''); setComposerMeta(null); setPendingQuestions([]);
     try {
       const context = buildComposerContext(db, entityId, personId, channel);
@@ -191,6 +202,7 @@ function LogForm() {
       if (channel === 'email') setSubject(data.draft.subject ?? '');
       setComposerMeta({ rationale: data.draft.rationale, confidence: data.draft.confidence });
       setAiGenerated(true);
+      void refreshMe(); // a credit was just spent — keep the Watson card current
     } catch (e) {
       setComposerNote(`AI draft failed: ${(e as Error).message}`);
     } finally {
@@ -373,7 +385,7 @@ function LogForm() {
             )}
           </div>
 
-          {direction === 'out' && person && (
+          {direction === 'out' && (person || noSpecificPerson) && (
             aiComposerLocked ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                 <span className="text-xs text-gray-500">✨ {AI_COMPOSER_LOCKED_COPY}.</span>
@@ -386,10 +398,12 @@ function LogForm() {
                   className="rounded border border-gray-300 px-2 py-1 text-xs">
                   {(Object.keys(INTENT_LABEL) as ComposerIntent[]).map((i) => <option key={i} value={i}>{INTENT_LABEL[i]}</option>)}
                 </select>
-                <Tooltip text="Generates a draft using this person's hook and the entity's context — never sent automatically.">
+                <Tooltip text={person
+                  ? "Generates a draft using this person's hook and the entity's context — never sent automatically."
+                  : 'Generates a draft addressed to the firm generally, using the entity\'s context — never sent automatically.'}>
                   <button disabled={composing} onClick={draftWithAi}
                     className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-                    {composing ? 'Drafting…' : '✨ Draft with AI'}
+                    {composing ? 'Drafting…' : '✨ Let Watson Draft'}
                   </button>
                 </Tooltip>
                 <span className="text-[11px] text-gray-400">Draft only — you review, edit, and confirm before saving. Never auto-sent.</span>
@@ -429,8 +443,10 @@ function LogForm() {
               <span className="flex-1 text-sm font-medium text-amber-900">
                 This draft was composed for {staleDraft.label} — update it or regenerate before using it.
               </span>
-              {direction === 'out' && person && !aiComposerLocked && (
-                <Tooltip text="Redrafts the message for the currently selected person and entity.">
+              {direction === 'out' && (person || noSpecificPerson) && !aiComposerLocked && (
+                <Tooltip text={person
+                  ? 'Redrafts the message for the currently selected person and entity.'
+                  : 'Redrafts the message for the currently selected entity.'}>
                   <button disabled={composing} onClick={draftWithAi}
                     className="rounded border border-amber-500 bg-white px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-40">
                     {composing ? 'Regenerating…' : '↻ Regenerate'}
@@ -638,6 +654,13 @@ function LogForm() {
       </div>
 
       <div className="space-y-4">
+        {watson && (
+          <Card title={`Watson Drafts left (${watson.remaining})`}>
+            <p className="text-xs text-gray-500">
+              You still can request Watson's support {watson.remaining} time{watson.remaining === 1 ? '' : 's'} this month.
+            </p>
+          </Card>
+        )}
         {person && direction === 'out' && (
           <>
             <Card title="Pre-flight">

@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { lintMessage } from '@/lib/rules';
 import { serverClient, resolveRole, authEnabled } from '@/lib/supabase-server';
 import { resolveUserPlan } from '@/lib/plan-server';
-import { planEntitlements, AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
+import { planEntitlements, AI_COMPOSER_LOCKED_COPY, WATSON_DRAFT_QUOTA } from '@/lib/plans';
 import type { ComposerContext, ComposerIntent } from '@/lib/composer';
 import type { Channel, Entity, Person } from '@/lib/types';
 
@@ -58,9 +58,15 @@ function buildPrompt(context: ComposerContext, channel: Channel, intent: Compose
     'The draft MUST cite the earlier "no" and lead with what changed — never pretend this is a first contact.',
   ].filter(Boolean) : [];
 
+  const noPerson = !context.person.fullName;
+
   return [
-    `Compose a single outreach message for ${context.startup.name} to send to ${context.person.fullName}` +
-      (context.person.role ? ` (${context.person.role})` : '') + ` at ${context.investor.entityName}.`,
+    noPerson
+      ? `Compose a single outreach message for ${context.startup.name} to send to ${context.investor.entityName} generally — ` +
+        `there is no specific named contact for this send (e.g. a web form, an info@ inbox, or the firm's LinkedIn page). ` +
+        `Address it to the firm or team as a whole (e.g. "the team at ${context.investor.entityName}") — never invent a person's name.`
+      : `Compose a single outreach message for ${context.startup.name} to send to ${context.person.fullName}` +
+        (context.person.role ? ` (${context.person.role})` : '') + ` at ${context.investor.entityName}.`,
     '',
     `INTENT: ${intent} — ${INTENT_GUIDANCE[intent]}`,
     `CHANNEL: ${channel} — ${CHANNEL_GUIDANCE[channel]}`,
@@ -73,9 +79,11 @@ function buildPrompt(context: ComposerContext, channel: Channel, intent: Compose
     '',
     'HARD RULES:',
     '- Never claim traction, revenue, or clinical results that are not in the context.',
-    `- Never use these kill words for this person: ${context.person.killWords.join(', ') || '(none)'}.`,
+    context.person.killWords.length ? `- Never use these kill words for this person: ${context.person.killWords.join(', ')}.` : '',
     '- One ask only, and keep it small.',
-    '- Line 1 must reference something specific/true/recent about this person or fund — never a generic opener.',
+    noPerson
+      ? '- Line 1 must reference something specific/true/recent about the fund — never a generic opener, and never a person\'s name (there isn\'t one).'
+      : '- Line 1 must reference something specific/true/recent about this person or fund — never a generic opener.',
     '- Never include an editable document link (no "/edit" URLs).',
     context.constraints.locked ? `- NOTE: this entity is contact-locked until ${context.constraints.lockUntil?.slice(0, 10)} — draft anyway for prep, but flag this in the rationale.` : '',
     context.constraints.thirdUnansweredRisk ? '- NOTE: two prior messages already went unanswered — this would be a third. Strongly consider proposing to hold instead of drafting a third message; say so in the rationale.' : '',
@@ -168,16 +176,34 @@ export async function POST(req: NextRequest) {
   // handler shows `message` without a client change); paid plans and the
   // platform org proceed. Skipped in demo mode (no auth to resolve a plan).
   // Enforced here server-side, not just hidden in the UI.
+  let watsonOrgId: string | null = null;
+  let watsonQuota = 0;
+  let watsonSb: Awaited<ReturnType<typeof serverClient>> | null = null;
   if (authEnabled) {
     const sb = await serverClient();
+    watsonSb = sb;
     const { data: { user } } = await sb.auth.getUser();
     if (user) {
-      const [role, { plan }] = await Promise.all([
+      const [role, { orgId, plan }] = await Promise.all([
         resolveRole(user.id, user.email, sb, user.email_confirmed_at),
         resolveUserPlan(user.id, sb),
       ]);
       if (!planEntitlements(plan, role === 'developer').aiComposer) {
         return NextResponse.json({ configured: false, locked: true, message: AI_COMPOSER_LOCKED_COPY }, { status: 200 });
+      }
+      // Prompt 106 §B — Watson monthly draft credits. The platform org
+      // (developer role) is exempt, same spirit as the plan gate above.
+      if (orgId && role !== 'developer') {
+        watsonOrgId = orgId;
+        watsonQuota = WATSON_DRAFT_QUOTA[plan];
+        const { data: statusRow } = await sb.rpc('watson_drafts_status', { p_org_id: orgId, p_quota: watsonQuota });
+        const status = (statusRow as { used: number; remaining: number; reset_at: string }[] | null)?.[0];
+        if (status && status.remaining <= 0) {
+          return NextResponse.json({
+            configured: false, locked: true,
+            message: `You've used all ${watsonQuota} Watson drafts this month — they reset ${new Date(status.reset_at).toLocaleDateString()}. You can still write the message manually below.`,
+          }, { status: 200 });
+        }
       }
     }
   }
@@ -202,6 +228,18 @@ export async function POST(req: NextRequest) {
         `\n\nYour previous attempt failed these checks — fix them:\n${findings.filter((f) => f.severity === 'error').map((f) => `- ${f.message}`).join('\n')}`;
       draft = await callClaude(apiKey, model, retryPrompt, canonGated);
       findings = lintMessage(draft.body, personLike, entityLike, channel);
+    }
+
+    // Prompt 106 §B — "incremented whenever a draft is generated successfully"
+    // — only reached here, after callClaude actually returned a draft. A
+    // Regenerate is a fresh POST to this same route, so it's counted too, per
+    // spec ("um Regenerate conta como um novo pedido"). Best-effort: a
+    // failure here shouldn't fail the whole request, since the founder
+    // already has their draft.
+    if (watsonOrgId && watsonSb) {
+      await watsonSb.rpc('watson_record_draft', { p_org_id: watsonOrgId, p_quota: watsonQuota }).then(
+        () => {}, () => {},
+      );
     }
 
     return NextResponse.json({ configured: true, draft, lint: findings });

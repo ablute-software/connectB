@@ -28,6 +28,18 @@ export const CATALOG_QUOTA: Record<PlanTier, number> = {
   motherfunding: 40,
 };
 
+// Watson (AI composer) monthly draft quota — Prompt 106 §B / confirmed by
+// Nuno 2026-08-03 as 90/210 (not the 100/300 that appeared in an earlier,
+// never-committed draft of the plan copy). The bullet text and the real
+// gate in /api/compose/route.ts both read this single constant — never
+// hand-write the number in two places again, that's exactly how the
+// 100/300 vs 90/210 divergence happened.
+export const WATSON_DRAFT_QUOTA: Record<PlanTier, number> = {
+  idea: 0,
+  garage: 90,
+  motherfunding: 210,
+};
+
 export interface PlanRow {
   tier: PlanTier;
   /** Verbatim plan name — do not translate or rephrase. */
@@ -93,14 +105,14 @@ export const PLANS: PlanRow[] = [
       'Needs-review queue',
       'Import investors — CSV or manual entry',
       'Mechanical message templates',
-      'AI-personalized outreach drafts',
+      `${WATSON_DRAFT_QUOTA.garage} AI-personalized outreach drafts per month`,
       'Automations — reminders & follow-up sequencing',
       'NDA-protected document sharing',
       'Investor reawakening engine',
     ],
   },
   {
-    tier: 'motherfunding', name: "It's the buttler!", monthly: '€149/month', annual: '€1,308/year (equivalent to €109/month)', paid: true, monthlyEur: 149, annualEur: 1308, annualPerMonthEur: 109,
+    tier: 'motherfunding', name: "It's the butler!", monthly: '€149/month', annual: '€1,308/year (equivalent to €109/month)', paid: true, monthlyEur: 149, annualEur: 1308, annualPerMonthEur: 109,
     bestValue: true,
     tagline: 'For serious, multi-investor raises',
     bullets: [
@@ -111,7 +123,7 @@ export const PLANS: PlanRow[] = [
       'Needs-review queue',
       'Import investors — CSV or manual entry',
       'Mechanical message templates',
-      'AI-personalized outreach drafts',
+      `${WATSON_DRAFT_QUOTA.motherfunding} AI-personalized outreach drafts per month`,
       'Automations — reminders & follow-up sequencing',
       'NDA-protected document sharing',
       'Investor reawakening engine',
@@ -157,7 +169,7 @@ export function parsePlanRequest(raw: string | null | undefined): { tier: PlanTi
 }
 
 // User-facing gate copy, kept beside the gate that produces it.
-export const AI_COMPOSER_LOCKED_COPY = 'A personalização por AI faz parte dos planos pagos';
+export const AI_COMPOSER_LOCKED_COPY = 'AI personalization is part of the paid plans';
 export const REVIEW_OPTIMIZATION_PREVIEW_COPY = 'Disponível em breve, na versão Premium';
 
 export function planRow(plan: PlanTier): PlanRow {
