@@ -4,8 +4,9 @@
 // separadores on /dashboard — logic unchanged, only the export changed from
 // a page default to a named panel.
 import { useState } from 'react';
+import Link from 'next/link';
 import { useStore } from '@/lib/store';
-import { Card, EntityLink, fmtEur } from '@/components/ui';
+import { Card, EntityLink, fmtRoundEur } from '@/components/ui';
 import { outboundCounts, passReasonAlert } from '@/lib/rules';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
@@ -26,7 +27,13 @@ export function OverviewPanel() {
   const passes = db.interactions.filter((i) => i.classification === 'pass');
   const followupsDue = db.tasks.filter((t) => !t.done && t.kind === 'follow_up'
     && t.due_at && new Date(t.due_at) < new Date(Date.now() + 7 * 86400_000));
-  const softCircled = db.entities.reduce((s, e) => s + (e.interest_eur ?? 0), 0);
+  // P106 §3 — was softCircled (sum of interest_eur, a different concept:
+  // aggregate soft-circled interest per investor) against a hardcoded
+  // €1.3M. Round progress reads the actual round fields the founder set on
+  // the About/Round card instead.
+  const roundTarget = db.org.round_target_eur;
+  const roundSecured = db.org.round_secured_eur ?? 0;
+  const roundPct = roundTarget ? Math.min(100, (roundSecured / roundTarget) * 100) : 0;
 
   const contacted = db.entities.filter((e) => e.status !== 'not_contacted').length;
   const replied = new Set(db.interactions.filter((i) => i.direction === 'in').map((i) => i.entity_id)).size;
@@ -110,10 +117,19 @@ export function OverviewPanel() {
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card title="Round progress" tint="blue">
-          <div className="text-xl font-bold text-[#0E7490]">{fmtEur(softCircled)} <span className="text-sm font-normal text-gray-500">/ €1.3M target</span></div>
-          <div className="mt-2 h-3 overflow-hidden rounded bg-white">
-            <div className="h-full bg-[#0E7490]" style={{ width: `${Math.min(100, softCircled / 1300000 * 100)}%` }} />
-          </div>
+          {roundTarget ? (
+            <>
+              <div className="text-xl font-bold text-[#0E7490]">{fmtRoundEur(roundSecured)} <span className="text-sm font-normal text-gray-500">/ {fmtRoundEur(roundTarget)} target</span></div>
+              <div className="mt-2 h-3 overflow-hidden rounded bg-white">
+                <div className="h-full bg-[#0E7490]" style={{ width: `${roundPct}%` }} />
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500">
+              Complete your round target to track your fundraising progress.{' '}
+              <Link href="/settings#settings-round" className="font-medium text-[#0E7490] hover:underline">Set it in About</Link>.
+            </p>
+          )}
           <div data-tour-id="dashboard-funnel" className="mt-4 space-y-1">
             {funnel.map((f, i) => (
               <div key={f.label} className="flex items-center gap-2 text-sm">

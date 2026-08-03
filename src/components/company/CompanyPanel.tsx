@@ -76,7 +76,7 @@ export function CompanyPanel() {
         <IdentityCard canEdit={canEdit} missing={missing} flashId={flashId} />
       </div>
       <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
-      <div data-tour-id="settings-round">
+      <div id="settings-round" data-tour-id="settings-round">
         <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
       </div>
       <div data-tour-id="settings-traction">

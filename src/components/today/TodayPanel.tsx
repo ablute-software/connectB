@@ -5,7 +5,7 @@
 // panel.
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
-import { Card, EntityLink, PersonLink, WaveTag, fmtEur } from '@/components/ui';
+import { Card, EntityLink, PersonLink, WaveTag, fmtRoundEur } from '@/components/ui';
 import { outboundCounts, preflight, preflightSummary } from '@/lib/rules';
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, recommendedActionType } from '@/lib/relationship';
 import { PageTour } from '@/components/onboarding/PageTour';
@@ -41,7 +41,10 @@ export function TodayPanel() {
   const thisWeek = db.tasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) >= now
     && new Date(t.due_at) < new Date(now.getTime() + 7 * 24 * 3600 * 1000))
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? '')).slice(0, 6);
-  const softCircled = db.entities.reduce((s, e) => s + (e.interest_eur ?? 0), 0);
+  // P106 §3 — see OverviewPanel.tsx's identical fix for the full rationale.
+  const roundTarget = db.org.round_target_eur;
+  const roundSecured = db.org.round_secured_eur ?? 0;
+  const roundPct = roundTarget ? Math.min(100, (roundSecured / roundTarget) * 100) : 0;
   const activeConvos = db.entities.filter((e) => ['in_conversation', 'diligence'].includes(e.status)).length;
 
   // "Follow-ups on time" — of the follow-ups still open right now, what %
@@ -186,10 +189,19 @@ export function TodayPanel() {
         </div>
 
         <Card title="Round progress" tint="blue">
-          <div className="text-2xl font-bold text-[#0E7490]">{fmtEur(softCircled)} <span className="text-sm font-normal text-gray-500">/ €1.3M</span></div>
-          <div className="mt-2 h-2 overflow-hidden rounded bg-white">
-            <div className="h-full bg-[#0E7490]" style={{ width: `${Math.min(100, (softCircled / 1300000) * 100)}%` }} />
-          </div>
+          {roundTarget ? (
+            <>
+              <div className="text-2xl font-bold text-[#0E7490]">{fmtRoundEur(roundSecured)} <span className="text-sm font-normal text-gray-500">/ {fmtRoundEur(roundTarget)}</span></div>
+              <div className="mt-2 h-2 overflow-hidden rounded bg-white">
+                <div className="h-full bg-[#0E7490]" style={{ width: `${roundPct}%` }} />
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500">
+              Complete your round target to track your fundraising progress.{' '}
+              <Link href="/settings#settings-round" className="font-medium text-[#0E7490] hover:underline">Set it in About</Link>.
+            </p>
+          )}
           <div className="mt-2 text-xs text-gray-500">{activeConvos} active conversation(s) · benchmark: a seed closes on 15–40.</div>
         </Card>
         <Card title="This week">

@@ -378,3 +378,7 @@ export function fmtEur(n?: number) {
   if (n >= 1000) return `€${Math.round(n / 1000)}k`;
   return `€${n}`;
 }
+
+// fmtRoundEur lives in @/lib/format-money (plain .ts, not .tsx) so it can
+// actually be unit-tested — see that file's header for why.
+export { fmtRoundEur } from '@/lib/format-money';
