@@ -36,6 +36,15 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
   const [confirmingDisconnect, setConfirmingDisconnect] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Mini-prompt 2026-08-03 — the poll used to close on "any active pairing
+  // exists", not "the pairing I just showed a QR for was consumed". Once an
+  // account has any prior pairing (the normal case after the first test),
+  // clicking "Show QR / pairing code" would self-close on the very next
+  // poll (~3s) regardless of whether a new device actually scanned it.
+  // Snapshotting which pairing ids existed the moment this QR was
+  // generated, and only closing once an id NOT in that set shows up, fixes
+  // it without touching the token TTL or the status endpoint at all.
+  const baselinePairingIdsRef = useRef<Set<string>>(new Set());
 
   function stopPolling() {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -49,6 +58,7 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
   }
 
   async function generate() {
+    baselinePairingIdsRef.current = new Set(pairings.map((p) => p.id));
     setBusy(true); setErrorMsg('');
     try {
       const res = await fetch('/api/matchdeal/pairing/generate', {
@@ -75,7 +85,7 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
         stopPolling(); setState('expired'); return;
       }
       const status = await checkStatus();
-      if (status?.linked && status.pairings.length > 0) {
+      if (status?.linked && status.pairings.some((p) => !baselinePairingIdsRef.current.has(p.id))) {
         stopPolling(); setPairings(status.pairings); setState('paired');
       }
     }, POLL_INTERVAL_MS);
