@@ -4,12 +4,13 @@
 // to join. This route resolves the caller's own MatchDeal profile
 // directly from their session, the same way resolveOwnMatchdealProfileId
 // already does for a freshly-consumed token, just without consuming one.
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { resolveOwnMatchdealProfileId } from '@/lib/matchdeal-pairing';
+import { resolveOwnMatchdealProfileId, touchLastSeenIfStale, DEVICE_ID_COOKIE, DEVICE_ID_COOKIE_MAX_AGE } from '@/lib/matchdeal-pairing';
+import { shareableCookieDomain } from '@/lib/supabase';
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -35,19 +36,65 @@ export async function GET(req: Request) {
   // has the answer, so prefer that kind when we have it, before falling
   // back to the old startup-first default for a device with no pairing on
   // record at all (e.g. first-ever self-check).
-  const deviceId = new URL(req.url).searchParams.get('deviceId');
+  const queryDeviceId = new URL(req.url).searchParams.get('deviceId');
+  // Prompt 114 Fase 4.1 — the cookie is the resilient copy of device_id
+  // (survives a localStorage clear); prefer it when both are present.
+  const cookieDeviceId = req.cookies.get(DEVICE_ID_COOKIE)?.value ?? null;
+  const effectiveDeviceId = cookieDeviceId ?? queryDeviceId;
+
+  type MatchedPairing = { id: string; kind: 'startup' | 'investor'; last_seen_at: string | null };
   let preferredKind: 'startup' | 'investor' | null = null;
-  if (deviceId) {
-    const { data: pairing } = await admin.from('matchdeal_pairings').select('kind')
-      .eq('user_id', user.id).eq('device_id', deviceId).eq('status', 'active')
+  let matchedPairing: MatchedPairing | null = null;
+
+  if (effectiveDeviceId) {
+    const { data: pairing } = await admin.from('matchdeal_pairings').select('id, kind, last_seen_at')
+      .eq('user_id', user.id).eq('device_id', effectiveDeviceId).eq('status', 'active')
       .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
-    preferredKind = (pairing?.kind as 'startup' | 'investor' | undefined) ?? null;
+    if (pairing) matchedPairing = pairing as MatchedPairing;
   }
+
+  // Prompt 114 Fase 4.2 — reconciliation, not a block. Neither cookie nor
+  // localStorage's device_id matched an active pairing (both lost — Safari
+  // ITP cleared the cookie AND the person cleared site data, or a fresh
+  // browser profile). Reaching this route at all required a valid session,
+  // which in the new design can only exist after a real token consume — so
+  // silently adopting the one unambiguous active pairing is not a new hole,
+  // it's recognizing a device that legitimately paired under a device_id it
+  // can no longer produce. Ambiguous (0 or 2+ active rows) is left alone.
+  if (!matchedPairing && queryDeviceId) {
+    const { data: activeRows } = await admin.from('matchdeal_pairings')
+      .select('id, kind, last_seen_at').eq('user_id', user.id).eq('status', 'active');
+    if (activeRows && activeRows.length === 1) {
+      const row = activeRows[0] as { id: string; kind: 'startup' | 'investor'; last_seen_at: string | null };
+      await admin.from('matchdeal_pairings')
+        .update({ device_id: queryDeviceId, last_seen_at: new Date().toISOString() }).eq('id', row.id);
+      matchedPairing = { ...row, last_seen_at: new Date().toISOString() };
+    }
+  }
+
+  preferredKind = matchedPairing?.kind ?? null;
   const order: ('startup' | 'investor')[] = preferredKind === 'investor' ? ['investor', 'startup'] : ['startup', 'investor'];
 
   for (const kind of order) {
     const profileId = await resolveOwnMatchdealProfileId(admin, user.id, kind);
-    if (profileId) return NextResponse.json({ ok: true, kind, ownProfileId: profileId });
+    if (profileId) {
+      // Fase 4.3 — throttled last_seen_at write, only for the pairing row
+      // that actually resolved this kind (not the profile-existence
+      // fallback below, which has nothing to do with pairing liveness).
+      if (matchedPairing && matchedPairing.kind === kind) {
+        await touchLastSeenIfStale(admin, matchedPairing.id, matchedPairing.last_seen_at);
+      }
+      const response = NextResponse.json({ ok: true, kind, ownProfileId: profileId });
+      // Reconcile the cookie itself if it was the one missing.
+      if (!cookieDeviceId && queryDeviceId) {
+        const domain = shareableCookieDomain(req.headers.get('host'));
+        response.cookies.set(DEVICE_ID_COOKIE, queryDeviceId, {
+          httpOnly: true, sameSite: 'lax', secure: true, path: '/', maxAge: DEVICE_ID_COOKIE_MAX_AGE,
+          ...(domain ? { domain } : {}),
+        });
+      }
+      return response;
+    }
   }
 
   return NextResponse.json({ ok: true, kind: null, ownProfileId: null });

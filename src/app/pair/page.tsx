@@ -69,10 +69,15 @@ export default function PairPage() {
   // /login with no ?as=investor, so it always showed the founder
   // email+password form regardless of which kind was actually pairing.
   // Reuses the same signInWithOtp/verifyOtp mechanism /login?as=investor
-  // already has, just inline on this screen instead of navigating away —
-  // pairing/consume's own MATCHDEAL_WRONG_ACCOUNT check is still the real
-  // protection against a QR intercepted by a different account; this only
-  // replaces *how* that account proves it's signed in.
+  // already has, just inline on this screen instead of navigating away.
+  // Prompt 114 — this login step is now ONLY reachable via the no-token
+  // "Open MatchDeal on this device" path (§5, below): a QR/token pairing no
+  // longer needs it at all, since the token itself authenticates. There is
+  // no longer a wrong-account check to fall back on for the token path —
+  // that trade was made explicitly (Prompt 114 §4): the token's own
+  // properties (opaque, single-use, 5-minute TTL, shown physically on the
+  // desktop screen) are the entire protection now, the same trust level
+  // any email magic link already has.
   const [loginEmail, setLoginEmail] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginMsg, setLoginMsg] = useState('');
@@ -113,14 +118,54 @@ export default function PairPage() {
     setToken(t);
 
     (async () => {
+      // Prompt 114 Fase 1 — a token in the URL is consumed FIRST, before any
+      // getUser()/need_login check: the whole point is a phone that has
+      // never signed in anywhere. 'need_login' must never appear on a
+      // valid-token path.
+      if (t) {
+        setStage('consuming');
+        try {
+          const res = await fetch('/api/matchdeal/pairing/consume', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ token: t, deviceId: getOrCreateDeviceId() }),
+          });
+          const body = await res.json();
+          if (!body.ok) { setErrorMsg(body.error ?? 'Could not pair.'); setStage('error'); return; }
+
+          // Hydrate the session the server just issued for the token's own
+          // owner before touching anything session-gated below (launch-gate
+          // reads the session via its own serverClient() call).
+          if (body.session) {
+            await browserClient().auth.setSession({
+              access_token: body.session.access_token, refresh_token: body.session.refresh_token,
+            });
+          }
+
+          try {
+            const gateRes = await fetch('/api/matchdeal/launch-gate');
+            const gateBody = await gateRes.json();
+            if (!gateBody.allowed) { setStage('launch_gate'); return; }
+          } catch {
+            setErrorMsg('Network error — try again.'); setStage('error'); return;
+          }
+
+          setKind(body.kind); setOwnProfileId(body.ownProfileId ?? null); setPairedAt(body.pairedAt);
+          setStage('paired');
+        } catch {
+          setErrorMsg('Network error — try again.'); setStage('error');
+        }
+        return;
+      }
+
+      // No token — Prompt 75's "Open MatchDeal on this device" path. Left
+      // exactly as it was (Prompt 114 §5 is still an open question — see
+      // the report — and explicitly must not be removed by inference).
       const { data: { user } } = await browserClient().auth.getUser();
       if (!user) { setStage('need_login'); return; }
 
-      // Prompt 92 — launch gate. Checked right after login, before any
-      // token consumption or self-check, so a non-@ablute.pt account never
-      // reaches the deck (which today only has fictional demo data) no
-      // matter which path — QR token, "open on this device", re-check on
-      // foreground — got them here.
+      // Prompt 92 — launch gate. Checked right after login, before the
+      // self-check, so a non-@ablute.pt account never reaches the deck
+      // (which today only has fictional demo data).
       try {
         const gateRes = await fetch('/api/matchdeal/launch-gate');
         const gateBody = await gateRes.json();
@@ -129,27 +174,12 @@ export default function PairPage() {
         setErrorMsg('Network error — try again.'); setStage('error'); return;
       }
 
-      // Prompt 75 — "Open MatchDeal on this device": no token means this
-      // IS the account's own already-signed-in browser, viewing its own
-      // deck, not a new device joining via QR. Resolve the profile
+      // This IS the account's own already-signed-in browser, viewing its
+      // own deck, not a new device joining via QR. Resolve the profile
       // directly instead of erroring "Missing pairing code" — that error
       // was a genuine dead end for the one path meant as the demo's
       // emergency fallback.
-      if (!t) { await recheckSelf(); return; }
-
-      setStage('consuming');
-      try {
-        const res = await fetch('/api/matchdeal/pairing/consume', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ token: t, deviceId: getOrCreateDeviceId() }),
-        });
-        const body = await res.json();
-        if (!body.ok) { setErrorMsg(body.error ?? 'Could not pair.'); setStage('error'); return; }
-        setKind(body.kind); setOwnProfileId(body.ownProfileId ?? null); setPairedAt(body.pairedAt);
-        setStage('paired');
-      } catch {
-        setErrorMsg('Network error — try again.'); setStage('error');
-      }
+      await recheckSelf();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device]);

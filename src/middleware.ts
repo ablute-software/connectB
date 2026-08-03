@@ -10,7 +10,13 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { shareableCookieDomain } from '@/lib/supabase';
 
-const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/api/stripe/webhook', '/contact', '/api/support', '/api/investor-access-request', '/matchdeal/pair', '/pair', '/manifest.json', '/api/plan/private-detective'];
+const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/api/stripe/webhook', '/contact', '/api/support', '/api/investor-access-request', '/matchdeal/pair', '/pair', '/manifest.json', '/api/plan/private-detective',
+  // Prompt 114 Fase 1 — the token IS the auth for this one route now; a
+  // caller here has no session yet by definition (that's the whole point).
+  // Exact path only (not a prefix) — every other /api/matchdeal/pairing/*
+  // route (self, disconnect, generate, status) still requires a real
+  // session and must NOT be added here.
+  '/api/matchdeal/pairing/consume'];
 
 // Where a signed-in user belongs. '/' is the public landing now, so the app
 // home is the pipeline.

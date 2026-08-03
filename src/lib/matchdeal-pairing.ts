@@ -14,6 +14,18 @@ import { resolveActiveInvestorMember } from './investor-membership';
 export const PAIRING_TOKEN_TTL_MS = 5 * 60 * 1000; // spec Section 4 — 5 minutes
 export const PAIRING_RATE_LIMIT_PER_HOUR = 10; // spec Section 8
 
+// Prompt 114 Fase 4.1 — device_id's resilient copy. localStorage is what the
+// client reads/writes day-to-day; this httpOnly cookie is the fallback that
+// survives a localStorage clear (Safari ITP, "clear site data", etc.) — set
+// once at consume time, read (never written) by pairing/self.
+export const DEVICE_ID_COOKIE = 'sd_pwa_device_id';
+export const DEVICE_ID_COOKIE_MAX_AGE = 60 * 60 * 24 * 400; // ~400 days — Chrome's own cookie cap
+
+// Prompt 114 Fase 4.3 — last_seen_at is only useful as a "is this pair still
+// alive" signal if it's actually written; throttled so a PWA left open
+// doesn't hammer the row on every focus/poll.
+export const LAST_SEEN_THROTTLE_MS = 60 * 60 * 1000; // 1 hour
+
 export function generateRawToken(): string {
   return randomBytes(32).toString('base64url'); // opaque, unpredictable, URL-safe
 }
@@ -42,27 +54,71 @@ export async function resolveCallerOrgId(
 }
 
 export type ConsumeResult =
-  | { ok: true; pairingId: string; pairedAt: string; orgId: string; kind: PairingKind }
-  | { ok: false; error: 'MATCHDEAL_TOKEN_INVALID' | 'MATCHDEAL_TOKEN_EXPIRED' | 'MATCHDEAL_WRONG_ACCOUNT' | 'MATCHDEAL_SERVER_ERROR' };
+  | {
+      ok: true; pairingId: string; pairedAt: string; orgId: string; kind: PairingKind; userId: string;
+      session: { access_token: string; refresh_token: string };
+    }
+  | { ok: false; error: 'MATCHDEAL_TOKEN_INVALID' | 'MATCHDEAL_TOKEN_EXPIRED' | 'MATCHDEAL_SERVER_ERROR' };
 
-// The PWA's own consume path (app.sherlockdeal.com/pair, cookie session).
-// Logically identical to supabase/functions/matchdeal-qr-pair (same hash,
-// same validation order, same atomic single-use claim) — kept as a
-// separate implementation rather than a shared import because the two
-// callers are genuinely different runtimes (Next.js/Node here, Deno at
-// the edge) with no code-sharing path between them; a future native app
-// keeps using the Edge Function's Bearer-token path, this is only for a
-// browser session already on this domain family.
+// Prompt 114 Fase 1.2 — issues a real session for an existing user, with
+// zero interaction and without sending anything anywhere. GoTrue's admin
+// API has no direct "create session for this user_id" method (confirmed by
+// reading GoTrueAdminApi's full public surface: signOut, inviteUserByEmail,
+// generateLink, createUser, listUsers, getUserById, updateUserById,
+// deleteUser — nothing else). The documented zero-interaction workaround is
+// this two-step exchange, entirely server-side:
+//   1. admin.generateLink({type:'magiclink', email}) — this only GENERATES
+//      a hashed_token; unlike signInWithOtp, it never sends an email.
+//   2. admin.auth.verifyOtp({token_hash, type:'magiclink'}) — redeems that
+//      same token_hash immediately, server-side, and returns a real session
+//      (access_token + refresh_token) for the user, exactly as if they'd
+//      clicked a real magic link.
+// Not a forged token (it's a genuine, single-use, short-lived GoTrue OTP)
+// and no email is ever sent — satisfies both constraints Prompt 114 set.
+async function issueSessionForUser(
+  admin: SupabaseClient, userId: string,
+): Promise<{ access_token: string; refresh_token: string } | null> {
+  const { data: userData, error: userErr } = await admin.auth.admin.getUserById(userId);
+  const email = userData?.user?.email;
+  if (userErr || !email) return null;
+
+  const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({ type: 'magiclink', email });
+  const hashedToken = linkData?.properties?.hashed_token;
+  if (linkErr || !hashedToken) return null;
+
+  const { data: verifyData, error: verifyErr } = await admin.auth.verifyOtp({ token_hash: hashedToken, type: 'magiclink' });
+  if (verifyErr || !verifyData.session) return null;
+
+  return { access_token: verifyData.session.access_token, refresh_token: verifyData.session.refresh_token };
+}
+
+// The PWA's own consume path (app.sherlockdeal.com/pair). Logically
+// identical to supabase/functions/matchdeal-qr-pair (same hash, same
+// validation order, same atomic single-use claim) — kept as a separate
+// implementation rather than a shared import because the two callers are
+// genuinely different runtimes (Next.js/Node here, Deno at the edge) with
+// no code-sharing path between them; a future native app keeps using the
+// Edge Function's Bearer-token path, this is only for a browser on this
+// domain family.
+//
+// Prompt 114 Fase 1 — the token alone is the authorization now; there is
+// no caller session to compare it against (the whole point is a phone that
+// has never signed in anywhere). The user comes from tokenRow.user_id,
+// set when the token was generated on an already-authenticated desktop.
+// resolveCallerOrgId's wrong-account comparison is removed, not migrated
+// to the admin client — a check that no longer checks anything is worse
+// than no check, since it misleads whoever reads it next (Prompt 114 §2.1
+// instruction, verbatim).
 export async function consumePairingToken(
-  admin: SupabaseClient, sb: SupabaseClient, rawToken: string, userId: string, deviceId: string,
+  admin: SupabaseClient, rawToken: string, deviceId: string,
 ): Promise<ConsumeResult> {
   const tokenHash = hashToken(rawToken);
   const { data: tokenRow } = await admin.from('matchdeal_pairing_tokens').select('*').eq('token_hash', tokenHash).maybeSingle();
 
-  async function audit(result: string, tokenOrgId?: string | null, attemptedOrgId?: string | null) {
+  async function audit(result: string, tokenOrgId?: string | null, attemptedByUserId?: string | null) {
     await admin.from('matchdeal_pairing_audit').insert({
-      token_hash: tokenHash, token_org_id: tokenOrgId ?? null, attempted_by_user_id: userId,
-      attempted_org_id: attemptedOrgId ?? null, result,
+      token_hash: tokenHash, token_org_id: tokenOrgId ?? null, attempted_by_user_id: attemptedByUserId ?? null,
+      attempted_org_id: tokenOrgId ?? null, result,
     }).then(() => {}, () => {});
   }
 
@@ -72,31 +128,26 @@ export async function consumePairingToken(
   }
   if (tokenRow.status !== 'active') {
     const category = tokenRow.status === 'used' ? 'already_used' : 'other';
-    await audit(category, tokenRow.org_id);
+    await audit(category, tokenRow.org_id, tokenRow.user_id);
     await logEvent(admin, { organizationId: tokenRow.org_id, organizationType: tokenRow.kind, eventType: 'matchdeal_pair_failed', failureCategory: category });
     return { ok: false, error: 'MATCHDEAL_TOKEN_INVALID' };
   }
   if (new Date(tokenRow.expires_at) <= new Date()) {
     await admin.from('matchdeal_pairing_tokens').update({ status: 'expired' }).eq('id', tokenRow.id).eq('status', 'active');
-    await audit('expired', tokenRow.org_id);
+    await audit('expired', tokenRow.org_id, tokenRow.user_id);
     await logEvent(admin, { organizationId: tokenRow.org_id, organizationType: tokenRow.kind, eventType: 'matchdeal_pair_failed', failureCategory: 'expired' });
     return { ok: false, error: 'MATCHDEAL_TOKEN_EXPIRED' };
-  }
-
-  const callerOrgId = await resolveCallerOrgId(sb, admin, userId, tokenRow.kind as PairingKind);
-  if (!callerOrgId || callerOrgId !== tokenRow.org_id) {
-    await audit('wrong_account', tokenRow.org_id, callerOrgId);
-    await logEvent(admin, { organizationId: tokenRow.org_id, organizationType: tokenRow.kind, eventType: 'matchdeal_pair_failed', failureCategory: 'wrong_account' });
-    return { ok: false, error: 'MATCHDEAL_WRONG_ACCOUNT' };
   }
 
   const { data: claimed } = await admin.from('matchdeal_pairing_tokens')
     .update({ status: 'used', used_at: new Date().toISOString(), used_by_device: deviceId })
     .eq('id', tokenRow.id).eq('status', 'active').select('id').maybeSingle();
   if (!claimed) {
-    await audit('already_used', tokenRow.org_id, callerOrgId);
+    await audit('already_used', tokenRow.org_id, tokenRow.user_id);
     return { ok: false, error: 'MATCHDEAL_TOKEN_INVALID' };
   }
+
+  const userId = tokenRow.user_id as string;
 
   // Prompt 75 follow-up (found live, 31/07): this used to always insert a
   // new row, so re-pairing the SAME browser (device_id is a localStorage
@@ -112,6 +163,19 @@ export async function consumePairingToken(
     .select('id, paired_at').eq('org_id', tokenRow.org_id).eq('kind', tokenRow.kind)
     .eq('user_id', userId).eq('device_id', deviceId).eq('status', 'active').maybeSingle();
 
+  // Prompt 114 Fase 2.1 — one active device per (org, kind), enforced by a
+  // real unique partial index (matchdeal_pairings_one_active_per_org, §3.1)
+  // as well as this logic. That index is exactly why this MUST run before
+  // the insert below, not after: with the index in place, a second device's
+  // INSERT would violate the constraint (there's already an active row for
+  // this org+kind) before Fase 2's own disconnect ever got a chance to run.
+  // Excludes this exact device_id — a same-device reuse leaves its own row
+  // alone rather than disconnecting-then-reinserting it.
+  await admin.from('matchdeal_pairings')
+    .update({ status: 'disconnected', disconnected_at: new Date().toISOString() })
+    .eq('org_id', tokenRow.org_id).eq('kind', tokenRow.kind).eq('status', 'active')
+    .neq('device_id', deviceId);
+
   let pairing: { id: string; paired_at: string } | null = existing ?? null;
   if (pairing) {
     await admin.from('matchdeal_pairings').update({ last_seen_at: new Date().toISOString() }).eq('id', pairing.id);
@@ -123,10 +187,16 @@ export async function consumePairingToken(
     pairing = inserted;
   }
 
-  await audit('completed', tokenRow.org_id, callerOrgId);
+  const session = await issueSessionForUser(admin, userId);
+  if (!session) {
+    await audit('session_issue_failed', tokenRow.org_id, userId);
+    return { ok: false, error: 'MATCHDEAL_SERVER_ERROR' };
+  }
+
+  await audit('completed', tokenRow.org_id, userId);
   await logEvent(admin, { organizationId: tokenRow.org_id, organizationType: tokenRow.kind, eventType: 'matchdeal_pair_completed', sourceOfAction: 'manual' });
 
-  return { ok: true, pairingId: pairing.id, pairedAt: pairing.paired_at, orgId: tokenRow.org_id, kind: tokenRow.kind as PairingKind };
+  return { ok: true, pairingId: pairing.id, pairedAt: pairing.paired_at, orgId: tokenRow.org_id, kind: tokenRow.kind as PairingKind, userId, session };
 }
 
 // The viewer's OWN matchdeal_profiles.id — what matchdeal_eligible_deck
@@ -150,4 +220,12 @@ export async function resolveOwnMatchdealProfileId(
   if (!membershipId) return null;
   const { data: profile } = await admin.from('matchdeal_profiles').select('id').eq('membership_id', membershipId).eq('kind', kind).maybeSingle();
   return (profile?.id as string | undefined) ?? null;
+}
+
+// Prompt 114 Fase 4.3 — throttled last_seen_at write. Only pairing/self
+// calls this (consumePairingToken already stamps it on every claim/reuse).
+export async function touchLastSeenIfStale(admin: SupabaseClient, pairingId: string, lastSeenAt: string | null): Promise<void> {
+  const staleSince = lastSeenAt ? Date.now() - new Date(lastSeenAt).getTime() : Infinity;
+  if (staleSince < LAST_SEEN_THROTTLE_MS) return;
+  await admin.from('matchdeal_pairings').update({ last_seen_at: new Date().toISOString() }).eq('id', pairingId);
 }
