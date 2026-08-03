@@ -15,5 +15,17 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     .select('*').eq('ticket_id', params.id).order('created_at', { ascending: true });
   if (evErr) return NextResponse.json({ ok: false, error: evErr.message }, { status: 500 });
 
-  return NextResponse.json({ ok: true, ticket, events: events ?? [] });
+  // attachment_urls stores storage PATHS, not public URLs — the 'data-room'
+  // bucket is private, same as every other document in it. Sign each path
+  // here (service role bypasses the org-membership RLS that a normal
+  // client-side signed-URL request would need).
+  const attachmentPaths = (ticket.attachment_urls as string[] | null) ?? [];
+  const attachments = attachmentPaths.length
+    ? await Promise.all(attachmentPaths.map(async (path) => {
+      const { data: signed } = await admin.storage.from('data-room').createSignedUrl(path, 300);
+      return { path, url: signed?.signedUrl ?? null };
+    }))
+    : [];
+
+  return NextResponse.json({ ok: true, ticket, events: events ?? [], attachments });
 }

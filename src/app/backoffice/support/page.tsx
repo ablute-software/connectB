@@ -6,8 +6,8 @@ import { Card } from '@/components/ui';
 
 interface Ticket {
   id: string; created_at: string; source: string; name: string; email: string;
-  category: string; subject: string; status: string; priority: string;
-  last_activity_at: string; delayedNew: boolean; forgottenOpen: boolean; suggestClose: boolean;
+  category: string; subject: string; status: string; priority: string; area: string | null;
+  attachment_urls: string[]; last_activity_at: string; delayedNew: boolean; forgottenOpen: boolean; suggestClose: boolean;
 }
 interface Counts { new: number; atrasados: number; esquecidos: number; sugerirFechar: number; navBadge: number }
 
@@ -93,7 +93,7 @@ export default function SupportListPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
-                <th className="py-1.5">Status</th><th>Priority</th><th>Category</th><th>Subject</th>
+                <th className="py-1.5">Status</th><th>Priority</th><th>Category</th><th>Area</th><th>Subject</th>
                 <th>Who</th><th>Source</th><th>Age</th><th>Last activity</th>
               </tr>
             </thead>
@@ -108,7 +108,11 @@ export default function SupportListPage() {
                   </td>
                   <td><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${PRIORITY_STYLE[t.priority]}`}>{t.priority}</span></td>
                   <td className="text-xs text-gray-600">{CATEGORY_LABEL[t.category] ?? t.category}</td>
-                  <td className="max-w-[220px] truncate"><Link href={`/backoffice/support/${t.id}`} className="hover:underline">{t.subject}</Link></td>
+                  <td className="text-xs text-gray-500">{t.area ?? '—'}</td>
+                  <td className="max-w-[220px] truncate">
+                    <Link href={`/backoffice/support/${t.id}`} className="hover:underline">{t.subject}</Link>
+                    {t.attachment_urls?.length > 0 && <span className="ml-1 text-gray-400" title={`${t.attachment_urls.length} attachment(s)`}>📎{t.attachment_urls.length}</span>}
+                  </td>
                   <td className="text-xs text-gray-500">{t.name}<div className="text-gray-400">{t.email}</div></td>
                   <td className="text-xs text-gray-400">{SOURCE_LABEL[t.source] ?? t.source}</td>
                   <td className="text-xs text-gray-400">{age(t.created_at)}</td>

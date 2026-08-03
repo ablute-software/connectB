@@ -36,7 +36,7 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const {
-    name, email, category, subject, message, source, context, website,
+    name, email, category, subject, message, source, context, website, area,
   } = body as Record<string, string | undefined>;
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
@@ -77,11 +77,12 @@ export async function POST(req: Request) {
     orgId = member?.org_id ?? null;
   }
 
-  const { error } = await admin.from('support_tickets').insert({
+  const { data: ticket, error } = await admin.from('support_tickets').insert({
     source, org_id: orgId, user_id: user?.id ?? null,
     name: name.trim(), email: finalEmail, category, subject: subject.trim(),
     message: message.trim(), context: context?.trim() || null,
-  });
+    area: area?.trim() || null,
+  }).select('id').single();
   if (error) { console.error('[support/submit] insert failed', error.message); return genericOk(); }
 
   // AWAITED, deliberately. This was fire-and-forget (a dangling promise with
@@ -119,5 +120,8 @@ export async function POST(req: Request) {
     }
   }
 
-  return genericOk();
+  // ticketId is only ever included on this real-success path — every
+  // early exit above (rate limit, honeypot, not-configured) returns the
+  // plain genericOk() with nothing to attach to.
+  return NextResponse.json({ ok: true, message: "Thanks — we'll get back to you.", ticketId: ticket.id });
 }

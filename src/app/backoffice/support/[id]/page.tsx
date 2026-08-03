@@ -8,10 +8,11 @@ import { Card } from '@/components/ui';
 
 interface Ticket {
   id: string; created_at: string; source: string; org_id: string | null; user_id: string | null;
-  name: string; email: string; category: string; subject: string; message: string; context: string | null;
+  name: string; email: string; category: string; subject: string; message: string; context: string | null; area: string | null;
   status: string; priority: string; last_activity_at: string; first_response_at: string | null; resolved_at: string | null;
 }
 interface Event { id: string; created_at: string; author: string; kind: string; body: string | null }
+interface Attachment { path: string; url: string | null }
 
 const STATUS_LABEL: Record<string, string> = { new: 'New', open: 'Open', waiting_user: 'Waiting on user', resolved: 'Resolved', closed: 'Closed' };
 const CATEGORY_LABEL: Record<string, string> = {
@@ -27,6 +28,7 @@ export default function SupportTicketPage() {
   const { id } = useParams<{ id: string }>();
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
@@ -36,7 +38,7 @@ export default function SupportTicketPage() {
   function load() {
     fetch(`/api/backoffice/support/${id}`).then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
-      setTicket(body.ticket); setEvents(body.events);
+      setTicket(body.ticket); setEvents(body.events); setAttachments(body.attachments ?? []);
     });
   }
   useEffect(load, [id]);
@@ -65,10 +67,25 @@ export default function SupportTicketPage() {
         <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
           <span className="font-semibold text-gray-700">{ticket.name}</span> · {ticket.email}
           · {CATEGORY_LABEL[ticket.category] ?? ticket.category} · {SOURCE_LABEL[ticket.source] ?? ticket.source}
+          {ticket.area && <> · area: {ticket.area}</>}
           · {ticket.created_at.slice(0, 16).replace('T', ' ')}
         </div>
         <p className="whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm text-gray-800">{ticket.message}</p>
         {ticket.context && <p className="mt-2 text-xs text-gray-500">Screen: {ticket.context}</p>}
+        {attachments.length > 0 && (
+          <div className="mt-3">
+            <p className="mb-1 text-xs font-medium text-gray-500">Attachments</p>
+            <div className="flex flex-wrap gap-2">
+              {attachments.map((a) => a.url ? (
+                <a key={a.path} href={a.url} target="_blank" rel="noreferrer" className="block">
+                  <img src={a.url} alt="Attachment" className="h-20 w-20 rounded-lg border border-gray-200 object-cover" />
+                </a>
+              ) : (
+                <span key={a.path} className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-400">Unavailable</span>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <label className="text-xs text-gray-500">Status
