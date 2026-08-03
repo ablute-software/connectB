@@ -108,6 +108,7 @@ export default function DocumentsPage() {
   // revoking an existing grant stays a separate action on the grants list
   // below, unchanged.
   const [grantEntityId, setGrantEntityId] = useState('');
+  const [grantEntityQuery, setGrantEntityQuery] = useState('');
   const [grantScope, setGrantScope] = useState<'' | 'everyone' | 'specific'>('');
   const [grantSpecificIds, setGrantSpecificIds] = useState<string[]>([]);
   const [grantShowInvite, setGrantShowInvite] = useState(false);
@@ -132,6 +133,19 @@ export default function DocumentsPage() {
     return db.people.filter((p) => ids.has(p.id) || p.entity_id === grantEntityId);
   }, [db.personAffiliations, db.people, grantEntityId]);
   const grantEntity = db.entities.find((e) => e.id === grantEntityId);
+
+  // Bug report 2026-08-03 — plain unsorted <select> over 757 entities was
+  // "essentially unusable" (no typed filter, no alphabetical order). Sorts
+  // and filters locally here only, rather than adding .order() to the
+  // shared db.entities query, since other consumers of that query weren't
+  // audited for an order dependency — same "safe alternative" PeopleAccessPanel
+  // already uses for its own entity search.
+  const grantEntityQuery_ = grantEntityQuery.trim().toLowerCase();
+  const filteredGrantEntities = useMemo(() => {
+    return db.entities
+      .filter((e) => !grantEntityQuery_ || e.name.toLowerCase().includes(grantEntityQuery_))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [db.entities, grantEntityQuery_]);
 
   // Prompt 47 point 5/6 — "Resend invite". A founder-triggered
   // signInWithOtp for someone else's email can't rely on the resulting
@@ -763,12 +777,36 @@ export default function DocumentsPage() {
 
               <div className="mt-2">
                 <label className="mb-1 block text-[11px] font-medium text-gray-400">1. Which investor entity?</label>
-                <select value={grantEntityId}
-                  onChange={(e) => { setGrantEntityId(e.target.value); setGrantScope(''); setGrantSpecificIds([]); setGrantShowInvite(false); setSelection({}); }}
-                  className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
-                  <option value="">Choose an entity in your pipeline…</option>
-                  {db.entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-                </select>
+                {grantEntityId && grantEntity ? (
+                  <div className="flex items-center justify-between rounded border border-gray-300 px-2 py-1.5 text-sm">
+                    <span className="font-medium text-gray-800">{grantEntity.name}</span>
+                    <button type="button"
+                      onClick={() => { setGrantEntityId(''); setGrantEntityQuery(''); setGrantScope(''); setGrantSpecificIds([]); setGrantShowInvite(false); setSelection({}); }}
+                      className="text-[11px] font-medium text-[#0E7490] hover:underline">
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input value={grantEntityQuery} onChange={(e) => setGrantEntityQuery(e.target.value)}
+                      placeholder="Search an entity in your pipeline…"
+                      className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                    <ul className="mt-1 max-h-56 space-y-0.5 overflow-y-auto rounded border border-gray-100 bg-gray-50 p-1">
+                      {filteredGrantEntities.slice(0, 200).map((e) => (
+                        <li key={e.id}>
+                          <button type="button"
+                            onClick={() => { setGrantEntityId(e.id); setGrantEntityQuery(''); setGrantScope(''); setGrantSpecificIds([]); setGrantShowInvite(false); setSelection({}); }}
+                            className="block w-full rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-white">
+                            {e.name}
+                          </button>
+                        </li>
+                      ))}
+                      {filteredGrantEntities.length === 0 && (
+                        <li className="px-2 py-1.5 text-xs text-gray-400">No entity matches "{grantEntityQuery}".</li>
+                      )}
+                    </ul>
+                  </>
+                )}
               </div>
 
               {grantEntityId && (
