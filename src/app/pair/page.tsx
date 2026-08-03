@@ -64,6 +64,23 @@ export default function PairPage() {
   const [kind, setKind] = useState<'startup' | 'investor' | null>(null);
   const [ownProfileId, setOwnProfileId] = useState<string | null>(null);
   const [pairedAt, setPairedAt] = useState<string | null>(null);
+  // Mini-prompt 2026-08-03 — /pair's own login step, no password ever, for
+  // either founder or investor accounts. The old "Sign in" link went to
+  // /login with no ?as=investor, so it always showed the founder
+  // email+password form regardless of which kind was actually pairing.
+  // Reuses the same signInWithOtp/verifyOtp mechanism /login?as=investor
+  // already has, just inline on this screen instead of navigating away —
+  // pairing/consume's own MATCHDEAL_WRONG_ACCOUNT check is still the real
+  // protection against a QR intercepted by a different account; this only
+  // replaces *how* that account proves it's signed in.
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginMsg, setLoginMsg] = useState('');
+  const [magicLinkSent, setMagicLinkSent] = useState(false);
+  const [showCodeEntry, setShowCodeEntry] = useState(false);
+  const [loginCode, setLoginCode] = useState('');
+  const [codeBusy, setCodeBusy] = useState(false);
+  const [codeErr, setCodeErr] = useState('');
 
   useEffect(() => {
     setDevice(detectMobileClient() ? 'mobile' : 'desktop');
@@ -150,7 +167,43 @@ export default function PairPage() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [stage, ownProfileId, recheckSelf]);
 
-  const loginUrl = token ? `/login?next=${encodeURIComponent(`/pair?token=${token}`)}` : '/login';
+  async function sendMagicLink() {
+    setLoginBusy(true); setLoginMsg('');
+    try {
+      const nextParam = token ? `/pair?token=${token}` : '/pair';
+      const { error } = await browserClient().auth.signInWithOtp({
+        email: loginEmail,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextParam)}`,
+          // false, unlike /login?as=investor's deliberate true: /pair only
+          // ever pairs a SECOND device onto an account that already exists
+          // (the one that generated the QR) — silently creating a phantom
+          // account for a mistyped email here would just leave stray rows
+          // behind, not help anyone.
+          shouldCreateUser: false,
+        },
+      });
+      if (error) { setLoginMsg(error.message); return; }
+      setMagicLinkSent(true);
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
+  async function verifyLoginCode() {
+    setCodeErr(''); setCodeBusy(true);
+    try {
+      const { error } = await browserClient().auth.verifyOtp({ email: loginEmail, token: loginCode, type: 'email' });
+      if (error) { setCodeErr(error.message); return; }
+      // Already on the right URL (token, if any, is still in the query
+      // string) — a reload is enough to let the mount effect above re-run
+      // now that the session exists, same as /login's own window.location
+      // navigation accomplishes by landing back on this same page.
+      window.location.reload();
+    } finally {
+      setCodeBusy(false);
+    }
+  }
 
   // Prompt 82 — checked before the auth/pairing flow above ever runs, so a
   // desktop browser never even reaches "Checking your session…" or spends
@@ -208,14 +261,53 @@ export default function PairPage() {
               <>
                 <h1 className="text-[19px] font-bold text-white">Pair this device</h1>
                 <p className="mt-2 text-[13.5px] leading-relaxed text-white/65">
-                  Sign in with the same account you use on sherlockdeal.com to finish pairing.
+                  Sign in with the same account you use on sherlockdeal.com to finish pairing — no password needed here.
                 </p>
-                <a
-                  href={loginUrl}
-                  className="mt-5 block rounded-2xl bg-gradient-to-r from-blue-500 to-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-lg transition active:scale-[.98]"
-                >
-                  Sign in
-                </a>
+
+                <input
+                  value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} type="email" placeholder="you@company.com"
+                  className="mt-4 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white placeholder:text-white/30"
+                />
+
+                {magicLinkSent ? (
+                  <div className="mt-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-left text-[12px] text-white/70">
+                    <p>We sent a sign-in link and a 6-digit code to {loginEmail}.</p>
+                    <p className="mt-1 text-white/50">Tap the link on this device, or enter the code below.</p>
+                    <button onClick={() => { setMagicLinkSent(false); setLoginMsg(''); }} className="mt-1 text-white/40 hover:underline">
+                      Not you? Start over
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    disabled={loginBusy || !loginEmail} onClick={() => void sendMagicLink()}
+                    className="mt-3 w-full rounded-2xl bg-gradient-to-r from-blue-500 to-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-lg transition active:scale-[.98] disabled:opacity-40"
+                  >
+                    {loginBusy ? 'Sending…' : 'Email me a sign-in link'}
+                  </button>
+                )}
+
+                {showCodeEntry ? (
+                  <div className="mt-3 border-t border-white/10 pt-3 text-left">
+                    <label className="mb-1 block text-[11px] font-medium text-white/50">6-digit code from the email</label>
+                    <input
+                      value={loginCode} onChange={(e) => setLoginCode(e.target.value)} placeholder="123456" inputMode="numeric"
+                      className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/30"
+                    />
+                    <button
+                      onClick={() => void verifyLoginCode()} disabled={!loginEmail || !loginCode || codeBusy}
+                      className="mt-2 w-full rounded-xl bg-white/10 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+                    >
+                      {codeBusy ? 'Checking…' : 'Use code'}
+                    </button>
+                    {codeErr && <p className="mt-2 text-[12px] text-rose-300">{codeErr}</p>}
+                  </div>
+                ) : (
+                  <button onClick={() => setShowCodeEntry(true)} className="mt-2 block w-full text-center text-[12px] text-white/40 hover:underline">
+                    Have a sign-in code instead?
+                  </button>
+                )}
+
+                {loginMsg && <p className="mt-2 text-[12px] text-rose-300">{loginMsg}</p>}
               </>
             )}
 
