@@ -3,16 +3,34 @@
 // pendentes, podem construir." Required-field lists below match
 // matchdeal_recompute_profile_completeness() exactly (confirmed live) —
 // photo_url gates startup completeness but not investor, per that trigger.
+// Prompt 98 — for startup profiles, name/description/founded_year/
+// round_target_eur/revenue_eur/logo_url are now shown read-only, sourced
+// from orgs (edited in Settings) instead of duplicated here. sectors/country
+// stay editable on matchdeal_profiles per explicit pause (matchdeal_eligible_deck()
+// matches on those, not orgs). website/description/photo_url on
+// matchdeal_profiles are LEFT AS EDITABLE for now — they gate
+// matchdeal_recompute_profile_completeness(), and photo_url in particular
+// stores a raw URL while orgs.logo_url stores a data-room storage path, so
+// swapping the source needs a format-reconciling sync trigger that hasn't
+// been proposed/confirmed yet (mirrors the sectors/country trigger pattern
+// once it is).
 import { useEffect, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 
 interface Profile {
-  id: string; kind: 'startup' | 'investor'; is_complete: boolean;
+  id: string; kind: 'startup' | 'investor'; is_complete: boolean; membership_id: string | null;
   entity_name: string | null; website: string | null; country: string | null; description: string | null;
   photo_url: string | null; sectors: string[]; investment_stage_sought: string | null; company_phase: string | null;
   target_round_amount: number | null; team_summary: string | null;
   representative_name: string | null; stages_invested: string[]; geographies: string[];
   specific_criteria: string | null; ticket_min: number | null; ticket_max: number | null;
+  tam_eur: number | null; sam_eur: number | null; som_eur: number | null;
+  revenue_projection_12mo_eur: number | null; revenue_projection_5yr_eur: number | null;
+}
+
+interface Org {
+  id: string; name: string; description: string | null;
+  founded_year: number | null; round_target_eur: number | null; revenue_eur: number | null; logo_url: string | null;
 }
 
 const STAGE_OPTIONS = [
@@ -37,6 +55,8 @@ const inputCls = 'w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 
 
 export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId: string; viewerKind: 'startup' | 'investor' }) {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [org, setOrg] = useState<Org | null>(null);
+  const [orgLogoUrl, setOrgLogoUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
@@ -46,6 +66,22 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
       setProfile(data as unknown as Profile);
     })();
   }, [viewerProfileId]);
+
+  useEffect(() => {
+    if (!profile || profile.kind !== 'startup' || !profile.membership_id) { setOrg(null); return; }
+    (async () => {
+      const { data } = await browserClient().from('orgs')
+        .select('id, name, description, founded_year, round_target_eur, revenue_eur, logo_url')
+        .eq('id', profile.membership_id).maybeSingle();
+      setOrg(data as unknown as Org);
+    })();
+  }, [profile?.membership_id, profile?.kind]);
+
+  useEffect(() => {
+    if (!org?.logo_url) { setOrgLogoUrl(null); return; }
+    browserClient().storage.from('data-room').createSignedUrl(org.logo_url, 3600)
+      .then(({ data }) => setOrgLogoUrl(data?.signedUrl ?? null));
+  }, [org?.logo_url]);
 
   if (!profile) {
     return <div className="flex flex-1 items-center justify-center"><p className="text-sm text-white/60">Loading your profile…</p></div>;
@@ -84,6 +120,8 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
       company_phase: profile.company_phase, target_round_amount: profile.target_round_amount, team_summary: profile.team_summary,
       representative_name: profile.representative_name, stages_invested: profile.stages_invested, geographies: profile.geographies,
       specific_criteria: profile.specific_criteria, ticket_min: profile.ticket_min, ticket_max: profile.ticket_max,
+      tam_eur: profile.tam_eur, sam_eur: profile.sam_eur, som_eur: profile.som_eur,
+      revenue_projection_12mo_eur: profile.revenue_projection_12mo_eur, revenue_projection_5yr_eur: profile.revenue_projection_5yr_eur,
     }).eq('id', profile.id).select('*').maybeSingle();
     setSaving(false);
     if (!error && data) { setProfile(data as unknown as Profile); setSavedAt(Date.now()); }
@@ -109,11 +147,47 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
         </div>
       </div>
 
+      {viewerKind === 'startup' && (
+        <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-3.5">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-white/50">From your Sherlock Deal profile</p>
+            <a href="/settings?tab=company" className="text-[11px] font-semibold text-blue-300 hover:text-blue-200">Edit in settings →</a>
+          </div>
+          <div className="mt-2 flex items-start gap-3">
+            {orgLogoUrl ? (
+              <img src={orgLogoUrl} alt="" className="h-12 w-12 shrink-0 rounded-xl object-cover" />
+            ) : (
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/10 text-[11px] text-white/40">Logo</div>
+            )}
+            <div className="min-w-0">
+              <p className="truncate text-[14px] font-bold text-white">{org?.name || '—'}</p>
+              <p className="mt-0.5 line-clamp-2 text-[12px] text-white/50">{org?.description || 'No description yet'}</p>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-xl bg-white/5 py-2">
+              <p className="text-[10px] uppercase text-white/40">Founded</p>
+              <p className="text-[13px] font-semibold text-white">{org?.founded_year ?? '—'}</p>
+            </div>
+            <div className="rounded-xl bg-white/5 py-2">
+              <p className="text-[10px] uppercase text-white/40">Round target</p>
+              <p className="text-[13px] font-semibold text-white">{org?.round_target_eur ? `€${org.round_target_eur.toLocaleString()}` : '—'}</p>
+            </div>
+            <div className="rounded-xl bg-white/5 py-2">
+              <p className="text-[10px] uppercase text-white/40">Revenue</p>
+              <p className="text-[13px] font-semibold text-white">{org?.revenue_eur ? `€${org.revenue_eur.toLocaleString()}` : '—'}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mt-4 space-y-3">
         {viewerKind === 'investor' && (
-          <Field label="Representative name"><input className={inputCls} value={profile.representative_name ?? ''} onChange={(e) => set('representative_name', e.target.value)} /></Field>
+          <>
+            <Field label="Representative name"><input className={inputCls} value={profile.representative_name ?? ''} onChange={(e) => set('representative_name', e.target.value)} /></Field>
+            <Field label="Entity name"><input className={inputCls} value={profile.entity_name ?? ''} onChange={(e) => set('entity_name', e.target.value)} /></Field>
+          </>
         )}
-        <Field label="Entity name"><input className={inputCls} value={profile.entity_name ?? ''} onChange={(e) => set('entity_name', e.target.value)} /></Field>
         {viewerKind === 'startup' && (
           <Field label="Photo URL"><input className={inputCls} value={profile.photo_url ?? ''} onChange={(e) => set('photo_url', e.target.value)} placeholder="https://…" /></Field>
         )}
@@ -138,10 +212,22 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
                 {PHASE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </Field>
-            <Field label="Target round amount (€)">
-              <input type="number" className={inputCls} value={profile.target_round_amount ?? ''} onChange={(e) => set('target_round_amount', e.target.value ? Number(e.target.value) : null)} />
-            </Field>
             <Field label="Team summary"><textarea rows={2} className={inputCls} value={profile.team_summary ?? ''} onChange={(e) => set('team_summary', e.target.value)} /></Field>
+
+            <p className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-white/50">Mini-pitch — market &amp; projections</p>
+            <div className="grid grid-cols-3 gap-2">
+              <Field label="TAM (€)"><input type="number" className={inputCls} value={profile.tam_eur ?? ''} onChange={(e) => set('tam_eur', e.target.value ? Number(e.target.value) : null)} /></Field>
+              <Field label="SAM (€)"><input type="number" className={inputCls} value={profile.sam_eur ?? ''} onChange={(e) => set('sam_eur', e.target.value ? Number(e.target.value) : null)} /></Field>
+              <Field label="SOM (€)"><input type="number" className={inputCls} value={profile.som_eur ?? ''} onChange={(e) => set('som_eur', e.target.value ? Number(e.target.value) : null)} /></Field>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Revenue projection — 12mo (€)">
+                <input type="number" className={inputCls} value={profile.revenue_projection_12mo_eur ?? ''} onChange={(e) => set('revenue_projection_12mo_eur', e.target.value ? Number(e.target.value) : null)} />
+              </Field>
+              <Field label="Revenue projection — 5yr (€)">
+                <input type="number" className={inputCls} value={profile.revenue_projection_5yr_eur ?? ''} onChange={(e) => set('revenue_projection_5yr_eur', e.target.value ? Number(e.target.value) : null)} />
+              </Field>
+            </div>
           </>
         ) : (
           <>
