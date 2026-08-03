@@ -1,0 +1,11 @@
+-- P104 #7 — sectors taxonomy rebuild. `orgs.sectors` (already a text[])
+-- keeps holding fixed-taxonomy picks; this adds a separate nullable column
+-- for the free-text "Other" value, so it's never silently mixed into the
+-- taxonomy list (the spec is explicit that Other must compare separately
+-- in matching, never auto-associated with a category).
+--
+-- Additive only — does not touch any existing `sectors` data. What to do
+-- with pre-existing free-text sector values that don't match the fixed
+-- taxonomy is a separate, explicitly-flagged open question (see the
+-- spec's own closing line) — not resolved by this migration.
+alter table public.orgs add column sectors_other text;

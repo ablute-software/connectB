@@ -31,6 +31,10 @@ const EDITABLE = [
   'round_min_ticket_eur', 'round_runway_post_months',
   // Prompt 85 Correction 1 (migration 0082).
   'current_phase', 'revenue_eur', 'primary_contact_person_id',
+  // P104 #7 — free-text "Other" sector, kept separate from `sectors` (the
+  // fixed-taxonomy picks) so matching can treat it distinctly (see
+  // sector-taxonomy.ts / SectorPicker.tsx).
+  'sectors_other',
 ] as const;
 
 export async function POST(req: Request) {

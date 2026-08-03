@@ -10,6 +10,8 @@ import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { browserClient } from '@/lib/supabase';
 import { CompletenessField } from './CompletenessField';
+import { SectorPicker, type SectorValue } from './SectorPicker';
+import { ALL_SECTOR_NAMES } from '@/lib/sector-taxonomy';
 import type { CompletenessField as Field } from '@/lib/companyCompleteness';
 import type { CompanyPhase } from '@/lib/types';
 
@@ -31,6 +33,8 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
   const missingIds = new Set(missing.map((f) => f.id));
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [sectorDraft, setSectorDraft] = useState<SectorValue>({ sectors: [], other: null });
+  const [sectorErr, setSectorErr] = useState('');
   const [logoSignedUrl, setLogoSignedUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState('');
@@ -47,15 +51,29 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
       legal_name: org.legal_name ?? '', name: org.name ?? '', website: org.website ?? '',
       country: org.country ?? '', hq_city: org.hq_city ?? '', postal_code: org.postal_code ?? '',
       founded_year: org.founded_year != null ? String(org.founded_year) : '',
-      sectors: (org.sectors ?? []).join(', '),
       one_liner: org.one_liner ?? '', description: org.description ?? '',
       current_phase: org.current_phase ?? '', revenue_eur: org.revenue_eur != null ? String(org.revenue_eur) : '',
+    });
+    // Only pre-check values that exist in the fixed taxonomy — pre-existing
+    // free-text sectors (from before this rebuild) aren't force-mapped or
+    // silently dropped; they stay in org.sectors untouched unless the
+    // founder actively edits and saves (open product question: how to
+    // migrate old free-text values — flagged back, not decided here).
+    setSectorDraft({
+      sectors: (org.sectors ?? []).filter((s) => ALL_SECTOR_NAMES.includes(s)),
+      other: org.sectors_other ?? null,
     });
     setEditing(true);
   }
 
   function save() {
-    const sectors = draft.sectors.split(',').map((s) => s.trim()).filter(Boolean);
+    if (sectorDraft.other !== null && !sectorDraft.other.trim()) {
+      setSectorErr('Please specify the sector.');
+      return;
+    }
+    setSectorErr('');
+    const sectors = sectorDraft.sectors;
+    const other = sectorDraft.other?.trim() || undefined;
     updateOrg({
       legal_name: draft.legal_name.trim() || undefined,
       name: draft.name.trim() || org.name,
@@ -65,9 +83,10 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
       postal_code: draft.postal_code.trim() || undefined,
       founded_year: draft.founded_year ? Number(draft.founded_year) : undefined,
       sectors,
+      sectors_other: other,
       // Legacy single-value field, kept in sync so composer.ts /
       // ReviewOptimizationPanel (which still read org.sector) never go stale.
-      sector: sectors.join(', ') || undefined,
+      sector: [...sectors, ...(other ? [other] : [])].join(', ') || undefined,
       one_liner: draft.one_liner.trim() || undefined,
       description: draft.description.trim() || undefined,
       current_phase: (draft.current_phase || undefined) as CompanyPhase | undefined,
@@ -120,9 +139,9 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
               {CURRENT_PHASES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
           </CompletenessField>
-          <CompletenessField id="identity.sectors" label="Sector / vertical (comma-separated)" missing={missingIds.has('identity.sectors')} flashing={flashId === 'identity.sectors'}>
-            <input value={draft.sectors ?? ''} onChange={(e) => setDraft({ ...draft, sectors: e.target.value })}
-              placeholder="e.g. Health, Wellness, AI" className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+          <CompletenessField id="identity.sectors" label="Select up to 6 sectors that apply to your company" missing={missingIds.has('identity.sectors')} flashing={flashId === 'identity.sectors'}>
+            <SectorPicker value={sectorDraft} onChange={(v) => { setSectorDraft(v); setSectorErr(''); }} />
+            {sectorErr && <p className="mt-1 text-xs text-[#B00000]">{sectorErr}</p>}
           </CompletenessField>
           <CompletenessField id="identity.one_liner" label="One-liner" missing={missingIds.has('identity.one_liner')} flashing={flashId === 'identity.one_liner'}>
             <input value={draft.one_liner ?? ''} onChange={(e) => setDraft({ ...draft, one_liner: e.target.value })}
@@ -162,7 +181,6 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
               ['identity.country', 'HQ country', org.country],
               ['identity.postal_code', 'Postal code', org.postal_code],
               ['identity.founded_year', 'Founded', org.founded_year],
-              ['identity.sectors', 'Sector', (org.sectors ?? []).join(', ')],
               ['identity.current_phase', 'Current phase', CURRENT_PHASES.find((p) => p.value === org.current_phase)?.label],
               ['identity.revenue', 'Revenue', org.revenue_eur != null ? `€${org.revenue_eur.toLocaleString('en-US')}` : undefined],
             ] as [string, string, string | number | undefined][]).map(([id, label, value]) => (
@@ -175,6 +193,22 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
               </div>
             ))}
           </dl>
+          <div id="identity.sectors" className={`rounded p-1 transition-colors duration-700 ${flashId === 'identity.sectors' ? 'bg-amber-50 ring-2 ring-amber-300' : ''}`}>
+            <dt className="flex items-center gap-1.5 text-xs text-gray-500">
+              Sectors
+              {missingIds.has('identity.sectors') && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">needed for 100%</span>}
+            </dt>
+            <dd className="mt-1 flex flex-wrap gap-1">
+              {(org.sectors?.length || org.sectors_other) ? (
+                <>
+                  {(org.sectors ?? []).map((s) => (
+                    <span key={s} className="rounded-full bg-cyan-50 px-2 py-0.5 text-xs text-cyan-800">{s}</span>
+                  ))}
+                  {org.sectors_other && <span className="rounded-full bg-cyan-50 px-2 py-0.5 text-xs text-cyan-800">{org.sectors_other}</span>}
+                </>
+              ) : <span className="text-sm text-gray-400">—</span>}
+            </dd>
+          </div>
           <div id="identity.one_liner" className={`rounded p-1 text-sm transition-colors duration-700 ${flashId === 'identity.one_liner' ? 'bg-amber-50 ring-2 ring-amber-300' : ''}`}>
             {org.one_liner ? <p className="text-gray-700">{org.one_liner}</p> : missingIds.has('identity.one_liner') && (
               <p className="text-xs text-amber-700">One-liner needed for 100%</p>

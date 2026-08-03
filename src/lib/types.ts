@@ -104,7 +104,12 @@ export interface Org {
   postal_code?: string;
   founded_year?: number;
   description?: string;
+  // P104 #7 — sectors holds fixed-taxonomy picks only (sector-taxonomy.ts).
+  // sectors_other is the free-text "Other" value, kept separate so
+  // matching can treat it distinctly and never silently folds it into the
+  // taxonomy list.
   sectors?: string[];
+  sectors_other?: string;
   employee_count?: number;
   // Founder count is normally derived from company_people (is_founder=true);
   // this is the manual override for when that count is wrong/incomplete.
