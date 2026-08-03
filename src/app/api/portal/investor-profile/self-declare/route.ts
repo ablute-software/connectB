@@ -13,6 +13,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 
 const ACK_VERSION = 'placeholder-v1';
 const EXPECTED_ACK_TEXT = 'I confirm I am acting as an individual investor and not as a regulated entity. [Placeholder — legal copy pending review].';
@@ -42,10 +43,9 @@ export async function POST(req: Request) {
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-  const { data: existingMember } = await admin.from('matchdeal_investor_members').select('id, catalog_entity_id')
-    .eq('user_id', user.id).eq('status', 'active').maybeSingle();
+  const existingMember = await resolveActiveInvestorMember(admin, user.id);
 
-  let member = existingMember;
+  let member: { id: string; catalog_entity_id: string } | null = existingMember;
   if (!member) {
     const { data: entity, error: entityError } = await admin.from('catalog_entities').insert({
       name: `${email} — Individual investor`, type: 'vc', verification_status: 'pending',

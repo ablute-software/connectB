@@ -11,6 +11,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -26,8 +27,7 @@ export async function POST(req: Request) {
   if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data: member } = await admin.from('matchdeal_investor_members').select('id, catalog_entity_id')
-    .eq('user_id', user.id).eq('status', 'active').maybeSingle();
+  const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ ok: false, error: 'No linked investor entity yet.' }, { status: 403 });
 
   const form = await req.formData().catch(() => null);

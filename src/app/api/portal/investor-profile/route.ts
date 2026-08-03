@@ -8,6 +8,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { SECTOR_TAXONOMY } from '@/lib/investor-sector-taxonomy';
 import { computeIdentityStatus } from '@/lib/investor-identity';
 import { countDistinctVoucherEntities } from '@/lib/investor-vouching';
+import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 
 // Identity verification Fase A (prompt 63), Bloco 2 — @ablute.pt sessions
 // never see the real "Which firm are you with?" search/match screen at
@@ -60,12 +61,6 @@ function completeness(profile: Record<string, unknown>) {
   return Math.round((filled / total) * 100);
 }
 
-async function resolveMember(admin: SupabaseClient, userId: string) {
-  const { data } = await admin.from('matchdeal_investor_members').select('id, catalog_entity_id, domain_verified')
-    .eq('user_id', userId).eq('status', 'active').maybeSingle();
-  return data;
-}
-
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -76,7 +71,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  let member = await resolveMember(admin, user.id);
+  let member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) member = await autoLinkQaSession(sb, admin, user.id);
   if (!member) return NextResponse.json({ linked: false });
 
@@ -114,7 +109,7 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const member = await resolveMember(admin, user.id);
+  const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ ok: false, error: 'No linked investor entity yet.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;

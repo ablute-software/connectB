@@ -468,10 +468,10 @@ export default function PipelinePage() {
       {blockedCount > 0 && (
         <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white/60 p-6 text-center shadow-sm backdrop-blur-sm">
           <div className="text-2xl">🔒</div>
-          <p className="mt-2 text-sm font-medium text-gray-700">Investidores adicionais bloqueados no seu plano atual.</p>
-          <p className="mt-1 text-xs text-gray-500">{blockedCount} investidor{blockedCount === 1 ? '' : 'es'} de catálogo adicional{blockedCount === 1 ? '' : 'is'} disponíve{blockedCount === 1 ? 'l' : 'is'} com upgrade.</p>
+          <p className="mt-2 text-sm font-medium text-gray-700">More catalog investors are blocked on your current plan.</p>
+          <p className="mt-1 text-xs text-gray-500">{blockedCount} additional catalog investor{blockedCount === 1 ? '' : 's'} available with an upgrade.</p>
           <Link href="/plans" className="mt-3 inline-block rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#0c637b]">
-            Ver planos
+            View plans
           </Link>
         </div>
       )}

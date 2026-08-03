@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { computeIdentityStatus } from '@/lib/investor-identity';
 import { countDistinctVoucherEntities, generateVouchToken } from '@/lib/investor-vouching';
+import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -21,8 +22,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data: member } = await admin.from('matchdeal_investor_members').select('id, catalog_entity_id')
-    .eq('user_id', user.id).eq('status', 'active').maybeSingle();
+  const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ linked: false });
 
   const { data: vouches } = await admin.from('investor_vouches')
@@ -56,8 +56,7 @@ export async function POST(req: Request) {
   }
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data: member } = await admin.from('matchdeal_investor_members').select('id, catalog_entity_id')
-    .eq('user_id', user.id).eq('status', 'active').maybeSingle();
+  const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ ok: false, error: 'No linked investor entity yet.' }, { status: 403 });
 
   const { data: entity } = await admin.from('catalog_entities').select('verification_status').eq('id', member.catalog_entity_id).maybeSingle();

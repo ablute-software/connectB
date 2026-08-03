@@ -3,27 +3,13 @@
 // "which startups can this investor see" and "who is this investor" logic,
 // so this became worth sharing rather than a third copy-paste).
 import type { SupabaseClient } from '@supabase/supabase-js';
-
-// P83 Bloco 0 — .maybeSingle() throws (and was being swallowed into a
-// silent "no membership") the moment a user has more than one active
-// matchdeal_investor_members row. Found live: alexandrameira@ablute.pt
-// has 6 — 1 real (30/07) + 5 identical-timestamp rows from the MD-08 demo
-// seed, never cleaned up (see the demo cleanup list). A dual-role account
-// legitimately repping two firms is also possible by design, not just
-// demo leftovers, so the fix is "pick one deterministically", not "assume
-// duplicates are always bogus": oldest first, so a real long-standing
-// membership always wins over anything seeded in later.
-async function resolveActiveMembershipId(admin: SupabaseClient, userId: string): Promise<string | null> {
-  const { data } = await admin.from('matchdeal_investor_members').select('id')
-    .eq('user_id', userId).eq('status', 'active').order('created_at', { ascending: true }).limit(1);
-  return (data?.[0]?.id as string | undefined) ?? null;
-}
+import { resolveActiveInvestorMember } from './investor-membership';
 
 export async function resolveInvestorProfile(admin: SupabaseClient, userId: string) {
-  const memberId = await resolveActiveMembershipId(admin, userId);
-  if (!memberId) return null;
+  const member = await resolveActiveInvestorMember(admin, userId);
+  if (!member) return null;
   const { data: profile } = await admin.from('matchdeal_profiles').select('id, sectors, stages_invested, geographies, instruments, ticket_min, ticket_max, usual_co_investors')
-    .eq('membership_id', memberId).eq('kind', 'investor').maybeSingle();
+    .eq('membership_id', member.id).eq('kind', 'investor').maybeSingle();
   return profile ?? null;
 }
 
@@ -33,9 +19,8 @@ export async function resolveInvestorProfile(admin: SupabaseClient, userId: stri
 // Needed anywhere a Pipeline decision must be read/written at the org
 // level so every teammate sees the same status.
 export async function resolveInvestorCatalogEntityId(admin: SupabaseClient, userId: string) {
-  const { data } = await admin.from('matchdeal_investor_members').select('catalog_entity_id')
-    .eq('user_id', userId).eq('status', 'active').order('created_at', { ascending: true }).limit(1);
-  return (data?.[0]?.catalog_entity_id as string | undefined) ?? null;
+  const member = await resolveActiveInvestorMember(admin, userId);
+  return member?.catalog_entity_id ?? null;
 }
 
 export async function activeGrantOrgIds(admin: SupabaseClient, email: string, personId: string | null) {

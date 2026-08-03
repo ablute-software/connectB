@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { computeIdentityStatus } from '@/lib/investor-identity';
 import { countDistinctVoucherEntities } from '@/lib/investor-vouching';
+import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 
 export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -54,8 +55,7 @@ export async function POST(req: Request) {
   if (vouch.target_email !== email) return NextResponse.json({ ok: false, error: "This reference request wasn't sent to you." }, { status: 403 });
   if (vouch.requester_user_id === user.id) return NextResponse.json({ ok: false, error: "You can't vouch for yourself." }, { status: 400 });
 
-  const { data: member } = await admin.from('matchdeal_investor_members').select('id, catalog_entity_id')
-    .eq('user_id', user.id).eq('status', 'active').maybeSingle();
+  const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ ok: false, error: 'No linked investor entity yet.' }, { status: 403 });
   if (member.catalog_entity_id === vouch.requester_catalog_entity_id) {
     return NextResponse.json({ ok: false, error: "You're at the same firm as the requester — this doesn't count as an independent reference." }, { status: 400 });

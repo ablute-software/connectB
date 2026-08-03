@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -16,8 +17,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data: own } = await admin.from('matchdeal_investor_members').select('id, catalog_entity_id')
-    .eq('user_id', user.id).eq('status', 'active').maybeSingle();
+  const own = await resolveActiveInvestorMember(admin, user.id);
   if (!own) return NextResponse.json({ linked: false });
 
   const { data: entity } = await admin.from('catalog_entities').select('name').eq('id', own.catalog_entity_id).maybeSingle();

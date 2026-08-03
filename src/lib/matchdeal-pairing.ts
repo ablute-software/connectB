@@ -9,6 +9,7 @@ import 'server-only';
 import { createHash, randomBytes } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logEvent } from './analytics-events';
+import { resolveActiveInvestorMember } from './investor-membership';
 
 export const PAIRING_TOKEN_TTL_MS = 5 * 60 * 1000; // spec Section 4 — 5 minutes
 export const PAIRING_RATE_LIMIT_PER_HOUR = 10; // spec Section 8
@@ -36,9 +37,8 @@ export async function resolveCallerOrgId(
     const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
     return (data?.org_id as string | undefined) ?? null;
   }
-  const { data } = await admin.from('matchdeal_investor_members').select('catalog_entity_id')
-    .eq('user_id', userId).eq('status', 'active').maybeSingle();
-  return (data?.catalog_entity_id as string | undefined) ?? null;
+  const member = await resolveActiveInvestorMember(admin, userId);
+  return member?.catalog_entity_id ?? null;
 }
 
 export type ConsumeResult =
@@ -144,8 +144,8 @@ export async function resolveOwnMatchdealProfileId(
     const { data } = await admin.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
     membershipId = (data?.org_id as string | undefined) ?? null;
   } else {
-    const { data } = await admin.from('matchdeal_investor_members').select('id').eq('user_id', userId).eq('status', 'active').maybeSingle();
-    membershipId = (data?.id as string | undefined) ?? null;
+    const member = await resolveActiveInvestorMember(admin, userId);
+    membershipId = member?.id ?? null;
   }
   if (!membershipId) return null;
   const { data: profile } = await admin.from('matchdeal_profiles').select('id').eq('membership_id', membershipId).eq('kind', kind).maybeSingle();

@@ -11,6 +11,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { INVESTOR_PLANS, type InvestorPlanTier } from '@/lib/plans';
+import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 
 const TIER_TO_MATCHDEAL: Record<InvestorPlanTier, string> = {
   pro_scout: 'tier_a', ace_spotter: 'tier_b', legendary_sleuth: 'tier_c',
@@ -31,8 +32,7 @@ export async function POST(req: Request) {
   }
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
-  const { data: member } = await admin.from('matchdeal_investor_members').select('id')
-    .eq('user_id', user.id).eq('status', 'active').maybeSingle();
+  const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ ok: false, error: 'No linked investor profile yet.' }, { status: 403 });
 
   const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
