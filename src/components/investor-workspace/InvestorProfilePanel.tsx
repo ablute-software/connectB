@@ -10,6 +10,7 @@ import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from 
 import { VouchingCard } from './VouchingCard';
 import { TagInput } from './TagInput';
 import { TicketAmountSlider } from '../TicketAmountSlider';
+import { VisibilityToggle } from '../VisibilityToggle';
 
 interface Profile {
   sectors: string[]; geographies: string[]; stages_invested: string[]; instruments: string[];
@@ -347,6 +348,7 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange,
 
   return (
     <div className="max-w-2xl space-y-4">
+      <VisibilityToggle kind="investor" />
       <div className="rounded-lg border border-gray-200 bg-white p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">

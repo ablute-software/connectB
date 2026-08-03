@@ -23,6 +23,7 @@ import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { APP_URL } from '@/lib/brand';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
+import { VisibilityToggle } from '@/components/VisibilityToggle';
 
 type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
 type Member = { userId: string; email: string; role: OrgRole; isSelf: boolean };
@@ -311,6 +312,7 @@ function SettingsInner() {
         <h1 className="text-lg font-bold">About {db.org.name || 'your company'}</h1>
         <PageGuideButton pageKey="guide_settings" />
       </div>
+      <VisibilityToggle kind="startup" />
       <Tabs items={tabs} active={effectiveTab} onChange={setTab} />
       {/* Anchors (data-tour-id) live inside CompanyPanel, on the default "company" tab only. */}
       {effectiveTab !== 'automations' && effectiveTab !== 'import-history' && effectiveTab !== 'team' && (

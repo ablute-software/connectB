@@ -196,6 +196,15 @@ export default function PipelinePage() {
   const [sortKey, setSortKey] = useState<SortKey>('wave');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [addInvestorOpen, setAddInvestorOpen] = useState(false);
+  // Prompt 107 B.5 — which delivered entities are currently a suspended
+  // investor. Derived at read time, never a mass write to `entities` (see
+  // /api/pipeline/suspended-investors's own header for why).
+  const [suspendedEntityIds, setSuspendedEntityIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!authEnabled) return;
+    fetch('/api/pipeline/suspended-investors', { cache: 'no-store' }).then((r) => r.json())
+      .then((b) => { if (b.ok) setSuspendedEntityIds(new Set(b.suspendedEntityIds)); }).catch(() => {});
+  }, []);
   // How many catalog-sourced investors are blocked by the plan's accumulated
   // quota — a COUNT only, via the catalog_blocked_count() RPC (migration
   // 0042). Blocked rows themselves never reach this client at all: the
@@ -395,13 +404,19 @@ export default function PipelinePage() {
               const task = nextAction(db, e);
               const overdue = task?.due_at && new Date(task.due_at) < new Date();
               const hf = e.hard_filter_status === 'open';
+              const suspended = suspendedEntityIds.has(e.id);
               return (
                 <tr key={e.id}
-                  className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${e.status === 'dormant' ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''}`}>
+                  className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${e.status === 'dormant' || suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''}`}>
                   <td className="break-words px-3 py-2 font-medium">
                     <Link href={`/entities/${e.id}`} className="text-gray-900 hover:text-[#0E7490]">
                       {e.name} {hf && <span title={e.hard_filter} className="text-[#B00000]">⚑</span>}
                     </Link>
+                    {suspended && (
+                      <span className="ml-1.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600" title="This investor has suspended their own visibility — not accepting contact right now. Existing access is unaffected.">
+                        Suspended
+                      </span>
+                    )}
                     {/* Prompt 73 — a mutual MatchDeal match is a materially
                         different, hotter provenance than a manual add or a
                         catalog unlock (both sides already showed direct
