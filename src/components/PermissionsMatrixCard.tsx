@@ -7,16 +7,25 @@
 // permissionMatrix migration (0026) is applied.
 import { useEffect, useState } from 'react';
 import { Card, Tooltip } from '@/components/ui';
-import { authEnabled } from '@/lib/supabase';
+import { useStore } from '@/lib/store';
+import { authEnabled, browserClient } from '@/lib/supabase';
 import { ORG_ROLES, ROLE_LABELS, type OrgRole } from '@/lib/permissions';
 import { MATRIX_CAPABILITIES, resolveMatrix, type MatrixCapability } from '@/lib/org-permissions';
 
 export function PermissionsMatrixCard() {
+  const { db } = useStore();
   const [visible, setVisible] = useState(false);
   const [matrix, setMatrix] = useState<Record<MatrixCapability, OrgRole[]> | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
+  // Prompt 103 Bloco 2 — owner-only reset of everyone's Vault Data Room PIN.
+  // vault_pin_reset_org (migration 0101) is itself the enforcement point
+  // (checks role='owner' server-side before deleting anything), so calling
+  // it directly is equally safe as routing through a Next.js API layer —
+  // no separate /api route needed for that guarantee.
+  const [pinResetBusy, setPinResetBusy] = useState(false);
+  const [pinResetMsg, setPinResetMsg] = useState('');
 
   useEffect(() => {
     if (!authEnabled) return;
@@ -53,6 +62,14 @@ export function PermissionsMatrixCard() {
       setMatrix(resolveMatrix(b.resolved ?? matrix));
       setSaved(true);
     } catch (e) { setErr((e as Error).message); } finally { setSaving(false); }
+  }
+
+  async function resetVaultPins() {
+    if (!window.confirm("Reset everyone's Vault Data Room code? They'll all be asked to set (or skip) a new one on their next visit.")) return;
+    setPinResetBusy(true); setPinResetMsg('');
+    const { error } = await browserClient().rpc('vault_pin_reset_org', { p_org_id: db.org.id });
+    setPinResetBusy(false);
+    setPinResetMsg(error ? error.message : 'Done — everyone will be asked to set a new code next time.');
   }
 
   return (
@@ -92,6 +109,14 @@ export function PermissionsMatrixCard() {
             </button>
             {saved && <span className="text-xs text-green-700">Saved.</span>}
             {err && <span className="text-xs text-[#B00000]">{err}</span>}
+          </div>
+          <div className="mt-4 border-t border-gray-100 pt-3">
+            <p className="mb-1 text-xs text-gray-500">Vault Data Room codes</p>
+            <button disabled={pinResetBusy} onClick={() => void resetVaultPins()}
+              className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-[#B00000] hover:bg-red-50 disabled:opacity-40">
+              {pinResetBusy ? 'Resetting…' : 'Reset all Vault Data Room codes'}
+            </button>
+            {pinResetMsg && <p className="mt-1 text-xs text-gray-500">{pinResetMsg}</p>}
           </div>
         </div>
       )}

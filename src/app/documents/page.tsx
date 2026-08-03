@@ -13,6 +13,7 @@ import { grantStatus } from '@/lib/access-grants';
 import { PeopleAccessPanel } from '@/components/documents/PeopleAccessPanel';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
+import { VaultPinGate } from '@/components/documents/VaultPinGate';
 
 function fmtBytes(n?: number): string | undefined {
   if (n == null) return undefined;
@@ -34,6 +35,19 @@ const VISIBILITY_META: Record<DocVisibility, { icon: string; label: string; titl
 const VISIBILITY_OPTIONS: DocVisibility[] = ['open', 'on_grant', 'due_diligence'];
 
 export default function DocumentsPage() {
+  const { db } = useStore();
+  // Prompt 103 Bloco 2 — gate the whole page (both tabs) behind the Vault
+  // Data Room PIN. A separate top-level component so the gate's own RPC
+  // round-trip doesn't block the rest of this file's hooks from running
+  // before db.org.id is known.
+  return (
+    <VaultPinGate orgId={db.org.id}>
+      <DocumentsPageInner />
+    </VaultPinGate>
+  );
+}
+
+function DocumentsPageInner() {
   const {
     db, addDocument, deleteDocument, renameDocument, updateDocumentDetails, updateDocumentVisibility,
     moveDocumentToFolder, reorderDocuments, replaceDocumentFile, addDocumentVersion,
