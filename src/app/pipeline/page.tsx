@@ -1,6 +1,7 @@
 'use client';
 // Pipeline (home) — dense sortable/filterable entity table
 import { useEffect, useMemo, useState } from 'react';
+import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
@@ -106,6 +107,19 @@ function MultiSelectFilter({ label, options, selected, onChange }: {
   );
 }
 
+// P104 #6 — the copy always described two paths (catalog assignment or
+// manual import), but nothing ever called unlockPack() from any UI —
+// confirmed by exhaustive grep, 0 rows in pack_unlocks for any real org.
+// Self-service, confirmed with Nuno: once profile completeness crosses this
+// threshold, a button appears and the founder triggers unlockPack()
+// themselves — unlockPack() itself is untouched, already correct.
+const SELF_SERVICE_COMPLETENESS_THRESHOLD = 70;
+// Matched by name, not id — packs have no stable machine key (no `kind`
+// column like folders do); acceptable here since this only ever unlocks a
+// curated catalog pack, not a security-relevant lookup like Prompt 103's
+// Data Room folder fix. Fails safe (button just doesn't render) if renamed.
+const STARTER_PACK_NAME = 'Starter Europe';
+
 // pipeline.empty (onboarding_sherlockdeal_v2.md §3, §1.1) — deliberately
 // NOT part of the onboarding engine: no persistence, no dismiss button,
 // no `seen` key. It's computed live from db.entities every render and
@@ -114,18 +128,45 @@ function MultiSelectFilter({ label, options, selected, onChange }: {
 // when entities exist but none are wave-classified yet — same copy, same
 // key, different container per the implementation note in §3.
 function EmptyCompanyBlock({ variant }: { variant: 'screen' | 'banner' }) {
+  const { db, unlockPack } = useStore();
+  const [unlocking, setUnlocking] = useState(false);
+  const [result, setResult] = useState<'added' | 'none' | null>(null);
+
+  const { pct } = calcCompanyCompleteness(db.org, db.companyPeople);
+  const starterPack = db.packs.find((p) => p.name === STARTER_PACK_NAME);
+  const eligible = pct >= SELF_SERVICE_COMPLETENESS_THRESHOLD && !!starterPack;
+
+  function unlock() {
+    if (!starterPack) return;
+    setUnlocking(true);
+    const added = unlockPack(starterPack.id);
+    setUnlocking(false);
+    setResult(added > 0 ? 'added' : 'none');
+  }
+
   return (
     <div className={variant === 'screen' ? 'flex min-h-[50vh] items-center justify-center' : 'rounded-2xl border border-gray-100 bg-white p-6 shadow-sm'}>
       <div className="mx-auto max-w-[420px] text-center">
         <div className="mx-auto mb-5 flex h-[80px] w-[80px] items-center justify-center rounded-full bg-gray-50 text-3xl">🔍</div>
         <h2 className="mb-2 text-lg font-semibold text-gray-900">No investors in the pipeline yet</h2>
         <p className="mb-5 text-sm text-gray-500">
-          As soon as we assign you investors from the catalog, or you import your own
-          contacts, they'll show up here.
+          {eligible
+            ? 'Your profile is complete enough to unlock your first batch of catalog investors, or you can import your own contacts.'
+            : `As soon as your profile is at least ${SELF_SERVICE_COMPLETENESS_THRESHOLD}% complete you can unlock investors from the catalog yourself, or you can import your own contacts now.`}
         </p>
-        <Link href="/settings" className="inline-block rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b]">
-          Import contacts
-        </Link>
+        {result === 'added' && <p className="mb-3 text-sm font-medium text-emerald-700">Done — check the table below.</p>}
+        {result === 'none' && <p className="mb-3 text-sm text-gray-500">No new investors left in this pack for your account.</p>}
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {eligible && (
+            <button disabled={unlocking} onClick={unlock}
+              className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b] disabled:opacity-50">
+              {unlocking ? 'Unlocking…' : 'Unlock my pipeline'}
+            </button>
+          )}
+          <Link href="/settings" className="inline-block rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            {eligible ? 'Import contacts instead' : 'Complete your profile'}
+          </Link>
+        </div>
       </div>
     </div>
   );

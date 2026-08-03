@@ -86,7 +86,7 @@ export function AgendaPanel() {
           <button onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} className="rounded border border-gray-300 px-2 py-1 text-sm">←</button>
           <h1 className="text-lg font-bold">{month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h1>
           <button onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className="rounded border border-gray-300 px-2 py-1 text-sm">→</button>
-          <button onClick={exportICS} className="ml-auto rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50">Export ICS</button>
+          <button data-tour-id="agenda-export" onClick={exportICS} className="ml-auto rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50">Export ICS</button>
         </div>
         <div className="flex flex-wrap gap-1.5">
           <button onClick={() => setTypeFilter('all')}
@@ -103,7 +103,7 @@ export function AgendaPanel() {
             );
           })}
         </div>
-        <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200 text-xs">
+        <div data-tour-id="agenda-grid" className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200 text-xs">
           {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
             <div key={d} className="bg-gray-50 px-2 py-1 font-medium text-gray-500">{d}</div>
           ))}
@@ -145,7 +145,7 @@ export function AgendaPanel() {
         </Card>
       </div>
 
-      <div className="space-y-3">
+      <div data-tour-id="agenda-rail" className="space-y-3">
         {[{ label: 'OVERDUE', items: overdue, cls: 'text-[#B00000]' },
           { label: 'DUE TODAY', items: dueToday, cls: 'text-gray-900' },
           { label: 'THIS WEEK', items: week, cls: 'text-gray-600' },

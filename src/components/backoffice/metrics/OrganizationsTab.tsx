@@ -20,7 +20,7 @@ interface OrganizationsData { lists: Record<string, ActionListRow[]>; startups: 
 const LIST_LABELS: Record<string, string> = {
   inactive_30d: 'Inactive >30 days', never_contacted: 'Never contacted an investor',
   incomplete_profile_with_promo: 'Incomplete profile, promo active', near_plan_limit: 'Near or at plan limit',
-  payment_failed: 'Payment failed', grant_not_opened: 'Access grant confirmed, Data Room not opened',
+  payment_failed: 'Payment failed', grant_not_opened: 'Access grant confirmed, Vault Data Room not opened',
 };
 const ACTIVITY_COLOR: Record<string, string> = {
   highly_active: 'bg-green-50 text-green-700', active: 'bg-cyan-50 text-cyan-700',
@@ -125,7 +125,7 @@ export function OrganizationsTab() {
           </div>
         )}
         <p className="mt-2 text-[11px] text-gray-400">
-          Seats/qualified-opportunities/Data Room/DD-access LIMIT usage isn&apos;t shown — investor plan tiers aren&apos;t wired to
+          Seats/qualified-opportunities/Vault Data Room/DD-access LIMIT usage isn&apos;t shown — investor plan tiers aren&apos;t wired to
           enforced counters yet (matchdeal_tier_limits governs swipe/like caps only). Manage individual benefits from{' '}
           <Link href="/backoffice/catalog" className="text-[#0E7490] hover:underline">Catalog → Assist</Link>.
         </p>

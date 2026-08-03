@@ -25,10 +25,14 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   if (reqErr) return NextResponse.json({ ok: false, error: reqErr.message }, { status: 404 });
   if (reqRow.status === 'approved') return NextResponse.json({ ok: true, alreadyApproved: true });
 
+  // P103 Bloco 1 — was .eq('name', 'Data Room'), a real functional
+  // dependency on the display label (would have broken the moment the
+  // folder was renamed to "Vault Data Room"). `kind` already exists and
+  // already means exactly this, decoupled from whatever the UI calls it.
   const { data: dataRoomFolder, error: folderErr } = await admin.from('folders')
-    .select('id').eq('org_id', ABLUTE_ORG_ID).is('parent_id', null).eq('name', 'Data Room').maybeSingle();
+    .select('id').eq('org_id', ABLUTE_ORG_ID).is('parent_id', null).eq('kind', 'data_room').maybeSingle();
   if (folderErr) return NextResponse.json({ ok: false, error: folderErr.message }, { status: 500 });
-  if (!dataRoomFolder) return NextResponse.json({ ok: false, error: 'ablute_ has no top-level "Data Room" folder to grant.' }, { status: 500 });
+  if (!dataRoomFolder) return NextResponse.json({ ok: false, error: 'ablute_ has no top-level Data Room folder to grant.' }, { status: 500 });
 
   const { data: grant, error: grantErr } = await admin.from('access_grants').insert({
     org_id: ABLUTE_ORG_ID,

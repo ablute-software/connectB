@@ -14,7 +14,7 @@ const EXPLANATIONS: Record<string, string> = {
   profile: 'Fill in your sector, stage, and round target so investors (and the platform) know what you’re raising.',
   pipeline: 'Get your first investor into the Pipeline — assigned from the catalog, or imported yourself.',
   outreach: 'Log your first outreach — a call, email, or meeting — with an investor.',
-  dataroom: 'Upload at least one document to your Data Room so investors have something to review.',
+  dataroom: 'Upload at least one document to your Vault Data Room so investors have something to review.',
 };
 
 export function FirstStepsPanel({ onClose }: { onClose: () => void }) {
@@ -64,7 +64,7 @@ export function FirstStepsPanel({ onClose }: { onClose: () => void }) {
               {!m.done && (
                 <button onClick={() => { onClose(); router.push(m.href); }}
                   className="mt-2 rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
-                  {m.key === 'profile' ? 'Complete profile' : m.key === 'pipeline' ? 'Open Pipeline' : m.key === 'outreach' ? 'Log an interaction' : 'Open Data Room'}
+                  {m.key === 'profile' ? 'Complete profile' : m.key === 'pipeline' ? 'Open Pipeline' : m.key === 'outreach' ? 'Log an interaction' : 'Open Vault Data Room'}
                 </button>
               )}
             </li>

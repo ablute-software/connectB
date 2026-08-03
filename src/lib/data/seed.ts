@@ -395,7 +395,7 @@ export const seed: Db = {
     { id: 'f-mat-investor', name: 'Investor deck', kind: 'materials', parent_id: 'f-materials', position: 2 },
     { id: 'f-mat-onepager', name: 'One-pager', kind: 'materials', parent_id: 'f-materials', position: 3 },
     { id: 'f-mat-fin', name: 'Financials', kind: 'materials', parent_id: 'f-materials', position: 4 },
-    { id: 'f-dr', name: 'Data Room', kind: 'data_room', position: 10 },
+    { id: 'f-dr', name: 'Vault Data Room', kind: 'data_room', position: 10 },
     { id: 'f-dr-00', name: '00 Index and Summary', kind: 'data_room', parent_id: 'f-dr', position: 11 },
     { id: 'f-dr-01', name: '01 Summary and Investment Dossier', kind: 'data_room', parent_id: 'f-dr', position: 12 },
     { id: 'f-dr-02', name: '02 Corporate & Governance', kind: 'data_room', parent_id: 'f-dr', position: 13 },

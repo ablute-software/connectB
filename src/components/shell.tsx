@@ -38,7 +38,7 @@ const NAV: { href: string; label: string; icon: string }[] = [
   { href: '/tasks', label: 'Tasks', icon: '☀' },
   { href: '/agenda', label: 'Agenda', icon: '◔' },
   { href: '/dashboard', label: 'Dashboard', icon: '◈' },
-  { href: '/documents', label: 'Data Room', icon: '▣' },
+  { href: '/documents', label: 'Vault Data Room', icon: '▣' },
   { href: '/settings', label: 'about your company', icon: '⋯' },
   { href: '/plans', label: 'Plans & billing', icon: '◇' },
 ];

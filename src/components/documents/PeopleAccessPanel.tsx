@@ -122,6 +122,7 @@ export function PeopleAccessPanel() {
 
   return (
     <div className="grid gap-4 md:grid-cols-3">
+      <div data-tour-id="people-entities">
       <Card title="Entities">
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search entity…"
           className="mb-3 w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
@@ -170,8 +171,9 @@ export function PeopleAccessPanel() {
           {allEntities.length === 0 && !query_ && <p className="text-xs text-gray-400">No entity has any access yet — search to pick one from your pipeline.</p>}
         </ul>
       </Card>
+      </div>
 
-      <div className="md:col-span-2">
+      <div className="md:col-span-2" data-tour-id="people-matrix">
         <Card title={selectedEntity ? `Access matrix — ${selectedEntity.name}` : 'Access matrix'}>
           {!selectedEntity ? (
             <p className="text-sm text-gray-400">Pick an entity on the left to see what it can see.</p>

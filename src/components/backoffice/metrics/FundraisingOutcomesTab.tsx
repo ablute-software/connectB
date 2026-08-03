@@ -113,9 +113,9 @@ export function FundraisingOutcomesTab() {
         </p>
       </Card>
 
-      <Card title="Data Room & access">
+      <Card title="Vault Data Room & access">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <MiniStat label="Startups with Data Room" value={data.dataRoom.startupsWithDataRoom} />
+          <MiniStat label="Startups with Vault Data Room" value={data.dataRoom.startupsWithDataRoom} />
           <MiniStat label="Pitch decks opened" value={data.dataRoom.pitchDecksOpened} />
           <MiniStat label="Access grants submitted" value={data.dataRoom.level2Requests.submitted} />
           <MiniStat label="Access grants confirmed" value={data.dataRoom.level2Requests.approved} />

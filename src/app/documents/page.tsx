@@ -517,14 +517,16 @@ export default function DocumentsPage() {
   return (
     <div className="space-y-4">
       {tab === 'documents' && <PageTour pageKey="guide_documents" />}
+      {tab === 'people' && <PageTour pageKey="guide_people_access" />}
       <div className="flex items-center justify-between gap-1.5">
-        <h1 className="text-lg font-bold">{tab === 'documents' ? 'Documents & Data Room' : 'People & Access'}</h1>
+        <h1 className="text-lg font-bold">{tab === 'documents' ? 'Documents & Vault Data Room' : 'People & Access'}</h1>
         {tab === 'documents' && <PageGuideButton pageKey="guide_documents" />}
+        {tab === 'people' && <PageGuideButton pageKey="guide_people_access" />}
       </div>
       <div className="flex gap-1.5 border-b border-gray-100 pb-2">
         <button onClick={() => setTab('documents')}
           className={`rounded-full px-3 py-1 text-xs font-medium ${tab === 'documents' ? 'bg-[#0E7490] text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
-          Documents & Data Room
+          Documents & Vault Data Room
         </button>
         <button onClick={() => setTab('people')}
           className={`rounded-full px-3 py-1 text-xs font-medium ${tab === 'people' ? 'bg-[#0E7490] text-white' : 'text-gray-500 hover:bg-gray-50'}`}>

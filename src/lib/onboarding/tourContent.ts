@@ -18,7 +18,7 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
     {
       selector: 'settings-completeness',
       title: 'The percentage is not vanity',
-      body: 'Matching reads these fields. An incomplete profile gets matched against fewer investors, and the ones it does get are worse. Click the bar to jump straight to what’s missing.',
+      body: 'Matching reads these fields. The more complete your profile is, the more investors we can assess and the more accurately we can determine alignment. When information is missing, fewer investors can be evaluated and the resulting matches are less accurate, as we cannot properly assess their fit with your startup. Click the bar to jump straight to what\'s missing.',
     },
     {
       selector: 'settings-identity',
@@ -139,7 +139,7 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
     {
       selector: 'documents-folders',
       title: 'Two shelves, not one',
-      body: 'Materials is what you send openly — deck, one-pager. Data Room is what you open under access control, numbered 00 to 08 for diligence.',
+      body: 'Materials is what you send openly — deck, one-pager. Vault Data Room is what you open under access control, numbered 00 to 08 for diligence.',
     },
     {
       selector: 'documents-panel',
@@ -157,6 +157,39 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
       selector: 'documents-views',
       title: 'You see what they read',
       body: 'Views are logged back to the investor entity, so the pipeline knows who is actually doing diligence.',
+    },
+  ],
+
+  // P104 #2 — gap: /agenda had no tour at all.
+  guide_agenda: [
+    {
+      selector: 'agenda-grid',
+      title: 'The month, at a glance',
+      body: 'Every task with a due date shows on its day. Overdue tasks turn red so they never quietly disappear.',
+    },
+    {
+      selector: 'agenda-rail',
+      title: 'Overdue, due today, this week',
+      body: 'The same tasks as the grid, sorted by urgency. Completed ones stay visible — checked off, not gone.',
+    },
+    {
+      selector: 'agenda-export',
+      title: 'Take it with you',
+      body: 'Export everything open as an .ics file — import it into whatever calendar you actually use.',
+    },
+  ],
+
+  // P104 #4 — gap: the "People & Access" tab had no tour, only "Documents & Data Room" did.
+  guide_people_access: [
+    {
+      selector: 'people-entities',
+      title: 'Pick an entity to see their view',
+      body: 'Search finds any entity in your pipeline, even ones with no access yet — that absence is itself the point.',
+    },
+    {
+      selector: 'people-matrix',
+      title: 'What they can actually see',
+      body: 'Can view, can view after NDA, awaiting confirmation, or can\'t view — one row per document, exactly as that person experiences it.',
     },
   ],
 

@@ -865,19 +865,36 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       let run: AutomationRun | null = null;
       if (auto) {
         const person = prev.people.find((p) => p.id === g.person_id);
-        const email = person?.email_verified ?? g.grantee_email;
-        run = {
-          id: uuid(), automation_id: auto.id, entity_id: person?.entity_id, person_id: g.person_id,
-          status: auto.mode === 'full_auto' && email ? 'executed' : 'pending_review',
-          payload: {
-            channel: 'email',
-            subject: 'ablute_ — data room access',
-            draft: `Hi ${person?.full_name?.split(' ')[0] ?? ''},\n\nAs discussed, here is your access to the ablute_ data room${g.expires_at ? ` (valid until ${g.expires_at.slice(0, 10)})` : ''}. You can sign in with this email address — no password needed.\n\nBest,\nNuno`,
-          },
-          created_at: new Date().toISOString(),
-          executed_at: auto.mode === 'full_auto' && email ? new Date().toISOString() : undefined,
-          blocked_reason: !email ? 'No verified email for the grantee — draft held for review.' : undefined,
-        };
+        // P104 #1 — a single "Grant access" click can insert multiple
+        // access_grants rows in a cascade (one per folder/document
+        // selected), and diffGrantSelection always does revoke+add rather
+        // than update — each of those calls this fn. Without this check,
+        // every one of them spawned its own draft (98 duplicates for one
+        // real grant, confirmed live). A grant to the same person/entity
+        // within the same 24h is the same "event" as far as the outreach
+        // draft is concerned; a new grant days later should still draft fresh.
+        const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
+        const cutoff = Date.now() - DEDUP_WINDOW_MS;
+        const duplicate = prev.runs.find((r) =>
+          r.automation_id === auto.id
+          && (g.person_id ? r.person_id === g.person_id : r.entity_id === person?.entity_id)
+          && (r.status === 'pending_review' || r.status === 'executed')
+          && new Date(r.created_at).getTime() >= cutoff);
+        if (!duplicate) {
+          const email = person?.email_verified ?? g.grantee_email;
+          run = {
+            id: uuid(), automation_id: auto.id, entity_id: person?.entity_id, person_id: g.person_id,
+            status: auto.mode === 'full_auto' && email ? 'executed' : 'pending_review',
+            payload: {
+              channel: 'email',
+              subject: 'ablute_ — data room access',
+              draft: `Hi ${person?.full_name?.split(' ')[0] ?? ''},\n\nAs discussed, here is your access to the ablute_ data room${g.expires_at ? ` (valid until ${g.expires_at.slice(0, 10)})` : ''}. You can sign in with this email address — no password needed.\n\nBest,\nNuno`,
+            },
+            created_at: new Date().toISOString(),
+            executed_at: auto.mode === 'full_auto' && email ? new Date().toISOString() : undefined,
+            blocked_reason: !email ? 'No verified email for the grantee — draft held for review.' : undefined,
+          };
+        }
       }
       commit({ ...prev, grants: [...prev.grants, grant], runs: run ? [...prev.runs, run] : prev.runs });
       const o = orgIdRef.current;

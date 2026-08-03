@@ -16,9 +16,9 @@ export type MatrixCapability =
   | 'invites' | 'org_editing';
 
 export const MATRIX_CAPABILITIES: { key: MatrixCapability; label: string; note?: string }[] = [
-  { key: 'data_room_read', label: 'Data room — read' },
-  { key: 'data_room_upload', label: 'Data room — upload / import' },
-  { key: 'data_room_manage', label: 'Data room — manage (delete / rename)' },
+  { key: 'data_room_read', label: 'Vault Data Room — read' },
+  { key: 'data_room_upload', label: 'Vault Data Room — upload / import' },
+  { key: 'data_room_manage', label: 'Vault Data Room — manage (delete / rename)' },
   { key: 'access_grants', label: 'Access grants' },
   // Prompt 94 — label only. The key stays outbox_approval: it's what's
   // actually stored in orgs.permission_matrix jsonb for every org already
