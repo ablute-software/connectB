@@ -14,25 +14,113 @@
 // benchmarking, and an investability ranking (readiness vs round value)
 // stored per run so the evolution is visible. Everything here is a report —
 // nothing is sent, and nothing mutates CRM data.
+//
+// Prompt 99 — this panel now has two internal sub-tabs: "Optimizar" (this
+// file, expanded with 4 more document kinds + a Data Room completeness
+// check) and "Treinar" (TreinarPanel.tsx, new). The former "Deck /
+// one-pager review" card became "Document reviews", covering all 6
+// paste-text-and-review kinds with one dropdown, since /api/ai-review now
+// returns a structured report (score/strengths/weaknesses/risks/
+// recommendations) for every one of them, not just investability.
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
+import { TreinarPanel } from './TreinarPanel';
+import type { CompanyFactCategory } from '@/lib/types';
 
 interface ReviewRun { id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string }
 interface InvestabilityReport { score: number; summary: string; strengths: string[]; weaknesses: string[]; risks: string[]; recommendations: string[] }
+
+interface Finding { text: string; category: CompanyFactCategory }
+interface SeverityFinding extends Finding { severity: 'low' | 'medium' | 'high' }
+interface StructuredReport {
+  score: number; summary: string;
+  strengths: string[]; weaknesses: SeverityFinding[]; risks: SeverityFinding[]; recommendations: Finding[];
+}
+
+const DOC_KINDS = [
+  { value: 'deck_review', label: 'Pitch deck' },
+  { value: 'one_pager_review', label: 'One-pager' },
+  { value: 'business_plan_review', label: 'Business plan' },
+  { value: 'financial_plan_review', label: 'Financial plan' },
+  { value: 'marketing_plan_review', label: 'Commercial & marketing plan' },
+  { value: 'cap_table_review', label: 'Cap table & terms (quick read)' },
+] as const;
+type DocKind = typeof DOC_KINDS[number]['value'];
+
+const SEVERITY_COLOR: Record<string, string> = { high: 'text-[#B00000]', medium: 'text-amber-600', low: 'text-gray-500' };
 
 function ComingSoon() {
   return <p className="rounded-lg bg-gray-50 px-4 py-3 text-center text-xs text-gray-400">Coming soon to your workspace.</p>;
 }
 
-export function ReviewOptimizationPanel() {
+function StructuredReportView({ report }: { report: StructuredReport }) {
+  return (
+    <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
+      <div className="flex items-center gap-2">
+        <span className="text-2xl font-bold text-[#0E7490]">{report.score}</span>
+        <span className="text-xs text-gray-400">/ 10</span>
+      </div>
+      <p className="mt-1 text-gray-700">{report.summary}</p>
+      {report.strengths.length > 0 && (
+        <div className="mt-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Strengths</div>
+          <ul className="ml-4 list-disc text-xs text-gray-700">{report.strengths.map((s, i) => <li key={i}>{s}</li>)}</ul>
+        </div>
+      )}
+      {(['weaknesses', 'risks'] as const).map((k) => (
+        report[k].length > 0 && (
+          <div key={k} className="mt-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{k}</div>
+            <ul className="ml-4 list-disc text-xs text-gray-700">
+              {report[k].map((f, i) => (
+                <li key={i}>
+                  <span className={SEVERITY_COLOR[f.severity]}>[{f.severity}]</span> {f.text}
+                  <span className="ml-1 text-gray-400">· {f.category}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      ))}
+      {report.recommendations.length > 0 && (
+        <div className="mt-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Recommendations</div>
+          <ul className="ml-4 list-disc text-xs text-gray-700">
+            {report.recommendations.map((f, i) => <li key={i}>{f.text} <span className="text-gray-400">· {f.category}</span></li>)}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Prompt 99 §2.6 — zero AI cost, pure structural check against what already
+// exists in documents/folders vs a standard DD checklist. Keyword matching
+// against names, not a real document-type taxonomy (none exists) — a
+// reasonable proxy, not meant to be exhaustive.
+function dataroomChecklist(folders: { name: string }[], documents: { name: string }[]) {
+  const folderNames = folders.map((f) => f.name.toLowerCase());
+  const docNames = documents.map((d) => d.name.toLowerCase());
+  const hasFolder = (kw: string) => folderNames.some((n) => n.includes(kw));
+  const hasDoc = (kw: string) => docNames.some((n) => n.includes(kw));
+  return [
+    { label: 'Pitch deck', present: hasDoc('pitch deck') || hasDoc('investor deck') },
+    { label: 'One-pager', present: hasDoc('one-pager') || hasDoc('one pager') },
+    { label: 'Cap table', present: hasDoc('cap table') || hasDoc('capitalization') },
+    { label: 'Financial model / projections', present: hasDoc('financial model') || hasDoc('projection') || hasFolder('financial') },
+    { label: 'Corporate / governance documents', present: hasFolder('corporate') || hasFolder('governance') },
+    { label: 'Team bios / org chart', present: hasFolder('team') || hasDoc('org chart') || hasDoc('cv') },
+    { label: 'IP (patents / trademarks)', present: hasDoc('patent') || hasDoc('trademark') },
+    { label: 'Commercial evidence (LOIs, pilots, contracts)', present: hasFolder('commercial') || hasDoc('loi') || hasDoc('pilot') || hasDoc('agreement') },
+    { label: 'Regulatory & compliance', present: hasFolder('regulatory') || hasFolder('compliance') },
+  ];
+}
+
+function OptimizarTab() {
   const { db } = useStore();
-  // reviewOptimization is the plan entitlement (batch A). It's false for every
-  // org today (premium preview parked behind the frost) — so `locked` below is
-  // effectively always true; kept entitlement-driven so lifting it later is a
-  // one-line change in plans.ts with no edit here.
   const [caps, setCaps] = useState<{ ai: boolean; reviewRuns: boolean; reviewOptimization: boolean } | null>(null);
 
   const [draft, setDraft] = useState('');
@@ -40,9 +128,10 @@ export function ReviewOptimizationPanel() {
   const [aiResult, setAiResult] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
 
-  const [docKind, setDocKind] = useState<'deck_review' | 'one_pager_review'>('deck_review');
+  const [docKind, setDocKind] = useState<DocKind>('deck_review');
   const [docText, setDocText] = useState('');
-  const [docResult, setDocResult] = useState('');
+  const [docResult, setDocResult] = useState<StructuredReport | null>(null);
+  const [docErr, setDocErr] = useState('');
   const [docLoading, setDocLoading] = useState(false);
 
   const [marketResult, setMarketResult] = useState('');
@@ -101,15 +190,17 @@ export function ReviewOptimizationPanel() {
   }
 
   async function reviewDocument() {
-    setDocLoading(true); setDocResult('');
+    setDocLoading(true); setDocResult(null); setDocErr('');
     try {
       const res = await fetch('/api/ai-review', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: docKind, draft: docText }),
+        body: JSON.stringify({ kind: docKind, draft: docText, context: companyContext }),
       });
       const data = await res.json();
-      setDocResult(data.review ?? data.error ?? 'No response');
-    } catch (e) { setDocResult(`Error: ${(e as Error).message}`); } finally { setDocLoading(false); }
+      if (data.error) { setDocErr(data.error); return; }
+      if (data.review) { setDocErr(data.review); return; } // configured:false fallback text
+      setDocResult(data.report as StructuredReport);
+    } catch (e) { setDocErr((e as Error).message); } finally { setDocLoading(false); }
   }
 
   async function researchMarket() {
@@ -138,35 +229,11 @@ export function ReviewOptimizationPanel() {
   }
 
   const latest = runs[0];
-
-  // Premium preview (batch A): default to locked until /api/me answers, so the
-  // frost never flashes off for a beat on load.
-  const locked = !caps || !caps.reviewOptimization;
+  const checklist = dataroomChecklist(db.folders, db.documents);
+  const missingCount = checklist.filter((c) => !c.present).length;
 
   return (
-    <div className="max-w-3xl space-y-4">
-      <h1 className="text-lg font-bold">Review & Optimization</h1>
-      <p className="text-xs text-gray-400">
-        Feeds on your confirmed <b>Company facts</b> (Settings) and pipeline to help improve the company itself —
-        every output is a report, never an action.
-      </p>
-
-      {/* Batch A — premium preview. `locked` is entitlement-driven (currently
-          false for all plans), so the frost is shown to everyone; the built
-          tool underneath stays intact for when the entitlement lifts. The
-          overlay captures pointer events, so the Run action can't fire. */}
-      <div className="relative">
-        {locked && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl bg-white/55 px-4 text-center backdrop-blur-[3px]">
-            <span className="rounded-full border border-cyan-200 bg-white/90 px-4 py-1.5 text-sm font-semibold text-[#0E7490] shadow-sm">
-              {REVIEW_OPTIMIZATION_PREVIEW_COPY}
-            </span>
-            <span className="max-w-xs text-[11px] text-gray-500">
-              Your investability reading and AI reviews will live here.
-            </span>
-          </div>
-        )}
-        <div className={locked ? 'pointer-events-none select-none space-y-4 blur-[2px]' : 'space-y-4'} aria-hidden={locked}>
+    <>
       <Card title="Investability ranking — readiness vs round value">
         <p className="mb-2 text-xs text-gray-500">
           Consumes your confirmed canon facts + pipeline stats and returns a score with concrete strengths, weaknesses,
@@ -232,24 +299,24 @@ export function ReviewOptimizationPanel() {
         )}
       </Card>
 
-      <Card title="Deck / one-pager review">
+      <Card title="Document reviews">
         <p className="mb-2 text-xs text-gray-500">
-          Paste the text content for a per-dimension report: problem clarity, traction evidence, number credibility,
-          narrative — plus issues with severity and top rewrite suggestions. Review only.
+          Paste the text content of any of these for an investor-lens structured report, calibrated to your stage
+          ({db.org.stage ?? 'stage not set'}). Review only — nothing is sent or changed.
         </p>
         {!caps?.ai ? <ComingSoon /> : (
           <>
-            <select value={docKind} onChange={(e) => setDocKind(e.target.value as typeof docKind)} className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
-              <option value="deck_review">Deck</option>
-              <option value="one_pager_review">One-pager</option>
+            <select value={docKind} onChange={(e) => setDocKind(e.target.value as DocKind)} className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
+              {DOC_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
             </select>
             <textarea value={docText} onChange={(e) => setDocText(e.target.value)} rows={6}
-              placeholder="Paste the deck/one-pager text content…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
+              placeholder="Paste the document text content…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
             <button disabled={!docText || docLoading} onClick={reviewDocument}
               className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
               {docLoading ? 'Reviewing…' : 'Review with AI'}
             </button>
-            {docResult && <pre className="mt-3 whitespace-pre-wrap rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">{docResult}</pre>}
+            {docErr && <p className="mt-2 text-xs text-[#B00000]">{docErr}</p>}
+            {docResult && <StructuredReportView report={docResult} />}
           </>
         )}
       </Card>
@@ -270,6 +337,75 @@ export function ReviewOptimizationPanel() {
           </>
         )}
       </Card>
+
+      <Card title="Data Room completeness">
+        <p className="mb-2 text-xs text-gray-500">
+          No AI, just a structural check against a standard due-diligence checklist — the same "how complete is your
+          profile/data room" signal the Hype Startup formula uses, but with the concrete list of what to add.
+        </p>
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-gray-700">{checklist.length - missingCount} of {checklist.length} present</p>
+        </div>
+        <ul className="mt-2 space-y-1">
+          {checklist.map((c) => (
+            <li key={c.label} className={`text-xs ${c.present ? 'text-emerald-700' : 'text-gray-400'}`}>
+              {c.present ? '✓' : '·'} {c.label}
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </>
+  );
+}
+
+export function ReviewOptimizationPanel() {
+  const [subTab, setSubTab] = useState<'optimizar' | 'treinar'>('optimizar');
+  // reviewOptimization is the plan entitlement (batch A). It's false for every
+  // org today (premium preview parked behind the frost) — so `locked` below is
+  // effectively always true; kept entitlement-driven so lifting it later is a
+  // one-line change in plans.ts with no edit here.
+  const [locked, setLocked] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
+      .then((me) => setLocked(!me.entitlements?.reviewOptimization))
+      .catch(() => setLocked(true));
+  }, []);
+
+  return (
+    <div className="max-w-3xl space-y-4">
+      <h1 className="text-lg font-bold">Review & Optimization</h1>
+      <p className="text-xs text-gray-400">
+        Feeds on your confirmed <b>Company facts</b> (Settings) and pipeline to help improve the company itself —
+        every output is a report, never an action.
+      </p>
+
+      <div className="flex gap-1 border-b border-gray-200">
+        {(['optimizar', 'treinar'] as const).map((t) => (
+          <button key={t} onClick={() => setSubTab(t)}
+            className={`px-3 py-1.5 text-sm font-medium capitalize ${subTab === t ? 'border-b-2 border-[#0E7490] text-[#0E7490]' : 'text-gray-400 hover:text-gray-600'}`}>
+            {t === 'optimizar' ? 'Optimizar' : 'Treinar'}
+          </button>
+        ))}
+      </div>
+
+      {/* Batch A — premium preview. `locked` is entitlement-driven (currently
+          false for all plans), so the frost is shown to everyone; the built
+          tool underneath stays intact for when the entitlement lifts. The
+          overlay captures pointer events, so no action underneath can fire. */}
+      <div className="relative">
+        {locked && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl bg-white/55 px-4 text-center backdrop-blur-[3px]">
+            <span className="rounded-full border border-cyan-200 bg-white/90 px-4 py-1.5 text-sm font-semibold text-[#0E7490] shadow-sm">
+              {REVIEW_OPTIMIZATION_PREVIEW_COPY}
+            </span>
+            <span className="max-w-xs text-[11px] text-gray-500">
+              Your investability reading and AI reviews will live here.
+            </span>
+          </div>
+        )}
+        <div className={locked ? 'pointer-events-none select-none space-y-4 blur-[2px]' : 'space-y-4'} aria-hidden={locked}>
+          {subTab === 'optimizar' ? <OptimizarTab /> : <TreinarPanel />}
         </div>
       </div>
     </div>
