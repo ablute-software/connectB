@@ -713,6 +713,12 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('documents').update({ details }).eq('id', id), 'updateDocumentDetails');
     },
 
+    updateDocumentVisibility(id, visibility) {
+      const prev = dbRef.current;
+      commit({ ...prev, documents: prev.documents.map((d) => d.id === id ? { ...d, visibility } : d) });
+      if (orgIdRef.current) persist(sb.from('documents').update({ visibility }).eq('id', id), 'updateDocumentVisibility');
+    },
+
     // Data Room v3 (E5) — drag a document onto a folder. Appends to the end
     // of the destination's documents (position = max sibling + 1) so it lands
     // last rather than colliding with an existing position.

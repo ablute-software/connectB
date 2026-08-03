@@ -36,7 +36,9 @@ export type OverrideRule =
   | 'daily_cap' | 'weekly_cap' | 'follow_up_limit';
 export type SubmissionChannelType = 'email' | 'form' | 'none' | 'unknown';
 export type FolderKind = 'data_room' | 'materials';
-export type DocVisibility = 'private' | 'on_grant' | 'link_anyone';
+// P103 Bloco 3 / P104 #3 — was 'private' | 'on_grant' | 'link_anyone';
+// renamed (migration 0100) to match the new lock-icon scheme.
+export type DocVisibility = 'due_diligence' | 'on_grant' | 'open';
 export type AutomationMode = 'draft_review' | 'full_auto';
 export type AutomationTrigger =
   | 'no_reply_14d' | 'followup_no_reply_14d' | 'inbound_meeting_request'

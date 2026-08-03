@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card, PersonLink } from '@/components/ui';
-import type { Folder, FolderKind } from '@/lib/types';
+import type { DocVisibility, Folder, FolderKind } from '@/lib/types';
 import {
   collectFolderSelectionKeys, cycleGrantState,
   normalizeDocumentUrl, reorderByDrag, sanitizeStorageKey, type GrantState,
@@ -21,9 +21,21 @@ function fmtBytes(n?: number): string | undefined {
   return `${n} B`;
 }
 
+// P103 Bloco 3 — lock icon per visibility level, replacing the old plain
+// text label. due_diligence keeps computeCellEffect's existing "no grant
+// can ever have an effect here" behavior (was 'private') — the icon/name
+// change alone, no new "confirmed meeting" gate is enforced here (not
+// concretely specified anywhere; flagging back rather than inventing it).
+const VISIBILITY_META: Record<DocVisibility, { icon: string; label: string; title: string }> = {
+  due_diligence: { icon: '🔴🔒', label: 'Due diligence only', title: 'Due diligence only — fully closed, requires an access request' },
+  on_grant: { icon: '🟡🔓', label: 'On request', title: 'On request — simple access grant needed' },
+  open: { icon: '🟢🔓✕', label: 'Open', title: 'Open — no access request needed' },
+};
+const VISIBILITY_OPTIONS: DocVisibility[] = ['open', 'on_grant', 'due_diligence'];
+
 export default function DocumentsPage() {
   const {
-    db, addDocument, deleteDocument, renameDocument, updateDocumentDetails,
+    db, addDocument, deleteDocument, renameDocument, updateDocumentDetails, updateDocumentVisibility,
     moveDocumentToFolder, reorderDocuments, replaceDocumentFile, addDocumentVersion,
     createFolder, renameFolder, deleteFolder, addGrant, revokeGrant, recordNdaUpload,
     invitePersonForGrant,
@@ -97,6 +109,10 @@ export default function DocumentsPage() {
   const [docName, setDocName] = useState('');
   const [docUrl, setDocUrl] = useState('');
   const [docErr, setDocErr] = useState('');
+  // P103 Bloco 3 — visibility used to be hardcoded to 'on_grant' on every
+  // add path (link or upload), no UI to choose it. Shared by both add
+  // flows below since they sit in the same "add to this folder" context.
+  const [docVisibility, setDocVisibility] = useState<DocVisibility>('on_grant');
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -318,7 +334,7 @@ export default function DocumentsPage() {
         if (error) throw error;
         addDocument({
           folder_id: selFolder, name: file.name, storage_path: path,
-          is_view_only: true, visibility: 'on_grant', watermark: false, downloadable: false,
+          is_view_only: true, visibility: docVisibility, watermark: false, downloadable: false,
         });
       } catch (e) {
         failed.push(`${file.name}: ${(e as Error).message}`);
@@ -601,7 +617,11 @@ export default function DocumentsPage() {
                         {d.is_view_only
                           ? <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-800">view-only ✓</span>
                           : <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-800">not view-only — blocked from sharing</span>}
-                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">{d.visibility}</span>
+                        <select value={d.visibility} onChange={(e) => updateDocumentVisibility(d.id, e.target.value as DocVisibility)}
+                          title={VISIBILITY_META[d.visibility].title}
+                          className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">
+                          {VISIBILITY_OPTIONS.map((v) => <option key={v} value={v}>{VISIBILITY_META[v].icon} {VISIBILITY_META[v].label}</option>)}
+                        </select>
                         <span className="text-xs text-gray-400">
                           {d.storage_path ? 'file' : 'link'}{size && ` · ${size}`}
                           {d.created_at && ` · uploaded ${d.created_at.slice(0, 10)}`}
@@ -680,6 +700,18 @@ export default function DocumentsPage() {
               </ul>
             )}
             <div className="mt-3 border-t border-gray-100 pt-3">
+              <div className="text-xs font-medium text-gray-500">Access level for new documents</div>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {VISIBILITY_OPTIONS.map((v) => (
+                  <button key={v} type="button" title={VISIBILITY_META[v].title} onClick={() => setDocVisibility(v)}
+                    className={`rounded-full px-2.5 py-1 text-xs font-medium ${docVisibility === v ? 'bg-[#0E7490] text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                    {VISIBILITY_META[v].icon} {VISIBILITY_META[v].label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-gray-400">Applies to whatever you add below — link or file upload. You can change it per document afterwards.</p>
+            </div>
+            <div className="mt-3 border-t border-gray-100 pt-3">
               <div className="text-xs font-medium text-gray-500">Add document (link)</div>
               <div className="mt-1 flex flex-wrap gap-2">
                 <input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="Name"
@@ -692,7 +724,7 @@ export default function DocumentsPage() {
                     try {
                       addDocument({
                         folder_id: selFolder, name: docName, external_url: docUrl,
-                        is_view_only: !docUrl.includes('/edit'), visibility: 'on_grant',
+                        is_view_only: !docUrl.includes('/edit'), visibility: docVisibility,
                         watermark: false, downloadable: false,
                       });
                       setDocName(''); setDocUrl('');

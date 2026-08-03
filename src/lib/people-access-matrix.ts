@@ -33,12 +33,13 @@ export function findEffectiveGrant(
 }
 
 // documentVisibility is only meaningful for a document-level cell (folders
-// don't carry their own visibility) — 'private' means no grant can ever
-// have an effect here, spec's own explicit 4th state ("Sem efeito —
-// documento privado"), which used to fail silently (indistinguishable from
-// "not shared") before this addenda asked for it by name.
+// don't carry their own visibility) — 'due_diligence' (was 'private',
+// migration 0100) means no grant can ever have an effect here, spec's own
+// explicit 4th state ("Sem efeito — documento privado"), which used to fail
+// silently (indistinguishable from "not shared") before this addenda asked
+// for it by name.
 export function computeCellEffect(effectiveGrant: MatrixGrant | undefined, now: Date, documentVisibility?: string): CellEffect {
-  if (documentVisibility === 'private') return 'no_effect_private';
+  if (documentVisibility === 'due_diligence') return 'no_effect_private';
   if (!effectiveGrant) return 'not_shared';
   const status = grantStatus(effectiveGrant, now);
   if (status === 'revoked' || status === 'expired') return 'not_shared';

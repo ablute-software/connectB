@@ -6,7 +6,7 @@
 import { createContext, useContext } from 'react';
 import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, CompanyPerson, Db,
-  Direction, DocumentItem, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
+  Direction, DocumentItem, DocVisibility, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
   PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric,
 } from './types';
 
@@ -122,6 +122,9 @@ export interface StoreApi {
   renameDocument: (id: string, name: string) => void;
   // Capability-gated on capabilities.documentDetails (migration 0022).
   updateDocumentDetails: (id: string, details: string) => void;
+  // P103 Bloco 3 — visibility used to be set only at creation, no way to
+  // change it after. "adicionar/editar" in the request meant both.
+  updateDocumentVisibility: (id: string, visibility: DocVisibility) => void;
   // Data Room v3 (E5). moveDocumentToFolder: drag a document onto a folder.
   // reorderDocuments: persist a new order within a folder (migration 0027).
   // replaceDocumentFile: swap the underlying file, keeping the same row/

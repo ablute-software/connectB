@@ -387,6 +387,10 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, documents: prev.documents.map((d) => d.id === id ? { ...d, details } : d) }));
     },
 
+    updateDocumentVisibility(id, visibility) {
+      setDb((prev) => ({ ...prev, documents: prev.documents.map((d) => d.id === id ? { ...d, visibility } : d) }));
+    },
+
     moveDocumentToFolder(docId, folderId) {
       setDb((prev) => {
         const siblings = prev.documents.filter((d) => d.folder_id === folderId);

@@ -142,9 +142,13 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
       body: 'Materials is what you send openly — deck, one-pager. Vault Data Room is what you open under access control, numbered 00 to 08 for diligence.',
     },
     {
+      // P103 Bloco 3 — was "view-only or downloadable, open or on-grant",
+      // describing a choice that didn't exist (downloadable/view-only were
+      // never founder-settable). Now describes what's actually real: the
+      // 3-level access selector.
       selector: 'documents-panel',
       title: 'Every document has a state',
-      body: 'Current or superseded, view-only or downloadable, open or on-grant. The state travels with the document, not with the person.',
+      body: 'Current or superseded, and one of three access levels — open, on request, or due diligence only. The level travels with the document, not with the person.',
     },
     {
       selector: 'documents-grants',
