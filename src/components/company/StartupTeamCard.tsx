@@ -11,7 +11,7 @@ import { CompletenessField } from './CompletenessField';
 import type { CompletenessField as Field } from '@/lib/companyCompleteness';
 import type { CompanyPerson } from '@/lib/types';
 
-const BLANK = { full_name: '', title: '', is_founder: false, linkedin_url: '', email: '', bio: '' };
+const BLANK = { full_name: '', title: '', is_founder: false, linkedin_url: '', email: '', bio: '', photo_url: '' };
 
 export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolean; missing: Field[]; flashId: string | null }) {
   const { db, updateOrg, addCompanyPerson, updateCompanyPerson, removeCompanyPerson } = useStore();
@@ -31,6 +31,7 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
     addCompanyPerson({
       full_name: draft.full_name.trim(), title: draft.title.trim() || undefined, is_founder: draft.is_founder,
       linkedin_url: draft.linkedin_url.trim() || undefined, email: draft.email.trim() || undefined, bio: draft.bio.trim() || undefined,
+      photo_url: draft.photo_url.trim() || undefined,
     });
     setDraft(BLANK); setAdding(false);
   }
@@ -38,7 +39,7 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
   function startEdit(p: CompanyPerson) {
     setEditDraft({
       full_name: p.full_name, title: p.title ?? '', is_founder: p.is_founder,
-      linkedin_url: p.linkedin_url ?? '', email: p.email ?? '', bio: p.bio ?? '',
+      linkedin_url: p.linkedin_url ?? '', email: p.email ?? '', bio: p.bio ?? '', photo_url: p.photo_url ?? '',
     });
     setEditingId(p.id);
   }
@@ -46,6 +47,7 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
     updateCompanyPerson(id, {
       full_name: editDraft.full_name.trim(), title: editDraft.title.trim() || undefined, is_founder: editDraft.is_founder,
       linkedin_url: editDraft.linkedin_url.trim() || undefined, email: editDraft.email.trim() || undefined, bio: editDraft.bio.trim() || undefined,
+      photo_url: editDraft.photo_url.trim() || undefined,
     });
     setEditingId(null);
   }
@@ -56,6 +58,7 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
       <input value={v.title} onChange={(e) => set({ ...v, title: e.target.value })} placeholder="Title / role" className="rounded border border-gray-300 px-2 py-1 text-sm" />
       <input value={v.linkedin_url} onChange={(e) => set({ ...v, linkedin_url: e.target.value })} placeholder="LinkedIn URL" className="rounded border border-gray-300 px-2 py-1 text-sm" />
       <input value={v.email} onChange={(e) => set({ ...v, email: e.target.value })} type="email" placeholder="Email (optional)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
+      <input value={v.photo_url} onChange={(e) => set({ ...v, photo_url: e.target.value })} placeholder="Photo URL (optional — shown on MatchDeal)" className="col-span-2 rounded border border-gray-300 px-2 py-1 text-sm" />
       <label className="col-span-2 flex items-center gap-1.5 text-xs text-gray-600">
         <input type="checkbox" checked={v.is_founder} onChange={(e) => set({ ...v, is_founder: e.target.checked })} /> Founder
       </label>
@@ -80,12 +83,18 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
                   </div>
                 ) : (
                   <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <span className="font-medium text-gray-900">{p.full_name}</span>
-                      {p.is_founder && <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[9px] font-semibold text-[#0E7490]">FOUNDER</span>}
-                      {p.title && <div className="text-xs text-gray-500">{p.title}</div>}
-                      {p.bio && <div className="text-xs text-gray-400">{p.bio}</div>}
-                      {p.linkedin_url && <a href={p.linkedin_url} target="_blank" rel="noreferrer" className="text-xs text-cyan-700 hover:underline">LinkedIn</a>}
+                    <div className="flex items-start gap-2">
+                      {p.photo_url && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={p.photo_url} alt="" className="mt-0.5 h-8 w-8 shrink-0 rounded-full object-cover" />
+                      )}
+                      <div>
+                        <span className="font-medium text-gray-900">{p.full_name}</span>
+                        {p.is_founder && <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[9px] font-semibold text-[#0E7490]">FOUNDER</span>}
+                        {p.title && <div className="text-xs text-gray-500">{p.title}</div>}
+                        {p.bio && <div className="text-xs text-gray-400">{p.bio}</div>}
+                        {p.linkedin_url && <a href={p.linkedin_url} target="_blank" rel="noreferrer" className="text-xs text-cyan-700 hover:underline">LinkedIn</a>}
+                      </div>
                     </div>
                     {canEdit && (
                       <div className="flex shrink-0 gap-2 text-xs">

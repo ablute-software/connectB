@@ -76,14 +76,172 @@ function Chip({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Prompt 81 Bloco 1 — three stories-style sub-cards per profile, reached by
-// swiping down (and back up). Card 0 is the original at-a-glance view
-// (unchanged); cards 1/2 surface fields the deck already fetched but never
-// rendered anywhere (specific_criteria, team_summary, founded_year, the full
-// sector list) — no new data, just more of what's already in the payload.
-const SUB_CARD_COUNT = 3;
+// Prompt 81 Bloco 1 — stories-style sub-cards per profile, reached by
+// swiping down (and back up). Investor-kind cards keep the original 3
+// (unchanged, see the p.kind === 'investor' branch in CardFace below).
+// Startup-kind cards were rewritten by Prompt 98 into a fixed 4-slide
+// mini-pitch (see StartupMiniPitch) — "só perfis de startup", investor side
+// untouched.
+function subCardCountFor(kind: 'startup' | 'investor') {
+  return kind === 'startup' ? 4 : 3;
+}
 
-function CardFace({ p, subIndex, active }: { p: MatchDealProfile; subIndex?: number; active?: boolean }) {
+const TRACTION_LABELS: Record<string, string> = {
+  mrr_arr: 'MRR / ARR', growth_rate: 'Growth rate', paying_customers: 'Paying customers / active users',
+  lois_pilots: 'LOIs / pilots signed', waitlist: 'Waitlist', partnerships: 'Partnerships signed', other: 'Other',
+};
+
+interface PitchFounder { full_name: string; title: string | null; bio: string | null; photo_url: string | null }
+interface PitchTractionMetric { type: string; value: string; label?: string }
+interface PitchData {
+  org_name: string | null; one_liner: string | null; description: string | null;
+  country: string | null; hq_city: string | null; sectors: string[];
+  founded_year: number | null; round_target_eur: number | null; revenue_eur: number | null;
+  logo_url: string | null; stage: string | null;
+  tam_eur: number | null; sam_eur: number | null; som_eur: number | null;
+  revenue_projection_12mo_eur: number | null; revenue_projection_5yr_eur: number | null;
+  traction_metrics: PitchTractionMetric[];
+  founders: PitchFounder[];
+}
+
+// Prompt 98 §5 — TAM→SAM→SOM, the classic funnel investors already know how
+// to read (explicitly requested over inventing a new format). Per the
+// dataviz skill: this is one magnitude narrowing, not 3 distinct identities,
+// so color is sequential (one hue, light→dark) rather than 3 categorical
+// hues. Band widths are fixed visual proportions, not a literal geometric
+// scale of the real numbers — real values are read from the labels, which
+// are always shown as text (never color-only).
+function MarketFunnel({ tam, sam, som }: { tam: number; sam: number | null; som: number | null }) {
+  const bands: { label: string; value: number; widthPct: number; fill: string }[] = [
+    { label: 'TAM', value: tam, widthPct: 100, fill: '#93C5FD' },
+  ];
+  if (sam != null) bands.push({ label: 'SAM', value: sam, widthPct: 72, fill: '#3B82F6' });
+  if (som != null) bands.push({ label: 'SOM', value: som, widthPct: 46, fill: '#1D4ED8' });
+
+  return (
+    <div className="mt-1.5 space-y-1.5">
+      {bands.map((b) => (
+        <div key={b.label} className="flex items-center gap-2">
+          <div
+            className="flex h-7 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white"
+            style={{ width: `${b.widthPct}%`, backgroundColor: b.fill }}
+          >
+            {b.label}
+          </div>
+          <span className="truncate text-[11px] font-semibold text-white/85">{fmtEur(b.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Prompt 98 — the 4-slide mini-pitch content for a startup card. pitchData
+// comes from matchdeal_startup_pitch_data() (orgs + company_people + the
+// matchdeal_profiles mini-pitch fields, joined server-side — RLS on orgs/
+// company_people has no cross-org read path, so this can't be a direct
+// client query). null while loading or for a profile with none yet.
+function StartupMiniPitch({ i, pitchData, phaseChip }: { i: number; pitchData: PitchData | null; phaseChip: string[] }) {
+  const [activeFounderIdx, setActiveFounderIdx] = useState<number | null>(null);
+
+  if (!pitchData) {
+    return <p className="mt-3 text-[13px] text-white/50">Loading pitch…</p>;
+  }
+
+  if (i === 0) {
+    return (
+      <>
+        <p className="mt-2 text-[18px] font-bold leading-snug text-white">
+          {pitchData.one_liner || "This startup hasn't written a one-liner yet."}
+        </p>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {(pitchData.hq_city || pitchData.country) && (
+            <Chip>{pitchData.hq_city && pitchData.country ? `${pitchData.hq_city}, ${pitchData.country}` : (pitchData.hq_city ?? pitchData.country)}</Chip>
+          )}
+          {phaseChip.slice(0, 1).map((s) => <Chip key={s}>{s}</Chip>)}
+          {fmtEur(pitchData.round_target_eur) && <Chip>{`Raising ${fmtEur(pitchData.round_target_eur)}`}</Chip>}
+        </div>
+        {pitchData.sectors.length > 0 && <p className="mt-2.5 truncate text-[11px] text-white/60">{pitchData.sectors.slice(0, 6).join(' · ')}</p>}
+      </>
+    );
+  }
+
+  if (i === 1) {
+    const founders = pitchData.founders;
+    if (founders.length === 0) return <p className="mt-3 text-[13px] text-white/50">No team members listed yet.</p>;
+    const active = activeFounderIdx != null ? founders[activeFounderIdx] : null;
+    return (
+      <>
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Team</p>
+        <div className="grid grid-cols-3 gap-2.5">
+          {founders.slice(0, 6).map((f, idx) => {
+            const [gf, gt] = GRADIENTS[hashString(f.full_name) % GRADIENTS.length];
+            return (
+              <button
+                key={idx} type="button" onClick={() => setActiveFounderIdx(activeFounderIdx === idx ? null : idx)}
+                className="flex flex-col items-center gap-1"
+              >
+                <span
+                  className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full text-[13px] font-bold text-white"
+                  style={f.photo_url ? undefined : { background: `linear-gradient(135deg, ${gf}, ${gt})` }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {f.photo_url ? <img src={f.photo_url} alt="" className="h-full w-full object-cover" /> : initialsOf(f.full_name)}
+                </span>
+                <span className="text-center text-[10px] font-medium leading-tight text-white/90">{f.full_name}</span>
+                {f.title && <span className="text-center text-[9px] leading-tight text-white/55">{f.title}</span>}
+              </button>
+            );
+          })}
+        </div>
+        {active && <p className="mt-2.5 text-[12px] leading-snug text-white/80">{active.bio || 'No bio yet.'}</p>}
+      </>
+    );
+  }
+
+  if (i === 2) {
+    if (pitchData.tam_eur == null) return <p className="mt-3 text-[13px] text-white/50">Market size not reported yet.</p>;
+    return (
+      <>
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Market</p>
+        <MarketFunnel tam={pitchData.tam_eur} sam={pitchData.sam_eur} som={pitchData.som_eur} />
+        {(pitchData.revenue_projection_12mo_eur != null || pitchData.revenue_projection_5yr_eur != null) && (
+          <div className="mt-2.5 flex gap-4">
+            {pitchData.revenue_projection_12mo_eur != null && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-white/50">12mo revenue</p>
+                <p className="text-[13px] font-semibold text-white/90">{fmtEur(pitchData.revenue_projection_12mo_eur)}</p>
+              </div>
+            )}
+            {pitchData.revenue_projection_5yr_eur != null && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-white/50">5yr revenue</p>
+                <p className="text-[13px] font-semibold text-white/90">{fmtEur(pitchData.revenue_projection_5yr_eur)}</p>
+              </div>
+            )}
+          </div>
+        )}
+        <p className="mt-2 text-[10px] italic text-white/45">Self-reported by the founder.</p>
+      </>
+    );
+  }
+
+  if (pitchData.traction_metrics.length === 0) return <p className="mt-3 text-[13px] text-white/50">No traction reported yet.</p>;
+  return (
+    <>
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Traction</p>
+      <div className="space-y-2">
+        {pitchData.traction_metrics.map((m, idx) => (
+          <div key={idx}>
+            <p className="text-[10px] uppercase tracking-wide text-white/50">{m.type === 'other' ? (m.label || 'Other') : (TRACTION_LABELS[m.type] ?? m.type)}</p>
+            <p className="text-[15px] font-bold text-white">{m.value}</p>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function CardFace({ p, subIndex, active, pitchData }: { p: MatchDealProfile; subIndex?: number; active?: boolean; pitchData?: PitchData | null }) {
   const name = p.entity_name || (p.kind === 'startup' ? 'A startup' : 'An investor');
   const image = p.photo_url ?? p.entity_logo_url;
   const [from, to] = GRADIENTS[hashString(name) % GRADIENTS.length];
@@ -94,6 +252,7 @@ function CardFace({ p, subIndex, active }: { p: MatchDealProfile; subIndex?: num
     ? (fmtEur(p.target_round_amount) ? `Raising ${fmtEur(p.target_round_amount)}` : null)
     : (fmtEur(p.ticket_min) || fmtEur(p.ticket_max) ? `Ticket ${fmtEur(p.ticket_min) ?? '—'}–${fmtEur(p.ticket_max) ?? '—'}` : null);
   const i = subIndex ?? 0;
+  const cardCount = subCardCountFor(p.kind);
 
   return (
     <div
@@ -113,7 +272,7 @@ function CardFace({ p, subIndex, active }: { p: MatchDealProfile; subIndex?: num
 
       {active && (
         <div className="absolute inset-x-3 top-3 z-10 flex gap-1.5">
-          {Array.from({ length: SUB_CARD_COUNT }, (_, s) => (
+          {Array.from({ length: cardCount }, (_, s) => (
             <div key={s} className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/30">
               <div className={`h-full rounded-full bg-white transition-all ${s <= i ? 'w-full' : 'w-0'}`} />
             </div>
@@ -136,65 +295,65 @@ function CardFace({ p, subIndex, active }: { p: MatchDealProfile; subIndex?: num
           <p className="mt-1 text-[13px] font-medium text-white/80">{p.representative_name}</p>
         )}
 
-        {i === 0 && p.description && (
-          <p className="mt-2 line-clamp-3 text-[13px] leading-snug text-white/85">{p.description}</p>
-        )}
-        {i === 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {p.country && <Chip>{p.country}</Chip>}
-            {stages.slice(0, 3).map((s) => <Chip key={s}>{s}</Chip>)}
-            {money && <Chip>{money}</Chip>}
-          </div>
-        )}
-        {i === 0 && p.sectors.length > 0 && (
-          <p className="mt-2.5 truncate text-[11px] text-white/60">{p.sectors.slice(0, 6).join(' · ')}</p>
-        )}
+        {p.kind === 'investor' ? (
+          <>
+            {i === 0 && p.description && (
+              <p className="mt-2 line-clamp-3 text-[13px] leading-snug text-white/85">{p.description}</p>
+            )}
+            {i === 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {p.country && <Chip>{p.country}</Chip>}
+                {stages.slice(0, 3).map((s) => <Chip key={s}>{s}</Chip>)}
+                {money && <Chip>{money}</Chip>}
+              </div>
+            )}
+            {i === 0 && p.sectors.length > 0 && (
+              <p className="mt-2.5 truncate text-[11px] text-white/60">{p.sectors.slice(0, 6).join(' · ')}</p>
+            )}
 
-        {i === 1 && (
-          <div className="mt-2 space-y-2.5">
-            {p.description && <p className="text-[13px] leading-snug text-white/85">{p.description}</p>}
-            {p.kind === 'startup' && p.team_summary && (
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Team</p>
-                <p className="text-[13px] leading-snug text-white/85">{p.team_summary}</p>
+            {i === 1 && (
+              <div className="mt-2 space-y-2.5">
+                {p.description && <p className="text-[13px] leading-snug text-white/85">{p.description}</p>}
+                {p.specific_criteria && (
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">What they look for</p>
+                    <p className="text-[13px] leading-snug text-white/85">{p.specific_criteria}</p>
+                  </div>
+                )}
+                {!p.specific_criteria && !p.description && (
+                  <p className="text-[13px] text-white/50">Nothing more here yet.</p>
+                )}
               </div>
             )}
-            {p.kind === 'investor' && p.specific_criteria && (
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">What they look for</p>
-                <p className="text-[13px] leading-snug text-white/85">{p.specific_criteria}</p>
-              </div>
-            )}
-            {!p.team_summary && !p.specific_criteria && !p.description && (
-              <p className="text-[13px] text-white/50">Nothing more here yet.</p>
-            )}
-          </div>
-        )}
 
-        {i === 2 && (
-          <div className="mt-2 space-y-2.5">
-            {p.founded_year && (
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Founded</p>
-                <p className="text-[13px] text-white/85">{p.founded_year}</p>
+            {i === 2 && (
+              <div className="mt-2 space-y-2.5">
+                {p.founded_year && (
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Founded</p>
+                    <p className="text-[13px] text-white/85">{p.founded_year}</p>
+                  </div>
+                )}
+                {p.sectors.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Sectors</p>
+                    <p className="text-[13px] leading-snug text-white/85">{p.sectors.join(' · ')}</p>
+                  </div>
+                )}
+                {stages.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Stages</p>
+                    <p className="text-[13px] leading-snug text-white/85">{stages.join(' · ')}</p>
+                  </div>
+                )}
+                {!p.founded_year && p.sectors.length === 0 && stages.length === 0 && (
+                  <p className="text-[13px] text-white/50">Nothing more here yet.</p>
+                )}
               </div>
             )}
-            {p.sectors.length > 0 && (
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Sectors</p>
-                <p className="text-[13px] leading-snug text-white/85">{p.sectors.join(' · ')}</p>
-              </div>
-            )}
-            {stages.length > 0 && (
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Stages</p>
-                <p className="text-[13px] leading-snug text-white/85">{stages.join(' · ')}</p>
-              </div>
-            )}
-            {!p.founded_year && p.sectors.length === 0 && stages.length === 0 && (
-              <p className="text-[13px] text-white/50">Nothing more here yet.</p>
-            )}
-          </div>
+          </>
+        ) : (
+          <StartupMiniPitch i={i} pitchData={pitchData ?? null} phaseChip={stages} />
         )}
       </div>
     </div>
@@ -257,6 +416,37 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
       .rpc('matchdeal_record_exposure', { p_viewer_profile_id: viewerProfileId, p_shown_profile_id: current.id })
       .then(() => {}, () => {});
   }, [current, viewerProfileId]);
+
+  // Addenda 2026-08-02 — the deck coming back empty could mean "hit the
+  // weekly plan limit" or "pool genuinely has no eligible candidates left";
+  // only fetched once the deck is actually empty, so this never runs on the
+  // common path of a deck with cards in it.
+  const [quota, setQuota] = useState<{ deckSize: number; remaining: number; resetsAt: string } | null>(null);
+  useEffect(() => {
+    if (current || loadError || deck === null) { setQuota(null); return; }
+    let cancelled = false;
+    browserClient().rpc('matchdeal_weekly_quota_status', { p_viewer_profile_id: viewerProfileId }).then(({ data, error }) => {
+      if (cancelled || error || !data || data.length === 0) return;
+      setQuota({ deckSize: data[0].deck_size, remaining: data[0].remaining, resetsAt: data[0].resets_at });
+    });
+    return () => { cancelled = true; };
+  }, [current, loadError, deck, viewerProfileId]);
+
+  // Prompt 98 — the mini-pitch content for the current startup card lives in
+  // orgs/company_people, unreachable directly from the client (see
+  // matchdeal_startup_pitch_data's own header comment). Fetched once per
+  // card change, not per sub-card swipe — all 4 slides share one payload.
+  const [pitchData, setPitchData] = useState<PitchData | null>(null);
+  useEffect(() => {
+    if (!current || current.kind !== 'startup') { setPitchData(null); return; }
+    setPitchData(null);
+    let cancelled = false;
+    browserClient().rpc('matchdeal_startup_pitch_data', { p_profile_id: current.id }).then(({ data, error }) => {
+      if (cancelled || error || !data || data.length === 0) return;
+      setPitchData(data[0] as PitchData);
+    });
+    return () => { cancelled = true; };
+  }, [current]);
 
   // Toasts clear themselves; an error that stays forever would hide the
   // rest of the deck, which is what the first version did on a like-limit.
@@ -323,7 +513,7 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
     startRef.current = null;
     if (Math.abs(y) > Math.abs(x) && Math.abs(y) > SWIPE_THRESHOLD) {
       if (y < 0) {
-        setSubIndex((s) => Math.min(s + 1, SUB_CARD_COUNT - 1));
+        setSubIndex((s) => Math.min(s + 1, subCardCountFor(current!.kind) - 1));
       } else {
         if (subIndex > 0) setSubIndex((s) => s - 1);
         else setShowBoostSheet(true);
@@ -358,16 +548,23 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
 
   if (!current) {
     const audience = viewerKind === 'startup' ? 'investor' : 'startup';
+    const weeklyLimitHit = !loadError && quota != null && quota.remaining === 0;
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
         <div className="text-4xl">{loadError ? '⚠️' : '✓'}</div>
         <p className="mt-3 text-[15px] font-semibold text-white">
-          {loadError ? 'Could not load candidates' : `You've seen every ${audience} for this week`}
+          {loadError
+            ? 'Could not load candidates'
+            : weeklyLimitHit
+              ? `Your plan allows you ${quota!.deckSize} profiles a week`
+              : `You've seen every ${audience} for this week`}
         </p>
         <p className="mt-1.5 text-[13px] leading-relaxed text-white/60">
           {loadError
             ? 'Check your connection and reopen this screen.'
-            : 'New profiles unlock when your weekly allowance renews.'}
+            : weeklyLimitHit
+              ? `You've seen all of them — new profiles unlock on ${new Date(quota!.resetsAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}.`
+              : 'New profiles unlock when your weekly allowance renews.'}
         </p>
       </div>
     );
@@ -398,7 +595,7 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         >
-          <CardFace p={current} subIndex={subIndex} active />
+          <CardFace p={current} subIndex={subIndex} active pitchData={pitchData} />
 
           <div
             className="pointer-events-none absolute left-5 top-5 rotate-[-12deg] rounded-xl border-[3px] border-emerald-400 px-3 py-1 text-[22px] font-black tracking-wider text-emerald-400"
