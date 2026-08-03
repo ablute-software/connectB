@@ -44,7 +44,7 @@ const COPY: Record<PlanTier, { who: string; cta: string; features: { label: stri
       { label: 'Everything in the free plan' },
       { label: 'AI drafts, triage & review' },
       { label: 'NDA-protected sharing' },
-      { label: 'Investor reawakening' },
+      { label: 'Reawakening' },
     ],
   },
   motherfunding: {

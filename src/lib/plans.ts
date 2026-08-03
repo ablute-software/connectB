@@ -40,6 +40,22 @@ export const WATSON_DRAFT_QUOTA: Record<PlanTier, number> = {
   motherfunding: 210,
 };
 
+// MatchDeal weekly allowance per startup plan tier. These are DISPLAY copy for
+// the plan cards; the enforced numbers live in the Postgres function
+// matchdeal_tier_limits(tier_a|tier_b|tier_c) and are keyed on
+// matchdeal_profiles.plan_tier, NOT on orgs.plan. The map below is the bridge
+// between the two, and PLAN_TO_MATCHDEAL_TIER must be applied on every plan
+// change (see plan-sync.ts) or the copy promises what the deck does not
+// deliver (Prompt 113 §1.1).
+export const PLAN_TO_MATCHDEAL_TIER: Record<PlanTier, 'tier_a' | 'tier_b' | 'tier_c'> = {
+  idea: 'tier_a', garage: 'tier_b', motherfunding: 'tier_c',
+};
+export const MATCHDEAL_WEEKLY: Record<PlanTier, { deck: number; likes: number; undos: number | null }> = {
+  idea: { deck: 3, likes: 1, undos: 0 },
+  garage: { deck: 10, likes: 5, undos: 2 },
+  motherfunding: { deck: 20, likes: 10, undos: null },
+};
+
 export interface PlanRow {
   tier: PlanTier;
   /** Verbatim plan name — do not translate or rephrase. */
@@ -75,6 +91,11 @@ export interface PlanRow {
    * parked (Review & Optimization) rather than implying it ships now.
    */
   bullets: string[];
+  /** Named, already-built-but-parked capabilities for this tier. Rendered UNDER
+   *  the bullet list, in a lighter treatment, never inside it. A bullet list is a
+   *  promise of what you get on the day you pay; anything that is not available
+   *  that day does not belong in it (Prompt 113 §3.4). */
+  comingSoon?: string[];
 }
 
 // Names and prices are verbatim per the founder's spec — treated as brand copy,
@@ -85,33 +106,36 @@ export const PLANS: PlanRow[] = [
     tier: 'idea', name: 'Elementary, my dear', monthly: '€0', paid: false, monthlyEur: 0,
     tagline: 'For your very first steps',
     bullets: [
-      'Investor pipeline & agenda',
-      'Company profile & completeness tracker',
-      'Vault Data Room — documents, folders, access control',
-      'Outreach discipline — kill-word linting, volume caps, contact locks',
-      'Needs-review queue',
-      'Import investors — CSV or manual entry',
-      'Mechanical message templates',
+      'Investor pipeline — every conversation, its stage and its next step, in one place',
+      'Agenda — what to do today, built from the pipeline itself',
+      'Company profile with a completeness score that names what is still missing',
+      'Vault Data Room — folders, documents, and access granted person by person',
+      'Send discipline built in — kill-word linting, volume caps and contact locks, so a bad send never leaves',
+      'Needs-review queue — nothing goes out without you seeing it first',
+      'Bring your own investors — CSV import or manual entry, no limit',
+      `${CATALOG_QUOTA.idea} investors unlocked from the Sherlock Deal catalogue`,
+      'Message templates — mechanical, no AI',
+      `MatchDeal — ${MATCHDEAL_WEEKLY.idea.deck} new investors a week, ${MATCHDEAL_WEEKLY.idea.likes} swipe right`,
     ],
   },
   {
     tier: 'garage', name: 'List of Suspects', monthly: '€85/month', annual: '€756/year (equivalent to €63/month)', paid: true, monthlyEur: 85, annualEur: 756, annualPerMonthEur: 63,
     tagline: 'For rounds already in motion',
     bullets: [
-      'Investor pipeline & agenda',
-      'Company profile & completeness tracker',
-      'Vault Data Room — documents, folders, access control',
-      'Outreach discipline — kill-word linting, volume caps, contact locks',
-      'Needs-review queue',
-      'Import investors — CSV or manual entry',
-      'Mechanical message templates',
-      `${WATSON_DRAFT_QUOTA.garage} AI-personalized outreach drafts per month`,
-      'Automations — reminders & follow-up sequencing',
-      'NDA-protected document sharing',
-      'Investor reawakening engine',
-      'MatchDeal — 10 new investors per week',
-      'MatchDeal — 5 swipe rights per week',
-      'MatchDeal — 2 reconsiderations per week',
+      'Investor pipeline — every conversation, its stage and its next step, in one place',
+      'Agenda — what to do today, built from the pipeline itself',
+      'Company profile with a completeness score that names what is still missing',
+      'Vault Data Room — folders, documents, and access granted person by person',
+      'Send discipline built in — kill-word linting, volume caps and contact locks, so a bad send never leaves',
+      'Needs-review queue — nothing goes out without you seeing it first',
+      'Bring your own investors — CSV import or manual entry, no limit',
+      `${CATALOG_QUOTA.garage} investors unlocked from the Sherlock Deal catalogue`,
+      'Message templates — mechanical, no AI',
+      `MatchDeal — ${MATCHDEAL_WEEKLY.garage.deck} new investors a week, ${MATCHDEAL_WEEKLY.garage.likes} swipe rights, ${MATCHDEAL_WEEKLY.garage.undos} reconsiderations`,
+      `${WATSON_DRAFT_QUOTA.garage} AI-written outreach drafts a month — each one built from that investor's thesis, not a mail merge`,
+      'Automations — reminders and follow-ups that fire without you remembering them',
+      'Share documents under NDA — the signature is captured and filed with the document',
+      'Reawakening — when something changes on your side, the system re-reads your dormant investors and tells you which are worth reopening',
     ],
   },
   {
@@ -119,23 +143,25 @@ export const PLANS: PlanRow[] = [
     bestValue: true,
     tagline: 'For serious, multi-investor raises',
     bullets: [
-      'Investor pipeline & agenda',
-      'Company profile & completeness tracker',
-      'Vault Data Room — documents, folders, access control',
-      'Outreach discipline — kill-word linting, volume caps, contact locks',
-      'Needs-review queue',
-      'Import investors — CSV or manual entry',
-      'Mechanical message templates',
-      `${WATSON_DRAFT_QUOTA.motherfunding} AI-personalized outreach drafts per month`,
-      'Automations — reminders & follow-up sequencing',
-      'NDA-protected document sharing',
-      'Investor reawakening engine',
-      'MatchDeal — 20 new investors per week',
-      'MatchDeal — 10 swipe rights per week',
-      'MatchDeal — unlimited reconsiderations until the 10 weekly swipe rights are used',
-      'Advanced Review & Optimization (coming soon)',
-      'Investability reports (coming soon)',
-      'Priority support',
+      'Investor pipeline — every conversation, its stage and its next step, in one place',
+      'Agenda — what to do today, built from the pipeline itself',
+      'Company profile with a completeness score that names what is still missing',
+      'Vault Data Room — folders, documents, and access granted person by person',
+      'Send discipline built in — kill-word linting, volume caps and contact locks, so a bad send never leaves',
+      'Needs-review queue — nothing goes out without you seeing it first',
+      'Bring your own investors — CSV import or manual entry, no limit',
+      `${CATALOG_QUOTA.motherfunding} investors unlocked from the Sherlock Deal catalogue`,
+      'Message templates — mechanical, no AI',
+      `MatchDeal — ${MATCHDEAL_WEEKLY.motherfunding.deck} new investors a week, ${MATCHDEAL_WEEKLY.motherfunding.likes} swipe rights, and unlimited reconsiderations until those ${MATCHDEAL_WEEKLY.motherfunding.likes} are used`,
+      `${WATSON_DRAFT_QUOTA.motherfunding} AI-written outreach drafts a month — each one built from that investor's thesis, not a mail merge`,
+      'Automations — reminders and follow-ups that fire without you remembering them',
+      'Share documents under NDA — the signature is captured and filed with the document',
+      'Reawakening — when something changes on your side, the system re-reads your dormant investors and tells you which are worth reopening',
+      'Priority support — a person who knows your round, not a queue',
+    ],
+    comingSoon: [
+      'Advanced Review & Optimization',
+      'Investability reports',
     ],
   },
 ];

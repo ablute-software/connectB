@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { stripeConfigured, stripePriceMap, stripeWebhookSecret } from '@/lib/stripe-env';
 import { billingEffectFromEvent, parseStripeSigHeader } from '@/lib/billing';
+import { applyPlanChangeSideEffects } from '@/lib/plan-sync';
 
 const TOLERANCE_SECONDS = 5 * 60;
 
@@ -59,6 +60,7 @@ export async function POST(req: Request) {
     // column that gates AI etc.) still lands even if the stripe_* columns don't
     // exist. Billing should not be enabled before 0031, but this fails safe.
     if (error) await admin.from('orgs').update({ plan: effect.plan }).eq('id', effect.orgId);
+    await applyPlanChangeSideEffects(admin, effect.orgId, effect.plan);
   }
   return NextResponse.json({ received: true });
 }

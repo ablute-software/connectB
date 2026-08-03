@@ -181,6 +181,7 @@ export function PlansPanel() {
       priceLabel: planPriceLabel(p, period),
       priceSubLabel: p.paid ? undefined : 'free forever',
       bullets: p.bullets,
+      comingSoon: p.comingSoon,
       // "Most popular" nudges toward List of Suspects on the Monthly view —
       // the lower-commitment entry point most people actually pick first.
       popular: p.tier === 'garage' && period === 'monthly',

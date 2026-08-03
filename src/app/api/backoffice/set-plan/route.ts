@@ -4,6 +4,7 @@
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { PLAN_TIERS } from '@/lib/plans';
+import { applyPlanChangeSideEffects } from '@/lib/plan-sync';
 import type { PlanTier } from '@/lib/types';
 
 export async function POST(req: Request) {
@@ -22,5 +23,6 @@ export async function POST(req: Request) {
     .eq('id', orgId);
   // A missing-column / enum-value error means migration 0028 hasn't landed yet.
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  await applyPlanChangeSideEffects(admin, orgId, tier as PlanTier);
   return NextResponse.json({ ok: true });
 }

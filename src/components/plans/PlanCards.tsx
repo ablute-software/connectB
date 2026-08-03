@@ -69,6 +69,17 @@ export function PlanCards({
               ))}
             </ul>
 
+            {p.comingSoon && p.comingSoon.length > 0 && (
+              <ul className="mt-3 space-y-1 border-t border-gray-100 pt-3 text-[11px] text-gray-400">
+                {p.comingSoon.map((c) => (
+                  <li key={c} className="flex items-start gap-1.5">
+                    <span>◌</span>
+                    <span>{c} <span className="italic">(coming soon)</span></span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
             <div className="mt-4">{renderCta(p)}</div>
           </div>
         );

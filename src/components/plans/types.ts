@@ -19,6 +19,9 @@ export interface PlanCardData {
    * ComparisonTable build its feature-row order from first appearance.
    */
   bullets: string[];
+  /** Named, already-built-but-parked capabilities — rendered under the bullet
+   *  list in a lighter treatment, never inside it (Prompt 113 §3.4). */
+  comingSoon?: string[];
   /** Teal "Most popular" badge. */
   popular?: boolean;
   /** Orange "Best value" badge — a separate flag from `popular` rather than

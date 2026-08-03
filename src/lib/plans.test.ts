@@ -86,6 +86,34 @@ describe('planPriceLabel (Monthly/Annual toggle mapping)', () => {
   });
 });
 
+describe('plan bullets stay cumulative across tiers (Prompt 113 §4 step 6)', () => {
+  // A few lines interpolate a per-tier NUMBER but are otherwise the same
+  // promise (catalog quota, MatchDeal weekly limits, Watson draft quota) —
+  // normalize those before comparing so the cumulative check isn't fooled
+  // by an intentional number update (plans.ts's own "repeats are
+  // intentional" rule).
+  function normalize(bullet: string): string {
+    return bullet
+      .replace(/^\d+ investors unlocked/, 'N investors unlocked')
+      .replace(/^MatchDeal — .*/, 'MatchDeal line')
+      .replace(/^\d+ AI-written outreach drafts/, 'N AI-written outreach drafts');
+  }
+
+  it('garage carries every idea bullet, in order, before its own new ones', () => {
+    const idea = planRow('idea').bullets.map(normalize);
+    const garage = planRow('garage').bullets.map(normalize);
+    expect(garage.slice(0, idea.length)).toEqual(idea);
+    expect(garage.length).toBeGreaterThan(idea.length);
+  });
+
+  it('motherfunding carries every garage bullet, in order, before its own new ones', () => {
+    const garage = planRow('garage').bullets.map(normalize);
+    const motherfunding = planRow('motherfunding').bullets.map(normalize);
+    expect(motherfunding.slice(0, garage.length)).toEqual(garage);
+    expect(motherfunding.length).toBeGreaterThan(garage.length);
+  });
+});
+
 describe('plan-change request period encoding (no-migration)', () => {
   it('encodes annual with a suffix and monthly as a bare tier', () => {
     expect(encodePlanRequest('garage', 'annual')).toBe('garage@annual');
