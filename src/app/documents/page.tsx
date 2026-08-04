@@ -170,12 +170,48 @@ function DocumentsPageInner() {
   // shared db.entities query, since other consumers of that query weren't
   // audited for an order dependency — same "safe alternative" PeopleAccessPanel
   // already uses for its own entity search.
+  //
+  // Prompt 121 §2.6 — reproduced against production data before touching
+  // this: the filter only ever checked e.name, so typing an email address
+  // NEVER matched anything, on any account, by construction (confirmed by
+  // reading this exact code, not guessed). Separately, two of the four orgs
+  // on the platform ("Sherlock Deal_ test", "Test & trial") have zero rows
+  // in `entities` at all (confirmed via SQL), so any search there was also
+  // guaranteed empty — genuinely nothing to find yet, not a bug. Widened to
+  // match an entity's own contact email (Entity.email) and its affiliated
+  // people's emails, alongside the existing name match.
   const grantEntityQuery_ = grantEntityQuery.trim().toLowerCase();
   const filteredGrantEntities = useMemo(() => {
+    if (!grantEntityQuery_) return db.entities.slice().sort((a, b) => a.name.localeCompare(b.name));
     return db.entities
-      .filter((e) => !grantEntityQuery_ || e.name.toLowerCase().includes(grantEntityQuery_))
+      .filter((e) => {
+        if (e.name.toLowerCase().includes(grantEntityQuery_)) return true;
+        if (e.email && e.email.toLowerCase().includes(grantEntityQuery_)) return true;
+        const affiliatedIds = new Set(db.personAffiliations.filter((a) => a.entity_id === e.id && a.current).map((a) => a.person_id));
+        return db.people.some((p) => (p.entity_id === e.id || affiliatedIds.has(p.id))
+          && ((p.email_verified?.toLowerCase().includes(grantEntityQuery_)) || (p.email_guess?.toLowerCase().includes(grantEntityQuery_))));
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [db.entities, grantEntityQuery_]);
+  }, [db.entities, db.people, db.personAffiliations, grantEntityQuery_]);
+
+  // Prompt 121 §2.6 — "the two lists don't talk to each other": a founder
+  // searching by name only ever saw their own org's entities, never the
+  // platform catalog (536 rows, fetched into db.catalog regardless of org).
+  // Shown as informational matches only — NOT directly selectable here.
+  // Converting a catalog row into this org's own entity already exists as
+  // unlockPack() on /pipeline, which is quota-gated by the org's plan
+  // (plan_catalog_quota/catalog_blocked_count); wiring a second, quota-blind
+  // "add to org" shortcut from this search box would let a founder route
+  // around their plan's catalog cap — a billing-integrity call, not a search
+  // bugfix. Flagging rather than silently building that shortcut; routes to
+  // Pipeline's existing, quota-respecting unlock flow instead.
+  const catalogMatches = useMemo(() => {
+    if (!grantEntityQuery_) return [];
+    const ownedNames = new Set(db.entities.map((e) => e.name.toLowerCase()));
+    return db.catalog
+      .filter((c) => !ownedNames.has(c.name.toLowerCase()) && c.name.toLowerCase().includes(grantEntityQuery_))
+      .slice(0, 20);
+  }, [db.catalog, db.entities, grantEntityQuery_]);
 
   // Prompt 47 point 5/6 — "Resend invite". A founder-triggered
   // signInWithOtp for someone else's email can't rely on the resulting
@@ -830,7 +866,7 @@ function DocumentsPageInner() {
                 ) : (
                   <>
                     <input value={grantEntityQuery} onChange={(e) => setGrantEntityQuery(e.target.value)}
-                      placeholder="Search an entity in your pipeline…"
+                      placeholder="Search by name or email…"
                       className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
                     <ul className="mt-1 max-h-56 space-y-0.5 overflow-y-auto rounded border border-gray-100 bg-gray-50 p-1">
                       {filteredGrantEntities.slice(0, 200).map((e) => (
@@ -842,9 +878,24 @@ function DocumentsPageInner() {
                           </button>
                         </li>
                       ))}
-                      {filteredGrantEntities.length === 0 && (
+                      {filteredGrantEntities.length === 0 && catalogMatches.length === 0 && (
                         <li className="px-2 py-1.5 text-xs text-gray-400">No entity matches "{grantEntityQuery}".</li>
                       )}
+                      {/* Prompt 121 §2.6 — catalog matches are informational only,
+                          not directly selectable: see the note on catalogMatches
+                          above for why this doesn't wire straight to a "create
+                          entity" action. */}
+                      {catalogMatches.length > 0 && (
+                        <li className="border-t border-gray-200 px-2 py-1.5 text-[11px] font-medium text-gray-400">
+                          From your catalog — not yet in your pipeline
+                        </li>
+                      )}
+                      {catalogMatches.map((c) => (
+                        <li key={c.id} className="flex items-center justify-between gap-2 px-2 py-1.5">
+                          <span className="text-sm text-gray-500">{c.name}</span>
+                          <a href="/pipeline" className="shrink-0 text-[11px] font-medium text-[#0E7490] hover:underline">Unlock on Pipeline →</a>
+                        </li>
+                      ))}
                     </ul>
                   </>
                 )}
