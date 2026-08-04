@@ -106,10 +106,20 @@ export function VaultPinGate({ orgId, children }: { orgId: string; children: Rea
   }
 
   return (
-    <div className="relative">
+    <div>
       <div className="pointer-events-none select-none blur-md" aria-hidden="true">{children}</div>
-      <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/50 backdrop-blur-sm">
-        <div className="w-full max-w-xs rounded-2xl border border-gray-200 bg-white p-5 shadow-xl">
+      {/* Prompt 118 §2 — fixed (anchored to the viewport), not absolute
+          (anchored to the document). /documents can run many thousands of
+          px tall (folder tree + 69 documents + grants panel); items-center
+          inside an absolute-inset-0 wrapper centered the card at 50% of the
+          PAGE, far below the fold. pointer-events-none on the backdrop
+          keeps the sidebar/header clickable — the content behind is already
+          inert (pointer-events-none blur-md above), so nothing new opens up
+          except navigating away. Verified: no ascendant of <main> (shell.tsx)
+          sets transform/filter/backdrop-filter/perspective/contain/
+          will-change, so `fixed` resolves against the real viewport. */}
+      <div className="pointer-events-none fixed inset-0 z-50 flex items-start justify-center px-4 pt-[14vh]">
+        <div className="pointer-events-auto max-h-[75vh] w-full max-w-xs overflow-y-auto rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl">
           {status === 'setup' ? (
             <>
               <h2 className="text-sm font-semibold text-gray-900">Set a Vault Data Room code</h2>
