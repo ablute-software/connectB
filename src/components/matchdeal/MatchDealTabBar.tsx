@@ -7,6 +7,8 @@
 // only the label changes. Renaming does not touch the matching engine at
 // all: matchdeal_eligible_deck's hard filters + rotation are untouched:
 // this is a label and a footer position, nothing else.
+import { useBottomNavRef } from '@/lib/bottom-nav-context';
+
 const TABS = [
   { key: 'matches', label: 'Matches', icon: '🤝' },
   { key: 'messages', label: 'Instant Message', icon: '💬' },
@@ -18,8 +20,13 @@ const TABS = [
 export type MatchDealTab = (typeof TABS)[number]['key'];
 
 export function MatchDealTabBar({ active, onChange }: { active: MatchDealTab; onChange: (tab: MatchDealTab) => void }) {
+  // Prompt 125 Block A — reports this bar's real rendered height (already
+  // includes env(safe-area-inset-bottom) below) to ReportProblemWidget, so
+  // the FAB stops landing on top of "Profile".
+  const navRef = useBottomNavRef<HTMLElement>();
   return (
     <nav
+      ref={navRef}
       className="relative z-10 flex shrink-0 items-end justify-around border-t border-white/10 bg-[#0B1220]/95 px-1 pt-1.5 backdrop-blur-xl"
       style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 6px)' }}
       aria-label="MatchDeal navigation"

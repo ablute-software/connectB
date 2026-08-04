@@ -3,6 +3,7 @@ import './globals.css';
 import { StoreProvider } from '@/lib/store';
 import { Shell } from '@/components/shell';
 import { ReportProblemWidget } from '@/components/ReportProblemWidget';
+import { BottomNavHeightProvider } from '@/lib/bottom-nav-context';
 import { BRAND_NAME } from '@/lib/brand';
 
 export const metadata: Metadata = {
@@ -19,8 +20,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
         <StoreProvider>
-          <Shell>{children}</Shell>
-          <ReportProblemWidget />
+          <BottomNavHeightProvider>
+            <Shell>{children}</Shell>
+            <ReportProblemWidget />
+          </BottomNavHeightProvider>
         </StoreProvider>
       </body>
     </html>

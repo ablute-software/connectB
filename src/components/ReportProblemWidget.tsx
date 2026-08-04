@@ -14,11 +14,18 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { authEnabled, browserClient } from '@/lib/supabase';
+import { useBottomNavHeight } from '@/lib/bottom-nav-context';
 import type { SupportSource } from './ContactForm';
 
 const AREAS = ['Pipeline', 'Tasks & Agenda', 'Dashboard', 'Vault Data Room', 'Company / Profile', 'Plans & billing', 'MatchDeal', 'Account', 'Other'];
 
 export function ReportProblemWidget() {
+  // Prompt 125 Block A — was a flat `bottom-5`, which lands exactly on the
+  // last item of any bottom nav ("Profile" on MatchDeal, confirmed by
+  // screenshot). navHeight is 0 on any page without one (unchanged
+  // position there); a small 12px gap keeps it visually separate from the
+  // nav rather than touching it.
+  const navHeight = useBottomNavHeight();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -81,7 +88,8 @@ export function ReportProblemWidget() {
     <>
       <button onClick={() => setOpen(true)}
         title="Report a problem"
-        className="fixed bottom-5 right-5 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-[#B00000] text-lg text-white shadow-lg transition hover:bg-[#8f0000]">
+        style={{ bottom: navHeight > 0 ? navHeight + 12 : 20 }}
+        className="fixed right-5 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-[#B00000] text-lg text-white shadow-lg transition hover:bg-[#8f0000]">
         <span aria-hidden="true">⚑</span>
       </button>
       {open && typeof document !== 'undefined' && createPortal(

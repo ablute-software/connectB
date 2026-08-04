@@ -12,6 +12,7 @@ import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
 import { W1Badge } from '@/components/onboarding/W1Badge';
 import { DeveloperViewerFrame } from '@/components/DeveloperViewerFrame';
+import { useBottomNavRef } from '@/lib/bottom-nav-context';
 import { BRAND_NAME } from '@/lib/brand';
 
 type Me = {
@@ -61,6 +62,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const needsReviewCount = db.interactions.filter((i) => i.needs_review).length;
   const [me, setMe] = useState<Me | null>(null);
   const [showMatchDeal, setShowMatchDeal] = useState(false);
+  // Prompt 125 Block A — reports this nav's real rendered height (only
+  // ever present on mobile, md:hidden) to ReportProblemWidget.
+  const mobileNavRef = useBottomNavRef<HTMLElement>();
 
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false, user: null, role: 'none' }));
@@ -244,7 +248,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           reorganisation batch fixed. They don't all fit at once on a phone
           width, so this row scrolls horizontally instead of hiding one;
           relative positioning keeps each badge pinned to its own link. */}
-      <nav className="fixed inset-x-0 bottom-0 z-10 flex gap-1 overflow-x-auto border-t border-gray-100 bg-white px-2 py-1.5 md:hidden">
+      <nav ref={mobileNavRef} className="fixed inset-x-0 bottom-0 z-10 flex gap-1 overflow-x-auto border-t border-gray-100 bg-white px-2 py-1.5 md:hidden">
         {visibleNav.map((n) => {
           const isAbout = n.href === '/settings';
           return (
