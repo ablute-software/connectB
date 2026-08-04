@@ -202,7 +202,10 @@ export function parsePlanRequest(raw: string | null | undefined): { tier: PlanTi
 
 // User-facing gate copy, kept beside the gate that produces it.
 export const AI_COMPOSER_LOCKED_COPY = 'AI personalization is part of the paid plans';
-export const REVIEW_OPTIMIZATION_PREVIEW_COPY = 'Coming soon on the Premium plan';
+// Prompt 117 Bloco G.2 — was hardcoded to 'the Premium plan', a tier name
+// that has never existed in this product (see WATSON_DRAFT_QUOTA's own
+// 100/300-vs-90/210 divergence bug for why hardcoded tier names rot).
+export const REVIEW_OPTIMIZATION_PREVIEW_COPY = `Coming soon on the ${planName('motherfunding')} plan`;
 
 export function planRow(plan: PlanTier): PlanRow {
   return PLANS.find((p) => p.tier === plan) ?? PLANS[0];
