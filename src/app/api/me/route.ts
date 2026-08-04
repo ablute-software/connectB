@@ -22,6 +22,7 @@ import { aiReviewHistoryFieldsAvailable } from '@/lib/ai-review-history-capabili
 import { aiReviewIsTestMarkerAvailable } from '@/lib/ai-review-test-marker-capability';
 import { accessRequestsAvailable, guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { ecosystemFactsAvailable } from '@/lib/ecosystem-facts-capability';
+import { vaultPinOwnerManagedAvailable } from '@/lib/vault-pin-owner-managed-capability';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, WATSON_DRAFT_QUOTA } from '@/lib/plans';
 import { stripeConfigured } from '@/lib/stripe-env';
@@ -48,6 +49,7 @@ export async function GET(req: NextRequest) {
     accessRequests: await accessRequestsAvailable(),
     guestGrantToken: await guestGrantTokenAvailable(),
     ecosystemFacts: await ecosystemFactsAvailable(),
+    vaultPinOwnerManaged: await vaultPinOwnerManagedAvailable(),
   };
   if (!authEnabled) return NextResponse.json({ authEnabled: false, user: null, role: 'none', capabilities });
   const sb = await serverClient();

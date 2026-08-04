@@ -38,10 +38,30 @@ export function VaultPinGate({ orgId, children }: { orgId: string; children: Rea
     // RLS/data_room_read (see this file's own header comment), not the
     // actual security boundary — a viewer session (already fully audited,
     // already broader-read via RLS) skipping it grants no new data access.
+    // Prompt 118 §3 / tail verification — once migration 0118 is applied,
+    // codes become owner-managed (vault_pin_status_v2: required/has_pin/
+    // locked_until, no more self-service pin_skipped). Until then, this
+    // keeps calling the original vault_pin_status untouched — 0118 left it
+    // alone specifically so this fallback never breaks (see 0118's own (5)
+    // comment). capabilities.vaultPinOwnerManaged is the same /api/me probe
+    // every other migration-gated feature uses.
+    let ownerManaged = false;
     try {
       const me = await fetch('/api/me').then((r) => r.json());
       if (me?.viewer?.orgId === orgId) { setStatus('unlocked'); return; }
+      ownerManaged = !!me?.capabilities?.vaultPinOwnerManaged;
     } catch { /* fall through to the normal PIN check */ }
+
+    if (ownerManaged) {
+      const { data, error } = await browserClient().rpc('vault_pin_status_v2', { p_org_id: orgId });
+      if (error) { setErr(error.message); setStatus('locked'); return; }
+      const row = (data as { required: boolean; has_pin: boolean; locked_until: string | null }[] | null)?.[0];
+      if (!row || !row.required) { setStatus('unlocked'); return; }
+      if (sessionStorage.getItem(UNLOCK_KEY) === orgId) { setStatus('unlocked'); return; }
+      setStatus('locked');
+      return;
+    }
+
     const { data, error } = await browserClient().rpc('vault_pin_status', { p_org_id: orgId });
     if (error) { setErr(error.message); setStatus('locked'); return; }
     const row = (data as { has_pin: boolean; pin_skipped: boolean }[] | null)?.[0];

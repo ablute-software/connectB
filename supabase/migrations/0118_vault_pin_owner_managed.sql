@@ -110,15 +110,27 @@ begin
 end;
 $function$;
 
--- (5) vault_pin_status's return shape changes (adds `required`/`locked_until`,
--- drops `pin_skipped` from the public contract) — CREATE OR REPLACE cannot
--- change a function's return columns, so this one needs an explicit drop.
+-- (5) Tail verification (mini_prompt_verificacao_cauda_0115_0118_e_gap_v2,
+-- 2026-08-04) caught a real deploy-window break here: this used to `drop
+-- function` the existing vault_pin_status(uuid) and recreate it with a new
+-- return shape (adds `required`/`locked_until`, drops `pin_skipped`).
+-- CREATE OR REPLACE can't change return columns, so a drop looked
+-- necessary — but the CURRENTLY DEPLOYED client (VaultPinGate.tsx) calls
+-- this exact function expecting the OLD shape (`has_pin`/`pin_skipped`).
+-- Applying this migration before the new client ships would break the
+-- Vault gate for every signed-in user during that window. Fix: leave
+-- vault_pin_status(uuid) completely untouched (old clients keep working
+-- unmodified), and add vault_pin_status_v2 with the new shape alongside it
+-- — purely additive, so this migration is now safe to apply in any order
+-- relative to the client deploy. The new VaultPinGate calls _v2. The old
+-- function is marked for removal in a future cleanup migration once no
+-- deployed client still calls it.
+--
 -- `required` is only ever true when a hash actually exists: a row with
 -- required_by_owner = true and pin_hash = null would lock a user out with
 -- no way back in. vault_pin_set_for_user always writes both together, but
 -- the defense belongs on the read side too, not just the write side.
-drop function if exists public.vault_pin_status(uuid);
-create function public.vault_pin_status(p_org_id uuid)
+create or replace function public.vault_pin_status_v2(p_org_id uuid)
 returns table(required boolean, has_pin boolean, locked_until timestamptz)
 language sql security definer set search_path to 'public'
 as $function$
@@ -128,7 +140,7 @@ as $function$
   from public.vault_data_room_pins
   where org_id = p_org_id and user_id = auth.uid();
 $function$;
-grant execute on function public.vault_pin_status(uuid) to authenticated;
+grant execute on function public.vault_pin_status_v2(uuid) to authenticated;
 
 -- (6) Rate limiting: 5 failed attempts locks for 15 minutes. Locked-out
 -- checked before comparing, so a locked user can't burn more attempts

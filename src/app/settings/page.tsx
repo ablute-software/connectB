@@ -32,10 +32,64 @@ function needsReviewBadge(db: ReturnType<typeof useStore>['db']) {
   return db.interactions.filter((i) => i.needs_review).length;
 }
 
-function RosterCard({ myRole }: { myRole: OrgRole | null }) {
+type PinState = { hasPin: boolean; required: boolean; lockedUntil: string | null };
+
+function RosterCard({ myRole, orgId }: { myRole: OrgRole | null; orgId: string }) {
   const [members, setMembers] = useState<Member[] | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+
+  // Prompt 118 §3.5 / tail verification — owner-managed Vault Data Room
+  // codes. Strictly myRole === 'owner', not the broader canActOnMember
+  // hierarchy above — vault_pin_set_for_user/vault_pin_clear_for_user/
+  // vault_pin_list all check role = 'owner' literally, so an admin seeing
+  // controls here that then 403 server-side would be a worse experience
+  // than not showing them at all.
+  const [pinAvailable, setPinAvailable] = useState(false);
+  const [pinState, setPinState] = useState<Record<string, PinState> | null>(null);
+  const [pinInputs, setPinInputs] = useState<Record<string, string>>({});
+  const [pinBusy, setPinBusy] = useState<string | null>(null);
+  const [pinErr, setPinErr] = useState('');
+
+  function refreshPins() {
+    if (myRole !== 'owner') return;
+    fetch('/api/me').then((r) => r.json()).then((me) => {
+      if (!me?.capabilities?.vaultPinOwnerManaged) return;
+      setPinAvailable(true);
+      fetch(`/api/vault-pin?orgId=${orgId}`).then((r) => r.json()).then((body) => {
+        if (!body.ok) return;
+        const byId: Record<string, PinState> = {};
+        for (const m of body.members) byId[m.userId] = { hasPin: m.hasPin, required: m.required, lockedUntil: m.lockedUntil };
+        setPinState(byId);
+      });
+    });
+  }
+  useEffect(refreshPins, [myRole, orgId]);
+
+  async function setPin(userId: string) {
+    const pin = pinInputs[userId] ?? '';
+    if (!/^\d{4}$/.test(pin)) { setPinErr('Enter exactly 4 digits.'); return; }
+    setPinErr(''); setPinBusy(userId);
+    const res = await fetch('/api/vault-pin/set', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orgId, userId, pin }),
+    });
+    const body = await res.json();
+    setPinBusy(null);
+    if (!body.ok) { setPinErr(body.error); return; }
+    setPinInputs((s) => ({ ...s, [userId]: '' }));
+    refreshPins();
+  }
+
+  async function clearPin(userId: string) {
+    setPinErr(''); setPinBusy(userId);
+    const res = await fetch('/api/vault-pin/clear', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orgId, userId }),
+    });
+    const body = await res.json();
+    setPinBusy(null);
+    if (!body.ok) { setPinErr(body.error); return; }
+    refreshPins();
+  }
 
   function refresh() {
     fetch('/api/team/members').then((r) => r.json()).then((body) => {
@@ -70,11 +124,13 @@ function RosterCard({ myRole }: { myRole: OrgRole | null }) {
 
   return (
     <Card title={`People (${members.length})`}>
+      {pinAvailable && pinErr && <p className="mb-2 text-xs text-[#B00000]">{pinErr}</p>}
       <ul className="space-y-1.5 text-sm">
         {members.map((m) => {
           const actable = myRole && !m.isSelf && canActOnMember(myRole, m.role);
+          const pin = pinState?.[m.userId];
           return (
-            <li key={m.userId} className="flex items-center gap-2">
+            <li key={m.userId} className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{m.email}</span>
               {m.isSelf && <span className="text-xs text-gray-400">(you)</span>}
               {actable ? (
@@ -89,7 +145,32 @@ function RosterCard({ myRole }: { myRole: OrgRole | null }) {
               )}
               {actable && (
                 <button disabled={busy === m.userId} onClick={() => remove(m.userId)}
-                  className="ml-auto text-xs text-gray-400 hover:text-[#B00000] hover:underline">Remove</button>
+                  className="text-xs text-gray-400 hover:text-[#B00000] hover:underline">Remove</button>
+              )}
+              {/* Prompt 118 §3.5 — Vault Data Room code, owner-managed. Only
+                  renders once migration 0118 is applied (pinAvailable) and
+                  only for the owner (RosterCard's own myRole check above). */}
+              {pinAvailable && myRole === 'owner' && (
+                <span className="ml-auto flex items-center gap-1.5">
+                  {pin?.hasPin ? (
+                    <>
+                      <span className="text-xs text-emerald-700" title={pin.lockedUntil && new Date(pin.lockedUntil) > new Date() ? `Locked until ${new Date(pin.lockedUntil).toLocaleTimeString()}` : undefined}>
+                        Vault code set{pin.lockedUntil && new Date(pin.lockedUntil) > new Date() ? ' (locked)' : ''}
+                      </span>
+                      <button disabled={pinBusy === m.userId} onClick={() => clearPin(m.userId)}
+                        className="text-xs text-gray-400 hover:text-[#B00000] hover:underline">Clear</button>
+                    </>
+                  ) : (
+                    <>
+                      <input value={pinInputs[m.userId] ?? ''} inputMode="numeric" placeholder="0000"
+                        onChange={(e) => setPinInputs((s) => ({ ...s, [m.userId]: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
+                        className="w-14 rounded border border-gray-200 px-1.5 py-0.5 text-center text-xs" />
+                      <button disabled={pinBusy === m.userId || (pinInputs[m.userId] ?? '').length !== 4}
+                        onClick={() => setPin(m.userId)}
+                        className="text-xs text-[#0E7490] hover:underline disabled:text-gray-300">Set code</button>
+                    </>
+                  )}
+                </span>
               )}
             </li>
           );
@@ -151,7 +232,7 @@ function TeamCard({ orgId }: { orgId: string }) {
 
   return (
     <div className="space-y-5">
-      <RosterCard myRole={orgRole} />
+      <RosterCard myRole={orgRole} orgId={orgId} />
       <Card title="Invite teammates">
         {canInvite ? (
           <div className="mb-4 flex flex-wrap items-center gap-2">
