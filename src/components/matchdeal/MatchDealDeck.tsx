@@ -349,7 +349,7 @@ function ActivityBand({ activity }: { activity: ActivitySummary | null | undefin
   );
 }
 
-function CardFace({ p, subIndex, active, pitchData }: { p: MatchDealProfile; subIndex?: number; active?: boolean; pitchData?: PitchData | null }) {
+function CardFace({ p, subIndex, active, pitchData, slideDir }: { p: MatchDealProfile; subIndex?: number; active?: boolean; pitchData?: PitchData | null; slideDir?: 'up' | 'down' | null }) {
   const name = p.entity_name || (p.kind === 'startup' ? 'A startup' : 'An investor');
   const image = p.photo_url ?? p.entity_logo_url;
   const [from, to] = GRADIENTS[hashString(name) % GRADIENTS.length];
@@ -404,6 +404,12 @@ function CardFace({ p, subIndex, active, pitchData }: { p: MatchDealProfile; sub
           <p className="mt-1 text-[13px] font-medium text-white/80">{p.representative_name}</p>
         )}
 
+        {/* Prompt 125 Block C — key={i} so React treats each sub-card as a
+            fresh mount, which is what actually triggers the CSS entrance
+            animation below (a plain class toggle on the same element
+            wouldn't replay); slideDir picks which direction it enters
+            from, matching whichever gesture/chevron moved subIndex. */}
+        <div key={i} className={slideDir === 'up' ? 'matchdeal-subcard-enter-up' : slideDir === 'down' ? 'matchdeal-subcard-enter-down' : undefined}>
         {p.kind === 'investor' ? (
           <>
             {/* Slide 1 (i=0) — who they are. Unchanged from before Prompt 110:
@@ -501,6 +507,7 @@ function CardFace({ p, subIndex, active, pitchData }: { p: MatchDealProfile; sub
         ) : (
           <StartupMiniPitch i={i} pitchData={pitchData ?? null} phaseChip={stages} />
         )}
+        </div>
       </div>
     </div>
   );
@@ -521,8 +528,18 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
   const [drag, setDrag] = useState({ x: 0, y: 0, active: false });
   const [flyOut, setFlyOut] = useState<'like' | 'pass' | null>(null);
   const [subIndex, setSubIndex] = useState(0);
+  const [subSlideDir, setSubSlideDir] = useState<'up' | 'down' | null>(null);
   const [showBoostSheet, setShowBoostSheet] = useState(false);
   const startRef = useRef<{ x: number; y: number } | null>(null);
+  // Prompt 125 Block C — "reconsider" a pass (the ONLY undo the backend
+  // actually supports: matchdeal_undo_swipe converts a 'pass' row into a
+  // 'like', per its own SQL body — it errors on anything that isn't
+  // currently a pass). This is NOT "undo an accidental like" (the doc's
+  // own wording) — no RPC exists for that today, and adding one would be a
+  // matching-engine schema change, out of scope here. Flagged, not built:
+  // see this file's own header note near the deck's return value.
+  const [lastPass, setLastPass] = useState<{ profileId: string; name: string } | null>(null);
+  const [reconsiderBusy, setReconsiderBusy] = useState(false);
 
   // Prompt 93 — fetchDeck used to only ever run once per true React mount
   // (deps: [viewerProfileId], which never changes across a session). An
@@ -558,7 +575,7 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
   const current = deck?.[index] ?? null;
   const next = deck?.[index + 1] ?? null;
 
-  useEffect(() => { setSubIndex(0); }, [index]);
+  useEffect(() => { setSubIndex(0); setSubSlideDir(null); }, [index]);
 
   useEffect(() => {
     if (!current) return;
@@ -631,6 +648,7 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
         return;
       }
       if (data) setMatchNotice("It's a match!");
+      setLastPass(direction === 'pass' ? { profileId: current.id, name: current.entity_name ?? (current.kind === 'startup' ? 'this startup' : 'this investor') } : null);
       // Let the exit animation finish before the next card becomes current.
       await new Promise((r) => setTimeout(r, 220));
       setIndex((i) => i + 1);
@@ -640,6 +658,33 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
       setBusy(false);
     }
   }, [current, busy, viewerProfileId]);
+
+  // Reconsider clears itself after a while (matches the toast pattern
+  // above) — an "Undo" affordance that lingers forever past the moment it
+  // applies to is more confusing than useful.
+  useEffect(() => {
+    if (!lastPass) return;
+    const t = setTimeout(() => setLastPass(null), 8000);
+    return () => clearTimeout(t);
+  }, [lastPass]);
+
+  async function reconsider() {
+    if (!lastPass || reconsiderBusy) return;
+    setReconsiderBusy(true);
+    try {
+      const { error } = await browserClient().rpc('matchdeal_undo_swipe', {
+        p_actor_profile_id: viewerProfileId, p_target_profile_id: lastPass.profileId,
+      });
+      if (error) {
+        setToast(error.message.includes('LIMIT') ? "That's every reconsideration your plan includes this week." : 'Could not reconsider — try again.');
+        return;
+      }
+      setToast(`Changed to Like — ${lastPass.name}`);
+      setLastPass(null);
+    } finally {
+      setReconsiderBusy(false);
+    }
+  }
 
   function onPointerDown(e: React.PointerEvent) {
     if (busy || !current) return;
@@ -651,6 +696,21 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
     if (!startRef.current) return;
     setDrag({ x: e.clientX - startRef.current.x, y: e.clientY - startRef.current.y, active: true });
   }
+  // Prompt 125 Block C — pulled out of onPointerUp so the new visible ▲/▼
+  // chevrons (gestures are undiscoverable and, per the reported bug,
+  // fragile on real mobile — buttons are the affordance that always
+  // works, and the accessible one) drive the exact same logic as the drag
+  // gesture, never a second implementation of "what happens on up/down."
+  function goToNextSubCard() {
+    if (!current) return;
+    setSubSlideDir('up');
+    setSubIndex((s) => Math.min(s + 1, subCardCountFor(current.kind) - 1));
+  }
+  function goToPrevSubCardOrBoost() {
+    if (subIndex > 0) { setSubSlideDir('down'); setSubIndex((s) => s - 1); }
+    else setShowBoostSheet(true);
+  }
+
   // Prompt 91 §2.1 — direction corrected (found live, reported wrong the
   // moment Bloco 1 shipped): up reveals the next stories-style sub-card
   // (the mini-pitch, moving forward), down goes back a sub-card or — at the
@@ -662,12 +722,7 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
     const { x, y } = drag;
     startRef.current = null;
     if (Math.abs(y) > Math.abs(x) && Math.abs(y) > SWIPE_THRESHOLD) {
-      if (y < 0) {
-        setSubIndex((s) => Math.min(s + 1, subCardCountFor(current!.kind) - 1));
-      } else {
-        if (subIndex > 0) setSubIndex((s) => s - 1);
-        else setShowBoostSheet(true);
-      }
+      if (y < 0) goToNextSubCard(); else goToPrevSubCardOrBoost();
       setDrag({ x: 0, y: 0, active: false });
       return;
     }
@@ -745,7 +800,7 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         >
-          <CardFace p={current} subIndex={subIndex} active pitchData={pitchData} />
+          <CardFace p={current} subIndex={subIndex} active pitchData={pitchData} slideDir={subSlideDir} />
 
           <div
             className="pointer-events-none absolute left-5 top-5 rotate-[-12deg] rounded-xl border-[3px] border-emerald-400 px-3 py-1 text-[22px] font-black tracking-wider text-emerald-400"
@@ -760,7 +815,39 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
             PASS
           </div>
         </div>
+
+        {/* Prompt 125 Block C — visible ▲/▼ affordances, siblings of the
+            draggable card (not inside its touch-none/pointer-capture div,
+            so they're never at risk of fighting the drag gesture). Same
+            goToNextSubCard/goToPrevSubCardOrBoost the gesture itself
+            calls — gestures stay as a shortcut, these are the path that
+            always works, on any device, and for keyboard/screen-reader
+            use. */}
+        <div className="absolute bottom-6 right-6 z-10 flex flex-col gap-2.5">
+          <button type="button" onClick={goToNextSubCard} disabled={busy} aria-label="Next slide"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-[16px] text-white backdrop-blur-sm transition active:scale-95 disabled:opacity-40">
+            ▲
+          </button>
+          <button type="button" onClick={goToPrevSubCardOrBoost} disabled={busy} aria-label={subIndex > 0 ? 'Previous slide' : 'Boost this profile'}
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-[16px] text-white backdrop-blur-sm transition active:scale-95 disabled:opacity-40">
+            {subIndex > 0 ? '▼' : '🚀'}
+          </button>
+        </div>
       </div>
+
+      {/* Prompt 125 Block C — "reconsider" a pass (see this file's own
+          header note near lastPass's declaration for exactly what this
+          does and doesn't cover). Self-clears after 8s, same as the toast
+          below it. */}
+      {lastPass && (
+        <div className="absolute inset-x-4 top-2 z-10 flex items-center gap-2 rounded-2xl bg-slate-800/95 px-4 py-2.5 text-[13px] text-white shadow-lg">
+          <span className="flex-1">Passed on {lastPass.name}</span>
+          <button type="button" onClick={() => void reconsider()} disabled={reconsiderBusy}
+            className="shrink-0 rounded-full bg-white/15 px-3 py-1 text-[12px] font-semibold disabled:opacity-40">
+            {reconsiderBusy ? 'Reconsidering…' : 'Reconsider'}
+          </button>
+        </div>
+      )}
 
       {/* A match is the whole point of the product, so it gets the screen
           rather than a strip pasted over the bottom of the card. Tapping

@@ -273,7 +273,20 @@ export default function PairPage() {
     <div
       className="relative flex w-full flex-col overflow-hidden bg-[#0B1220] text-white"
       style={{
-        minHeight: '100dvh',
+        // Prompt 125 Block C — was minHeight, which lets this grow TALLER
+        // than the real viewport if flex children's combined height ever
+        // exceeds 100dvh (the header + tab bar + deck's own minimums, on a
+        // short device). overflow-hidden on this same div only clips ITS
+        // children, not the div's own natural growth — a taller-than-
+        // viewport div still makes the BODY scrollable, which is a genuine
+        // way for Android Chrome to end up contesting a vertical drag
+        // gesture with a page scroll even when the touched element itself
+        // sets touch-action: none. Fixed height forces flex children to
+        // compress into the real viewport instead, removing that path
+        // entirely — hardening, not a confirmed fix (this environment has
+        // no way to drive real Android Chrome touch events to prove root
+        // cause; see the diagnosis in the commit message).
+        height: '100dvh',
         paddingTop: 'env(safe-area-inset-top)',
         paddingBottom: 'env(safe-area-inset-bottom)',
       }}

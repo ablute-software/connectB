@@ -30,3 +30,28 @@ body {
     animation: none;
   }
 }
+
+/* Prompt 125 Block C — MatchDeal's stories-style sub-cards used to just
+   snap between slides with no transition at all ("slides colados" from
+   Prompt 109, never shipped). Direction matches the gesture/chevron that
+   triggered it: swiping/tapping up (moving forward) slides the new
+   content in from below; down (going back) slides it in from above. */
+@keyframes matchdeal-subcard-in-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes matchdeal-subcard-in-down {
+  from { opacity: 0; transform: translateY(-14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.matchdeal-subcard-enter-up {
+  animation: matchdeal-subcard-in-up 260ms cubic-bezier(.16, 1, .3, 1);
+}
+.matchdeal-subcard-enter-down {
+  animation: matchdeal-subcard-in-down 260ms cubic-bezier(.16, 1, .3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .matchdeal-subcard-enter-up, .matchdeal-subcard-enter-down {
+    animation: none;
+  }
+}
