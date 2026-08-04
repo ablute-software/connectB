@@ -53,10 +53,16 @@ export function InvestorPlansPanel() {
   const currentRow = INVESTOR_PLANS.find((p) => p.tier === current)!;
 
   return (
-    <div className="max-w-2xl space-y-4">
+    // Prompt 121 §2.4 correction — this panel's OWN root was still capped at
+    // max-w-2xl (672px), independent of and undermining the shell's new
+    // max-w-6xl <main>: 4 columns inside 672px squeezed each card to ~159px,
+    // the same "thin, tall card" failure BUG-03 already named, just smaller.
+    // Verified live (scratch route + getBoundingClientRect) before landing
+    // this correction — see the commit message.
+    <div className="max-w-6xl space-y-4">
       <h1 className="text-lg font-bold text-gray-900">Plans &amp; billing</h1>
 
-      <div className="rounded-lg border border-cyan-100 bg-[#E8F4F8] p-4">
+      <div data-tour-id="plans-current" className="rounded-lg border border-cyan-100 bg-[#E8F4F8] p-4">
         <div className="flex flex-wrap items-baseline gap-2">
           <span className="text-xl font-bold text-[#0E7490]">{currentRow.name}</span>
           <span className="text-sm text-gray-500">€{currentRow.monthlyEur}/month</span>
@@ -75,7 +81,7 @@ export function InvestorPlansPanel() {
       {/* Prompt 121 §2.4 — Monthly/Annual toggle, one selection for the
           whole grid (not per-card): every priced tier reads the same
           `billing` state. */}
-      <div className="flex items-center gap-1.5">
+      <div data-tour-id="plans-toggle" className="flex items-center gap-1.5">
         {(['monthly', 'annual'] as const).map((b) => (
           <button key={b} onClick={() => setBilling(b)}
             className={`rounded-full px-3 py-1.5 text-xs font-medium ${billing === b ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>

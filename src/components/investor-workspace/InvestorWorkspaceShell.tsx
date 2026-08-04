@@ -14,10 +14,24 @@ import { MatchDealPairingModal } from '@/components/matchdeal/MatchDealPairingMo
 import { InvestorPlansPanel } from './InvestorPlansPanel';
 import { browserClient } from '@/lib/supabase';
 import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
+import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
+import { PageTour } from '@/components/onboarding/PageTour';
+import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 
 type Tab = 'pipeline' | 'about' | 'agenda' | 'today' | 'archive' | 'plans';
 
 const COMPLETENESS_GATE = 50;
+
+// Prompt 121 §2.1 — the investor shell never had the tour/tooltip system at
+// all (confirmed: zero data-tour-id/tour references before this). Copies
+// the founder side's own per-tab-guide pattern (documents/page.tsx's
+// guide_documents/guide_people_access split) rather than inventing a tour
+// that spans multiple tabs at once — anchors only resolve against the
+// current DOM, so a guide can't reach across tabs that aren't mounted.
+// guide_investor_access ships with the Access granted page itself (§2.5).
+const TOUR_KEY_BY_TAB: Partial<Record<Tab, string>> = {
+  pipeline: 'guide_investor_pipeline', about: 'guide_investor_about', plans: 'guide_investor_plans',
+};
 
 export function InvestorWorkspaceShell({
   entityName, startupCard, sessionLabel, openStartup, onOpenStartup, onBackToPipeline,
@@ -75,8 +89,12 @@ export function InvestorWorkspaceShell({
     { key: 'plans', label: 'Plans & billing', icon: '◈' },
   ];
 
+  const tourKey = TOUR_KEY_BY_TAB[tab];
+
   return (
+    <OnboardingProvider>
     <div className="flex min-h-screen bg-[#F7F9FA] text-[#1A1A1A]">
+      {tourKey && <PageTour pageKey={tourKey} />}
       <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-gray-100 bg-white md:flex">
         <div className="px-6 pb-3 pt-6">
           <div className="text-[26px] font-bold leading-none tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
@@ -151,6 +169,12 @@ export function InvestorWorkspaceShell({
               className="rounded-full border border-gray-100 bg-white px-3 py-1 text-xs text-gray-500">
               {todayCount == null ? 'Today —' : `Today ${todayCount} update${todayCount === 1 ? '' : 's'}`}
             </span>
+            {/* Prompt 121 §2.1 — the "?" lives in the header (persistent
+                across every tab) rather than next to each tab's own title,
+                since this header is the one element common to all of them;
+                only rearms the current tab's guide, hidden on tabs that
+                don't have one yet (Agenda/Today/Archive). */}
+            {tourKey && <PageGuideButton pageKey={tourKey} />}
           </div>
         </header>
         {/* BUG-03 — this <main> used to cap every tab at max-w-3xl (768px),
@@ -187,5 +211,6 @@ export function InvestorWorkspaceShell({
       </div>
       {showMatchDeal && <MatchDealPairingModal kind="investor" onClose={() => setShowMatchDeal(false)} />}
     </div>
+    </OnboardingProvider>
   );
 }

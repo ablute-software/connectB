@@ -216,4 +216,49 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
       body: 'Switch to annual, or enter a promo code here. Cancel anytime — nothing here locks you in.',
     },
   ],
+
+  // Prompt 121 §2.1 — the investor workspace never had this system at all
+  // (confirmed: InvestorWorkspaceShell.tsx had zero data-tour-id/tour
+  // references before this). One guide per tab, same mechanism as the
+  // founder side's own guide_documents/guide_people_access split in
+  // documents/page.tsx — a first-entry walk across Pipeline → About →
+  // Access → Plans is 4 separate per-tab guides, not one tour spanning tabs
+  // that aren't simultaneously in the DOM. guide_investor_access ships
+  // alongside the Access granted page itself (Prompt 121 §2.5), not here.
+  guide_investor_pipeline: [
+    {
+      selector: 'investor-pipeline-list',
+      title: 'Startups matched to your thesis',
+      body: 'Shown in waves by fit — the next wave unlocks once you\'ve decided on every card in this one. A locked data room just means the founder hasn\'t opened it to you yet; Express interest is how that conversation starts.',
+    },
+    {
+      selector: 'investor-pipeline-filters',
+      title: 'Narrow it down',
+      body: 'Filter by sector, geography or stage — this only changes what you see inside the current wave, it never unlocks the next one early.',
+    },
+  ],
+  guide_investor_about: [
+    {
+      selector: 'investor-about-completeness',
+      title: 'This percentage drives your matches',
+      body: 'The more complete your mandate, the more accurately we can tell which startups actually fit it.',
+    },
+    {
+      selector: 'investor-about-form',
+      title: 'Your thesis, in detail',
+      body: 'Ticket range, sectors, stages, exclusions — everything here is what decides who shows up in your Pipeline.',
+    },
+  ],
+  guide_investor_plans: [
+    {
+      selector: 'plans-current',
+      title: 'What you’re on, and what it unlocks',
+      body: 'Your current plan is marked here, with its seat count and monthly opportunity cap.',
+    },
+    {
+      selector: 'plans-toggle',
+      title: 'Monthly or annual',
+      body: 'Switch the whole grid between monthly and annual pricing. Requesting a different tier doesn\'t charge you automatically — the team applies it manually.',
+    },
+  ],
 };

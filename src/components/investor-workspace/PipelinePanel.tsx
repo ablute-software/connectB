@@ -169,7 +169,7 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string
           status filter and the wave doseamento above (passesFilter), never
           bypassing it: a locked wave stays locked no matter what these
           narrow it down to. */}
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div data-tour-id="investor-pipeline-filters" className="flex flex-wrap items-center gap-1.5">
         <select value={sectorFilter} onChange={(e) => setSectorFilter(e.target.value)}
           className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-600">
           <option value="all">All sectors</option>
@@ -211,6 +211,7 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string
         <ComparisonView cards={compareCards} onClose={() => setShowComparison(false)} />
       )}
 
+      <div data-tour-id="investor-pipeline-list" className="space-y-4">
       {waves.map((wave) => (
         <div key={wave.index} className={wave.unlocked ? '' : 'opacity-50'}>
           {waves.length > 1 && (
@@ -344,6 +345,7 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string
           </div>
         </div>
       ))}
+      </div>
       {!firstUnlocked && <p className="text-xs text-gray-400">All caught up — check back as new matches arrive.</p>}
     </div>
   );
