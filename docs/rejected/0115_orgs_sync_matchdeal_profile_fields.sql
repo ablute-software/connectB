@@ -1,3 +1,19 @@
+-- REJECTED — moved out of supabase/migrations/ on 2026-08-04 (was 0115) so
+-- a future `supabase db reset`/`db push` can never pick it up by accident;
+-- Supabase's migration runner applies every file in that directory in
+-- lexical order regardless of naming, so a "0115_REJECTED_..." rename
+-- alone would not have been enough. Superseded by
+-- supabase/migrations/0117_matchdeal_startup_profile_backfill_proposal.sql
+-- (a one-time, trigger-safe backfill), per the addenda to Prompt 120
+-- (2026-08-04, "a opção 3 executou..."): this file's CONTINUOUS sync
+-- design would auto-flip is_visible on startups via the live
+-- trg_matchdeal_profile_completeness trigger, exposing them to investors
+-- with no owner action — confirmed live in production before rejecting,
+-- not assumed. Kept here, unapplied and un-appliable from this location,
+-- purely as the decision record.
+--
+-- Original content follows, unchanged:
+--
 -- PROPOSED, NOT APPLIED. Extends migration 0098's orgs -> matchdeal_profiles
 -- sync trigger (which only ever covered sectors/country) to the rest of the
 -- fields matchdeal_recompute_profile_completeness() (migration 0105) checks
