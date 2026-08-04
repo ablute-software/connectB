@@ -41,6 +41,14 @@ type DocKind = typeof DOC_KINDS[number]['value'];
 
 const SEVERITY_COLOR: Record<string, string> = { high: 'text-[#B00000]', medium: 'text-amber-600', low: 'text-gray-500' };
 
+// Prompt 117 Bloco D — parked, not deleted: this card reviews a message
+// draft against one specific person's CRM context (kill words, watch-outs),
+// which doesn't fit the founder-facing Readiness surface it currently sits
+// on. State/handler/API branch (message_review) stay intact for a future
+// networking/advisor-facing surface where reviewing a draft against a
+// specific person is the right shape again.
+const SHOW_DRAFT_REVIEW_CARD = false;
+
 function ComingSoon() {
   return <p className="rounded-lg bg-gray-50 px-4 py-3 text-center text-xs text-gray-400">Coming soon to your workspace.</p>;
 }
@@ -268,27 +276,29 @@ export function ReviewPanel() {
           )}
       </Card>
 
-      <Card title="AI Review — second opinion on a draft">
-        <p className="mb-2 text-xs text-gray-500">
-          Beyond the mechanical linter: tone, hook strength, investor fit — using your CRM context (thesis, kill words,
-          watch-outs) as grounding. The AI never sends anything and never edits your data.
-        </p>
-        {!caps?.ai ? <ComingSoon /> : (
-          <>
-            <select value={personId} onChange={(e) => setPersonId(e.target.value)} className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
-              <option value="">Reviewing for… (person)</option>
-              {db.people.map((p) => <option key={p.id} value={p.id}>{p.full_name} — {db.entities.find((e) => e.id === p.entity_id)?.name}</option>)}
-            </select>
-            <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={5}
-              placeholder="Paste the draft to review…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
-            <button disabled={!draft || aiLoading} onClick={reviewMessage}
-              className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-              {aiLoading ? 'Reviewing…' : 'Review with AI'}
-            </button>
-            {aiResult && <pre className="mt-3 whitespace-pre-wrap rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">{aiResult}</pre>}
-          </>
-        )}
-      </Card>
+      {SHOW_DRAFT_REVIEW_CARD && (
+        <Card title="AI Review — second opinion on a draft">
+          <p className="mb-2 text-xs text-gray-500">
+            Beyond the mechanical linter: tone, hook strength, investor fit — using your CRM context (thesis, kill words,
+            watch-outs) as grounding. The AI never sends anything and never edits your data.
+          </p>
+          {!caps?.ai ? <ComingSoon /> : (
+            <>
+              <select value={personId} onChange={(e) => setPersonId(e.target.value)} className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
+                <option value="">Reviewing for… (person)</option>
+                {db.people.map((p) => <option key={p.id} value={p.id}>{p.full_name} — {db.entities.find((e) => e.id === p.entity_id)?.name}</option>)}
+              </select>
+              <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={5}
+                placeholder="Paste the draft to review…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
+              <button disabled={!draft || aiLoading} onClick={reviewMessage}
+                className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+                {aiLoading ? 'Reviewing…' : 'Review with AI'}
+              </button>
+              {aiResult && <pre className="mt-3 whitespace-pre-wrap rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">{aiResult}</pre>}
+            </>
+          )}
+        </Card>
+      )}
 
       <Card title="Document reviews">
         <p className="mb-2 text-xs text-gray-500">
