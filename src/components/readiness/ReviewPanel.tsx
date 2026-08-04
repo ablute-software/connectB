@@ -169,7 +169,7 @@ export function ReviewPanel() {
     try {
       const res = await fetch('/api/ai-review', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: docKind, draft: docText, context: companyContext }),
+        body: JSON.stringify({ kind: docKind, draft: docText, context: { ...companyContext, facts: confirmedFacts } }),
       });
       const data = await res.json();
       if (data.error) { setDocErr(data.error); return; }
@@ -198,6 +198,7 @@ export function ReviewPanel() {
         body: JSON.stringify({
           kind: 'cross_document_review',
           kindA: crossKindA, draftA: crossTextA, kindB: crossKindB, draftB: crossTextB,
+          context: { ...companyContext, facts: confirmedFacts },
         }),
       });
       const data = await res.json();

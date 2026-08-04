@@ -39,6 +39,15 @@ const CATEGORIES = ['product', 'traction', 'team', 'positioning', 'financing', '
 
 interface CompanyContext {
   name?: string; sector?: string; stage?: string; country?: string; round_target_eur?: number; one_liner?: string;
+  // Prompt 117 §1/Block A — confirmed company_facts (canon), independent of
+  // whatever text is pasted for review. Before this, only market_data and
+  // /api/review/investability ever received facts; deck/one-pager/business-
+  // plan/etc. reviews and cross_document_review got neither facts nor pipeline
+  // data, so the model correctly (per its own "never invent" system prompt)
+  // reported real confirmed facts as "missing" — see the Prompt 117 report
+  // for the business_plan_review that said "team unknown" about a founder
+  // whose WomenInTech award was already a confirmed fact it was never shown.
+  facts?: string[];
 }
 
 interface Finding { text: string; category: typeof CATEGORIES[number] }
@@ -73,7 +82,18 @@ function stageGuidance(stage?: string): string {
 
 function contextBlock(context?: CompanyContext): string {
   if (!context) return 'COMPANY CONTEXT: none provided.';
-  return `COMPANY CONTEXT:\n${JSON.stringify(context, null, 2)}\n\n${stageGuidance(context.stage)}`;
+  const { facts, ...orgFields } = context;
+  const factsBlock = facts?.length
+    ? `\n\nCONFIRMED COMPANY FACTS (the founder's own canon, independently confirmed — treat as ground truth, `
+      + `and NOT as part of the document under review):\n${facts.map((f) => `- ${f}`).join('\n')}`
+      // Prompt 117 §1/Block A.3 — without this, a fact the document simply
+      // doesn't repeat reads as "missing" rather than "not restated here",
+      // and the model (correctly instructed never to invent) has no way to
+      // tell a founder the confirmed fact belongs in this document too.
+      + `\n\nWhere a confirmed company fact above is materially relevant but absent from the document under review, `
+      + `say so explicitly as a recommendation to add it — that gap is itself a finding.`
+    : '';
+  return `COMPANY CONTEXT:\n${JSON.stringify(orgFields, null, 2)}\n\n${stageGuidance(context.stage)}${factsBlock}`;
 }
 
 const FINDING_SCHEMA = {
@@ -182,7 +202,7 @@ export async function POST(req: Request) {
       + 'documents verbatim; if you cannot find a literal quote in both, do not report it. Prefer zero contradictions over '
       + 'a low-confidence one. You never send or mutate anything; you always return a report.';
     const crossDocPrompt =
-      `DOCUMENT A (${nameA}):\n${draftA}\n\nDOCUMENT B (${nameB}):\n${draftB}\n\n`
+      `${contextBlock(context)}\n\nDOCUMENT A (${nameA}):\n${draftA}\n\nDOCUMENT B (${nameB}):\n${draftB}\n\n`
       + 'Find genuine contradictions between these two documents. Always finish by calling report_contradictions.';
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
