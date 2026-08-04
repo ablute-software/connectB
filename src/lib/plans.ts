@@ -244,6 +244,12 @@ export interface Entitlements {
   // the frosted-glass overlay. Lift further later by also returning true for
   // e.g. `plan === 'motherfunding'` — no schema change needed for that.
   reviewOptimization: boolean;
+  // Prompt 117 Bloco G — Cross-document check and Market data are the two
+  // heavier-compute review tools; restricted to the top tier once
+  // reviewOptimization itself opens beyond the platform-only preview above.
+  // Composes with reviewOptimization the same way aiComposer composes with
+  // capabilities.ai: both gates must pass, this is only the plan half.
+  reviewTopTierTools: boolean;
 }
 
 // Prompt 115 verification note: the param used to be named `isPlatformOrg`,
@@ -259,6 +265,7 @@ export function planEntitlements(plan: PlanTier, isDeveloperRole: boolean): Enti
     aiComposer: isDeveloperRole || planIsPaid(plan),
     // Platform-only preview (Prompt 115 Fase 0) — see the note on the field above.
     reviewOptimization: isDeveloperRole,
+    reviewTopTierTools: isDeveloperRole || plan === 'motherfunding',
   };
 }
 

@@ -67,6 +67,16 @@ describe('planEntitlements (C — plan-gate resolution)', () => {
     expect(planEntitlements('motherfunding', false).reviewOptimization).toBe(false);
     expect(planEntitlements('motherfunding', true).reviewOptimization).toBe(true); // ablute_
   });
+
+  it('reviewTopTierTools (Prompt 117 Bloco G) is motherfunding-only among customer plans', () => {
+    expect(planEntitlements('idea', false).reviewTopTierTools).toBe(false);
+    expect(planEntitlements('garage', false).reviewTopTierTools).toBe(false);
+    expect(planEntitlements('motherfunding', false).reviewTopTierTools).toBe(true);
+  });
+
+  it('platform org gets reviewTopTierTools regardless of plan', () => {
+    expect(planEntitlements('idea', true).reviewTopTierTools).toBe(true);
+  });
 });
 
 describe('planPriceLabel (Monthly/Annual toggle mapping)', () => {

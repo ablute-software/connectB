@@ -17,7 +17,9 @@
 // groundwork the addendum asked for — no new taxonomy).
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { serverClient } from '@/lib/supabase-server';
+import { serverClient, resolveRole, authEnabled } from '@/lib/supabase-server';
+import { resolveUserPlan } from '@/lib/plan-server';
+import { planEntitlements, planName } from '@/lib/plans';
 import { aiReviewHistoryFieldsAvailable } from '@/lib/ai-review-history-capability';
 
 type ReviewKind =
@@ -186,6 +188,22 @@ export async function POST(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   const { data: member } = user ? await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle() : { data: null };
+
+  // Prompt 117 Bloco G — Cross-document check and Market data are
+  // motherfunding-only. Enforced HERE, not just the PlanBadge/TopTierLocked
+  // UI in ReviewPanel.tsx — a real 403, not a soft configured:false, since
+  // this is a paywall, not a "not yet configured" state. Skipped when auth
+  // is disabled (demo mode has no plan to check against).
+  if ((kind === 'cross_document_review' || kind === 'market_data') && authEnabled) {
+    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
+    const [role, { plan }] = await Promise.all([
+      resolveRole(user.id, user.email, sb, user.email_confirmed_at),
+      resolveUserPlan(user.id, sb),
+    ]);
+    if (!planEntitlements(plan, role === 'developer').reviewTopTierTools) {
+      return NextResponse.json({ error: `This tool is available on the ${planName('motherfunding')} plan.` }, { status: 403 });
+    }
+  }
 
   // Block D — compares two RAW documents directly (not derived ai_reviews
   // results, which don't retain the original text) for genuine factual

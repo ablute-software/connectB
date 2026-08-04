@@ -18,6 +18,8 @@ import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import type { Contradiction } from '@/lib/action-plan';
 import { ReportView, type StructuredReport } from './ReportView';
+import { PlanBadge } from '@/components/PlanBadge';
+import { planName } from '@/lib/plans';
 
 interface ReviewRun { id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string }
 interface InvestabilityReport { score: number; summary: string; strengths: string[]; weaknesses: string[]; risks: string[]; recommendations: string[] }
@@ -46,9 +48,20 @@ function ComingSoon() {
   return <p className="rounded-lg bg-gray-50 px-4 py-3 text-center text-xs text-gray-400">Coming soon to your workspace.</p>;
 }
 
+// Prompt 117 Bloco G — UI half of the gate; /api/ai-review enforces the same
+// check server-side with a real 403, so this is display-truth, not the
+// enforcement point.
+function TopTierLocked() {
+  return (
+    <p className="rounded-lg bg-gray-50 px-4 py-3 text-center text-xs text-gray-400">
+      Available on the {planName('motherfunding')} plan.
+    </p>
+  );
+}
+
 export function ReviewPanel() {
   const { db } = useStore();
-  const [caps, setCaps] = useState<{ ai: boolean; reviewRuns: boolean; reviewOptimization: boolean } | null>(null);
+  const [caps, setCaps] = useState<{ ai: boolean; reviewRuns: boolean; reviewOptimization: boolean; reviewTopTierTools: boolean } | null>(null);
 
   const [draft, setDraft] = useState('');
   const [personId, setPersonId] = useState('');
@@ -78,8 +91,11 @@ export function ReviewPanel() {
 
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
-      .then((me) => setCaps({ ai: !!me.capabilities?.ai, reviewRuns: !!me.capabilities?.reviewRuns, reviewOptimization: !!me.entitlements?.reviewOptimization }))
-      .catch(() => setCaps({ ai: false, reviewRuns: false, reviewOptimization: false }));
+      .then((me) => setCaps({
+        ai: !!me.capabilities?.ai, reviewRuns: !!me.capabilities?.reviewRuns,
+        reviewOptimization: !!me.entitlements?.reviewOptimization, reviewTopTierTools: !!me.entitlements?.reviewTopTierTools,
+      }))
+      .catch(() => setCaps({ ai: false, reviewRuns: false, reviewOptimization: false, reviewTopTierTools: false }));
   }, []);
 
   useEffect(() => {
@@ -274,12 +290,12 @@ export function ReviewPanel() {
         )}
       </Card>
 
-      <Card title="Cross-document check — find contradictions">
+      <Card title={<span className="inline-flex items-center gap-2">Cross-document check — find contradictions {caps && !caps.reviewTopTierTools && <PlanBadge tier="motherfunding" />}</span>}>
         <p className="mb-2 text-xs text-gray-500">
           Paste two different documents (e.g. your business plan and your financial plan) and the AI flags only genuine
           contradictions — each backed by an exact quote from both sides. Feeds the Contradictions section in Action plan.
         </p>
-        {!caps?.ai ? <ComingSoon /> : (
+        {!caps?.ai ? <ComingSoon /> : !caps.reviewTopTierTools ? <TopTierLocked /> : (
           <>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
@@ -331,13 +347,13 @@ export function ReviewPanel() {
         )}
       </Card>
 
-      <Card title="Market data — your sector">
+      <Card title={<span className="inline-flex items-center gap-2">Market data — your sector {caps && !caps.reviewTopTierTools && <PlanBadge tier="motherfunding" />}</span>}>
         <p className="mb-2 text-xs text-gray-500">
           Benchmarks YOUR OWN market/sector: size and direction, where a company at your stage typically sits, the metrics
           investors in this space benchmark on, and comparable companies. Every item is marked for verification; specifics
           are never invented. Grounded on your company facts.
         </p>
-        {!caps?.ai ? <ComingSoon /> : (
+        {!caps?.ai ? <ComingSoon /> : !caps.reviewTopTierTools ? <TopTierLocked /> : (
           <>
             <button disabled={marketLoading} onClick={researchMarket}
               className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
