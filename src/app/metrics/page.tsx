@@ -24,14 +24,16 @@ import { FundraisingOutcomesTab } from '@/components/backoffice/metrics/Fundrais
 import { OrganizationsTab } from '@/components/backoffice/metrics/OrganizationsTab';
 import { PeriodPicker, type Period } from '@/components/backoffice/metrics/PeriodPicker';
 import { HistoricalDataNotice } from '@/components/backoffice/metrics/HistoricalDataNotice';
+import { EcosystemTab } from '@/components/backoffice/metrics/EcosystemTab';
 
-type Tab = 'overview' | 'growth' | 'activation' | 'fundraising' | 'organizations';
+type Tab = 'overview' | 'growth' | 'activation' | 'fundraising' | 'organizations' | 'ecosystem';
 const TABS: { key: Tab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
   { key: 'growth', label: 'Growth & Revenue' },
   { key: 'activation', label: 'Activation & Retention' },
   { key: 'fundraising', label: 'Fundraising Outcomes' },
   { key: 'organizations', label: 'Organizations' },
+  { key: 'ecosystem', label: 'Ecosystem' },
 ];
 
 type AuditRow = AuditLogRow & { adminName: string };
@@ -263,6 +265,7 @@ export default function MetricsPage() {
       {tab === 'activation' && <ActivationRetentionTab />}
       {tab === 'fundraising' && <FundraisingOutcomesTab />}
       {tab === 'organizations' && <OrganizationsTab />}
+      {tab === 'ecosystem' && <EcosystemTab />}
     </div>
   );
 }
