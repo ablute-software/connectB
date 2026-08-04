@@ -315,7 +315,7 @@ naturally omits a column that doesn't exist, so no probe is needed on that speci
 
 ---
 
-## Block F — Train non-repeating questions 🟢
+## Block F — Train non-repeating questions 🟢 (production confirmed)
 
 **Commit:** (this one).
 
@@ -374,13 +374,35 @@ freshness against the rendered text instead of the source finding.
   graded result (real AI feedback per answer, strengths/adjustments) captured. The test `deck_review`
   row and all 3 `coaching_runs` rows were deleted after capture — before/after snapshots confirm
   nothing else in the org's data was touched.
+- Production deploy confirmed via the corrected chunk-content method: downloaded
+  `/_next/static/chunks/app/readiness/page-bbc8f789af2fc5c6.js` from `https://www.sherlockdeal.com/readiness`
+  and grepped its content for "Train — investor Q&A practice", found present.
 
 ---
 
-## Block G (optional)
+## Block G (optional) 🟡 partial — item 1 of 3 only, per the prompt's own stopping-point instruction
 
-Not attempted — Blocks A–F are all green, so it was in scope per the prompt's own condition, but
-not reached in this session.
+Blocks A–F are all green, so Block G was in scope. Per its explicit fallback ("if time runs out,
+finish #1 (SAFE conversion) complete-and-tested and stop, noting where in the report"), this
+session built and tested item 1 only and stopped there.
+
+**Done:** `src/lib/safe-conversion.ts` — `convertSafe()`/`convertSafes()`, standard YC-style SAFE
+(Simple Agreement for Future Equity) conversion mechanics: at a priced round, a SAFE converts at
+whichever price per share is most favorable to the investor (valuation cap vs. discount vs. the
+round's own price). Pure function, no I/O, no schema — same convention as `dilution.ts`. Explicitly
+scoped to **one SAFE converting in isolation**: real cap tables with multiple SAFEs converting
+simultaneously have a genuine circular dependency (each SAFE's issued shares affect the
+fully-diluted count the others convert against) that a single-pass function can't solve — flagged
+in the file's own top comment and on `convertSafes()`, not silently approximated.
+
+`npx vitest run` — 8 new tests (`safe-conversion.test.ts`): round-price-only conversion, cap
+triggering when more favorable than the round price, cap correctly *not* triggering when the round
+price is already cheaper, discount-only conversion, cap-vs-discount picking whichever gives more
+shares, and a sanity check that ownership comes out in `(0, 100)%` for a realistic input.
+`npx tsc --noEmit` and `npm run build` both clean.
+
+**Not attempted:** `src/lib/option-pool.ts`, `src/lib/waterfall.ts`, and any UI for SAFE
+conversion (item 1 has no UI yet — it's a tested pure function only, not wired into any page).
 
 ---
 
