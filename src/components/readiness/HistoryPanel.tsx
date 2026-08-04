@@ -13,14 +13,11 @@
 // somewhere to put its draft (interaction_draft, pre-dates this Bloco) —
 // read via coalesce(input_text, interaction_draft).
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
-import type { CompanyFactCategory } from '@/lib/types';
-import { ReportView, type StructuredReport } from './ReportView';
-
-type Severity = 'low' | 'medium' | 'high';
-const SEVERITY_COLOR: Record<string, string> = { high: 'text-[#B00000]', medium: 'text-amber-600', low: 'text-gray-500' };
+import { ReviewResultBody } from './ReviewResultBody';
 
 interface AiReviewRow {
   id: string; kind: string; title: string | null; created_at: string;
@@ -32,21 +29,17 @@ interface ReviewRunRow {
 }
 
 interface HistoryItem {
-  key: string; created_at: string; title: string; kindLabel: string;
+  key: string; reportHref: string; created_at: string; title: string; kindLabel: string;
   originalText: string | null;
   body: React.ReactNode;
 }
 
-const KIND_LABEL: Record<string, string> = {
+export const KIND_LABEL: Record<string, string> = {
   deck_review: 'Pitch deck', one_pager_review: 'One-pager', business_plan_review: 'Business plan',
   financial_plan_review: 'Financial plan', marketing_plan_review: 'Commercial & marketing plan',
   cap_table_review: 'Cap table & terms', message_review: 'Outreach draft review',
   market_data: 'Market benchmark', cross_document_review: 'Cross-document check',
 };
-const STRUCTURED_KINDS = new Set([
-  'deck_review', 'one_pager_review', 'business_plan_review',
-  'financial_plan_review', 'marketing_plan_review', 'cap_table_review',
-]);
 
 function OriginalText({ text }: { text: string | null }) {
   if (!text) {
@@ -60,54 +53,14 @@ function OriginalText({ text }: { text: string | null }) {
   );
 }
 
-// Defends against real malformed rows found while building this panel: the
-// model's tool_use.input occasionally doesn't conform to its own declared
-// array schema (e.g. `strengths` comes back as a markdown bullet string
-// instead of string[]) and /api/ai-review persists it unvalidated. This was
-// always possible — History is just the first surface that ever re-renders
-// a PAST result instead of only the one just-returned from a live call, so
-// it's the first place it could crash a render. Flagged, not fixed at the
-// source (that's a route.ts validation gap, out of this Bloco's scope).
-function isRenderableReport(r: unknown): r is StructuredReport {
-  const x = r as Partial<StructuredReport> | null;
-  return !!x && Array.isArray(x.strengths) && Array.isArray(x.weaknesses) && Array.isArray(x.risks) && Array.isArray(x.recommendations);
-}
-
 function aiReviewToItem(row: AiReviewRow): HistoryItem {
   const kindLabel = KIND_LABEL[row.kind] ?? row.kind;
   const originalText = row.input_text ?? row.interaction_draft ?? null;
-  let body: React.ReactNode;
-
-  if (STRUCTURED_KINDS.has(row.kind)) {
-    body = isRenderableReport(row.result)
-      ? <ReportView report={row.result} />
-      : <p className="mt-2 text-xs italic text-gray-400">This report couldn&apos;t be displayed (unexpected format from that run).</p>;
-  } else if (row.kind === 'cross_document_review') {
-    const raw = (row.result as { contradictions?: unknown })?.contradictions;
-    const contradictions = Array.isArray(raw)
-      ? raw as { text: string; category: CompanyFactCategory; severity: Severity; sideA: { quote: string }; sideB: { quote: string } }[]
-      : [];
-    body = contradictions.length === 0
-      ? <p className="mt-2 text-xs text-gray-500">No genuine contradictions found between these two documents.</p>
-      : (
-        <ul className="mt-2 space-y-2">
-          {contradictions.map((c, i) => (
-            <li key={i} className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs">
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-gray-800">{c.text}</p>
-                <span className={`shrink-0 font-semibold uppercase ${SEVERITY_COLOR[c.severity]}`}>{c.severity}</span>
-              </div>
-            </li>
-          ))}
-        </ul>
-      );
-  } else {
-    const rawReview = (row.result as { review?: unknown })?.review;
-    const review = typeof rawReview === 'string' ? rawReview : '';
-    body = <pre className="mt-2 whitespace-pre-wrap rounded border border-gray-200 bg-white p-2 text-xs text-gray-700">{review}</pre>;
-  }
-
-  return { key: `ai_review:${row.id}`, created_at: row.created_at, title: row.title ?? kindLabel, kindLabel, originalText, body };
+  return {
+    key: `ai_review:${row.id}`, reportHref: `/readiness/report/${row.id}?type=ai_review`,
+    created_at: row.created_at, title: row.title ?? kindLabel, kindLabel, originalText,
+    body: <ReviewResultBody kind={row.kind} result={row.result} />,
+  };
 }
 
 function reviewRunToItem(row: ReviewRunRow): HistoryItem {
@@ -129,7 +82,10 @@ function reviewRunToItem(row: ReviewRunRow): HistoryItem {
       ))}
     </div>
   );
-  return { key: `review_run:${row.id}`, created_at: row.created_at, title: 'Investability ranking', kindLabel: 'Investability ranking', originalText: null, body };
+  return {
+    key: `review_run:${row.id}`, reportHref: `/readiness/report/${row.id}?type=review_run`,
+    created_at: row.created_at, title: 'Investability ranking', kindLabel: 'Investability ranking', originalText: null, body,
+  };
 }
 
 export function HistoryPanel() {
@@ -186,6 +142,9 @@ export function HistoryPanel() {
                   </summary>
                   {it.body}
                   <OriginalText text={it.originalText} />
+                  <Link href={it.reportHref} target="_blank" className="mt-2 inline-block text-xs font-medium text-[#0E7490] hover:underline">
+                    Open full report (print / share) ↗
+                  </Link>
                 </details>
               </li>
             ))}

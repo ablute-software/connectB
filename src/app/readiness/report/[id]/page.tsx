@@ -1,0 +1,147 @@
+'use client';
+// Prompt 117 Bloco C — standalone printable/shareable view of one past
+// review or investability run, linked from History (Bloco B). Deliberately
+// its own route rather than a modal: window.print() prints whatever's on
+// the page, so isolating exactly one report (not the whole History list)
+// onto its own page is what makes Print actually work.
+//
+// Zero server-side sending: Print is window.print() (never jsPDF/
+// html2canvas — this is a real invoice-shaped instruction, not a design
+// preference, per the prompt that asked for this Bloco), mailto:/wa.me: are
+// plain links the browser's own mail/WhatsApp client opens, and Copy is a
+// clipboard write. Nothing here calls an API route or sends anything on
+// the founder's behalf.
+import { useEffect, useState } from 'react';
+import { authEnabled, browserClient } from '@/lib/supabase';
+import { Card } from '@/components/ui';
+import { ReviewResultBody } from '@/components/readiness/ReviewResultBody';
+import { KIND_LABEL } from '@/components/readiness/HistoryPanel';
+import { reviewResultToMarkdown } from '@/lib/review-result-markdown';
+
+interface AiReviewRow {
+  id: string; org_id: string; kind: string; title: string | null; created_at: string;
+  input_text: string | null; interaction_draft: string | null; result: unknown;
+}
+interface ReviewRunRow {
+  id: string; org_id: string; score: number | null; summary: string | null; created_at: string;
+  report: { strengths: string[]; weaknesses: string[]; risks: string[]; recommendations: string[] } | null;
+}
+
+type Loaded =
+  | { kind: 'ai_review'; row: AiReviewRow }
+  | { kind: 'review_run'; row: ReviewRunRow };
+
+export default function ReportPage({ params, searchParams }: { params: { id: string }; searchParams: { type?: string } }) {
+  const type = searchParams.type === 'review_run' ? 'review_run' : 'ai_review';
+  const [loaded, setLoaded] = useState<Loaded | null | 'not_found'>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!authEnabled) { setLoaded('not_found'); return; }
+    (async () => {
+      if (type === 'review_run') {
+        const { data } = await browserClient().from('review_runs')
+          .select('id, org_id, score, summary, report, created_at').eq('id', params.id).maybeSingle();
+        setLoaded(data ? { kind: 'review_run', row: data as ReviewRunRow } : 'not_found');
+      } else {
+        const { data } = await browserClient().from('ai_reviews')
+          .select('*').eq('id', params.id).maybeSingle();
+        setLoaded(data ? { kind: 'ai_review', row: data as AiReviewRow } : 'not_found');
+      }
+    })();
+  }, [type, params.id]);
+
+  if (loaded === null) return <div className="mx-auto max-w-2xl p-6 text-sm text-gray-400">Loading…</div>;
+  if (loaded === 'not_found') {
+    return (
+      <div className="mx-auto max-w-2xl p-6 text-sm text-gray-500">
+        Report not found — either it doesn&apos;t exist, or you&apos;re not signed in to the workspace it belongs to.
+      </div>
+    );
+  }
+
+  const title = loaded.kind === 'ai_review'
+    ? (loaded.row.title ?? KIND_LABEL[loaded.row.kind] ?? loaded.row.kind)
+    : 'Investability ranking';
+  const kindLabel = loaded.kind === 'ai_review' ? (KIND_LABEL[loaded.row.kind] ?? loaded.row.kind) : 'Investability ranking';
+  const createdAt = loaded.row.created_at;
+  const originalText = loaded.kind === 'ai_review' ? (loaded.row.input_text ?? loaded.row.interaction_draft ?? null) : null;
+
+  const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
+  const markdown = loaded.kind === 'ai_review'
+    ? reviewResultToMarkdown({ title, kindLabel, createdAt, kind: loaded.row.kind, result: loaded.row.result })
+    : reviewResultToMarkdown({
+        title, kindLabel, createdAt, kind: 'investability_ranking',
+        result: { review: `Score: ${loaded.row.score} / 100\n\n${loaded.row.summary ?? ''}` },
+      });
+
+  const mailHref = `mailto:?subject=${encodeURIComponent(`${title} — Sherlock Deal report`)}`
+    + `&body=${encodeURIComponent(`${title}\n\n${shareUrl}\n\nNote: this link only opens for people signed in to this workspace.`)}`;
+  const waHref = `https://wa.me/?text=${encodeURIComponent(`${title} — Sherlock Deal report: ${shareUrl}`)}`;
+
+  async function copyMarkdown() {
+    await navigator.clipboard.writeText(markdown);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-4 p-6 print:max-w-none print:p-0">
+      <div className="flex items-start justify-between gap-4 print:hidden">
+        <div>
+          <h1 className="text-lg font-bold">{title}</h1>
+          <div className="text-xs text-gray-400">{kindLabel} · {createdAt.slice(0, 10)}</div>
+        </div>
+        <button onClick={() => window.print()} className="rounded border border-gray-300 px-3 py-1 text-sm text-gray-600">Print / PDF</button>
+      </div>
+
+      <div className="hidden print:block">
+        <h1 className="text-lg font-bold">{title}</h1>
+        <div className="text-xs text-gray-400">{kindLabel} · {createdAt.slice(0, 10)}</div>
+      </div>
+
+      <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 print:hidden">
+        This link only opens for people signed in to this workspace — sharing it with an investor who hasn&apos;t been
+        granted access will show them a login page, not the report.
+      </p>
+
+      <div className="flex flex-wrap gap-2 print:hidden">
+        <a href={mailHref} className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50">Email</a>
+        <a href={waHref} target="_blank" rel="noopener noreferrer" className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50">WhatsApp</a>
+        <button onClick={copyMarkdown} className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50">
+          {copied ? 'Copied ✓' : 'Copy as Markdown'}
+        </button>
+      </div>
+
+      <Card title={loaded.kind === 'review_run' ? 'Investability ranking — readiness vs round value' : title}>
+        {loaded.kind === 'review_run' ? (
+          <div className="text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-bold text-[#0E7490]">{loaded.row.score}</span>
+              <span className="text-xs text-gray-400">/ 100</span>
+            </div>
+            {loaded.row.summary && <p className="mt-1 text-gray-700">{loaded.row.summary}</p>}
+            {loaded.row.report && (['strengths', 'weaknesses', 'risks', 'recommendations'] as const).map((k) => (
+              loaded.kind === 'review_run' && loaded.row.report?.[k]?.length ? (
+                <div key={k} className="mt-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{k}</div>
+                  <ul className="ml-4 list-disc text-xs text-gray-700">{loaded.row.report[k].map((x, i) => <li key={i}>{x}</li>)}</ul>
+                </div>
+              ) : null
+            ))}
+          </div>
+        ) : (
+          <ReviewResultBody kind={loaded.row.kind} result={loaded.row.result} />
+        )}
+        {originalText && (
+          <details className="mt-3 print:hidden">
+            <summary className="cursor-pointer text-xs text-gray-400">Original text</summary>
+            <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded border border-gray-200 bg-white p-2 text-xs text-gray-600">{originalText}</pre>
+          </details>
+        )}
+      </Card>
+
+      <div className="pt-2 text-center text-[10px] text-gray-400 print:block">Sherlock Deal · report generated {createdAt.slice(0, 10)}</div>
+    </div>
+  );
+}
