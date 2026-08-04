@@ -6,6 +6,7 @@
 // popover; completed tasks don't disappear — they turn green with a ✓ and
 // stay visible (in the calendar in place, and in a "Completed" rail).
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink } from '@/components/ui';
 import type { ActionType, TaskItem } from '@/lib/types';
@@ -172,10 +173,25 @@ export function AgendaPanel() {
               {selected.entity_id && <div>Investor: <EntityLink id={selected.entity_id}>{db.entities.find((e) => e.id === selected.entity_id)?.name}</EntityLink></div>}
               <div>Status: {selected.done ? 'completed' : 'open'}</div>
             </dl>
-            <button onClick={() => { toggleTask(selected.id); setSelected({ ...selected, done: !selected.done }); }}
-              className={`mt-3 rounded-lg px-3 py-1.5 text-sm font-medium text-white ${selected.done ? 'bg-gray-500' : 'bg-green-700'}`}>
-              {selected.done ? 'Mark as not done' : 'Mark done'}
-            </button>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button onClick={() => { toggleTask(selected.id); setSelected({ ...selected, done: !selected.done }); }}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium text-white ${selected.done ? 'bg-gray-500' : 'bg-green-700'}`}>
+                {selected.done ? 'Mark as not done' : 'Mark done'}
+              </button>
+              {/* Prompt 126 C — the popup used to be read-only (mark done,
+                  or nothing); an overdue/due-today task almost always means
+                  "go log the interaction that resolves this", so link
+                  straight into that flow prefilled with whatever this task
+                  already points at. Only entity_id/person_id exist on
+                  TaskItem — there is no document_id field to prefill from,
+                  so that part of the request doesn't apply here. */}
+              {selected.entity_id && (
+                <Link href={`/log?entity=${selected.entity_id}${selected.person_id ? `&person=${selected.person_id}` : ''}`}
+                  className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#0c637b]">
+                  Log interaction
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       )}
