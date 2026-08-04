@@ -227,6 +227,33 @@ function DocumentsPageInner() {
   const visibleGrants = db.grants.filter((g) => !g.revoked_at && (!g.expires_at || new Date(g.expires_at) > new Date()));
   const confirmedActiveGrants = visibleGrants.filter((g) => grantStatus(g, new Date()) === 'active');
 
+  // P120 Block B — 100 active grants can belong to as few as 3 distinct
+  // people (one row per document/folder selected in the tri-state tree).
+  // Grouping here, purely client-side over the same visibleGrants list, so
+  // the panel shows "3 people" instead of "100 rows" without touching the
+  // fine-grained grant data model (still needed for per-document revoke).
+  const [expandedGrantGroups, setExpandedGrantGroups] = useState<Set<string>>(new Set());
+  function toggleGrantGroup(key: string) {
+    setExpandedGrantGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+  const grantGroups = useMemo(() => {
+    const map = new Map<string, { key: string; personId?: string; invitedName?: string; invitedEmail?: string; granteeEmail?: string; grants: typeof visibleGrants }>();
+    for (const g of visibleGrants) {
+      const key = g.person_id ?? g.invited_email ?? g.grantee_email ?? g.id;
+      if (!map.has(key)) map.set(key, { key, personId: g.person_id ?? undefined, invitedName: g.invited_name ?? undefined, invitedEmail: g.invited_email ?? undefined, granteeEmail: g.grantee_email ?? undefined, grants: [] });
+      map.get(key)!.grants.push(g);
+    }
+    return [...map.values()];
+  }, [visibleGrants]);
+  function revokeAllInGroup(group: typeof grantGroups[number], label: string) {
+    if (!window.confirm(`Revoke all ${group.grants.length} grant(s) for ${label}? This cannot be undone.`)) return;
+    for (const g of group.grants) revokeGrant(g.id);
+  }
+
   function resetGrantFlow() {
     setGrantEntityId(''); setGrantScope(''); setGrantSpecificIds([]);
     setGrantShowInvite(false); setInviteEmail(''); setInviteName('');
@@ -781,46 +808,12 @@ function DocumentsPageInner() {
           <div data-tour-id="documents-grants">
           <Card title="Access grants — the owner consents, access follows">
             {resendMsg && <p className="mb-2 text-xs text-gray-500">{resendMsg}</p>}
-            {visibleGrants.length === 0 ? <p className="text-sm text-gray-400">No grants yet. Grant access as conversations advance to diligence.</p> : (
-              <ul className="divide-y divide-gray-100 text-sm">
-                {visibleGrants.map((g) => {
-                  const status = grantStatus(g, new Date());
-                  const label = g.person_id
-                    ? <PersonLink id={g.person_id}>{db.people.find((p) => p.id === g.person_id)?.full_name ?? g.invited_name}</PersonLink>
-                    : (g.invited_name ?? g.grantee_email ?? g.invited_email);
-                  return (
-                    <li key={g.id} className="flex flex-wrap items-center gap-2 py-2">
-                      <span>{label}</span>
-                      {status === 'pending_confirmation' ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
-                          awaiting confirmation from {g.invited_name ?? 'invitee'}
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-800">active</span>
-                      )}
-                      <span className="text-xs text-gray-500">
-                        → {g.document_id ? db.documents.find((d) => d.id === g.document_id)?.name : db.folders.find((f) => f.id === g.folder_id)?.name}
-                      </span>
-                      {g.expires_at && <span className="text-xs text-gray-400">until {g.expires_at.slice(0, 10)}</span>}
-                      {g.nda_required && <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${g.nda_accepted_at ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
-                        NDA {g.nda_accepted_at ? 'accepted' : 'pending'}</span>}
-                      <div className="ml-auto flex gap-2">
-                        {status === 'pending_confirmation' && g.invited_email && (
-                          <button onClick={() => resendInvite(g.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
-                            Resend invite
-                          </button>
-                        )}
-                        <button onClick={() => revokeGrant(g.id)} className="rounded border border-red-200 px-2 py-0.5 text-xs text-[#B00000] hover:bg-red-50">Revoke</button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
 
-            {/* Prompt 33/47 — stepped flow. Entity first, always — never the
-                reverse. Nothing below step 1 renders until an entity is chosen. */}
-            <div className="mt-3 border-t border-gray-100 pt-3">
+            {/* P120 Block B.1 — Grant access is the first thing in this card,
+                full stop, regardless of how many grants already exist below.
+                With 100 grants across 3 people this used to sit ~100 rows
+                down; it must be reachable with zero scroll. */}
+            <div>
               <div className="text-xs font-medium text-gray-500">Grant access</div>
 
               <div className="mt-2">
@@ -949,6 +942,103 @@ function DocumentsPageInner() {
                 document or metadata — until they sign in via magic link and confirm “Is this you?”. Folder-level clicks
                 cascade to everything inside it — click an individual document afterward to override just that one.
               </p>
+            </div>
+
+            {/* P120 Block B.2/B.3 — grants grouped by person (3 people, not
+                100 rows). Collapsed by default; expanding a person shows
+                their individual grants with the existing per-grant
+                Resend/Revoke. Revoke all = the same revokeGrant(g.id) call
+                looped over that person's grants — no new route/RPC. */}
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <div className="mb-2 text-xs font-medium text-gray-500">Granted so far{grantGroups.length > 0 && ` — ${grantGroups.length} ${grantGroups.length === 1 ? 'person' : 'people'}`}</div>
+              {grantGroups.length === 0 ? <p className="text-sm text-gray-400">No grants yet. Grant access as conversations advance to diligence.</p> : (
+                <ul className="divide-y divide-gray-100 text-sm">
+                  {grantGroups.map((group) => {
+                    const label = group.personId
+                      ? <PersonLink id={group.personId}>{db.people.find((p) => p.id === group.personId)?.full_name ?? group.invitedName}</PersonLink>
+                      : (group.invitedName ?? group.granteeEmail ?? group.invitedEmail);
+                    const labelText = group.personId
+                      ? (db.people.find((p) => p.id === group.personId)?.full_name ?? group.invitedName ?? 'this person')
+                      : (group.invitedName ?? group.granteeEmail ?? group.invitedEmail ?? 'this person');
+                    const docCount = group.grants.filter((g) => g.document_id).length;
+                    const folderCount = group.grants.filter((g) => g.folder_id).length;
+                    const anyActive = group.grants.some((g) => grantStatus(g, new Date()) === 'active');
+                    const pendingInvite = group.grants.find((g) => grantStatus(g, new Date()) === 'pending_confirmation' && g.invited_email);
+                    const expiries = group.grants.map((g) => g.expires_at).filter((e): e is string => !!e).sort();
+                    const nearestExpiry = expiries[0];
+                    const ndaRequired = group.grants.filter((g) => g.nda_required);
+                    const ndaPending = ndaRequired.some((g) => !g.nda_accepted_at);
+                    const expanded = expandedGrantGroups.has(group.key);
+                    return (
+                      <li key={group.key} className="py-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button type="button" onClick={() => toggleGrantGroup(group.key)}
+                            className="text-xs text-gray-400 hover:text-gray-700" title={expanded ? 'Collapse' : 'Expand'}>
+                            {expanded ? '▾' : '▸'}
+                          </button>
+                          <span className="font-medium">{label}</span>
+                          {anyActive ? (
+                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-800">active</span>
+                          ) : (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">awaiting confirmation</span>
+                          )}
+                          <span className="text-xs text-gray-500">
+                            {docCount > 0 && `${docCount} document${docCount === 1 ? '' : 's'}`}
+                            {docCount > 0 && folderCount > 0 && ', '}
+                            {folderCount > 0 && `${folderCount} folder${folderCount === 1 ? '' : 's'}`}
+                          </span>
+                          {nearestExpiry && <span className="text-xs text-gray-400">until {nearestExpiry.slice(0, 10)}</span>}
+                          {ndaRequired.length > 0 && (
+                            <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${ndaPending ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}>
+                              NDA {ndaPending ? 'pending' : 'accepted'}
+                            </span>
+                          )}
+                          <div className="ml-auto flex gap-2">
+                            {pendingInvite && (
+                              <button onClick={() => resendInvite(pendingInvite.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
+                                Resend
+                              </button>
+                            )}
+                            <button onClick={() => revokeAllInGroup(group, labelText)} className="rounded border border-red-200 px-2 py-0.5 text-xs text-[#B00000] hover:bg-red-50">
+                              Revoke all
+                            </button>
+                          </div>
+                        </div>
+                        {expanded && (
+                          <ul className="mt-2 divide-y divide-gray-50 border-l-2 border-gray-100 pl-3">
+                            {group.grants.map((g) => {
+                              const status = grantStatus(g, new Date());
+                              return (
+                                <li key={g.id} className="flex flex-wrap items-center gap-2 py-1.5 text-xs">
+                                  {status === 'pending_confirmation' ? (
+                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">awaiting confirmation</span>
+                                  ) : (
+                                    <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-800">active</span>
+                                  )}
+                                  <span className="text-gray-500">
+                                    → {g.document_id ? db.documents.find((d) => d.id === g.document_id)?.name : db.folders.find((f) => f.id === g.folder_id)?.name}
+                                  </span>
+                                  {g.expires_at && <span className="text-gray-400">until {g.expires_at.slice(0, 10)}</span>}
+                                  {g.nda_required && <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${g.nda_accepted_at ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+                                    NDA {g.nda_accepted_at ? 'accepted' : 'pending'}</span>}
+                                  <div className="ml-auto flex gap-2">
+                                    {status === 'pending_confirmation' && g.invited_email && (
+                                      <button onClick={() => resendInvite(g.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
+                                        Resend invite
+                                      </button>
+                                    )}
+                                    <button onClick={() => revokeGrant(g.id)} className="rounded border border-red-200 px-2 py-0.5 text-xs text-[#B00000] hover:bg-red-50">Revoke</button>
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
           </Card>
           </div>
