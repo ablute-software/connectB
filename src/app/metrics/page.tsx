@@ -25,15 +25,31 @@ import { OrganizationsTab } from '@/components/backoffice/metrics/OrganizationsT
 import { PeriodPicker, type Period } from '@/components/backoffice/metrics/PeriodPicker';
 import { HistoricalDataNotice } from '@/components/backoffice/metrics/HistoricalDataNotice';
 import { EcosystemTab } from '@/components/backoffice/metrics/EcosystemTab';
+import { MatchDealTab } from '@/components/backoffice/metrics/MatchDealTab';
+import { SampleCoverageTab } from '@/components/backoffice/metrics/SampleCoverageTab';
+import { MethodologyTab } from '@/components/backoffice/metrics/MethodologyTab';
 
-type Tab = 'overview' | 'growth' | 'activation' | 'fundraising' | 'organizations' | 'ecosystem';
-const TABS: { key: Tab; label: string }[] = [
+// Prompt 124 §0 — two floors, not a flat row of tabs: the rules differ (the
+// app floor can show individual accounts; Ecosystem never does — K=8 RPCs),
+// the time horizon differs (app = last 30 days; Ecosystem = quarters/
+// cohorts), and Ecosystem only gets real screen space if it isn't competing
+// with a row of 7 tabs.
+type Floor = 'app' | 'ecosystem';
+type AppTab = 'overview' | 'growth' | 'activation' | 'fundraising' | 'organizations' | 'matchdeal';
+type EcosystemTabKey = 'xray' | 'sample-coverage' | 'methodology';
+
+const APP_TABS: { key: AppTab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
   { key: 'growth', label: 'Growth & Revenue' },
   { key: 'activation', label: 'Activation & Retention' },
   { key: 'fundraising', label: 'Fundraising Outcomes' },
   { key: 'organizations', label: 'Organizations' },
-  { key: 'ecosystem', label: 'Ecosystem' },
+  { key: 'matchdeal', label: 'MatchDeal' },
+];
+const ECOSYSTEM_TABS: { key: EcosystemTabKey; label: string }[] = [
+  { key: 'xray', label: 'X-Ray' },
+  { key: 'sample-coverage', label: 'Sample & coverage' },
+  { key: 'methodology', label: 'Methodology' },
 ];
 
 type AuditRow = AuditLogRow & { adminName: string };
@@ -247,25 +263,59 @@ function OverviewTab() {
 }
 
 export default function MetricsPage() {
-  const [tab, setTab] = useState<Tab>('overview');
+  const [floor, setFloor] = useState<Floor>('app');
+  const [appTab, setAppTab] = useState<AppTab>('overview');
+  const [ecosystemTab, setEcosystemTab] = useState<EcosystemTabKey>('xray');
+
   return (
     <div className="space-y-5">
       <h1 className="text-lg font-bold">Metrics</h1>
-      <nav className="flex gap-1 overflow-x-auto border-b border-gray-100">
-        {TABS.map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${
-              tab === t.key ? 'border-[#0E7490] text-[#0E7490]' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
-            {t.label}
+
+      {/* Top-of-page segmented control — the two floors. */}
+      <div className="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1">
+        {(['app', 'ecosystem'] as Floor[]).map((f) => (
+          <button key={f} onClick={() => setFloor(f)}
+            className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition ${
+              floor === f ? 'bg-white text-[#0E7490] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+            {f === 'app' ? 'Sherlock Deal & app' : 'Ecosystem'}
           </button>
         ))}
-      </nav>
-      {tab === 'overview' && <OverviewTab />}
-      {tab === 'growth' && <GrowthRevenueTab />}
-      {tab === 'activation' && <ActivationRetentionTab />}
-      {tab === 'fundraising' && <FundraisingOutcomesTab />}
-      {tab === 'organizations' && <OrganizationsTab />}
-      {tab === 'ecosystem' && <EcosystemTab />}
+      </div>
+
+      {floor === 'app' ? (
+        <>
+          <nav className="flex gap-1 overflow-x-auto border-b border-gray-100">
+            {APP_TABS.map((t) => (
+              <button key={t.key} onClick={() => setAppTab(t.key)}
+                className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${
+                  appTab === t.key ? 'border-[#0E7490] text-[#0E7490]' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+                {t.label}
+              </button>
+            ))}
+          </nav>
+          {appTab === 'overview' && <OverviewTab />}
+          {appTab === 'growth' && <GrowthRevenueTab />}
+          {appTab === 'activation' && <ActivationRetentionTab />}
+          {appTab === 'fundraising' && <FundraisingOutcomesTab />}
+          {appTab === 'organizations' && <OrganizationsTab />}
+          {appTab === 'matchdeal' && <MatchDealTab />}
+        </>
+      ) : (
+        <>
+          <nav className="flex gap-1 overflow-x-auto border-b border-gray-100">
+            {ECOSYSTEM_TABS.map((t) => (
+              <button key={t.key} onClick={() => setEcosystemTab(t.key)}
+                className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${
+                  ecosystemTab === t.key ? 'border-[#0E7490] text-[#0E7490]' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+                {t.label}
+              </button>
+            ))}
+          </nav>
+          {ecosystemTab === 'xray' && <EcosystemTab />}
+          {ecosystemTab === 'sample-coverage' && <SampleCoverageTab />}
+          {ecosystemTab === 'methodology' && <MethodologyTab />}
+        </>
+      )}
     </div>
   );
 }
