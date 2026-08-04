@@ -14,8 +14,9 @@
 // swapping the source needs a format-reconciling sync trigger that hasn't
 // been proposed/confirmed yet (mirrors the sectors/country trigger pattern
 // once it is).
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
+import { computeProfilePrefill } from '@/lib/matchdeal-profile-prefill';
 
 interface Profile {
   id: string; kind: 'startup' | 'investor'; is_complete: boolean; membership_id: string | null;
@@ -29,9 +30,23 @@ interface Profile {
 }
 
 interface Org {
-  id: string; name: string; description: string | null;
+  id: string; name: string; description: string | null; one_liner: string | null;
+  website: string | null; country: string | null;
   founded_year: number | null; round_target_eur: number | null; revenue_eur: number | null; logo_url: string | null;
 }
+
+// Prompt 125 Block B — how long "Use your Sherlock Deal logo" signs the
+// logo for. A real signed URL (not a stored copy of the raw file) so it
+// keeps resolving to whatever's actually at that storage path — genuinely
+// stale only if the founder re-uploads their logo AFTER clicking this
+// (uploadLogo in IdentityCard.tsx mints a brand-new random path per
+// upload), which just means the photo silently stops loading until they
+// click this button again. That's the one honest trade-off of picking
+// "sign for a long time" over "resolve at render time in every place
+// photo_url is ever displayed" (MatchDealDeck/MatchesPanel/
+// InstantMessagePanel) — the latter is more correct but touches 3 more
+// render sites for a gap that self-heals on the next click.
+const LOGO_SIGNED_URL_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 
 const STAGE_OPTIONS = [
   { value: 'pre_seed', label: 'Pre-seed' }, { value: 'seed', label: 'Seed' },
@@ -71,11 +86,32 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
     if (!profile || profile.kind !== 'startup' || !profile.membership_id) { setOrg(null); return; }
     (async () => {
       const { data } = await browserClient().from('orgs')
-        .select('id, name, description, founded_year, round_target_eur, revenue_eur, logo_url')
+        .select('id, name, description, one_liner, website, country, founded_year, round_target_eur, revenue_eur, logo_url')
         .eq('id', profile.membership_id).maybeSingle();
       setOrg(data as unknown as Org);
     })();
   }, [profile?.membership_id, profile?.kind]);
+
+  // Prompt 125 Block B — form-LEVEL prefill, not schema-level: the rejected
+  // migration 0115 would have auto-synced orgs -> matchdeal_profiles
+  // directly, which silently flips is_visible true the moment the profile
+  // becomes complete (matchdeal_recompute_profile_completeness) — a
+  // startup would become visible to investors with no act by the owner.
+  // This only fills the LOCAL form state (never writes anything), and only
+  // for fields that are still empty — the founder sees it, can edit it,
+  // and their own explicit Save is what persists it and (if it completes
+  // the profile) triggers visibility. Runs once per org load, not on every
+  // keystroke — a guard ref stops it from re-firing and clobbering an
+  // edit-in-progress if `org` merely re-renders.
+  const prefillApplied = useRef(false);
+  useEffect(() => {
+    if (!profile || !org || profile.kind !== 'startup' || prefillApplied.current) return;
+    prefillApplied.current = true;
+    const { description, website, country } = computeProfilePrefill(profile, org);
+    if (description !== profile.description || website !== profile.website || country !== profile.country) {
+      setProfile((p) => (p ? { ...p, description, website, country } : p));
+    }
+  }, [profile, org]);
 
   useEffect(() => {
     if (!org?.logo_url) { setOrgLogoUrl(null); return; }
@@ -89,6 +125,18 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
 
   function set<K extends keyof Profile>(key: K, value: Profile[K]) {
     setProfile((p) => (p ? { ...p, [key]: value } : p));
+  }
+
+  const [logoBusy, setLogoBusy] = useState(false);
+  async function useSherlockDealLogo() {
+    if (!org?.logo_url) return;
+    setLogoBusy(true);
+    try {
+      const { data } = await browserClient().storage.from('data-room').createSignedUrl(org.logo_url, LOGO_SIGNED_URL_TTL_SECONDS);
+      if (data?.signedUrl) set('photo_url', data.signedUrl);
+    } finally {
+      setLogoBusy(false);
+    }
   }
 
   const required: { label: string; done: boolean }[] = viewerKind === 'startup'
@@ -189,7 +237,17 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
           </>
         )}
         {viewerKind === 'startup' && (
-          <Field label="Photo URL"><input className={inputCls} value={profile.photo_url ?? ''} onChange={(e) => set('photo_url', e.target.value)} placeholder="https://…" /></Field>
+          <Field label="Photo URL">
+            <div className="flex gap-2">
+              <input className={inputCls} value={profile.photo_url ?? ''} onChange={(e) => set('photo_url', e.target.value)} placeholder="https://…" />
+              {org?.logo_url && (
+                <button type="button" onClick={() => void useSherlockDealLogo()} disabled={logoBusy}
+                  className="shrink-0 whitespace-nowrap rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-[12px] font-medium text-white/80 hover:bg-white/10 disabled:opacity-50">
+                  {logoBusy ? 'Loading…' : 'Use your Sherlock Deal logo'}
+                </button>
+              )}
+            </div>
+          </Field>
         )}
         <Field label="Website"><input className={inputCls} value={profile.website ?? ''} onChange={(e) => set('website', e.target.value)} placeholder="https://…" /></Field>
         <Field label="Country"><input className={inputCls} value={profile.country ?? ''} onChange={(e) => set('country', e.target.value)} /></Field>

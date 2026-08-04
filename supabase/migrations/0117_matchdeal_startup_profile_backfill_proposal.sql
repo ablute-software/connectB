@@ -40,6 +40,16 @@
 -- trigger), specifically so this safety has to be re-checked by whoever
 -- runs it next time, not assumed forever.
 --
+-- Prompt 125 Block B.4 correction (2026-08-04): description's coalesce
+-- below now also falls back to orgs.one_liner. ablute_'s own
+-- orgs.description is empty — the real one-liner content that screenshot
+-- after screenshot showed as "the org data is right there" lives in
+-- orgs.one_liner instead, which the original coalesce here never read.
+-- Re-checked against the same safety conclusion above: ablute_ still lacks
+-- photo_url and company_phase even once description backfills from
+-- one_liner, so it still doesn't cross into is_complete=true from this
+-- statement alone.
+--
 -- Stage mapping (series_b/series_c_plus/later -> series_b_plus, other ->
 -- unmapped) from 0115 was sound and is kept here, in case a future org
 -- has investment_stage_sought null with orgs.stage set — not exercised by
@@ -47,7 +57,7 @@
 -- the set covered here), included for completeness of the one-time pass.
 update public.matchdeal_profiles mp
 set
-  description = coalesce(mp.description, o.description),
+  description = coalesce(mp.description, o.description, o.one_liner),
   website = coalesce(mp.website, o.website),
   country = coalesce(mp.country, o.country),
   updated_at = now()
