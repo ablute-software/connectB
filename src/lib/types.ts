@@ -120,6 +120,11 @@ export interface Org {
   round_instruments?: string[];
   round_instrument_other?: string;
   round_valuation_eur?: number;
+  // Prompt 115 Block E (migration 0111, propose-only) — which basis the
+  // founder declared round_valuation_eur in. Absent/undefined for any org
+  // predating the migration or before Nuno applies it; every reader falls
+  // back to 'pre_money' (see round-valuation-basis-capability.ts).
+  round_valuation_basis?: 'pre_money' | 'post_money';
   round_runway_months?: number;
   round_target_close_date?: string; // ISO date
   round_use_of_funds?: string;

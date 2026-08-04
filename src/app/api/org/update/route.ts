@@ -27,6 +27,11 @@ const EDITABLE = [
   'employee_count', 'founder_count_override', 'stage_other',
   'round_raising', 'round_secured_eur', 'round_instruments', 'round_instrument_other', 'round_valuation_eur',
   'round_runway_months', 'round_target_close_date', 'round_use_of_funds', 'round_flexible', 'round_flexible_note',
+  // Prompt 115 Block E (migration 0111, propose-only) — the client only ever
+  // includes this key once /api/me's roundValuationBasis capability is true
+  // (RoundCard.tsx), same "probe gates what's sent" discipline as everything
+  // else in this whitelist.
+  'round_valuation_basis',
   // Investor Workspace Fase 1 (prompt 54) — Zona 1 snapshot round data.
   'round_min_ticket_eur', 'round_runway_post_months',
   // Prompt 85 Correction 1 (migration 0082).

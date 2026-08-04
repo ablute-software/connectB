@@ -13,6 +13,7 @@ export interface FormAssistContext {
   };
   round: {
     raising?: boolean; targetEur?: number; securedEur?: number; valuationEur?: number;
+    valuationBasis?: 'pre_money' | 'post_money';
     minTicketEur?: number; runwayMonths?: number; instruments: string[];
     useOfFunds?: string; targetCloseDate?: string;
   };
@@ -44,6 +45,11 @@ export function buildFormAssistContext(db: Db, entityId: string): FormAssistCont
     round: {
       raising: db.org.round_raising, targetEur: db.org.round_target_eur,
       securedEur: db.org.round_secured_eur, valuationEur: db.org.round_valuation_eur,
+      // Absent (not just null) until the propose-only migration 0111 lands —
+      // db.org comes from a client-side `select('*')` (store-supabase.tsx),
+      // which naturally omits columns that don't exist yet, so no capability
+      // probe is needed on this read path.
+      valuationBasis: db.org.round_valuation_basis,
       minTicketEur: db.org.round_min_ticket_eur, runwayMonths: db.org.round_runway_months,
       instruments: db.org.round_instruments ?? [], useOfFunds: db.org.round_use_of_funds,
       targetCloseDate: db.org.round_target_close_date,

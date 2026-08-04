@@ -1,17 +1,21 @@
 // Investor Workspace Archive (prompt 60) — structured org snapshots + the
 // "Now" AI summary. Server-only (uses the service-role client passed in).
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { roundValuationBasisAvailable } from './round-valuation-basis-capability';
 
 export interface SnapshotData {
   stage: string | null; sectors: string[]; one_liner: string | null; description: string | null;
   round_target_eur: number | null; round_valuation_eur: number | null;
+  // Prompt 115 Block E — absent entirely (not just null) until migration
+  // 0111 lands; only ever read via `?? 'pre_money'`, never assumed present.
+  round_valuation_basis?: 'pre_money' | 'post_money' | null;
   round_instruments: string[]; round_target_close_date: string | null; round_raising: boolean | null;
   employee_count: number | null;
   traction: { label: string; value: string }[];
 }
 
 const ARCHIVE_RELEVANT_ORG_FIELDS = [
-  'stage', 'sectors', 'one_liner', 'description', 'round_target_eur', 'round_valuation_eur',
+  'stage', 'sectors', 'one_liner', 'description', 'round_target_eur', 'round_valuation_eur', 'round_valuation_basis',
   'round_instruments', 'round_target_close_date', 'round_raising', 'employee_count',
 ] as const;
 
@@ -20,10 +24,21 @@ export function patchTouchesArchiveRelevantFields(patch: Record<string, unknown>
 }
 
 export async function captureSnapshot(admin: SupabaseClient, orgId: string, reason: 'first_contact' | 'archived' | 'manual' | 'regenerated') {
+  // round_valuation_basis is only added to the select once the propose-only
+  // migration (0111) has landed — an explicit column name Postgrest doesn't
+  // recognize fails the WHOLE select, unlike a plain `null` for a column
+  // that exists but is unset. Two literal select strings (not one built from
+  // a runtime-conditional string) so supabase-js's column-name type
+  // inference still works in both branches.
+  const basisAvailable = await roundValuationBasisAvailable();
   const [{ data: org }, { data: metrics }] = await Promise.all([
-    admin.from('orgs').select(
-      'stage, sectors, one_liner, description, round_target_eur, round_valuation_eur, round_instruments, round_target_close_date, round_raising, employee_count',
-    ).eq('id', orgId).single(),
+    basisAvailable
+      ? admin.from('orgs').select(
+          'stage, sectors, one_liner, description, round_target_eur, round_valuation_eur, round_valuation_basis, round_instruments, round_target_close_date, round_raising, employee_count',
+        ).eq('id', orgId).single()
+      : admin.from('orgs').select(
+          'stage, sectors, one_liner, description, round_target_eur, round_valuation_eur, round_instruments, round_target_close_date, round_raising, employee_count',
+        ).eq('id', orgId).single(),
     admin.from('org_traction_metrics').select('label, value').eq('org_id', orgId).order('sort_order', { ascending: true }),
   ]);
   const data: SnapshotData = { ...(org as unknown as SnapshotData), traction: metrics ?? [] };
@@ -32,11 +47,14 @@ export async function captureSnapshot(admin: SupabaseClient, orgId: string, reas
 }
 
 function describeSnapshot(s: SnapshotData): string {
+  // Says "post-money"/"pre-money" explicitly — never a bare number — so the
+  // "Now" summary the AI writes can't misstate which basis the founder meant.
+  const basisWord = (s.round_valuation_basis ?? 'pre_money') === 'post_money' ? 'post-money' : 'pre-money';
   const parts = [
     s.one_liner || s.description || 'no description on file',
     s.stage ? `stage: ${s.stage}` : null,
     s.round_raising && s.round_target_eur ? `raising €${s.round_target_eur.toLocaleString()}` : null,
-    s.round_valuation_eur ? `valuation €${s.round_valuation_eur.toLocaleString()}` : null,
+    s.round_valuation_eur ? `valuation €${s.round_valuation_eur.toLocaleString()} (${basisWord})` : null,
     s.round_instruments.length ? `instruments: ${s.round_instruments.join(', ')}` : null,
     s.traction.length ? `traction: ${s.traction.map((t) => `${t.label} ${t.value}`).join(', ')}` : null,
     s.employee_count ? `team: ${s.employee_count}` : null,

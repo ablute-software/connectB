@@ -28,6 +28,7 @@ import { InvestorWorkspaceShell } from '@/components/investor-workspace/Investor
 import { RoundUpdatesFeed } from '@/components/investor-workspace/RoundUpdatesFeed';
 import { QAPanel } from '@/components/investor-workspace/QAPanel';
 import { SoftCommitButton } from '@/components/investor-workspace/SoftCommitButton';
+import { deriveValuation } from '@/lib/dilution';
 import { INSTRUMENT_LABELS } from '@/lib/investor-taxonomy';
 import { SectionReviewToggle } from '@/components/investor-workspace/SectionReviewToggle';
 
@@ -48,6 +49,9 @@ interface PortalSnapshot {
   round_target_eur: number | null; round_secured_eur: number | null; round_min_ticket_eur: number | null;
   round_instruments: string[] | null; round_instrument_other: string | null;
   round_valuation_eur: number | null;
+  // Prompt 115 Block E — absent entirely (not just null) until migration
+  // 0111 lands; the display below falls back to labeling as pre-money.
+  round_valuation_basis?: 'pre_money' | 'post_money' | null;
   round_runway_months: number | null; round_runway_post_months: number | null;
   round_target_close_date: string | null; round_use_of_funds: string | null; round_flexible: boolean | null;
   tractionMetrics: { id: string; label: string; value: string }[];
@@ -184,7 +188,18 @@ function SnapshotCard({ s }: { s: PortalSnapshot }) {
             </div>
           )}
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
-            {s.round_valuation_eur != null && <div><dt className="text-xs text-gray-400">Valuation</dt><dd>{fmtEur(s.round_valuation_eur)}</dd></div>}
+            {s.round_valuation_eur != null && (
+              <div>
+                <dt className="text-xs text-gray-400">Valuation ({(s.round_valuation_basis ?? 'pre_money') === 'post_money' ? 'post-money' : 'pre-money'})</dt>
+                <dd>
+                  {fmtEur(s.round_valuation_eur)}
+                  {s.round_target_eur != null && (() => {
+                    const d = deriveValuation(s.round_valuation_basis ?? 'pre_money', s.round_valuation_eur!, s.round_target_eur!);
+                    return <span className="ml-1 text-xs text-gray-400">(pre {fmtEur(d.preMoneyEur)} · post {fmtEur(d.postMoneyEur)})</span>;
+                  })()}
+                </dd>
+              </div>
+            )}
             {s.round_min_ticket_eur != null && <div><dt className="text-xs text-gray-400">Min ticket</dt><dd>{fmtEur(s.round_min_ticket_eur)}</dd></div>}
             {instruments && <div><dt className="text-xs text-gray-400">Instrument</dt><dd>{instruments}</dd></div>}
             {s.round_runway_months != null && <div><dt className="text-xs text-gray-400">Runway now</dt><dd>{s.round_runway_months} mo</dd></div>}

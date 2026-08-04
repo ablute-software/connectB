@@ -11,7 +11,8 @@ const MAX_COMPARE = 3;
 
 interface Card {
   orgId: string; name: string; oneLiner: string | null; sectors: string[]; stage: string | null;
-  hqCity: string | null; country: string | null; roundTargetEur: number | null; roundValuationEur: number | null; roundInstruments: string[];
+  hqCity: string | null; country: string | null; roundTargetEur: number | null; roundValuationEur: number | null;
+  roundValuationBasis?: 'pre_money' | 'post_money' | null; roundInstruments: string[];
   matchScore: number; matchReasons: string[]; status: 'open' | 'passed' | 'interested'; passReason: string | null;
   trackingCount: number;
 }
@@ -221,7 +222,7 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
                 )}
 
                 <div className="mt-2">
-                  <OwnershipCalculator roundValuationEur={c.roundValuationEur} roundTargetEur={c.roundTargetEur} />
+                  <OwnershipCalculator roundValuationEur={c.roundValuationEur} roundTargetEur={c.roundTargetEur} roundValuationBasis={c.roundValuationBasis} />
                 </div>
 
                 {c.status === 'passed' ? (

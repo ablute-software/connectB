@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeDilution } from './dilution';
+import { computeDilution, deriveValuation } from './dilution';
 
 describe('computeDilution', () => {
   it('computes ownership from a post-money valuation directly', () => {
@@ -37,5 +37,22 @@ describe('computeDilution', () => {
     });
     expect(r.ownershipAfterThisRoundPct).toBe(0);
     expect(Number.isFinite(r.ownershipAfterThisRoundPct)).toBe(true);
+  });
+});
+
+describe('deriveValuation (Prompt 115 Block E)', () => {
+  it('derives post-money from a declared pre-money figure — never a destructive conversion of the stored number', () => {
+    const d = deriveValuation('pre_money', 5700000, 1300000);
+    expect(d.preMoneyEur).toBe(5700000); // unchanged — the number the founder actually typed
+    expect(d.postMoneyEur).toBe(7000000);
+    expect(d.roundEur).toBe(1300000);
+  });
+
+  it('derives pre-money from a declared post-money figure', () => {
+    // ablute_'s real numbers (migration 0111's backfill row).
+    const d = deriveValuation('post_money', 7000000, 1300000);
+    expect(d.postMoneyEur).toBe(7000000); // unchanged
+    expect(d.preMoneyEur).toBe(5700000);
+    expect(d.roundEur).toBe(1300000);
   });
 });

@@ -5,6 +5,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from './investor-match-score';
 import { eligibleOrgIds, resolveInvestorCatalogEntityId, resolveInvestorProfile } from './portal-access';
+import { roundValuationBasisAvailable } from './round-valuation-basis-capability';
 
 const WAVE_SIZE = 8;
 const TRACKING_WINDOW_DAYS = 30;
@@ -46,9 +47,19 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   const usualCoInvestors = (investorProfile as { usual_co_investors: string | null }).usual_co_investors;
   if (orgIds.length === 0) return { linked: true as const, waves: [], usualCoInvestors };
 
-  const { data: orgs } = await admin.from('orgs').select(
-    'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur',
-  ).in('id', orgIds);
+  // Prompt 115 Block E — round_valuation_basis only added to the select once
+  // the propose-only migration (0111) has landed; an unrecognized column
+  // name in an explicit select list fails the whole query. Two literal
+  // select strings (not one built from a runtime-conditional string) so
+  // supabase-js's column-name type inference still works in both branches.
+  const basisAvailable = await roundValuationBasisAvailable();
+  const { data: orgs } = basisAvailable
+    ? await admin.from('orgs').select(
+        'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, round_valuation_basis',
+      ).in('id', orgIds)
+    : await admin.from('orgs').select(
+        'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur',
+      ).in('id', orgIds);
   const { data: startupProfiles } = await admin.from('matchdeal_profiles').select('id, membership_id')
     .eq('kind', 'startup').in('membership_id', orgIds);
   const profileByOrg = new Map((startupProfiles ?? []).map((p) => [p.membership_id as string, p.id as string]));
@@ -101,6 +112,7 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       orgId: org.id, name: org.name, oneLiner: org.one_liner, sectors: org.sectors ?? [], stage: org.stage,
       hqCity: org.hq_city, country: org.country, roundTargetEur: org.round_target_eur,
       roundValuationEur: org.round_valuation_eur,
+      roundValuationBasis: (org as { round_valuation_basis?: 'pre_money' | 'post_money' }).round_valuation_basis ?? null,
       roundInstruments: org.round_instruments ?? [], matchScore: score, matchReasons: reasons,
       status, passReason: decision ? decision.reason_detail : (swipe?.pass_reason ?? null),
       trackingCount: org.stage ? (trackingCountByStage.get(org.stage as string)?.size ?? 0) : 0,

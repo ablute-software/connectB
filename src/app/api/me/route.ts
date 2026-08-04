@@ -16,6 +16,7 @@ import { documentVersionsAvailable } from '@/lib/document-versions-capability';
 import { reawakeningAvailable } from '@/lib/reawakening-capability';
 import { planAccountsAvailable } from '@/lib/plan-accounts-capability';
 import { companyProfileAvailable } from '@/lib/company-profile-capability';
+import { roundValuationBasisAvailable } from '@/lib/round-valuation-basis-capability';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, WATSON_DRAFT_QUOTA } from '@/lib/plans';
 import { stripeConfigured } from '@/lib/stripe-env';
@@ -36,6 +37,7 @@ export async function GET() {
     planAccounts: await planAccountsAvailable(),
     billing: stripeConfigured(),
     companyProfile: await companyProfileAvailable(),
+    roundValuationBasis: await roundValuationBasisAvailable(),
   };
   if (!authEnabled) return NextResponse.json({ authEnabled: false, user: null, role: 'none', capabilities });
   const sb = await serverClient();

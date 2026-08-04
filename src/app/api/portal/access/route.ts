@@ -38,6 +38,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { grantIsActive, grantStatus } from '@/lib/access-grants';
 import { PORTAL_SECTIONS } from '@/lib/dataroom-sections';
+import { roundValuationBasisAvailable } from '@/lib/round-valuation-basis-capability';
 
 // Investor Workspace Fase 2 (prompt 55) — groups documents into the 6 fixed
 // diligence-journey sections by their folder's portal_section (migration
@@ -63,13 +64,27 @@ function buildSections(
 // unset comes back null/undefined and the client renders "not shared yet",
 // never a zero.
 async function buildSnapshot(admin: SupabaseClient, orgId: string) {
+  // Prompt 115 Block E — round_valuation_basis only added to the select
+  // once the propose-only migration (0111) has landed; the whole row is
+  // spread into the response below, so this is the only change this route
+  // needs once that lands. Two literal select strings (not one built from a
+  // runtime-conditional string) so supabase-js's column-name type inference
+  // still works in both branches.
+  const basisAvailable = await roundValuationBasisAvailable();
   const [{ data: org }, { data: metrics }, { data: confirmedCommits }] = await Promise.all([
-    admin.from('orgs').select(
-      'name, one_liner, description, stage, stage_other, sectors, hq_city, country, ' +
-      'round_raising, round_target_eur, round_secured_eur, round_min_ticket_eur, round_instruments, ' +
-      'round_instrument_other, round_valuation_eur, round_runway_months, round_runway_post_months, ' +
-      'round_target_close_date, round_use_of_funds, round_flexible',
-    ).eq('id', orgId).single(),
+    basisAvailable
+      ? admin.from('orgs').select(
+          'name, one_liner, description, stage, stage_other, sectors, hq_city, country, '
+          + 'round_raising, round_target_eur, round_secured_eur, round_min_ticket_eur, round_instruments, '
+          + 'round_instrument_other, round_valuation_eur, round_valuation_basis, round_runway_months, round_runway_post_months, '
+          + 'round_target_close_date, round_use_of_funds, round_flexible',
+        ).eq('id', orgId).single()
+      : admin.from('orgs').select(
+          'name, one_liner, description, stage, stage_other, sectors, hq_city, country, '
+          + 'round_raising, round_target_eur, round_secured_eur, round_min_ticket_eur, round_instruments, '
+          + 'round_instrument_other, round_valuation_eur, round_runway_months, round_runway_post_months, '
+          + 'round_target_close_date, round_use_of_funds, round_flexible',
+        ).eq('id', orgId).single(),
     admin.from('org_traction_metrics').select('id, label, value').eq('org_id', orgId).order('sort_order', { ascending: true }),
     // Prompt 56 Bloco 3 — confirmed soft commits ADD ON TOP of the
     // founder's manually-entered round_secured_eur, never overwrite it:

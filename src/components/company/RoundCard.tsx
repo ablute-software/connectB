@@ -3,12 +3,13 @@
 // round wherever it's shown elsewhere (Dashboard "Round progress",
 // readiness/ReviewPanel's companyContext, etc. — future prompts wire
 // those reads; this card is the one place that writes them).
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { CompletenessField } from './CompletenessField';
 import type { CompletenessField as Field } from '@/lib/companyCompleteness';
 import type { Stage } from '@/lib/types';
+import { deriveValuation, type ValuationBasis } from '@/lib/dilution';
 
 const STAGES: { value: Stage; label: string }[] = [
   { value: 'pre_seed', label: 'Pre-seed' }, { value: 'seed', label: 'Seed' },
@@ -27,9 +28,20 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<{
     raising: string; stage: string; stage_other: string; target: string; secured: string;
-    instruments: string[]; instrument_other: string; valuation: string; runway: string; runway_post: string;
+    instruments: string[]; instrument_other: string; valuation: string; valuation_basis: ValuationBasis; runway: string; runway_post: string;
     min_ticket: string; close_date: string; use_of_funds: string; flexible: boolean; flexible_note: string;
   } | null>(null);
+  // Prompt 115 Block E — orgs.round_valuation_basis is a propose-only
+  // migration (0111); the toggle below always renders (the derived-values
+  // math needs no schema), but the save only *persists* the basis once this
+  // probe confirms the column exists — same "never send a key the probe
+  // hasn't cleared" discipline as every other migration-gated field here.
+  const [basisPersistable, setBasisPersistable] = useState(false);
+  useEffect(() => {
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
+      .then((me) => setBasisPersistable(!!me.capabilities?.roundValuationBasis))
+      .catch(() => setBasisPersistable(false));
+  }, []);
 
   function startEdit() {
     setDraft({
@@ -39,6 +51,7 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
       secured: org.round_secured_eur != null ? String(org.round_secured_eur) : '',
       instruments: org.round_instruments ?? [], instrument_other: org.round_instrument_other ?? '',
       valuation: org.round_valuation_eur != null ? String(org.round_valuation_eur) : '',
+      valuation_basis: org.round_valuation_basis ?? 'pre_money',
       runway: org.round_runway_months != null ? String(org.round_runway_months) : '',
       // Investor Workspace Fase 1 (prompt 54) — min ticket + post-round runway.
       runway_post: org.round_runway_post_months != null ? String(org.round_runway_post_months) : '',
@@ -65,6 +78,7 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
       round_instruments: draft.instruments,
       round_instrument_other: draft.instruments.includes('other') ? draft.instrument_other.trim() || undefined : undefined,
       round_valuation_eur: draft.valuation ? Number(draft.valuation) : undefined,
+      round_valuation_basis: basisPersistable ? draft.valuation_basis : undefined,
       round_runway_months: draft.runway ? Number(draft.runway) : undefined,
       round_runway_post_months: draft.runway_post ? Number(draft.runway_post) : undefined,
       round_min_ticket_eur: draft.min_ticket ? Number(draft.min_ticket) : undefined,
@@ -112,7 +126,25 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
                 </label>
                 <label className="flex flex-col gap-0.5 text-xs">
                   <span className="text-gray-500">Valuation / cap (EUR, optional)</span>
-                  <input type="number" value={draft.valuation} onChange={(e) => setDraft({ ...draft, valuation: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
+                  <div className="flex gap-1.5">
+                    <input type="number" value={draft.valuation} onChange={(e) => setDraft({ ...draft, valuation: e.target.value })} className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+                    <select value={draft.valuation_basis} onChange={(e) => setDraft({ ...draft, valuation_basis: e.target.value as ValuationBasis })}
+                      className="shrink-0 rounded border border-gray-300 px-1.5 py-1 text-sm">
+                      <option value="pre_money">pre-money</option>
+                      <option value="post_money">post-money</option>
+                    </select>
+                  </div>
+                  {draft.valuation && draft.target && (() => {
+                    const d = deriveValuation(draft.valuation_basis, Number(draft.valuation), Number(draft.target));
+                    return (
+                      <span className="mt-0.5 text-gray-400">
+                        Pre-money {eur(d.preMoneyEur)} · Post-money {eur(d.postMoneyEur)} · Round {eur(d.roundEur)}
+                      </span>
+                    );
+                  })()}
+                  {!basisPersistable && (
+                    <span className="mt-0.5 text-gray-400">The pre/post-money basis isn&apos;t saved yet — coming soon.</span>
+                  )}
                 </label>
                 <label className="flex flex-col gap-0.5 text-xs">
                   <span className="text-gray-500">Minimum ticket (EUR, optional)</span>
@@ -183,7 +215,8 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
                   ['round.stage', 'Stage', org.stage === 'other' ? (org.stage_other || 'Other') : stageLabel],
                   ['round.target', 'Target', org.round_target_eur != null ? `${eur(org.round_target_eur)}${org.round_flexible ? ' · FLEXIBLE' : ''}` : ''],
                   ['round.secured', 'Secured', org.round_secured_eur != null ? eur(org.round_secured_eur) : ''],
-                  ['round.valuation', 'Valuation', org.round_valuation_eur != null ? eur(org.round_valuation_eur) : ''],
+                  ['round.valuation', org.round_valuation_basis === 'post_money' ? 'Valuation (post-money)' : 'Valuation (pre-money)',
+                    org.round_valuation_eur != null ? eur(org.round_valuation_eur) : ''],
                   ['round.min_ticket', 'Min ticket', org.round_min_ticket_eur != null ? eur(org.round_min_ticket_eur) : ''],
                   ['round.runway', 'Runway now', org.round_runway_months != null ? `${org.round_runway_months} mo` : ''],
                   ['round.runway_post', 'Runway post-round', org.round_runway_post_months != null ? `${org.round_runway_post_months} mo` : ''],
@@ -205,6 +238,14 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
                   <dd>{(org.round_instruments ?? []).map((v) => INSTRUMENTS.find((i) => i.value === v)?.label ?? v).join(', ') || '—'}</dd>
                 </div>
               </dl>
+              {org.round_valuation_eur != null && org.round_target_eur != null && (() => {
+                const d = deriveValuation(org.round_valuation_basis ?? 'pre_money', org.round_valuation_eur!, org.round_target_eur!);
+                return (
+                  <p className="text-xs text-gray-400">
+                    Pre-money {eur(d.preMoneyEur)} · Post-money {eur(d.postMoneyEur)} · Round {eur(d.roundEur)}
+                  </p>
+                );
+              })()}
               <div id="round.use_of_funds" className={`rounded p-1 text-xs transition-colors duration-700 ${flashId === 'round.use_of_funds' ? 'bg-amber-50 ring-2 ring-amber-300' : ''}`}>
                 {org.round_use_of_funds ? <p className="text-gray-500"><b>Use of funds:</b> {org.round_use_of_funds}</p> : missingIds.has('round.use_of_funds') && (
                   <p className="text-amber-700">Use of funds needed for 100%</p>

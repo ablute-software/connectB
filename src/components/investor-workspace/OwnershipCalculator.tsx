@@ -12,10 +12,18 @@ function fmtPct(n: number) {
   return `${n < 1 ? n.toFixed(2) : n.toFixed(1)}%`;
 }
 
-export function OwnershipCalculator({ roundValuationEur, roundTargetEur }: { roundValuationEur: number | null; roundTargetEur: number | null }) {
+export function OwnershipCalculator(
+  { roundValuationEur, roundTargetEur, roundValuationBasis }:
+  { roundValuationEur: number | null; roundTargetEur: number | null; roundValuationBasis?: 'pre_money' | 'post_money' | null },
+) {
   const [open, setOpen] = useState(false);
   const [ticket, setTicket] = useState('50000');
-  const [basis, setBasis] = useState<'pre_money' | 'post_money'>('post_money');
+  // Prompt 115 Block E — initialized from the founder's declared basis
+  // (org.round_valuation_basis, propose-only migration 0111) instead of a
+  // hardcoded guess; the investor can still override via the select below.
+  // Falls back to 'pre_money' — same convention as every other reader of
+  // this not-yet-applied column.
+  const [basis, setBasis] = useState<'pre_money' | 'post_money'>(roundValuationBasis ?? 'pre_money');
   const [futureDilutions, setFutureDilutions] = useState(['20', '15']);
 
   if (!open) {

@@ -180,7 +180,7 @@ activity — left untouched since they cannot be confirmed as test data I create
 
 ---
 
-## Block D — Cross-document coherence analysis 🟢
+## Block D — Cross-document coherence analysis 🟢 (production confirmed)
 
 **Commit:** (this one).
 
@@ -219,19 +219,108 @@ defensively on read in case a row is ever written another way.
   quoted both sides verbatim, tagged it `category: team, severity: high`, and both the Review tab's
   own result view and the Action plan's Contradictions section rendered it correctly with the two
   citations side by side. The `ai_reviews` row was deleted after the screenshot.
+- Production deploy confirmed via the corrected chunk-content method: downloaded the `/readiness`
+  page chunk from `https://www.sherlockdeal.com` and grepped its content for the card's title
+  string ("Cross-document check — find contradictions"), found present.
 
 ---
 
-## Blocks E–G
+## Block E — Pre/post-money valuation 🟢 (migration proposed, not applied — per explicit instruction)
 
-Not started as of this report snapshot: E (pre/post-money valuation, schema proposed-not-applied
-per the explicit instruction), F (Train question rotation), and optional G (investor pure-function
-tools).
+**Commit:** (this one).
+
+**Migration written but NOT applied:** `supabase/migrations/0111_orgs_round_valuation_basis.sql` —
+additive `orgs.round_valuation_basis text not null default 'pre_money' check (... in ('pre_money',
+'post_money'))`, plus a backfill setting it to `'post_money'` for `orgs.name = 'ablute_'` (Nuno
+confirmed the real €7M figure is post-money). Sits in the repo unapplied; every consumer below
+already works correctly without it (falls back to `'pre_money'`) and will start persisting/reading
+the real basis the moment it's applied — no further code change needed.
+
+**Discovered during investigation (not in the original file list, worth flagging):**
+`orgs.round_valuation_eur` already exists (migration 0037) and is already wired everywhere — Block
+E did not need a new valuation-*amount* column, only the *basis* qualifier. Also,
+`src/components/company/OwnershipCalculator.tsx` from the original prompt doesn't exist — the only
+`OwnershipCalculator` is investor-facing, at `src/components/investor-workspace/OwnershipCalculator.tsx`
+(rendered from `PipelinePanel.tsx`), which is what actually got updated.
+
+**Capability-gated the same way every other propose-only migration in this codebase is** (confirmed
+via `/api/org/update/route.ts`'s own header comment on the same pattern): new
+`src/lib/round-valuation-basis-capability.ts` probe (`makeCapabilityProbe`, same factory as
+`companyProfileAvailable` etc.), exposed as `capabilities.roundValuationBasis` on `/api/me`.
+Nothing sends `round_valuation_basis` in a write, or requests it in a narrow `.select(...)` list,
+until the probe confirms the column exists — an unrecognized column name in an explicit Postgrest
+select list fails the *whole* query, not just that field, so every read site (`investor-pipeline.ts`,
+`startup-snapshot.ts`, `/api/portal/access/route.ts`) branches into two literal select strings
+(with/without the column) rather than building one conditionally, which also keeps supabase-js's
+column-name type inference intact in both branches. The one exception is the founder's own
+`db.org` (Company tab, via `store-supabase.tsx`'s client-side `select('*')`) — a wildcard select
+naturally omits a column that doesn't exist, so no probe is needed on that specific read path.
+
+**What changed:**
+- `src/lib/dilution.ts` — exported `ValuationBasis` type (was inline on `DilutionInput` only) and a
+  new `deriveValuation(basis, valuationEur, roundTargetEur)` pure function (unit-tested) computing
+  both figures from whichever one the founder declares — never a destructive conversion of the
+  stored number, just the arithmetic. Updated the file's stale top comment, which used to say the
+  basis "has no documented convention anywhere in this codebase" — now it does, once applied.
+- `src/components/company/RoundCard.tsx` — Pre-money/Post-money select next to the Valuation input
+  (edit mode), a live "Pre-money €X · Post-money €Y · Round €Z" line shown in **both** edit and
+  display mode (works today, no schema needed — pure arithmetic over the existing
+  `round_valuation_eur`/`round_target_eur`), the display label reads "Valuation (pre-money)" /
+  "(post-money)", and an honest inline note — "The pre/post-money basis isn't saved yet — coming
+  soon" — shown whenever the capability probe is false. Save only includes
+  `round_valuation_basis` in the update payload once the probe is true (`undefined` otherwise,
+  which `JSON.stringify` drops entirely, so an unapplied-migration save never breaks the *other*
+  round fields in the same submit).
+- `src/lib/startup-snapshot.ts` — the AI-facing "Now" summary line now says `valuation
+  €X (post-money)` / `(pre-money)` explicitly, never a bare number (the prompt's own stated
+  priority for this block). Added to `ARCHIVE_RELEVANT_ORG_FIELDS` so a basis change re-triggers
+  the summary like every other archive-relevant field.
+- `src/lib/investor-pipeline.ts`, `/api/portal/access/route.ts`, `src/app/portal/page.tsx` — basis
+  propagated through the investor-facing Pipeline cards and the portal Snapshot card; the portal
+  display shows "Valuation (pre-money)" + "(pre €X · post €Y)" inline, falling back to pre-money
+  labeling when the column is absent.
+- `src/lib/form-assist.ts` — `FormAssistContext.round.valuationBasis` added; the route dumps the
+  whole context as JSON to the model, so the basis now sits right next to the number rather than
+  the model seeing an unlabeled figure.
+- `src/components/investor-workspace/OwnershipCalculator.tsx` (the real file, not the
+  non-existent Company-tab one the prompt named) — the basis `<select>` now initializes from
+  `roundValuationBasis` (passed via `investor-pipeline.ts`'s new field), falling back to
+  `'pre_money'` — was hardcoded to `'post_money'` with no way to know if that guess was right.
+  The investor can still override it manually via the same select, unchanged.
+- `/api/org/update/route.ts` — `round_valuation_basis` added to `EDITABLE`, same "probe gates what
+  the client sends, not this whitelist" discipline as every other pre-migration field here.
+
+**Verified:**
+- `npx tsc --noEmit`, `npx vitest run` — 358/358 (2 new tests for `deriveValuation`, covering both
+  derivation directions with ablute_'s real numbers: pre-money €5.7M ⇄ post-money €7M ⇄ round
+  €1.3M), full `npm run build` clean (`/settings` 30.6→31.1 kB, `/portal` 19.7→20 kB).
+- Live end-to-end test against the real dev server with the migration genuinely **not** applied:
+  confirmed `/api/me`'s `capabilities.roundValuationBasis` is `false`; opened the real Company tab
+  (`/settings`) for `ablute_` and confirmed both display mode ("Valuation (pre-money) €7,000,000"
+  · "Pre-money €7,000,000 · Post-money €8,300,000 · Round €1,300,000") and edit mode (the
+  pre-money/post-money select, the same live derived line, and the "isn't saved yet" note) render
+  correctly using real production data with graceful pre-money fallback — the math checks out
+  (€7,000,000 + €1,300,000 = €8,300,000).
+- **Not independently live-verified:** the investor-facing `/portal` Snapshot card display and the
+  `investor-workspace/OwnershipCalculator.tsx` basis-initialization prop. Reaching either live
+  requires a real `access_grants` row for `ablute_`, and per standing guidance this session never
+  creates/touches `access_grants` without explicit case-by-case approval — the only existing rows
+  for this org are revoked test artifacts from earlier work. Both call the identical
+  `deriveValuation()` / `?? 'pre_money'` fallback pattern already proven correct in the RoundCard
+  test above, and both pass `tsc`/`build`, but flagging the gap rather than claiming full coverage.
 
 ---
 
-## Schema applied vs. proposed-not-applied (through Block D)
+## Blocks F–G
+
+Not started as of this report snapshot: F (Train question rotation) and optional G (investor
+pure-function tools).
+
+---
+
+## Schema applied vs. proposed-not-applied (through Block E)
 
 Applied directly (pre-authorized): Block D's additive `ai_review_kind` enum value
-(`'cross_document_review'`, migration `0110`). Block E's `orgs.round_valuation_basis` migration is
-explicitly **not** authorized to apply — write the migration file only.
+(`'cross_document_review'`, migration `0110`). **Not applied, propose-only:** Block E's
+`orgs.round_valuation_basis` (migration `0111`) — write the migration file only, per the explicit
+instruction; every consumer already falls back gracefully without it.
