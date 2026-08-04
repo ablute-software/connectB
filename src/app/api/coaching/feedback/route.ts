@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 
-interface Question { text: string; category: string; source: 'fixed' | 'derived' }
+interface Question { text: string; category: string; source: 'fixed' | 'derived' | 'diligence' }
 interface QA { question: Question; answer: string }
 
 export async function POST(req: Request) {

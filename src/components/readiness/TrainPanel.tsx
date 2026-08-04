@@ -1,45 +1,41 @@
 'use client';
-// Prompt 99 §4 — "Train": after at least one Review has run, the app asks
-// 6-8 investor-style questions (fixed bank + derived from the latest
-// review's weaknesses/risks — source 3, real portal_questions, is
-// prepared-not-built per §4.3), one at a time, then grades the session.
-// Always a report, never an automated action — same spirit as the rest of
-// this page.
+// Prompt 99 §4 — "Train": the app asks 6-8 investor-style questions (fixed
+// bank + derived from the latest review's weaknesses/risks/recommendations
+// — source 3, real portal_questions, is prepared-not-built per §4.3), one
+// at a time, then grades the session. Always a report, never an automated
+// action — same spirit as the rest of this page.
 //
 // Prompt 115 Block B — moved and renamed from this file's original
 // dashboard/ location and Portuguese component name, as part of promoting
 // this whole feature out of Dashboard into its own "Readiness & Train" nav
 // tab, and closing a Prompt 108 naming debt: no PT/EN hybrid names left in
 // this feature.
+//
+// Prompt 115 Block F — question bank grew from 7 to 24 (3 per real
+// interview category) with a genuinely non-repeating, session-count-indexed
+// rotation (lib/train-questions.ts — unit-tested there, not reimplemented
+// here); added a third 'diligence' source built from the latest review's
+// recommendations (ai_reviews only, never access_grants/interactions); and
+// the entry gate loosened — fixed questions work from minute 1, only the
+// derived/diligence portions need a prior Review to draw from.
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
-import type { CompanyFactCategory } from '@/lib/types';
+import { buildSession, type Question, type Finding } from '@/lib/train-questions';
 
-interface Question { text: string; category: CompanyFactCategory; source: 'fixed' | 'derived' }
 interface CoachingRun {
   id: string; created_at: string;
   questions: Question[]; answers: string[];
   feedback: { per_question: { note: string }[]; strengths_to_keep: string[]; top_adjustments: string[] };
 }
-interface Finding { text: string; category: CompanyFactCategory }
-interface StructuredResult { weaknesses?: Finding[]; risks?: Finding[] }
-
-const FIXED_BANK: Question[] = [
-  { text: 'Walk me through why this specific team is the right one to solve this problem.', category: 'team', source: 'fixed' },
-  { text: 'How big is this market really, and how do you know?', category: 'market', source: 'fixed' },
-  { text: 'What is the strongest piece of proof you have that people actually want this?', category: 'traction', source: 'fixed' },
-  { text: 'What are your unit economics, and how did you arrive at those numbers?', category: 'financing', source: 'fixed' },
-  { text: 'What stops a larger incumbent from doing this next quarter?', category: 'positioning', source: 'fixed' },
-  { text: 'Why this amount, and what does it specifically get you?', category: 'financing', source: 'fixed' },
-  { text: 'What is your regulatory path, and what could block it — if applicable to your sector?', category: 'regulatory', source: 'fixed' },
-];
+interface StructuredResult { weaknesses?: Finding[]; risks?: Finding[]; recommendations?: Finding[] }
 
 export function TrainPanel() {
   const { db } = useStore();
-  const [hasAnyReview, setHasAnyReview] = useState<boolean | null>(null);
-  const [latestFindings, setLatestFindings] = useState<Finding[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [latestWeaknessesAndRisks, setLatestWeaknessesAndRisks] = useState<Finding[]>([]);
+  const [latestRecommendations, setLatestRecommendations] = useState<Finding[]>([]);
   const [runs, setRuns] = useState<CoachingRun[]>([]);
 
   const [questions, setQuestions] = useState<Question[] | null>(null);
@@ -51,27 +47,28 @@ export function TrainPanel() {
   const [err, setErr] = useState('');
 
   useEffect(() => {
-    if (!authEnabled || !db.org.id) { setHasAnyReview(false); return; }
-    browserClient().from('ai_reviews').select('id, kind, result, created_at')
-      .eq('org_id', db.org.id).order('created_at', { ascending: false }).limit(1)
-      .then(({ data }) => {
-        const rows = data as { result: StructuredResult | null }[] | null;
-        setHasAnyReview(!!rows?.length);
-        const r = rows?.[0]?.result;
-        setLatestFindings([...(r?.weaknesses ?? []), ...(r?.risks ?? [])]);
-      });
-    browserClient().from('coaching_runs').select('id, questions, answers, feedback, created_at')
-      .eq('org_id', db.org.id).order('created_at', { ascending: false }).limit(10)
-      .then(({ data }) => setRuns((data as CoachingRun[] | null) ?? []));
+    if (!authEnabled || !db.org.id) { setLoaded(true); return; }
+    Promise.all([
+      browserClient().from('ai_reviews').select('id, kind, result, created_at')
+        .eq('org_id', db.org.id).order('created_at', { ascending: false }).limit(1),
+      browserClient().from('coaching_runs').select('id, questions, answers, feedback, created_at')
+        .eq('org_id', db.org.id).order('created_at', { ascending: false }).limit(10),
+    ]).then(([reviewRes, runsRes]) => {
+      const rows = reviewRes.data as { result: StructuredResult | null }[] | null;
+      const r = rows?.[0]?.result;
+      setLatestWeaknessesAndRisks([...(r?.weaknesses ?? []), ...(r?.risks ?? [])]);
+      setLatestRecommendations(r?.recommendations ?? []);
+      setRuns((runsRes.data as CoachingRun[] | null) ?? []);
+      setLoaded(true);
+    });
   }, [db.org.id]);
 
   function startSession() {
-    const derived: Question[] = latestFindings.slice(0, 4).map((f) => ({
-      text: `An investor pushed back on this: "${f.text}" — how would you answer that, right now?`,
-      category: f.category, source: 'derived',
-    }));
-    const fixed = FIXED_BANK.slice(0, Math.max(4, 7 - derived.length));
-    const qs = [...fixed, ...derived].slice(0, 8);
+    // `runs` is ordered most-recent-first, so the first 2 entries are
+    // exactly the "last 2 sessions" — combined with the one about to be
+    // built, that's the 3-session non-repeat window the rotation targets.
+    const recentTexts = new Set(runs.slice(0, 2).flatMap((r) => r.questions.map((q) => q.text)));
+    const qs = buildSession(runs.length, latestWeaknessesAndRisks, latestRecommendations, recentTexts);
     setQuestions(qs); setStep(0); setAnswers([]); setDraft(''); setResult(null); setErr('');
   }
 
@@ -100,23 +97,15 @@ export function TrainPanel() {
     } catch (e) { setErr((e as Error).message); } finally { setGrading(false); }
   }
 
-  if (hasAnyReview === null) return <p className="text-sm text-gray-400">Loading…</p>;
-  if (!hasAnyReview) {
-    return (
-      <Card title="Train — investor Q&A practice">
-        <p className="text-xs text-gray-500">
-          Run at least one review in the Review tab first — Train uses its weaknesses/risks to build part of the
-          session, otherwise the questions would be too generic to be useful.
-        </p>
-      </Card>
-    );
-  }
+  if (!loaded) return <p className="text-sm text-gray-400">Loading…</p>;
+  const hasReviewMaterial = latestWeaknessesAndRisks.length > 0 || latestRecommendations.length > 0;
 
   return (
     <Card title="Train — investor Q&A practice">
       <p className="mb-2 text-xs text-gray-500">
-        6-8 questions, one at a time — some standard diligence questions, some pulled directly from what your latest
-        review flagged as weak. At the end: a short note per answer and the 2-3 adjustments that matter most.
+        {hasReviewMaterial
+          ? '8 questions, one at a time — standard diligence questions plus some pulled directly from what your latest review flagged. At the end: a short note per answer and the 2-3 adjustments that matter most.'
+          : '8 standard diligence questions, one at a time. Run a review in the Review tab first and future sessions will also pull questions from what it flags — but you don’t have to wait to start practicing.'}
       </p>
 
       {!questions && !result && (

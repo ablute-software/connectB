@@ -225,7 +225,7 @@ defensively on read in case a row is ever written another way.
 
 ---
 
-## Block E — Pre/post-money valuation 🟢 (migration proposed, not applied — per explicit instruction)
+## Block E — Pre/post-money valuation 🟢 (migration proposed, not applied — per explicit instruction; UI live in production)
 
 **Commit:** (this one).
 
@@ -308,19 +308,85 @@ naturally omits a column that doesn't exist, so no probe is needed on that speci
   for this org are revoked test artifacts from earlier work. Both call the identical
   `deriveValuation()` / `?? 'pre_money'` fallback pattern already proven correct in the RoundCard
   test above, and both pass `tsc`/`build`, but flagging the gap rather than claiming full coverage.
+- Production deploy confirmed via the corrected chunk-content method: downloaded
+  `/_next/static/chunks/app/settings/page-e70c86ba1d146ac0.js` from `https://www.sherlockdeal.com/settings`
+  and grepped its content for "pre/post-money basis" (part of the "isn't saved yet" note), found
+  present — confirming the migration-not-applied fallback state is live and correct in production too.
 
 ---
 
-## Blocks F–G
+## Block F — Train non-repeating questions 🟢
 
-Not started as of this report snapshot: F (Train question rotation) and optional G (investor
-pure-function tools).
+**Commit:** (this one).
+
+**What changed:**
+- New `src/lib/train-questions.ts` (pure functions, unit-tested) replaces the old inline 7-question
+  bank in `TrainPanel.tsx`. `FIXED_BANK` grew to 24 — 3 questions per each of the 8 real interview
+  categories (`product, traction, team, positioning, financing, regulatory, market, metrics`;
+  `other` excluded — it's a catch-all company-fact bucket, not a real diligence topic).
+- `pickFixedQuestions(sessionCount, count)` — genuinely deterministic rotation indexed by how many
+  sessions have run before this one (never `Math.random()`). Rotates through all 8 categories one
+  pick at a time (so `count` fixed picks are always `count` *distinct* categories whenever
+  `count <= 8`) and, within a category, through its 3 variants. This gives a **hard, unconditional**
+  non-repeat guarantee regardless of input data — proven for every 3-session window across 12
+  starting points, at both `count=4` (normal session) and `count=8` (no-review fallback).
+- A third question source, **`'diligence'`**, built from the latest review's `recommendations`
+  field (distinct from `'derived'`, which uses `weaknesses`/`risks`) — both come from `ai_reviews`
+  only, never `access_grants`/`interactions`, which is the entire point of this source.
+- `pickFindingQuestions(findings, usedCategories, recentTexts, count, source)` — for the
+  finding-based portion (derived/diligence), excludes text seen in the last 2 real sessions
+  (`recentTexts`, built by `TrainPanel` from its already-fetched `coaching_runs` history) whenever
+  there's enough alternative material, and prefers categories not already covered by the fixed
+  picks. **This one does not have an unconditional guarantee** — with only 2-3 available findings
+  and 2 picks per session, 3 sessions can pigeonhole into a repeat; the code comment says so
+  explicitly. In practice, real `ai_reviews` output easily clears this (a single review commonly
+  yields 6-8 weaknesses alone, as seen live in this exact session's Block C/D work).
+- `buildSession(sessionCount, weaknessesAndRisks, recommendations, recentTexts)` — composes 4 fixed
+  + 2 derived + 2 diligence = 8, gracefully degrading to 8 fixed (still fully guaranteed
+  non-repeating) when there's nothing to draw from yet.
+- `TrainPanel.tsx` — the entry gate that used to block the whole tab behind "run a review first" is
+  gone. Fixed questions work from minute 1; the copy just says derived/diligence questions arrive
+  once a Review has run, instead of hiding the feature entirely. `recentTexts` is built from the
+  first 2 entries of the already-fetched `runs` (ordered newest-first — exactly "the last 2
+  sessions"), and `sessionCount` is simply `runs.length`.
+- `/api/coaching/feedback/route.ts` — `Question.source` union extended to include `'diligence'`.
+
+**Bug caught by the test suite before this shipped:** the first `pickFindingQuestions` implementation
+compared the *raw* finding text against `recentTexts` (which only ever contains fully-rendered
+question text — `An investor pushed back on this: "..." — how would you answer that, right now?`).
+The comparison could never match, so `isFresh` was always `true` and session 2 in a 3-session test
+silently repeated session 0's derived questions verbatim. Caught by
+`train-questions.test.ts`'s own 3-session simulation (not by manual review), fixed by scoring
+freshness against the rendered text instead of the source finding.
+
+**Verified:**
+- `npx tsc --noEmit`, `npx vitest run` — 372/372 (14 new tests in `train-questions.test.ts`,
+  including the exact regression case above and a full 3-session, zero-repeat simulation using
+  finding data shaped like real `ai_reviews` output), full `npm run build` clean (`/readiness`
+  10.9→12 kB).
+- **Live proof exactly as the prompt required:** 3 consecutive real sessions on `ablute_`, run
+  through the actual UI with a real Anthropic API call seeding fresh weaknesses/risks/recommendations
+  (a real `deck_review`) and a real grading call (`/api/coaching/feedback`) ending each session — not
+  a simulation. Result: **24 total questions across the 3 sessions, 24 unique, zero repeats.**
+  Session 1 covered 8 distinct categories (product, traction, team, positioning + 4 pushback
+  questions on use-of-funds/market-sizing/regulatory/financial-planning); sessions 2 and 3 rotated
+  through the remaining categories and fresh findings correctly. Screenshot of session 1's full
+  graded result (real AI feedback per answer, strengths/adjustments) captured. The test `deck_review`
+  row and all 3 `coaching_runs` rows were deleted after capture — before/after snapshots confirm
+  nothing else in the org's data was touched.
 
 ---
 
-## Schema applied vs. proposed-not-applied (through Block E)
+## Block G (optional)
+
+Not attempted — Blocks A–F are all green, so it was in scope per the prompt's own condition, but
+not reached in this session.
+
+---
+
+## Schema applied vs. proposed-not-applied (through Block F)
 
 Applied directly (pre-authorized): Block D's additive `ai_review_kind` enum value
 (`'cross_document_review'`, migration `0110`). **Not applied, propose-only:** Block E's
 `orgs.round_valuation_basis` (migration `0111`) — write the migration file only, per the explicit
-instruction; every consumer already falls back gracefully without it.
+instruction; every consumer already falls back gracefully without it. Block F introduced no schema.
