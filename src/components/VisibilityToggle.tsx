@@ -11,6 +11,12 @@ const AWAY_REMINDER_MS = 30 * 24 * 60 * 60 * 1000;
 export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
   const [status, setStatus] = useState<{
     isOwner: boolean; suspended: boolean; platformSuspended: boolean; suspendedAt: string | null; remindedAt: string | null;
+    // Addenda to Prompt 120 (2026-08-04) — startup-only: whether the
+    // profile is incomplete (distinct from suspended), and which fields
+    // are missing. Confirmed live that a profile can be is_visible=false
+    // purely from incompleteness, never suspended — this used to render
+    // as the same green "Visible" badge as an actually-visible profile.
+    isComplete?: boolean; hasProfile?: boolean; missingFields?: string[];
   } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -55,6 +61,13 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
 
   if (!status) return null;
 
+  // Addenda to Prompt 120 — incomplete is a THIRD state, distinct from
+  // suspended: is_visible can be false purely because required fields are
+  // missing, with nobody having suspended anything. Only meaningful for
+  // kind='startup' (the investor side has no equivalent badge to correct
+  // here — this addenda's finding was specifically about startup profiles).
+  const incomplete = kind === 'startup' && !status.suspended && !status.platformSuspended && !status.isComplete;
+
   return (
     <div id="visibility-toggle" className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
       {status.platformSuspended ? (
@@ -70,8 +83,9 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
         </div>
       ) : (
         <>
-          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${status.suspended ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}>
-            {status.suspended ? 'Suspended' : 'Visible'}
+          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+            status.suspended ? 'bg-amber-100 text-amber-800' : incomplete ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}>
+            {status.suspended ? 'Suspended' : incomplete ? 'Incomplete — not visible yet' : 'Visible'}
           </span>
           {status.isOwner ? (
             <button disabled={busy}
@@ -89,6 +103,13 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
       {status.suspended && !status.platformSuspended && (
         <div className="mt-1 w-full rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Suspended — invisible in MatchDeal and discovery pipelines. Existing relationships and access are unaffected.
+        </div>
+      )}
+
+      {incomplete && (
+        <div className="mt-1 w-full rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Investors can&apos;t find you yet — your MatchDeal profile is missing: {(status.missingFields ?? []).join(', ') || '…'}.{' '}
+          <a href="/pair" className="font-medium underline hover:no-underline">Complete it on the MatchDeal app</a>.
         </div>
       )}
 

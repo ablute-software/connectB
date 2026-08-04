@@ -27,13 +27,33 @@ export async function GET(req: Request) {
   if (kind === 'startup') {
     const { data: member } = await sb.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
     if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
+    // Addenda to Prompt 120 (2026-08-04) — before this, the toggle only
+    // ever reflected owner_suspended_at/platform_suspended_at, so a
+    // profile that's invisible because it's INCOMPLETE (never suspended by
+    // anyone) still showed the green "Visible" badge — confirmed live for
+    // Caramel Biscuit and ablute_ both, is_complete=false/is_visible=false
+    // with no suspension timestamp on either. Selecting is_complete plus
+    // the exact field set matchdeal_recompute_profile_completeness()
+    // checks (migration 0105) so this route can tell the two apart and the
+    // client can show an honest reason instead of a wrong green badge.
     const { data: profile } = await admin.from('matchdeal_profiles')
-      .select('owner_suspended_at, platform_suspended_at, suspension_reminded_at')
+      .select('owner_suspended_at, platform_suspended_at, suspension_reminded_at, is_complete, photo_url, website, sectors, description, country, investment_stage_sought, company_phase')
       .eq('membership_id', member.org_id).eq('kind', 'startup').maybeSingle();
+    const missingFields: string[] = [];
+    if (profile) {
+      if (!profile.photo_url) missingFields.push('Photo');
+      if (!profile.website) missingFields.push('Website');
+      if (!(profile.sectors?.length > 0)) missingFields.push('Sectors');
+      if (!profile.description) missingFields.push('Description');
+      if (!profile.country) missingFields.push('Country');
+      if (!profile.investment_stage_sought) missingFields.push('Stage sought');
+      if (!profile.company_phase) missingFields.push('Company phase');
+    }
     return NextResponse.json({
       ok: true, isOwner: member.role === 'owner',
       suspended: !!profile?.owner_suspended_at, platformSuspended: !!profile?.platform_suspended_at,
       suspendedAt: profile?.owner_suspended_at ?? null, remindedAt: profile?.suspension_reminded_at ?? null,
+      isComplete: !!profile?.is_complete, hasProfile: !!profile, missingFields,
     });
   }
 

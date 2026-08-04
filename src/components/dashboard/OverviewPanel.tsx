@@ -10,6 +10,7 @@ import { Card, EntityLink, fmtRoundEur } from '@/components/ui';
 import { outboundCounts, passReasonAlert } from '@/lib/rules';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
+import { MatchDealVisibilityBanner } from './MatchDealVisibilityBanner';
 import type { EntityStatus } from '@/lib/types';
 
 const STATUS_ORDER: EntityStatus[] = ['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'invested', 'dormant'];
@@ -62,6 +63,8 @@ export function OverviewPanel() {
         <h1 className="text-lg font-bold">Dashboard</h1>
         <PageGuideButton pageKey="guide_dashboard" />
       </div>
+
+      <MatchDealVisibilityBanner />
 
       {alert && (
         <div className="rounded-lg border-l-4 border-[#B00000] bg-red-50 px-4 py-3 text-sm">
