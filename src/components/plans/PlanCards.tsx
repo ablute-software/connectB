@@ -56,17 +56,31 @@ export function PlanCards({
             )}
 
             <ul className="mt-4 flex-1 space-y-1.5 text-xs text-gray-600">
-              {p.bullets.map((b) => (
-                <li key={b} className={`flex items-start gap-1.5 ${isNew.has(b) ? 'font-semibold text-gray-800' : ''}`}>
-                  <span className={isNew.has(b) ? 'text-[#0E7490]' : 'text-gray-400'}>✓</span>
-                  <span>
-                    {b}
-                    {isNew.has(b) && (
-                      <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#0E7490]">New</span>
-                    )}
-                  </span>
-                </li>
-              ))}
+              {p.bullets.map((b) => {
+                // Prompt 123 §B.1 — a bullet can carry embedded sub-items
+                // (e.g. "Investor Pipeline\n· 5 investors…") for doc-mandated
+                // nested lists (Investor Pipeline, Access to MatchDeal). The
+                // diffing above keys on the WHOLE string, so a tier whose
+                // numbers changed still shows as "New" — intended, since the
+                // numbers genuinely did change at that tier.
+                const [head, ...subLines] = b.split('\n');
+                return (
+                  <li key={b} className={`flex items-start gap-1.5 ${isNew.has(b) ? 'font-semibold text-gray-800' : ''}`}>
+                    <span className={isNew.has(b) ? 'text-[#0E7490]' : 'text-gray-400'}>✓</span>
+                    <span>
+                      {head}
+                      {isNew.has(b) && (
+                        <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#0E7490]">New</span>
+                      )}
+                      {subLines.length > 0 && (
+                        <ul className="mt-1 space-y-0.5 pl-1 font-normal text-gray-500">
+                          {subLines.map((line) => <li key={line}>{line}</li>)}
+                        </ul>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
 
             {p.comingSoon && p.comingSoon.length > 0 && (

@@ -96,31 +96,67 @@ describe('planPriceLabel (Monthly/Annual toggle mapping)', () => {
   });
 });
 
-describe('plan bullets stay cumulative across tiers (Prompt 113 §4 step 6)', () => {
-  // A few lines interpolate a per-tier NUMBER but are otherwise the same
-  // promise (catalog quota, MatchDeal weekly limits, Watson draft quota) —
-  // normalize those before comparing so the cumulative check isn't fooled
-  // by an intentional number update (plans.ts's own "repeats are
-  // intentional" rule).
-  function normalize(bullet: string): string {
-    return bullet
-      .replace(/^\d+ investors unlocked/, 'N investors unlocked')
-      .replace(/^MatchDeal — .*/, 'MatchDeal line')
-      .replace(/^\d+ AI-written outreach drafts/, 'N AI-written outreach drafts');
-  }
+// Prompt 123 §B.1 replaced the 3 cards' copy in full, per "Correção Cards
+// Planos.md" — the old strict "garage bullets = idea bullets + new ones, in
+// the same order" invariant (Prompt 113 §4 step 6) no longer holds by
+// design: several lines are TIER-SPECIFIC REPLACEMENTS, not pure additions
+// (seats: 1/2/5 users; Investor Pipeline's own numbers; Preset vs
+// Customizable Vault). What still has to hold: the features that genuinely
+// don't change per tier keep appearing verbatim at every tier above their
+// introduction.
+describe('plan bullets — shared features persist across tiers (Prompt 123 §B.1)', () => {
+  const CARRIED_FORWARD = [
+    'Smart Calendar',
+    'Protected Outreach (Linting, Volume Caps & Contact Locks)',
+    'Actionable Review Queue',
+    'Bulk Investor Import',
+    'NDA-protected document sharing',
+  ];
 
-  it('garage carries every idea bullet, in order, before its own new ones', () => {
-    const idea = planRow('idea').bullets.map(normalize);
-    const garage = planRow('garage').bullets.map(normalize);
-    expect(garage.slice(0, idea.length)).toEqual(idea);
-    expect(garage.length).toBeGreaterThan(idea.length);
+  it('every unchanging feature bullet appears in all three tiers', () => {
+    for (const tier of PLAN_TIERS) {
+      const bullets = planRow(tier).bullets;
+      for (const line of CARRIED_FORWARD) expect(bullets).toContain(line);
+    }
   });
 
-  it('motherfunding carries every garage bullet, in order, before its own new ones', () => {
-    const garage = planRow('garage').bullets.map(normalize);
-    const motherfunding = planRow('motherfunding').bullets.map(normalize);
-    expect(motherfunding.slice(0, garage.length)).toEqual(garage);
-    expect(motherfunding.length).toBeGreaterThan(garage.length);
+  it('each tier states its own seat count', () => {
+    expect(planRow('idea').bullets).toContain('1 User (Owner)');
+    expect(planRow('garage').bullets).toContain('2 users');
+    expect(planRow('motherfunding').bullets).toContain('5 users');
+  });
+
+  it('each tier has its own Investor Pipeline bullet with its own numbers', () => {
+    for (const tier of PLAN_TIERS) {
+      expect(planRow(tier).bullets.some((b) => b.startsWith('Investor Pipeline'))).toBe(true);
+    }
+    expect(planRow('idea').bullets.find((b) => b.startsWith('Investor Pipeline'))).toContain('5 investors');
+    expect(planRow('garage').bullets.find((b) => b.startsWith('Investor Pipeline'))).toContain('10 investors');
+    expect(planRow('motherfunding').bullets.find((b) => b.startsWith('Investor Pipeline'))).toContain('25 investors');
+  });
+
+  // Flagged discrepancy (see plans.ts's own comment on the idea tier): the
+  // doc's Elementary card has no MatchDeal line at all, while List of
+  // Suspects introduces "Access to MatchDeal" as something NEW — even
+  // though idea-tier orgs already have real MATCHDEAL_WEEKLY.idea access at
+  // the entitlement layer. This test pins the CARD COPY as currently
+  // authored, not a claim that the underlying access matches.
+  it('only garage and motherfunding advertise a MatchDeal bullet in copy', () => {
+    expect(planRow('idea').bullets.some((b) => b.startsWith('Access to MatchDeal'))).toBe(false);
+    expect(planRow('garage').bullets.some((b) => b.startsWith('Access to MatchDeal'))).toBe(true);
+    expect(planRow('motherfunding').bullets.some((b) => b.startsWith('Access to MatchDeal'))).toBe(true);
+  });
+
+  // Review & Optimization / Investability Reports stay in `comingSoon` for
+  // every paid tier — the real entitlement (reviewOptimization) is still
+  // platform-only preview (Prompt 115), so the doc's own bullets naming
+  // these as live features are deliberately NOT promoted into `bullets`.
+  it('Review & Optimization and Investability Reports stay parked, not promised live, on paid tiers', () => {
+    for (const tier of ['garage', 'motherfunding'] as const) {
+      const row = planRow(tier);
+      expect(row.bullets.some((b) => b.includes('Review and Optimization') || b.includes('Investability Reports'))).toBe(false);
+      expect(row.comingSoon).toEqual(expect.arrayContaining(['Advanced Review & Optimization', 'Investability reports']));
+    }
   });
 });
 

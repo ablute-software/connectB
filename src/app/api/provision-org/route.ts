@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { isAbluteTeamEmail } from '@/lib/supabase-server';
 import { ABLUTE_ORG_ID } from '@/lib/ablute-org';
 import { logAdminAction } from '@/lib/audit';
+import { PRESET_MATERIALS_FOLDERS, PRESET_DATA_ROOM_FOLDERS } from '@/lib/vault-preset-folders';
 
 // The platform owner. Signing up with either of these two specific,
 // hardcoded addresses links to the real ablute_ org (already seeded) as
@@ -99,13 +100,9 @@ export async function POST(req: NextRequest) {
   if (memErr) return NextResponse.json({ ok: false, error: memErr.message }, { status: 500 });
 
   // Seed default folders so a new founder has a data room to work with immediately.
-  const materials = ['Pitch deck', 'Investor deck', 'One-pager', 'Financials'];
-  const dataroom = ['00 Index and Summary', '01 Summary and Investment Dossier', '02 Corporate & Governance',
-    '03 Financial', '04 Technology, Product and IP', '05 Commercial, Market and Pilot', '06 Team',
-    '07 Regulatory and Compliance', '08 Due Diligence (Restricted)'];
   await admin.from('folders').insert([
-    ...materials.map((name, i) => ({ org_id: org.id, name, kind: 'materials', position: i + 1 })),
-    ...dataroom.map((name, i) => ({ org_id: org.id, name, kind: 'data_room', position: i + 11 })),
+    ...PRESET_MATERIALS_FOLDERS.map((name, i) => ({ org_id: org.id, name, kind: 'materials', position: i + 1 })),
+    ...PRESET_DATA_ROOM_FOLDERS.map((name, i) => ({ org_id: org.id, name, kind: 'data_room', position: i + 11 })),
   ]);
 
   return NextResponse.json({ ok: true, org_id: org.id });

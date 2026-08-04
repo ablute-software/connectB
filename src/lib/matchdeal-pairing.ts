@@ -10,8 +10,7 @@ import { createHash, randomBytes } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logEvent } from './analytics-events';
 import { resolveActiveInvestorMember } from './investor-membership';
-import { calcCompanyCompleteness, startupInvestorDeckCap } from './companyCompleteness';
-import type { CompanyPerson, Org } from './types';
+import { MATCHDEAL_WEEKLY, normalizePlan } from './plans';
 
 export const PAIRING_TOKEN_TTL_MS = 5 * 60 * 1000; // spec Section 4 — 5 minutes
 export const PAIRING_RATE_LIMIT_PER_HOUR = 10; // spec Section 8
@@ -232,24 +231,23 @@ export async function touchLastSeenIfStale(admin: SupabaseClient, pairingId: str
   await admin.from('matchdeal_pairings').update({ last_seen_at: new Date().toISOString() }).eq('id', pairingId);
 }
 
-// Prompt 121 §2.7-b — the deck's visible-investor population grows by the
-// startup's own profile completeness tier. Shared by both entry points that
-// resolve a startup's own MatchDeal profile (pairing/self for "open on this
-// device", pairing/consume for a fresh QR scan) so the cap is computed once,
-// not duplicated per route. membership_id on a kind='startup'
-// matchdeal_profiles row IS the org id directly (see resolveOwnMatchdealProfileId's own
-// comment above: polymorphic by design), so this is a plain two-table read —
-// zero touches to matchdeal_eligible_deck itself, which already respects
-// its p_limit argument as `least(p_limit, v_remaining)`.
+// Prompt 121 §2.7-b's completeness-tier cap here (5/15/999 by profile %) was
+// REVOKED by Prompt 123 §0 — replaced for the CRM Pipeline by the milestone
+// formula in pipeline-unlock.ts (a different surface: that one governs the
+// Investor Pipeline's total unlocked count, not this deck's per-request
+// size). This reverts to the plan's own real weekly deck allowance
+// (MATCHDEAL_WEEKLY), so p_limit stops being an artificial completeness
+// gate and just reflects what the startup's plan actually promises — the
+// RPC's own `least(p_limit, v_remaining)` still enforces the real weekly
+// quota on top of this. Shared by both entry points that resolve a
+// startup's own MatchDeal profile (pairing/self for "open on this device",
+// pairing/consume for a fresh QR scan) so it's computed once, not
+// duplicated per route.
 export async function startupDeckLimit(admin: SupabaseClient, profileId: string): Promise<number> {
   const { data: profile } = await admin.from('matchdeal_profiles').select('membership_id').eq('id', profileId).maybeSingle();
   const orgId = profile?.membership_id as string | undefined;
   if (!orgId) return 10; // unchanged fallback — matches the deck's pre-existing hardcoded default
-  const [{ data: org }, { data: people }] = await Promise.all([
-    admin.from('orgs').select('*').eq('id', orgId).maybeSingle(),
-    admin.from('company_people').select('*').eq('org_id', orgId),
-  ]);
+  const { data: org } = await admin.from('orgs').select('plan').eq('id', orgId).maybeSingle();
   if (!org) return 10;
-  const { pct } = calcCompanyCompleteness(org as unknown as Org, (people ?? []) as unknown as CompanyPerson[]);
-  return startupInvestorDeckCap(pct);
+  return MATCHDEAL_WEEKLY[normalizePlan(org.plan as string | null)].deck;
 }

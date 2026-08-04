@@ -105,59 +105,103 @@ export const PLANS: PlanRow[] = [
   {
     tier: 'idea', name: 'Elementary, my dear', monthly: '€0', paid: false, monthlyEur: 0,
     tagline: 'For your very first steps',
+    // Prompt 123 §B.1 — copy replaced in full per "Correção Cards Planos.md".
+    // The doc's Elementary list has no MatchDeal line at all (List of
+    // Suspects introduces "Access to MatchDeal" as something NEW at that
+    // tier) — that contradicts the live entitlement model, where idea-tier
+    // orgs already get MATCHDEAL_WEEKLY.idea (3 decks/1 like per week)
+    // enforced by matchdeal_tier_limits(tier_a) in Postgres. Following
+    // §B.1's own instruction ("where the doc and the constants diverge, the
+    // constants follow the doc") for this CARD COPY only — the bullet is
+    // dropped here — but the matching engine itself is untouched (out of
+    // scope, never touch it). Flagged for Nuno: either idea genuinely loses
+    // MatchDeal (a real entitlement change, not done here) or this was a
+    // brevity omission in the doc.
     bullets: [
-      'Investor pipeline — every conversation, its stage and its next step, in one place',
-      'Agenda — what to do today, built from the pipeline itself',
-      'Company profile with a completeness score that names what is still missing',
-      'Vault Data Room — folders, documents, and access granted person by person',
-      'Send discipline built in — kill-word linting, volume caps and contact locks, so a bad send never leaves',
-      'Needs-review queue — nothing goes out without you seeing it first',
-      'Bring your own investors — CSV import or manual entry, no limit',
-      `${CATALOG_QUOTA.idea} investors unlocked from the Sherlock Deal catalogue`,
-      'Message templates — mechanical, no AI',
-      `MatchDeal — ${MATCHDEAL_WEEKLY.idea.deck} new investors a week, ${MATCHDEAL_WEEKLY.idea.likes} swipe right`,
+      '1 User (Owner)',
+      'Investor Pipeline\n'
+        + '· 5 investors available once your core profile is complete\n'
+        + '· Up to 10 new Sherlock Deal investors per month\n'
+        + '· Unlimited manually added investors\n'
+        + '· 1 full pipeline reprioritization per month\n'
+        + '· Smart follow-up for up to 10 active investor contacts',
+      'Smart Calendar',
+      'Preset Vault Data Room (with Access Control)',
+      'Protected Outreach (Linting, Volume Caps & Contact Locks)',
+      'Actionable Review Queue',
+      'Bulk Investor Import',
+      'NDA-protected document sharing',
     ],
   },
   {
     tier: 'garage', name: 'List of Suspects', monthly: '€85/month', annual: '€756/year (equivalent to €63/month)', paid: true, monthlyEur: 85, annualEur: 756, annualPerMonthEur: 63,
     tagline: 'For rounds already in motion',
+    // Prompt 123 §B.1 — "Everything in Elementary, my dear, plus:" per the
+    // doc: Elementary's own bullets carry forward (Smart Calendar, Protected
+    // Outreach, Actionable Review Queue, Bulk Investor Import, NDA sharing),
+    // with Investor Pipeline/Vault/seats replaced by this tier's own numbers
+    // and the items below added. Advanced Review & Optimization / Investability
+    // Reports are named in the doc's List of Suspects bullets, but the real
+    // entitlement (reviewOptimization) is still platform-only preview (Prompt
+    // 115) — not open to any paying plan yet. Kept in `comingSoon` rather than
+    // promised as live, to avoid advertising a feature paying customers can't
+    // actually use. FLAGGED for Nuno — this is the doc vs. product-state
+    // conflict that matters most in this block.
     bullets: [
-      'Investor pipeline — every conversation, its stage and its next step, in one place',
-      'Agenda — what to do today, built from the pipeline itself',
-      'Company profile with a completeness score that names what is still missing',
-      'Vault Data Room — folders, documents, and access granted person by person',
-      'Send discipline built in — kill-word linting, volume caps and contact locks, so a bad send never leaves',
-      'Needs-review queue — nothing goes out without you seeing it first',
-      'Bring your own investors — CSV import or manual entry, no limit',
-      `${CATALOG_QUOTA.garage} investors unlocked from the Sherlock Deal catalogue`,
-      'Message templates — mechanical, no AI',
-      `MatchDeal — ${MATCHDEAL_WEEKLY.garage.deck} new investors a week, ${MATCHDEAL_WEEKLY.garage.likes} swipe rights, ${MATCHDEAL_WEEKLY.garage.undos} reconsiderations`,
-      `${WATSON_DRAFT_QUOTA.garage} AI-written outreach drafts a month — each one built from that investor's thesis, not a mail merge`,
-      'Automations — reminders and follow-ups that fire without you remembering them',
-      'Share documents under NDA — the signature is captured and filed with the document',
-      'Reawakening — when something changes on your side, the system re-reads your dormant investors and tells you which are worth reopening',
+      '2 users',
+      'Investor Pipeline\n'
+        + '· 10 investors available once your core profile is complete\n'
+        + '· Up to 25 new Sherlock Deal investors per month\n'
+        + '· Smart follow-up for up to 30 active investor contacts',
+      'Smart Calendar',
+      'Customizable Vault Data Room with access control',
+      'Protected Outreach (Linting, Volume Caps & Contact Locks)',
+      'Actionable Review Queue',
+      'Bulk Investor Import',
+      'NDA-protected document sharing',
+      `${WATSON_DRAFT_QUOTA.garage} AI-personalized outreach drafts and reviews per month`,
+      '1 active fundraising round',
+      'Automated reminders and follow-up sequencing',
+      'Investor re-engagement engine',
+      'Access to MatchDeal\n'
+        + `· ${MATCHDEAL_WEEKLY.garage.deck} new investors per week\n`
+        + `· ${MATCHDEAL_WEEKLY.garage.likes} investor picks per week\n`
+        + `· ${MATCHDEAL_WEEKLY.garage.undos} reconsiderations per week`,
+    ],
+    comingSoon: [
+      'Advanced Review & Optimization',
+      'Investability reports',
     ],
   },
   {
     tier: 'motherfunding', name: "It's the butler!", monthly: '€149/month', annual: '€1,308/year (equivalent to €109/month)', paid: true, monthlyEur: 149, annualEur: 1308, annualPerMonthEur: 109,
     bestValue: true,
     tagline: 'For serious, multi-investor raises',
+    // Prompt 123 §0.1/§B.1 — base 25 (card wins over the doc's "5/10/20"
+    // unlock-rules section; see PLAN_PIPELINE_BASE.motherfunding in
+    // pipeline-unlock.ts). Everything from List of Suspects carries forward
+    // (same comingSoon caveat re: Review & Optimization applies here too —
+    // still platform-only preview, not actually live for this plan).
     bullets: [
-      'Investor pipeline — every conversation, its stage and its next step, in one place',
-      'Agenda — what to do today, built from the pipeline itself',
-      'Company profile with a completeness score that names what is still missing',
-      'Vault Data Room — folders, documents, and access granted person by person',
-      'Send discipline built in — kill-word linting, volume caps and contact locks, so a bad send never leaves',
-      'Needs-review queue — nothing goes out without you seeing it first',
-      'Bring your own investors — CSV import or manual entry, no limit',
-      `${CATALOG_QUOTA.motherfunding} investors unlocked from the Sherlock Deal catalogue`,
-      'Message templates — mechanical, no AI',
-      `MatchDeal — ${MATCHDEAL_WEEKLY.motherfunding.deck} new investors a week, ${MATCHDEAL_WEEKLY.motherfunding.likes} swipe rights, and unlimited reconsiderations until those ${MATCHDEAL_WEEKLY.motherfunding.likes} are used`,
-      `${WATSON_DRAFT_QUOTA.motherfunding} AI-written outreach drafts a month — each one built from that investor's thesis, not a mail merge`,
-      'Automations — reminders and follow-ups that fire without you remembering them',
-      'Share documents under NDA — the signature is captured and filed with the document',
-      'Reawakening — when something changes on your side, the system re-reads your dormant investors and tells you which are worth reopening',
-      'Priority support — a person who knows your round, not a queue',
+      '5 users',
+      'Investor Pipeline\n'
+        + '· 25 investors available once your core profile is complete\n'
+        + '· Up to 50 new Sherlock Deal investors per month\n'
+        + '· Smart follow-up for up to 60 active investor contacts',
+      'Smart Calendar',
+      'Customizable Vault Data Room with access control',
+      'Protected Outreach (Linting, Volume Caps & Contact Locks)',
+      'Actionable Review Queue',
+      'Bulk Investor Import',
+      'NDA-protected document sharing',
+      `${WATSON_DRAFT_QUOTA.motherfunding} AI-personalized outreach drafts and reviews per month`,
+      '1 active fundraising round',
+      'Automated reminders and follow-up sequencing',
+      'Investor re-engagement engine',
+      'Access to MatchDeal\n'
+        + `· ${MATCHDEAL_WEEKLY.motherfunding.deck} new investors per week\n`
+        + `· ${MATCHDEAL_WEEKLY.motherfunding.likes} investor picks per week\n`
+        + '· unlimited reconsiderations',
     ],
     comingSoon: [
       'Advanced Review & Optimization',

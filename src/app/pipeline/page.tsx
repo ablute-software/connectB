@@ -172,6 +172,26 @@ function EmptyCompanyBlock({ variant }: { variant: 'screen' | 'banner' }) {
   );
 }
 
+// Prompt 123 §B.3 acceptance — a visible number that moves as the founder
+// completes their profile / uploads documents / logs milestones, not just
+// static card copy. `null` (still loading, or the route failed) renders
+// nothing rather than a misleading "0".
+function PipelineUnlockBadge({ unlock }: { unlock: { visible: number; gateComplete: boolean; eligiblePoolSize: number } | null }) {
+  if (!unlock) return null;
+  if (!unlock.gateComplete) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        Pipeline locked — complete your company profile (website, sector, stage, country, round target, current phase, founding year, revenue, and a primary contact) to start unlocking investors.
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-[#0E7490]/20 bg-[#E8F4F8] px-3 py-2 text-xs text-[#0E7490]">
+      <span className="font-semibold">{unlock.visible}</span> of {unlock.eligiblePoolSize} eligible investors unlocked in your pipeline.
+    </div>
+  );
+}
+
 function sortValue(db: Db, key: SortKey, e: Entity): unknown {
   switch (key) {
     case 'name': return e.name;
@@ -213,6 +233,19 @@ export default function PipelinePage() {
   // does), so there is nothing to filter here — this is purely "how many
   // more are there" for the frosted-glass message below.
   const [blockedCount, setBlockedCount] = useState(0);
+  // Prompt 123 Block B.2 — the pipeline-unlock engine's live number (base
+  // by plan + profile/upload/milestone bonuses + monthly growth). Re-checked
+  // whenever entities change so it visibly moves right after a founder
+  // completes their profile or uploads a deck, per the block's own
+  // acceptance criterion.
+  const [unlock, setUnlock] = useState<{ visible: number; gateComplete: boolean; eligiblePoolSize: number } | null>(null);
+  useEffect(() => {
+    if (!authEnabled) return;
+    fetch('/api/pipeline-unlock', { cache: 'no-store' }).then((r) => r.json())
+      .then((b) => { if (b.ok) setUnlock({ visible: b.visible, gateComplete: b.gateComplete, eligiblePoolSize: b.eligiblePoolSize }); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db.entities.length]);
   const { setCondition } = useOnboarding();
 
   // waves coach mark (§3): fires the first time the pipeline shows
@@ -287,6 +320,7 @@ export default function PipelinePage() {
   if (noEntities) {
     return (
       <div className="space-y-4">
+        <PipelineUnlockBadge unlock={unlock} />
         <EmptyCompanyBlock variant="screen" />
       </div>
     );
@@ -298,6 +332,7 @@ export default function PipelinePage() {
         <PageGuideButton pageKey="guide_pipeline" />
       </div>
       <PageTour pageKey="guide_pipeline" />
+      <PipelineUnlockBadge unlock={unlock} />
       {noneClassified && <EmptyCompanyBlock variant="banner" />}
       <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
