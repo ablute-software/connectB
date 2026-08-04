@@ -16,18 +16,11 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
-import type { CompanyFactCategory } from '@/lib/types';
 import type { Contradiction } from '@/lib/action-plan';
+import { ReportView, type StructuredReport } from './ReportView';
 
 interface ReviewRun { id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string }
 interface InvestabilityReport { score: number; summary: string; strengths: string[]; weaknesses: string[]; risks: string[]; recommendations: string[] }
-
-interface Finding { text: string; category: CompanyFactCategory }
-interface SeverityFinding extends Finding { severity: 'low' | 'medium' | 'high' }
-interface StructuredReport {
-  score: number; summary: string;
-  strengths: string[]; weaknesses: SeverityFinding[]; risks: SeverityFinding[]; recommendations: Finding[];
-}
 
 const DOC_KINDS = [
   { value: 'deck_review', label: 'Pitch deck' },
@@ -51,47 +44,6 @@ const SHOW_DRAFT_REVIEW_CARD = false;
 
 function ComingSoon() {
   return <p className="rounded-lg bg-gray-50 px-4 py-3 text-center text-xs text-gray-400">Coming soon to your workspace.</p>;
-}
-
-function StructuredReportView({ report }: { report: StructuredReport }) {
-  return (
-    <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
-      <div className="flex items-center gap-2">
-        <span className="text-2xl font-bold text-[#0E7490]">{report.score}</span>
-        <span className="text-xs text-gray-400">/ 10</span>
-      </div>
-      <p className="mt-1 text-gray-700">{report.summary}</p>
-      {report.strengths.length > 0 && (
-        <div className="mt-2">
-          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Strengths</div>
-          <ul className="ml-4 list-disc text-xs text-gray-700">{report.strengths.map((s, i) => <li key={i}>{s}</li>)}</ul>
-        </div>
-      )}
-      {(['weaknesses', 'risks'] as const).map((k) => (
-        report[k].length > 0 && (
-          <div key={k} className="mt-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{k}</div>
-            <ul className="ml-4 list-disc text-xs text-gray-700">
-              {report[k].map((f, i) => (
-                <li key={i}>
-                  <span className={SEVERITY_COLOR[f.severity]}>[{f.severity}]</span> {f.text}
-                  <span className="ml-1 text-gray-400">· {f.category}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )
-      ))}
-      {report.recommendations.length > 0 && (
-        <div className="mt-2">
-          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Recommendations</div>
-          <ul className="ml-4 list-disc text-xs text-gray-700">
-            {report.recommendations.map((f, i) => <li key={i}>{f.text} <span className="text-gray-400">· {f.category}</span></li>)}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
 }
 
 export function ReviewPanel() {
@@ -317,7 +269,7 @@ export function ReviewPanel() {
               {docLoading ? 'Reviewing…' : 'Review with AI'}
             </button>
             {docErr && <p className="mt-2 text-xs text-[#B00000]">{docErr}</p>}
-            {docResult && <StructuredReportView report={docResult} />}
+            {docResult && <ReportView report={docResult} />}
           </>
         )}
       </Card>

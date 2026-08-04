@@ -18,6 +18,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { aiReviewHistoryFieldsAvailable } from '@/lib/ai-review-history-capability';
 
 type ReviewKind =
   | 'message_review' | 'deck_review' | 'one_pager_review' | 'market_data'
@@ -34,6 +35,15 @@ const DOC_KIND_NAME: Record<string, string> = {
   financial_plan_review: 'Financial plan', marketing_plan_review: 'Commercial & marketing plan',
   cap_table_review: 'Cap table & terms',
 };
+
+// Prompt 117 Bloco B — human-readable title for every kind, stored on
+// ai_reviews.title so History doesn't have to re-derive it from `kind`.
+const KIND_TITLE: Record<ReviewKind, string> = {
+  ...DOC_KIND_NAME,
+  message_review: 'Outreach draft review',
+  market_data: 'Market benchmark',
+  cross_document_review: 'Cross-document check',
+} as Record<ReviewKind, string>;
 
 const CATEGORIES = ['product', 'traction', 'team', 'positioning', 'financing', 'regulatory', 'market', 'metrics', 'other'] as const;
 
@@ -240,10 +250,20 @@ export async function POST(req: Request) {
       if (url && service && member) {
         try {
           const admin = createClient(url, service, { auth: { persistSession: false } });
+          const historyFields = (await aiReviewHistoryFieldsAvailable())
+            ? {
+                title: KIND_TITLE.cross_document_review,
+                input_text: `${nameA}:\n${draftA}\n\n${nameB}:\n${draftB}`,
+                created_by: user?.id ?? null,
+                source: 'paste',
+                input_meta: { kindA, kindB },
+              }
+            : {};
           await admin.from('ai_reviews').insert({
             org_id: member.org_id, kind: 'cross_document_review', status: 'completed',
             result: { contradictions },
             model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
+            ...historyFields,
           });
         } catch (e) {
           console.error('ai_reviews insert failed:', e);
@@ -353,11 +373,15 @@ export async function POST(req: Request) {
     if (url && service && member) {
       try {
         const admin = createClient(url, service, { auth: { persistSession: false } });
+        const historyFields = (await aiReviewHistoryFieldsAvailable())
+          ? { title: KIND_TITLE[kind], input_text: draft ?? null, created_by: user?.id ?? null, source: 'paste' }
+          : {};
         await admin.from('ai_reviews').insert({
           org_id: member.org_id, kind, status: 'completed',
           result: structured ? report : { review },
           model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
           interaction_draft: kind === 'message_review' ? draft ?? null : null,
+          ...historyFields,
         });
       } catch (e) {
         console.error('ai_reviews insert failed:', e);

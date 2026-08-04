@@ -19,11 +19,13 @@ import { REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
 import { ReviewPanel } from './ReviewPanel';
 import { ActionPlanPanel } from './ActionPlanPanel';
 import { TrainPanel } from './TrainPanel';
+import { HistoryPanel } from './HistoryPanel';
 
 const TABS = [
   { key: 'review', label: 'Review' },
   { key: 'plan', label: 'Action plan' },
   { key: 'train', label: 'Train' },
+  { key: 'history', label: 'History' },
 ];
 
 function ReadinessInner() {
@@ -68,6 +70,7 @@ function ReadinessInner() {
           {activeTab === 'review' && <ReviewPanel />}
           {activeTab === 'plan' && <ActionPlanPanel />}
           {activeTab === 'train' && <TrainPanel />}
+          {activeTab === 'history' && <HistoryPanel />}
         </div>
       </div>
     </div>
