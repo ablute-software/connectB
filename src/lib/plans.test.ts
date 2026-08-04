@@ -61,11 +61,11 @@ describe('planEntitlements (C — plan-gate resolution)', () => {
     expect(planEntitlements('idea', true).aiComposer).toBe(true);
   });
 
-  it('Review & Optimization is parked (frosted) for every org, incl. platform', () => {
+  it('Review & Optimization is platform-only (Fase 0) — frosted for every customer plan', () => {
     expect(planEntitlements('idea', false).reviewOptimization).toBe(false);
     expect(planEntitlements('garage', false).reviewOptimization).toBe(false);
     expect(planEntitlements('motherfunding', false).reviewOptimization).toBe(false);
-    expect(planEntitlements('motherfunding', true).reviewOptimization).toBe(false);
+    expect(planEntitlements('motherfunding', true).reviewOptimization).toBe(true); // ablute_
   });
 });
 

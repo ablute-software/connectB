@@ -234,12 +234,12 @@ export interface Entitlements {
   // Composes ON TOP of the env-based capabilities.ai infra switch (both must
   // pass) — this function is only the plan half.
   aiComposer: boolean;
-  // A — Review & Optimization (investability ranking et al.) is a premium
-  // preview: parked behind the frosted-glass overlay for EVERY org, including
-  // the platform org, so the founder sees the "coming soon" treatment in their
-  // own session and the built tool stays parked (not deleted). Lift later by
-  // returning e.g. `isPlatformOrg` or `plan === 'motherfunding'` from the one
-  // line below — no schema change.
+  // A — Review & Optimization (investability ranking et al.). Prompt 115
+  // Fase 0: no longer parked for everyone — it's platform-only preview now,
+  // open for `ablute_` (the platform org) to validate the v1 against real
+  // documents before it opens to paid plans. Every customer plan still sees
+  // the frosted-glass overlay. Lift further later by also returning true for
+  // e.g. `plan === 'motherfunding'` — no schema change needed for that.
   reviewOptimization: boolean;
 }
 
@@ -248,8 +248,8 @@ export function planEntitlements(plan: PlanTier, isPlatformOrg: boolean): Entitl
     // Platform org (platform_admins) has full access; paid plans get the AI
     // composer; the free 'idea' tier does not.
     aiComposer: isPlatformOrg || planIsPaid(plan),
-    // Parked for all — see the note on the field above.
-    reviewOptimization: false,
+    // Platform-only preview (Prompt 115 Fase 0) — see the note on the field above.
+    reviewOptimization: isPlatformOrg,
   };
 }
 
