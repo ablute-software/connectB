@@ -153,7 +153,12 @@ export function InvestorWorkspaceShell({
             </span>
           </div>
         </header>
-        <main className="mx-auto max-w-3xl p-4 md:p-8">
+        {/* BUG-03 — this <main> used to cap every tab at max-w-3xl (768px),
+            which Tailwind's viewport-based `lg:` breakpoint doesn't know
+            about: a 4-column grid inside 768px would squeeze each card to
+            ~183px. Only the Plans tab needs the wider container; every
+            other tab keeps the original width unchanged. */}
+        <main className={`mx-auto p-4 md:p-8 ${tab === 'plans' ? 'max-w-6xl' : 'max-w-3xl'}`}>
           {tab === 'pipeline' && (
             gateOpen ? (
               openStartup ? (

@@ -20,6 +20,11 @@ export function InvestorPlansPanel() {
   const [busy, setBusy] = useState<InvestorPlanTier | null>(null);
   const [err, setErr] = useState('');
   const [requestedLocal, setRequestedLocal] = useState<string | null>(null);
+  // Prompt 121 §2.4 — Monthly/Annual toggle. INVESTOR_PLANS already carries
+  // real annualEur/annualPerMonthEur values (two of the three flagged
+  // annualPending — a placeholder pending founder confirmation, surfaced
+  // below rather than presented as final).
+  const [billing, setBilling] = useState<'monthly' | 'annual'>('monthly');
 
   useEffect(() => {
     fetch('/api/portal/investor-profile').then((r) => r.json())
@@ -67,41 +72,65 @@ export function InvestorPlansPanel() {
         {err && <p className="mt-1.5 text-xs text-[#B00000]">{err}</p>}
       </div>
 
-      {/* BUG-03 — this panel's own container is capped at max-w-3xl (768px,
-          InvestorWorkspaceShell's <main>), which Tailwind's viewport-based
-          `lg:` breakpoint doesn't know about: `lg:grid-cols-4` fires at
-          1024px+ VIEWPORT width regardless of how narrow this container
-          actually renders, which would squeeze each card into ~183px —
-          the same "thin, tall card" bug as the public pricing page, just
-          via a different mechanism. Capped at 2 columns, the most this
-          container can comfortably fit these bullet-heavy cards. */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        {INVESTOR_PLANS.map((p, i) => (
-          <div key={p.tier} className={`rounded-lg border p-4 ${p.tier === current ? 'border-[#0E7490]' : 'border-gray-200'}`}>
-            <div className="text-sm font-bold text-gray-900">{p.name}</div>
-            <div className="mt-0.5 text-xs text-gray-400">{p.tagline}</div>
-            <div className="mt-2 text-lg font-semibold text-[#0E7490]">€{p.monthlyEur}<span className="text-xs font-normal text-gray-400">/mo</span></div>
-            {/* PLAN-06 — order-derived, so it can't skip a tier or repeat two headers on one card. */}
-            {i > 0 && <p className="mt-2 text-xs font-semibold text-gray-700">Everything in {INVESTOR_PLANS[i - 1].name}, plus:</p>}
-            <ul className="mt-2 space-y-1 text-xs text-gray-600">
-              {p.bullets.map((b) => <li key={b}>· {b}</li>)}
-            </ul>
-            <p className="mt-2 text-[10px] text-gray-400">{INVESTOR_PLAN_FOOTNOTES.dataRoom} {INVESTOR_PLAN_FOOTNOTES.dueDiligence}</p>
-            <div className="mt-3">
-              {p.tier === current ? (
-                <span className="rounded-full bg-[#E8F4F8] px-3 py-1 text-xs font-semibold text-[#0E7490]">Current plan</span>
-              ) : pending === p.tier ? (
-                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Request sent</span>
-              ) : (
-                <button onClick={() => requestTier(p.tier)} disabled={busy === p.tier}
-                  className="w-full rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0c637b] disabled:opacity-40">
-                  {busy === p.tier ? 'Sending…' : `Request ${p.name}`}
-                </button>
-              )}
-            </div>
-          </div>
+      {/* Prompt 121 §2.4 — Monthly/Annual toggle, one selection for the
+          whole grid (not per-card): every priced tier reads the same
+          `billing` state. */}
+      <div className="flex items-center gap-1.5">
+        {(['monthly', 'annual'] as const).map((b) => (
+          <button key={b} onClick={() => setBilling(b)}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium ${billing === b ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            {b === 'monthly' ? 'Monthly' : 'Annual'}
+          </button>
         ))}
-        <PrivateDetectiveCard className="rounded-lg border border-gray-200 p-4" />
+      </div>
+
+      {/* BUG-03 (fixed) — this grid used to inherit InvestorWorkspaceShell's
+          max-w-3xl (768px) <main>, which Tailwind's viewport-based `lg:`
+          breakpoint doesn't know about: 4 columns inside 768px would
+          squeeze each card to ~183px. The shell now gives the Plans tab a
+          wider max-w-6xl container specifically, so lg:grid-cols-4 has
+          room to actually mean 4 columns; degrades to 2x2 below that, and
+          1 column on mobile (4-across on a phone is illegible). */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {INVESTOR_PLANS.map((p, i) => {
+          const price = billing === 'monthly' ? p.monthlyEur : p.annualPerMonthEur;
+          return (
+            <div key={p.tier} className={`flex flex-col rounded-lg border p-4 ${p.tier === current ? 'border-[#0E7490]' : 'border-gray-200'}`}>
+              <div className="text-sm font-bold text-gray-900">{p.name}</div>
+              <div className="mt-0.5 text-xs text-gray-400">{p.tagline}</div>
+              <div className="mt-2 text-lg font-semibold text-[#0E7490]">
+                €{price}<span className="text-xs font-normal text-gray-400">/mo</span>
+              </div>
+              {billing === 'annual' && (
+                <p className="mt-0.5 text-[10px] text-gray-400">
+                  €{p.annualEur}/year{p.annualPending && ' — pending confirmation'}
+                </p>
+              )}
+              {/* PLAN-06 — order-derived, so it can't skip a tier or repeat two headers on one card. */}
+              {i > 0 && <p className="mt-2 text-xs font-semibold text-gray-700">Everything in {INVESTOR_PLANS[i - 1].name}, plus:</p>}
+              <ul className="mt-2 flex-1 space-y-1 text-xs text-gray-600">
+                {p.bullets.map((b) => <li key={b}>· {b}</li>)}
+              </ul>
+              <p className="mt-2 text-[10px] text-gray-400">{INVESTOR_PLAN_FOOTNOTES.dataRoom} {INVESTOR_PLAN_FOOTNOTES.dueDiligence}</p>
+              <div className="mt-3">
+                {p.tier === current ? (
+                  <span className="rounded-full bg-[#E8F4F8] px-3 py-1 text-xs font-semibold text-[#0E7490]">Current plan</span>
+                ) : pending === p.tier ? (
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Request sent</span>
+                ) : (
+                  <button onClick={() => requestTier(p.tier)} disabled={busy === p.tier}
+                    className="w-full rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#0c637b] disabled:opacity-40">
+                    {busy === p.tier ? 'Sending…' : `Request ${p.name}`}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {/* Private Detective has no fixed price at all (PLAN-02 — a contact
+            form, not a checkout) — the toggle above has nothing to change
+            on this card, which is exactly "the same value in both modes". */}
+        <PrivateDetectiveCard className="flex flex-col rounded-lg border border-gray-200 p-4" />
       </div>
 
       <p className="text-[11px] text-gray-400">No payment processing in this version — a plan-change request is recorded and the team applies it manually.</p>
