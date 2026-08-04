@@ -5,6 +5,37 @@
 
 Status legend: 🟢 shipped + verified in production · 🟡 shipped, verification pending · ⬜ not started.
 
+## Summary
+
+| Block | What | Status |
+|---|---|---|
+| A | Unlock `reviewOptimization` for the platform org | 🟢 shipped, verified in prod |
+| B | Promote to "Readiness & Train" nav tab | 🟢 shipped, verified in prod |
+| C | Action plan panel (priority-ordered, deduplicated findings) | 🟢 shipped, verified in prod |
+| D | Cross-document coherence analysis | 🟢 shipped, verified in prod |
+| E | Pre/post-money valuation | 🟢 UI shipped + verified in prod; **schema proposed, not applied** (by design) |
+| F | Train non-repeating questions | 🟢 shipped, verified in prod |
+| G | Investor pure-function tools (optional) | 🟡 partial — SAFE conversion only (item 1/3), per its own stopping-point instruction |
+
+Every block landed as its own commit and its own production deploy, in order, with `npx tsc
+--noEmit` + `npx vitest run` + `npm run build` clean before each push and live evidence (real
+Anthropic API calls, real screenshots, or both) captured before moving to the next block. Test data
+created for verification (ai_reviews rows, coaching_runs rows, review_runs rows) was deleted after
+capture in every case, confirmed via before/after row-count snapshots — never left behind as
+production pollution, and never touching `access_grants`.
+
+**Independent verification pass mid-session** (`mini_prompt_verificacao_blocos_b_c_p115...md`)
+caught two real issues before they compounded: Block C's original recurrence-ranking counted
+distinct `ai_reviews` rows instead of distinct document *kinds*, which would have made re-analyzing
+the same deck twice rank artificially higher (fixed via `latestPerKind()`, §Block C); and two
+deploy-status calls this session were wrong for different reasons — an unnecessary empty retrigger
+commit for Block B (the deploy had already landed; the test method was checking the wrong thing —
+unauthenticated HTML instead of the actual client JS chunk) and a similar wrong assumption before
+Block C's deploy. **The corrected rule adopted for the rest of the night:** download the actual
+chunk referenced by the page's HTML and grep its *content* for a marker string unique to the
+change, rather than grepping page HTML or relying on a chunk-hash diff alone — documented in full
+under Block B below, and used for every subsequent block's deploy confirmation (C, D, E, F).
+
 ---
 
 ## Block A — Unlock `reviewOptimization` for the platform org 🟢
