@@ -1,10 +1,12 @@
 'use client';
 // Readiness & Train — Review sub-tab. Moved from the former Dashboard
 // panel's original Portuguese-named sub-tab component (Prompt 115 Block B):
-// AI review of a draft, deck/one-pager/etc. review, market benchmarking, an
-// investability ranking (readiness vs round value) stored per run, and a
-// Data Room completeness checklist. Everything here is a report — nothing
-// is sent, and nothing mutates CRM data.
+// AI review of a draft, deck/one-pager/etc. review, market benchmarking, and
+// an investability ranking (readiness vs round value) stored per run. The
+// Data Room completeness checklist that used to live here moved to the
+// Action plan sub-tab (Block C) — it belongs next to the priority list it
+// feeds. Everything here is a report — nothing is sent, and nothing mutates
+// CRM data.
 //
 // Prompt 99 — this sub-tab covers all 6 paste-text-and-review kinds with one
 // dropdown, since /api/ai-review returns a structured report
@@ -81,28 +83,6 @@ function StructuredReportView({ report }: { report: StructuredReport }) {
       )}
     </div>
   );
-}
-
-// Prompt 99 §2.6 — zero AI cost, pure structural check against what already
-// exists in documents/folders vs a standard DD checklist. Keyword matching
-// against names, not a real document-type taxonomy (none exists) — a
-// reasonable proxy, not meant to be exhaustive.
-function dataroomChecklist(folders: { name: string }[], documents: { name: string }[]) {
-  const folderNames = folders.map((f) => f.name.toLowerCase());
-  const docNames = documents.map((d) => d.name.toLowerCase());
-  const hasFolder = (kw: string) => folderNames.some((n) => n.includes(kw));
-  const hasDoc = (kw: string) => docNames.some((n) => n.includes(kw));
-  return [
-    { label: 'Pitch deck', present: hasDoc('pitch deck') || hasDoc('investor deck') },
-    { label: 'One-pager', present: hasDoc('one-pager') || hasDoc('one pager') },
-    { label: 'Cap table', present: hasDoc('cap table') || hasDoc('capitalization') },
-    { label: 'Financial model / projections', present: hasDoc('financial model') || hasDoc('projection') || hasFolder('financial') },
-    { label: 'Corporate / governance documents', present: hasFolder('corporate') || hasFolder('governance') },
-    { label: 'Team bios / org chart', present: hasFolder('team') || hasDoc('org chart') || hasDoc('cv') },
-    { label: 'IP (patents / trademarks)', present: hasDoc('patent') || hasDoc('trademark') },
-    { label: 'Commercial evidence (LOIs, pilots, contracts)', present: hasFolder('commercial') || hasDoc('loi') || hasDoc('pilot') || hasDoc('agreement') },
-    { label: 'Regulatory & compliance', present: hasFolder('regulatory') || hasFolder('compliance') },
-  ];
 }
 
 export function ReviewPanel() {
@@ -215,8 +195,6 @@ export function ReviewPanel() {
   }
 
   const latest = runs[0];
-  const checklist = dataroomChecklist(db.folders, db.documents);
-  const missingCount = checklist.filter((c) => !c.present).length;
 
   return (
     <>
@@ -322,23 +300,6 @@ export function ReviewPanel() {
             {marketResult && <pre className="mt-3 whitespace-pre-wrap rounded border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">{marketResult}</pre>}
           </>
         )}
-      </Card>
-
-      <Card title="Data Room completeness">
-        <p className="mb-2 text-xs text-gray-500">
-          No AI, just a structural check against a standard due-diligence checklist — the same "how complete is your
-          profile/data room" signal the Hype Startup formula uses, but with the concrete list of what to add.
-        </p>
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-gray-700">{checklist.length - missingCount} of {checklist.length} present</p>
-        </div>
-        <ul className="mt-2 space-y-1">
-          {checklist.map((c) => (
-            <li key={c.label} className={`text-xs ${c.present ? 'text-emerald-700' : 'text-gray-400'}`}>
-              {c.present ? '✓' : '·'} {c.label}
-            </li>
-          ))}
-        </ul>
       </Card>
     </>
   );
