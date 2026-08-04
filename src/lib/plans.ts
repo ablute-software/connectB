@@ -243,13 +243,19 @@ export interface Entitlements {
   reviewOptimization: boolean;
 }
 
-export function planEntitlements(plan: PlanTier, isPlatformOrg: boolean): Entitlements {
+// Prompt 115 verification note: the param used to be named `isPlatformOrg`,
+// but every call site passes `role === 'developer'` — a per-USER check
+// (platform_admins membership OR a confirmed @ablute.pt email, per
+// resolveRole()), not a per-org one. A second member of the platform org's
+// own `orgs` row who isn't personally a developer would still see this as
+// false. Named for what it actually is.
+export function planEntitlements(plan: PlanTier, isDeveloperRole: boolean): Entitlements {
   return {
-    // Platform org (platform_admins) has full access; paid plans get the AI
-    // composer; the free 'idea' tier does not.
-    aiComposer: isPlatformOrg || planIsPaid(plan),
+    // Developer role gets full access; paid plans get the AI composer; the
+    // free 'idea' tier does not.
+    aiComposer: isDeveloperRole || planIsPaid(plan),
     // Platform-only preview (Prompt 115 Fase 0) — see the note on the field above.
-    reviewOptimization: isPlatformOrg,
+    reviewOptimization: isDeveloperRole,
   };
 }
 
