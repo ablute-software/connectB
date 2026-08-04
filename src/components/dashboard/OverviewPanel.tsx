@@ -3,7 +3,7 @@
 // (formerly its own route) into the Overview/Review & Optimization
 // separadores on /dashboard — logic unchanged, only the export changed from
 // a page default to a named panel.
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink, fmtRoundEur } from '@/components/ui';
@@ -133,14 +133,27 @@ export function OverviewPanel() {
               <Link href="/settings#settings-round" className="font-medium text-[#0E7490] hover:underline">Set it in About</Link>.
             </p>
           )}
-          <div data-tour-id="dashboard-funnel" className="mt-4 space-y-1">
+          {/* Prompt 126 A — was a flex row per bar, with the number/%
+              columns as siblings of variable width/count (the top row,
+              "contacted", has no % sibling at all, i===0). Flexbox
+              resolves each bar's % width against however much space its
+              OWN row's siblings leave over — a different available width
+              per row — so a 3-digit "contacted" (no % sibling eating
+              space) rendered visibly wider than its 100%-of-max share
+              should be, next to rows that do have a % sibling. Fixed with
+              a real CSS grid: one shared column template for the whole
+              funnel, so the bar column is the exact same pixel width on
+              every row regardless of what else that row shows. */}
+          <div data-tour-id="dashboard-funnel" className="mt-4 grid items-center gap-x-2 gap-y-1.5 text-sm" style={{ gridTemplateColumns: '4.5rem 1fr 2.75rem 2.5rem' }}>
             {funnel.map((f, i) => (
-              <div key={f.label} className="flex items-center gap-2 text-sm">
-                <span className="w-20 text-xs text-gray-500">{f.label}</span>
+              <Fragment key={f.label}>
+                <span className="text-xs text-gray-500">{f.label}</span>
                 <div className="h-4 rounded bg-[#0E7490]/80" style={{ width: `${Math.max(4, f.n / Math.max(1, funnel[0].n) * 100)}%` }} />
-                <span className="text-xs font-medium">{f.n}</span>
-                {i > 0 && funnel[i - 1].n > 0 && <span className="text-[10px] text-gray-400">{Math.round(f.n / funnel[i - 1].n * 100)}%</span>}
-              </div>
+                <span className="text-right text-xs font-medium">{f.n}</span>
+                <span className="text-right text-[10px] text-gray-400">
+                  {i > 0 && funnel[i - 1].n > 0 ? `${Math.round(f.n / funnel[i - 1].n * 100)}%` : ''}
+                </span>
+              </Fragment>
             ))}
           </div>
         </Card>
