@@ -4,7 +4,7 @@
 // "what's in my Pipeline" would drift.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from './investor-match-score';
-import { eligibleOrgIds, resolveInvestorCatalogEntityId, resolveInvestorProfile } from './portal-access';
+import { activeGrantOrgIds, eligiblePipelineOrgIds, resolveInvestorCatalogEntityId, resolveInvestorProfile } from './portal-access';
 import { roundValuationBasisAvailable } from './round-valuation-basis-capability';
 
 const WAVE_SIZE = 8;
@@ -42,8 +42,14 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   const investorProfile = await resolveInvestorProfile(admin, userId);
   if (!investorProfile) return { linked: false as const };
 
+  // P120 Block A — eligibility is published MatchDeal startup profiles, not
+  // access_grants (see the comment on eligiblePipelineOrgIds for why: this
+  // is discovery, not diligence). grantedOrgIds is looked up separately and
+  // ONLY drives each card's data-room-access state below — the trust
+  // boundary around documents doesn't move a millimeter.
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
-  const orgIds = await eligibleOrgIds(sb, admin, userId, email, person?.id ?? null);
+  const orgIds = await eligiblePipelineOrgIds(admin);
+  const grantedOrgIds = new Set(await activeGrantOrgIds(admin, email, person?.id ?? null));
   const usualCoInvestors = (investorProfile as { usual_co_investors: string | null }).usual_co_investors;
   if (orgIds.length === 0) return { linked: true as const, waves: [], usualCoInvestors };
 
@@ -116,6 +122,7 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       roundInstruments: org.round_instruments ?? [], matchScore: score, matchReasons: reasons,
       status, passReason: decision ? decision.reason_detail : (swipe?.pass_reason ?? null),
       trackingCount: org.stage ? (trackingCountByStage.get(org.stage as string)?.size ?? 0) : 0,
+      hasDataRoomAccess: grantedOrgIds.has(org.id as string),
     };
   }).sort((a, b) => b.matchScore - a.matchScore);
 

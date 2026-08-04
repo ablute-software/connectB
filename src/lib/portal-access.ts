@@ -38,6 +38,25 @@ export async function activeGrantOrgIds(admin: SupabaseClient, email: string, pe
   return [...ids];
 }
 
+// Prompt 120 Block A — Pipeline eligibility, deliberately separate from
+// activeGrantOrgIds/eligibleOrgIds above (those stay exactly as they are for
+// every other portal route, which is about DILIGENCE access to documents).
+// Discovery must not be gated behind a grant the founder hasn't decided to
+// give yet — that inverted the funnel (the root cause the prompt names).
+// Eligibility here = published MatchDeal startup profiles, i.e. the same
+// population already visible to investors in the swipe deck. Deliberately
+// NOT matchdeal_eligible_deck(): that RPC carries weekly-quota/rotation
+// state and a replay-reset that clears swipes once everything's been liked —
+// calling it from a second surface would consume deck state meant for the
+// deck itself. is_visible is the right filter (not a raw kind='startup'
+// select): migration 0105 made it computed as is_complete AND not
+// owner/platform-suspended, exactly "published" in the sense this prompt
+// means.
+export async function eligiblePipelineOrgIds(admin: SupabaseClient) {
+  const { data } = await admin.from('matchdeal_profiles').select('membership_id').eq('kind', 'startup').eq('is_visible', true);
+  return [...new Set((data ?? []).map((p) => p.membership_id as string))];
+}
+
 // Same QA fallback as /api/portal/access — @ablute.pt sessions get into the
 // shell at all via is_ablute_developer(), not a real access_grants row, so
 // without this every page fed by this helper would silently show nothing

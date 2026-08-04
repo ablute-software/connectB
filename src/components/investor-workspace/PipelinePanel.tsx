@@ -14,7 +14,7 @@ interface Card {
   hqCity: string | null; country: string | null; roundTargetEur: number | null; roundValuationEur: number | null;
   roundValuationBasis?: 'pre_money' | 'post_money' | null; roundInstruments: string[];
   matchScore: number; matchReasons: string[]; status: 'open' | 'passed' | 'interested'; passReason: string | null;
-  trackingCount: number;
+  trackingCount: number; hasDataRoomAccess: boolean;
 }
 interface Wave { index: number; items: Card[]; unlocked: boolean }
 interface PipelineResponse { linked: boolean; waves?: Wave[]; usualCoInvestors?: string | null }
@@ -29,10 +29,6 @@ function fmtEur(n: number | null) {
   return n == null ? null : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
 }
 
-// Only ever one real org today, so "open data room" doesn't need to route
-// between multiple startup cards yet — see the shell's own comment on
-// entityName for the matching limitation. Revisit if/when the catalog
-// grows past ablute_.
 export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) {
   const [data, setData] = useState<PipelineResponse | null>(null);
   // AP-07/08 — confirming holds the card + action awaiting Cancel/Confirm;
@@ -267,9 +263,19 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
                   </div>
                 ) : wave.unlocked ? (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <button onClick={onOpenStartup} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
-                      Open data room
-                    </button>
+                    {/* P120 Block A — a card without a grant is eligible by
+                        published profile alone; the data room stays gated on
+                        the founder actually consenting (access_grants). That
+                        trust boundary doesn't move — only discovery does. */}
+                    {c.hasDataRoomAccess ? (
+                      <button onClick={onOpenStartup} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+                        Open data room
+                      </button>
+                    ) : (
+                      <span className="rounded-lg border border-dashed border-gray-200 px-2.5 py-1.5 text-xs text-gray-400">
+                        🔒 Access to documents is granted by the founder — express interest to start the conversation.
+                      </span>
+                    )}
                     <button onClick={() => startConfirm(c.orgId, 'interest')} disabled={busyOrgId === c.orgId}
                       className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
                       Express interest

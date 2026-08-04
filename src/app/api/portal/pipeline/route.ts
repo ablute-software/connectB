@@ -1,10 +1,16 @@
 // Investor Workspace Pipeline (prompt 58) — startups presented gradually by
 // thesis match, in waves, mirroring the founder-side pipeline's own
-// doseamento principle. Eligible startups = orgs this investor already has
-// an active access_grants row for (same trust boundary as every other
-// portal route — today that's just ablute_, so bullet 6 of the prompt
-// ["com só a ablute_, mostra 1 card"] falls out of the existing grant model
-// for free, no separate "which startups can this investor see" concept).
+// doseamento principle.
+//
+// Prompt 120 Block A — eligibility used to be "orgs this investor already
+// has an active access_grants row for", which inverted the funnel: a grant
+// belongs to diligence (the founder consenting to open the data room), not
+// discovery. Eligibility is now published MatchDeal startup profiles (see
+// eligiblePipelineOrgIds in portal-access.ts) — the same population already
+// visible in the swipe deck. access_grants still gates the data room itself
+// (each card's hasDataRoomAccess, computed in investor-pipeline.ts) and
+// still gates whether Interested/Pass can be recorded below — that
+// authorization boundary is untouched, just resolved from the right set now.
 //
 // AP-06..16 — Interested/Pass is now an ORG-LEVEL decision recorded in
 // investor_relationship_decisions via the decide_investor_relationship()
@@ -21,7 +27,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { activeGrantOrgIds, resolveInvestorCatalogEntityId, resolveInvestorProfile } from '@/lib/portal-access';
+import { eligiblePipelineOrgIds, resolveInvestorCatalogEntityId, resolveInvestorProfile } from '@/lib/portal-access';
 import { createArchiveEntry } from '@/lib/investor-archive';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { logEvent } from '@/lib/analytics-events';
@@ -88,9 +94,13 @@ export async function POST(req: Request) {
   const investorProfile = await resolveInvestorProfile(admin, user.id);
   if (!investorProfile) return NextResponse.json({ ok: false, error: 'No linked investor entity yet.' }, { status: 403 });
 
+  // P120 Block A — Interested/Pass are org-level decisions and no longer
+  // require the investor to already hold a document grant (that was the
+  // exact inversion the prompt names); authorized the same way the Pipeline
+  // GET now decides visibility: published MatchDeal startup profile.
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
-  const orgIds = await activeGrantOrgIds(admin, email, person?.id ?? null);
-  if (!orgIds.includes(orgId)) return NextResponse.json({ ok: false, error: 'No active access to this org.' }, { status: 403 });
+  const orgIds = await eligiblePipelineOrgIds(admin);
+  if (!orgIds.includes(orgId)) return NextResponse.json({ ok: false, error: 'This startup is not on the matching graph yet.' }, { status: 403 });
 
   const { data: startupProfile } = await admin.from('matchdeal_profiles').select('id')
     .eq('kind', 'startup').eq('membership_id', orgId).maybeSingle();
