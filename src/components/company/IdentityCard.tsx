@@ -85,7 +85,7 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
       sectors,
       sectors_other: other,
       // Legacy single-value field, kept in sync so composer.ts /
-      // ReviewOptimizationPanel (which still read org.sector) never go stale.
+      // readiness/ReviewPanel (which still read org.sector) never go stale.
       sector: [...sectors, ...(other ? [other] : [])].join(', ') || undefined,
       one_liner: draft.one_liner.trim() || undefined,
       description: draft.description.trim() || undefined,

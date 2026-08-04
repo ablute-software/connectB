@@ -33,11 +33,18 @@ type Me = {
 //
 // The 6th item's label is set at render time (`about {org.name}`), not
 // here — see aboutLabel below.
-const NAV: { href: string; label: string; icon: string }[] = [
+//
+// Prompt 115 Block B — "Readiness & Train" promoted from a Dashboard
+// separador to its own top-level entry, between Dashboard and Vault Data
+// Room. Gated on the companyCanon capability (the same gate the old
+// Dashboard tab used) via `requiresCapability` below — off means the entry
+// doesn't render at all, same as the tab used to just not appear.
+const NAV: { href: string; label: string; icon: string; requiresCapability?: 'companyCanon' }[] = [
   { href: '/pipeline', label: 'Pipeline', icon: '▤' },
   { href: '/tasks', label: 'Tasks', icon: '☀' },
   { href: '/agenda', label: 'Agenda', icon: '◔' },
   { href: '/dashboard', label: 'Dashboard', icon: '◈' },
+  { href: '/readiness', label: 'Readiness & Train', icon: '◎', requiresCapability: 'companyCanon' },
   { href: '/documents', label: 'Vault Data Room', icon: '▣' },
   { href: '/settings', label: 'about your company', icon: '⋯' },
   { href: '/plans', label: 'Plans & billing', icon: '◇' },
@@ -67,6 +74,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // never see this at all, per BLOCO 3's "separar completamente" ask.
   const showBackofficeSwitcher = me?.role === 'developer';
   const aboutLabel = db.org.name ? `about ${db.org.name}` : 'about your company';
+  // Hidden (not just disabled) while /api/me hasn't answered yet and after —
+  // same "never a flash of appearing then disappearing" rule the old
+  // Dashboard tab followed for this exact capability.
+  const visibleNav = NAV.filter((n) => !n.requiresCapability || !!me?.capabilities?.[n.requiresCapability]);
   const capClass =
     caps.today >= caps.dailyCap || caps.week >= caps.weeklyCap ? 'text-[#B00000] font-semibold'
       : caps.today === caps.dailyCap - 1 || caps.week === caps.weeklyCap - 1 ? 'text-amber-600 font-semibold'
@@ -101,11 +112,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">Investor Relations</div>
         </div>
         <nav className="mt-1 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
-          {NAV.map((n) => {
+          {visibleNav.map((n) => {
             const active = n.href === '/' ? path === '/' : path?.startsWith(n.href);
             const isAbout = n.href === '/settings';
             return (
               <Link key={n.href} href={n.href}
+                data-tour-id={n.href === '/readiness' ? 'nav-readiness' : undefined}
                 className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] transition ${
                   active ? 'bg-[#0E7490] font-medium text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}>
                 <span className={`w-4 text-center ${active ? '' : 'text-gray-400'}`}>{n.icon}</span>
@@ -216,12 +228,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <main className="mx-auto max-w-6xl p-4 md:p-8">{children}</main>
       </div>
 
-      {/* All 7 items, never cut down — that clipping was part of what this
+      {/* All items, never cut down — that clipping was part of what this
           reorganisation batch fixed. They don't all fit at once on a phone
           width, so this row scrolls horizontally instead of hiding one;
           relative positioning keeps each badge pinned to its own link. */}
       <nav className="fixed inset-x-0 bottom-0 z-10 flex gap-1 overflow-x-auto border-t border-gray-100 bg-white px-2 py-1.5 md:hidden">
-        {NAV.map((n) => {
+        {visibleNav.map((n) => {
           const isAbout = n.href === '/settings';
           return (
             <Link key={n.href} href={n.href}

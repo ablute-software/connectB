@@ -1,8 +1,9 @@
-// /company merged into /dashboard (separador "Review & Optimization").
+// /company redirects to /readiness (Prompt 115 Block B — was /dashboard's
+// "Review & Optimization" separador, now its own top-level nav tab).
 // Server component (not 'use client') so the companyCanon capability check
 // runs before the redirect target is chosen — per spec: if the capability is
-// off, land on plain /dashboard (no ?tab for a separador that isn't there),
-// not on a tab that doesn't render.
+// off, land on plain /dashboard (the nav item for /readiness isn't shown
+// either in that case), not on a tab that doesn't render.
 //
 // Uses redirect() (307), NOT permanentRedirect() (308), on purpose: the
 // target depends on companyCanon, a capability that can flip on later (once
@@ -20,5 +21,5 @@ export const dynamic = 'force-dynamic';
 
 export default async function CompanyRedirect() {
   const available = await companyCanonAvailable();
-  redirect(available ? '/dashboard?tab=review-optimization' : '/dashboard');
+  redirect(available ? '/readiness' : '/dashboard');
 }

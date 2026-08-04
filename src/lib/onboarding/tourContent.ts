@@ -127,11 +127,15 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
       body: 'Every pass is recorded with why. Patterns here change who we put in front of you next.',
     },
     {
-      // Dropped if the companyCanon capability is off — this tab doesn't
-      // exist for every account.
-      selector: 'dashboard-review-tab',
-      title: 'Second tab, slower questions',
-      body: 'Overview is for this week. Review & Optimization is for what to change about the round itself.',
+      // Prompt 115 Block B — the feature this step describes moved out of
+      // Dashboard into its own nav tab; the step stays here (still shown
+      // while touring Dashboard) but now points at the sidebar entry
+      // instead of a tab button that no longer exists. Dropped if the
+      // companyCanon capability is off — this entry doesn't exist for
+      // every account.
+      selector: 'nav-readiness',
+      title: 'A separate workspace, slower questions',
+      body: 'Overview is for this week. Readiness & Train is for what to change about the round itself — and for practicing how you answer for it.',
     },
   ],
 

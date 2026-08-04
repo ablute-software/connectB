@@ -92,7 +92,7 @@ export interface Org {
 
   // Company tab redesign (migration 0037, capability-gated —
   // companyProfileAvailable). `name` above is the commercial name; `sector`
-  // above is legacy (still read by composer.ts/ReviewOptimizationPanel) and
+  // above is legacy (still read by composer.ts/readiness/ReviewPanel) and
   // stays in sync with `sectors` below on every save, so those callers never
   // need to change. `stage` above is reused as the Round card's Estádio,
   // extended with an 'other' enum value + stage_other here.

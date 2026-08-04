@@ -1,7 +1,7 @@
 'use client';
 // Company tab redesign — Round card. `Flexible` + its note travel with the
 // round wherever it's shown elsewhere (Dashboard "Round progress",
-// ReviewOptimizationPanel's companyContext, etc. — future prompts wire
+// readiness/ReviewPanel's companyContext, etc. — future prompts wire
 // those reads; this card is the one place that writes them).
 import { useState } from 'react';
 import { useStore } from '@/lib/store';

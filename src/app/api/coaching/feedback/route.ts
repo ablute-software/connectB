@@ -1,4 +1,4 @@
-// Prompt 99 §4 — "Treinar" coaching session: end of a Q&A round, the app
+// Prompt 99 §4 — "Train" coaching session: end of a Q&A round, the app
 // grades each answer and gives an overall summary. Same forced-tool-call
 // pattern as /api/ai-review and /api/review/investability; writes to
 // coaching_runs via the service-role client since its RLS is SELECT-only

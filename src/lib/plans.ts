@@ -202,7 +202,7 @@ export function parsePlanRequest(raw: string | null | undefined): { tier: PlanTi
 
 // User-facing gate copy, kept beside the gate that produces it.
 export const AI_COMPOSER_LOCKED_COPY = 'AI personalization is part of the paid plans';
-export const REVIEW_OPTIMIZATION_PREVIEW_COPY = 'Disponível em breve, na versão Premium';
+export const REVIEW_OPTIMIZATION_PREVIEW_COPY = 'Coming soon on the Premium plan';
 
 export function planRow(plan: PlanTier): PlanRow {
   return PLANS.find((p) => p.tier === plan) ?? PLANS[0];

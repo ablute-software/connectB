@@ -8,7 +8,7 @@
 // now persisted to ai_reviews (previously never inserted anywhere, table sat
 // at 0 rows), same pattern /api/review/investability already uses for
 // review_runs; (2) output is a forced tool-call (a guaranteed shape), not
-// free text, so the Treinar tab (§4) can read weaknesses/risks as data.
+// free text, so the Train sub-tab (§4) can read weaknesses/risks as data.
 // Addenda ai_review_kind: every kind now receives `context`
 // (stage/sectors/country/round_target_eur) and calibrates its criteria to
 // stage — previously only market_data got context at all; deck_review and

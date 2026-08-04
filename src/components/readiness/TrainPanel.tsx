@@ -1,10 +1,16 @@
 'use client';
-// Prompt 99 §4 — "Treinar": after at least one Optimizar review has run, the
-// app asks 6-8 investor-style questions (fixed bank + derived from the
-// latest review's weaknesses/risks — source 3, real portal_questions, is
+// Prompt 99 §4 — "Train": after at least one Review has run, the app asks
+// 6-8 investor-style questions (fixed bank + derived from the latest
+// review's weaknesses/risks — source 3, real portal_questions, is
 // prepared-not-built per §4.3), one at a time, then grades the session.
 // Always a report, never an automated action — same spirit as the rest of
 // this page.
+//
+// Prompt 115 Block B — moved and renamed from this file's original
+// dashboard/ location and Portuguese component name, as part of promoting
+// this whole feature out of Dashboard into its own "Readiness & Train" nav
+// tab, and closing a Prompt 108 naming debt: no PT/EN hybrid names left in
+// this feature.
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
@@ -30,7 +36,7 @@ const FIXED_BANK: Question[] = [
   { text: 'What is your regulatory path, and what could block it — if applicable to your sector?', category: 'regulatory', source: 'fixed' },
 ];
 
-export function TreinarPanel() {
+export function TrainPanel() {
   const { db } = useStore();
   const [hasAnyReview, setHasAnyReview] = useState<boolean | null>(null);
   const [latestFindings, setLatestFindings] = useState<Finding[]>([]);
@@ -97,17 +103,17 @@ export function TreinarPanel() {
   if (hasAnyReview === null) return <p className="text-sm text-gray-400">Loading…</p>;
   if (!hasAnyReview) {
     return (
-      <Card title="Treinar — investor Q&A practice">
+      <Card title="Train — investor Q&A practice">
         <p className="text-xs text-gray-500">
-          Run at least one review in Optimizar first — Treinar uses its weaknesses/risks to build part of the session,
-          otherwise the questions would be too generic to be useful.
+          Run at least one review in the Review tab first — Train uses its weaknesses/risks to build part of the
+          session, otherwise the questions would be too generic to be useful.
         </p>
       </Card>
     );
   }
 
   return (
-    <Card title="Treinar — investor Q&A practice">
+    <Card title="Train — investor Q&A practice">
       <p className="mb-2 text-xs text-gray-500">
         6-8 questions, one at a time — some standard diligence questions, some pulled directly from what your latest
         review flagged as weak. At the end: a short note per answer and the 2-3 adjustments that matter most.

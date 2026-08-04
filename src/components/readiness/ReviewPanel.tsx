@@ -1,33 +1,19 @@
 'use client';
-// Batch 3 A — Review & Optimization (was "Company"). Moved from
-// src/app/company/page.tsx (formerly its own route, gated behind the
-// companyCanon capability at the nav level) into the Overview/Review &
-// Optimization separadores on /dashboard — logic unchanged, only the export
-// changed from a page default to a named panel. The companyCanon gate now
-// lives one level up (src/app/dashboard/page.tsx decides whether this tab
-// even renders); this panel still carries its own `reviewOptimization`
-// entitlement frost, which is a separate, always-on-for-now premium preview.
+// Readiness & Train — Review sub-tab. Moved from the former Dashboard
+// panel's original Portuguese-named sub-tab component (Prompt 115 Block B):
+// AI review of a draft, deck/one-pager/etc. review, market benchmarking, an
+// investability ranking (readiness vs round value) stored per run, and a
+// Data Room completeness checklist. Everything here is a report — nothing
+// is sent, and nothing mutates CRM data.
 //
-// The Company Canon management moved to Settings ("Company facts"); this
-// page CONSUMES the confirmed facts to help the founder improve the company:
-// AI review of a draft, deck/one-pager review, the startup's own market
-// benchmarking, and an investability ranking (readiness vs round value)
-// stored per run so the evolution is visible. Everything here is a report —
-// nothing is sent, and nothing mutates CRM data.
-//
-// Prompt 99 — this panel now has two internal sub-tabs: "Optimizar" (this
-// file, expanded with 4 more document kinds + a Data Room completeness
-// check) and "Treinar" (TreinarPanel.tsx, new). The former "Deck /
-// one-pager review" card became "Document reviews", covering all 6
-// paste-text-and-review kinds with one dropdown, since /api/ai-review now
-// returns a structured report (score/strengths/weaknesses/risks/
-// recommendations) for every one of them, not just investability.
+// Prompt 99 — this sub-tab covers all 6 paste-text-and-review kinds with one
+// dropdown, since /api/ai-review returns a structured report
+// (score/strengths/weaknesses/risks/recommendations) for every one of them,
+// not just investability.
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
-import { REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
-import { TreinarPanel } from './TreinarPanel';
 import type { CompanyFactCategory } from '@/lib/types';
 
 interface ReviewRun { id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string }
@@ -119,7 +105,7 @@ function dataroomChecklist(folders: { name: string }[], documents: { name: strin
   ];
 }
 
-function OptimizarTab() {
+export function ReviewPanel() {
   const { db } = useStore();
   const [caps, setCaps] = useState<{ ai: boolean; reviewRuns: boolean; reviewOptimization: boolean } | null>(null);
 
@@ -355,59 +341,5 @@ function OptimizarTab() {
         </ul>
       </Card>
     </>
-  );
-}
-
-export function ReviewOptimizationPanel() {
-  const [subTab, setSubTab] = useState<'optimizar' | 'treinar'>('optimizar');
-  // reviewOptimization is the plan entitlement (batch A). It's false for every
-  // org today (premium preview parked behind the frost) — so `locked` below is
-  // effectively always true; kept entitlement-driven so lifting it later is a
-  // one-line change in plans.ts with no edit here.
-  const [locked, setLocked] = useState(true);
-
-  useEffect(() => {
-    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
-      .then((me) => setLocked(!me.entitlements?.reviewOptimization))
-      .catch(() => setLocked(true));
-  }, []);
-
-  return (
-    <div className="max-w-3xl space-y-4">
-      <h1 className="text-lg font-bold">Review & Optimization</h1>
-      <p className="text-xs text-gray-400">
-        Feeds on your confirmed <b>Company facts</b> (Settings) and pipeline to help improve the company itself —
-        every output is a report, never an action.
-      </p>
-
-      <div className="flex gap-1 border-b border-gray-200">
-        {(['optimizar', 'treinar'] as const).map((t) => (
-          <button key={t} onClick={() => setSubTab(t)}
-            className={`px-3 py-1.5 text-sm font-medium capitalize ${subTab === t ? 'border-b-2 border-[#0E7490] text-[#0E7490]' : 'text-gray-400 hover:text-gray-600'}`}>
-            {t === 'optimizar' ? 'Optimizar' : 'Treinar'}
-          </button>
-        ))}
-      </div>
-
-      {/* Batch A — premium preview. `locked` is entitlement-driven (currently
-          false for all plans), so the frost is shown to everyone; the built
-          tool underneath stays intact for when the entitlement lifts. The
-          overlay captures pointer events, so no action underneath can fire. */}
-      <div className="relative">
-        {locked && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl bg-white/55 px-4 text-center backdrop-blur-[3px]">
-            <span className="rounded-full border border-cyan-200 bg-white/90 px-4 py-1.5 text-sm font-semibold text-[#0E7490] shadow-sm">
-              {REVIEW_OPTIMIZATION_PREVIEW_COPY}
-            </span>
-            <span className="max-w-xs text-[11px] text-gray-500">
-              Your investability reading and AI reviews will live here.
-            </span>
-          </div>
-        )}
-        <div className={locked ? 'pointer-events-none select-none space-y-4 blur-[2px]' : 'space-y-4'} aria-hidden={locked}>
-          {subTab === 'optimizar' ? <OptimizarTab /> : <TreinarPanel />}
-        </div>
-      </div>
-    </div>
   );
 }
