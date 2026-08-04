@@ -21,6 +21,7 @@ import { serverClient, resolveRole, authEnabled } from '@/lib/supabase-server';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, planName } from '@/lib/plans';
 import { aiReviewHistoryFieldsAvailable } from '@/lib/ai-review-history-capability';
+import { coerceReport, type StructuredReport } from '@/lib/ai-review-shape';
 
 type ReviewKind =
   | 'message_review' | 'deck_review' | 'one_pager_review' | 'market_data'
@@ -62,13 +63,9 @@ interface CompanyContext {
   facts?: string[];
 }
 
-interface Finding { text: string; category: typeof CATEGORIES[number] }
-interface Weakness extends Finding { severity: 'low' | 'medium' | 'high' }
-interface Risk extends Finding { severity: 'low' | 'medium' | 'high' }
-interface StructuredReport {
-  score: number; summary: string;
-  strengths: string[]; weaknesses: Weakness[]; risks: Risk[]; recommendations: Finding[];
-}
+// StructuredReport/coerceReport/isRenderableReport live in ai-review-shape.ts
+// so this route and the render path (ReportView/ReviewResultBody) share one
+// definition of "valid shape" — see that file's header for why.
 
 // Addenda ai_review_kind §1 — the ruler moves with the stage; a thin plan at
 // pre-seed is expected, the same thin plan at Series B is a red flag.
@@ -250,14 +247,28 @@ export async function POST(req: Request) {
       }
       const data = await res.json();
       const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
-      const parsed = toolUse?.input as { contradictions?: RawContradiction[] } | undefined;
+      const parsed = toolUse?.input as { contradictions?: unknown } | undefined;
       if (!parsed) return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 502 });
+
+      // Verification follow-up (V1) — `(parsed.contradictions ?? [])` used to
+      // assume the field was always an array; if the model ever collapses it
+      // to something else (the same failure mode seen on structured
+      // reports), `.filter()` would throw and the whole request 500s instead
+      // of degrading. No sensible coercion exists for this shape (unlike
+      // strengths/weaknesses, there's no bullet-string equivalent for a
+      // contradictions array) — degrade to zero contradictions, which is
+      // already a fully-supported, correct result ("prefer zero over a
+      // low-confidence one" is the system prompt's own instruction above).
+      if (!Array.isArray(parsed.contradictions)) {
+        console.warn(`[ai-review-shape] kind=cross_document_review contradictions field was not an array (${typeof parsed.contradictions}) — coerced to empty`);
+      }
+      const rawContradictions = (Array.isArray(parsed.contradictions) ? parsed.contradictions : []) as RawContradiction[];
 
       // sideA.kind/sideB.kind are attached from the request, never trusted
       // from model output — a contradiction can never be mis-attributed to
       // the wrong document. Findings missing either literal quote are
       // dropped rather than surfaced half-cited.
-      const contradictions = (parsed.contradictions ?? [])
+      const contradictions = rawContradictions
         .filter((c) => c.sideA?.quote && c.sideB?.quote)
         .map((c) => ({
           text: c.text, category: c.category, severity: c.severity,
@@ -379,8 +390,41 @@ export async function POST(req: Request) {
     let report: StructuredReport | undefined;
     if (structured) {
       const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
-      report = toolUse?.input as StructuredReport | undefined;
-      if (!report) return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 502 });
+      const rawReport = toolUse?.input;
+      if (!rawReport) return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 502 });
+
+      // Verification follow-up (V1) — the model's tool_use.input occasionally
+      // doesn't conform to its own declared array schema (e.g. `strengths`
+      // comes back as a markdown bullet string). Previously persisted
+      // unvalidated; a History-tab render guard caught it downstream but the
+      // live ReviewPanel render (which has no such guard) would have crashed
+      // on the same row. Coerce-before-reject, never silently drop the
+      // model's real response: recoverable shapes (string → itemized array,
+      // via the same bullet-splitting the malformed rows actually used) are
+      // repaired and used for BOTH the API response and what gets persisted,
+      // so the founder sees a working report, not a crash. Only a truly
+      // unrecoverable shape (score/summary themselves wrong, or an array
+      // field that's neither an array nor a string) falls through to being
+      // persisted as-is with status='malformed' and the request still fails
+      // — there is nothing renderable to hand back in that case.
+      const coercion = coerceReport(rawReport);
+      if (!coercion.ok) {
+        console.error(`[ai-review-shape] kind=${kind} unrecoverable malformed report — raw response preserved with status=malformed`);
+        if (url && service && member) {
+          try {
+            const admin = createClient(url, service, { auth: { persistSession: false } });
+            await admin.from('ai_reviews').insert({
+              org_id: member.org_id, kind, status: 'malformed', result: rawReport,
+              model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
+            });
+          } catch (e) { console.error('ai_reviews insert (malformed) failed:', e); }
+        }
+        return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 502 });
+      }
+      if (coercion.coerced) {
+        console.warn(`[ai-review-shape] kind=${kind} structured report required coercion before use (non-conforming tool-call output)`);
+      }
+      report = coercion.report;
     } else {
       review = (data.content as { type: string; text?: string }[]).filter((b) => b.type === 'text').map((b) => b.text).join('\n');
     }

@@ -1,7 +1,8 @@
 // Prompt 117 Bloco C — Copy-as-Markdown. Pure serialization so it's testable
 // independent of the report page's rendering, and the same function can back
 // a "copy" button for any of the kinds History already knows how to render.
-import { isRenderableReport, contradictionsOf, freeTextOf, STRUCTURED_KINDS, type Severity } from '@/components/readiness/ReviewResultBody';
+import { isRenderableReport } from '@/lib/ai-review-shape';
+import { contradictionsOf, freeTextOf, STRUCTURED_KINDS, type Severity } from '@/components/readiness/ReviewResultBody';
 
 function bullet(text: string, tags: string[] = []): string {
   const suffix = tags.length ? ` _(${tags.join(', ')})_` : '';

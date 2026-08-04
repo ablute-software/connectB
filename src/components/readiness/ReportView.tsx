@@ -3,14 +3,9 @@
 // shape (score/summary/strengths/weaknesses/risks/recommendations) that
 // deck/one-pager/business-plan/financial-plan/marketing-plan/cap-table
 // reviews persist to ai_reviews.result.
-import type { CompanyFactCategory } from '@/lib/types';
+import type { StructuredReport } from '@/lib/ai-review-shape';
 
-interface Finding { text: string; category: CompanyFactCategory }
-interface SeverityFinding extends Finding { severity: 'low' | 'medium' | 'high' }
-export interface StructuredReport {
-  score: number; summary: string;
-  strengths: string[]; weaknesses: SeverityFinding[]; risks: SeverityFinding[]; recommendations: Finding[];
-}
+export type { StructuredReport };
 
 const SEVERITY_COLOR: Record<string, string> = { high: 'text-[#B00000]', medium: 'text-amber-600', low: 'text-gray-500' };
 

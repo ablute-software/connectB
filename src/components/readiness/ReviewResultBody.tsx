@@ -3,7 +3,8 @@
 // the inline History list render the exact same body for the exact same
 // row, instead of two copies drifting apart.
 import type { CompanyFactCategory } from '@/lib/types';
-import { ReportView, type StructuredReport } from './ReportView';
+import { isRenderableReport } from '@/lib/ai-review-shape';
+import { ReportView } from './ReportView';
 
 export type Severity = 'low' | 'medium' | 'high';
 const SEVERITY_COLOR: Record<string, string> = { high: 'text-[#B00000]', medium: 'text-amber-600', low: 'text-gray-500' };
@@ -16,17 +17,6 @@ export const STRUCTURED_KINDS = new Set([
 export interface Contradiction {
   text: string; category: CompanyFactCategory; severity: Severity;
   sideA: { quote: string }; sideB: { quote: string };
-}
-
-// Defends against real malformed rows found while building the History tab:
-// the model's tool_use.input occasionally doesn't conform to its own
-// declared array schema (e.g. `strengths` comes back as a markdown bullet
-// string instead of string[]) and /api/ai-review persists it unvalidated.
-// Flagged, not fixed at the source (a route.ts validation gap, out of this
-// Bloco's scope).
-export function isRenderableReport(r: unknown): r is StructuredReport {
-  const x = r as Partial<StructuredReport> | null;
-  return !!x && Array.isArray(x.strengths) && Array.isArray(x.weaknesses) && Array.isArray(x.risks) && Array.isArray(x.recommendations);
 }
 
 export function contradictionsOf(result: unknown): Contradiction[] {
