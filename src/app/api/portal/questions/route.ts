@@ -7,6 +7,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 async function hasActiveGrant(admin: SupabaseClient, orgId: string, email: string, personId: string | null) {
   const orParts = [`grantee_email.eq.${email}`, `invited_email.eq.${email}`];
@@ -55,6 +56,9 @@ export async function POST(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   const email = user?.email?.trim().toLowerCase();
   if (!email) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
 
   const body = await req.json().catch(() => ({})) as { org_id?: string; question?: string };
   const { org_id, question } = body;

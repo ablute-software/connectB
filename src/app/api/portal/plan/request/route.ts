@@ -12,6 +12,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { INVESTOR_PLANS, type InvestorPlanTier } from '@/lib/plans';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 const TIER_TO_MATCHDEAL: Record<InvestorPlanTier, string> = {
   pro_scout: 'tier_a', ace_spotter: 'tier_b', legendary_sleuth: 'tier_c',
@@ -25,6 +26,9 @@ export async function POST(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
 
   const { tier } = await req.json() as { tier?: string };
   if (!tier || !INVESTOR_PLANS.some((p) => p.tier === tier)) {

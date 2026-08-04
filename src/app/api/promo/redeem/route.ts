@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { can, type OrgRole } from '@/lib/permissions';
 import { promoEligibility, computeBenefitEndsAt, normalizePromoCodeInput, type PromoKind } from '@/lib/promo';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 const REASON_MESSAGE: Record<string, string> = {
   not_found: 'That code doesn’t exist. Check for typos and try again.',
@@ -25,6 +26,9 @@ export async function POST(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: member } = await admin.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();

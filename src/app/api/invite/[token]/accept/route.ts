@@ -5,8 +5,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
-export async function POST(_req: Request, { params }: { params: { token: string } }) {
+export async function POST(req: Request, { params }: { params: { token: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
@@ -14,6 +15,9 @@ export async function POST(_req: Request, { params }: { params: { token: string 
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user || !user.email) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const { data: invite, error } = await admin

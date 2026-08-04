@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -19,6 +20,8 @@ export async function POST(req: Request) {
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
   const sb = await serverClient();
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   const email = user?.email?.trim().toLowerCase();
   if (!user || !email) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });

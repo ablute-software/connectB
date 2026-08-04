@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { canActOnMember, canAssignRole, type OrgRole } from '@/lib/permissions';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 async function authorize(req: Request, targetUserId: string) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -17,6 +18,9 @@ async function authorize(req: Request, targetUserId: string) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return { error: NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 }) };
   if (user.id === targetUserId) return { error: NextResponse.json({ ok: false, error: "You can't change your own membership here." }, { status: 400 }) };
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return { error: viewerBlock };
 
   const { data: self } = await sb.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
   if (!self) return { error: NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 }) };

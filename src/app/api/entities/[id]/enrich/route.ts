@@ -20,6 +20,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { buildEntityEnrichmentPrompt, knownEnrichmentValues, prepareEnrichmentProposals, type RawProposal } from '@/lib/entity-enrichment';
 import { fieldsAlreadyProposed } from '@/lib/contribution-promotion';
 import type { Entity } from '@/lib/types';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 const NOT_CONFIGURED_MSG = 'AI-assisted enrichment isn’t available in your workspace yet.';
 
@@ -72,7 +73,7 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
   return ((toolUse.input as { proposals: RawProposal[] }).proposals ?? []);
 }
 
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -80,6 +81,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
   const sb = await serverClient();
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 

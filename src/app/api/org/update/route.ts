@@ -13,6 +13,7 @@ import { canWithMatrix } from '@/lib/org-permissions';
 import { patchTouchesArchiveRelevantFields, regenerateNowSummary } from '@/lib/startup-snapshot';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { logEvent } from '@/lib/analytics-events';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 // Only these columns are editable here — never plan/credits/id/bcc_email.
 // Company tab redesign (migration 0037) added everything from legal_name
@@ -48,6 +49,8 @@ export async function POST(req: Request) {
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
   const sb = await serverClient();
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 

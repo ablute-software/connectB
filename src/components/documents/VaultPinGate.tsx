@@ -31,6 +31,17 @@ export function VaultPinGate({ orgId, children }: { orgId: string; children: Rea
 
   const checkStatus = useCallback(async () => {
     if (!authEnabled || !orgId) { setStatus('unlocked'); return; }
+    // Prompt 123 Block A — Developer Viewer bypasses the PIN gate for the
+    // org actively being viewed (and ONLY that org — checked against the
+    // real cookie+role pair /api/me re-verifies, not assumed from role
+    // alone). The PIN is a personal look-over-shoulder deterrent on top of
+    // RLS/data_room_read (see this file's own header comment), not the
+    // actual security boundary — a viewer session (already fully audited,
+    // already broader-read via RLS) skipping it grants no new data access.
+    try {
+      const me = await fetch('/api/me').then((r) => r.json());
+      if (me?.viewer?.orgId === orgId) { setStatus('unlocked'); return; }
+    } catch { /* fall through to the normal PIN check */ }
     const { data, error } = await browserClient().rpc('vault_pin_status', { p_org_id: orgId });
     if (error) { setErr(error.message); setStatus('locked'); return; }
     const row = (data as { has_pin: boolean; pin_skipped: boolean }[] | null)?.[0];

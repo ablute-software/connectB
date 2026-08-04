@@ -11,11 +11,14 @@ import { MatchDealPairingModal } from '@/components/matchdeal/MatchDealPairingMo
 import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
 import { W1Badge } from '@/components/onboarding/W1Badge';
+import { DeveloperViewerFrame } from '@/components/DeveloperViewerFrame';
 import { BRAND_NAME } from '@/lib/brand';
 
 type Me = {
   authEnabled: boolean; user: { email?: string } | null; role: string;
   capabilities?: { ai: boolean; companyCanon: boolean; needsReviewAi: boolean; documentDetails: boolean; ndaSystem: boolean; entityContactFields: boolean; reviewRuns: boolean; permissionMatrix: boolean; documentOrdering: boolean; documentVersions: boolean; reawakening: boolean; planAccounts: boolean; billing: boolean };
+  // Prompt 123 Block A — Developer Viewer session, if any.
+  viewer?: { orgId: string; orgName: string | null } | null;
 };
 
 // Reorganisation batch, since revised: 11 items collapsed to separadores
@@ -103,6 +106,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <OnboardingProvider>
+    {me?.viewer && <DeveloperViewerFrame orgId={me.viewer.orgId} orgName={me.viewer.orgName} />}
     <div className="flex min-h-screen bg-[#F7F9FA] text-[#1A1A1A]">
       <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-gray-100 bg-white md:flex">
         <div className="px-6 pb-3 pt-6">

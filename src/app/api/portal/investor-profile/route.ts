@@ -9,6 +9,7 @@ import { SECTOR_TAXONOMY } from '@/lib/investor-sector-taxonomy';
 import { computeIdentityStatus } from '@/lib/investor-identity';
 import { countDistinctVoucherEntities } from '@/lib/investor-vouching';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 // Identity verification Fase A (prompt 63), Bloco 2 — @ablute.pt sessions
 // never see the real "Which firm are you with?" search/match screen at
@@ -63,12 +64,14 @@ function completeness(profile: Record<string, unknown>) {
   return Math.round((filled / total) * 100);
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ error: 'not configured' }, { status: 200 });
 
   const sb = await serverClient();
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
@@ -107,6 +110,8 @@ export async function POST(req: Request) {
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
   const sb = await serverClient();
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 

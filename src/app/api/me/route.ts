@@ -3,8 +3,9 @@
 // `capabilities` mirrors exactly what the AI routes (/api/compose,
 // /api/ai-review) check server-side, so the UI never has to guess or
 // duplicate that logic (and never inspects env vars client-side).
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { serverClient, resolveRole, getOrgRole, authEnabled } from '@/lib/supabase-server';
+import { readViewerSession } from '@/lib/developer-viewer';
 import { companyCanonAvailable } from '@/lib/company-canon';
 import { needsReviewAiAvailable } from '@/lib/needs-review-ai';
 import { documentDetailsAvailable, ndaSystemAvailable } from '@/lib/data-room-capability';
@@ -25,7 +26,7 @@ import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, WATSON_DRAFT_QUOTA } from '@/lib/plans';
 import { stripeConfigured } from '@/lib/stripe-env';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const capabilities = {
     ai: !!process.env.ANTHROPIC_API_KEY,
     companyCanon: await companyCanonAvailable(),
@@ -72,5 +73,19 @@ export async function GET() {
     const status = (statusRow as { used: number; remaining: number; reset_at: string }[] | null)?.[0];
     if (status) watson = { quota: watsonQuota, used: status.used, remaining: status.remaining, resetAt: status.reset_at };
   }
-  return NextResponse.json({ authEnabled: true, user: { id: user.id, email: user.email }, role, orgRole, plan, entitlements, capabilities, watson });
+  // Prompt 123 Block A — Developer Viewer. Only ever resolved for a
+  // session that ALSO currently resolves as 'developer' — a stale cookie
+  // on a session that no longer is one (e.g. platform_admins row removed)
+  // never surfaces a viewer org, same non-trust-the-cookie-alone rule
+  // assertNotViewer() follows.
+  let viewer: { orgId: string; orgName: string | null } | null = null;
+  if (role === 'developer') {
+    const session = readViewerSession(req);
+    if (session) {
+      const { data: org } = await sb.from('orgs').select('name').eq('id', session.orgId).maybeSingle();
+      viewer = { orgId: session.orgId, orgName: org?.name ?? null };
+    }
+  }
+
+  return NextResponse.json({ authEnabled: true, user: { id: user.id, email: user.email }, role, orgRole, plan, entitlements, capabilities, watson, viewer });
 }

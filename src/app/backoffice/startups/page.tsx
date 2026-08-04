@@ -1,12 +1,21 @@
 'use client';
-// BLOCO 3 — Startups: org health, aggregates only. No drill-in, no
-// impersonation — "nós não lemos o teu pipeline." Plans & Account batch adds
-// per-org plan management (view/set + pending upgrade requests) for the
-// platform team, since there's no billing infra yet — the flip is manual.
+// BLOCO 3 — Startups: org health, aggregates only.
+//
+// Prompt 123 Block A — "No drill-in, no impersonation" above is superseded:
+// Developer Viewer opens a real, read-only, fully-audited view into a
+// startup's workspace (see developer-viewer.ts's own header for the
+// three-layer write-block this depends on). That comment stood for a real
+// privacy commitment; this isn't a silent reversal of it — every entry is
+// logged to admin_audit_log (viewer_enter/viewer_exit, with duration), the
+// frame is permanent and impossible to miss, and nothing can be written
+// while it's active. Plans & Account batch adds per-org plan management
+// (view/set + pending upgrade requests) for the platform team, since
+// there's no billing infra yet — the flip is manual.
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
 import { PLANS, planName, normalizePlan, parsePlanRequest } from '@/lib/plans';
 import type { PlanTier } from '@/lib/types';
+import { markViewerOrigin } from '@/components/DeveloperViewerFrame';
 
 const PERIOD_LABEL: Record<'monthly' | 'annual', string> = { monthly: 'Mensal', annual: 'Anual' };
 
@@ -26,6 +35,20 @@ export default function BackofficeStartupsPage() {
   const [planManagement, setPlanManagement] = useState(false);
   const [err, setErr] = useState('');
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [enteringId, setEnteringId] = useState<string | null>(null);
+
+  async function openViewer(orgId: string) {
+    setEnteringId(orgId);
+    try {
+      const res = await fetch('/api/backoffice/viewer/enter', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId }),
+      });
+      const body = await res.json();
+      if (!body.ok) { alert(`Could not open viewer: ${body.error}`); return; }
+      markViewerOrigin();
+      window.location.href = '/';
+    } finally { setEnteringId(null); }
+  }
 
   function load() {
     fetch('/api/backoffice/startups').then((r) => r.json()).then((body) => {
@@ -90,7 +113,7 @@ export default function BackofficeStartupsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
-              <th className="py-1.5">Org</th><th>Plan</th><th>Members</th><th>Grants</th><th>Interactions/wk</th><th>Last login</th><th>Health</th>
+              <th className="py-1.5">Org</th><th>Plan</th><th>Members</th><th>Grants</th><th>Interactions/wk</th><th>Last login</th><th>Health</th><th>Viewer</th>
             </tr>
           </thead>
           <tbody>
@@ -119,6 +142,13 @@ export default function BackofficeStartupsPage() {
                 <td className="text-gray-600">{o.interactionsThisWeek}</td>
                 <td className="text-xs text-gray-400">{o.lastLogin ? o.lastLogin.slice(0, 10) : 'never'}</td>
                 <td><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${HEALTH_STYLE[o.health]}`}>{o.health}</span></td>
+                <td>
+                  <button onClick={() => openViewer(o.orgId)} disabled={enteringId === o.orgId}
+                    title="Open this startup's workspace read-only — logged, exit anytime"
+                    className="rounded-lg border border-orange-200 px-2 py-1 text-[11px] font-medium text-orange-700 hover:bg-orange-50 disabled:opacity-40">
+                    {enteringId === o.orgId ? 'Opening…' : 'Open as viewer'}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

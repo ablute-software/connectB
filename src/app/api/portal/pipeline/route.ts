@@ -33,6 +33,7 @@ import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { logEvent } from '@/lib/analytics-events';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { recordInvestorDecisionFact } from '@/lib/ecosystem-facts';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 // AP-08 — free text, not the old fixed category list. Max 1000 chars,
 // not blank/whitespace-only.
@@ -65,6 +66,9 @@ export async function POST(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   const email = user?.email?.trim().toLowerCase();
   if (!user || !email) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
 
   const body = await req.json().catch(() => ({})) as { orgId?: string; action?: 'pass' | 'interest'; reason?: string };
   const { orgId, action, reason } = body;

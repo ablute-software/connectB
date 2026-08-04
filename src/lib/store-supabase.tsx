@@ -221,8 +221,24 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const { data: { user } } = await sb.auth.getUser();
       if (cancelled) return;
       if (!user) { commit(EMPTY_DB); return; }
-      const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).limit(1).maybeSingle();
-      const oid = (member as { org_id: string } | null)?.org_id ?? null;
+      // Prompt 123 Block A — Developer Viewer overrides which org this
+      // store loads. /api/me is the only place that re-verifies BOTH the
+      // cookie and current developer status together (see its own
+      // comment) — checked first, before the normal org_members lookup a
+      // developer session usually has no row for anyway. This only ever
+      // changes what gets READ: every write path below still goes through
+      // the same RLS-gated calls, which reject a developer (not an
+      // is_org_member of the viewed org) automatically — no viewer-aware
+      // branching needed in any write function itself.
+      let oid: string | null = null;
+      try {
+        const me = await fetch('/api/me').then((r) => r.json());
+        oid = me?.viewer?.orgId ?? null;
+      } catch { /* fall through to the normal lookup below */ }
+      if (!oid) {
+        const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).limit(1).maybeSingle();
+        oid = (member as { org_id: string } | null)?.org_id ?? null;
+      }
       orgIdRef.current = oid;
       if (!oid) { commit(EMPTY_DB); return; }
       try {

@@ -7,6 +7,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 interface Report {
   score: number; summary: string;
@@ -25,6 +26,10 @@ export async function POST(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
+
   const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
   if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 

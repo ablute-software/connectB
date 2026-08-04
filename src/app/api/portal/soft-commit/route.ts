@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -17,6 +18,9 @@ export async function POST(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   const email = user?.email?.trim().toLowerCase();
   if (!email) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
 
   const body = await req.json().catch(() => ({})) as { org_id?: string; amount_eur?: number };
   const { org_id, amount_eur } = body;

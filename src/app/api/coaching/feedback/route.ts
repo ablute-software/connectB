@@ -6,6 +6,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 interface Question { text: string; category: string; source: 'fixed' | 'derived' | 'diligence' }
 interface QA { question: Question; answer: string }
@@ -19,6 +20,8 @@ export async function POST(req: Request) {
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
   const sb = await serverClient();
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
   const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();

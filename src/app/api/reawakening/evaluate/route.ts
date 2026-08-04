@@ -13,6 +13,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { prefilterEntities, priorPassInfo, chunk, proposalStatusForVerdict } from '@/lib/reawakening';
 import type { Entity, FitScore, Interaction } from '@/lib/types';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 const FITS: FitScore[] = ['high', 'medium_high', 'medium', 'low'];
 
@@ -38,6 +39,10 @@ export async function POST(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
+
   const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
   if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
   const orgId = member.org_id as string;

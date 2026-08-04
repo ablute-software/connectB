@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { eligibleOrgIds } from '@/lib/portal-access';
 import { getAgendaItems } from '@/lib/investor-agenda';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -34,6 +35,9 @@ export async function POST(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   const email = user?.email?.trim().toLowerCase();
   if (!user || !email) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
 
   const body = await req.json().catch(() => ({})) as { orgId?: string; note?: string; remindAt?: string };
   if (!body.orgId || !body.remindAt) return NextResponse.json({ ok: false, error: 'orgId and remindAt are required.' }, { status: 400 });
@@ -62,6 +66,9 @@ export async function PATCH(req: Request) {
   const { data: { user } } = await sb.auth.getUser();
   const email = user?.email?.trim().toLowerCase();
   if (!user || !email) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
 
   const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
   if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });

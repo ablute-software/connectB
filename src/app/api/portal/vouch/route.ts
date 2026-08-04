@@ -11,6 +11,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { computeIdentityStatus } from '@/lib/investor-identity';
 import { countDistinctVoucherEntities, generateVouchToken } from '@/lib/investor-vouching';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -41,6 +42,9 @@ export async function POST(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
 
   // @ablute.pt sessions never enter the real trust graph, per the prompt's
   // own non-negotiable — neither requesting nor (see confirm/route.ts)

@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 export async function POST(req: NextRequest) {
   const { documentId } = await req.json();
@@ -21,6 +22,9 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await sb.auth.getUser();
   const email = user?.email?.trim().toLowerCase();
   if (!email) return NextResponse.json({ ok: false, error: 'not signed in' }, { status: 401 });
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
 
   // Prompt 48 — an @ablute.pt QA session (access/route.ts's fallback path)
   // never has a real access_grants row backing it, so a logged "view" here

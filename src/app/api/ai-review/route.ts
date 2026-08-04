@@ -23,6 +23,7 @@ import { planEntitlements, planName } from '@/lib/plans';
 import { aiReviewHistoryFieldsAvailable } from '@/lib/ai-review-history-capability';
 import { coerceReport, type StructuredReport } from '@/lib/ai-review-shape';
 import { recordAiReviewFacts } from '@/lib/ecosystem-facts';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 type ReviewKind =
   | 'message_review' | 'deck_review' | 'one_pager_review' | 'market_data'
@@ -184,6 +185,8 @@ export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const sb = await serverClient();
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   const { data: member } = user ? await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle() : { data: null };
 

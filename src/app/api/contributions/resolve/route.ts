@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { applyVerifiedContribution } from '@/lib/contribution-promotion';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 export async function POST(req: NextRequest) {
   const { contributionId, decision } = await req.json() as { contributionId?: string; decision?: 'keep_existing' | 'use_imported' };
@@ -32,6 +33,8 @@ export async function POST(req: NextRequest) {
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
   const sb = await serverClient();
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 

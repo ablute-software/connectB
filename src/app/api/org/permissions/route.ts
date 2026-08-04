@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { MATRIX_CAPABILITIES, resolveMatrix, type MatrixCapability, type MatrixOverrides } from '@/lib/org-permissions';
 import { ORG_ROLES, type OrgRole } from '@/lib/permissions';
+import { assertNotViewer } from '@/lib/developer-viewer';
 
 async function context() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -20,7 +21,7 @@ async function context() {
   const { data: member } = await sb.from('org_members').select('org_id, role').eq('user_id', user.id).maybeSingle();
   if (!member) return { error: NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 }) };
   const admin = createClient(url, service, { auth: { persistSession: false } });
-  return { admin, orgId: member.org_id as string, role: member.role as OrgRole };
+  return { admin, orgId: member.org_id as string, role: member.role as OrgRole, sb };
 }
 
 export async function GET() {
@@ -35,7 +36,9 @@ export async function GET() {
 export async function POST(req: Request) {
   const ctx = await context();
   if ('error' in ctx) return ctx.error;
-  const { admin, orgId, role } = ctx;
+  const { admin, orgId, role, sb } = ctx;
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
   if (role !== 'owner') return NextResponse.json({ ok: false, error: 'Only the owner can configure permissions.' }, { status: 403 });
 
   const body = await req.json() as { overrides?: MatrixOverrides };
