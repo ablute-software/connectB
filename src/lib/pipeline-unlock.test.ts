@@ -55,13 +55,11 @@ describe('visiblePipelineSize — per-term additive checks', () => {
 // Encoded here with businessPlanUploaded: true to match the stated NUMBERS,
 // flagged rather than silently corrected in the doc's prose.
 //
-// Example F is NOT encoded as a test: "investor pitch + 1 file in Financial
-// + 1 file in One-pager, no other files" claims a result of 22, but under
-// every consistent reading of the formula that scenario computes to 12
-// (5 base + 5 deck + 2 folders) — 22 is the preset FOLDER COUNT mentioned
-// two sentences earlier in the same doc, which strongly suggests a
-// copy-paste slip, not a formula disagreement. Flagged for Nuno rather than
-// invented into a passing test.
+// Example F — confirmed by Nuno's own independent re-derivation (addenda_p123
+// §2 D3, 2026-08-04): the doc's stated 22 was a copy-paste slip from the
+// "22 preset folders" sentence two lines above; the formula genuinely
+// produces 12 for this scenario. Decision closes the flag raised when this
+// file was first written — now encoded as a real regression test.
 describe('visiblePipelineSize — literal doc examples (Elementary, my dear)', () => {
   const elementary = { ...baseInput, planTier: 'idea' as const };
 
@@ -73,6 +71,11 @@ describe('visiblePipelineSize — literal doc examples (Elementary, my dear)', (
   });
   it('Example D — complete profile, month 1, investor pitch only = 10', () => {
     expect(visiblePipelineSize({ ...elementary, investorDeckUploaded: true, completeMonthsSinceUnlock: 0 })).toBe(10);
+  });
+  it('Example F — month 1, investor pitch + 2 folders (Financial, One-pager) = 12 (corrected from the doc\'s 22)', () => {
+    expect(visiblePipelineSize({
+      ...elementary, investorDeckUploaded: true, presetFoldersWithFile: 2, completeMonthsSinceUnlock: 0,
+    })).toBe(12);
   });
   it('Example E — complete profile, month 2, investor pitch only = 20', () => {
     expect(visiblePipelineSize({ ...elementary, investorDeckUploaded: true, completeMonthsSinceUnlock: 1 })).toBe(20);
