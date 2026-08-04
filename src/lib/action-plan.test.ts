@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   jaccard, tokenize, clusterActions, clusterPriority, extractActions, dataroomChecklist, latestPerKind, joinNatural,
-  type Action, type AiReviewRow,
+  genuineContradictions, type Action, type AiReviewRow, type Contradiction,
 } from './action-plan';
 
 describe('jaccard / tokenize', () => {
@@ -164,6 +164,28 @@ describe('joinNatural', () => {
 
   it('returns the single item unchanged', () => {
     expect(joinNatural(['Pitch deck'])).toBe('Pitch deck');
+  });
+});
+
+describe('genuineContradictions', () => {
+  function contradiction(overrides: Partial<Contradiction>): Contradiction {
+    return {
+      text: 'placeholder', category: 'other', severity: 'medium',
+      sideA: { kind: 'deck_review', quote: 'a' }, sideB: { kind: 'financial_plan_review', quote: 'b' },
+      ...overrides,
+    };
+  }
+
+  it('keeps a contradiction between two different document kinds', () => {
+    const c = contradiction({});
+    expect(genuineContradictions([c])).toEqual([c]);
+  });
+
+  it('drops a "contradiction" between two reads of the same document kind', () => {
+    // The exact failure mode Block D must not repeat: two independent reads
+    // of the same deck are not a cross-document contradiction.
+    const c = contradiction({ sideA: { kind: 'deck_review', quote: 'a' }, sideB: { kind: 'deck_review', quote: 'b' } });
+    expect(genuineContradictions([c])).toEqual([]);
   });
 });
 

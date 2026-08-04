@@ -16,26 +16,19 @@
 // the ranking instead of counting as a second document.
 //
 // Contradictions come from Block D's cross_document_review kind (dual
-// citation: sideA/sideB, each a {kind, quote}) — that kind doesn't exist
-// yet, so the section renders empty rather than fabricated until Block D
-// wires it in. Nothing here mutates CRM data or sends anything; every
-// output is a report, same guardrail as the Review tab.
+// citation: sideA/sideB, each a {kind, quote}), built in the Review tab's
+// "Cross-document check" card. Nothing here mutates CRM data or sends
+// anything; every output is a report, same guardrail as the Review tab.
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
-import type { CompanyFactCategory } from '@/lib/types';
 import {
   DOC_KIND_LABEL, SEVERITY_WEIGHT, dataroomChecklist, clusterActions, clusterPriority, extractActions, latestPerKind, joinNatural,
-  type Severity, type AiReviewRow, type ActionCluster,
+  genuineContradictions, type Severity, type AiReviewRow, type ActionCluster, type Contradiction,
 } from '@/lib/action-plan';
 
 interface ReviewRunRow { id: string; score: number | null; created_at: string }
-
-interface Contradiction {
-  text: string; category: CompanyFactCategory; severity: Severity;
-  sideA: { kind: string; quote: string }; sideB: { kind: string; quote: string };
-}
 
 const TYPE_LABEL: Record<'weakness' | 'risk' | 'recommendation', string> = { weakness: 'Weakness', risk: 'Risk', recommendation: 'Recommendation' };
 const SEVERITY_COLOR: Record<Severity, string> = { high: 'text-[#B00000]', medium: 'text-amber-600', low: 'text-gray-500' };
@@ -91,18 +84,12 @@ export function ActionPlanPanel() {
   const { db } = useStore();
   const [reviews, setReviews] = useState<AiReviewRow[]>([]);
   const [runs, setRuns] = useState<ReviewRunRow[]>([]);
-  // Block D populates this once cross_document_review exists — see the note
-  // in the effect below.
-  const contradictions: Contradiction[] = [];
+  const [contradictions, setContradictions] = useState<Contradiction[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!authEnabled || !db.org.id) { setLoading(false); return; }
-    // `cross_document_review` isn't a valid ai_review_kind value yet — that
-    // enum member is Block D's migration. Filtering on it before Block D
-    // lands would 400 (invalid enum literal), so contradictions stays empty
-    // here on purpose; Block D adds the query alongside the schema change.
     Promise.all([
       browserClient().from('ai_reviews').select('id, kind, result, created_at')
         .eq('org_id', db.org.id).eq('status', 'completed')
@@ -110,9 +97,14 @@ export function ActionPlanPanel() {
         .order('created_at', { ascending: false }),
       browserClient().from('review_runs').select('id, score, created_at')
         .eq('org_id', db.org.id).order('created_at', { ascending: false }).limit(30),
-    ]).then(([reviewsRes, runsRes]) => {
+      browserClient().from('ai_reviews').select('id, result, created_at')
+        .eq('org_id', db.org.id).eq('status', 'completed').eq('kind', 'cross_document_review')
+        .order('created_at', { ascending: false }).limit(1),
+    ]).then(([reviewsRes, runsRes, contradictionsRes]) => {
       setReviews(latestPerKind((reviewsRes.data as AiReviewRow[] | null) ?? []));
       setRuns((runsRes.data as ReviewRunRow[] | null) ?? []);
+      const latestCrossDoc = contradictionsRes.data?.[0] as { result: { contradictions?: Contradiction[] } } | undefined;
+      setContradictions(genuineContradictions(latestCrossDoc?.result?.contradictions ?? []));
       setLoading(false);
     });
   }, [db.org.id]);

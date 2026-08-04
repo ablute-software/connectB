@@ -12,6 +12,19 @@ export interface StructuredReport {
 }
 export interface AiReviewRow { id: string; kind: string; result: StructuredReport | null; created_at: string }
 
+export interface Contradiction {
+  text: string; category: CompanyFactCategory; severity: Severity;
+  sideA: { kind: string; quote: string }; sideB: { kind: string; quote: string };
+}
+// Two independent reads of the SAME document kind are not a genuine
+// cross-document contradiction — they're the same content re-verbalized
+// (the exact failure mode the Block C recurrence-ranking bug hit). The API
+// route already rejects kindA===kindB server-side; this is defense-in-depth
+// for any row that predates that check or was written some other way.
+export function genuineContradictions(contradictions: Contradiction[]): Contradiction[] {
+  return contradictions.filter((c) => c.sideA.kind !== c.sideB.kind);
+}
+
 export type ActionType = 'weakness' | 'risk' | 'recommendation';
 export interface Action {
   text: string; category: CompanyFactCategory; type: ActionType; severity: Severity | null;

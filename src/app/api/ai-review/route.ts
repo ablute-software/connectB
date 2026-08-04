@@ -21,12 +21,19 @@ import { serverClient } from '@/lib/supabase-server';
 
 type ReviewKind =
   | 'message_review' | 'deck_review' | 'one_pager_review' | 'market_data'
-  | 'business_plan_review' | 'financial_plan_review' | 'marketing_plan_review' | 'cap_table_review';
+  | 'business_plan_review' | 'financial_plan_review' | 'marketing_plan_review' | 'cap_table_review'
+  | 'cross_document_review';
 
 const STRUCTURED_KINDS: ReviewKind[] = [
   'deck_review', 'one_pager_review', 'business_plan_review',
   'financial_plan_review', 'marketing_plan_review', 'cap_table_review',
 ];
+
+const DOC_KIND_NAME: Record<string, string> = {
+  deck_review: 'Pitch deck', one_pager_review: 'One-pager', business_plan_review: 'Business plan',
+  financial_plan_review: 'Financial plan', marketing_plan_review: 'Commercial & marketing plan',
+  cap_table_review: 'Cap table & terms',
+};
 
 const CATEGORIES = ['product', 'traction', 'team', 'positioning', 'financing', 'regulatory', 'market', 'metrics', 'other'] as const;
 
@@ -103,9 +110,41 @@ const REPORT_TOOL = {
   },
 };
 
+interface RawContradiction {
+  text: string; category: typeof CATEGORIES[number]; severity: 'low' | 'medium' | 'high';
+  sideA?: { quote: string }; sideB?: { quote: string };
+}
+const CONTRADICTION_TOOL = {
+  name: 'report_contradictions',
+  description: 'Return only genuine contradictions between the two documents, each backed by a literal quote from both sides. If there are none, return an empty array — do not force a result.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      contradictions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            text: { type: 'string', description: 'One sentence stating the contradiction plainly.' },
+            category: { type: 'string', enum: CATEGORIES as unknown as string[] },
+            severity: { type: 'string', enum: ['low', 'medium', 'high'] },
+            sideA: { type: 'object', properties: { quote: { type: 'string', description: 'Exact quote from Document A.' } }, required: ['quote'] },
+            sideB: { type: 'object', properties: { quote: { type: 'string', description: 'Exact quote from Document B.' } }, required: ['quote'] },
+          },
+          required: ['text', 'category', 'severity', 'sideA', 'sideB'],
+        },
+      },
+    },
+    required: ['contradictions'],
+  },
+};
+
 export async function POST(req: Request) {
   const body = await req.json();
-  const { kind, draft, context } = body as { kind: ReviewKind; draft?: string; context?: CompanyContext };
+  const { kind, draft, context, kindA, draftA, kindB, draftB } = body as {
+    kind: ReviewKind; draft?: string; context?: CompanyContext;
+    kindA?: string; draftA?: string; kindB?: string; draftB?: string;
+  };
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -117,6 +156,85 @@ export async function POST(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   const { data: member } = user ? await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle() : { data: null };
+
+  // Block D — compares two RAW documents directly (not derived ai_reviews
+  // results, which don't retain the original text) for genuine factual
+  // contradictions. Handled as its own branch, before the generic
+  // single-document flow below, since the request/response shape is
+  // fundamentally different (two documents in, a contradictions array out).
+  // kindA===kindB is rejected server-side, not just discouraged in the UI —
+  // two independent reads of the SAME document kind are not a cross-document
+  // contradiction, they're the same content re-verbalized (the exact failure
+  // mode the Block C verification pass caught in the recurrence ranking).
+  if (kind === 'cross_document_review') {
+    if (!kindA || !draftA || !kindB || !draftB) {
+      return NextResponse.json({ error: 'Both documents are required.' }, { status: 400 });
+    }
+    if (kindA === kindB) {
+      return NextResponse.json({ error: 'Pick two different document types to compare.' }, { status: 400 });
+    }
+    const nameA = DOC_KIND_NAME[kindA] ?? kindA;
+    const nameB = DOC_KIND_NAME[kindB] ?? kindB;
+    const crossDocSystem =
+      'You compare two documents from the same early-stage startup for genuine factual contradictions — a direct conflict '
+      + 'between what one claims and what the other claims, not merely a difference in emphasis, level of detail, or '
+      + 'something one document simply omits. Only report an item if you can quote the exact conflicting phrase from BOTH '
+      + 'documents verbatim; if you cannot find a literal quote in both, do not report it. Prefer zero contradictions over '
+      + 'a low-confidence one. You never send or mutate anything; you always return a report.';
+    const crossDocPrompt =
+      `DOCUMENT A (${nameA}):\n${draftA}\n\nDOCUMENT B (${nameB}):\n${draftB}\n\n`
+      + 'Find genuine contradictions between these two documents. Always finish by calling report_contradictions.';
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
+          max_tokens: 1500,
+          system: crossDocSystem,
+          messages: [{ role: 'user', content: crossDocPrompt }],
+          tools: [CONTRADICTION_TOOL], tool_choice: { type: 'tool', name: 'report_contradictions' },
+        }),
+      });
+      if (!res.ok) {
+        console.error('AI review provider error:', (await res.text()).slice(0, 300));
+        return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 502 });
+      }
+      const data = await res.json();
+      const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
+      const parsed = toolUse?.input as { contradictions?: RawContradiction[] } | undefined;
+      if (!parsed) return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 502 });
+
+      // sideA.kind/sideB.kind are attached from the request, never trusted
+      // from model output — a contradiction can never be mis-attributed to
+      // the wrong document. Findings missing either literal quote are
+      // dropped rather than surfaced half-cited.
+      const contradictions = (parsed.contradictions ?? [])
+        .filter((c) => c.sideA?.quote && c.sideB?.quote)
+        .map((c) => ({
+          text: c.text, category: c.category, severity: c.severity,
+          sideA: { kind: kindA, quote: c.sideA!.quote },
+          sideB: { kind: kindB, quote: c.sideB!.quote },
+        }));
+
+      if (url && service && member) {
+        try {
+          const admin = createClient(url, service, { auth: { persistSession: false } });
+          await admin.from('ai_reviews').insert({
+            org_id: member.org_id, kind: 'cross_document_review', status: 'completed',
+            result: { contradictions },
+            model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
+          });
+        } catch (e) {
+          console.error('ai_reviews insert failed:', e);
+        }
+      }
+      return NextResponse.json({ contradictions });
+    } catch (e) {
+      console.error('AI review error:', e);
+      return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 500 });
+    }
+  }
 
   // The prompt of every kind below is written generically (stage/sector/etc
   // via `context`, never a hardcoded company name or sector) — see the note
@@ -137,7 +255,7 @@ export async function POST(req: Request) {
     + 'LinkedIn DMs under 900 characters; links only, never attachments; the product is positioned as wellness, never diagnostic. '
     + 'You produce a report — you never draft-and-send, and you flag rule violations bluntly.';
 
-  const prompts: Record<ReviewKind, string> = {
+  const prompts: Record<Exclude<ReviewKind, 'cross_document_review'>, string> = {
     message_review:
       `Review this outreach draft.\n\nDRAFT:\n${draft}\n\nCRM CONTEXT (ground truth):\n${JSON.stringify(context, null, 2)}\n\n`
       + 'Return: 1) verdict (send / fix first / do not send), 2) hook strength 0-10 with why, 3) risks (kill words, framing, claims), '
