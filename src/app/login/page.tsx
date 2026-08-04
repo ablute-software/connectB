@@ -27,6 +27,11 @@ function LoginInner() {
   const [code, setCode] = useState('');
   const [codeBusy, setCodeBusy] = useState(false);
   const [codeErr, setCodeErr] = useState('');
+  // Prompt 126 B / 119 §4.1-D1 — investors keep the magic link as the
+  // default (it never goes away), but can switch to password sign-in once
+  // they've set one via /set-password. Founders/developers are unaffected —
+  // this toggle only renders inside the investorMode branch below.
+  const [investorPasswordMode, setInvestorPasswordMode] = useState(false);
 
   useEffect(() => {
     if (!investorMode) return;
@@ -84,9 +89,15 @@ function LoginInner() {
     setCodeErr(''); setCodeBusy(true);
     try {
       const sb = browserClient();
-      const { error } = await sb.auth.verifyOtp({ email, token: code, type: 'email' });
+      const { data, error } = await sb.auth.verifyOtp({ email, token: code, type: 'email' });
       if (error) { setCodeErr(error.message); return; }
       clearMagicLinkSent();
+      // Prompt 126 B / 119 §4.3 D2 — same first-time-password offer as the
+      // link-click path in auth/callback/route.ts, for the manual-code path.
+      if (!data.user?.user_metadata?.password_set) {
+        window.location.href = `/set-password?next=${encodeURIComponent(next)}`;
+        return;
+      }
       window.location.href = next;
     } finally { setCodeBusy(false); }
   }
@@ -117,6 +128,21 @@ function LoginInner() {
           className="mb-3 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
 
         {investorMode ? (
+          investorPasswordMode ? (
+            <>
+              <label className="mb-1 block text-xs font-medium text-gray-500">Password</label>
+              <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="••••••••"
+                onKeyDown={(e) => e.key === 'Enter' && passwordLogin()}
+                className="mb-3 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+              <button disabled={busy || !email || !password} onClick={passwordLogin}
+                className="w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+                {busy ? 'Signing in…' : 'Sign in'}
+              </button>
+              <button onClick={() => { setInvestorPasswordMode(false); setMsg(''); }} className="mt-2 block w-full text-center text-xs text-gray-400 hover:underline">
+                Use a sign-in link instead
+              </button>
+            </>
+          ) : (
           <>
             {linkSent ? (
               <div className="mb-3 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">
@@ -160,7 +186,11 @@ function LoginInner() {
                 Have a sign-in code instead?
               </button>
             )}
+            <button onClick={() => { setInvestorPasswordMode(true); setMsg(''); }} className="mt-2 block w-full text-center text-xs text-gray-400 hover:underline">
+              Sign in with a password instead
+            </button>
           </>
+          )
         ) : (
           <>
             <label className="mb-1 block text-xs font-medium text-gray-500">Password</label>

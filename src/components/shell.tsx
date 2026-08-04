@@ -98,7 +98,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // (AuthShell-styled, same as login/signup) and must render standalone even
   // for a signed-in visitor who followed the landing footer link, not get
   // the founder app chrome wrapped around it.
-  const isStandaloneAuthPage = path === '/login' || path === '/signup' || path === '/forgot-password' || path === '/reset-password' || path === '/contact' || path === '/auth/confirm' || path === '/suspended';
+  const isStandaloneAuthPage = path === '/login' || path === '/signup' || path === '/forgot-password' || path === '/reset-password' || path === '/set-password' || path === '/contact' || path === '/auth/confirm' || path === '/suspended';
   // /pair is the MatchDeal PWA (MD-08). It was missing from this list, so
   // the phone screen behind the QR code inherited the founder CRM chrome —
   // "ablute_" header, outreach caps pill, "+ Log interaction", and the

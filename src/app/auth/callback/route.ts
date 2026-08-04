@@ -49,8 +49,25 @@ export async function GET(req: NextRequest) {
   if (!code || supabaseError) return failed();
 
   const sb = await serverClient();
-  const { error } = await sb.auth.exchangeCodeForSession(code);
+  const { data, error } = await sb.auth.exchangeCodeForSession(code);
   if (error) return failed();
+
+  // Prompt 126 B / 119 §4.3 D2 — this route is also reached by the recovery
+  // flow (forgot-password sends people here with next=/reset-password) —
+  // that flow is already an active "set your password" screen, so it must
+  // never get redirected into a second, competing one.
+  //
+  // Otherwise this is the investor magic-link path (founders sign in with a
+  // password directly). The first time a given user lands here without
+  // user_metadata.password_set, offer the optional password screen instead
+  // of going straight to `next`; once set (or skipped, which leaves the flag
+  // false and simply repeats this same detour next time) they always land
+  // on `next` again.
+  if (next !== '/reset-password' && !data.user?.user_metadata?.password_set) {
+    const url = new URL('/set-password', origin);
+    url.searchParams.set('next', next);
+    return NextResponse.redirect(url);
+  }
 
   return NextResponse.redirect(`${origin}${next}`);
 }

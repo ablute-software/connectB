@@ -6,6 +6,8 @@ import { useState } from 'react';
 import { browserClient, authEnabled } from '@/lib/supabase';
 import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
+import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
+import { checkPassword } from '@/lib/password-policy';
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState('');
@@ -16,12 +18,15 @@ export default function ResetPasswordPage() {
 
   async function submit() {
     setMsg('');
-    if (password.length < 8) { setMsg('Use at least 8 characters.'); return; }
+    if (!checkPassword(password).valid) { setMsg('Password does not meet the requirements above.'); return; }
     if (password !== confirm) { setMsg("Passwords don't match."); return; }
     setBusy(true);
     try {
       const sb = browserClient();
-      const { error } = await sb.auth.updateUser({ password });
+      // Prompt 126 B / 119 §4.3 D3 — one shared policy platform-wide; also
+      // records password_set so an investor resetting via this route never
+      // sees the separate first-login /set-password offer again.
+      const { error } = await sb.auth.updateUser({ password, data: { password_set: true } });
       if (error) { setMsg(error.message); return; }
       setDone(true);
     } finally { setBusy(false); }
@@ -48,8 +53,9 @@ export default function ResetPasswordPage() {
           <>
             <label className="mb-1 block text-xs font-medium text-gray-500">New password</label>
             <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="••••••••"
-              className="mb-3 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
-            <label className="mb-1 block text-xs font-medium text-gray-500">Confirm password</label>
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+            <PasswordRequirementsIndicator password={password} />
+            <label className="mb-1 mt-3 block text-xs font-medium text-gray-500">Confirm password</label>
             <input value={confirm} onChange={(e) => setConfirm(e.target.value)} type="password" placeholder="••••••••"
               onKeyDown={(e) => e.key === 'Enter' && submit()}
               className="mb-4 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />

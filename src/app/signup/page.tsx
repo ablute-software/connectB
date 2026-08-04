@@ -19,6 +19,8 @@ import Link from 'next/link';
 import { browserClient, authEnabled } from '@/lib/supabase';
 import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
+import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
+import { checkPassword } from '@/lib/password-policy';
 
 const STAGES = [
   { value: '', label: 'Stage…' },
@@ -142,15 +144,19 @@ function FounderSignupForm() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const canSubmit = !busy && !!email && !!password && !!org && !!name && !!title;
+  const canSubmit = !busy && !!email && checkPassword(password).valid && !!org && !!name && !!title;
 
   async function submit() {
     setBusy(true); setMsg('');
     try {
       const sb = browserClient();
+      // Prompt 126 B / 119 §4.3 D3 — same shared policy as investor
+      // set-password/reset-password; password_set marks this account as
+      // already having one, so it never gets offered the investor-only
+      // first-login /set-password screen.
       const { data, error } = await sb.auth.signUp({
         email, password,
-        options: { data: { full_name: name, org_name: org } },
+        options: { data: { full_name: name, org_name: org, password_set: true } },
       });
       if (error) { setMsg(error.message); return; }
       // Provision org + membership (server route uses service role).
@@ -231,11 +237,12 @@ function FounderSignupForm() {
         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Account</div>
         <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@company.com *"
           className="mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
-        <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password (min 8 chars) *"
-          className="mb-4 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+        <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password *"
+          className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+        <PasswordRequirementsIndicator password={password} />
 
         <button disabled={!canSubmit} onClick={submit}
-          className="w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+          className="mt-3 w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
           {busy ? 'Creating…' : 'Create account'}
         </button>
         <p className="mt-2 text-[11px] text-gray-400">* required</p>
