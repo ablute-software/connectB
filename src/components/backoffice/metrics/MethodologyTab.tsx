@@ -21,10 +21,15 @@ export function MethodologyTab() {
 
       <Card title="MRR / Net New MRR">
         <p className="text-sm text-gray-600">
-          <b>Under review as of this version</b> — Prompt 124 M8 flagged MRR showing €0 while Net New MRR showed €64
-          with 2 paying orgs on the same screen, which is only possible if the two queries read different underlying
-          state. The adopted, corrected definition will be written here once C6 lands (see this dashboard&apos;s own task
-          list) — until then, treat both numbers on the Overview tab as provisional.
+          <b>Fixed (Prompt 124 C6).</b> MRR previously required <code>orgs.stripe_subscription_id</code> to count an
+          org as paying — but the platform team&apos;s manual plan flip (no live billing wiring yet) never sets that
+          column, while Net New MRR reads <code>plan_changed</code> events written by a database trigger on any
+          <code>orgs.plan</code> update, Stripe or not. That mismatch is what produced €0 MRR next to €64 Net New MRR
+          with 2 paying orgs on screen. <b>Adopted definition:</b> both now read <code>orgs.plan</code> directly — an
+          org is &quot;paying&quot; whenever its plan tier isn&apos;t the free tier, regardless of billing mechanism. Annual
+          plans are recognized at their monthly-equivalent; an active promo discount reduces the list price for MRR
+          (not for Net New MRR&apos;s event-based delta, a smaller documented simplification — see the two functions&apos;
+          own code comments).
         </p>
       </Card>
 

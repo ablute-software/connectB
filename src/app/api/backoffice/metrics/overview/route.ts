@@ -5,7 +5,7 @@
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import {
-  resolvePeriod, pctDelta, newStartups, newInvestors, activatedStartups, activeFundraisingStartups,
+  resolvePeriod, pctDelta, newStartups, newInvestors, newRegisteredInvestorAccounts, activatedStartups, activeFundraisingStartups,
   startupsWithRelevantActivity, activationRate7d, retention30d, mrr, netNewMrr, freeToPaidConversion,
   monthlyRevenueChurn, qualifiedConversationsPerActiveFundraisingStartup, medianTimeToFirstResponse, overviewAlerts,
   type Period,
@@ -22,11 +22,13 @@ export async function GET(req: Request) {
 
   const [
     newStartupsNow, newStartupsPrev, newInvestorsNow, newInvestorsPrev,
+    newRegisteredInvestorAccountsNow, newRegisteredInvestorAccountsPrev,
     activated, activeFundraising, relevantActivity, activation7d, retention,
     mrrNow, netNew, freeToPaid, conversations, timeToFirstResponse, alerts,
   ] = await Promise.all([
     newStartups(admin, current), newStartups(admin, previous),
     newInvestors(admin, current), newInvestors(admin, previous),
+    newRegisteredInvestorAccounts(admin, current), newRegisteredInvestorAccounts(admin, previous),
     activatedStartups(admin, current), activeFundraisingStartups(admin),
     startupsWithRelevantActivity(admin, current), activationRate7d(admin, current), retention30d(admin),
     mrr(admin), netNewMrr(admin, current), freeToPaidConversion(admin, current),
@@ -40,7 +42,11 @@ export async function GET(req: Request) {
     period: { current: { from: current.from.toISOString(), to: current.to.toISOString() } },
     growth: {
       newStartups: { value: newStartupsNow, deltaPct: pctDelta(newStartupsNow, newStartupsPrev) },
-      newInvestors: { value: newInvestorsNow, deltaPct: pctDelta(newInvestorsNow, newInvestorsPrev) },
+      // Prompt 124 M9/C7 — two separate cards, always shown together: the
+      // catalog number (imports/enrichment — most never touched by a real
+      // user) must never stand in for real adoption.
+      newCatalogEntities: { value: newInvestorsNow, deltaPct: pctDelta(newInvestorsNow, newInvestorsPrev) },
+      newRegisteredInvestorAccounts: { value: newRegisteredInvestorAccountsNow, deltaPct: pctDelta(newRegisteredInvestorAccountsNow, newRegisteredInvestorAccountsPrev) },
       activatedStartups: activated.count,
       activeFundraisingStartups: activeFundraising,
       startupsWithRelevantActivity: relevantActivity,

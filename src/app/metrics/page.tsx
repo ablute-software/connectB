@@ -168,7 +168,9 @@ function AuditLogPanel() {
 interface OverviewData {
   growth: {
     newStartups: { value: number; deltaPct: number | null };
-    newInvestors: { value: number; deltaPct: number | null };
+    // Prompt 124 M9/C7 — split, never one combined "new investors" number.
+    newCatalogEntities: { value: number; deltaPct: number | null };
+    newRegisteredInvestorAccounts: { value: number; deltaPct: number | null };
     activatedStartups: number; activeFundraisingStartups: number; startupsWithRelevantActivity: number;
     activationRate7d: number | null; retention30d: number | null;
   };
@@ -216,7 +218,10 @@ function OverviewTab() {
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Growth</h2>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Stat label="New startups" value={data.growth.newStartups.value} delta={data.growth.newStartups.deltaPct} />
-              <Stat label="New investors" value={data.growth.newInvestors.value} delta={data.growth.newInvestors.deltaPct} />
+              <Stat label="Catalog entities added" value={data.growth.newCatalogEntities.value} delta={data.growth.newCatalogEntities.deltaPct}
+                hint="imported/enriched — not necessarily a real account" />
+              <Stat label="Investor accounts registered" value={data.growth.newRegisteredInvestorAccounts.value} delta={data.growth.newRegisteredInvestorAccounts.deltaPct}
+                hint="a real person actually signed in" />
               <Stat label="Startups activated" value={data.growth.activatedStartups} />
               <Stat label="Startups with active round" value={data.growth.activeFundraisingStartups} />
               <Stat label="Relevant activity" value={data.growth.startupsWithRelevantActivity} hint="in the selected period" />

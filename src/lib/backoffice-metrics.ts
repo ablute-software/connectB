@@ -85,9 +85,33 @@ export async function newStartups(admin: SupabaseClient, range: DateRange): Prom
   return orgs.filter((o) => inRange(o.created_at, range)).length;
 }
 
+// Prompt 124 M9/C7 — this counts CATALOG ENTITIES verified in the window,
+// not real registered accounts (most catalog entities were imported/
+// enriched and never touched by a real signed-up user — the exact gap
+// this metric used to hide). Kept under its original name/shape since
+// existing callers read it as "catalog entities added"; the real-accounts
+// number lives in newRegisteredInvestorAccounts() below, and the Overview
+// card shows both, never just this one, per C7.
 export async function newInvestors(admin: SupabaseClient, range: DateRange): Promise<number> {
   const investors = await realInvestorEntities(admin);
   return investors.filter((c) => c.verification_status === 'verified' && c.verified_at && inRange(c.verified_at, range)).length;
+}
+
+// Prompt 124 C7 — the OTHER half of "New investors": a firm counts here the
+// moment its first active matchdeal_investor_members seat is created (a
+// real person actually signed in), same "registered account" contract as
+// isRegisteredInvestorAccount()/the Backoffice Investors tab (Prompt 123
+// §C.4) — never recomputed with a different definition.
+export async function newRegisteredInvestorAccounts(admin: SupabaseClient, range: DateRange): Promise<number> {
+  const { data: members } = await admin.from('matchdeal_investor_members').select('catalog_entity_id, created_at').eq('status', 'active');
+  const earliestByEntity = new Map<string, string>();
+  for (const m of members ?? []) {
+    const entityId = m.catalog_entity_id as string;
+    const createdAt = m.created_at as string;
+    const existing = earliestByEntity.get(entityId);
+    if (!existing || createdAt < existing) earliestByEntity.set(entityId, createdAt);
+  }
+  return Array.from(earliestByEntity.values()).filter((iso) => inRange(iso, range)).length;
 }
 
 function inRange(iso: string | null, range: DateRange): boolean {
@@ -183,9 +207,25 @@ export async function retention30d(admin: SupabaseClient): Promise<number | null
 // under an active promo redemption. Annual subscriptions are recognized at
 // their monthly-equivalent (annualPerMonthEur), matching what's actually
 // billed per month, not the once-a-year sticker price.
+//
+// Prompt 124 M8/C6 — this used to gate on `!!o.stripe_subscription_id`,
+// which showed €0 MRR alongside a nonzero Net New MRR with 2 paying orgs on
+// the same screen: netNewMrr() (below) reads plan_changed analytics_events,
+// written by a DATABASE TRIGGER (log_org_plan_change(), migration 0072)
+// that fires on ANY update to orgs.plan — including the backoffice's manual
+// set-plan flip (src/app/api/backoffice/set-plan/route.ts), which never
+// touches stripe_subscription_id at all (there's no live billing wiring
+// yet — "the flip is manual", per that route's own comment). So an org
+// moved to a paid tier by the platform team logged a plan_changed event
+// (counted by netNewMrr) but was invisible to this function's snapshot
+// (no Stripe row) — two definitions of "paying" on one screen. Fixed:
+// this now reads the SAME ground truth netNewMrr/planIsPaid already use —
+// orgs.plan itself, not Stripe subscription presence — since that's what's
+// actually billed today regardless of mechanism (manual, promo, or a real
+// future Stripe checkout).
 export async function mrr(admin: SupabaseClient): Promise<{ total: number; startups: number; investors: number }> {
   const orgs = await realOrgs(admin);
-  const payingOrgs = orgs.filter((o) => !!o.stripe_subscription_id);
+  const payingOrgs = orgs.filter((o) => (o.plan as PlanTier) !== 'idea');
   const { data: redemptions } = payingOrgs.length
     ? await admin.from('promo_redemptions').select('org_id, benefit_ends_at, promo_codes(discount_pct)').in('org_id', payingOrgs.map((o) => o.id))
     : { data: [] };
