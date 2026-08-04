@@ -20,7 +20,7 @@ type Tab = 'pipeline' | 'about' | 'agenda' | 'today' | 'archive' | 'plans';
 const COMPLETENESS_GATE = 50;
 
 export function InvestorWorkspaceShell({
-  entityName, startupCard, sessionLabel,
+  entityName, startupCard, sessionLabel, openStartup, onOpenStartup, onBackToPipeline,
 }: {
   // The startup shown in the Pipeline tab (ablute_ today) — NOT the
   // investor's own firm. Kept as a separate concept from the About tab's
@@ -31,13 +31,20 @@ export function InvestorWorkspaceShell({
   // The existing snapshot + ticket selector + data room content (built in
   // Prompt 54) — rendered as-is inside the Pipeline tab once a card is
   // opened. Prompts 55/56 extend that same screen; this shell never
-  // rebuilds it.
+  // rebuilds it. Prompt 121 §2.3 — reflects whichever org PortalPage last
+  // fetched via onOpenStartup(orgId), not a single fixed startup anymore.
   startupCard: React.ReactNode;
   sessionLabel: React.ReactNode;
+  // Prompt 121 §2.3 — which-org-is-open now lives in PortalPage (it owns
+  // the `real` fetch these props ultimately drive), not as local state
+  // here: opening a DIFFERENT card needs the parent to refetch, so this
+  // shell can no longer just flip a local boolean.
+  openStartup: boolean;
+  onOpenStartup: (orgId: string) => void;
+  onBackToPipeline: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('pipeline');
   const [pct, setPct] = useState<number | null>(null);
-  const [openStartup, setOpenStartup] = useState(false);
   const [investorFirmName, setInvestorFirmName] = useState<string | null>(null);
   // Identity verification Fase B (prompt 64), Bloco 1 — the badge lives in
   // the sidebar rather than repeated separately in About/Pipeline/Archive's
@@ -151,11 +158,11 @@ export function InvestorWorkspaceShell({
             gateOpen ? (
               openStartup ? (
                 <div>
-                  <button onClick={() => setOpenStartup(false)} className="mb-3 text-xs text-gray-400 hover:underline">← Back to Pipeline</button>
+                  <button onClick={onBackToPipeline} className="mb-3 text-xs text-gray-400 hover:underline">← Back to Pipeline</button>
                   {startupCard}
                 </div>
               ) : (
-                <PipelinePanel onOpenStartup={() => setOpenStartup(true)} />
+                <PipelinePanel onOpenStartup={onOpenStartup} />
               )
             ) : (
               <div className="mx-auto mt-16 max-w-sm rounded-lg border border-gray-200 bg-white p-6 text-center">

@@ -29,7 +29,7 @@ function fmtEur(n: number | null) {
   return n == null ? null : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
 }
 
-export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) {
+export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string) => void }) {
   const [data, setData] = useState<PipelineResponse | null>(null);
   // AP-07/08 — confirming holds the card + action awaiting Cancel/Confirm;
   // reasonDraft is the free-text Pass reason (AP-08: required, not a fixed
@@ -43,6 +43,14 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [showComparison, setShowComparison] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'interested' | 'passed'>('all');
+  // Prompt 121 §2.3 — sector/geography/stage filters, composed with the
+  // existing status filter and the wave doseamento: filtering only decides
+  // which cards render WITHIN an already-unlocked (or already-locked) wave,
+  // it never changes wave.unlocked itself — see passesFilter below, which
+  // stays the single gate the wave.items.filter(...) call already used.
+  const [sectorFilter, setSectorFilter] = useState<string>('all');
+  const [countryFilter, setCountryFilter] = useState<string>('all');
+  const [stageFilter, setStageFilter] = useState<string>('all');
 
   function toggleCompare(orgId: string) {
     setCompareIds((ids) => (ids.includes(orgId) ? ids.filter((id) => id !== orgId) : ids.length < MAX_COMPARE ? [...ids, orgId] : ids));
@@ -124,12 +132,23 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
 
   const allCards = waves.flatMap((w) => w.items);
   const compareCards = compareIds.map((id) => allCards.find((c) => c.orgId === id)).filter((c): c is Card => !!c);
+  // Prompt 121 §2.3 — option lists built from whatever's actually in the
+  // Pipeline right now (not a fixed taxonomy import): org.sectors is free
+  // text on the founder side (see investor-sector-taxonomy.ts's own
+  // comment), so a filter sourced from a canonical list could easily show
+  // options nothing ever matches. This way every option is guaranteed live.
+  const sectorOptions = [...new Set(allCards.flatMap((c) => c.sectors))].sort((a, b) => a.localeCompare(b));
+  const countryOptions = [...new Set(allCards.map((c) => c.country).filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b));
+  const stageOptions = [...new Set(allCards.map((c) => c.stage).filter((v): v is string => !!v))];
   // AP-13 — "All" keeps Prompt 60's existing behaviour (passed cards live
   // in Archive, not duplicated here); "Passed" is the one filter that
   // deliberately surfaces them back in this view anyway.
   function passesFilter(c: Card) {
-    if (statusFilter === 'all') return c.status !== 'passed';
-    return c.status === statusFilter;
+    if (statusFilter === 'all' ? c.status === 'passed' : c.status !== statusFilter) return false;
+    if (sectorFilter !== 'all' && !c.sectors.includes(sectorFilter)) return false;
+    if (countryFilter !== 'all' && c.country !== countryFilter) return false;
+    if (stageFilter !== 'all' && c.stage !== stageFilter) return false;
+    return true;
   }
 
   return (
@@ -145,6 +164,33 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
             {f.label}
           </button>
         ))}
+      </div>
+      {/* Prompt 121 §2.3 — sector/geography/stage filters. Composed with the
+          status filter and the wave doseamento above (passesFilter), never
+          bypassing it: a locked wave stays locked no matter what these
+          narrow it down to. */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <select value={sectorFilter} onChange={(e) => setSectorFilter(e.target.value)}
+          className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-600">
+          <option value="all">All sectors</option>
+          {sectorOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)}
+          className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-600">
+          <option value="all">All geographies</option>
+          {countryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}
+          className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-600">
+          <option value="all">All stages</option>
+          {stageOptions.map((s) => <option key={s} value={s}>{STAGE_LABELS[s] ?? s}</option>)}
+        </select>
+        {(sectorFilter !== 'all' || countryFilter !== 'all' || stageFilter !== 'all') && (
+          <button onClick={() => { setSectorFilter('all'); setCountryFilter('all'); setStageFilter('all'); }}
+            className="text-[11px] text-gray-400 hover:underline">
+            Clear filters
+          </button>
+        )}
       </div>
       {data.usualCoInvestors && <p className="text-xs text-gray-400">Usually co-invests with: {data.usualCoInvestors}</p>}
       {actionError && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
@@ -268,7 +314,7 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: () => void }) 
                         the founder actually consenting (access_grants). That
                         trust boundary doesn't move — only discovery does. */}
                     {c.hasDataRoomAccess ? (
-                      <button onClick={onOpenStartup} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+                      <button onClick={() => onOpenStartup(c.orgId)} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
                         Open data room
                       </button>
                     ) : (

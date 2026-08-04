@@ -121,10 +121,18 @@ async function toPortalDoc(admin: SupabaseClient, d: Record<string, unknown>) {
   };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ error: 'not configured' }, { status: 200 });
+
+  // Prompt 121 §2.3 — Pipeline cards now route to their OWN startup, not a
+  // single fixed org. requestedOrgId is only ever used to pick among orgs
+  // the caller's own activeGrants already cover below — never a bypass:
+  // an id for an org this investor has no grant for simply finds nothing in
+  // that filter and falls back to the pre-existing "first match" behavior,
+  // exactly as if the param had been omitted.
+  const requestedOrgId = new URL(req.url).searchParams.get('orgId');
 
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
@@ -208,10 +216,14 @@ export async function GET() {
     return NextResponse.json({ orgName: null, pendingNdaCount: 0, folders: [], documents: [], pendingConfirmation });
   }
 
-  // MVP: one investor identity = one org's grants at a time (the first match).
-  // A single login surfacing grants from several different startups needs a
-  // real investor identity model — that's IRM_SPEC §5 (self-claim), not this pass.
-  const orgId = activeGrants[0].org_id;
+  // Prompt 121 §2.3 — one org's grants at a time, but now CHOSEN (by
+  // requestedOrgId, itself only ever set from a Pipeline card the caller's
+  // own session already resolved as eligible) rather than always "the
+  // first match". Still exactly one org's data room per response — a
+  // single login surfacing several data rooms AT ONCE needs a real
+  // investor identity model (IRM_SPEC §5, self-claim), not this pass.
+  const requestedGrant = requestedOrgId ? activeGrants.find((g) => g.org_id === requestedOrgId) : null;
+  const orgId = requestedGrant ? requestedGrant.org_id : activeGrants[0].org_id;
   const orgGrants = activeGrants.filter((g) => g.org_id === orgId);
 
   const { data: org } = await admin.from('orgs').select('name, sender_email').eq('id', orgId).single();

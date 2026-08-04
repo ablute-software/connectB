@@ -235,6 +235,21 @@ export default function PortalPage() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [real, setReal] = useState<PortalData | null>(null);
+  // Prompt 121 §2.3 — which startup's data room is open, if any. null means
+  // "show the Pipeline list"; set to an orgId means "show that org's card",
+  // and triggers loadAccess(orgId) below to refetch `real` for THAT org
+  // specifically instead of whatever the default single-org fetch returned.
+  const [openOrgId, setOpenOrgId] = useState<string | null>(null);
+
+  function loadAccess(orgId?: string) {
+    setLoading(true);
+    const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : '';
+    return fetch(`/api/portal/access${qs}`).then((r) => r.json()).then((d: PortalData) => {
+      setReal(d);
+      setLoading(false);
+      return d;
+    });
+  }
 
   // Real-mode session state. undefined = still checking, null = signed out.
   const [sessionEmail, setSessionEmail] = useState<string | null | undefined>(undefined);
@@ -304,13 +319,11 @@ export default function PortalPage() {
 
   useEffect(() => {
     if (!authEnabled || !sessionEmail) return;
-    setLoading(true);
-    fetch('/api/portal/access').then((r) => r.json()).then((d: PortalData) => {
-      setReal(d);
-      setLoading(false);
+    loadAccess().then((d) => {
       const firstPending = d.pendingConfirmation?.[0];
       if (firstPending?.invitedName) setConfirmName(firstPending.invitedName);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionEmail]);
 
   const activePendingConfirmation = (real?.pendingConfirmation ?? []).filter((p) => !dismissedGrantIds.includes(p.grantId));
@@ -327,10 +340,21 @@ export default function PortalPage() {
       // Reload from the server rather than patching local state — the
       // confirmed grant may now unlock real documents this response never
       // carried while it was pending_confirmation.
-      setLoading(true);
-      const refreshed = await fetch('/api/portal/access').then((r) => r.json());
-      setReal(refreshed); setLoading(false); setConfirmRole('');
+      await loadAccess();
+      setConfirmRole('');
     } finally { setConfirmBusy(false); }
+  }
+
+  // Prompt 121 §2.3 — a Pipeline card opens ITS OWN startup's data room, not
+  // a single fixed one. onBackToPipeline deliberately doesn't refetch —
+  // `real` only ever backs the startup-card view, never the Pipeline list
+  // itself, so there's nothing stale to clear until the next org is opened.
+  function openStartupOrg(orgId: string) {
+    setOpenOrgId(orgId);
+    void loadAccess(orgId);
+  }
+  function backToPipeline() {
+    setOpenOrgId(null);
   }
 
   // ---- demo-mode data (unchanged behaviour, mirrors the real route's
@@ -497,7 +521,12 @@ export default function PortalPage() {
         <div className="text-[10px] uppercase tracking-wide text-[#0E7490]">investor</div>
       </div>
     );
-    return <InvestorWorkspaceShell entityName={real?.snapshot?.name ?? orgName ?? null} startupCard={startupCard} sessionLabel={sessionLabel} />;
+    return (
+      <InvestorWorkspaceShell
+        entityName={real?.snapshot?.name ?? orgName ?? null} startupCard={startupCard} sessionLabel={sessionLabel}
+        openStartup={openOrgId != null} onOpenStartup={openStartupOrg} onBackToPipeline={backToPipeline}
+      />
+    );
   }
 
   return (
