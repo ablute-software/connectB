@@ -4,10 +4,13 @@
 // countries); this page quotes the real numbers, because deciding what to
 // build next on a rounded number is how you end up believing your own
 // marketing. Read-only — the CRUD lives in Catálogo, linked at the bottom.
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Card } from '@/components/ui';
+import { Card, Tabs } from '@/components/ui';
 import type { DomainMatchVerdict } from '@/lib/investor-domain-match';
+import { ModerationControls } from '@/components/backoffice/ModerationControls';
+import { ModerationHistoryCard } from '@/components/backoffice/ModerationHistoryCard';
+import type { ModerationStatus } from '@/lib/account-moderation';
 
 type Totals = {
   total: number; verified: number; imported: number; demo: number; backfilled: number;
@@ -196,6 +199,111 @@ function PipelineDecisionsPanel() {
   );
 }
 
+// Prompt 123 Block C.3 — real REGISTERED investor accounts (firms with at
+// least one matchdeal_investor_members seat), distinct from the catalog
+// stats below (which count every imported/enriched entity, most never
+// touched by a real signed-up user — see P124's own 358-vs-~8 flag). A
+// column showing "—" with a tooltip means the underlying event doesn't
+// exist yet — not a zero, an honest "not tracked" (per the doc's own
+// instruction for "Files viewed").
+interface InvestorAccountRow {
+  entityId: string; name: string; planTier: string | null; registrationDate: string | null; seats: number;
+  complete: boolean; lastLogin: string | null; status: 'active' | 'quiet' | 'inactive';
+  accessGrantedLastMonth: number; filesViewedLastMonth: number; startupsInteractedWith: number;
+  moderationStatus: ModerationStatus; moderationQuarantineUntil: string | null;
+  logsLast7Days: number | null; accessRequestedLastMonth: number | null; visiblePipelineSize: number | null;
+  startupComparisonsLastMonth: number | null; aiAssistanceLastMonth: number | null;
+}
+
+const INVESTOR_STATUS_STYLE: Record<InvestorAccountRow['status'], string> = {
+  active: 'bg-green-50 text-green-700', quiet: 'bg-amber-50 text-amber-700', inactive: 'bg-gray-100 text-gray-500',
+};
+
+function NotTracked({ tooltip }: { tooltip: string }) {
+  return <span className="text-gray-300" title={tooltip}>—</span>;
+}
+
+function InvestorAccountsTable() {
+  const [accounts, setAccounts] = useState<InvestorAccountRow[] | null>(null);
+  const [moderationAvailable, setModerationAvailable] = useState(false);
+  const [err, setErr] = useState('');
+  const [q, setQ] = useState('');
+
+  function load() {
+    fetch('/api/backoffice/investor-accounts').then((r) => r.json()).then((body) => {
+      if (!body.ok) { setErr(body.error); return; }
+      setAccounts(body.accounts);
+      setModerationAvailable(!!body.moderationAvailable);
+    }).catch(() => setErr('Failed to load.'));
+  }
+  useEffect(load, []);
+
+  const rows = useMemo(() => (accounts ?? []).filter((a) => a.name.toLowerCase().includes(q.toLowerCase())), [accounts, q]);
+
+  if (err) return <Card title="Investor accounts"><p className="text-sm text-[#B00000]">{err}</p></Card>;
+  if (!accounts) return <Card title="Investor accounts"><p className="text-sm text-gray-400">Loading…</p></Card>;
+
+  return (
+    <Card title={`Investor accounts (${rows.length}${q ? ` of ${accounts.length}` : ''})`}>
+      <div className="mb-3 flex items-center gap-2">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by firm name…"
+          className="w-56 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+        <p className="ml-auto text-xs text-gray-500">Real registered firms only — catalog stats below cover every imported entity.</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
+              <th className="whitespace-nowrap py-1.5 pr-3">Org</th><th className="pr-3">Plan</th><th className="pr-3">Registered</th>
+              <th className="pr-3">Seats</th><th className="pr-3">% Complete</th><th className="pr-3">Logs/7d</th>
+              <th className="pr-3">Last login</th><th className="pr-3">Status</th><th className="pr-3">Delete/Suspend</th>
+              <th className="pr-3">Access req./mo</th><th className="pr-3">Access granted/mo</th><th className="pr-3">Files viewed/mo</th>
+              <th className="pr-3">Pipeline</th><th className="pr-3">Startups</th><th className="pr-3">Comparisons/mo</th><th>AI assist/mo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((a) => (
+              <tr key={a.entityId} className="border-t border-gray-50 align-top">
+                <td className="py-2 pr-3 font-medium">{a.name}</td>
+                <td className="pr-3 text-gray-500">{a.planTier ?? '—'}</td>
+                <td className="pr-3 text-xs text-gray-400 whitespace-nowrap">{a.registrationDate ? a.registrationDate.slice(0, 10) : '—'}</td>
+                <td className="pr-3 text-gray-600">{a.seats}</td>
+                <td className="pr-3 text-gray-600">{a.complete ? 'Complete' : 'Incomplete'}</td>
+                <td className="pr-3">
+                  {a.logsLast7Days == null ? <NotTracked tooltip="Tracking starts once an investor activity-log event exists" /> : a.logsLast7Days}
+                </td>
+                <td className="pr-3 text-xs text-gray-400 whitespace-nowrap">{a.lastLogin ? a.lastLogin.slice(0, 10) : 'never'}</td>
+                <td className="pr-3"><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${INVESTOR_STATUS_STYLE[a.status]}`}>{a.status}</span></td>
+                <td className="pr-3">
+                  {moderationAvailable ? (
+                    <ModerationControls targetType="investor" targetId={a.entityId} status={a.moderationStatus} quarantineUntil={a.moderationQuarantineUntil} onChanged={load} />
+                  ) : <span className="text-xs text-gray-300">—</span>}
+                </td>
+                <td className="pr-3">
+                  {a.accessRequestedLastMonth == null ? <NotTracked tooltip="Tracking starts once access-request initiation is logged" /> : a.accessRequestedLastMonth}
+                </td>
+                <td className="pr-3 text-gray-600">{a.accessGrantedLastMonth}</td>
+                <td className="pr-3 text-gray-600">{a.filesViewedLastMonth}</td>
+                <td className="pr-3">
+                  {a.visiblePipelineSize == null ? <NotTracked tooltip="Needs its own formula — pipeline-unlock.ts is startup-side only" /> : a.visiblePipelineSize}
+                </td>
+                <td className="pr-3 text-gray-600">{a.startupsInteractedWith}</td>
+                <td className="pr-3">
+                  {a.startupComparisonsLastMonth == null ? <NotTracked tooltip="Tracking starts once a comparison-feature event exists" /> : a.startupComparisonsLastMonth}
+                </td>
+                <td>
+                  {a.aiAssistanceLastMonth == null ? <NotTracked tooltip="Tracking starts once investor-side AI usage is logged" /> : a.aiAssistanceLastMonth}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!moderationAvailable && <p className="mt-3 text-[11px] text-gray-400">Suspend/Delete activates once migration 0121 is applied.</p>}
+    </Card>
+  );
+}
+
 function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-3">
@@ -206,7 +314,7 @@ function Stat({ label, value, hint }: { label: string; value: string | number; h
   );
 }
 
-export default function InvestorsPage() {
+function CatalogStatsTab() {
   const [data, setData] = useState<{ ok: boolean; error?: string; totals: Totals } | null>(null);
 
   useEffect(() => {
@@ -221,13 +329,10 @@ export default function InvestorsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold">Investors</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Real numbers for the global catalog. The public landing page shows rounded-down bands
-          ({Math.floor(packable / 100) * 100}+ profiles, {Math.floor(totals.countries / 5) * 5}+ countries) — this is the ground truth.
-        </p>
-      </div>
+      <p className="text-sm text-gray-500">
+        Real numbers for the global catalog. The public landing page shows rounded-down bands
+        ({Math.floor(packable / 100) * 100}+ profiles, {Math.floor(totals.countries / 5) * 5}+ countries) — this is the ground truth.
+      </p>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Total in catalog" value={totals.total} hint={`${totals.demo} demo entities excluded`} />
@@ -250,6 +355,28 @@ export default function InvestorsPage() {
         To edit, verify, or merge entities:{' '}
         <Link href="/backoffice/catalog" className="font-medium text-[#0E7490] underline">Catalog →</Link>
       </p>
+    </div>
+  );
+}
+
+export default function InvestorsPage() {
+  const [tab, setTab] = useState<'accounts' | 'catalog' | 'history'>('accounts');
+  const [accounts, setAccounts] = useState<InvestorAccountRow[] | null>(null);
+
+  useEffect(() => {
+    fetch('/api/backoffice/investor-accounts').then((r) => r.json()).then((body) => { if (body.ok) setAccounts(body.accounts); }).catch(() => {});
+  }, [tab]);
+
+  const nameById = useMemo(() => new Map((accounts ?? []).map((a) => [a.entityId, a.name])), [accounts]);
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-xl font-bold">Investors</h1>
+      <Tabs active={tab} onChange={(v) => setTab(v as 'accounts' | 'catalog' | 'history')}
+        items={[{ key: 'accounts', label: 'Accounts' }, { key: 'catalog', label: 'Catalog stats' }, { key: 'history', label: 'History' }]} />
+      {tab === 'accounts' && <InvestorAccountsTable />}
+      {tab === 'catalog' && <CatalogStatsTab />}
+      {tab === 'history' && <ModerationHistoryCard targetType="investor" nameById={nameById} />}
     </div>
   );
 }

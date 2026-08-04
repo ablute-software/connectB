@@ -47,6 +47,23 @@ export async function middleware(req: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
+  // Prompt 123 Block C.2 — server-side login gate for suspended/deleted
+  // accounts (migration 0121, PROPOSE ONLY). is_account_suspended() only
+  // exists once that migration is applied; a missing-function error is
+  // treated as "not suspended" (fail open) so this never breaks sign-in
+  // pre-migration — same capability-gated-degrade convention as every other
+  // migration-gated feature, just without the usual server-only probe
+  // module since middleware can't import 'server-only' code.
+  if (user && pathname !== '/suspended' && !pathname.startsWith('/api/')) {
+    const { data: suspended } = await supabase.rpc('is_account_suspended');
+    if (suspended === true) {
+      const redirect = req.nextUrl.clone();
+      redirect.pathname = '/suspended';
+      redirect.search = '';
+      return NextResponse.redirect(redirect);
+    }
+  }
+
   if (!user && !isPublic) {
     const redirect = req.nextUrl.clone();
     redirect.pathname = '/login';
