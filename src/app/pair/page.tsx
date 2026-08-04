@@ -64,6 +64,10 @@ export default function PairPage() {
   const [kind, setKind] = useState<'startup' | 'investor' | null>(null);
   const [ownProfileId, setOwnProfileId] = useState<string | null>(null);
   const [pairedAt, setPairedAt] = useState<string | null>(null);
+  // Prompt 121 §2.7-b — startup-side deck visibility grows with company
+  // profile completeness; undefined lets MatchDealDeck fall back to its own
+  // pre-existing default (investor viewers never set this at all).
+  const [deckLimit, setDeckLimit] = useState<number | undefined>(undefined);
   // Mini-prompt 2026-08-03 — /pair's own login step, no password ever, for
   // either founder or investor accounts. The old "Sign in" link went to
   // /login with no ?as=investor, so it always showed the founder
@@ -106,6 +110,7 @@ export default function PairPage() {
       const body = await res.json();
       if (!body.ok || !body.kind) { setErrorMsg('No linked MatchDeal profile for this account.'); setStage('error'); return; }
       setKind(body.kind); setOwnProfileId(body.ownProfileId ?? null); setPairedAt(null);
+      setDeckLimit(body.deckLimit);
       setStage('paired');
     } catch {
       setErrorMsg('Network error — try again.'); setStage('error');
@@ -150,6 +155,7 @@ export default function PairPage() {
           }
 
           setKind(body.kind); setOwnProfileId(body.ownProfileId ?? null); setPairedAt(body.pairedAt);
+          setDeckLimit(body.deckLimit);
           setStage('paired');
         } catch {
           setErrorMsg('Network error — try again.'); setStage('error');
@@ -384,7 +390,7 @@ export default function PairPage() {
           </header>
 
           {ownProfileId && kind ? (
-            <MatchDealShell viewerProfileId={ownProfileId} viewerKind={kind} />
+            <MatchDealShell viewerProfileId={ownProfileId} viewerKind={kind} deckLimit={deckLimit} />
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
               <div className="text-4xl">👤</div>

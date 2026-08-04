@@ -7,7 +7,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { resolveOwnMatchdealProfileId, touchLastSeenIfStale, DEVICE_ID_COOKIE, DEVICE_ID_COOKIE_MAX_AGE } from '@/lib/matchdeal-pairing';
+import { resolveOwnMatchdealProfileId, touchLastSeenIfStale, startupDeckLimit, DEVICE_ID_COOKIE, DEVICE_ID_COOKIE_MAX_AGE } from '@/lib/matchdeal-pairing';
 import { shareableCookieDomain } from '@/lib/supabase';
 
 export async function GET(req: NextRequest) {
@@ -84,7 +84,8 @@ export async function GET(req: NextRequest) {
       if (matchedPairing && matchedPairing.kind === kind) {
         await touchLastSeenIfStale(admin, matchedPairing.id, matchedPairing.last_seen_at);
       }
-      const response = NextResponse.json({ ok: true, kind, ownProfileId: profileId });
+      const deckLimit = kind === 'startup' ? await startupDeckLimit(admin, profileId) : undefined;
+      const response = NextResponse.json({ ok: true, kind, ownProfileId: profileId, deckLimit });
       // Reconcile the cookie itself if it was the one missing.
       if (!cookieDeviceId && queryDeviceId) {
         const domain = shareableCookieDomain(req.headers.get('host'));

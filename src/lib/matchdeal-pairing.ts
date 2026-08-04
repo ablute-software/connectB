@@ -10,6 +10,8 @@ import { createHash, randomBytes } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logEvent } from './analytics-events';
 import { resolveActiveInvestorMember } from './investor-membership';
+import { calcCompanyCompleteness, startupInvestorDeckCap } from './companyCompleteness';
+import type { CompanyPerson, Org } from './types';
 
 export const PAIRING_TOKEN_TTL_MS = 5 * 60 * 1000; // spec Section 4 — 5 minutes
 export const PAIRING_RATE_LIMIT_PER_HOUR = 10; // spec Section 8
@@ -228,4 +230,26 @@ export async function touchLastSeenIfStale(admin: SupabaseClient, pairingId: str
   const staleSince = lastSeenAt ? Date.now() - new Date(lastSeenAt).getTime() : Infinity;
   if (staleSince < LAST_SEEN_THROTTLE_MS) return;
   await admin.from('matchdeal_pairings').update({ last_seen_at: new Date().toISOString() }).eq('id', pairingId);
+}
+
+// Prompt 121 §2.7-b — the deck's visible-investor population grows by the
+// startup's own profile completeness tier. Shared by both entry points that
+// resolve a startup's own MatchDeal profile (pairing/self for "open on this
+// device", pairing/consume for a fresh QR scan) so the cap is computed once,
+// not duplicated per route. membership_id on a kind='startup'
+// matchdeal_profiles row IS the org id directly (see resolveOwnMatchdealProfileId's own
+// comment above: polymorphic by design), so this is a plain two-table read —
+// zero touches to matchdeal_eligible_deck itself, which already respects
+// its p_limit argument as `least(p_limit, v_remaining)`.
+export async function startupDeckLimit(admin: SupabaseClient, profileId: string): Promise<number> {
+  const { data: profile } = await admin.from('matchdeal_profiles').select('membership_id').eq('id', profileId).maybeSingle();
+  const orgId = profile?.membership_id as string | undefined;
+  if (!orgId) return 10; // unchanged fallback — matches the deck's pre-existing hardcoded default
+  const [{ data: org }, { data: people }] = await Promise.all([
+    admin.from('orgs').select('*').eq('id', orgId).maybeSingle(),
+    admin.from('company_people').select('*').eq('org_id', orgId),
+  ]);
+  if (!org) return 10;
+  const { pct } = calcCompanyCompleteness(org as unknown as Org, (people ?? []) as unknown as CompanyPerson[]);
+  return startupInvestorDeckCap(pct);
 }

@@ -11,12 +11,12 @@ import { BoostExtraPanel } from './BoostExtraPanel';
 import { ProfilePanel } from './ProfilePanel';
 import { MatchDealTabBar, type MatchDealTab } from './MatchDealTabBar';
 
-export function MatchDealShell({ viewerProfileId, viewerKind }: { viewerProfileId: string; viewerKind: 'startup' | 'investor' }) {
+export function MatchDealShell({ viewerProfileId, viewerKind, deckLimit }: { viewerProfileId: string; viewerKind: 'startup' | 'investor'; deckLimit?: number }) {
   const [tab, setTab] = useState<MatchDealTab>('deck');
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      {tab === 'deck' && <MatchDealDeck viewerProfileId={viewerProfileId} viewerKind={viewerKind} />}
+      {tab === 'deck' && <MatchDealDeck viewerProfileId={viewerProfileId} viewerKind={viewerKind} deckLimit={deckLimit} />}
       {tab === 'matches' && <MatchesPanel viewerProfileId={viewerProfileId} viewerKind={viewerKind} />}
       {tab === 'messages' && <InstantMessagePanel viewerProfileId={viewerProfileId} viewerKind={viewerKind} />}
       {tab === 'boost' && <BoostExtraPanel />}

@@ -511,7 +511,7 @@ function CardFace({ p, subIndex, active, pitchData }: { p: MatchDealProfile; sub
 // gesture feel inconsistent between the projector view and a handset.
 const SWIPE_THRESHOLD = 96;
 
-export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId: string; viewerKind: 'startup' | 'investor' }) {
+export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { viewerProfileId: string; viewerKind: 'startup' | 'investor'; deckLimit?: number }) {
   const [deck, setDeck] = useState<MatchDealProfile[] | null>(null);
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -537,11 +537,15 @@ export function MatchDealDeck({ viewerProfileId, viewerKind }: { viewerProfileId
   // matchdeal_eligible_deck itself at all.
   const fetchDeck = useCallback(async () => {
     const sb = browserClient();
-    const { data, error } = await sb.rpc('matchdeal_eligible_deck', { p_viewer_profile_id: viewerProfileId, p_limit: 10 });
+    // Prompt 121 §2.7-b — deckLimit (startup viewers only) caps the visible
+    // investor population by company-profile completeness tier; investor
+    // viewers keep the original fixed 10. matchdeal_eligible_deck itself is
+    // unchanged — this is just its existing p_limit argument.
+    const { data, error } = await sb.rpc('matchdeal_eligible_deck', { p_viewer_profile_id: viewerProfileId, p_limit: deckLimit ?? 10 });
     if (error) { setLoadError(true); setDeck([]); return; }
     setDeck((data ?? []) as MatchDealProfile[]);
     setIndex(0);
-  }, [viewerProfileId]);
+  }, [viewerProfileId, deckLimit]);
 
   useEffect(() => { void fetchDeck(); }, [fetchDeck]);
 

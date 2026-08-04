@@ -79,3 +79,18 @@ export function calcCompanyCompleteness(org: Org, people: CompanyPerson[]): Comp
 
   return { pct, missing };
 }
+
+// Prompt 121 §2.7-b — the startup-side MatchDeal deck's visible investor
+// population grows by completeness tier: <40% → 5, 40–70% → 15, >70% → the
+// full eligible list. "Full" here means "don't add an artificial cap on top
+// of what matchdeal_eligible_deck's own weekly-quota/is_visible logic
+// already allows" — passed through as its p_limit argument, which the RPC
+// already takes `least(p_limit, v_remaining)` against, so this is a pure
+// application-layer number, zero touches to the matching engine itself.
+// Constants are deliberately adjustable (the prompt says as much) — this is
+// the one place they'd change.
+export function startupInvestorDeckCap(completenessPct: number): number {
+  if (completenessPct < 40) return 5;
+  if (completenessPct <= 70) return 15;
+  return 999;
+}

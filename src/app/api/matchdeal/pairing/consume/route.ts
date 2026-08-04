@@ -9,7 +9,7 @@
 // Edge Function (different runtimes).
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { consumePairingToken, resolveOwnMatchdealProfileId, DEVICE_ID_COOKIE, DEVICE_ID_COOKIE_MAX_AGE } from '@/lib/matchdeal-pairing';
+import { consumePairingToken, resolveOwnMatchdealProfileId, startupDeckLimit, DEVICE_ID_COOKIE, DEVICE_ID_COOKIE_MAX_AGE } from '@/lib/matchdeal-pairing';
 import { shareableCookieDomain } from '@/lib/supabase';
 
 export async function POST(req: Request) {
@@ -32,9 +32,10 @@ export async function POST(req: Request) {
   }
 
   const ownProfileId = await resolveOwnMatchdealProfileId(admin, result.userId, result.kind);
+  const deckLimit = result.kind === 'startup' && ownProfileId ? await startupDeckLimit(admin, ownProfileId) : undefined;
   const response = NextResponse.json({
     ok: true, pairingId: result.pairingId, pairedAt: result.pairedAt, kind: result.kind, ownProfileId,
-    session: result.session,
+    deckLimit, session: result.session,
   });
 
   // Prompt 114 Fase 4.1 — device_id's resilient copy, set once here. Scoped
