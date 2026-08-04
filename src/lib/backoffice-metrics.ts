@@ -397,9 +397,14 @@ export async function overviewAlerts(admin: SupabaseClient, range: DateRange): P
 // 7.1 — "registos iniciados" has no data source: Supabase Auth doesn't
 // expose an abandoned-signup state this schema captures anywhere, so
 // completion rate isn't computable in V1. Documented gap, not a fabricated
-// number. acquisition_source is real but currently unpopulated at signup
-// (org_registered's trigger has no source to read) — every org shows
-// "Unknown" until the signup flow itself starts capturing it.
+// number.
+//
+// Prompt 124 C1 — acquisition_source is now captured at signup (a "how did
+// you hear" field + UTM params, src/app/signup/page.tsx) and the
+// orgs_registered_event trigger copies it through to analytics_events
+// (migration 0122, PROPOSE ONLY). Every org still shows "Unknown" until
+// that migration is applied — never backfilled retroactively for orgs
+// that signed up before it existed.
 export async function acquisitionBreakdown(admin: SupabaseClient, range: DateRange) {
   const orgs = await realOrgs(admin);
   const inWindow = orgs.filter((o) => inRange(o.created_at, range));
@@ -787,11 +792,12 @@ export async function actionLists(admin: SupabaseClient): Promise<Record<string,
   const orgs = await realOrgs(admin);
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
   const orgIds = orgs.map((o) => o.id);
-  const [{ data: relations }, { data: interactions }, { data: redemptions }, { data: grants }] = await Promise.all([
+  const [{ data: relations }, { data: interactions }, { data: redemptions }, { data: grants }, { data: views }] = await Promise.all([
     orgIds.length ? admin.from('entities').select('org_id, status').in('org_id', orgIds) : Promise.resolve({ data: [] }),
     orgIds.length ? admin.from('interactions').select('org_id, occurred_at').in('org_id', orgIds).order('occurred_at', { ascending: false }) : Promise.resolve({ data: [] }),
     admin.from('promo_redemptions').select('org_id, benefit_ends_at, promo_codes(discount_pct)'),
-    orgIds.length ? admin.from('access_grants').select('org_id, confirmed_at').in('org_id', orgIds) : Promise.resolve({ data: [] }),
+    orgIds.length ? admin.from('access_grants').select('id, org_id, confirmed_at').in('org_id', orgIds) : Promise.resolve({ data: [] }),
+    orgIds.length ? admin.from('document_views').select('grant_id').in('org_id', orgIds) : Promise.resolve({ data: [] }),
   ]);
   const lastActivity = new Map<string, string>();
   for (const i of interactions ?? []) if (!lastActivity.has(i.org_id)) lastActivity.set(i.org_id, i.occurred_at);
@@ -813,7 +819,13 @@ export async function actionLists(admin: SupabaseClient): Promise<Record<string,
   const incompleteWithPromo: ActionListRow[] = orgs.filter((o) => !o.profile_reached_80_at && activePromoOrgIds.has(o.id))
     .map((o) => ({ orgId: o.id, orgName: o.name, detail: 'Promo active, profile still below 80%' }));
 
-  const grantsUnopened: ActionListRow[] = (grants ?? []).filter((g) => !!g.confirmed_at)
+  // Prompt 124 C3 — this used to list EVERY confirmed grant unconditionally,
+  // never actually checking document_views (which has real rows all along
+  // — /api/portal/view writes one on every open; it just never populated
+  // grant_id, fixed alongside this). Now genuinely checks: a grant only
+  // shows here if no document_view row references its id.
+  const viewedGrantIds = new Set((views ?? []).map((v) => v.grant_id).filter(Boolean));
+  const grantsUnopened: ActionListRow[] = (grants ?? []).filter((g) => !!g.confirmed_at && !viewedGrantIds.has(g.id))
     .map((g) => orgs.find((o) => o.id === g.org_id)).filter((o): o is OrgRow => !!o)
     .map((o) => ({ orgId: o.id, orgName: o.name, detail: 'Access grant confirmed, no document_views on file' }));
 

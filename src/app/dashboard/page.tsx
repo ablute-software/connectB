@@ -5,6 +5,7 @@
 import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { OverviewPanel } from '@/components/dashboard/OverviewPanel';
+import { useTrackPageView } from '@/lib/use-track-page-view';
 
 // Compatibility redirect for the old ?tab=review-optimization bookmarks and
 // any stale links the tour/onboarding copy still carries — sends them to
@@ -21,6 +22,7 @@ function LegacyReviewTabRedirect() {
 }
 
 export default function DashboardPage() {
+  useTrackPageView('/dashboard');
   return (
     <div>
       <Suspense fallback={null}><LegacyReviewTabRedirect /></Suspense>

@@ -10,6 +10,7 @@ import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } f
 import { ACTION_TYPE_LABEL, ACTION_TYPES, recommendedActionType, relationshipSummary, suggestNextAction, type NextActionSuggestion } from '@/lib/relationship';
 import { evaluateProvenanceGate, type ComposerClaim } from '@/lib/company-canon-logic';
 import { AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
+import { useTrackPageView } from '@/lib/use-track-page-view';
 import type { ActionType, Channel, Classification, OverrideRule, PassReasonCategory } from '@/lib/types';
 
 const CHANNELS: { v: Channel; l: string }[] = [
@@ -21,6 +22,7 @@ const CLASSIFICATIONS: Classification[] = ['awaiting', 'interested', 'meeting_re
 const PASS_CATS: PassReasonCategory[] = ['valuation', 'check_size', 'geography', 'stage_too_early', 'thesis_mismatch', 'team', 'traction', 'other'];
 
 function LogForm() {
+  useTrackPageView('/log');
   const { db, logInteraction, addCompanyFact, addTask } = useStore();
   const router = useRouter();
   const sp = useSearchParams();

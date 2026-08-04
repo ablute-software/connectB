@@ -30,8 +30,16 @@ function MiniStat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+// Prompt 124 C4 — 6 of the spec's 7 categories (SherlockDeal_Metricas_
+// BackOffice_V1 §9.4): bulk_import/known_contact/investor_invite are new
+// (migration 0122, PROPOSE ONLY). The 7th, a "MatchDeal" value distinct
+// from match_deal's "match conquistado", isn't added — no code path
+// creates an entity from MatchDeal exposure without it also being a
+// confirmed mutual match, so it's unclear what it would mean; flagged for
+// Nuno, not guessed.
 const SOURCE_LABELS: Record<string, string> = {
-  catalog: 'Sherlock curated pipeline', manual: 'Adicionado manualmente', match_deal: 'MatchDeal match', unknown: 'Unknown',
+  catalog: 'Sherlock curated pipeline', manual: 'Adicionado manualmente', match_deal: 'Match conquistado (MatchDeal)',
+  bulk_import: 'Bulk import', known_contact: 'Contacto já conhecido', investor_invite: 'Convite do investidor', unknown: 'Unknown',
 };
 
 export function FundraisingOutcomesTab() {
@@ -96,20 +104,18 @@ export function FundraisingOutcomesTab() {
             </li>
           ))}
         </ul>
-        {/* MET-06 — confirmed via schema: entities.source is already
-            per RELATION (one entities row = one org's own relationship
-            with that investor, set independently at insert time), not a
-            fixed investor-level value — the ambiguity MET-06 asked about
-            doesn't apply here. The real gap is value coverage: the check
-            constraint only allows catalog/manual/match_deal, not the
-            spec's 7 categories, so bulk imports, invites, and "already
-            known contact" are all indistinguishable from a plain manual
-            add today. See the chat report for the proposed value-set
-            expansion — not implemented yet, pending sign-off. */}
+        {/* MET-06 — confirmed via schema: entities.source is already per
+            RELATION (one entities row = one org's own relationship with
+            that investor, set independently at insert time), not a fixed
+            investor-level value — the ambiguity MET-06 asked about doesn't
+            apply here. Prompt 124 C4 expanded the value set from 3 to 6 of
+            the spec's 7 categories (migration 0122, PROPOSE ONLY) and wired
+            bulk_import at every CSV/history import commit route. The 7th
+            ("MatchDeal" distinct from match_deal's "match conquistado")
+            is flagged, not guessed — see SOURCE_LABELS' own comment. */}
         <p className="mt-2 text-[11px] text-amber-700">
-          ⚠ Already per relation (each startup&apos;s own pipeline entry has its own source), not per investor — but only 3 of the
-          spec&apos;s 7 categories exist today, so most relations show as &quot;Manually added&quot; even when they arrived a more
-          specific way. See MET-06 for the proposed fix.
+          ⚠ Already per relation (each startup&apos;s own pipeline entry has its own source) — 6 of the spec&apos;s 7 categories
+          now exist (Prompt 124 C4), active once migration 0122 is applied; the 7th needs a product decision first.
         </p>
       </Card>
 

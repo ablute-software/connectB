@@ -8,6 +8,7 @@
 // here can touch another org's data.
 import { NextRequest, NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
+import { entitiesSourceExpandedAvailable } from '@/lib/entities-source-expanded-capability';
 import type { Channel, Direction, Entity, Person } from '@/lib/types';
 
 interface ApprovedEntity { name: string; website?: string; matchId?: string | null }
@@ -37,6 +38,13 @@ export async function POST(req: NextRequest) {
   const entities = (existingEntities ?? []) as Entity[];
   const people = (existingPeople ?? []) as Person[];
 
+  // Prompt 124 C4 — this route bulk-creates entities from an approved
+  // import batch; 'bulk_import' distinguishes them from a single manual
+  // "+ Add investor" once migration 0122's constraint expansion lands.
+  // Resolved once per request, not per entity.
+  const bulkImportSourceAvailable = await entitiesSourceExpandedAvailable();
+  const entitySource = bulkImportSourceAvailable ? 'bulk_import' : 'manual';
+
   // ---- 1. entities ----
   const entityIdByName = new Map<string, string>();
   const newSubmissions: Record<string, unknown>[] = [];
@@ -51,7 +59,7 @@ export async function POST(req: NextRequest) {
       org_id: orgId, name: e.name, type: 'vc', invests_in_geographies: [], website: e.website || null,
       website_verified: false, email_domain_verified: false, sectors: [],
       submission_channel_type: 'unknown', hard_filter_status: 'not_applicable', status: 'not_contacted',
-      source: 'manual',
+      source: entitySource,
     }).select().single();
     if (error) return NextResponse.json({ ok: false, error: `entity "${e.name}": ${error.message}` }, { status: 500 });
     entityIdByName.set(key, created.id);

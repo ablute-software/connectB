@@ -36,11 +36,27 @@ export async function POST(req: NextRequest) {
   if (isAbluteQa) return NextResponse.json({ ok: true });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data: doc, error: docErr } = await admin.from('documents').select('org_id').eq('id', documentId).single();
+  const { data: doc, error: docErr } = await admin.from('documents').select('org_id, folder_id').eq('id', documentId).single();
   if (docErr || !doc) return NextResponse.json({ ok: false, error: docErr?.message ?? 'document not found' }, { status: 404 });
 
+  // Prompt 124 C3 — grant_id was never populated here (confirmed: rows
+  // existed in document_views all along, just with grant_id always null),
+  // which is why the Organizations tab's "grants confirmed, no
+  // document_views on file" action list always fired regardless of real
+  // views — that query needs a grant_id to join against (see
+  // backoffice-metrics.ts's actionLists, fixed alongside this). Same
+  // grant-matching shape as access-granted/route.ts: not revoked, matched
+  // by this document directly or by its folder, document-level grant wins.
+  const orParts = [`document_id.eq.${documentId}`];
+  if (doc.folder_id) orParts.push(`folder_id.eq.${doc.folder_id}`);
+  const { data: candidateGrants } = await admin.from('access_grants').select('id, document_id, folder_id, grantee_email, invited_email')
+    .is('revoked_at', null).or(orParts.join(','));
+  const matching = (candidateGrants ?? []).filter((g) =>
+    (g.grantee_email as string | null)?.trim().toLowerCase() === email || (g.invited_email as string | null)?.trim().toLowerCase() === email);
+  const grantId = matching.find((g) => g.document_id === documentId)?.id ?? matching[0]?.id ?? null;
+
   const { error } = await admin.from('document_views').insert({
-    org_id: doc.org_id, document_id: documentId, viewer_email: email,
+    org_id: doc.org_id, document_id: documentId, grant_id: grantId, viewer_email: email,
   });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

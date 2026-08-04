@@ -24,6 +24,7 @@ import { APP_URL } from '@/lib/brand';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import { VisibilityToggle } from '@/components/VisibilityToggle';
+import { useTrackPageView } from '@/lib/use-track-page-view';
 
 type Invitation = { id: string; email: string; role: string; status: string; created_at: string; expires_at: string };
 type Member = { userId: string; email: string; role: OrgRole; isSelf: boolean };
@@ -348,6 +349,7 @@ function TeamPanel() {
 }
 
 function SettingsInner() {
+  useTrackPageView('/settings');
   const [tab, setTab] = useTabParam('company');
   const [importSubtab, setImportSubtab] = useTabParam('history', 'subtab');
   const [orgRole, setOrgRole] = useState<OrgRole | null>(null);

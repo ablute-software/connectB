@@ -55,8 +55,8 @@ export function GrowthRevenueTab() {
           <Card title="Acquisition">
             <p className="mb-2 text-xs text-gray-400">
               &quot;Registos iniciados&quot; and completion rate aren&apos;t measurable yet — Supabase Auth doesn&apos;t expose an
-              abandoned-signup state this schema captures. Acquisition source is real but currently unpopulated at signup (shows &quot;Unknown&quot;
-              until the signup flow starts capturing it).
+              abandoned-signup state this schema captures. Acquisition source is now captured at signup (Prompt 124 C1)
+              — shows &quot;Unknown&quot; until migration 0122 is applied, and only for signups from that point on.
             </p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <MiniStat label="Completed registrations" value={data.acquisition.completedRegistrations} />

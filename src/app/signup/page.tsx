@@ -28,6 +28,13 @@ const STAGES = [
   { value: 'later', label: 'Later' },
 ];
 
+// Prompt 124 C1 — acquisition_source distribution, per the metrics spec's
+// own V1 scope (§7.1: "Organic, Referral, Campaign, Partner, Direct,
+// Other"). A UTM param present at signup (utm_source/utm_campaign, kept
+// verbatim as free-text detail) always wins over the self-reported pick —
+// it's the more reliable signal when both exist.
+const ACQUISITION_SOURCES = ['', 'Organic', 'Referral', 'Campaign', 'Partner', 'Direct', 'Other'];
+
 function InvestorSignupPanel() {
   const [email, setEmail] = useState('');
   const [firmName, setFirmName] = useState('');
@@ -107,6 +114,13 @@ function InvestorSignupPanel() {
 }
 
 function FounderSignupForm() {
+  const sp = useSearchParams();
+  // Prompt 124 C1 — UTM wins over the self-reported pick when both exist;
+  // read once at mount, not on every render (URL doesn't change mid-form).
+  const [howHeard, setHowHeard] = useState('');
+  const utmSource = sp.get('utm_source');
+  const utmCampaign = sp.get('utm_campaign');
+
   // Startup (required: name; rest optional — a founder mid-signup may not have
   // every detail handy, and the app tolerates partial data everywhere else).
   const [org, setOrg] = useState('');
@@ -147,6 +161,10 @@ function FounderSignupForm() {
           website, sector, stage, round_target_eur: roundTarget ? Number(roundTarget) : undefined,
           country, one_liner: oneLiner,
           full_name: name, title, phone, linkedin_url: linkedin,
+          // Prompt 124 C1 — UTM wins when present; the self-reported pick is
+          // the fallback signal, never both merged into one ambiguous value.
+          acquisition_source: utmSource ? 'Campaign' : howHeard || undefined,
+          acquisition_source_detail: utmSource ? `utm_source=${utmSource}${utmCampaign ? `&utm_campaign=${utmCampaign}` : ''}` : undefined,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -188,7 +206,13 @@ function FounderSignupForm() {
         <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Country"
           className="mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         <input value={oneLiner} onChange={(e) => setOneLiner(e.target.value)} placeholder="One-liner — what you do in one sentence"
-          className="mb-4 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+          className="mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
+        {!utmSource && (
+          <select value={howHeard} onChange={(e) => setHowHeard(e.target.value)}
+            className="mb-4 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-600">
+            {ACQUISITION_SOURCES.map((s) => <option key={s} value={s}>{s || 'How did you hear about us? (optional)'}</option>)}
+          </select>
+        )}
 
         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">You</div>
         <div className="mb-2 grid grid-cols-2 gap-2">

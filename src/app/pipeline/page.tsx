@@ -14,6 +14,7 @@ import { CoachMark } from '@/components/onboarding/CoachMark';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
+import { useTrackPageView } from '@/lib/use-track-page-view';
 import type { Db, Entity, TaskItem } from '@/lib/types';
 
 const fitOrder = { high: 0, medium_high: 1, medium: 2, low: 3 };
@@ -207,6 +208,7 @@ function sortValue(db: Db, key: SortKey, e: Entity): unknown {
 }
 
 export default function PipelinePage() {
+  useTrackPageView('/pipeline');
   const { db, markEntityVerified } = useStore();
   const [q, setQ] = useState('');
   const [wave, setWave] = useState<string[]>([]);

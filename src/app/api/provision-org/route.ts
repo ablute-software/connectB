@@ -6,6 +6,7 @@ import { isAbluteTeamEmail } from '@/lib/supabase-server';
 import { ABLUTE_ORG_ID } from '@/lib/ablute-org';
 import { logAdminAction } from '@/lib/audit';
 import { PRESET_MATERIALS_FOLDERS, PRESET_DATA_ROOM_FOLDERS } from '@/lib/vault-preset-folders';
+import { acquisitionSourceAvailable } from '@/lib/acquisition-source-capability';
 
 // The platform owner. Signing up with either of these two specific,
 // hardcoded addresses links to the real ablute_ org (already seeded) as
@@ -28,6 +29,7 @@ export async function POST(req: NextRequest) {
     user_id, org_name,
     website, sector, stage, round_target_eur, country, one_liner,
     full_name, title, phone, linkedin_url,
+    acquisition_source, acquisition_source_detail,
   } = await req.json();
   if (!user_id || !org_name) return NextResponse.json({ ok: false, error: 'missing fields' }, { status: 400 });
   if (!full_name || !title) return NextResponse.json({ ok: false, error: 'full_name and title/cargo are required' }, { status: 400 });
@@ -85,12 +87,19 @@ export async function POST(req: NextRequest) {
     // If linking failed for any reason, fall through to creating a normal org.
   }
 
+  // Prompt 124 C1 — acquisition_source/detail only included in the insert
+  // once the column exists (capability-gated), so this insert never fails
+  // pre-migration with an unknown-column error.
+  const acquisitionFields = await acquisitionSourceAvailable()
+    ? { acquisition_source: acquisition_source || null, acquisition_source_detail: acquisition_source_detail || null }
+    : {};
   const { data: org, error: orgErr } = await admin
     .from('orgs')
     .insert({
       name: org_name, sender_email: email,
       website: website || null, sector: sector || null, stage: stage || null,
       round_target_eur: round_target_eur || null, country: country || null, one_liner: one_liner || null,
+      ...acquisitionFields,
     })
     .select('id')
     .single();

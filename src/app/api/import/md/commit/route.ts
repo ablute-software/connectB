@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
 import { matchPerson } from '@/lib/structured-import';
+import { entitiesSourceExpandedAvailable } from '@/lib/entities-source-expanded-capability';
 import type { MdImportPlan } from '@/lib/md-history-import';
 
 const TEMA_A_FIELDS = new Set(['website', 'email_domain']);
@@ -33,6 +34,12 @@ export async function POST(req: Request) {
   const { data: batch } = await sb.from('import_batches').select('org_id').eq('id', batchId).maybeSingle();
   if (!batch) return NextResponse.json({ ok: false, error: 'Batch not found (or not yours).' }, { status: 404 });
   const orgId = batch.org_id as string;
+
+  // Prompt 124 C4 — this route bulk-creates entities from a history/MD
+  // import; 'bulk_import' distinguishes them from a single manual add once
+  // migration 0122's constraint expansion lands.
+  const bulkImportSourceAvailable = await entitiesSourceExpandedAvailable();
+  const entitySource = bulkImportSourceAvailable ? 'bulk_import' : 'manual';
 
   const entityIdByKey = new Map<string, string>();
   const conflictRows: Record<string, unknown>[] = [];
@@ -64,7 +71,7 @@ export async function POST(req: Request) {
         website: (item.patch.website as string) ?? null, email_domain: (item.patch.email_domain as string) ?? null,
         reopen_trigger: (item.patch.reopen_trigger as string) ?? null,
         contact_lock_until: (item.patch.contact_lock_until as string) ?? null,
-        source: 'manual',
+        source: entitySource,
       }).select('id').single();
       if (error) return NextResponse.json({ ok: false, error: `entity "${item.key}": ${error.message}` }, { status: 500 });
       entityIdByKey.set(item.key, created.id);

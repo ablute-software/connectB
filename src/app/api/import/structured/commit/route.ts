@@ -7,6 +7,7 @@
 // re-matches everything as already-MATCHED/duplicate and changes nothing.
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
+import { entitiesSourceExpandedAvailable } from '@/lib/entities-source-expanded-capability';
 import type { ImportPlan } from '@/lib/structured-import';
 import type { Channel, Classification, Direction } from '@/lib/types';
 
@@ -24,6 +25,12 @@ export async function POST(req: Request) {
   const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
   if (!member) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
   const orgId = member.org_id;
+
+  // Prompt 124 C4 — this route bulk-creates entities from a CSV-shape pack
+  // import; 'bulk_import' distinguishes them from a single manual add once
+  // migration 0122's constraint expansion lands.
+  const bulkImportSourceAvailable = await entitiesSourceExpandedAvailable();
+  const entitySource = bulkImportSourceAvailable ? 'bulk_import' : 'manual';
 
   const entityIdByKey = new Map<string, string>();
   const conflictRows: Record<string, unknown>[] = [];
@@ -59,7 +66,7 @@ export async function POST(req: Request) {
         hard_filter: r.hard_filter ?? null, hard_filter_status: r.hard_filter_status ?? 'not_applicable',
         status: r.status ?? 'not_contacted',
         last_verified: r.last_verified ?? null, source_url: r.source_url ?? null,
-        source: 'manual',
+        source: entitySource,
       }).select('id').single();
       if (error) return NextResponse.json({ ok: false, error: `entity "${item.key}": ${error.message}` }, { status: 500 });
       entityIdByKey.set(item.key, created.id);
