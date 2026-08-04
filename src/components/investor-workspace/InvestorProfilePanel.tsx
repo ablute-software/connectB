@@ -320,6 +320,16 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange,
   const [data, setData] = useState<ProfileResponse | null>(null);
   const [draft, setDraft] = useState<Profile | null>(null);
   const [saving, setSaving] = useState(false);
+  // Prompt 121 §2.2 — save() used to ignore the server's response entirely:
+  // no ok:false check, no error surfaced, and the unconditional load() that
+  // followed silently re-fetched over whatever the user had just typed
+  // whenever the POST had actually failed (403/500/validation). saveError
+  // shows the failure; saveState drives a brief "Saved" confirmation,
+  // cleared on the next save attempt (not on every keystroke — that would
+  // require threading a "dirty" flag through every one of this form's ~20
+  // field setters for no real benefit).
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<'idle' | 'saved'>('idle');
 
   function load() {
     fetch('/api/portal/investor-profile').then((r) => r.json()).then((d: ProfileResponse) => {
@@ -334,12 +344,26 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange,
 
   async function save() {
     if (!draft) return;
-    setSaving(true);
+    setSaving(true); setSaveError(null); setSaveState('idle');
     try {
-      await fetch('/api/portal/investor-profile', {
+      const res = await fetch('/api/portal/investor-profile', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(draft),
       });
-      load();
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.ok === false) {
+        setSaveError(body.error ?? 'Something went wrong — please try again.');
+        return;
+      }
+      // Use what the server actually wrote, rather than firing a second GET
+      // that could itself race a concurrent edit.
+      if (body.profile) {
+        setDraft(body.profile as Profile);
+        setData((d) => (d ? { ...d, profile: body.profile, completeness: body.completeness ?? d.completeness } : d));
+        if (body.completeness != null) onCompletenessChange?.(body.completeness);
+      }
+      setSaveState('saved');
+    } catch {
+      setSaveError('Network error — please try again.');
     } finally { setSaving(false); }
   }
 
@@ -509,9 +533,13 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange,
           <textarea value={draft.specific_criteria ?? ''} onChange={(e) => setDraft({ ...draft, specific_criteria: e.target.value })} rows={3} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
         </label>
 
-        <button onClick={save} disabled={saving} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-          {saving ? 'Saving…' : 'Save'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={save} disabled={saving} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          {saveState === 'saved' && !saveError && <span className="text-xs font-medium text-green-700">✓ Saved</span>}
+          {saveError && <span className="text-xs font-medium text-[#B00000]">Couldn't save — {saveError}</span>}
+        </div>
       </div>
     </div>
   );

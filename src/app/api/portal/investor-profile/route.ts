@@ -111,7 +111,13 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const member = await resolveActiveInvestorMember(admin, user.id);
+  // Prompt 121 §2.2 — GET has had an autoLinkQaSession fallback since Fase
+  // A; POST never did. A QA session whose membership isn't persisted yet
+  // could load the form (GET auto-links) but got a silent 403 on Save if
+  // anything reset that link between the two requests — parity with GET
+  // closes that gap.
+  let member = await resolveActiveInvestorMember(admin, user.id);
+  if (!member) member = await autoLinkQaSession(sb, admin, user.id);
   if (!member) return NextResponse.json({ ok: false, error: 'No linked investor entity yet.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
@@ -119,8 +125,12 @@ export async function POST(req: Request) {
   for (const k of EDITABLE) if (k in body) patch[k] = body[k] === '' ? null : body[k];
   if (Object.keys(patch).length === 0) return NextResponse.json({ ok: false, error: 'Nothing to update.' }, { status: 400 });
 
-  const { error } = await admin.from('matchdeal_profiles').update(patch)
-    .eq('membership_id', member.id).eq('kind', 'investor');
+  // Prompt 121 §2.2 — return the row actually written so the client can use
+  // it directly instead of firing a second, racy GET (see the client's
+  // save(), which used to call load() blindly and silently ignore whether
+  // this POST even succeeded).
+  const { data: updated, error } = await admin.from('matchdeal_profiles').update(patch)
+    .eq('membership_id', member.id).eq('kind', 'investor').select('*').single();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, profile: updated, completeness: completeness(updated ?? {}) });
 }
