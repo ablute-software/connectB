@@ -19,6 +19,7 @@ import { companyProfileAvailable } from '@/lib/company-profile-capability';
 import { roundValuationBasisAvailable } from '@/lib/round-valuation-basis-capability';
 import { aiReviewHistoryFieldsAvailable } from '@/lib/ai-review-history-capability';
 import { aiReviewIsTestMarkerAvailable } from '@/lib/ai-review-test-marker-capability';
+import { accessRequestsAvailable, guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, WATSON_DRAFT_QUOTA } from '@/lib/plans';
 import { stripeConfigured } from '@/lib/stripe-env';
@@ -42,6 +43,8 @@ export async function GET() {
     roundValuationBasis: await roundValuationBasisAvailable(),
     aiReviewHistoryFields: await aiReviewHistoryFieldsAvailable(),
     aiReviewIsTestMarker: await aiReviewIsTestMarkerAvailable(),
+    accessRequests: await accessRequestsAvailable(),
+    guestGrantToken: await guestGrantTokenAvailable(),
   };
   if (!authEnabled) return NextResponse.json({ authEnabled: false, user: null, role: 'none', capabilities });
   const sb = await serverClient();

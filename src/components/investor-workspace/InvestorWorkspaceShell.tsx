@@ -10,6 +10,7 @@ import { PipelinePanel } from './PipelinePanel';
 import { InvestorAgendaPanel } from './InvestorAgendaPanel';
 import { InvestorTodayPanel } from './InvestorTodayPanel';
 import { ArchivePanel } from './ArchivePanel';
+import { AccessGrantedPanel } from './AccessGrantedPanel';
 import { MatchDealPairingModal } from '@/components/matchdeal/MatchDealPairingModal';
 import { InvestorPlansPanel } from './InvestorPlansPanel';
 import { browserClient } from '@/lib/supabase';
@@ -18,7 +19,7 @@ import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 
-type Tab = 'pipeline' | 'about' | 'agenda' | 'today' | 'archive' | 'plans';
+type Tab = 'pipeline' | 'about' | 'access' | 'agenda' | 'today' | 'archive' | 'plans';
 
 const COMPLETENESS_GATE = 50;
 
@@ -28,9 +29,8 @@ const COMPLETENESS_GATE = 50;
 // guide_documents/guide_people_access split) rather than inventing a tour
 // that spans multiple tabs at once — anchors only resolve against the
 // current DOM, so a guide can't reach across tabs that aren't mounted.
-// guide_investor_access ships with the Access granted page itself (§2.5).
 const TOUR_KEY_BY_TAB: Partial<Record<Tab, string>> = {
-  pipeline: 'guide_investor_pipeline', about: 'guide_investor_about', plans: 'guide_investor_plans',
+  pipeline: 'guide_investor_pipeline', about: 'guide_investor_about', access: 'guide_investor_access', plans: 'guide_investor_plans',
 };
 
 export function InvestorWorkspaceShell({
@@ -83,6 +83,9 @@ export function InvestorWorkspaceShell({
   const NAV: { key: Tab; label: string; icon: string }[] = [
     { key: 'pipeline', label: 'Pipeline', icon: '▤' },
     { key: 'about', label: aboutLabel, icon: '⋯' },
+    // Prompt 121 §2.5 — new entry; access to documents used to live only
+    // inside the Pipeline tab's startup card, with no page of its own.
+    { key: 'access', label: 'Access granted', icon: '⚿' },
     { key: 'agenda', label: 'Agenda', icon: '◔' },
     { key: 'today', label: 'Today', icon: '☀' },
     { key: 'archive', label: 'Archive', icon: '▣' },
@@ -203,6 +206,7 @@ export function InvestorWorkspaceShell({
             )
           )}
           {tab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} onEntityNameChange={setInvestorFirmName} onIdentityStatusChange={setIdentityStatus} />}
+          {tab === 'access' && <AccessGrantedPanel />}
           {tab === 'agenda' && <InvestorAgendaPanel />}
           {tab === 'today' && <InvestorTodayPanel />}
           {tab === 'archive' && <ArchivePanel />}

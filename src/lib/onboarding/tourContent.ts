@@ -249,6 +249,20 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
       body: 'Ticket range, sectors, stages, exclusions — everything here is what decides who shows up in your Pipeline.',
     },
   ],
+  // Prompt 121 §2.5 — ships alongside the Access granted page itself, the
+  // 4th and last point of the first-entry tour named in §2.1.
+  guide_investor_access: [
+    {
+      selector: 'access-granted-tabs',
+      title: 'Three states, one place',
+      body: 'Granted is what you can open right now. Requested is what you\'ve asked for and are waiting on. Expired is access that ran out — Request again picks the conversation back up.',
+    },
+    {
+      selector: 'access-granted-list',
+      title: 'Grouped by startup, then by folder',
+      body: 'Expand a startup to see exactly which folders and documents you can open — the same structure the founder organized their data room in.',
+    },
+  ],
   guide_investor_plans: [
     {
       selector: 'plans-current',
