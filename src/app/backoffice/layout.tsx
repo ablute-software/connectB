@@ -20,7 +20,6 @@ const NAV = [
   { href: '/backoffice/support', label: 'Customer Support' },
   { href: '/backoffice/promo-codes', label: 'Promo Codes & Offers' },
   { href: '/backoffice/plan-requests', label: 'Plan Requests' },
-  { href: '/backoffice/metrics', label: 'Metrics' },
 ];
 
 export default function BackofficeLayout({ children }: { children: React.ReactNode }) {

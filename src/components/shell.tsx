@@ -147,6 +147,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   <span className="w-4 text-center text-gray-400">◉</span> Back-office →
                 </Link>
               </Tooltip>
+              {/* Prompt 122 Block A (F0.5) — Metrics promoted out of the
+                  Back-office console into this sidebar, immediately below
+                  the Back-office link, same platform-admin gate. */}
+              <Link href="/metrics"
+                className={`mt-0.5 flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] transition ${
+                  path?.startsWith('/metrics') ? 'bg-[#0E7490] font-medium text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}>
+                <span className={`w-4 text-center ${path?.startsWith('/metrics') ? '' : 'text-gray-400'}`}>◆</span> Metrics
+              </Link>
             </>
           )}
         </nav>

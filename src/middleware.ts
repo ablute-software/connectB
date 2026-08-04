@@ -66,7 +66,14 @@ export async function middleware(req: NextRequest) {
   // matter which page or API they try. Every /api/backoffice route also
   // re-checks independently (requirePlatformAdmin()) — defense in depth,
   // never a single layer for this boundary.
-  if (pathname === '/backoffice' || pathname.startsWith('/backoffice/') || pathname.startsWith('/api/backoffice')) {
+  //
+  // Prompt 122 Block A — /metrics joined this gate when it was promoted out
+  // of /backoffice into the founder Shell's own sidebar: it still calls
+  // /api/backoffice/metrics/* underneath (already gated), but the PAGE
+  // itself moved outside the /backoffice prefix, so without this it would
+  // be reachable (just showing failed API calls) by any signed-in founder.
+  if (pathname === '/backoffice' || pathname.startsWith('/backoffice/') || pathname.startsWith('/api/backoffice')
+    || pathname === '/metrics' || pathname.startsWith('/metrics/')) {
     const admin = user ? (await supabase.from('platform_admins').select('user_id').eq('user_id', user.id).maybeSingle()).data : null;
     if (!admin) {
       if (pathname.startsWith('/api/')) return NextResponse.json({ ok: false, error: 'Platform admin only.' }, { status: 403 });
