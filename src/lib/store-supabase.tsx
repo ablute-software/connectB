@@ -907,6 +907,16 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (o) {
         persist(sb.from('access_grants').insert({ ...grant, org_id: o }), 'addGrant:grant');
         if (run) persist(sb.from('automation_runs').insert({ ...run, org_id: o }), 'addGrant:run');
+        // Prompt 122 Block B (F1) §2.3 — ecosystem_facts observation only
+        // (grant_created); zero effect on grant logic either way. Best-
+        // effort, fire-and-forget, same pattern as triggerReawakening above.
+        // ecosystem_facts only accepts service-role writes (see migration
+        // 0116), hence the server hop this direct client insert otherwise
+        // wouldn't need.
+        fetch('/api/ecosystem/grant-created', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ orgId: o, grantId: grant.id }),
+        }).catch(() => { /* never blocks the grant */ });
       }
     },
 

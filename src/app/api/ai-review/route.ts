@@ -22,6 +22,7 @@ import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, planName } from '@/lib/plans';
 import { aiReviewHistoryFieldsAvailable } from '@/lib/ai-review-history-capability';
 import { coerceReport, type StructuredReport } from '@/lib/ai-review-shape';
+import { recordAiReviewFacts } from '@/lib/ecosystem-facts';
 
 type ReviewKind =
   | 'message_review' | 'deck_review' | 'one_pager_review' | 'market_data'
@@ -288,12 +289,18 @@ export async function POST(req: Request) {
                 input_meta: { kindA, kindB },
               }
             : {};
-          await admin.from('ai_reviews').insert({
+          const { data: inserted } = await admin.from('ai_reviews').insert({
             org_id: member.org_id, kind: 'cross_document_review', status: 'completed',
             result: { contradictions },
             model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
             ...historyFields,
-          });
+          }).select('id').single();
+          // Prompt 122 Block B (F1) §2.1 — contradictions carry the same
+          // category+severity shape as weaknesses/risks; no overall score
+          // exists for this kind, so only risk_prevalence facts apply.
+          if (inserted) {
+            await recordAiReviewFacts(admin, { orgId: member.org_id, reviewId: inserted.id, risks: contradictions });
+          }
         } catch (e) {
           console.error('ai_reviews insert failed:', e);
         }
@@ -438,13 +445,22 @@ export async function POST(req: Request) {
         const historyFields = (await aiReviewHistoryFieldsAvailable())
           ? { title: KIND_TITLE[kind], input_text: draft ?? null, created_by: user?.id ?? null, source: 'paste' }
           : {};
-        await admin.from('ai_reviews').insert({
+        const { data: inserted } = await admin.from('ai_reviews').insert({
           org_id: member.org_id, kind, status: 'completed',
           result: structured ? report : { review },
           model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
           interaction_draft: kind === 'message_review' ? draft ?? null : null,
           ...historyFields,
-        });
+        }).select('id').single();
+        // Prompt 122 Block B (F1) §2.1 — only the structured-report kinds
+        // carry a score + weaknesses/risks; message_review/market_data
+        // return free text only (`review`), nothing analyzable to capture.
+        if (inserted && structured && report) {
+          await recordAiReviewFacts(admin, {
+            orgId: member.org_id, reviewId: inserted.id, score: report.score,
+            weaknesses: report.weaknesses, risks: report.risks,
+          });
+        }
       } catch (e) {
         console.error('ai_reviews insert failed:', e);
       }

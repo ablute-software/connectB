@@ -32,6 +32,7 @@ import { createArchiveEntry } from '@/lib/investor-archive';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { logEvent } from '@/lib/analytics-events';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
+import { recordInvestorDecisionFact } from '@/lib/ecosystem-facts';
 
 // AP-08 — free text, not the old fixed category list. Max 1000 chars,
 // not blank/whitespace-only.
@@ -173,6 +174,10 @@ export async function POST(req: Request) {
   await logEvent(admin, {
     organizationId: orgId, organizationType: 'startup', eventType: `matchdeal_pipeline_${action}_confirmed`, sourceOfAction: 'manual',
   });
+  // Prompt 122 Block B (F1) §2.2 — best-effort observation of a decision
+  // that already happened via the RPC above; never influences the decision
+  // itself, zero touches to decide_investor_relationship.
+  await recordInvestorDecisionFact(admin, { orgId, decision: action === 'pass' ? 'pass' : 'interest' });
   if (action === 'pass') {
     await logEvent(admin, {
       organizationId: orgId, organizationType: 'startup', eventType: 'matchdeal_pipeline_access_revoked',
