@@ -25,7 +25,7 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
 import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
-import { InvestorWorkspaceShell } from '@/components/investor-workspace/InvestorWorkspaceShell';
+import { InvestorWorkspaceShell, type Tab } from '@/components/investor-workspace/InvestorWorkspaceShell';
 import { InteractionLogDrawer } from '@/components/investor-workspace/InteractionLogDrawer';
 import { RoundUpdatesFeed } from '@/components/investor-workspace/RoundUpdatesFeed';
 import { QAPanel } from '@/components/investor-workspace/QAPanel';
@@ -290,6 +290,19 @@ export default function PortalPage() {
   const [linkFailed] = useState(() =>
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('linkFailed') === '1');
 
+  // P134-B — the dossier's "Equity calculator" header shortcut deep-links to
+  // /portal?tab=evaluation&orgId=…; read once via the same lazy-initializer
+  // + plain URLSearchParams technique linkFailed already uses above, rather
+  // than next/navigation's useSearchParams (which would force this
+  // statically-rendered page behind a Suspense boundary for one query read).
+  const [initialTab] = useState<Tab>(() => {
+    if (typeof window === 'undefined') return 'pipeline';
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return (t === 'evaluation' ? 'evaluation' : 'pipeline') as Tab;
+  });
+  const [initialEvaluationOrgId] = useState<string | null>(() =>
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('orgId') : null);
+
   useEffect(() => {
     if (!authEnabled) return;
     browserClient().auth.getUser().then(({ data }) => {
@@ -474,6 +487,7 @@ export default function PortalPage() {
       <InvestorWorkspaceShell
         entityName={real?.snapshot?.name ?? orgName ?? null} startupCard={startupCard} sessionLabel={sessionLabel}
         openStartup={openOrgId != null} onOpenStartup={openStartupOrg} onBackToPipeline={backToPipeline}
+        initialTab={initialTab} initialEvaluationOrgId={initialEvaluationOrgId}
       />
     );
   }

@@ -25,7 +25,7 @@ import { EmptyState } from '@/components/workspace-shell/EmptyState';
 import type { WorkspaceNavItem } from '@/components/workspace-shell/types';
 import { BRAND_NAME } from '@/lib/brand';
 
-type Tab = 'pipeline' | 'about' | 'access' | 'agenda' | 'today' | 'archive' | 'plans' | 'evaluation';
+export type Tab = 'pipeline' | 'about' | 'access' | 'agenda' | 'today' | 'archive' | 'plans' | 'evaluation';
 
 const COMPLETENESS_GATE = 50;
 
@@ -41,6 +41,7 @@ const TOUR_KEY_BY_TAB: Partial<Record<Tab, string>> = {
 
 export function InvestorWorkspaceShell({
   entityName, startupCard, sessionLabel, openStartup, onOpenStartup, onBackToPipeline,
+  initialTab, initialEvaluationOrgId,
 }: {
   // The startup shown in the Pipeline tab (ablute_ today) — NOT the
   // investor's own firm. Kept as a separate concept from the About tab's
@@ -62,12 +63,22 @@ export function InvestorWorkspaceShell({
   openStartup: boolean;
   onOpenStartup: (orgId: string) => void;
   onBackToPipeline: () => void;
+  // P134-B — the dossier's "Equity calculator" header shortcut deep-links
+  // here via /portal?tab=evaluation&orgId=…; PortalPage reads those query
+  // params once and passes them down as the initial values below (lazy
+  // useState initializers, so this only ever affects the FIRST render —
+  // switching tabs manually afterward behaves exactly as before).
+  initialTab?: Tab;
+  initialEvaluationOrgId?: string | null;
 }) {
-  const [tab, setTab] = useState<Tab>('pipeline');
+  const [tab, setTab] = useState<Tab>(() => initialTab ?? 'pipeline');
   // P131-B — set when a Pipeline card's "Ownership calculator" shortcut is
   // clicked, so Evaluation tools opens with that startup already selected
   // instead of the investor having to find it again in a dropdown.
-  const [evaluationTargetOrgId, setEvaluationTargetOrgId] = useState<string | null>(null);
+  // P134-A — the Pipeline row no longer has its own calculator shortcut
+  // (removed per the redesign); this is now seeded only from the dossier
+  // header's deep link (initialEvaluationOrgId, via /portal?tab=evaluation&orgId=…).
+  const [evaluationTargetOrgId] = useState<string | null>(() => initialEvaluationOrgId ?? null);
   const [pct, setPct] = useState<number | null>(null);
   const [investorFirmName, setInvestorFirmName] = useState<string | null>(null);
   // Identity verification Fase B (prompt 64), Bloco 1 — the badge lives in
@@ -199,9 +210,7 @@ export function InvestorWorkspaceShell({
                   {startupCard}
                 </div>
               ) : (
-                <PipelinePanel onOpenStartup={onOpenStartup}
-                  onOpenEvaluationTool={(orgId) => { setEvaluationTargetOrgId(orgId); setTab('evaluation'); }}
-                  onGoToArchive={() => setTab('archive')} />
+                <PipelinePanel onOpenStartup={onOpenStartup} onGoToArchive={() => setTab('archive')} />
               )
             ) : (
               <EmptyState

@@ -4,13 +4,18 @@
 // only the current wave is actionable, the rest stay locked until it's
 // fully treated (every card passed or expressed interest on).
 import { Fragment, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { ComparisonView } from './ComparisonView';
 import { InteractionLogDrawer } from './InteractionLogDrawer';
 
 const MAX_COMPARE = 3;
 
 interface Card {
-  orgId: string; name: string; oneLiner: string | null; sectors: string[]; stage: string | null;
+  orgId: string; name: string; oneLiner: string | null;
+  // P134-A — the fuller MatchDeal description, shown only once a row is
+  // expanded; the collapsed row keeps the shorter one_liner.
+  description: string | null;
+  sectors: string[]; stage: string | null;
   hqCity: string | null; country: string | null; roundTargetEur: number | null; roundValuationEur: number | null;
   roundValuationBasis?: 'pre_money' | 'post_money' | null; roundInstruments: string[];
   matchScore: number; matchReasons: string[]; status: 'open' | 'passed' | 'interested'; passReason: string | null;
@@ -52,15 +57,21 @@ function fmtDecidedAt(iso: string | null | undefined, decidedByMe: boolean | nul
   return ` on ${date}${who}`;
 }
 
-export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool, onGoToArchive }: {
+export function PipelinePanel({ onOpenStartup, onGoToArchive }: {
   onOpenStartup: (orgId: string) => void;
-  // P131-B — the per-card calculator button now opens the dedicated
-  // Evaluation tools tab with this startup preselected, instead of
-  // expanding inline on the card.
-  onOpenEvaluationTool: (orgId: string) => void;
   // Item 8 — the archive success toast's "Go to Archive" link.
   onGoToArchive: () => void;
 }) {
+  // P134-A — which rows are expanded (chevron), independent of data —
+  // toggling never fetches, per the mini-prompt's own acceptance criterion.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  function toggleExpanded(orgId: string) {
+    setExpandedIds((ids) => {
+      const next = new Set(ids);
+      if (next.has(orgId)) next.delete(orgId); else next.add(orgId);
+      return next;
+    });
+  }
   const [data, setData] = useState<PipelineResponse | null>(null);
   // AP-07/08 — confirming holds the card + action awaiting Cancel/Confirm;
   // reasonDraft is the free-text Pass reason (AP-08: required, not a fixed
@@ -325,158 +336,196 @@ export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool, onGoToArchi
                 wave's unlock (see the API route), just not duplicated in
                 both places. AP-13's "Passed" filter is the one exception
                 that brings them back into view. */}
-            {wave.items.filter(passesFilter).map((c) => (
-              <div key={c.orgId} className="rounded-lg border border-gray-200 bg-white p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-2">
-                    <input type="checkbox" checked={compareIds.includes(c.orgId)} onChange={() => toggleCompare(c.orgId)}
-                      disabled={!compareIds.includes(c.orgId) && compareIds.length >= MAX_COMPARE}
-                      className="mt-1" title="Select to compare" />
-                    <div>
-                      <div className="text-sm font-semibold text-gray-900">{c.name}</div>
-                      {c.oneLiner && <div className="text-xs text-gray-500">{c.oneLiner}</div>}
-                      <div className="mt-1 text-xs text-gray-400">
+            {wave.items.filter(passesFilter).map((c) => {
+              const expanded = expandedIds.has(c.orgId);
+              return (
+              <div key={c.orgId} className="rounded-lg border border-gray-200 bg-white">
+                {/* P134-A — collapsed row: ~52-60px, triage information only.
+                    Secondary actions and the fuller description only ever
+                    appear once expanded (below) — the calculator has no
+                    presence here at all anymore (it lives in Evaluation
+                    tools + the dossier header, per the mini-prompt). */}
+                <div className="flex items-center gap-2 px-3 py-2.5">
+                  <input type="checkbox" checked={compareIds.includes(c.orgId)} onChange={() => toggleCompare(c.orgId)}
+                    disabled={!compareIds.includes(c.orgId) && compareIds.length >= MAX_COMPARE}
+                    title="Select to compare" />
+                  <button onClick={() => toggleExpanded(c.orgId)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-sm font-semibold text-gray-900">
+                        <Link href={`/portal/startup/${c.orgId}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
+                          {c.name}
+                        </Link>
+                      </span>
+                      {c.oneLiner && <span className="ml-2 truncate text-xs text-gray-500">{c.oneLiner}</span>}
+                    </div>
+                    <div className="hidden shrink-0 items-center gap-1.5 sm:flex">
+                      {c.status === 'passed' ? (
+                        <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500">Passed</span>
+                      ) : c.status === 'interested' ? (
+                        <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]">
+                          Interested{fmtDecidedAt(c.decidedAt, c.decidedByMe)}
+                        </span>
+                      ) : c.viaGrant || c.viaDecision ? (
+                        <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]"
+                          title="A real relationship already exists here — invited to the data room and/or already decided, never wave-gated.">
+                          Invited
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500" title={`Wave ${wave.index + 1}`}>
+                          W{wave.index + 1}
+                        </span>
+                      )}
+                      <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-semibold text-[#0E7490]" title={c.matchReasons.join(', ')}>
+                        {c.matchScore}%
+                      </span>
+                    </div>
+                    <div className="hidden shrink-0 whitespace-nowrap text-xs text-gray-400 md:block">
+                      {c.stage && (STAGE_LABELS[c.stage] ?? c.stage)}
+                      {fmtEur(c.roundTargetEur) && ` · ${fmtEur(c.roundTargetEur)}`}
+                      {c.sectors.length > 0 && ` · ${c.sectors[0]}${c.sectors.length > 1 ? ` +${c.sectors.length - 1}` : ''}`}
+                    </div>
+                    {c.isArchived && <span className="hidden shrink-0 text-[11px] text-gray-400 lg:inline">📦</span>}
+                    <span className="shrink-0 text-xs text-gray-400">{expanded ? '︿' : '⌄'}</span>
+                  </button>
+                </div>
+
+                {expanded && (
+                  <div className="border-t border-gray-100 px-3 py-3">
+                    {/* Row content that only ever shows on the wave headers
+                        above stays hidden on mobile in the collapsed row —
+                        surface it here too so it's never lost, just moved. */}
+                    <div className="mb-2 flex flex-wrap items-center gap-1.5 sm:hidden">
+                      {c.status === 'passed' ? (
+                        <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500">Passed</span>
+                      ) : c.status === 'interested' ? (
+                        <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]">Interested{fmtDecidedAt(c.decidedAt, c.decidedByMe)}</span>
+                      ) : c.viaGrant || c.viaDecision ? (
+                        <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]">Invited</span>
+                      ) : (
+                        <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500">W{wave.index + 1}</span>
+                      )}
+                      <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-semibold text-[#0E7490]">{c.matchScore}% match</span>
+                      <span className="text-[11px] text-gray-400">
                         {c.stage && (STAGE_LABELS[c.stage] ?? c.stage)}
+                        {fmtEur(c.roundTargetEur) && ` · ${fmtEur(c.roundTargetEur)}`}
                         {c.sectors.length > 0 && ` · ${c.sectors.join(', ')}`}
-                        {fmtEur(c.roundTargetEur) && ` · raising ${fmtEur(c.roundTargetEur)}`}
+                      </span>
+                    </div>
+
+                    {c.description && <p className="text-xs text-gray-600">{c.description}</p>}
+                    {c.trackingCount > 0 && (
+                      <p className="mt-1.5 text-xs text-gray-400">
+                        {c.trackingCount} other investor{c.trackingCount === 1 ? ' is' : 's are'} tracking {c.stage ? (STAGE_LABELS[c.stage] ?? c.stage) : 'this stage'} rounds
+                      </p>
+                    )}
+
+                    {/* Item 8 — archiving used to be invisible on the card
+                        that triggered it: same buttons, same look, no sign
+                        anything happened. isArchived is real, reload-proof
+                        server state (Archive tab's own source of truth) —
+                        kept separate from interested/passed/open above,
+                        since archiving tidies up, it never erases the
+                        underlying decision (AP-06). */}
+                    {c.isArchived && <p className="mt-2 text-[11px] font-medium text-gray-400">📦 Archived</p>}
+                    {archivedToastOrgId === c.orgId && (
+                      <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-2.5 py-1.5 text-xs text-gray-600">
+                        <span>Archived — you&apos;ll find it in the Archive tab.</span>
+                        <button onClick={onGoToArchive} className="font-medium text-[#0E7490] hover:underline">Go to Archive →</button>
                       </div>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {/* Bloco 3 — a per-card chip, not just the section header
-                        above (which only renders when there's more than one
-                        wave, i.e. never yet in practice with a single
-                        startup in the network) — Today already says "1 new
-                        match in your Wave 1", this is that same number made
-                        visible on the card itself. */}
-                    {c.viaGrant || c.viaDecision ? (
-                      <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]"
-                        title="A real relationship already exists here — invited to the data room and/or already decided, never wave-gated.">
-                        Invited
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500" title={`Wave ${wave.index + 1}`}>
-                        W{wave.index + 1}
-                      </span>
                     )}
-                    <div className="rounded-full bg-[#E8F4F8] px-2.5 py-1 text-xs font-semibold text-[#0E7490]">
-                      {c.matchScore}% match{c.matchReasons.length > 0 && ` — ${c.matchReasons.join(', ')}`}
-                    </div>
-                  </div>
-                </div>
 
-                {c.trackingCount > 0 && (
-                  <p className="mt-1.5 text-xs text-gray-400">
-                    {c.trackingCount} other investor{c.trackingCount === 1 ? ' is' : 's are'} tracking {c.stage ? (STAGE_LABELS[c.stage] ?? c.stage) : 'this stage'} rounds
-                  </p>
+                    {c.status === 'passed' ? (
+                      <p className="mt-2 text-xs text-gray-400">
+                        Passed{fmtDecidedAt(c.decidedAt, c.decidedByMe)}{c.passReason && ` — ${c.passReason}`}
+                      </p>
+                    ) : c.status === 'interested' ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {c.hasDataRoomAccess && (
+                          <button onClick={() => onOpenStartup(c.orgId)} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+                            Open data room
+                          </button>
+                        )}
+                        <button onClick={() => setInteractionLogOrgId(c.orgId)} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+                          🗂 Interaction log
+                        </button>
+                        <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId} className="text-xs text-gray-400 hover:underline disabled:opacity-40">
+                          Archive
+                        </button>
+                      </div>
+                    ) : wave.unlocked && confirming?.orgId === c.orgId ? (
+                      // AP-07/08 — a confirmation step before either decision
+                      // is recorded; Pass requires a free-text reason (max
+                      // 1000 chars). Cancel only clears local state.
+                      <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        {confirming.action === 'interest' ? (
+                          <p className="text-xs text-gray-700">Confirm you&apos;re interested in {c.name}? The founder will be notified.</p>
+                        ) : (
+                          <>
+                            <label className="mb-1 block text-xs font-medium text-gray-700">Reason for passing (required)</label>
+                            <textarea value={reasonDraft} onChange={(e) => setReasonDraft(e.target.value.slice(0, REASON_MAX_LEN))}
+                              rows={3} placeholder="Why isn't this a fit right now?"
+                              className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs" />
+                            <p className="mt-0.5 text-[10px] text-gray-400">{reasonDraft.length}/{REASON_MAX_LEN} · This decision is final — the data room will be revoked and it can&apos;t be undone.</p>
+                          </>
+                        )}
+                        <div className="mt-2 flex items-center gap-2">
+                          <button onClick={cancelConfirm} disabled={busyOrgId === c.orgId}
+                            className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-white disabled:opacity-40">
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => act(c.orgId, confirming.action, confirming.action === 'pass' ? reasonDraft : undefined)}
+                            disabled={busyOrgId === c.orgId || (confirming.action === 'pass' && reasonDraft.trim().length === 0)}
+                            className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                            {busyOrgId === c.orgId ? 'Saving…' : confirming.action === 'interest' ? 'Confirm interest' : 'Confirm pass'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : wave.unlocked ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {/* P120 Block A — a card without a grant is eligible
+                            by published profile alone; the data room stays
+                            gated on the founder actually consenting
+                            (access_grants). That trust boundary doesn't
+                            move — only discovery does. */}
+                        {c.hasDataRoomAccess ? (
+                          <button onClick={() => onOpenStartup(c.orgId)} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+                            Open data room
+                          </button>
+                        ) : (
+                          <span className="rounded-lg border border-dashed border-gray-200 px-2.5 py-1.5 text-xs text-gray-400">
+                            🔒 Access to documents is granted by the founder — express interest to start the conversation.
+                          </span>
+                        )}
+                        <button onClick={() => startConfirm(c.orgId, 'interest')} disabled={busyOrgId === c.orgId}
+                          className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                          Express interest
+                        </button>
+                        {remindedOrgId === c.orgId ? (
+                          <span className="text-xs text-gray-400">Reminder set for 2 weeks</span>
+                        ) : (
+                          <button onClick={() => remindIn2Weeks(c.orgId)} className="text-xs text-gray-400 hover:underline">
+                            Remind me in 2 weeks
+                          </button>
+                        )}
+                        <button onClick={() => startConfirm(c.orgId, 'pass')} className="text-xs text-gray-400 hover:underline">Pass</button>
+                        <button onClick={() => setInteractionLogOrgId(c.orgId)} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+                          🗂 Interaction log
+                        </button>
+                        <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId} className="text-xs text-gray-400 hover:underline disabled:opacity-40">
+                          Archive
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setInteractionLogOrgId(c.orgId)} className="mt-2 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+                        🗂 Interaction log
+                      </button>
+                    )}
+                  </div>
                 )}
-
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button onClick={() => onOpenEvaluationTool(c.orgId)}
-                    className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
-                    🧮 Ownership calculator
-                  </button>
-                  {/* P133 (item 10) — the investor-side mirror of the
-                      founder's own CRM interaction thread; opens a drawer
-                      scoped to this startup, never visible to the founder. */}
-                  <button onClick={() => setInteractionLogOrgId(c.orgId)}
-                    className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
-                    🗂 Interaction log
-                  </button>
-                </div>
-
-                {/* Item 8 — archiving used to be invisible on the card that
-                    triggered it: same buttons, same look, no sign anything
-                    happened (the entry landed in the Archive tab fine, the
-                    Nuno just had no way to know that from here). isArchived
-                    is real, reload-proof server state (Archive tab's own
-                    source of truth) — kept separate from the interested/
-                    passed/open status above, since archiving tidies up,
-                    it never erases the underlying decision (AP-06). */}
-                {c.isArchived && (
-                  <p className="mt-2 text-[11px] font-medium text-gray-400">📦 Archived</p>
-                )}
-                {archivedToastOrgId === c.orgId && (
-                  <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-2.5 py-1.5 text-xs text-gray-600">
-                    <span>Archived — you&apos;ll find it in the Archive tab.</span>
-                    <button onClick={onGoToArchive} className="font-medium text-[#0E7490] hover:underline">Go to Archive →</button>
-                  </div>
-                )}
-
-                {c.status === 'passed' ? (
-                  <p className="mt-3 text-xs text-gray-400">
-                    Passed{fmtDecidedAt(c.decidedAt, c.decidedByMe)}{c.passReason && ` — ${c.passReason}`}
-                  </p>
-                ) : c.status === 'interested' ? (
-                  <div className="mt-3 flex items-center gap-2">
-                    <p className="text-xs text-[#0E7490] font-medium">Interest expressed{fmtDecidedAt(c.decidedAt, c.decidedByMe)}</p>
-                    <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId} className="text-xs text-gray-400 hover:underline disabled:opacity-40">
-                      Archive
-                    </button>
-                  </div>
-                ) : wave.unlocked && confirming?.orgId === c.orgId ? (
-                  // AP-07/08 — a confirmation step before either decision is
-                  // recorded; Pass requires a free-text reason (max 1000
-                  // chars). Cancel only clears local state, see cancelConfirm.
-                  <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                    {confirming.action === 'interest' ? (
-                      <p className="text-xs text-gray-700">Confirm you&apos;re interested in {c.name}? The founder will be notified.</p>
-                    ) : (
-                      <>
-                        <label className="mb-1 block text-xs font-medium text-gray-700">Reason for passing (required)</label>
-                        <textarea value={reasonDraft} onChange={(e) => setReasonDraft(e.target.value.slice(0, REASON_MAX_LEN))}
-                          rows={3} placeholder="Why isn't this a fit right now?"
-                          className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs" />
-                        <p className="mt-0.5 text-[10px] text-gray-400">{reasonDraft.length}/{REASON_MAX_LEN} · This decision is final — the data room will be revoked and it can&apos;t be undone.</p>
-                      </>
-                    )}
-                    <div className="mt-2 flex items-center gap-2">
-                      <button onClick={cancelConfirm} disabled={busyOrgId === c.orgId}
-                        className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-white disabled:opacity-40">
-                        Cancel
-                      </button>
-                      <button
-                        onClick={() => act(c.orgId, confirming.action, confirming.action === 'pass' ? reasonDraft : undefined)}
-                        disabled={busyOrgId === c.orgId || (confirming.action === 'pass' && reasonDraft.trim().length === 0)}
-                        className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-                        {busyOrgId === c.orgId ? 'Saving…' : confirming.action === 'interest' ? 'Confirm interest' : 'Confirm pass'}
-                      </button>
-                    </div>
-                  </div>
-                ) : wave.unlocked ? (
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    {/* P120 Block A — a card without a grant is eligible by
-                        published profile alone; the data room stays gated on
-                        the founder actually consenting (access_grants). That
-                        trust boundary doesn't move — only discovery does. */}
-                    {c.hasDataRoomAccess ? (
-                      <button onClick={() => onOpenStartup(c.orgId)} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
-                        Open data room
-                      </button>
-                    ) : (
-                      <span className="rounded-lg border border-dashed border-gray-200 px-2.5 py-1.5 text-xs text-gray-400">
-                        🔒 Access to documents is granted by the founder — express interest to start the conversation.
-                      </span>
-                    )}
-                    <button onClick={() => startConfirm(c.orgId, 'interest')} disabled={busyOrgId === c.orgId}
-                      className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-                      Express interest
-                    </button>
-                    {remindedOrgId === c.orgId ? (
-                      <span className="text-xs text-gray-400">Reminder set for 2 weeks</span>
-                    ) : (
-                      <button onClick={() => remindIn2Weeks(c.orgId)} className="text-xs text-gray-400 hover:underline">
-                        Remind me in 2 weeks
-                      </button>
-                    )}
-                    <button onClick={() => startConfirm(c.orgId, 'pass')} className="text-xs text-gray-400 hover:underline">Pass</button>
-                    <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId} className="text-xs text-gray-400 hover:underline disabled:opacity-40">
-                      Archive
-                    </button>
-                  </div>
-                ) : null}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ))}

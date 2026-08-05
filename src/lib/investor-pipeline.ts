@@ -118,9 +118,13 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     : await admin.from('orgs').select(
         'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur',
       ).in('id', orgIds);
-  const { data: startupProfiles } = await admin.from('matchdeal_profiles').select('id, membership_id')
+  const { data: startupProfiles } = await admin.from('matchdeal_profiles').select('id, membership_id, description')
     .eq('kind', 'startup').in('membership_id', orgIds);
   const profileByOrg = new Map((startupProfiles ?? []).map((p) => [p.membership_id as string, p.id as string]));
+  // P134-A — the fuller MatchDeal description, shown only in a row's
+  // expanded state (the collapsed row keeps the existing one_liner). Read
+  // off the same matchdeal_profiles fetch above, no second query.
+  const descriptionByOrg = new Map((startupProfiles ?? []).map((p) => [p.membership_id as string, p.description as string | null]));
 
   const thesis: InvestorThesis = {
     sectors: investorProfile.sectors ?? [], stagesInvested: investorProfile.stages_invested ?? [],
@@ -162,9 +166,11 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       ? (decision.decision === 'passed' ? 'passed' : 'interested')
       : (swipe?.direction === 'pass' ? 'passed' : swipe?.direction === 'like' ? 'interested' : 'open');
     return {
-      orgId: org.id, name: org.name, oneLiner: org.one_liner, sectors: org.sectors ?? [], stage: org.stage,
+      orgId: org.id, name: org.name, oneLiner: org.one_liner,
+      description: descriptionByOrg.get(org.id as string) ?? null,
+      sectors: org.sectors ?? [], stage: org.stage,
       hqCity: org.hq_city, country: org.country, roundTargetEur: org.round_target_eur,
-      roundValuationEur: org.round_valuation_eur,
+      roundMinTicketEur: org.round_min_ticket_eur, roundValuationEur: org.round_valuation_eur,
       roundValuationBasis: (org as { round_valuation_basis?: 'pre_money' | 'post_money' }).round_valuation_basis ?? null,
       roundInstruments: org.round_instruments ?? [], matchScore: score, matchReasons: reasons,
       status, passReason: decision ? decision.reason_detail : (swipe?.pass_reason ?? null),
