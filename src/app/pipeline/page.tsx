@@ -5,7 +5,8 @@ import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
-import { FitTag, PipeLoadingState, StatusPill, Tooltip, WaveTag, fmtEur } from '@/components/ui';
+import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur } from '@/components/ui';
+import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 import { AddInvestorModal } from '@/components/AddInvestorModal';
@@ -326,7 +327,7 @@ export default function PipelinePage() {
   // BEFORE noEntities, never instead of it: an org that's actually empty
   // once loading finishes still gets the real empty state below.
   if (loading) {
-    return <PipeLoadingState label="Loading your pipeline…" />;
+    return <LoadingState label="Loading your pipeline…" />;
   }
 
   if (noEntities) {

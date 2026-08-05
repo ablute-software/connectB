@@ -4,10 +4,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { outboundCounts } from '@/lib/rules';
-import { browserClient } from '@/lib/supabase';
 import { Tooltip } from '@/components/ui';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
-import { MatchDealPairingModal } from '@/components/matchdeal/MatchDealPairingModal';
 import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
 import { W1Badge } from '@/components/onboarding/W1Badge';
@@ -16,6 +14,11 @@ import { ReminderPopup } from '@/components/ReminderPopup';
 import { InvestorInterestPopup } from '@/components/InvestorInterestPopup';
 import { useBottomNavRef } from '@/lib/bottom-nav-context';
 import { BRAND_NAME } from '@/lib/brand';
+import { WorkspaceSidebar } from '@/components/workspace-shell/WorkspaceSidebar';
+import { WorkspaceMobileNav } from '@/components/workspace-shell/WorkspaceMobileNav';
+import { WorkspaceHeader } from '@/components/workspace-shell/WorkspaceHeader';
+import { LogoutButton } from '@/components/workspace-shell/LogoutButton';
+import type { WorkspaceNavItem } from '@/components/workspace-shell/types';
 
 type Me = {
   authEnabled: boolean; user: { email?: string } | null; role: string;
@@ -63,7 +66,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const pendingRuns = db.runs.filter((r) => r.status === 'pending_review').length;
   const needsReviewCount = db.interactions.filter((i) => i.needs_review).length;
   const [me, setMe] = useState<Me | null>(null);
-  const [showMatchDeal, setShowMatchDeal] = useState(false);
   // Prompt 125 Block A — reports this nav's real rendered height (only
   // ever present on mobile, md:hidden) to ReportProblemWidget.
   const mobileNavRef = useBottomNavRef<HTMLElement>();
@@ -71,11 +73,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false, user: null, role: 'none' }));
   }, []);
-
-  async function logout() {
-    try { await browserClient().auth.signOut(); } catch { /* ignore */ }
-    window.location.href = '/login';
-  }
 
   // Dual-role (e.g. Nuno: founder of ablute_ AND platform admin) gets a
   // switcher into the fully separate back-office console (own layout/chrome
@@ -110,165 +107,108 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // founder app belongs on top of it.
   if (path === '/' || path === '/investors' || path === '/pair' || isStandaloneAuthPage || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
 
+  // Two item lists from the same `visibleNav`, not one: the sidebar and the
+  // mobile bottom nav have always used slightly different active-match
+  // rules (startsWith vs exact `path === n.href`), predating this refactor —
+  // preserved rather than quietly unified.
+  const navItem = (n: typeof visibleNav[number], active: boolean): WorkspaceNavItem => {
+    const isAbout = n.href === '/settings';
+    const badge = n.href === '/tasks' && pendingRuns > 0 ? pendingRuns
+      : isAbout && needsReviewCount > 0 ? needsReviewCount
+      : undefined;
+    return {
+      key: n.href, href: n.href, icon: n.icon, active, badge,
+      emphasize: isAbout, tourId: n.href === '/readiness' ? 'nav-readiness' : undefined,
+      label: isAbout ? aboutLabel : n.label,
+    };
+  };
+  const sidebarItems = visibleNav.map((n) => navItem(n, n.href === '/' ? path === '/' : !!path?.startsWith(n.href)));
+  const mobileNavItems = visibleNav.map((n) => navItem(n, path === n.href));
+
   return (
     <OnboardingProvider>
     {me?.viewer && <DeveloperViewerFrame orgId={me.viewer.orgId} orgName={me.viewer.orgName} />}
     <div className="flex min-h-screen bg-[#F7F9FA] text-[#1A1A1A]">
-      <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-gray-100 bg-white md:flex">
-        <div className="px-6 pb-3 pt-6">
-          <div className="text-[26px] font-bold leading-none tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
-            {BRAND_NAME}
-          </div>
-          <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">Investor Relations</div>
-        </div>
-        <nav className="mt-1 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
-          {visibleNav.map((n) => {
-            const active = n.href === '/' ? path === '/' : path?.startsWith(n.href);
-            const isAbout = n.href === '/settings';
-            return (
-              <Link key={n.href} href={n.href}
-                data-tour-id={n.href === '/readiness' ? 'nav-readiness' : undefined}
-                className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] transition ${
-                  active ? 'bg-[#0E7490] font-medium text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}>
-                <span className={`w-4 text-center ${active ? '' : 'text-gray-400'}`}>{n.icon}</span>
-                {/* "about {org.name}" is the one item that names something
-                    specific to this workspace, not a generic app section —
-                    the slightly heavier weight + tracking sets it apart from
-                    the rest of the list, active or not. */}
-                <span className={isAbout ? 'font-semibold tracking-wide' : undefined}>{isAbout ? aboutLabel : n.label}</span>
-                {n.href === '/tasks' && pendingRuns > 0 && (
-                  <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{pendingRuns}</span>
-                )}
-                {isAbout && needsReviewCount > 0 && (
-                  <span className="ml-auto rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-white">{needsReviewCount}</span>
-                )}
-              </Link>
-            );
-          })}
-          <div className="px-3 pt-3">
-            <HelpSupportWidget source="founder_app" />
-          </div>
-          {showBackofficeSwitcher && (
-            <>
-              <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-gray-300">Platform</div>
-              <Tooltip text="Switch to the platform team's console — catalog curation, cross-org queues, no founder pipeline data." side="right" block>
-                <Link href="/backoffice"
-                  className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-[13.5px] text-gray-700 transition hover:bg-gray-100">
-                  <span className="w-4 text-center text-gray-400">◉</span> Back-office →
+      <WorkspaceSidebar
+        brandName={BRAND_NAME}
+        subtitle="Investor Relations"
+        items={sidebarItems}
+        afterItems={
+          <>
+            <div className="px-3 pt-3">
+              <HelpSupportWidget source="founder_app" />
+            </div>
+            {showBackofficeSwitcher && (
+              <>
+                <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-gray-300">Platform</div>
+                <Tooltip text="Switch to the platform team's console — catalog curation, cross-org queues, no founder pipeline data." side="right" block>
+                  <Link href="/backoffice"
+                    className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-[13.5px] text-gray-700 transition hover:bg-gray-100">
+                    <span className="w-4 text-center text-gray-400">◉</span> Back-office →
+                  </Link>
+                </Tooltip>
+                {/* Prompt 122 Block A (F0.5) — Metrics promoted out of the
+                    Back-office console into this sidebar, immediately below
+                    the Back-office link, same platform-admin gate. */}
+                <Link href="/metrics"
+                  className={`mt-0.5 flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] transition ${
+                    path?.startsWith('/metrics') ? 'bg-[#0E7490] font-medium text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}>
+                  <span className={`w-4 text-center ${path?.startsWith('/metrics') ? '' : 'text-gray-400'}`}>◆</span> Metrics
                 </Link>
-              </Tooltip>
-              {/* Prompt 122 Block A (F0.5) — Metrics promoted out of the
-                  Back-office console into this sidebar, immediately below
-                  the Back-office link, same platform-admin gate. */}
-              <Link href="/metrics"
-                className={`mt-0.5 flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] transition ${
-                  path?.startsWith('/metrics') ? 'bg-[#0E7490] font-medium text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}>
-                <span className={`w-4 text-center ${path?.startsWith('/metrics') ? '' : 'text-gray-400'}`}>◆</span> Metrics
-              </Link>
-            </>
-          )}
-        </nav>
-        <div className="border-t border-gray-100 px-4 py-3">
-          {me?.user ? (
+              </>
+            )}
+          </>
+        }
+        footer={
+          me?.user ? (
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate text-[12px] font-medium text-gray-700">{me.user.email}</div>
                 <div className="text-[10px] uppercase tracking-wide text-[#0E7490]">{me.role}</div>
               </div>
-              <button onClick={logout} className="shrink-0 rounded-lg border border-gray-200 px-2 py-1 text-[11px] text-gray-500 hover:bg-gray-50">Log out</button>
+              <LogoutButton className="shrink-0" />
             </div>
           ) : (
             <div className="px-2">
               <div className="text-[11px] font-medium text-gray-500">Seed Round 2026 · €1.3M</div>
               <div className="text-[10px] text-gray-300">{me?.authEnabled === false ? 'Demo mode — data in this browser' : ''}</div>
             </div>
-          )}
-        </div>
-      </aside>
+          )
+        }
+      />
 
       <div className="flex-1 md:ml-60">
-        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white/85 px-4 py-2.5 backdrop-blur md:px-8">
-          <div className="text-[15px] font-bold text-[#0E7490] md:hidden" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>{db.org.name || BRAND_NAME}</div>
-          <div className="hidden items-center gap-2 md:flex">
-            <span className="text-sm text-gray-300">Outreach discipline, enforced</span>
-          </div>
-          <div className="flex items-center gap-4">
-            {/* Permanent, colour-highlighted header button — moved out of the
-                sidebar so it's always visible regardless of which page/tab is
-                open, not one click away inside the nav. NOT a static
-                multi-colour gradient — the button's own background-color
-                cycles through one solid colour at a time (blue -> green ->
-                orange -> back to blue), looping. A light-sweep overlay runs
-                on top the whole time — same shimmer technique as
-                CompletenessBar.tsx's 100%-complete celebration (a translucent
-                stripe animated translateX(-100%)->translateX(100%)), just
-                looping instead of one-shot. White text reads fine across all
-                three colours in the cycle.
-                Label collapses to icon-only below sm: this row already ran
-                edge-to-edge with zero slack at ~680px before this button
-                existed (org name + caps pill + Log interaction alone), so on
-                an actual phone width the full-width version would overflow
-                the header instead of staying "permanent". */}
-            <style>{`
-              @keyframes sd-header-shine { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
-              @keyframes sd-matchdeal-cycle {
-                0%, 20%    { background-color: #3B82F6; }
-                33.33%     { background-color: #22C55E; }
-                53.33%     { background-color: #22C55E; }
-                66.66%     { background-color: #F97316; }
-                86.66%     { background-color: #F97316; }
-                100%       { background-color: #3B82F6; }
-              }
-              .sd-matchdeal-shine { animation: sd-header-shine 2.6s ease-in-out infinite; }
-              .sd-matchdeal-cycle { animation: sd-matchdeal-cycle 9s ease-in-out infinite; }
-            `}</style>
-            <Tooltip text="Connect the MatchDeal app — swipe-based matching with investors." side="bottom">
-              <button onClick={() => setShowMatchDeal(true)}
-                className="sd-matchdeal-cycle relative flex items-center gap-1.5 overflow-hidden rounded-xl px-2.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-[0_10px_24px_rgba(34,197,94,.4)] sm:px-3">
-                <span aria-hidden="true" className="sd-matchdeal-shine pointer-events-none absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/50 to-transparent" />
-                <span aria-hidden="true" className="relative text-base leading-none">🤝</span>
-                <span className="relative hidden sm:inline">MatchDeal</span>
-              </button>
-            </Tooltip>
-            <W1Badge />
-            <Tooltip text="Outbound messages sent today and this week, against your daily/weekly discipline caps." side="bottom">
-              <span className={`rounded-full border border-gray-100 bg-white px-3 py-1 text-xs ${capClass}`}>
-                Today {caps.today}/{caps.dailyCap} · Week {caps.week}/{caps.weeklyCap}
-              </span>
-            </Tooltip>
-            <Tooltip text="Record a new outbound or inbound interaction with an investor." side="bottom">
-              <Link href="/log" className="rounded-xl bg-[#0E7490] px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0c637b]">
-                + Log interaction
-              </Link>
-            </Tooltip>
-          </div>
-        </header>
+        <WorkspaceHeader
+          matchDeal={{ kind: 'startup', tooltip: 'Connect the MatchDeal app — swipe-based matching with investors.' }}
+          left={
+            <>
+              <div className="text-[15px] font-bold text-[#0E7490] md:hidden" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>{db.org.name || BRAND_NAME}</div>
+              <div className="hidden items-center gap-2 md:flex">
+                <span className="text-sm text-gray-300">Outreach discipline, enforced</span>
+              </div>
+            </>
+          }
+          right={
+            <>
+              <W1Badge />
+              <Tooltip text="Outbound messages sent today and this week, against your daily/weekly discipline caps." side="bottom">
+                <span className={`rounded-full border border-gray-100 bg-white px-3 py-1 text-xs ${capClass}`}>
+                  Today {caps.today}/{caps.dailyCap} · Week {caps.week}/{caps.weeklyCap}
+                </span>
+              </Tooltip>
+              <Tooltip text="Record a new outbound or inbound interaction with an investor." side="bottom">
+                <Link href="/log" className="rounded-xl bg-[#0E7490] px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0c637b]">
+                  + Log interaction
+                </Link>
+              </Tooltip>
+            </>
+          }
+        />
         <main className="mx-auto max-w-6xl p-4 md:p-8">{children}</main>
       </div>
 
-      {/* All items, never cut down — that clipping was part of what this
-          reorganisation batch fixed. They don't all fit at once on a phone
-          width, so this row scrolls horizontally instead of hiding one;
-          relative positioning keeps each badge pinned to its own link. */}
-      <nav ref={mobileNavRef} className="fixed inset-x-0 bottom-0 z-10 flex gap-1 overflow-x-auto border-t border-gray-100 bg-white px-2 py-1.5 md:hidden">
-        {visibleNav.map((n) => {
-          const isAbout = n.href === '/settings';
-          return (
-            <Link key={n.href} href={n.href}
-              className={`relative shrink-0 px-2.5 py-1 text-xs ${path === n.href ? 'font-semibold text-[#0E7490]' : 'text-gray-400'} ${isAbout ? 'tracking-wide' : ''}`}>
-              {isAbout ? aboutLabel : n.label}
-              {n.href === '/tasks' && pendingRuns > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 rounded-full bg-amber-400 px-1 text-[9px] font-bold text-white">{pendingRuns}</span>
-              )}
-              {isAbout && needsReviewCount > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 rounded-full bg-amber-400 px-1 text-[9px] font-bold text-white">{needsReviewCount}</span>
-              )}
-            </Link>
-          );
-        })}
-      </nav>
+      <WorkspaceMobileNav ref={mobileNavRef} items={mobileNavItems} />
 
-      {showMatchDeal && <MatchDealPairingModal kind="startup" onClose={() => setShowMatchDeal(false)} />}
       <WelcomeModal />
       <ReminderPopup />
       <InvestorInterestPopup />
