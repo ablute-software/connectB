@@ -38,18 +38,60 @@ async function computeTrackingCountsByStage(admin: SupabaseClient, excludeInvest
   return byStage;
 }
 
+// P132-A — the ID-only half of the union, for callers (the POST action
+// route) that just need a membership check, not the full card data
+// getPipelineWaves builds. See that function's own header comment for the
+// full "why a union" reasoning; kept in sync with it deliberately (both
+// read the same three sources), not re-derived independently.
+export async function pipelineEligibleOrgIds(admin: SupabaseClient, userId: string, email: string, personId: string | null): Promise<string[]> {
+  const [published, granted, investorCatalogEntityId] = await Promise.all([
+    eligiblePipelineOrgIds(admin),
+    activeGrantOrgIds(admin, email, personId),
+    resolveInvestorCatalogEntityId(admin, userId),
+  ]);
+  const { data: decisions } = investorCatalogEntityId
+    ? await admin.from('investor_relationship_decisions').select('org_id').eq('investor_catalog_entity_id', investorCatalogEntityId)
+    : { data: [] as { org_id: string }[] };
+  return [...new Set([...published, ...granted, ...(decisions ?? []).map((d) => d.org_id as string)])];
+}
+
 export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient, userId: string, email: string) {
   const investorProfile = await resolveInvestorProfile(admin, userId);
   if (!investorProfile) return { linked: false as const };
 
-  // P120 Block A — eligibility is published MatchDeal startup profiles, not
-  // access_grants (see the comment on eligiblePipelineOrgIds for why: this
-  // is discovery, not diligence). grantedOrgIds is looked up separately and
-  // ONLY drives each card's data-room-access state below — the trust
-  // boundary around documents doesn't move a millimeter.
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
-  const orgIds = await eligiblePipelineOrgIds(admin);
-  const grantedOrgIds = new Set(await activeGrantOrgIds(admin, email, person?.id ?? null));
+
+  // P132-A — Pipeline eligibility is a UNION of two populations, per Nuno's
+  // own product definition ("all the companies the app understands could
+  // fit the mandate, before and after being contacted"):
+  //   A. A real relationship with THIS investor — an active data-room
+  //      grant (the founder's own consent to invite them in) or an
+  //      already-recorded decision (interested/passed — history, never
+  //      disappears even if the startup's MatchDeal profile later gets
+  //      unpublished).
+  //   B. Discovery — published MatchDeal profiles matching the mandate
+  //      (P120-A, unchanged).
+  // Before this fix, (A) didn't count at all: a startup that invited an
+  // investor into its own data room — the strongest consent signal this
+  // app has — could still be entirely absent from that investor's own
+  // Pipeline the moment its MatchDeal profile wasn't published. That's the
+  // exact contradiction Nuno hit (Access granted showed ablute_, Pipeline
+  // didn't). What stays deliberately excluded: startups with NEITHER a
+  // grant/decision NOR a published profile — showing those would be
+  // visibility by side effect, the exact thing P107/addenda-P120-§3
+  // already ruled out.
+  const grantedOrgIdList = await activeGrantOrgIds(admin, email, person?.id ?? null);
+  const grantedOrgIds = new Set(grantedOrgIdList);
+  const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, userId);
+  const { data: decisions } = investorCatalogEntityId
+    ? await admin.from('investor_relationship_decisions').select('org_id, decision, reason_detail, decided_at, decided_by')
+      .eq('investor_catalog_entity_id', investorCatalogEntityId)
+    : { data: [] as { org_id: string; decision: string; reason_detail: string | null; decided_at: string; decided_by: string }[] };
+  const decisionByOrg = new Map((decisions ?? []).map((d) => [d.org_id as string, d]));
+  const decidedOrgIds = new Set(decisionByOrg.keys());
+
+  const publishedOrgIds = await eligiblePipelineOrgIds(admin);
+  const orgIds = [...new Set([...publishedOrgIds, ...grantedOrgIdList, ...decidedOrgIds])];
   const usualCoInvestors = (investorProfile as { usual_co_investors: string | null }).usual_co_investors;
   if (orgIds.length === 0) return { linked: true as const, waves: [], usualCoInvestors };
 
@@ -86,13 +128,8 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // AP-14 — investor_relationship_decisions is the org-level source of
   // truth (any teammate's decision must show the same status to every
   // other teammate); matchdeal_swipes above is per-user and only used as a
-  // fallback for signals recorded before this table existed.
-  const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, userId);
-  const { data: decisions } = investorCatalogEntityId && orgIds.length
-    ? await admin.from('investor_relationship_decisions').select('org_id, decision, reason_detail, decided_at, decided_by')
-      .eq('investor_catalog_entity_id', investorCatalogEntityId).in('org_id', orgIds)
-    : { data: [] as { org_id: string; decision: string; reason_detail: string | null; decided_at: string; decided_by: string }[] };
-  const decisionByOrg = new Map((decisions ?? []).map((d) => [d.org_id as string, d]));
+  // fallback for signals recorded before this table existed. (decisionByOrg
+  // itself was already fetched above, as part of computing the union.)
 
   // "Other investors tracking this" (prompt 62.3) — aggregated by stage
   // ACROSS THE WHOLE PLATFORM, never per-startup, and never resolved back to
@@ -132,13 +169,28 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       decidedByMe: decision ? decision.decided_by === userId : null,
       trackingCount: org.stage ? (trackingCountByStage.get(org.stage as string)?.size ?? 0) : 0,
       hasDataRoomAccess: grantedOrgIds.has(org.id as string),
+      // P132-A — which half of the union this card came through (a card can
+      // be both). Client-facing so the UI can badge it "Invited" instead of
+      // a wave number — deciding that is presentation, not eligibility.
+      viaGrant: grantedOrgIds.has(org.id as string),
+      viaDecision: decidedOrgIds.has(org.id as string),
     };
   }).sort((a, b) => b.matchScore - a.matchScore);
 
+  // P132-A — a relationship card (grant and/or decision) is never subject
+  // to the discovery wave-gate: the relationship already exists, so there's
+  // nothing left to "unlock" by treating other cards first. Only the
+  // remaining discovery-only cards go through the original doseamento.
+  const relationshipCards = cards.filter((c) => c.viaGrant || c.viaDecision);
+  const discoveryCards = cards.filter((c) => !c.viaGrant && !c.viaDecision);
+
   const waves = [];
-  for (let i = 0; i < cards.length; i += WAVE_SIZE) {
-    const items = cards.slice(i, i + WAVE_SIZE);
-    const priorTreated = cards.slice(0, i).every((c) => c.status !== 'open');
+  if (relationshipCards.length > 0) {
+    waves.push({ index: waves.length, items: relationshipCards, unlocked: true });
+  }
+  for (let i = 0; i < discoveryCards.length; i += WAVE_SIZE) {
+    const items = discoveryCards.slice(i, i + WAVE_SIZE);
+    const priorTreated = discoveryCards.slice(0, i).every((c) => c.status !== 'open');
     waves.push({ index: waves.length, items, unlocked: i === 0 || priorTreated });
   }
 

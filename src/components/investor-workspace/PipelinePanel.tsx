@@ -18,6 +18,11 @@ interface Card {
   // for a decision that predates investor_relationship_decisions (a legacy
   // matchdeal_swipes-only signal), never fabricated.
   decidedAt?: string | null; decidedByMe?: boolean | null;
+  // P132-A — a real relationship (grant and/or decision) with this
+  // investor, independent of whether the startup's MatchDeal profile is
+  // published. Drives the "Invited" badge below instead of a wave number —
+  // a relationship card was never subject to wave doseamento to begin with.
+  viaGrant?: boolean; viaDecision?: boolean;
   trackingCount: number; hasDataRoomAccess: boolean;
 }
 interface Wave { index: number; items: Card[]; unlocked: boolean }
@@ -327,9 +332,16 @@ export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool }: {
                         startup in the network) — Today already says "1 new
                         match in your Wave 1", this is that same number made
                         visible on the card itself. */}
-                    <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500" title={`Wave ${wave.index + 1}`}>
-                      W{wave.index + 1}
-                    </span>
+                    {c.viaGrant || c.viaDecision ? (
+                      <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]"
+                        title="A real relationship already exists here — invited to the data room and/or already decided, never wave-gated.">
+                        Invited
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500" title={`Wave ${wave.index + 1}`}>
+                        W{wave.index + 1}
+                      </span>
+                    )}
                     <div className="rounded-full bg-[#E8F4F8] px-2.5 py-1 text-xs font-semibold text-[#0E7490]">
                       {c.matchScore}% match{c.matchReasons.length > 0 && ` — ${c.matchReasons.join(', ')}`}
                     </div>
