@@ -12,6 +12,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { InteractionLogTimeline } from '@/components/investor-workspace/InteractionLogTimeline';
+import { DealThreadView, type DealMessage } from '@/components/deal-messages/DealThreadView';
 
 interface Card {
   orgId: string; name: string; oneLiner: string | null; description: string | null;
@@ -56,6 +57,10 @@ export default function StartupDossierPage() {
   const [data, setData] = useState<{ card: Card; overview: Overview | null } | null | 'not-found'>(null);
   const [tab, setTab] = useState<'overview' | 'documents' | 'messages' | 'activity'>('overview');
   const [docs, setDocs] = useState<{ sections: DocSection[]; pendingNdaCount: number } | null>(null);
+  // P134-C — fetched regardless of which tab is active: the Documents tab's
+  // own "Shared in messages" cross-ref needs this even if the investor
+  // never opens the Messages tab this session.
+  const [messagesInfo, setMessagesInfo] = useState<{ canMessage: boolean; messages: DealMessage[] } | null>(null);
 
   const [confirming, setConfirming] = useState<'pass' | 'interest' | null>(null);
   const [reasonDraft, setReasonDraft] = useState('');
@@ -88,6 +93,14 @@ export default function StartupDossierPage() {
     if (data === 'not-found' || !data?.card.hasDataRoomAccess) return;
     fetch(`/api/portal/access?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json())
       .then((d) => setDocs({ sections: d.sections ?? [], pendingNdaCount: d.pendingNdaCount ?? 0 }));
+  }, [data, orgId]);
+
+  // P134-C — fetched once eligibility is known, independent of the active
+  // tab (see messagesInfo's own declaration above for why).
+  useEffect(() => {
+    if (data === 'not-found' || !data) return;
+    fetch(`/api/portal/messages?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json())
+      .then((d) => setMessagesInfo({ canMessage: !!d.canMessage, messages: d.messages ?? [] }));
   }, [data, orgId]);
 
   function startConfirm(action: 'pass' | 'interest') {
@@ -233,13 +246,28 @@ export default function StartupDossierPage() {
         </div>
       </div>
 
-      <main className="mx-auto max-w-2xl p-4 md:p-8">
+      <main className={tab === 'messages' ? 'mx-auto max-w-4xl p-4 md:p-8' : 'mx-auto max-w-2xl p-4 md:p-8'}>
         {tab === 'overview' && <OverviewTab card={card} overview={overview} />}
-        {tab === 'documents' && <DocumentsTab hasAccess={card.hasDataRoomAccess} docs={docs} />}
+        {tab === 'documents' && <DocumentsTab hasAccess={card.hasDataRoomAccess} docs={docs} sharedInMessages={messagesInfo?.messages ?? []} />}
         {tab === 'messages' && (
-          <div className="mx-auto mt-8 max-w-sm rounded-lg border border-dashed border-gray-200 bg-white p-6 text-center">
-            <p className="text-sm text-gray-600">Messages are coming soon (P134-C).</p>
-            <p className="mt-1 text-xs text-gray-400">A real conversation between your firm and this startup, in one thread.</p>
+          <div className="flex flex-col gap-4 md:flex-row">
+            <div className="flex-1">
+              {messagesInfo == null ? (
+                <p className="text-sm text-gray-400">Loading…</p>
+              ) : (
+                <DealThreadView
+                  viewerSide="investor"
+                  fetchUrl={`/api/portal/messages?orgId=${encodeURIComponent(orgId)}`}
+                  postUrl="/api/portal/messages" extraPostBody={{ orgId }}
+                  attachableDocuments={docs ? docs.sections.flatMap((s) => s.documents.map((d) => ({ id: d.id, name: d.name }))) : undefined}
+                  disabled={!messagesInfo.canMessage}
+                  disabledReason="Messaging opens once you've expressed interest or the founder has granted data-room access."
+                />
+              )}
+            </div>
+            <div className="md:w-64 md:shrink-0">
+              <ContactHistoryRail orgId={orgId} />
+            </div>
           </div>
         )}
         {tab === 'activity' && <InteractionLogTimeline orgId={orgId} />}
@@ -326,7 +354,9 @@ function OverviewTab({ card, overview }: { card: Card; overview: Overview | null
   );
 }
 
-function DocumentsTab({ hasAccess, docs }: { hasAccess: boolean; docs: { sections: DocSection[]; pendingNdaCount: number } | null }) {
+function DocumentsTab({ hasAccess, docs, sharedInMessages }: {
+  hasAccess: boolean; docs: { sections: DocSection[]; pendingNdaCount: number } | null; sharedInMessages: DealMessage[];
+}) {
   if (!hasAccess) {
     return (
       <div className="mx-auto mt-8 max-w-sm rounded-lg border border-dashed border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
@@ -340,6 +370,16 @@ function DocumentsTab({ hasAccess, docs }: { hasAccess: boolean; docs: { section
     await fetch('/api/portal/view', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentId: doc.id }) });
     window.open(doc.url ?? '#', '_blank');
   }
+
+  // P134-C — "Shared in messages": the mini-prompt's own "documents
+  // exchanged in conversation should stay reachable there" ask. Cross-refs
+  // each message's document_ids against the docs already known to be
+  // visible to this firm (never surfaces a document id this firm can't
+  // otherwise see) plus every link shared in the thread.
+  const allDocs = docs.sections.flatMap((s) => s.documents);
+  const sharedDocIds = [...new Set(sharedInMessages.flatMap((m) => m.documentIds))];
+  const sharedDocs = allDocs.filter((d) => sharedDocIds.includes(d.id));
+  const sharedLinks = sharedInMessages.flatMap((m) => m.links);
 
   return (
     <div className="space-y-4">
@@ -371,6 +411,63 @@ function DocumentsTab({ hasAccess, docs }: { hasAccess: boolean; docs: { section
           )}
         </div>
       ))}
+
+      {(sharedDocs.length > 0 || sharedLinks.length > 0) && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-gray-900">Shared in messages</h2>
+          {sharedDocs.length > 0 && (
+            <div className="mt-2 space-y-2">
+              {sharedDocs.map((d) => (
+                <div key={d.id} className="flex items-center gap-3 rounded-lg border border-gray-100 p-3">
+                  <span className="text-lg">▤</span>
+                  <div className="flex-1 text-sm font-medium">{d.name}</div>
+                  <button onClick={() => openDoc(d)} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">Open</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {sharedLinks.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {sharedLinks.map((l, i) => (
+                <li key={i}><a href={l.url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">{l.label} →</a></li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// P134-B §3.4 — the "ao lado" (right rail) request: a compact contact-
+// history summary alongside the Messages tab, reusing the exact same
+// timeline the Activity tab shows in full (P133), just condensed.
+function ContactHistoryRail({ orgId }: { orgId: string }) {
+  const [entries, setEntries] = useState<{ id: string; at: string; content: string; links: { label: string; url: string }[] }[] | null>(null);
+  useEffect(() => {
+    fetch(`/api/portal/interaction-log?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => setEntries(d.entries ?? []));
+  }, [orgId]);
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Contact history</h2>
+      {entries == null ? (
+        <p className="mt-2 text-xs text-gray-400">Loading…</p>
+      ) : entries.length === 0 ? (
+        <p className="mt-2 text-xs text-gray-400">No history yet.</p>
+      ) : (
+        <ul className="mt-2 space-y-2">
+          {entries.slice(0, 10).map((e) => (
+            <li key={e.id} className="text-xs">
+              <div className="text-gray-400">{new Date(e.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
+              <p className="text-gray-700">{e.content.length > 80 ? `${e.content.slice(0, 80)}…` : e.content}</p>
+              {e.links.map((l, i) => (
+                <a key={i} href={l.url} target="_blank" rel="noreferrer" className="block text-[#0E7490] hover:underline">{l.label} →</a>
+              ))}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

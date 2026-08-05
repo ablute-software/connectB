@@ -48,10 +48,16 @@ type Me = {
 // Room. Gated on the companyCanon capability (the same gate the old
 // Dashboard tab used) via `requiresCapability` below — off means the entry
 // doesn't render at all, same as the tab used to just not appear.
+// P134-C — "Messages" added between Agenda and Dashboard: Sherlock
+// messaging threads with investors on the Pipeline. Its unread badge is
+// computed below from a real fetch (/api/founder/messages), not the local
+// demo store — this feature has no demo-mode equivalent, same as the rest
+// of the investor-workspace/messaging surface this session.
 const NAV: { href: string; label: string; icon: string; requiresCapability?: 'companyCanon' }[] = [
   { href: '/pipeline', label: 'Pipeline', icon: '▤' },
   { href: '/tasks', label: 'Tasks', icon: '☀' },
   { href: '/agenda', label: 'Agenda', icon: '◔' },
+  { href: '/messages', label: 'Messages', icon: '✉' },
   { href: '/dashboard', label: 'Dashboard', icon: '◈' },
   { href: '/readiness', label: 'Readiness & Train', icon: '◎', requiresCapability: 'companyCanon' },
   { href: '/documents', label: 'Vault Data Room', icon: '▣' },
@@ -66,12 +72,20 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const pendingRuns = db.runs.filter((r) => r.status === 'pending_review').length;
   const needsReviewCount = db.interactions.filter((i) => i.needs_review).length;
   const [me, setMe] = useState<Me | null>(null);
+  // P134-C — unread Sherlock messaging threads, for the Messages nav badge.
+  const [unreadMessages, setUnreadMessages] = useState(0);
   // Prompt 125 Block A — reports this nav's real rendered height (only
   // ever present on mobile, md:hidden) to ReportProblemWidget.
   const mobileNavRef = useBottomNavRef<HTMLElement>();
 
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false, user: null, role: 'none' }));
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/founder/messages').then((r) => r.json())
+      .then((d) => setUnreadMessages((d.threads ?? []).filter((t: { unread: boolean }) => t.unread).length))
+      .catch(() => setUnreadMessages(0));
   }, []);
 
   // Dual-role (e.g. Nuno: founder of ablute_ AND platform admin) gets a
@@ -114,6 +128,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const navItem = (n: typeof visibleNav[number], active: boolean): WorkspaceNavItem => {
     const isAbout = n.href === '/settings';
     const badge = n.href === '/tasks' && pendingRuns > 0 ? pendingRuns
+      : n.href === '/messages' && unreadMessages > 0 ? unreadMessages
       : isAbout && needsReviewCount > 0 ? needsReviewCount
       : undefined;
     return {
