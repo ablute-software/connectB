@@ -28,7 +28,7 @@ function Cross() {
 // Landing-only copy per tier (audience line, feature bullets, CTA label).
 const COPY: Record<PlanTier, { who: string; cta: string; features: { label: string; muted?: boolean }[] }> = {
   idea: {
-    who: 'For the very first steps',
+    who: 'For your very first steps',
     cta: 'Start free',
     features: [
       { label: 'Investor pipeline & agenda' },
@@ -38,7 +38,7 @@ const COPY: Record<PlanTier, { who: string; cta: string; features: { label: stri
     ],
   },
   garage: {
-    who: 'For rounds in motion',
+    who: 'For rounds already in motion',
     cta: 'Choose this plan',
     features: [
       { label: 'Everything in the free plan' },
@@ -87,7 +87,13 @@ export function PricingSection() {
         <div className={s.plans}>
           {PLANS.map((p, i) => {
             const copy = COPY[p.tier];
-            const popular = p.tier === 'garage';
+            // Prompt 128 — was 'garage' ("Most popular"); the landing's own
+            // popular/highlighted-card flag is unrelated to the in-app Plans
+            // page's "Best value" badge (PlansPanel.tsx computes that one
+            // separately, exclusively on the butler tier's annual view via
+            // plans.ts's bestValue field) — two different components, two
+            // different badges, no shared state to keep in sync.
+            const popular = p.tier === 'motherfunding';
             const delay = i === 1 ? s.d1 : i === 2 ? s.d2 : '';
             const amount = p.paid
               ? `€${annual ? p.annualPerMonthEur : p.monthlyEur}`
@@ -98,7 +104,7 @@ export function PricingSection() {
 
             return (
               <div key={p.tier} className={`${s.plan} ${popular ? s.pop : ''} ${s.rv} ${delay}`} data-reveal>
-                {popular && <span className={s.flag}>Most popular</span>}
+                {popular && <span className={s.flag}>Recommended</span>}
                 <h3>{p.name}</h3>
                 <p className={s.who}>{copy.who}</p>
                 <div className={s.price}>
