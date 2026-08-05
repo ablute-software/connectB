@@ -235,7 +235,12 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string
       {data.usualCoInvestors && <p className="text-xs text-gray-400">Usually co-invests with: {data.usualCoInvestors}</p>}
       {actionError && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
 
-      {compareIds.length > 0 && !showComparison && (
+      {/* Prompt 127 §3 — before this, the only hint that comparison existed
+          at all was the per-card checkbox itself, with zero invitation to
+          use it; a visible entry point even at zero-selected fixes that.
+          Once a card is ticked, this same slot becomes the existing
+          "N selected / Compare" banner — one discovery surface, not two. */}
+      {!showComparison && (compareIds.length > 0 ? (
         <div className="flex items-center justify-between rounded-lg border border-[#0E7490] bg-[#E8F4F8] px-3 py-2 text-xs">
           <span>{compareIds.length} selected to compare</span>
           <div className="flex items-center gap-2">
@@ -246,7 +251,11 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string
             </button>
           </div>
         </div>
-      )}
+      ) : (
+        <div className="rounded-lg border border-dashed border-gray-200 bg-white px-3 py-2 text-xs text-gray-500">
+          💡 Compare up to {MAX_COMPARE} startups side-by-side — tick the checkbox on any card below to get started.
+        </div>
+      ))}
       {showComparison && compareCards.length >= 2 && (
         <ComparisonView cards={compareCards} onClose={() => setShowComparison(false)} />
       )}
@@ -304,9 +313,7 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string
                   </p>
                 )}
 
-                <div className="mt-2">
-                  <OwnershipCalculator roundValuationEur={c.roundValuationEur} roundTargetEur={c.roundTargetEur} roundValuationBasis={c.roundValuationBasis} />
-                </div>
+                <OwnershipCalculator roundValuationEur={c.roundValuationEur} roundTargetEur={c.roundTargetEur} roundValuationBasis={c.roundValuationBasis} />
 
                 {c.status === 'passed' ? (
                   <p className="mt-3 text-xs text-gray-400">

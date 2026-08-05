@@ -26,8 +26,18 @@ export function OwnershipCalculator(
   const [basis, setBasis] = useState<'pre_money' | 'post_money'>(roundValuationBasis ?? 'pre_money');
   const [futureDilutions, setFutureDilutions] = useState(['20', '15']);
 
+  // Prompt 127 §3 — this used to be a barely-visible 11px gray text link,
+  // easy to miss entirely; same visual weight as the card's other CTAs
+  // (Express interest, Open data room) now, not an afterthought — the
+  // calculator itself was already correct, it just needed to look like
+  // something worth clicking.
   if (!open) {
-    return <button onClick={() => setOpen(true)} className="text-xs text-gray-400 hover:underline">Ownership calculator</button>;
+    return (
+      <button onClick={() => setOpen(true)}
+        className="mt-2 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+        🧮 Ownership calculator
+      </button>
+    );
   }
   if (roundValuationEur == null) {
     return <p className="mt-2 text-xs text-gray-400">No valuation on file for this round yet — the calculator needs one.</p>;
