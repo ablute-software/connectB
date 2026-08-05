@@ -6,6 +6,7 @@
 // Extracted so the CSV export can reuse the exact same computation the
 // drawer itself uses — no separate query path.
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { findActiveMatchDealMatch } from './matchdeal-active-match';
 
 export interface InteractionLink { label: string; url: string }
 export interface TimelineEntry {
@@ -85,14 +86,15 @@ export async function getInteractionTimeline(
   // today (its tab state is local, not URL-driven — confirmed by reading
   // MatchDealShell.tsx), so this points at the app's one MatchDeal entry
   // point; the investor selects the Messages tab themselves once there.
+  // Addenda 2026-08-05 §3 — only when a match qualifies as "feito" (see
+  // matchdeal-active-match.ts's own header for the exact status/cooldown
+  // definition, shared with the founder-initiate gate in deal-messages.ts).
   const { data: startupProfile } = await admin.from('matchdeal_profiles').select('id').eq('kind', 'startup').eq('membership_id', orgId).maybeSingle();
   if (startupProfile) {
-    const { data: match } = await admin.from('matchdeal_matches').select('id, created_at')
-      .eq('investor_catalog_entity_id', investorCatalogEntityId).eq('startup_profile_id', startupProfile.id).eq('status', 'active')
-      .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    const match = await findActiveMatchDealMatch(admin, startupProfile.id as string, investorCatalogEntityId);
     if (match) {
       entries.push({
-        id: `matchdeal-${match.id}`, kind: 'matchdeal_link', automatic: true, at: match.created_at as string,
+        id: `matchdeal-${match.id}`, kind: 'matchdeal_link', automatic: true, at: match.createdAt,
         channel: null, content: 'Conversation on MatchDeal', links: [{ label: 'Open MatchDeal', url: '/pair' }],
       });
     }
