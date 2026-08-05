@@ -52,23 +52,25 @@ export function InvestorInterestPopup() {
   }
 
   return (
-    <div className="fixed bottom-4 left-4 z-50 w-full max-w-sm rounded-xl border border-cyan-100 bg-white p-4 shadow-2xl">
-      <div className="flex items-start justify-between gap-2">
-        <span className="rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[10px] font-medium text-[#0E7490]">Pipeline</span>
-        <button onClick={dismiss} disabled={busy} className="text-sm text-gray-400 hover:text-gray-700 disabled:opacity-40">✕</button>
+    <div className="fixed bottom-4 left-4 z-50 w-full max-w-sm overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-2xl">
+      <div className="flex items-center justify-between gap-2 bg-gradient-to-r from-emerald-500 to-green-400 px-4 py-2">
+        <span className="text-xs font-bold uppercase tracking-wide text-white">🎉 New interest</span>
+        <button onClick={dismiss} disabled={busy} className="text-white/80 hover:text-white disabled:opacity-40">✕</button>
       </div>
-      <p className="mt-1.5 text-sm font-medium text-gray-900">🎉 {current.investorName} expressed interest</p>
-      {current.reasonDetail && <p className="mt-1 text-xs text-gray-500">&ldquo;{current.reasonDetail}&rdquo;</p>}
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {current.entityId && (
-          <Link href={`/entities/${current.entityId}`} onClick={dismiss}
-            className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
-            View
-          </Link>
-        )}
-        <button onClick={dismiss} disabled={busy} className="ml-auto rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
-          Dismiss
-        </button>
+      <div className="p-4">
+        <p className="text-sm font-medium text-gray-900">{current.investorName} expressed interest</p>
+        {current.reasonDetail && <p className="mt-1 text-xs text-gray-500">&ldquo;{current.reasonDetail}&rdquo;</p>}
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {current.entityId && (
+            <Link href={`/entities/${current.entityId}`} onClick={dismiss}
+              className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
+              View
+            </Link>
+          )}
+          <button onClick={dismiss} disabled={busy} className="ml-auto rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
+            Dismiss
+          </button>
+        </div>
       </div>
     </div>
   );
