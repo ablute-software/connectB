@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { PORTAL_SECTIONS } from '@/lib/dataroom-sections';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { activeGrantOrgIds, eligibleOrgIds } from '@/lib/portal-access';
 
 export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -21,6 +22,17 @@ export async function GET(req: Request) {
   if (!orgId) return NextResponse.json({ error: 'orgId is required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // BUG-SEG-2 — this route used to filter only by investor_email + the
+  // caller-supplied orgId, with no check that this investor actually has an
+  // active access_grants row for that org: any authenticated investor could
+  // read another org's diligence-checklist state just by passing its id.
+  // eligibleOrgIds (not the bare activeGrantOrgIds) so an @ablute.pt QA
+  // session — which gets into the shell via is_ablute_developer(), not a
+  // real grant — keeps working like every other portal route.
+  const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
+  const orgIds = await eligibleOrgIds(sb, admin, user.id, email, person?.id ?? null);
+  if (!orgIds.includes(orgId)) return NextResponse.json({ error: 'No active access to this org.' }, { status: 403 });
+
   const { data: rows } = await admin.from('investor_diligence_checklist').select('section_key, reviewed, reviewed_at')
     .eq('org_id', orgId).eq('investor_email', email);
   const rowByKey = new Map((rows ?? []).map((r) => [r.section_key as string, r]));
@@ -58,6 +70,16 @@ export async function POST(req: Request) {
   }
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // BUG-SEG-2 — same missing-grant-check as GET, for the write side: an
+  // authenticated investor could otherwise mark checklist sections
+  // reviewed/unreviewed against an org they have no access to. QA already
+  // short-circuited above (isAbluteQa), so plain activeGrantOrgIds (no QA
+  // fallback needed) matches this route's existing POST pattern for other
+  // /api/portal/* write routes (see archive/route.ts).
+  const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
+  const orgIds = await activeGrantOrgIds(admin, email, person?.id ?? null);
+  if (!orgIds.includes(body.orgId)) return NextResponse.json({ ok: false, error: 'No active access to this org.' }, { status: 403 });
+
   const { error } = await admin.from('investor_diligence_checklist').upsert(
     { org_id: body.orgId, investor_email: email, section_key: body.sectionKey, reviewed: body.reviewed, reviewed_at: body.reviewed ? new Date().toISOString() : null },
     { onConflict: 'org_id,investor_email,section_key' },

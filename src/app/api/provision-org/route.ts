@@ -2,7 +2,7 @@
 // Idempotent: if the user already owns an org, it is returned unchanged.
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { isAbluteTeamEmail } from '@/lib/supabase-server';
+import { isAbluteTeamEmail, serverClient } from '@/lib/supabase-server';
 import { ABLUTE_ORG_ID } from '@/lib/ablute-org';
 import { logAdminAction } from '@/lib/audit';
 import { PRESET_MATERIALS_FOLDERS, PRESET_DATA_ROOM_FOLDERS } from '@/lib/vault-preset-folders';
@@ -43,6 +43,31 @@ export async function POST(req: NextRequest) {
   const { data: authUser } = await admin.auth.admin.getUserById(user_id);
   const email = authUser?.user?.email;
   const emailConfirmed = !!authUser?.user?.email_confirmed_at;
+
+  // BUG-SEG-1 — this route used to trust `user_id` from the request body
+  // outright: an unauthenticated caller could supply any account's id and
+  // have it linked as owner of a new org, or (if that account's real email
+  // happens to be an OWNER_EMAILS/@ablute.pt address) linked into the real
+  // ablute_ org and granted platform_admin. Two legitimate callers reach
+  // this route: (a) signup with email confirmation off/instant, where the
+  // client already has a session by the time this request lands — checked
+  // strictly below; (b) signup where Supabase requires email confirmation
+  // first, so `signUp()` returns no session at all until the link is
+  // clicked (confirmed against production auth.users: real founder signups
+  // show confirm delays of tens of seconds to minutes, not zero) — there is
+  // genuinely no session cookie to check yet in that case. For that path,
+  // the compensating control is that the target account must have just been
+  // created; an attacker supplying a pre-existing account they don't hold a
+  // session for is rejected either way.
+  const sb = await serverClient();
+  const { data: { user: caller } } = await sb.auth.getUser();
+  if (caller) {
+    if (caller.id !== user_id) return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 });
+  } else {
+    const createdAt = authUser?.user?.created_at ? new Date(authUser.user.created_at).getTime() : 0;
+    const freshEnough = createdAt > 0 && Date.now() - createdAt < 10 * 60 * 1000;
+    if (!freshEnough) return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 });
+  }
 
   const isLegacyOwner = typeof email === 'string' && OWNER_EMAILS.includes(email.trim().toLowerCase());
   // Hard requirement (DECISIONS.md): the @ablute.pt domain grant only ever
