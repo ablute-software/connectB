@@ -3,7 +3,7 @@
 // match score. Mirrors the founder-side pipeline's doseamento principle:
 // only the current wave is actionable, the rest stay locked until it's
 // fully treated (every card passed or expressed interest on).
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { OwnershipCalculator } from './OwnershipCalculator';
 import { ComparisonView } from './ComparisonView';
 
@@ -51,6 +51,17 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string
   const [sectorFilter, setSectorFilter] = useState<string>('all');
   const [countryFilter, setCountryFilter] = useState<string>('all');
   const [stageFilter, setStageFilter] = useState<string>('all');
+  // Prompt 127 Bloco B — the overview strip's one stat that isn't in
+  // /api/portal/pipeline's own response (Tracking/Interested/Data room all
+  // are). Meetings live in the Agenda's merged timeline instead (see
+  // /api/portal/agenda), so this is a second, once-on-mount fetch rather
+  // than pipeline reload traffic.
+  const [meetingsCount, setMeetingsCount] = useState<number | null>(null);
+  useEffect(() => {
+    fetch('/api/portal/agenda').then((r) => r.json())
+      .then((d) => setMeetingsCount((d.items ?? []).filter((i: { kind: string }) => i.kind === 'meeting').length))
+      .catch(() => setMeetingsCount(null));
+  }, []);
 
   function toggleCompare(orgId: string) {
     setCompareIds((ids) => (ids.includes(orgId) ? ids.filter((id) => id !== orgId) : ids.length < MAX_COMPARE ? [...ids, orgId] : ids));
@@ -151,11 +162,40 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string
     return true;
   }
 
+  // Prompt 127 Bloco B — the "home" the investor workspace was missing: an
+  // at-a-glance overview strip above the wave list, same idea as the
+  // founder Dashboard's own funnel (OverviewPanel.tsx) — not a new number to
+  // invent, client-side aggregation over data already loaded for this page
+  // (allCards) plus the one Agenda-sourced count (meetings). Not a strict
+  // funnel (these four aren't subsets of each other the way contacted →
+  // replied → … is), so no "% of previous" column — just the Prompt 126-A
+  // fix itself (a shared CSS grid column template, not flexbox, so the bar
+  // column is the same pixel width on every row regardless of what else
+  // that row shows) carried over to keep the same visual language.
+  const overviewStats = [
+    { label: 'Tracking', n: allCards.filter((c) => c.status === 'open').length },
+    { label: 'Interested', n: allCards.filter((c) => c.status === 'interested').length },
+    { label: 'Data room open', n: allCards.filter((c) => c.hasDataRoomAccess).length },
+    { label: 'Meetings', n: meetingsCount ?? 0 },
+  ];
+  const overviewMax = Math.max(1, ...overviewStats.map((s) => s.n));
+
   return (
     <div className="max-w-2xl space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-gray-900">Pipeline</h1>
         <a href="/api/portal/export?type=pipeline" className="text-xs text-gray-400 hover:underline">Export CSV</a>
+      </div>
+      <div data-tour-id="investor-pipeline-overview" className="rounded-lg border border-gray-200 bg-white p-3">
+        <div className="grid items-center gap-x-2 gap-y-1.5 text-sm" style={{ gridTemplateColumns: '7rem 1fr 2.5rem' }}>
+          {overviewStats.map((s) => (
+            <Fragment key={s.label}>
+              <span className="text-xs text-gray-500">{s.label}</span>
+              <div className="h-4 rounded bg-[#0E7490]/80" style={{ width: `${Math.max(4, s.n / overviewMax * 100)}%` }} />
+              <span className="text-right text-xs font-medium">{s.n}</span>
+            </Fragment>
+          ))}
+        </div>
       </div>
       <div className="flex items-center gap-1.5">
         {STATUS_FILTERS.map((f) => (
