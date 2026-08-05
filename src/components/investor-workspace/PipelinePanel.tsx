@@ -13,6 +13,11 @@ interface Card {
   hqCity: string | null; country: string | null; roundTargetEur: number | null; roundValuationEur: number | null;
   roundValuationBasis?: 'pre_money' | 'post_money' | null; roundInstruments: string[];
   matchScore: number; matchReasons: string[]; status: 'open' | 'passed' | 'interested'; passReason: string | null;
+  // Item 6 (mini_prompt_itens_5_6) — when the decision was recorded, and
+  // whether it was this investor or a teammate at the same firm. Both null
+  // for a decision that predates investor_relationship_decisions (a legacy
+  // matchdeal_swipes-only signal), never fabricated.
+  decidedAt?: string | null; decidedByMe?: boolean | null;
   trackingCount: number; hasDataRoomAccess: boolean;
 }
 interface Wave { index: number; items: Card[]; unlocked: boolean }
@@ -26,6 +31,15 @@ const STATUS_FILTERS: { value: 'all' | 'open' | 'interested' | 'passed'; label: 
 
 function fmtEur(n: number | null) {
   return n == null ? null : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
+}
+
+// Item 6 — "not knowing when, or whether, it was submitted" was the actual
+// complaint; a date resolves it without reopening AP-06's finality.
+function fmtDecidedAt(iso: string | null | undefined, decidedByMe: boolean | null | undefined) {
+  if (!iso) return '';
+  const date = new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const who = decidedByMe == null ? '' : decidedByMe ? ' by you' : ' by a colleague at your firm';
+  return ` on ${date}${who}`;
 }
 
 export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool }: {
@@ -335,11 +349,11 @@ export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool }: {
 
                 {c.status === 'passed' ? (
                   <p className="mt-3 text-xs text-gray-400">
-                    Passed{c.passReason && ` — ${c.passReason}`}
+                    Passed{fmtDecidedAt(c.decidedAt, c.decidedByMe)}{c.passReason && ` — ${c.passReason}`}
                   </p>
                 ) : c.status === 'interested' ? (
                   <div className="mt-3 flex items-center gap-2">
-                    <p className="text-xs text-[#0E7490] font-medium">Interest expressed</p>
+                    <p className="text-xs text-[#0E7490] font-medium">Interest expressed{fmtDecidedAt(c.decidedAt, c.decidedByMe)}</p>
                     <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId} className="text-xs text-gray-400 hover:underline disabled:opacity-40">
                       Archive
                     </button>

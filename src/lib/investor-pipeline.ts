@@ -89,9 +89,9 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // fallback for signals recorded before this table existed.
   const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, userId);
   const { data: decisions } = investorCatalogEntityId && orgIds.length
-    ? await admin.from('investor_relationship_decisions').select('org_id, decision, reason_detail')
+    ? await admin.from('investor_relationship_decisions').select('org_id, decision, reason_detail, decided_at, decided_by')
       .eq('investor_catalog_entity_id', investorCatalogEntityId).in('org_id', orgIds)
-    : { data: [] as { org_id: string; decision: string; reason_detail: string | null }[] };
+    : { data: [] as { org_id: string; decision: string; reason_detail: string | null; decided_at: string; decided_by: string }[] };
   const decisionByOrg = new Map((decisions ?? []).map((d) => [d.org_id as string, d]));
 
   // "Other investors tracking this" (prompt 62.3) — aggregated by stage
@@ -121,6 +121,15 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       roundValuationBasis: (org as { round_valuation_basis?: 'pre_money' | 'post_money' }).round_valuation_basis ?? null,
       roundInstruments: org.round_instruments ?? [], matchScore: score, matchReasons: reasons,
       status, passReason: decision ? decision.reason_detail : (swipe?.pass_reason ?? null),
+      // Item 6 — "não se sabe quando e se foi submetido". decided_at/
+      // decided_by already existed on investor_relationship_decisions; only
+      // matchdeal_swipes-only signals (pre-dating that table) have neither,
+      // so both stay null rather than fabricating a date. decidedByMe is a
+      // plain equality check (no extra query needed to resolve an identity)
+      // — "by you" vs "by a colleague at your firm" is all AP-14 promises,
+      // never a name/email the other side of the org didn't already share.
+      decidedAt: decision?.decided_at ?? null,
+      decidedByMe: decision ? decision.decided_by === userId : null,
       trackingCount: org.stage ? (trackingCountByStage.get(org.stage as string)?.size ?? 0) : 0,
       hasDataRoomAccess: grantedOrgIds.has(org.id as string),
     };

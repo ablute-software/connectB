@@ -320,7 +320,7 @@ export default function PairPage() {
 
                 {magicLinkSent ? (
                   <div className="mt-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-left text-[12px] text-white/70">
-                    <p>We sent a sign-in link and a 6-digit code to {loginEmail}.</p>
+                    <p>We sent a sign-in link and a sign-in code to {loginEmail}.</p>
                     <p className="mt-1 text-white/50">Tap the link on this device, or enter the code below.</p>
                     <button onClick={() => { setMagicLinkSent(false); setLoginMsg(''); }} className="mt-1 text-white/40 hover:underline">
                       Not you? Start over
@@ -337,9 +337,9 @@ export default function PairPage() {
 
                 {showCodeEntry ? (
                   <div className="mt-3 border-t border-white/10 pt-3 text-left">
-                    <label className="mb-1 block text-[11px] font-medium text-white/50">6-digit code from the email</label>
+                    <label className="mb-1 block text-[11px] font-medium text-white/50">Code from the email</label>
                     <input
-                      value={loginCode} onChange={(e) => setLoginCode(e.target.value)} placeholder="123456" inputMode="numeric"
+                      value={loginCode} onChange={(e) => setLoginCode(e.target.value)} placeholder="Code from the email" inputMode="numeric"
                       className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/30"
                     />
                     <button

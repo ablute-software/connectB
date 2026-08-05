@@ -126,7 +126,7 @@ export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFai
         <>
           {linkSent ? (
             <div className="mb-3 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">
-              <p>We sent one sign-in email to {email} with a link and a 6-digit code.</p>
+              <p>We sent one sign-in email to {email} with a link and a sign-in code.</p>
               <p className="mt-1 text-gray-500">
                 <strong>Use only one of the two.</strong> The link and the code are the same one-time pass — some email apps
                 &quot;preview&quot; links automatically, which can silently use up the link before you click it. If that
@@ -144,8 +144,8 @@ export function InvestorSignInForm({ next, linkFailed }: { next: string; linkFai
           )}
           {showCodeEntry ? (
             <div className="mt-3 border-t border-gray-100 pt-3">
-              <label className="mb-1 block text-xs font-medium text-gray-500">6-digit code from the email</label>
-              <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="123456" inputMode="numeric"
+              <label className="mb-1 block text-xs font-medium text-gray-500">Code from the email</label>
+              <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Code from the email" inputMode="numeric"
                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
               <button onClick={verifyCode} disabled={!email || !code || codeBusy}
                 className="mt-2 w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40">
