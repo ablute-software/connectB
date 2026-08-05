@@ -23,6 +23,7 @@ import { aiReviewIsTestMarkerAvailable } from '@/lib/ai-review-test-marker-capab
 import { accessRequestsAvailable, guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { ecosystemFactsAvailable } from '@/lib/ecosystem-facts-capability';
 import { vaultPinOwnerManagedAvailable } from '@/lib/vault-pin-owner-managed-capability';
+import { taskRemindersAvailable } from '@/lib/task-reminders-capability';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, WATSON_DRAFT_QUOTA } from '@/lib/plans';
 import { stripeConfigured } from '@/lib/stripe-env';
@@ -50,6 +51,7 @@ export async function GET(req: NextRequest) {
     guestGrantToken: await guestGrantTokenAvailable(),
     ecosystemFacts: await ecosystemFactsAvailable(),
     vaultPinOwnerManaged: await vaultPinOwnerManagedAvailable(),
+    taskReminders: await taskRemindersAvailable(),
   };
   if (!authEnabled) return NextResponse.json({ authEnabled: false, user: null, role: 'none', capabilities });
   const sb = await serverClient();

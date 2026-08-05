@@ -12,6 +12,7 @@ import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
 import { W1Badge } from '@/components/onboarding/W1Badge';
 import { DeveloperViewerFrame } from '@/components/DeveloperViewerFrame';
+import { ReminderPopup } from '@/components/ReminderPopup';
 import { useBottomNavRef } from '@/lib/bottom-nav-context';
 import { BRAND_NAME } from '@/lib/brand';
 
@@ -268,6 +269,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       {showMatchDeal && <MatchDealPairingModal kind="startup" onClose={() => setShowMatchDeal(false)} />}
       <WelcomeModal />
+      <ReminderPopup />
     </div>
     </OnboardingProvider>
   );

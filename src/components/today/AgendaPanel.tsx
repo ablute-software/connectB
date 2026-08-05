@@ -5,12 +5,24 @@
 // page default to a named panel. Batch 3 E3: tasks are clickable → a summary
 // popover; completed tasks don't disappear — they turn green with a ✓ and
 // stay visible (in the calendar in place, and in a "Completed" rail).
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink } from '@/components/ui';
 import type { ActionType, TaskItem } from '@/lib/types';
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, ACTION_TYPES } from '@/lib/relationship';
+
+// Prompt 126 D — offsets for the "create appointment" modal's Reminder
+// select. `null` = no reminder at all; `0` = fire right at the event's own
+// time. Minutes-before, not an absolute time, so the popup logic only ever
+// needs one field (reminder_at) regardless of which option was picked.
+const REMINDER_OPTIONS: { value: string; label: string; offsetMin: number | null }[] = [
+  { value: 'none', label: 'No reminder', offsetMin: null },
+  { value: 'at_time', label: 'At the time', offsetMin: 0 },
+  { value: '10_before', label: '10 minutes before', offsetMin: 10 },
+  { value: '1h_before', label: '1 hour before', offsetMin: 60 },
+  { value: '1d_before', label: '1 day before', offsetMin: 1440 },
+];
 
 function toICS(tasks: TaskItem[]) {
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//ablute_ IRM//EN'];
@@ -32,6 +44,54 @@ export function AgendaPanel() {
   const [typeFilter, setTypeFilter] = useState<ActionType | 'all'>('all');
   const [selected, setSelected] = useState<TaskItem | null>(null);
   const now = new Date();
+
+  // Prompt 126 D — click any day in the grid to create an appointment there.
+  const [creatingDate, setCreatingDate] = useState<Date | null>(null);
+  const [apTitle, setApTitle] = useState('');
+  const [apTime, setApTime] = useState('09:00');
+  const [apType, setApType] = useState<ActionType>('other');
+  const [apEntityId, setApEntityId] = useState('');
+  const [apPersonId, setApPersonId] = useState('');
+  const [apNotes, setApNotes] = useState('');
+  const [apReminder, setApReminder] = useState('none');
+  // notes/reminder_at/snoozed_until are migration 0123 (propose-only) —
+  // never sent to a real backend until this probe confirms the columns
+  // exist. Demo mode has no schema to violate, so it's always available
+  // there regardless of what the probe (which needs a real Supabase
+  // connection) reports.
+  const [remindersAvailable, setRemindersAvailable] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
+      .then((me) => setRemindersAvailable(!me.authEnabled || !!me.capabilities?.taskReminders))
+      .catch(() => setRemindersAvailable(false));
+  }, []);
+
+  function openCreate(d: Date) {
+    setCreatingDate(d); setApTitle(''); setApTime('09:00'); setApType('other');
+    setApEntityId(''); setApPersonId(''); setApNotes(''); setApReminder('none');
+  }
+
+  function saveAppointment() {
+    if (!creatingDate || !apTitle.trim()) return;
+    const [hh, mm] = apTime.split(':').map(Number);
+    const due = new Date(creatingDate.getFullYear(), creatingDate.getMonth(), creatingDate.getDate(), hh || 0, mm || 0);
+    const reminderOpt = REMINDER_OPTIONS.find((r) => r.value === apReminder);
+    const reminderAt = remindersAvailable && reminderOpt?.offsetMin != null
+      ? new Date(due.getTime() - reminderOpt.offsetMin * 60_000).toISOString()
+      : undefined;
+    addTask({
+      title: apTitle.trim(),
+      kind: 'meeting',
+      action_type: apType,
+      due_at: due.toISOString(),
+      entity_id: apEntityId || undefined,
+      person_id: apPersonId || undefined,
+      notes: remindersAvailable ? (apNotes.trim() || undefined) : undefined,
+      reminder_at: reminderAt,
+    });
+    setCreatingDate(null);
+  }
 
   const visibleTasks = useMemo(
     () => typeFilter === 'all' ? db.tasks : db.tasks.filter((t) => t.action_type === typeFilter),
@@ -109,7 +169,8 @@ export function AgendaPanel() {
             <div key={d} className="bg-gray-50 px-2 py-1 font-medium text-gray-500">{d}</div>
           ))}
           {days.map((d, i) => (
-            <div key={i} className={`min-h-[84px] bg-white p-1 ${d && d.toDateString() === now.toDateString() ? 'ring-2 ring-inset ring-[#0E7490]' : ''}`}>
+            <div key={i} onClick={() => d && openCreate(d)} title={d ? 'Click to create an appointment on this day' : undefined}
+              className={`min-h-[84px] bg-white p-1 ${d ? 'cursor-pointer hover:bg-cyan-50/60' : ''} ${d && d.toDateString() === now.toDateString() ? 'ring-2 ring-inset ring-[#0E7490]' : ''}`}>
               {d && (
                 <>
                   <div className="text-[10px] text-gray-400">{d.getDate()}</div>
@@ -117,7 +178,7 @@ export function AgendaPanel() {
                     const late = !t.done && new Date(t.due_at!) < now;
                     const cls = t.done ? 'bg-green-100 text-green-700' : late ? 'bg-red-100 text-[#B00000]' : ACTION_TYPE_COLOR[t.action_type];
                     return (
-                      <button key={t.id} onClick={() => setSelected(t)} title={`${t.title} · ${ACTION_TYPE_LABEL[t.action_type]}`}
+                      <button key={t.id} onClick={(e) => { e.stopPropagation(); setSelected(t); }} title={`${t.title} · ${ACTION_TYPE_LABEL[t.action_type]}`}
                         className={`mb-0.5 block w-full truncate rounded px-1 py-0.5 text-left text-[10px] ${cls}`}>
                         {t.done && '✓ '}{t.title}
                       </button>
@@ -192,6 +253,59 @@ export function AgendaPanel() {
                 </Link>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {creatingDate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setCreatingDate(null)}>
+          <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm font-semibold text-gray-900">
+                New appointment — {creatingDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+              </p>
+              <button onClick={() => setCreatingDate(null)} className="text-sm text-gray-400 hover:text-gray-700">✕</button>
+            </div>
+            <div className="mt-3 space-y-2">
+              <input value={apTitle} onChange={(e) => setApTitle(e.target.value)} placeholder="Title…" autoFocus
+                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+              <div className="grid grid-cols-2 gap-2">
+                <input type="time" value={apTime} onChange={(e) => setApTime(e.target.value)}
+                  className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                <select value={apType} onChange={(e) => setApType(e.target.value as ActionType)}
+                  className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+                  {ACTION_TYPES.map((at) => <option key={at} value={at}>{ACTION_TYPE_LABEL[at]}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <select value={apEntityId} onChange={(e) => { setApEntityId(e.target.value); setApPersonId(''); }}
+                  className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+                  <option value="">Investor (optional)…</option>
+                  {db.entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </select>
+                <select value={apPersonId} onChange={(e) => setApPersonId(e.target.value)} disabled={!apEntityId}
+                  className="rounded border border-gray-300 px-2 py-1.5 text-sm disabled:bg-gray-50">
+                  <option value="">Person (optional)…</option>
+                  {db.people.filter((p) => p.entity_id === apEntityId).map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                </select>
+              </div>
+              {remindersAvailable ? (
+                <>
+                  <textarea value={apNotes} onChange={(e) => setApNotes(e.target.value)} rows={2} placeholder="Notes (optional)…"
+                    className="w-full rounded border border-gray-300 p-2 text-sm" />
+                  <select value={apReminder} onChange={(e) => setApReminder(e.target.value)}
+                    className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
+                    {REMINDER_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                  </select>
+                </>
+              ) : (
+                <p className="text-[11px] text-gray-400">Notes and reminders aren&apos;t saved yet in this workspace — coming soon.</p>
+              )}
+            </div>
+            <button disabled={!apTitle.trim()} onClick={saveAppointment}
+              className="mt-3 w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-medium text-white disabled:opacity-40">
+              Create appointment
+            </button>
           </div>
         </div>
       )}

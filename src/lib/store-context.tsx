@@ -91,6 +91,11 @@ export interface StoreApi {
   ) => void;
   toggleTask: (id: string) => void;
   addTask: (t: Omit<TaskItem, 'id' | 'done'>) => void;
+  // Prompt 126 D — reminder popup Dismiss/Snooze. Deliberately scoped to
+  // just these two fields (not a general patch) — nothing else about a
+  // task is ever edited through this path. `null` (not `undefined`) is how
+  // Dismiss actually clears reminder_at server-side.
+  updateTask: (id: string, patch: { reminder_at?: string | null; snoozed_until?: string | null }) => void;
   // Batch 3 B — edit Organisation data (name, sender, caps, onboarding
   // fields). Owner+admin only; enforced server-side in /api/org/update (the
   // Supabase provider posts there), the UI just gates the form.

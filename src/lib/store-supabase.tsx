@@ -469,6 +469,13 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (o) persist(sb.from('tasks').insert({ ...row, org_id: o }), 'addTask');
     },
 
+    updateTask(id: string, patch: { reminder_at?: string | null; snoozed_until?: string | null }) {
+      const prev = dbRef.current;
+      const tasks = prev.tasks.map((t) => t.id === id ? { ...t, ...patch } : t);
+      commit({ ...prev, tasks });
+      if (orgIdRef.current) persist(sb.from('tasks').update(patch).eq('id', id), 'updateTask');
+    },
+
     updateOrg(patch: Partial<Org>) {
       const prev = dbRef.current;
       commit({ ...prev, org: { ...prev.org, ...patch } });

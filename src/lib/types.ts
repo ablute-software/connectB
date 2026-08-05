@@ -395,6 +395,18 @@ export interface TaskItem {
   // 'manual' when the founder typed it themselves from scratch. Undefined
   // for every task created before this shipped.
   source?: 'suggested' | 'manual';
+  // Prompt 126 D — free-text detail from the "create appointment" modal
+  // (migration 0123, propose-only). `reminder_at` is when the in-workspace
+  // popup should next fire for this task; cleared by Dismiss (explicit
+  // `null`, not `undefined` — Supabase's client drops `undefined` keys
+  // before the request even goes out, so a real clear needs `null`).
+  // `snoozed_until` pushes that firing back without touching `reminder_at`
+  // itself (Snooze 10min/1h/tomorrow). Both absent for every task before
+  // this shipped, and for every task created while migration 0123 isn't
+  // applied yet.
+  notes?: string | null;
+  reminder_at?: string | null;
+  snoozed_until?: string | null;
 }
 
 export interface RelationshipState {
