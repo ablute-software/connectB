@@ -34,6 +34,7 @@ import { logEvent } from '@/lib/analytics-events';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { recordInvestorDecisionFact } from '@/lib/ecosystem-facts';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { investorInterestNotifyAvailable } from '@/lib/investor-interest-notify-capability';
 
 // AP-08 — free text, not the old fixed category list. Max 1000 chars,
 // not blank/whitespace-only.
@@ -182,6 +183,20 @@ export async function POST(req: Request) {
   // that already happened via the RPC above; never influences the decision
   // itself, zero touches to decide_investor_relationship.
   await recordInvestorDecisionFact(admin, { orgId, decision: action === 'pass' ? 'pass' : 'interest' });
+
+  // Prompt 126 E — an email alone (below) isn't durable: if Resend isn't
+  // configured, or the founder misses it, "expressed interest" never
+  // actually lands anywhere inside their own workspace. Best-effort, same
+  // posture as the email block — a failure here never un-does the decision
+  // that already committed above via decide_investor_relationship.
+  if (action === 'interest' && await investorInterestNotifyAvailable()) {
+    try {
+      await admin.rpc('matchdeal_record_interest_notification', {
+        p_org_id: orgId, p_catalog_id: investorCatalogEntityId, p_reason_detail: reason ?? null,
+      });
+    } catch { /* best-effort — the decision itself is already recorded */ }
+  }
+
   if (action === 'pass') {
     await logEvent(admin, {
       organizationId: orgId, organizationType: 'startup', eventType: 'matchdeal_pipeline_access_revoked',
