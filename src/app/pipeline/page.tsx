@@ -5,7 +5,7 @@ import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
-import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur } from '@/components/ui';
+import { FitTag, PipeLoadingState, StatusPill, Tooltip, WaveTag, fmtEur } from '@/components/ui';
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 import { AddInvestorModal } from '@/components/AddInvestorModal';
@@ -209,7 +209,7 @@ function sortValue(db: Db, key: SortKey, e: Entity): unknown {
 
 export default function PipelinePage() {
   useTrackPageView('/pipeline');
-  const { db, markEntityVerified } = useStore();
+  const { db, loading, markEntityVerified } = useStore();
   const [q, setQ] = useState('');
   const [wave, setWave] = useState<string[]>([]);
   const [status, setStatus] = useState<string[]>([]);
@@ -318,6 +318,16 @@ export default function PipelinePage() {
     .filter((r) => r.tag)
     .sort((a, b) => (b.latest?.occurred_at ?? '').localeCompare(a.latest?.occurred_at ?? ''))
     .slice(0, 6);
+
+  // Prompt 126 F — the real bug this fixes: db.entities starts empty until
+  // the store's initial load resolves, and `noEntities` couldn't tell that
+  // apart from a genuinely empty org — a ~100-entity org briefly rendered
+  // "No investors in the pipeline yet" on every real-mode page load. Checked
+  // BEFORE noEntities, never instead of it: an org that's actually empty
+  // once loading finishes still gets the real empty state below.
+  if (loading) {
+    return <PipeLoadingState label="Loading your pipeline…" />;
+  }
 
   if (noEntities) {
     return (

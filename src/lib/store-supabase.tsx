@@ -186,10 +186,20 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
 
   const dbRef = useRef<Db>(EMPTY_DB);
   const orgIdRef = useRef<string | null>(null);
+  // Prompt 126 F — true until the initial load below resolves (success or
+  // not — a signed-out user or org-less account is "done loading", not
+  // "still loading"). See store-context.tsx's StoreApi.loading for why.
+  const loadingRef = useRef(true);
   const [version, bump] = useReducer((x: number) => x + 1, 0);
 
   function commit(next: Db) {
     dbRef.current = next;
+    bump();
+  }
+
+  function finishInitialLoad(next: Db) {
+    dbRef.current = next;
+    loadingRef.current = false;
     bump();
   }
 
@@ -220,7 +230,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     (async () => {
       const { data: { user } } = await sb.auth.getUser();
       if (cancelled) return;
-      if (!user) { commit(EMPTY_DB); return; }
+      if (!user) { finishInitialLoad(EMPTY_DB); return; }
       // Prompt 123 Block A — Developer Viewer overrides which org this
       // store loads. /api/me is the only place that re-verifies BOTH the
       // cookie and current developer status together (see its own
@@ -240,12 +250,18 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         oid = (member as { org_id: string } | null)?.org_id ?? null;
       }
       orgIdRef.current = oid;
-      if (!oid) { commit(EMPTY_DB); return; }
+      if (!oid) { finishInitialLoad(EMPTY_DB); return; }
       try {
         const loaded = await loadAll(sb, oid);
-        if (!cancelled) commit(loaded);
+        if (!cancelled) finishInitialLoad(loaded);
       } catch (err) {
         console.error('[supabase-store] initial load failed', err);
+        // A failed initial load falls through to the same empty state as a
+        // genuinely-empty org rather than spinning forever — this codebase
+        // doesn't have a general cross-page error-banner mechanism, and
+        // building one is out of scope for what this fix is actually about
+        // (loading vs. empty, not a new error-surfacing architecture).
+        if (!cancelled) finishInitialLoad(EMPTY_DB);
       }
     })();
     return () => { cancelled = true; };
@@ -254,6 +270,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
 
   const api = useMemo<StoreApi>(() => ({
     db: dbRef.current,
+    loading: loadingRef.current,
 
     logInteraction(input: LogInput) {
       const prev = dbRef.current;

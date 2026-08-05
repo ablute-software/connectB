@@ -37,6 +37,13 @@ export type LogInput = {
 
 export interface StoreApi {
   db: Db;
+  // Prompt 126 F — true only until the initial load resolves (real backend:
+  // the async org/data fetch; demo mode: always false, since localStorage is
+  // read synchronously into an already-seeded `db`). Lets a page tell "no
+  // rows yet" apart from "hasn't loaded yet" — the exact distinction the
+  // reported bug (a ~100-entity org briefly rendering "No investors in the
+  // pipeline yet") was missing entirely.
+  loading: boolean;
   logInteraction: (input: LogInput) => Interaction;
   // classifiedBy: stamps who currently owns this classification (migration
   // 0021). Always written verbatim, including when omitted — exactly like

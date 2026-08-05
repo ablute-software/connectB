@@ -38,8 +38,8 @@ function MiniStat({ label, value }: { label: string; value: string | number }) {
 // confirmed mutual match, so it's unclear what it would mean; flagged for
 // Nuno, not guessed.
 const SOURCE_LABELS: Record<string, string> = {
-  catalog: 'Sherlock curated pipeline', manual: 'Adicionado manualmente', match_deal: 'Match conquistado (MatchDeal)',
-  bulk_import: 'Bulk import', known_contact: 'Contacto já conhecido', investor_invite: 'Convite do investidor', unknown: 'Unknown',
+  catalog: 'Sherlock curated pipeline', manual: 'Added manually', match_deal: 'Matched via MatchDeal',
+  bulk_import: 'Bulk import', known_contact: 'Already-known contact', investor_invite: 'Investor invite', unknown: 'Unknown',
 };
 
 export function FundraisingOutcomesTab() {

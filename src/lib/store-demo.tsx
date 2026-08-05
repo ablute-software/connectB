@@ -39,6 +39,10 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
 
   const api = useMemo<StoreApi>(() => ({
     db,
+    // Prompt 126 F — demo mode is never in a genuine "not loaded yet" state:
+    // `db` starts pre-seeded (useState(seed)), so there's no window where a
+    // real page's data looks emptier than it actually is.
+    loading: false,
 
     logInteraction(input) {
       const interaction: Interaction = {

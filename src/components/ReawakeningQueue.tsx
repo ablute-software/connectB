@@ -51,7 +51,7 @@ export function ReawakeningQueue() {
     <Card tint="amber"
       title={
         <span className="flex items-center gap-2">
-          <span>↻ {pending.length} investidor{pending.length === 1 ? '' : 'es'} pode{pending.length === 1 ? '' : 'm'} renascer</span>
+          <span>↻ {pending.length} investor{pending.length === 1 ? '' : 's'} may reawaken</span>
           <Tooltip text="A confirmed company fact may have changed the reason behind a “no”. Re-evaluate — nothing moves without your approval.">
             <span className="cursor-help text-xs text-amber-600">?</span>
           </Tooltip>
@@ -59,7 +59,7 @@ export function ReawakeningQueue() {
       }
       right={pending.length > 1 ? (
         <button onClick={approveAll} className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#0c637b]">
-          Aprovar todos
+          Approve all
         </button>
       ) : undefined}
     >
@@ -70,14 +70,14 @@ export function ReawakeningQueue() {
           return (
             <li key={p.id} className="py-2.5">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold">{entity?.name ?? 'Investidor'}</span>
+                <span className="text-sm font-semibold">{entity?.name ?? 'Investor'}</span>
                 {p.fact_statement && (
-                  <span className="rounded bg-white/70 px-1.5 py-0.5 text-[11px] text-gray-600">facto: {p.fact_statement}</span>
+                  <span className="rounded bg-white/70 px-1.5 py-0.5 text-[11px] text-gray-600">fact: {p.fact_statement}</span>
                 )}
               </div>
               {p.prior_pass_reason && (
                 <p className="mt-0.5 text-[12px] text-gray-500">
-                  <span className="font-medium text-gray-600">“não” anterior:</span> {p.prior_pass_reason}
+                  <span className="font-medium text-gray-600">Previous &ldquo;no&rdquo;:</span> {p.prior_pass_reason}
                   {p.prior_pass_category ? ` (${p.prior_pass_category})` : ''}
                 </p>
               )}
@@ -96,11 +96,11 @@ export function ReawakeningQueue() {
                 </label>
                 <button onClick={() => approveOne(p.id, p.suggested_wave, p.suggested_fit)}
                   className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
-                  Reabrir
+                  Reopen
                 </button>
                 <button onClick={() => rejectReawakening(p.id)}
                   className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-white">
-                  Ignorar
+                  Ignore
                 </button>
               </div>
             </li>
