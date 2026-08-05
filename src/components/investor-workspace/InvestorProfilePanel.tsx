@@ -65,7 +65,10 @@ function ExclusionsPicker({ selected, onChange }: { selected: string[]; onChange
     </div>
   );
 }
-interface ProfileResponse {
+// Exported so InvestorWorkspaceShell can fetch this same endpoint itself
+// (see that file's own header comment for why) without duplicating or
+// drifting from this shape.
+export interface ProfileResponse {
   linked: boolean; entityName?: string | null; profile?: Profile; completeness?: number; sectorOptions?: string[];
   identityStatus?: IdentityStatus;
 }

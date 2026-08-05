@@ -5,7 +5,7 @@
 // two audiences' nav items don't overlap at all and forcing one shared
 // component to serve both would need capability branching throughout.
 import { useEffect, useState } from 'react';
-import { InvestorProfilePanel } from './InvestorProfilePanel';
+import { InvestorProfilePanel, type ProfileResponse } from './InvestorProfilePanel';
 import { PipelinePanel } from './PipelinePanel';
 import { InvestorAgendaPanel } from './InvestorAgendaPanel';
 import { InvestorTodayPanel } from './InvestorTodayPanel';
@@ -79,6 +79,23 @@ export function InvestorWorkspaceShell({
 
   useEffect(() => {
     fetch('/api/portal/today').then((r) => r.json()).then((d) => setTodayCount((d.items ?? []).length)).catch(() => setTodayCount(null));
+  }, []);
+
+  // Bug fix (2026-08-05) — pct/investorFirmName/identityStatus used to be
+  // filled ONLY by InvestorProfilePanel, which only ever mounts once the
+  // About tab is selected. Since the initial tab is always 'pipeline', pct
+  // stayed null on first render for every investor, every session — a
+  // 100%-complete profile still hit the "Complete your investor profile"
+  // gate below until the investor happened to click About once. This shell
+  // now fetches the same endpoint itself on mount, independent of which tab
+  // is active; InvestorProfilePanel still does its own fetch when it
+  // mounts (unchanged), it's just no longer the only source of this state.
+  useEffect(() => {
+    fetch('/api/portal/investor-profile').then((r) => r.json()).then((d: ProfileResponse) => {
+      if (d.completeness != null) setPct(d.completeness);
+      setInvestorFirmName(d.linked ? d.entityName ?? null : null);
+      setIdentityStatus(d.linked ? d.identityStatus ?? null : null);
+    }).catch(() => {});
   }, []);
 
   const aboutLabel = investorFirmName ? `About ${investorFirmName}` : 'About your firm';
