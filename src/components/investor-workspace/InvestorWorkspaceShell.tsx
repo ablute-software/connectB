@@ -200,7 +200,8 @@ export function InvestorWorkspaceShell({
                 </div>
               ) : (
                 <PipelinePanel onOpenStartup={onOpenStartup}
-                  onOpenEvaluationTool={(orgId) => { setEvaluationTargetOrgId(orgId); setTab('evaluation'); }} />
+                  onOpenEvaluationTool={(orgId) => { setEvaluationTargetOrgId(orgId); setTab('evaluation'); }}
+                  onGoToArchive={() => setTab('archive')} />
               )
             ) : (
               <EmptyState

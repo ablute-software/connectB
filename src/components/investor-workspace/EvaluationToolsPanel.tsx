@@ -86,7 +86,13 @@ function OwnershipCalculatorTool({ cards, selectedOrgId, onSelectOrg, onSwitchTo
             </div>
 
             <div className="mt-4">
-              <div className="mb-1 text-xs text-gray-500">Hypothetical future rounds (dilution %):</div>
+              <div className="mb-1 flex items-center gap-1 text-xs text-gray-500">
+                Hypothetical future rounds — expected dilution per round (%)
+                <span className="cursor-help text-gray-400"
+                  title="Each box is one future round and how much of your stake you expect it to dilute. 10 means you keep 90% of your position after that round.">
+                  ⓘ
+                </span>
+              </div>
               <div className="flex flex-wrap items-center gap-2">
                 {futureDilutions.map((d, i) => (
                   <input key={i} type="number" value={d}
@@ -94,8 +100,13 @@ function OwnershipCalculatorTool({ cards, selectedOrgId, onSelectOrg, onSwitchTo
                     className="w-16 rounded border border-gray-300 px-1.5 py-1 text-sm" />
                 ))}
               </div>
+              {/* Item 9 — the formula itself, with the investor's own
+                  numbers, right where the result is — no tooltip needed to
+                  understand what "0.64%" came from. */}
               {result.ownershipAfterFutureRoundsPct.map((pct, i) => (
-                <div key={i} className="mt-1 text-xs text-gray-600">After round +{i + 1}: <span className="font-medium">{fmtPct(pct)}</span></div>
+                <div key={i} className="mt-1 text-xs text-gray-600">
+                  After round +{i + 1} (−{futureDilutions[i] || 0}%): <span className="font-medium">{fmtPct(pct)}</span>
+                </div>
               ))}
             </div>
           </div>

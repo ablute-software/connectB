@@ -95,6 +95,16 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   const usualCoInvestors = (investorProfile as { usual_co_investors: string | null }).usual_co_investors;
   if (orgIds.length === 0) return { linked: true as const, waves: [], usualCoInvestors };
 
+  // Item 8 — archiving used to leave a card looking completely unchanged on
+  // the Pipeline (the entry itself landed fine in investor_archive_entries,
+  // just nothing on THIS screen said so). Same source of truth the Archive
+  // tab itself reads (createArchiveEntry/investor_archive_entries,
+  // reopened_at is null = currently archived) — a real, reload-proof flag,
+  // not session-local state.
+  const { data: archiveEntries } = await admin.from('investor_archive_entries')
+    .select('org_id').eq('investor_email', email).is('reopened_at', null);
+  const archivedOrgIds = new Set((archiveEntries ?? []).map((e) => e.org_id as string));
+
   // Prompt 115 Block E — round_valuation_basis only added to the select once
   // the propose-only migration (0111) has landed; an unrecognized column
   // name in an explicit select list fails the whole query. Two literal
@@ -174,6 +184,7 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       // a wave number — deciding that is presentation, not eligibility.
       viaGrant: grantedOrgIds.has(org.id as string),
       viaDecision: decidedOrgIds.has(org.id as string),
+      isArchived: archivedOrgIds.has(org.id as string),
     };
   }).sort((a, b) => b.matchScore - a.matchScore);
 

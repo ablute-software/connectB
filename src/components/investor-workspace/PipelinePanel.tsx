@@ -23,6 +23,10 @@ interface Card {
   // published. Drives the "Invited" badge below instead of a wave number —
   // a relationship card was never subject to wave doseamento to begin with.
   viaGrant?: boolean; viaDecision?: boolean;
+  // Item 8 — same source of truth the Archive tab itself reads
+  // (investor_archive_entries, reopened_at is null), not session-local
+  // state, so the badge survives a reload just like everything else here.
+  isArchived?: boolean;
   trackingCount: number; hasDataRoomAccess: boolean;
 }
 interface Wave { index: number; items: Card[]; unlocked: boolean }
@@ -47,12 +51,14 @@ function fmtDecidedAt(iso: string | null | undefined, decidedByMe: boolean | nul
   return ` on ${date}${who}`;
 }
 
-export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool }: {
+export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool, onGoToArchive }: {
   onOpenStartup: (orgId: string) => void;
   // P131-B — the per-card calculator button now opens the dedicated
   // Evaluation tools tab with this startup preselected, instead of
   // expanding inline on the card.
   onOpenEvaluationTool: (orgId: string) => void;
+  // Item 8 — the archive success toast's "Go to Archive" link.
+  onGoToArchive: () => void;
 }) {
   const [data, setData] = useState<PipelineResponse | null>(null);
   // AP-07/08 — confirming holds the card + action awaiting Cancel/Confirm;
@@ -69,6 +75,12 @@ export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool }: {
   // to prevent. The server already returns { qa: true } for this case; this
   // just surfaces it instead of silently doing nothing differently.
   const [qaToast, setQaToast] = useState<string | null>(null);
+  // Item 8 — archiving worked (the entry landed in the Archive tab fine)
+  // but gave zero feedback where the click happened: same card, same
+  // buttons, nothing. The persistent "Archived" badge (isArchived, from the
+  // server) fixes the state half of that; this is the one-time toast for
+  // the moment it just happened.
+  const [archivedToastOrgId, setArchivedToastOrgId] = useState<string | null>(null);
   const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
   const [remindedOrgId, setRemindedOrgId] = useState<string | null>(null);
   const [compareIds, setCompareIds] = useState<string[]>([]);
@@ -153,11 +165,13 @@ export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool }: {
   // investor sets it aside without recording a "why not" swipe reason.
   async function archiveManually(orgId: string) {
     setBusyOrgId(orgId);
+    setArchivedToastOrgId(null);
     try {
-      await fetch('/api/portal/archive', {
+      const res = await fetch('/api/portal/archive', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ archiveOrgId: orgId }),
       });
+      if (res.ok) setArchivedToastOrgId(orgId);
       load();
     } finally { setBusyOrgId(null); }
   }
@@ -358,6 +372,24 @@ export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool }: {
                   className="mt-2 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
                   🧮 Ownership calculator
                 </button>
+
+                {/* Item 8 — archiving used to be invisible on the card that
+                    triggered it: same buttons, same look, no sign anything
+                    happened (the entry landed in the Archive tab fine, the
+                    Nuno just had no way to know that from here). isArchived
+                    is real, reload-proof server state (Archive tab's own
+                    source of truth) — kept separate from the interested/
+                    passed/open status above, since archiving tidies up,
+                    it never erases the underlying decision (AP-06). */}
+                {c.isArchived && (
+                  <p className="mt-2 text-[11px] font-medium text-gray-400">📦 Archived</p>
+                )}
+                {archivedToastOrgId === c.orgId && (
+                  <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-2.5 py-1.5 text-xs text-gray-600">
+                    <span>Archived — you&apos;ll find it in the Archive tab.</span>
+                    <button onClick={onGoToArchive} className="font-medium text-[#0E7490] hover:underline">Go to Archive →</button>
+                  </div>
+                )}
 
                 {c.status === 'passed' ? (
                   <p className="mt-3 text-xs text-gray-400">
