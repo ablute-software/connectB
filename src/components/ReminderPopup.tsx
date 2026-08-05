@@ -10,16 +10,9 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { EntityLink } from '@/components/ui';
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL } from '@/lib/relationship';
-import type { TaskItem } from '@/lib/types';
+import { dueReminders } from '@/lib/reminders';
 
 const POLL_MS = 30_000;
-
-function dueReminders(tasks: TaskItem[], now: number): TaskItem[] {
-  return tasks
-    .filter((t) => !t.done && t.reminder_at && new Date(t.reminder_at).getTime() <= now
-      && (!t.snoozed_until || new Date(t.snoozed_until).getTime() <= now))
-    .sort((a, b) => new Date(a.reminder_at!).getTime() - new Date(b.reminder_at!).getTime());
-}
 
 export function ReminderPopup() {
   const { db, updateTask } = useStore();
