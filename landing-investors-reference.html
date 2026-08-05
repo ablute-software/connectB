@@ -19,9 +19,6 @@
                                 of the Startup side's 3-column kanban mock.
     .claim-wrap / .claim-card — "Your firm may already be here" section: the
                                 claim-a-profile hook, directly under the hero.
-    .soon-tag                 — small amber "Coming soon" chip on a feature
-                                card whose backend (consent-based intros)
-                                isn't live yet.
     .faq / .faq-item          — plain <details>/<summary> accordion, 4 items.
   Everything else (nav, audience toggle, buttons, pricing card/toggle, split,
   band, footer) reuses the Startup side's classes unchanged.
@@ -132,7 +129,6 @@
   .fcard .ic{width:48px;height:48px;border-radius:13px;display:flex;align-items:center;justify-content:center;background:var(--teal-soft);margin-bottom:18px}
   .fcard h3{font-size:1.13rem;font-weight:600;margin-bottom:8px}
   .fcard p{font-size:.92rem;color:var(--muted)}
-  .soon-tag{display:inline-block;margin-left:8px;font-size:.62rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:999px;background:var(--amber-soft);color:#8a6414;vertical-align:middle}
 
   /* how it works */
   .how{background:linear-gradient(180deg,#fff 0%,var(--bg) 100%);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
@@ -333,13 +329,13 @@
       <div class="rv in">
         <span class="eyebrow">Access</span>
         <h2>Browse privately. Engage on your terms.</h2>
-        <p>Explore your mandate-matched opportunities in private — no tracking, no pressure, no founder wondering why you looked. When you're ready to go further, consent-based introductions (coming soon) put both sides in agreement before any identity or data room is shared.</p>
+        <p>Explore your mandate-matched opportunities in private — no tracking, no pressure, no founder wondering why you looked. When you're ready to go further, introductions run on MatchDeal, our companion discovery app, where the startup decides and a mutual opt-in is what opens identity or a data room.</p>
       </div>
       <div class="panel rv in">
         <div class="fact"><div class="f-l">Organisation profile<small>verified</small></div><span class="pill ok">Complete</span></div>
         <div class="fact"><div class="f-l">Investment mandate<small>hard criteria set</small></div><span class="pill ok">Active</span></div>
         <div class="fact"><div class="f-l">Browsing<small>private by default</small></div><span class="pill ok">Always on</span></div>
-        <div class="fact"><div class="f-l">Consent-based introductions<small>identity sharing, both sides agree</small></div><span class="pill pending">Coming soon</span></div>
+        <div class="fact"><div class="f-l">Consent-based introductions<small>on MatchDeal — both sides opt in</small></div><span class="pill ok">Live</span></div>
       </div>
     </div>
     <div class="split">
@@ -378,7 +374,7 @@
         <h3>Boy Scout</h3><p class="who">For angels and first funds</p>
         <div class="price"><span>€130</span><small>/month</small></div>
         <p class="per-year">billed monthly + VAT · €100/mo annual (€1,200/yr)</p>
-        <ul><li>1 mandate</li><li>2 seats</li><li>Up to 60 qualified opportunities/mo</li><li>Qualification Inbox</li><li>Pipeline OS &amp; Scout Briefs</li></ul>
+        <ul><li>1 mandate</li><li>2 seats</li><li>Up to 60 qualified opportunities/mo</li><li>Curated waves</li><li>Pipeline OS &amp; fit breakdowns</li></ul>
         <a class="btn btn-ghost-light" href="/signup?as=investor">Claim your profile</a>
       </div>
       <div class="plan pop rv in">
@@ -408,7 +404,7 @@
     <div class="sec-head rv in"><span class="eyebrow">Questions</span><h2>Frequently asked</h2></div>
     <div class="faq rv in">
       <details class="faq-item"><summary>Is my deal flow private?</summary><p>Yes. Your mandate and the startups matched to it are private to your organisation by default. It is never used to grow the marketplace or train shared models without your explicit consent.</p></details>
-      <details class="faq-item"><summary>Who can see startup data?</summary><p>Only verified investor organisations with a complete profile and an active mandate. Browsing your matches is private — founders aren't notified while you're exploring. When you want to go further, consent-based introductions (coming soon) put both sides in agreement before any identity or data room is shared.</p></details>
+      <details class="faq-item"><summary>Who can see startup data?</summary><p>Only verified investor organisations with a complete profile and an active mandate. Browsing your matches is private — founders aren't notified while you're exploring. When you want to go further, introductions happen on MatchDeal, our companion discovery app: the startup decides, and only a mutual opt-in opens identity or a data room.</p></details>
       <details class="faq-item"><summary>How do you verify investors?</summary><p>Work email and domain for collaboration; stronger proof — including official registry checks — for organisation control and sensitive actions.</p></details>
       <details class="faq-item"><summary>What does "qualified opportunity" mean?</summary><p>A company that passed your mandate's hard criteria and received a full analysis: fit, evidence, risks and a recommended action. Raw names on a list do not count against your capacity.</p></details>
     </div>

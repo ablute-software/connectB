@@ -86,7 +86,7 @@ const STEPS = [
   { n: '3', tag: 'Qualify and decide', h: 'Qualify and decide', p: 'Work each curated wave of startups matched to your mandate — fit explained against your criteria, evidence of what each startup has shared with you, and a pipeline you run end to end.' },
 ];
 
-const FEATURES: { title: string; body: string; soon?: boolean }[] = [
+const FEATURES: { title: string; body: string }[] = [
   { title: 'Mandate Builder', body: 'Versioned, shareable investment mandates.' },
   { title: 'Curated waves', body: 'You never see a feed. Startups arrive in finite, filtered waves matched to your mandate — you work each wave before the next one opens.' },
   { title: 'Fit, explained', body: 'Every match is scored against your actual thesis — sector, stage, ticket, geography, instrument — with the reasoning visible, not a black-box score.' },
@@ -97,7 +97,7 @@ const FEATURES: { title: string; body: string; soon?: boolean }[] = [
 
 const FAQS = [
   { q: 'Is my deal flow private?', a: 'Yes. Your mandate and the startups matched to it are private to your organisation by default. It is never used to grow the marketplace or train shared models without your explicit consent.' },
-  { q: 'Who can see startup data?', a: 'Only verified investor organisations with a complete profile and an active mandate. Browsing your matches is private — founders aren’t notified while you’re exploring. When you want to go further, consent-based introductions (coming soon) put both sides in agreement before any identity or data room is shared.' },
+  { q: 'Who can see startup data?', a: 'Only verified investor organisations with a complete profile and an active mandate. Browsing your matches is private — founders aren’t notified while you’re exploring. When you want to go further, introductions happen on MatchDeal, our companion discovery app: the startup decides, and only a mutual opt-in opens identity or a data room.' },
   { q: 'How do you verify investors?', a: 'Work email and domain for collaboration; stronger proof — including official registry checks — for organisation control and sensitive actions.' },
   { q: 'What does "qualified opportunity" mean?', a: 'A company that passed your mandate’s hard criteria and received a full analysis: fit, evidence, risks and a recommended action. Raw names on a list do not count against your capacity.' },
 ];
@@ -234,7 +234,7 @@ export default async function InvestorLandingPage() {
             {FEATURES.map((f, i) => (
               <div key={f.title} className={`${s.fcard} ${s.rv} ${i % 3 === 1 ? s.d1 : i % 3 === 2 ? s.d2 : ''}`} data-reveal>
                 <div className={s.ic}><CheckGreen /></div>
-                <h3>{f.title}{f.soon && <span className={s.soonTag}>Coming soon</span>}</h3>
+                <h3>{f.title}</h3>
                 <p>{f.body}</p>
               </div>
             ))}
@@ -251,21 +251,21 @@ export default async function InvestorLandingPage() {
               <h2>Browse privately. Engage on your terms.</h2>
               <p>
                 Explore your mandate-matched opportunities in private — no tracking, no pressure, no
-                founder wondering why you looked. When you&apos;re ready to go further, consent-based
-                introductions (coming soon) put both sides in agreement before any identity or data
-                room is shared.
+                founder wondering why you looked. When you&apos;re ready to go further, introductions run
+                on MatchDeal, our companion discovery app, where the startup decides and a mutual opt-in
+                is what opens identity or a data room.
               </p>
               <ul>
                 <li><CheckGreen />Explore your matches privately, always</li>
                 <li><CheckGreen />No founder notifications while you&apos;re just looking</li>
-                <li><ClockAmber />Consent-based introductions before identity is shared — coming soon</li>
+                <li><CheckGreen />Consent-based introductions on MatchDeal — the startup opts in before identity is shared</li>
               </ul>
             </div>
             <div className={`${s.panel} ${s.rv} ${s.d1}`} data-reveal>
               <div className={s.fact}><div className={s.fL}>Organisation profile<small>verified</small></div><span className={`${s.pill} ${s.pillOk}`}>Complete</span></div>
               <div className={s.fact}><div className={s.fL}>Investment mandate<small>hard criteria set</small></div><span className={`${s.pill} ${s.pillOk}`}>Active</span></div>
               <div className={s.fact}><div className={s.fL}>Browsing<small>private by default</small></div><span className={`${s.pill} ${s.pillOk}`}>Always on</span></div>
-              <div className={s.fact}><div className={s.fL}>Consent-based introductions<small>identity sharing, both sides agree</small></div><span className={`${s.pill} ${s.pillPending}`}>Coming soon</span></div>
+              <div className={s.fact}><div className={s.fL}>Consent-based introductions<small>on MatchDeal — both sides opt in</small></div><span className={`${s.pill} ${s.pillOk}`}>Live</span></div>
             </div>
           </div>
 

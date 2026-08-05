@@ -276,8 +276,6 @@
 .claimMeta { font-size: .82rem; color: var(--muted); margin-bottom: 18px; }
 .claimBtn { display: inline-flex; align-items: center; justify-content: center; width: 100%; padding: 11px 18px; border-radius: 999px; font-weight: 600; font-size: .88rem; background: var(--teal); color: #fff; }
 
-/* ---------- coming soon tag ---------- */
-.soonTag { display: inline-block; margin-left: 8px; font-size: .62rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--amber-soft); color: #8a6414; vertical-align: middle; }
 .vat { font-size: .78rem; color: var(--muted); }
 
 /* ---------- FAQ ---------- */
