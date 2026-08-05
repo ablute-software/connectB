@@ -26,6 +26,7 @@ import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
 import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
 import { InvestorWorkspaceShell } from '@/components/investor-workspace/InvestorWorkspaceShell';
+import { InteractionLogDrawer } from '@/components/investor-workspace/InteractionLogDrawer';
 import { RoundUpdatesFeed } from '@/components/investor-workspace/RoundUpdatesFeed';
 import { QAPanel } from '@/components/investor-workspace/QAPanel';
 import { SoftCommitButton } from '@/components/investor-workspace/SoftCommitButton';
@@ -241,6 +242,9 @@ export default function PortalPage() {
   // and triggers loadAccess(orgId) below to refetch `real` for THAT org
   // specifically instead of whatever the default single-org fetch returned.
   const [openOrgId, setOpenOrgId] = useState<string | null>(null);
+  // P133 (item 10) — the same Interaction log drawer PipelinePanel opens
+  // from a card, reachable here too from the startup's own data-room view.
+  const [interactionLogOpen, setInteractionLogOpen] = useState(false);
 
   function loadAccess(orgId?: string) {
     setLoading(true);
@@ -391,7 +395,17 @@ export default function PortalPage() {
           <TicketSelector orgId={real.orgId} current={real.currentTicketSignal} qaAccess={real.qaAccess} />
         )}
         {authEnabled && real?.orgId && <SoftCommitButton orgId={real.orgId} />}
+        {authEnabled && real?.orgId && (
+          <button onClick={() => setInteractionLogOpen(true)}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+            🗂 Interaction log
+          </button>
+        )}
         {authEnabled && real?.orgId && <QAPanel orgId={real.orgId} />}
+        {authEnabled && real?.orgId && interactionLogOpen && (
+          <InteractionLogDrawer orgId={real.orgId} orgName={real.snapshot?.name ?? orgName ?? 'Startup'}
+            onClose={() => setInteractionLogOpen(false)} />
+        )}
         {pendingNdaCount > 0 && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             Awaiting NDA — {pendingNdaCount} more item{pendingNdaCount === 1 ? '' : 's'} will appear here once your signed NDA is on file.

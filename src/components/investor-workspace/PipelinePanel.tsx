@@ -5,6 +5,7 @@
 // fully treated (every card passed or expressed interest on).
 import { Fragment, useEffect, useState } from 'react';
 import { ComparisonView } from './ComparisonView';
+import { InteractionLogDrawer } from './InteractionLogDrawer';
 
 const MAX_COMPARE = 3;
 
@@ -81,6 +82,8 @@ export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool, onGoToArchi
   // server) fixes the state half of that; this is the one-time toast for
   // the moment it just happened.
   const [archivedToastOrgId, setArchivedToastOrgId] = useState<string | null>(null);
+  // P133 (item 10) — which card's Interaction log drawer is open, if any.
+  const [interactionLogOrgId, setInteractionLogOrgId] = useState<string | null>(null);
   const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
   const [remindedOrgId, setRemindedOrgId] = useState<string | null>(null);
   const [compareIds, setCompareIds] = useState<string[]>([]);
@@ -368,10 +371,19 @@ export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool, onGoToArchi
                   </p>
                 )}
 
-                <button onClick={() => onOpenEvaluationTool(c.orgId)}
-                  className="mt-2 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
-                  🧮 Ownership calculator
-                </button>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button onClick={() => onOpenEvaluationTool(c.orgId)}
+                    className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+                    🧮 Ownership calculator
+                  </button>
+                  {/* P133 (item 10) — the investor-side mirror of the
+                      founder's own CRM interaction thread; opens a drawer
+                      scoped to this startup, never visible to the founder. */}
+                  <button onClick={() => setInteractionLogOrgId(c.orgId)}
+                    className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+                    🗂 Interaction log
+                  </button>
+                </div>
 
                 {/* Item 8 — archiving used to be invisible on the card that
                     triggered it: same buttons, same look, no sign anything
@@ -470,6 +482,11 @@ export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool, onGoToArchi
       ))}
       </div>
       {!firstUnlocked && <p className="text-xs text-gray-400">All caught up — check back as new matches arrive.</p>}
+      {interactionLogOrgId && (
+        <InteractionLogDrawer orgId={interactionLogOrgId}
+          orgName={allCards.find((c) => c.orgId === interactionLogOrgId)?.name ?? 'Startup'}
+          onClose={() => setInteractionLogOrgId(null)} />
+      )}
     </div>
   );
 }

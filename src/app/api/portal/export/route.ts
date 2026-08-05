@@ -8,6 +8,8 @@ import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { getArchiveEntries } from '@/lib/investor-archive';
 import { toCsv } from '@/lib/csv';
+import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
+import { getInteractionTimeline } from '@/lib/investor-interaction-log';
 
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
 
@@ -22,15 +24,26 @@ export async function GET(req: Request) {
   if (!user || !email) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   const type = new URL(req.url).searchParams.get('type');
-  if (type !== 'pipeline' && type !== 'archive') {
-    return NextResponse.json({ error: 'type must be "pipeline" or "archive".' }, { status: 400 });
+  if (type !== 'pipeline' && type !== 'archive' && type !== 'interaction-log') {
+    return NextResponse.json({ error: 'type must be "pipeline", "archive", or "interaction-log".' }, { status: 400 });
   }
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   let csv: string;
   let filename: string;
 
-  if (type === 'pipeline') {
+  if (type === 'interaction-log') {
+    const orgId = new URL(req.url).searchParams.get('orgId');
+    if (!orgId) return NextResponse.json({ error: 'orgId is required for interaction-log.' }, { status: 400 });
+    const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
+    const entries = investorCatalogEntityId ? await getInteractionTimeline(admin, { investorCatalogEntityId, email, orgId }) : [];
+    const rows = entries.map((e) => ({
+      at: e.at, kind: e.kind, channel: e.channel ?? '', content: e.content,
+      links: e.links.map((l) => `${l.label} (${l.url})`).join('; '),
+    }));
+    csv = toCsv(rows, ['at', 'kind', 'channel', 'content', 'links']);
+    filename = 'interaction-log.csv';
+  } else if (type === 'pipeline') {
     const result = await getPipelineWaves(sb, admin, user.id, email);
     const rows = (result.linked && result.waves ? result.waves : []).flatMap((w) => w.items.map((c) => ({
       name: c.name, stage: c.stage ? (STAGE_LABELS[c.stage] ?? c.stage) : '', sectors: c.sectors.join('; '),
