@@ -16,13 +16,19 @@
 // not a separate status value).
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+// Pure and exported separately from the DB fetch below so this exact
+// qualification rule is unit-tested directly, without mocking Supabase.
+export function matchQualifies(row: { status: string; cooldown_until: string | null }, now: Date = new Date()): boolean {
+  if (row.status !== 'active') return false;
+  if (row.cooldown_until && new Date(row.cooldown_until) > now) return false;
+  return true;
+}
+
 export async function findActiveMatchDealMatch(admin: SupabaseClient, startupProfileId: string, investorCatalogEntityId: string) {
-  const { data } = await admin.from('matchdeal_matches').select('id, created_at, cooldown_until')
+  const { data } = await admin.from('matchdeal_matches').select('id, created_at, status, cooldown_until')
     .eq('investor_catalog_entity_id', investorCatalogEntityId).eq('startup_profile_id', startupProfileId).eq('status', 'active')
     .order('created_at', { ascending: false }).limit(1).maybeSingle();
-  if (!data) return null;
-  const cooldownUntil = data.cooldown_until as string | null;
-  if (cooldownUntil && new Date(cooldownUntil) > new Date()) return null;
+  if (!data || !matchQualifies({ status: data.status as string, cooldown_until: data.cooldown_until as string | null })) return null;
   return { id: data.id as string, createdAt: data.created_at as string };
 }
 

@@ -11,7 +11,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
 import { dealMessagesAvailable } from '@/lib/deal-messages-capability';
-import { findThread, getOrCreateThread, getThreadMessages, postMessage, markThreadRead } from '@/lib/deal-messages';
+import { findThread, getOrCreateThread, getThreadMessages, postMessage, markThreadRead, canInvestorMessage } from '@/lib/deal-messages';
 import { resolveDocumentAccess, type GrantLike } from '@/lib/data-room';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
@@ -21,13 +21,6 @@ async function resolveCardAndInvestorId(admin: SupabaseClient, sb: Awaited<Retur
   const card = result.linked ? result.waves.flatMap((w) => w.items).find((c) => c.orgId === orgId) : null;
   const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, userId);
   return { card, investorCatalogEntityId };
-}
-
-// R2 (Prompt 134 §4) — investor can message only where a real relationship
-// already exists: interest expressed, or an active data-room grant. A
-// passed relationship or a bare discovery match doesn't qualify.
-function canInvestorMessage(card: { status: string; hasDataRoomAccess: boolean } | null | undefined) {
-  return !!card && (card.status === 'interested' || card.hasDataRoomAccess);
 }
 
 export async function GET(req: Request) {

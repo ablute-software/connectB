@@ -10,6 +10,16 @@ export interface DealMessage {
 
 const MAX_LINKS = 20;
 
+// R2 (Prompt 134 §4) — investor can message only where a real relationship
+// already exists: interest expressed, or an active data-room grant. A
+// passed relationship or a bare discovery match doesn't qualify. Pure and
+// exported (moved out of /api/portal/messages/route.ts) so this exact
+// authorization boundary is unit-tested directly, not just exercised
+// incidentally through a mocked route.
+export function canInvestorMessage(card: { status: string; hasDataRoomAccess: boolean } | null | undefined): boolean {
+  return !!card && (card.status === 'interested' || card.hasDataRoomAccess);
+}
+
 function sanitizeLinks(raw: unknown): { label: string; url: string }[] {
   if (!Array.isArray(raw)) return [];
   const out: { label: string; url: string }[] = [];
