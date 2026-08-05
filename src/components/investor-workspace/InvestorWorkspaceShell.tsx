@@ -12,6 +12,7 @@ import { InvestorTodayPanel } from './InvestorTodayPanel';
 import { ArchivePanel } from './ArchivePanel';
 import { AccessGrantedPanel } from './AccessGrantedPanel';
 import { InvestorPlansPanel } from './InvestorPlansPanel';
+import { EvaluationToolsPanel } from './EvaluationToolsPanel';
 import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
 import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { PageTour } from '@/components/onboarding/PageTour';
@@ -24,7 +25,7 @@ import { EmptyState } from '@/components/workspace-shell/EmptyState';
 import type { WorkspaceNavItem } from '@/components/workspace-shell/types';
 import { BRAND_NAME } from '@/lib/brand';
 
-type Tab = 'pipeline' | 'about' | 'access' | 'agenda' | 'today' | 'archive' | 'plans';
+type Tab = 'pipeline' | 'about' | 'access' | 'agenda' | 'today' | 'archive' | 'plans' | 'evaluation';
 
 const COMPLETENESS_GATE = 50;
 
@@ -63,6 +64,10 @@ export function InvestorWorkspaceShell({
   onBackToPipeline: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('pipeline');
+  // P131-B — set when a Pipeline card's "Ownership calculator" shortcut is
+  // clicked, so Evaluation tools opens with that startup already selected
+  // instead of the investor having to find it again in a dropdown.
+  const [evaluationTargetOrgId, setEvaluationTargetOrgId] = useState<string | null>(null);
   const [pct, setPct] = useState<number | null>(null);
   const [investorFirmName, setInvestorFirmName] = useState<string | null>(null);
   // Identity verification Fase B (prompt 64), Bloco 1 — the badge lives in
@@ -107,6 +112,9 @@ export function InvestorWorkspaceShell({
     // Prompt 121 §2.5 — new entry; access to documents used to live only
     // inside the Pipeline tab's startup card, with no page of its own.
     { key: 'access', label: 'Access granted', icon: '⚿' },
+    // P131-B — Ownership calculator (promoted from a per-card button to a
+    // real page) + Equity simulator, structured to grow with more tools.
+    { key: 'evaluation', label: 'Evaluation tools', icon: '⚖' },
     { key: 'agenda', label: 'Agenda', icon: '◔' },
     { key: 'today', label: 'Today', icon: '☀' },
     { key: 'archive', label: 'Archive', icon: '▣' },
@@ -191,7 +199,8 @@ export function InvestorWorkspaceShell({
                   {startupCard}
                 </div>
               ) : (
-                <PipelinePanel onOpenStartup={onOpenStartup} />
+                <PipelinePanel onOpenStartup={onOpenStartup}
+                  onOpenEvaluationTool={(orgId) => { setEvaluationTargetOrgId(orgId); setTab('evaluation'); }} />
               )
             ) : (
               <EmptyState
@@ -202,6 +211,7 @@ export function InvestorWorkspaceShell({
           )}
           {tab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} onEntityNameChange={setInvestorFirmName} onIdentityStatusChange={setIdentityStatus} />}
           {tab === 'access' && <AccessGrantedPanel />}
+          {tab === 'evaluation' && <EvaluationToolsPanel initialOrgId={evaluationTargetOrgId} />}
           {tab === 'agenda' && <InvestorAgendaPanel />}
           {tab === 'today' && <InvestorTodayPanel />}
           {tab === 'archive' && <ArchivePanel />}

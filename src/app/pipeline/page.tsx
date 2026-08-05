@@ -7,6 +7,7 @@ import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur } from '@/components/ui';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
+import { MatchDealVisibilityBanner } from '@/components/dashboard/MatchDealVisibilityBanner';
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 import { AddInvestorModal } from '@/components/AddInvestorModal';
@@ -333,6 +334,7 @@ export default function PipelinePage() {
   if (noEntities) {
     return (
       <div className="space-y-4">
+        <MatchDealVisibilityBanner />
         <PipelineUnlockBadge unlock={unlock} />
         <EmptyCompanyBlock variant="screen" />
       </div>
@@ -341,6 +343,12 @@ export default function PipelinePage() {
 
   return (
     <div className="space-y-4">
+      {/* P131-A — the banner already existed (Dashboard only, addenda to
+          Prompt 120); the founder-facing gap was that Pipeline — the page
+          this whole "why can't investors see us" mystery is actually about —
+          never had it. Same component, same /api/company/visibility source,
+          no new logic. */}
+      <MatchDealVisibilityBanner />
       <div className="flex items-center justify-end">
         <PageGuideButton pageKey="guide_pipeline" />
       </div>

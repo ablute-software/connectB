@@ -4,7 +4,6 @@
 // only the current wave is actionable, the rest stay locked until it's
 // fully treated (every card passed or expressed interest on).
 import { Fragment, useEffect, useState } from 'react';
-import { OwnershipCalculator } from './OwnershipCalculator';
 import { ComparisonView } from './ComparisonView';
 
 const MAX_COMPARE = 3;
@@ -29,7 +28,13 @@ function fmtEur(n: number | null) {
   return n == null ? null : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
 }
 
-export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string) => void }) {
+export function PipelinePanel({ onOpenStartup, onOpenEvaluationTool }: {
+  onOpenStartup: (orgId: string) => void;
+  // P131-B — the per-card calculator button now opens the dedicated
+  // Evaluation tools tab with this startup preselected, instead of
+  // expanding inline on the card.
+  onOpenEvaluationTool: (orgId: string) => void;
+}) {
   const [data, setData] = useState<PipelineResponse | null>(null);
   // AP-07/08 — confirming holds the card + action awaiting Cancel/Confirm;
   // reasonDraft is the free-text Pass reason (AP-08: required, not a fixed
@@ -38,6 +43,13 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string
   const [confirming, setConfirming] = useState<{ orgId: string; action: 'pass' | 'interest' } | null>(null);
   const [reasonDraft, setReasonDraft] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
+  // P131-C — the server already short-circuits @ablute.pt QA sessions
+  // (is_ablute_developer() in /api/portal/pipeline) so their clicks never
+  // write a real signal, but it never told the person clicking that —
+  // "I tested it and nothing happened" was the exact confusion this exists
+  // to prevent. The server already returns { qa: true } for this case; this
+  // just surfaces it instead of silently doing nothing differently.
+  const [qaToast, setQaToast] = useState<string | null>(null);
   const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
   const [remindedOrgId, setRemindedOrgId] = useState<string | null>(null);
   const [compareIds, setCompareIds] = useState<string[]>([]);
@@ -86,6 +98,7 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string
   async function act(orgId: string, action: 'pass' | 'interest', reason?: string) {
     setBusyOrgId(orgId);
     setActionError(null);
+    setQaToast(null);
     try {
       const res = await fetch('/api/portal/pipeline', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -99,6 +112,7 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string
       } else {
         setConfirming(null);
         setReasonDraft('');
+        if (body.qa) setQaToast('QA session — action simulated, nothing recorded.');
       }
       load();
     } finally { setBusyOrgId(null); }
@@ -234,6 +248,7 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string
       </div>
       {data.usualCoInvestors && <p className="text-xs text-gray-400">Usually co-invests with: {data.usualCoInvestors}</p>}
       {actionError && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
+      {qaToast && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{qaToast}</p>}
 
       {/* Prompt 127 §3 — before this, the only hint that comparison existed
           at all was the per-card checkbox itself, with zero invitation to
@@ -313,7 +328,10 @@ export function PipelinePanel({ onOpenStartup }: { onOpenStartup: (orgId: string
                   </p>
                 )}
 
-                <OwnershipCalculator roundValuationEur={c.roundValuationEur} roundTargetEur={c.roundTargetEur} roundValuationBasis={c.roundValuationBasis} />
+                <button onClick={() => onOpenEvaluationTool(c.orgId)}
+                  className="mt-2 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+                  🧮 Ownership calculator
+                </button>
 
                 {c.status === 'passed' ? (
                   <p className="mt-3 text-xs text-gray-400">
