@@ -19,11 +19,12 @@
 // NDA the founder uploads (and AI cross-checks) is what unlocks access now,
 // so there's nothing for the investor to click through here.
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
-import { getMagicLinkSent, setMagicLinkSent, clearMagicLinkSent } from '@/lib/magic-link-storage';
+import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
 import { InvestorWorkspaceShell } from '@/components/investor-workspace/InvestorWorkspaceShell';
 import { RoundUpdatesFeed } from '@/components/investor-workspace/RoundUpdatesFeed';
 import { QAPanel } from '@/components/investor-workspace/QAPanel';
@@ -253,19 +254,6 @@ export default function PortalPage() {
 
   // Real-mode session state. undefined = still checking, null = signed out.
   const [sessionEmail, setSessionEmail] = useState<string | null | undefined>(undefined);
-  const [linkSending, setLinkSending] = useState(false);
-  const [linkSent, setLinkSent] = useState(false);
-  const [linkErr, setLinkErr] = useState('');
-  // Prompt 44 — the "or enter the code" fallback (verifyOtp), and the
-  // localStorage-backed "already sent" state that survives a reload. See
-  // src/lib/magic-link-storage.ts for why: @supabase/ssr hardcodes PKCE
-  // flowType, so every new signInWithOtp call silently invalidates any
-  // link already sent — a reload handing back a fresh, ready-to-fire form
-  // is the single most common way that happens by accident.
-  const [showCodeEntry, setShowCodeEntry] = useState(false);
-  const [code, setCode] = useState('');
-  const [codeBusy, setCodeBusy] = useState(false);
-  const [codeErr, setCodeErr] = useState('');
 
   // Demo-mode-only sign-in toggle (no real auth exists in demo mode).
   const [demoSignedIn, setDemoSignedIn] = useState(false);
@@ -289,6 +277,12 @@ export default function PortalPage() {
   // branch and overwriting the code-entry UI the first invocation had just
   // set up. A lazy initializer runs before any effect (and before any
   // replaceState), so both Strict Mode invocations see the same value.
+  //
+  // Bug fix (2026-08-05) — the actual sign-in FORM (magic link, code,
+  // password, and the code-entry pre-fill this used to drive) now lives
+  // entirely in InvestorSignInForm, shared with /login?as=investor. This
+  // page just still owns the URL itself (clearing `linkFailed` after
+  // reading it) and the session check, since those aren't the form's job.
   const [linkFailed] = useState(() =>
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('linkFailed') === '1');
 
@@ -297,24 +291,9 @@ export default function PortalPage() {
     browserClient().auth.getUser().then(({ data }) => {
       setSessionEmail(data.user?.email?.toLowerCase() ?? null);
     });
-    const stored = getMagicLinkSent();
-    // /auth/callback couldn't exchange the code for a session (most
-    // likely: the link was opened in a different browser/device than the
-    // one that requested it, so the PKCE code_verifier cookie isn't here;
-    // or an email client's link-scanner already consumed the one-time code
-    // before the human clicked). Landing back on a blank "enter your
-    // email" form reads as a silent loop with no way out — the code field
-    // (same OTP, verified a different way) still works regardless of which
-    // browser is asking, so jump straight to it instead, pre-filled with
-    // the email if this browser still has it.
     if (linkFailed) {
-      if (stored) setEmail(stored.email);
-      setShowCodeEntry(true);
-      setLinkErr('That sign-in link didn’t complete — enter the code from the same email instead.');
       window.history.replaceState(null, '', window.location.pathname);
-      return;
     }
-    if (stored) { setEmail(stored.email); setLinkSent(true); }
   }, [linkFailed]);
 
   useEffect(() => {
@@ -375,50 +354,6 @@ export default function PortalPage() {
   const demoUnlockedFolderGrants = unlockedGrants(demoFolderGrants);
   const demoFolders = db.folders.filter((f) => demoUnlockedFolderGrants.some((g) => g.folder_id === f.id));
   const demoPendingNdaCount = (demoFolderGrants.length - demoUnlockedFolderGrants.length) + demoDocAccess.pendingCount;
-
-  async function sendMagicLink() {
-    setLinkErr(''); setLinkSending(true);
-    try {
-      const sb = browserClient();
-      const { error } = await sb.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/portal`,
-          // Explicit, not the implicit default: a self-created account here
-          // is harmless — RLS blocks every org-scoped table for anyone who
-          // isn't an org_member (confirmed live: entities/people/orgs/
-          // interactions/documents all return 0 rows), and
-          // /api/portal/access now only ever looks up grants for the
-          // session's OWN email. Blocking account creation would instead
-          // break the common case: a founder grants an email access before
-          // that person has ever signed up here.
-          shouldCreateUser: true,
-        },
-      });
-      if (error) { setLinkErr(error.message); return; }
-      setMagicLinkSent(email);
-      setLinkSent(true);
-    } finally { setLinkSending(false); }
-  }
-
-  async function verifyCode() {
-    setCodeErr(''); setCodeBusy(true);
-    try {
-      const sb = browserClient();
-      const { error } = await sb.auth.verifyOtp({ email, token: code, type: 'email' });
-      if (error) { setCodeErr(error.message); return; }
-      clearMagicLinkSent();
-      window.location.reload();
-    } finally { setCodeBusy(false); }
-  }
-
-  // "Not you? Start over" — the deliberate escape hatch from state B, since
-  // the primary email input is hidden once a link/code cycle is in
-  // progress (see the JSX below).
-  function startOver() {
-    clearMagicLinkSent();
-    setLinkSent(false); setEmail(''); setLinkErr(''); setCode(''); setCodeErr(''); setShowCodeEntry(false);
-  }
 
   function openDoc(doc: PortalDoc | { id: string; external_url?: string }) {
     if (authEnabled) {
@@ -560,49 +495,23 @@ export default function PortalPage() {
         ) : authEnabled && sessionEmail === undefined ? (
           <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>
         ) : authEnabled && !sessionEmail ? (
-          // Real mode, no session yet — the only way in is an actual magic
-          // link; the page never guesses or accepts a typed-in identity.
+          // Bug fix (2026-08-05) — this used to be a second, entirely
+          // separate sign-in form (magic link only, no password, and no
+          // link to the page that had one) that every real investor path
+          // (the magic-link redirect, /login's own default `next`) lands
+          // on and bookmarks — so investors never saw password sign-in at
+          // all, no matter how many times they set one. Now renders the
+          // same InvestorSignInForm as /login?as=investor. See that
+          // component's own header for the full root-cause writeup.
           <div className="mx-auto mt-16 max-w-sm rounded-lg border border-gray-200 bg-white p-6 text-center">
             <h1 className="text-lg font-semibold">Sign in</h1>
-            <p className="mt-1 text-sm text-gray-500">Enter the email your access was granted to. We’ll send a magic link — no password.</p>
-            {linkSent ? (
-              <>
-                <p className="mt-4 text-sm text-green-700">Check your email for the sign-in link — sent to {email}.</p>
-                <p className="mt-2 text-xs text-gray-400">Open the link on this same device and browser you used to request it. Checking email on your phone instead? Use the code below.</p>
-                <button onClick={startOver} className="mt-2 text-xs text-gray-400 hover:underline">Not you? Start over</button>
-              </>
-            ) : (
-              <>
-                <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@fund.com"
-                  className="mt-4 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-                <button onClick={sendMagicLink} disabled={!email.includes('@') || linkSending}
-                  className="mt-3 w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-medium text-white disabled:opacity-40">
-                  {linkSending ? 'Sending…' : 'Email me a sign-in link'}
-                </button>
-                {linkErr && <p className="mt-2 text-xs text-[#B00000]">{linkErr}</p>}
-              </>
-            )}
-            {/* Prompt 44 — visible in BOTH states, not just after sending:
-                a link requested on another device (e.g. a laptop, then
-                checked on a phone) never has this browser's "already sent"
-                state, so the code fallback has to be reachable from the
-                fresh form too, not only after a link this same browser sent. */}
-            {showCodeEntry ? (
-              <div className="mt-4 border-t border-gray-100 pt-4 text-left">
-                <label className="mb-1 block text-xs font-medium text-gray-500">6-digit code from the email</label>
-                <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="123456" inputMode="numeric"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-                <button onClick={verifyCode} disabled={!email.includes('@') || !code || codeBusy}
-                  className="mt-2 w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-medium text-white disabled:opacity-40">
-                  {codeBusy ? 'Checking…' : 'Use code'}
-                </button>
-                {codeErr && <p className="mt-2 text-xs text-[#B00000]">{codeErr}</p>}
-              </div>
-            ) : (
-              <button onClick={() => setShowCodeEntry(true)} className="mt-3 text-xs text-gray-400 hover:underline">
-                Have a sign-in code instead?
-              </button>
-            )}
+            <p className="mt-1 text-sm text-gray-500">Enter the email your access was granted to.</p>
+            <div className="mt-4 text-left">
+              <InvestorSignInForm next="/portal" linkFailed={linkFailed} />
+            </div>
+            <Link href="/forgot-password" className="mt-3 block w-full text-center text-xs text-gray-400 hover:underline">
+              Forgot your password?
+            </Link>
           </div>
         ) : loading ? (
           <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>
