@@ -75,7 +75,7 @@ function ClockAmber() {
 
 const DEAL_ROWS = [
   { co: 'BioSense Labs', match: 'Perfect 94%', why: 'Round opening', next: 'Propose meeting' },
-  { co: 'Northline Robotics', match: 'Strong 81%', why: 'New lead investor', next: 'Review Scout Brief' },
+  { co: 'Northline Robotics', match: 'Strong 81%', why: 'New lead investor', next: 'Review fit breakdown' },
   { co: 'Vantage Grid', match: 'Good 68%', why: 'Traction milestone', next: 'Add to watchlist' },
   { co: 'Cobalt Health', match: 'Perfect 91%', why: 'Thesis match', next: 'Propose meeting' },
 ];
@@ -83,20 +83,20 @@ const DEAL_ROWS = [
 const STEPS = [
   { n: '1', tag: 'Claim & verify', h: 'Claim & verify', p: 'Find your organisation, verify your work email and your role. Verification is proportional: light to collaborate, strong to administer.' },
   { n: '2', tag: 'Build your mandate', h: 'Build your mandate', p: "Turn your thesis into an operational mandate: hard criteria, weighted preferences, exclusions, cheque range. Usable in your first session." },
-  { n: '3', tag: 'Qualify and decide', h: 'Qualify and decide', p: "Forward your own deal flow to your mandate's inbox, get Scout Briefs with fit, evidence and risks, and run your pipeline end to end. As the network grows, Sherlock also brings you companies you did not know." },
+  { n: '3', tag: 'Qualify and decide', h: 'Qualify and decide', p: 'Work each curated wave of startups matched to your mandate — fit explained against your criteria, evidence of what each startup has shared with you, and a pipeline you run end to end.' },
 ];
 
 const FEATURES: { title: string; body: string; soon?: boolean }[] = [
   { title: 'Mandate Builder', body: 'Versioned, shareable investment mandates.' },
-  { title: 'Qualification Inbox', body: 'Forward a deck, get a qualified opportunity with fit, risks and questions. Private by default.' },
-  { title: 'Scout Brief', body: 'A one-page brief per opportunity: fit criterion by criterion, evidence with sources, recommended next action.' },
+  { title: 'Curated waves', body: 'You never see a feed. Startups arrive in finite, filtered waves matched to your mandate — you work each wave before the next one opens.' },
+  { title: 'Fit, explained', body: 'Every match is scored against your actual thesis — sector, stage, ticket, geography, instrument — with the reasoning visible, not a black-box score.' },
   { title: 'Pipeline OS', body: 'Owners, deadlines, decision reasons and full audit trail. Replace the spreadsheet.' },
   { title: 'Evidence you can trust', body: 'Every claim labelled: fact, company claim, estimate, unknown or stale. Nothing invented, ever.' },
-  { title: 'Consent-based introductions', body: 'Startups see who is asking; both sides agree before anything is shared.', soon: true },
+  { title: 'Consent-based introductions', body: 'On MatchDeal, our companion discovery app, interest becomes an introduction only when both sides opt in — no cold exposure, no unsolicited decks.' },
 ];
 
 const FAQS = [
-  { q: 'Is my deal flow private?', a: 'Yes. Anything you forward to your Qualification Inbox is private to your organisation by default. It is never used to grow the marketplace or train shared models without your explicit consent.' },
+  { q: 'Is my deal flow private?', a: 'Yes. Your mandate and the startups matched to it are private to your organisation by default. It is never used to grow the marketplace or train shared models without your explicit consent.' },
   { q: 'Who can see startup data?', a: 'Only verified investor organisations with a complete profile and an active mandate. Browsing your matches is private — founders aren’t notified while you’re exploring. When you want to go further, consent-based introductions (coming soon) put both sides in agreement before any identity or data room is shared.' },
   { q: 'How do you verify investors?', a: 'Work email and domain for collaboration; stronger proof — including official registry checks — for organisation control and sensitive actions.' },
   { q: 'What does "qualified opportunity" mean?', a: 'A company that passed your mandate’s hard criteria and received a full analysis: fit, evidence, risks and a recommended action. Raw names on a list do not count against your capacity.' },
