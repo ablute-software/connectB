@@ -185,8 +185,8 @@ export function ActionPlanPanel() {
 
       <Card title="Data Room completeness">
         <p className="mb-2 text-xs text-gray-500">
-          No AI, just a structural check against a standard due-diligence checklist — the same "how complete is your
-          profile/data room" signal the Hype Startup formula uses, but with the concrete list of what to add.
+          No AI, just a structural check against a standard due-diligence checklist — the same &quot;how complete is your
+          profile/data room&quot; signal the Hype Startup formula uses, but with the concrete list of what to add.
         </p>
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium text-gray-700">{checklist.length - missingCount} of {checklist.length} present</p>

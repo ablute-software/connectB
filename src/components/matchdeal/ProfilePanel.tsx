@@ -74,6 +74,14 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
   const [orgLogoUrl, setOrgLogoUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  // Bug fix (2026-08-06) — this used to be declared AFTER the `if (!profile)`
+  // early return below, a conditional hook: the first render (profile still
+  // null) ran one fewer hook than every render after the profile loads,
+  // which crashes React with "Rendered more hooks than during the previous
+  // render" the instant the profile actually arrives — 100% reproducible,
+  // every account, every time. Every hook must run unconditionally on every
+  // render; this one just needed to move up here with the others.
+  const [logoBusy, setLogoBusy] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -127,8 +135,13 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
     setProfile((p) => (p ? { ...p, [key]: value } : p));
   }
 
-  const [logoBusy, setLogoBusy] = useState(false);
-  async function useSherlockDealLogo() {
+  // Bug fix (2026-08-06) — renamed from useSherlockDealLogo: a plain
+  // function whose name starts with "use" reads as a hook to both React's
+  // own conventions and the react-hooks/rules-of-hooks lint rule (which
+  // would otherwise flag this as a second violation once the rule actually
+  // runs — see the ESLint config note below). This applies a logo, it
+  // isn't a hook.
+  async function applySherlockDealLogo() {
     if (!org?.logo_url) return;
     setLogoBusy(true);
     try {
@@ -241,7 +254,7 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
             <div className="flex gap-2">
               <input className={inputCls} value={profile.photo_url ?? ''} onChange={(e) => set('photo_url', e.target.value)} placeholder="https://…" />
               {org?.logo_url && (
-                <button type="button" onClick={() => void useSherlockDealLogo()} disabled={logoBusy}
+                <button type="button" onClick={() => void applySherlockDealLogo()} disabled={logoBusy}
                   className="shrink-0 whitespace-nowrap rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-[12px] font-medium text-white/80 hover:bg-white/10 disabled:opacity-50">
                   {logoBusy ? 'Loading…' : 'Use your Sherlock Deal logo'}
                 </button>

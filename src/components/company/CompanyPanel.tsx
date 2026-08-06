@@ -56,7 +56,7 @@ export function CompanyPanel() {
     return (
       <div className="max-w-3xl space-y-4">
         <p className="text-xs text-gray-400">
-          The redesigned Identity/Team/Round profile activates once migration 0037 is applied. Here's what's editable today.
+          The redesigned Identity/Team/Round profile activates once migration 0037 is applied. Here&apos;s what&apos;s editable today.
         </p>
         <OrganisationCard />
         <Card title="Company facts"><CompanyFactsPanel /></Card>

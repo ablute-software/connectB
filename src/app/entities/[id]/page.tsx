@@ -278,7 +278,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                 ))}
               </ul>
               <p className="mt-2 text-[11px] text-gray-400">
-                Not part of this entity's contact order — a separate, informational affiliation.
+                Not part of this entity&apos;s contact order — a separate, informational affiliation.
               </p>
             </Card>
           )}

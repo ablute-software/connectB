@@ -112,7 +112,7 @@ function ContributionsTab() {
   return (
     <Card title={`Contributions — cross-org (${pendingAll.length})`}>
       <p className="mb-3 text-xs text-gray-500">
-        Authored edits from every org's own "Add info," aggregated by subject, sources side by side.
+        Authored edits from every org&apos;s own &quot;Add info,&quot; aggregated by subject, sources side by side.
         Most conflicts are cosmetic (case, accents, quotes, whitespace, code-vs-full-name) — classified automatically below.
       </p>
 
@@ -421,7 +421,7 @@ function GdprTab() {
   return (
     <Card title={`GDPR / RGPD requests (${pending.length})`} tint={overdueCount > 0 ? 'red' : undefined}>
       <p className="mb-3 text-xs text-gray-500">
-        Legal deadline is {GDPR_DEADLINE_DAYS} days from submission. "Erase" nulls PII on every matched people row across every org.
+        Legal deadline is {GDPR_DEADLINE_DAYS} days from submission. &quot;Erase&quot; nulls PII on every matched people row across every org.
       </p>
       {pending.length === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
         <ul className="space-y-2">
@@ -513,8 +513,8 @@ function InvestorIdentityTab() {
     <div className="space-y-4">
       <Card title={`Firms investors added themselves (${pendingEntities.length})`}>
         <p className="mb-3 text-xs text-gray-500">
-          "My firm isn't listed" (Prompt 63 Bloco 1). Approving marks the catalog entity verified — every investor
-          linked to it shows the "Verified fund" badge, not just the one who added it.
+          &quot;My firm isn&apos;t listed&quot; (Prompt 63 Bloco 1). Approving marks the catalog entity verified — every investor
+          linked to it shows the &quot;Verified fund&quot; badge, not just the one who added it.
         </p>
         {pendingEntities.length === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
           <ul className="space-y-2">

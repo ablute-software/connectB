@@ -154,7 +154,7 @@ export function VaultPinGate({ orgId, children }: { orgId: string; children: Rea
           {status === 'setup' ? (
             <>
               <h2 className="text-sm font-semibold text-gray-900">Set a Vault Data Room code</h2>
-              <p className="mt-1 text-xs text-gray-500">A 4-digit code only you know, on top of your account's own access controls.</p>
+              <p className="mt-1 text-xs text-gray-500">A 4-digit code only you know, on top of your account&apos;s own access controls.</p>
               <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="0000"
                 disabled={skipChecked}
                 className="mt-3 w-full rounded border border-gray-300 px-2 py-1.5 text-center text-lg tracking-widest disabled:bg-gray-50" />
@@ -163,7 +163,7 @@ export function VaultPinGate({ orgId, children }: { orgId: string; children: Rea
                 className="mt-2 w-full rounded border border-gray-300 px-2 py-1.5 text-center text-lg tracking-widest disabled:bg-gray-50" />
               <label className="mt-3 flex items-start gap-2 text-xs text-gray-500">
                 <input type="checkbox" checked={skipChecked} onChange={(e) => setSkipChecked(e.target.checked)} className="mt-0.5" />
-                <span>Skip this — without a code, anyone with access to this computer can open the Vault Data Room while you're signed in. That's on you.</span>
+                <span>Skip this — without a code, anyone with access to this computer can open the Vault Data Room while you&apos;re signed in. That&apos;s on you.</span>
               </label>
               {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}
               <button disabled={busy} onClick={() => void submitSetup()}

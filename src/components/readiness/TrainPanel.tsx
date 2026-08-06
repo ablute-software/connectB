@@ -147,7 +147,7 @@ export function TrainPanel() {
             {result.questions.map((q, i) => (
               <div key={i} className="border-b border-gray-100 pb-2 last:border-0">
                 <p className="text-xs font-medium text-gray-500">{q.text}</p>
-                <p className="text-xs text-gray-600 italic">"{result.answers[i]}"</p>
+                <p className="text-xs text-gray-600 italic">&quot;{result.answers[i]}&quot;</p>
                 <p className="mt-0.5 text-xs text-cyan-700">{result.feedback.per_question[i]?.note}</p>
               </div>
             ))}

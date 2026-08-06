@@ -13,7 +13,7 @@ export function MethodologyTab() {
       <Card title="Ecosystem privacy: K-anonymity">
         <p className="text-sm text-gray-600">
           Every Ecosystem/X-Ray query is withheld unless the cohort has at least <b>8 distinct organizations</b> AND
-          no single organization accounts for more than <b>50%</b> of the rows (migration 0116's <code>observatory_query</code>,
+          no single organization accounts for more than <b>50%</b> of the rows (migration 0116&apos;s <code>observatory_query</code>,
           mirrored in <code>/api/backoffice/metrics/ecosystem</code>). This is why a small or org-dominated cohort shows
           &quot;withheld&quot; instead of a number that would effectively identify one company.
         </p>

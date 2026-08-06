@@ -50,11 +50,11 @@ export default function VouchConfirmPage() {
         <>
           <p className="mt-3 text-sm text-gray-700">
             Someone from <b>{info.requesterEntityName}</b> is asking you to confirm you know them and that they invest
-            as described. This only counts if you're signed in as <b>{info.targetEmail}</b>.
+            as described. This only counts if you&apos;re signed in as <b>{info.targetEmail}</b>.
           </p>
           {sessionEmail !== info.targetEmail ? (
             <p className="mt-3 text-xs text-amber-700">
-              You're signed in as {sessionEmail ?? 'no one'} — sign in as {info.targetEmail} to confirm this.
+              You&apos;re signed in as {sessionEmail ?? 'no one'} — sign in as {info.targetEmail} to confirm this.
             </p>
           ) : (
             <button onClick={confirm} disabled={busy} className="mt-4 w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40">

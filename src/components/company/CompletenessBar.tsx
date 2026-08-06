@@ -57,7 +57,7 @@ export function CompletenessBar({ pct, missing, orgId, onFlash }: {
             <span className="text-sm font-semibold text-gray-800">
               Your profile is <span className={pct === 100 ? 'text-amber-600' : 'text-[#0E7490]'}>{pct}%</span> complete
             </span>
-            {missing.length > 0 && <span className="text-[11px] text-gray-400">click to jump to what's missing</span>}
+            {missing.length > 0 && <span className="text-[11px] text-gray-400">click to jump to what&apos;s missing</span>}
           </div>
           <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-gray-100">
             <div className={`h-full rounded-full transition-all duration-500 ${pct === 100 ? 'bg-amber-400' : 'bg-[#0E7490]'}`} style={{ width: `${pct}%` }} />

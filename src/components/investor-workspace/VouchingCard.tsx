@@ -45,8 +45,8 @@ export function VouchingCard() {
       <h2 className="text-sm font-semibold text-gray-900">Ask a verified contact to vouch for you</h2>
       <p className="mt-1 text-xs text-gray-500">
         {distinctCount}/{VOUCH_THRESHOLD} references from distinct firms — {VOUCH_THRESHOLD} upgrades your badge to
-        Verified. This doesn't replace an official document if one's ever needed, and it never changes soft commits
-        you've already had confirmed.
+        Verified. This doesn&apos;t replace an official document if one&apos;s ever needed, and it never changes soft commits
+        you&apos;ve already had confirmed.
       </p>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">

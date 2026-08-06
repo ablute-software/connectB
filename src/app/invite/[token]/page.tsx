@@ -83,13 +83,13 @@ export default function InvitePage({ params }: { params: { token: string } }) {
               </>
             ) : (
               <p className="text-sm text-gray-600">
-                You're signed in as {me.user.email}, but this invite is for {invite.email}. Log out and try again with that account.
+                You&apos;re signed in as {me.user.email}, but this invite is for {invite.email}. Log out and try again with that account.
               </p>
             )
           ) : (
             <>
               <p className="mb-4 text-sm text-gray-600">
-                You've been invited to join <span className="font-semibold">{invite.org_name}</span> as{' '}
+                You&apos;ve been invited to join <span className="font-semibold">{invite.org_name}</span> as{' '}
                 <span className="font-medium">{invite.role}</span>. Set a password to finish.
               </p>
               <input value={invite.email} disabled className="mb-3 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500" />

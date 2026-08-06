@@ -473,7 +473,7 @@ function LogForm() {
           {direction === 'out' && (channel === 'linkedin_dm' || channel === 'linkedin_note') && content && (
             <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
               <span className="text-gray-500">
-                LinkedIn doesn't allow automatic sending (ToS) — copy and paste the message manually, then confirm below to log it.
+                LinkedIn doesn&apos;t allow automatic sending (ToS) — copy and paste the message manually, then confirm below to log it.
                 {channel === 'linkedin_dm' && touchCount === 0 && " No contact logged yet — maybe a connection request with a note (up to 300 characters) instead of a DM, which requires an existing connection."}
                 {channel === 'linkedin_note' && touchCount > 0 && ' Contact already logged — you\'re probably already connected; a DM may fit better than a connection request.'}
               </span>
@@ -659,7 +659,7 @@ function LogForm() {
         {watson && (
           <Card title={`Watson Drafts left (${watson.remaining})`}>
             <p className="text-xs text-gray-500">
-              You still can request Watson's support {watson.remaining} time{watson.remaining === 1 ? '' : 's'} this month.
+              You still can request Watson&apos;s support {watson.remaining} time{watson.remaining === 1 ? '' : 's'} this month.
             </p>
           </Card>
         )}

@@ -36,7 +36,7 @@ export function SoftCommitButton({ orgId }: { orgId: string }) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4">
       <h2 className="text-sm font-semibold text-gray-900">Mark firm interest</h2>
-      <p className="mt-1 text-xs text-gray-400">A concrete amount you're considering — this is not a binding commitment, just a clear signal to the founder.</p>
+      <p className="mt-1 text-xs text-gray-400">A concrete amount you&apos;re considering — this is not a binding commitment, just a clear signal to the founder.</p>
       {open ? (
         <div className="mt-2 flex gap-2">
           <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount in EUR"

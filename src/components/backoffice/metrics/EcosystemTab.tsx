@@ -134,7 +134,7 @@ export function EcosystemTab() {
           <p className="text-sm font-medium text-gray-600">Segment below anonymity threshold (n&lt;8) — data withheld</p>
           <p className="mt-1 text-xs text-gray-400">
             Fewer than 8 distinct startups contributed to this metric for the current cohort, or one startup accounts
-            for more than half the rows. With today's real data, this is the expected, normal state for almost every
+            for more than half the rows. With today&apos;s real data, this is the expected, normal state for almost every
             segment — not an error.
           </p>
         </div>

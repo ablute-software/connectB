@@ -117,7 +117,7 @@ function TicketSelector({ orgId, current, qaAccess }: {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4">
       <h2 className="text-sm font-semibold text-gray-900">What ticket range are you considering?</h2>
-      <p className="mt-0.5 text-xs text-gray-400">Editable any time — helps the founder understand who's looking and with what budget.</p>
+      <p className="mt-0.5 text-xs text-gray-400">Editable any time — helps the founder understand who&apos;s looking and with what budget.</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {TICKET_RANGES.map((r) => (
           <button key={r.label} onClick={() => choose(r.label, r.min, r.max)} disabled={saving}

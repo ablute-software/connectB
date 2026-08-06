@@ -20,7 +20,6 @@ describe('resolveMatrix', () => {
   });
 
   it('ignores a non-array override value', () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const m = resolveMatrix({ invites: 'nope' as any });
     expect(m.invites).toEqual(DEFAULT_MATRIX.invites);
   });

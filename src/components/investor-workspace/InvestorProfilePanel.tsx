@@ -127,7 +127,7 @@ function AddFirmForm({ onLinked, onCancel }: { onLinked: () => void; onCancel: (
   return (
     <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3">
       <p className="text-xs text-gray-500">
-        We'll add it to our catalog as pending — you can keep going with your profile right away, and we'll verify it shortly.
+        We&apos;ll add it to our catalog as pending — you can keep going with your profile right away, and we&apos;ll verify it shortly.
       </p>
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Firm name"
         className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
@@ -243,7 +243,7 @@ function LinkEntityFlow({ onLinked }: { onLinked: () => void }) {
     <div className="rounded-lg border border-gray-200 bg-white p-5">
       <h2 className="text-sm font-semibold text-gray-900">Which firm are you with?</h2>
       <p className="mt-1 text-xs text-gray-400">
-        We verify this against your sign-in email's domain when we can. If it doesn't match automatically, you can still continue — we'll mark it pending and check manually.
+        We verify this against your sign-in email&apos;s domain when we can. If it doesn&apos;t match automatically, you can still continue — we&apos;ll mark it pending and check manually.
       </p>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by firm name…"
         className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
@@ -265,7 +265,7 @@ function LinkEntityFlow({ onLinked }: { onLinked: () => void }) {
 
       <div className="mt-4 flex flex-wrap gap-3 border-t border-gray-100 pt-3 text-xs">
         <button onClick={() => setShowAddFirm(true)} className="text-[#0E7490] hover:underline">None of these — add my firm</button>
-        <button onClick={() => setShowBaFlow(true)} className="text-gray-400 hover:underline">I'm investing as an individual, not a firm</button>
+        <button onClick={() => setShowBaFlow(true)} className="text-gray-400 hover:underline">I&apos;m investing as an individual, not a firm</button>
       </div>
     </div>
   );
@@ -298,7 +298,7 @@ function VerificationUploadCard() {
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
       <h2 className="text-sm font-semibold text-gray-900">Strengthen your verification</h2>
       <p className="mt-1 text-xs text-gray-600">
-        We couldn't automatically verify your firm. To activate full access, please upload a document showing your
+        We couldn&apos;t automatically verify your firm. To activate full access, please upload a document showing your
         registered activity (certificate of incorporation, business registry extract, or local equivalent).
       </p>
       {done ? (
@@ -541,7 +541,7 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange,
             {saving ? 'Saving…' : 'Save'}
           </button>
           {saveState === 'saved' && !saveError && <span className="text-xs font-medium text-green-700">✓ Saved</span>}
-          {saveError && <span className="text-xs font-medium text-[#B00000]">Couldn't save — {saveError}</span>}
+          {saveError && <span className="text-xs font-medium text-[#B00000]">Couldn&apos;t save — {saveError}</span>}
         </div>
       </div>
     </div>

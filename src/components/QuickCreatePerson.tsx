@@ -56,7 +56,7 @@ export function QuickCreatePerson({ entityId, onCreated, onCancel, initialName, 
           className="rounded bg-[#0E7490] px-2 py-1 text-xs font-medium text-white disabled:opacity-40">Add person</button>
         <button onClick={onCancel} className="rounded border border-gray-300 px-2 py-1 text-xs">Cancel</button>
       </div>
-      <p className="text-[11px] text-gray-400">Marked "identity not confirmed" until confirmed by research or use.</p>
+      <p className="text-[11px] text-gray-400">Marked &quot;identity not confirmed&quot; until confirmed by research or use.</p>
     </div>
   );
 }

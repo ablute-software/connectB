@@ -33,7 +33,7 @@ export default function PrivacyRequestPage() {
       <div className="mx-auto mt-24 max-w-md rounded-lg border border-gray-200 bg-white p-6 text-center">
         <h1 className="text-lg font-semibold">Request received</h1>
         <p className="mt-2 text-sm text-gray-600">
-          We've logged your {kind === 'erase' ? 'erasure' : 'rectification'} request and will act on it within 30 days, as required by GDPR/RGPD.
+          We&apos;ve logged your {kind === 'erase' ? 'erasure' : 'rectification'} request and will act on it within 30 days, as required by GDPR/RGPD.
         </p>
       </div>
     );
@@ -43,7 +43,7 @@ export default function PrivacyRequestPage() {
     <div className="mx-auto mt-16 max-w-md rounded-lg border border-gray-200 bg-white p-6">
       <h1 className="text-lg font-semibold">Data rights request (GDPR / RGPD)</h1>
       <p className="mt-1 text-sm text-gray-500">
-        If your information appears in a startup's investor CRM and you'd like it corrected or removed, tell us here.
+        If your information appears in a startup&apos;s investor CRM and you&apos;d like it corrected or removed, tell us here.
       </p>
       <div className="mt-4 space-y-3">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name"

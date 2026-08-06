@@ -119,7 +119,7 @@ export function SampleCoverageTab() {
           <li>
             <b>Platform dominance:</b> ablute_ alone accounts for{' '}
             <span className="font-semibold text-gray-900">{data.biases.abluteDominancePct == null ? '—' : `${data.biases.abluteDominancePct}%`}</span>{' '}
-            of all pipeline relations across {data.biases.realOrgsSampleSize} real orgs (demo/test entities excluded) — today&apos;s "platform" numbers are
+            of all pipeline relations across {data.biases.realOrgsSampleSize} real orgs (demo/test entities excluded) — today&apos;s &quot;platform&quot; numbers are
             largely one org&apos;s imported CRM, not a broad base yet.
           </li>
           <li>

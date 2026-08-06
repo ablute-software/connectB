@@ -53,7 +53,7 @@ export default function ForgotPasswordPage() {
           </div>
         ) : sent ? (
           <div className="rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">
-            <p>If {email} has an account, we've sent a reset link.</p>
+            <p>If {email} has an account, we&apos;ve sent a reset link.</p>
             <p className="mt-1 text-gray-500">Open the link on this same device and browser you used to request it — requesting again before you click it will invalidate this one.</p>
             <button onClick={startOver} className="mt-1 text-gray-400 hover:underline">Not you? Start over</button>
           </div>

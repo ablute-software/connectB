@@ -249,7 +249,7 @@ export default function MdHistoryImportPage() {
                       {p.role && <span className="text-xs text-gray-500">{p.role}</span>}
                       <span className="text-xs text-gray-400">at {s.name}</span>
                       <span className="ml-auto text-xs text-gray-400">confidence {Math.round(p.confidence * 100)}%</span>
-                      <span className="w-full text-xs italic text-gray-400">"{p.evidence}"</span>
+                      <span className="w-full text-xs italic text-gray-400">&quot;{p.evidence}&quot;</span>
                     </li>
                   );
                 }))}

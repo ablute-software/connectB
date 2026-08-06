@@ -881,7 +881,7 @@ function DocumentsPageInner() {
                         </li>
                       ))}
                       {filteredGrantEntities.length === 0 && catalogMatches.length === 0 && (
-                        <li className="px-2 py-1.5 text-xs text-gray-400">No entity matches "{grantEntityQuery}".</li>
+                        <li className="px-2 py-1.5 text-xs text-gray-400">No entity matches &quot;{grantEntityQuery}&quot;.</li>
                       )}
                       {/* Prompt 121 §2.6 — catalog matches are informational only,
                           not directly selectable: see the note on catalogMatches
@@ -921,7 +921,7 @@ function DocumentsPageInner() {
                   )}
                   {grantScope === 'everyone' && entityAffiliatedPeople.length > 0 && (
                     <p className="mt-1 text-xs text-gray-400">
-                      Resolved live at grant time: {entityAffiliatedPeople.map((p) => p.full_name).join(', ')}. Re-run this if the team changes — it isn't re-checked automatically after granting.
+                      Resolved live at grant time: {entityAffiliatedPeople.map((p) => p.full_name).join(', ')}. Re-run this if the team changes — it isn&apos;t re-checked automatically after granting.
                     </p>
                   )}
 
@@ -991,7 +991,7 @@ function DocumentsPageInner() {
 
               <p className="mt-3 text-[11px] text-gray-400">
                 Granting fires the “grant activated” automation for an already-known person: an access email drafts (or sends,
-                in full-auto) and every view is logged back to the entity. An invited new person's grant stays hidden — no
+                in full-auto) and every view is logged back to the entity. An invited new person&apos;s grant stays hidden — no
                 document or metadata — until they sign in via magic link and confirm “Is this you?”. Folder-level clicks
                 cascade to everything inside it — click an individual document afterward to override just that one.
               </p>
@@ -1111,7 +1111,7 @@ function DocumentsPageInner() {
                 ))}
               </ul>
               <p className="mt-2 text-[11px] text-gray-400">
-                An AI cross-check compares the uploaded file against the investor's name and this org — a mismatch or
+                An AI cross-check compares the uploaded file against the investor&apos;s name and this org — a mismatch or
                 unclear result is flagged for you to verify, but never blocks access on its own.
               </p>
             </Card>
