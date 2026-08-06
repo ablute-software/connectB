@@ -13,6 +13,7 @@ import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { logAdminAction } from '@/lib/audit';
 import { ABLUTE_ORG_ID } from '@/lib/ablute-org';
 import { checkInvestorDomainMatch } from '@/lib/investor-domain-match';
+import { notifyInvestorAccessDecision } from '@/lib/investor-access-request-notify';
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   const { id } = params;
@@ -64,5 +65,11 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     adminUserId: userId, action: 'investor_access_request_approved', subjectType: 'investor_access_request',
     subjectId: id, detail: { email: reqRow.email, access_grant_id: grant.id, domainMatch },
   });
-  return NextResponse.json({ ok: true });
+
+  // Item 10 — the decision itself (the access_grants row + status update
+  // above) is the business fact and has already committed; a failed
+  // notification never reverts it or turns this into a 500.
+  const { notifyFailed } = await notifyInvestorAccessDecision(admin, { id, email: reqRow.email, status: 'approved' });
+
+  return NextResponse.json({ ok: true, notifyFailed });
 }

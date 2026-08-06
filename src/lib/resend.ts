@@ -8,7 +8,7 @@ import { BRAND_NAME } from './brand';
 
 export const resendConfigured = !!process.env.RESEND_API_KEY;
 
-export async function sendTransactionalEmail(opts: { to: string; subject: string; html: string }) {
+export async function sendTransactionalEmail(opts: { to: string; subject: string; html: string; replyTo?: string }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     // Logged, not silent: an unset key used to be indistinguishable from a
@@ -18,16 +18,23 @@ export async function sendTransactionalEmail(opts: { to: string; subject: string
     return { sent: false, error: 'Email sending is not available in your workspace yet.' };
   }
 
-  // Sender display name is the brand; the address stays the verified Resend
-  // one until the sherlockdeal.com domain is verified in the provider — a
-  // separate infra step. RESEND_FROM_EMAIL (when set) overrides both, so the
-  // from-address switch is env-gated.
-  const from = process.env.RESEND_FROM_EMAIL || `${BRAND_NAME} <onboarding@resend.dev>`;
+  // Item 12 — "send as sherlockdeal.com@gmail.com" is impossible: an ESP
+  // can't send FROM a domain it hasn't verified, and gmail.com isn't ours to
+  // verify. Sending from it anyway gets rejected outright or, worse,
+  // delivered with broken SPF/DKIM and dumped in spam. reply_to solves the
+  // actual intent (replies land in the inbox Nuno reads) without any of
+  // that: it isn't authenticated by SPF/DKIM, so it can point anywhere
+  // today, no domain verification needed. Sender display name is the
+  // brand; the address stays the verified Resend one until sherlockdeal.com
+  // is verified in the provider (infra, not code — see DECISIONS.md).
+  // RESEND_FROM_EMAIL/RESEND_REPLY_TO (when set) override both.
+  const from = process.env.RESEND_FROM_EMAIL || `${BRAND_NAME} Support <onboarding@resend.dev>`;
+  const replyTo = opts.replyTo || process.env.RESEND_REPLY_TO || undefined;
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: opts.to, subject: opts.subject, html: opts.html }),
+      body: JSON.stringify({ from, to: opts.to, subject: opts.subject, html: opts.html, ...(replyTo ? { reply_to: replyTo } : {}) }),
     });
     if (!res.ok) {
       console.error('Transactional email provider error:', (await res.text()).slice(0, 300));

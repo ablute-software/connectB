@@ -3559,3 +3559,25 @@ statistics purposes must never retroactively revoke that.
 `eligiblePipelineOrgIds()` (discovery — a startup's published MatchDeal
 profile) and `computeTrackingCountsByStage()` (aggregate cross-investor
 stats) are the correct, and only correct, places for this filter.
+
+## Transactional email sender (item 12) — `reply_to`, not `from`
+
+**Decision**: "send as `sherlockdeal.com@gmail.com`" was the request, but is
+technically impossible — an ESP can't send FROM a domain it hasn't verified,
+and `gmail.com` isn't ours to verify. Sending from it anyway either gets
+rejected outright or delivers with broken SPF/DKIM and lands in spam.
+
+`reply_to` solves the actual intent (replies reach the inbox Nuno reads)
+without any domain verification, because `reply_to` isn't authenticated by
+SPF/DKIM — it can point anywhere today. Sender display name changed to
+`Sherlock Deal Support` in the fallback; the address stays Resend's
+`onboarding@resend.dev` until `sherlockdeal.com` is verified.
+
+**Two env vars, two different states:**
+- `RESEND_FROM_EMAIL` — set to `Sherlock Deal Support <support@sherlockdeal.com>`
+  the moment the domain is verified in Resend (SPF, DKIM, ideally DMARC).
+  This is infra, not code, and is not done yet — the `from` address today
+  must stay a verified one or delivery breaks.
+- `RESEND_REPLY_TO` — can be set **today**, to `sherlockdeal.com@gmail.com`,
+  with no domain verification required. This is the env var that actually
+  gives Nuno the effect he asked for, without waiting on the DNS work above.

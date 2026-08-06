@@ -19,6 +19,7 @@ type Totals = {
 type AccessRequest = {
   id: string; created_at: string; email: string; firm_name: string | null; note: string | null;
   status: 'pending' | 'approved' | 'rejected'; contacted_at: string | null; reviewed_at: string | null;
+  notified_at: string | null; notify_failed: boolean;
   domainMatch: DomainMatchVerdict;
 };
 
@@ -72,6 +73,14 @@ function AccessRequestsQueue() {
   async function reject(id: string) {
     setBusyId(id);
     const res = await fetch(`/api/backoffice/investor-access-requests/${id}/reject`, { method: 'POST' });
+    const body = await res.json();
+    setBusyId(null);
+    if (body.ok === false) { setErr(body.error); return; }
+    refresh();
+  }
+  async function resendNotification(id: string) {
+    setBusyId(id);
+    const res = await fetch(`/api/backoffice/investor-access-requests/${id}/resend-notification`, { method: 'POST' });
     const body = await res.json();
     setBusyId(null);
     if (body.ok === false) { setErr(body.error); return; }
@@ -135,10 +144,24 @@ function AccessRequestsQueue() {
           <summary className="cursor-pointer text-xs text-gray-400">{resolved.length} resolved</summary>
           <ul className="mt-2 space-y-1">
             {resolved.map((r) => (
-              <li key={r.id} className="flex items-center gap-2 text-xs text-gray-500">
-                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${r.status === 'approved' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{r.status}</span>
-                <span>{r.email}</span>
-                {r.reviewed_at && <span className="text-gray-400">{r.reviewed_at.slice(0, 10)}</span>}
+              <li key={r.id} className="rounded-lg py-1 text-xs text-gray-500">
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${r.status === 'approved' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{r.status}</span>
+                  <span>{r.email}</span>
+                  {r.reviewed_at && <span className="text-gray-400">{r.reviewed_at.slice(0, 10)}</span>}
+                </div>
+                {/* Item 10 — a failed notification must be a visible, recoverable
+                    state, not a second silent dead end after the pending request
+                    itself used to be one. */}
+                {r.notify_failed && (
+                  <div className="mt-1 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1">
+                    <span className="text-amber-800">⚠️ Notification failed to send</span>
+                    <button disabled={busyId === r.id} onClick={() => resendNotification(r.id)}
+                      className="ml-auto rounded-md bg-amber-700 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-amber-800 disabled:opacity-40">
+                      Resend
+                    </button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

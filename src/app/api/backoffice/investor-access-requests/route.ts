@@ -19,7 +19,7 @@ export async function GET() {
 
   const [{ data, error }, { data: entities }, { data: aliases }] = await Promise.all([
     admin.from('investor_access_requests')
-      .select('id, created_at, email, firm_name, note, status, contacted_at, reviewed_at')
+      .select('id, created_at, email, firm_name, note, status, contacted_at, reviewed_at, notified_at, notify_failed')
       .order('created_at', { ascending: false }),
     admin.from('catalog_entities').select('id, name, website'),
     admin.from('entity_aliases').select('catalog_id, alias').not('catalog_id', 'is', null),
