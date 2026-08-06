@@ -11,7 +11,7 @@ import { pipelineEligibleOrgIds } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
 import { currentInterestLevel } from '@/lib/investor-interest-level';
-import { getInterestLevelRows, requestInterestLevel } from '@/lib/investor-interest-level-db';
+import { getInterestLevelRows, requestInterestLevel, toInvestorFacingLevelRows } from '@/lib/investor-interest-level-db';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
 export async function GET(req: Request) {
@@ -42,7 +42,10 @@ export async function GET(req: Request) {
   const rows = await getInterestLevelRows(admin, orgId, investorCatalogEntityId);
   const level = currentInterestLevel((decision?.decision as 'interested' | 'passed' | undefined) ?? null, rows);
 
-  return NextResponse.json({ level, rows });
+  // Bug fix (relatorio_verificacao_..._8143c75_p136 §3) — see the same fix
+  // in /api/portal/startup/[orgId]: `rows` used to include the founder's
+  // own private `note`. toInvestorFacingLevelRows strips it to {level, status}.
+  return NextResponse.json({ level, rows: toInvestorFacingLevelRows(rows) });
 }
 
 export async function POST(req: Request) {

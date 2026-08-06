@@ -18,7 +18,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
 import { currentInterestLevel, projectDossier, type FullDossierData } from '@/lib/investor-interest-level';
-import { getInterestLevelRows } from '@/lib/investor-interest-level-db';
+import { getInterestLevelRows, toInvestorFacingLevelRows } from '@/lib/investor-interest-level-db';
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
 import { getInteractionTimeline } from '@/lib/investor-interaction-log';
 
@@ -98,5 +98,12 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   };
   const dossier = projectDossier(level, full, shareEmail);
 
-  return NextResponse.json({ card, level, levelRows, dossier });
+  // Bug fix (relatorio_verificacao_..._8143c75_p136 §3) — this used to
+  // forward `levelRows` in full, `note` included: the founder's own
+  // private reasoning for a grant/deny decision, sitting unlabeled in the
+  // investor's Network tab despite never being rendered anywhere in the
+  // UI. toInvestorFacingLevelRows keeps only {level, status} — everything
+  // the client actually uses (the "Request contact"/"waiting"/"declined"
+  // buttons key off status alone).
+  return NextResponse.json({ card, level, levelRows: toInvestorFacingLevelRows(levelRows), dossier });
 }

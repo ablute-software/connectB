@@ -10,6 +10,14 @@ export interface InterestLevelRowFull extends InterestLevelRow {
   id: string; requestedAt: string; decidedAt: string | null; note: string | null; shareDirectEmail: boolean;
 }
 
+// Server-internal only — carries `note` (the founder's own private reason
+// for granting/denying) and `id` (needed to target a decision). NEVER
+// return this shape directly from a route the investor's session can
+// read; see toInvestorFacingLevelRows below for the one that's safe to
+// send. (Bug found in relatorio_verificacao_..._8143c75_p136: both portal
+// routes were forwarding this whole object to the investor, `note`
+// included — the exact "fetched, not hidden" failure this feature exists
+// to prevent, one field over.)
 export async function getInterestLevelRows(admin: SupabaseClient, orgId: string, investorCatalogEntityId: string): Promise<InterestLevelRowFull[]> {
   const { data } = await admin.from('investor_interest_levels')
     .select('id, level, status, requested_at, decided_at, note, share_direct_email')
@@ -19,6 +27,16 @@ export async function getInterestLevelRows(admin: SupabaseClient, orgId: string,
     requestedAt: r.requested_at as string, decidedAt: r.decided_at as string | null,
     note: r.note as string | null, shareDirectEmail: r.share_direct_email as boolean,
   }));
+}
+
+// The ONLY shape ever sent to the investor's own session — level and
+// status, nothing else. `note` is the founder's private reasoning for a
+// grant/deny decision and stays server-side; requestedAt/decidedAt/
+// shareDirectEmail/id have no investor-facing UI today either, so they're
+// dropped too rather than kept "just in case" (the narrower the exported
+// shape, the harder this exact bug is to reintroduce).
+export function toInvestorFacingLevelRows(rows: InterestLevelRowFull[]): InterestLevelRow[] {
+  return rows.map((r) => ({ level: r.level, status: r.status }));
 }
 
 // Level 2 — frictionless: granted the instant it's asked for (§3 of
@@ -52,9 +70,17 @@ export async function requestInterestLevel(
   // in this codebase (never undoes the request itself on failure). Linked
   // to the founder's own CRM entity (via catalog_deliveries, the same
   // linking table matchdeal_record_interest_notification itself uses) so
-  // decideInterestLevel3 below can close it again once decided. Falls back
-  // to an untagged, unlinked task if migration 0132 (the tasks_source
-  // widening) hasn't landed yet, rather than silently creating nothing.
+  // decideInterestLevel3 below can close it again once decided.
+  //
+  // Bug fix (relatorio_verificacao_..._8143c75_p136 §6) — this used to fall
+  // back to inserting an UNTAGGED task (source omitted) when the tagged
+  // insert failed (e.g. migration 0132's tasks_source widening not applied
+  // yet). decideInterestLevel3 only ever closes tasks matching
+  // source='interest_level_request', so that fallback task could never be
+  // found again and stayed on the founder's Today forever. No fallback now:
+  // if the tagged insert fails, log it and create nothing — a missing task
+  // is a visible, fixable gap (apply 0132, the next request works); a
+  // permanently-stuck untagged one on the founder's own Today is not.
   const [{ data: catalogEntity }, { data: delivery }] = await Promise.all([
     admin.from('catalog_entities').select('name').eq('id', opts.investorCatalogEntityId).maybeSingle(),
     admin.from('catalog_deliveries').select('entity_id').eq('org_id', opts.orgId).eq('catalog_id', opts.investorCatalogEntityId).maybeSingle(),
@@ -65,10 +91,7 @@ export async function requestInterestLevel(
     org_id: opts.orgId, title, due_at: new Date().toISOString(), entity_id: entityId,
     kind: 'follow_up', action_type: 'follow_up_thread', source: 'interest_level_request',
   });
-  if (taskError) {
-    await admin.from('tasks').insert({ org_id: opts.orgId, title, due_at: new Date().toISOString(), entity_id: entityId, kind: 'follow_up', action_type: 'follow_up_thread' })
-      .then(() => {}, () => {});
-  }
+  if (taskError) console.error('interest_level_request task insert failed (migration 0132 applied?)', taskError);
   return { error: null };
 }
 

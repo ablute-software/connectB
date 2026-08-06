@@ -3,6 +3,15 @@
 -- untouched; this table's own ladder ends exactly where access_grants
 -- begins (level 4 = the existing NDA/grants flow, unaffected).
 --
+-- APPLY TOGETHER WITH 0132, THIS ONE FIRST, IMMEDIATELY AFTER — never apply
+-- 0131 alone (relatorio_verificacao_..._8143c75_p136 §6). The app code has
+-- since been hardened so a lone 0131 no longer leaves a permanently-stuck
+-- task on the founder's own Today (requestInterestLevel no longer falls
+-- back to an untagged task if 0132's tasks_source widening hasn't landed
+-- yet — it just logs and skips), but 0132 is still meant to land in the
+-- same breath: without it, every level-3 request silently creates no
+-- founder-side task at all until 0132 is applied.
+--
 -- Level 1 is deliberately NOT a row here — it already exists as
 -- investor_relationship_decisions' own 'interested' decision (AP-06,
 -- irreversible by design). Materializing it a second time here would

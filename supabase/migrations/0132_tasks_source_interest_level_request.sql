@@ -5,6 +5,8 @@
 -- task can be told apart and auto-closed independently later — 0128's own
 -- header already made the case for why a shared/ambiguous value costs
 -- more than the one extra line a new value takes.
+--
+-- APPLY IMMEDIATELY AFTER 0131, SAME SESSION — see 0131's own header note.
 alter table public.tasks
   drop constraint if exists tasks_source_check;
 
