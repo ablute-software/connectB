@@ -42,9 +42,23 @@ export function toInvestorFacingLevelRows(rows: InterestLevelRowFull[]): Interes
 // Level 2 — frictionless: granted the instant it's asked for (§3 of
 // prompt_136 — the gate isn't the point, the signal is). Level 3 — always
 // created as 'pending'; the founder decides via decideLevel3 below.
-// Idempotent per (org, investor, level) via the unique constraint — a
-// second request when a row already exists just returns the existing one
-// unchanged, never a duplicate or a silent overwrite of a founder's denial.
+// Idempotent per (org, investor, level): a second request when a row
+// already exists returns early, unchanged, never a duplicate or a silent
+// overwrite of a founder's denial. The early-return itself is a
+// select-then-check (TOCTOU, not atomic); the real guarantee against two
+// simultaneous requests racing past it is the UNIQUE (org_id,
+// investor_catalog_entity_id, level) constraint on the table — a genuine
+// race fails safe with a constraint-violation error, never a duplicate row
+// (corrected 2026-08-06: the prior wording credited the constraint with the
+// early-return's own job).
+//
+// This early-return has a real consequence worth knowing before touching
+// it: for the SAME (org, investor, level) pair, a repeat request never
+// re-attempts the task insert below, even after whatever made it fail the
+// first time (e.g. migration 0132 not applied yet) is fixed. The gap
+// self-heals for NEW pairs requesting level 3 after that point, not for
+// one that already got stuck — see the task-insert's own comment for why
+// that's an accepted trade, not treated as a bug to route around here.
 export async function requestInterestLevel(
   admin: SupabaseClient, opts: { orgId: string; investorCatalogEntityId: string; level: 2 | 3; userId: string },
 ): Promise<{ error: { message: string } | null }> {
@@ -77,16 +91,36 @@ export async function requestInterestLevel(
   // insert failed (e.g. migration 0132's tasks_source widening not applied
   // yet). decideInterestLevel3 only ever closes tasks matching
   // source='interest_level_request', so that fallback task could never be
-  // found again and stayed on the founder's Today forever. No fallback now:
-  // if the tagged insert fails, log it and create nothing — a missing task
-  // is a visible, fixable gap (apply 0132, the next request works); a
-  // permanently-stuck untagged one on the founder's own Today is not.
+  // found again and stayed on the founder's Today forever. No fallback:
+  // if the tagged insert fails, log it and create nothing. (Corrected
+  // 2026-08-06: a missing task here is a visible gap that self-heals for
+  // the NEXT NEW (org, investor, level) request once 0132 lands — not for
+  // this same one, since the idempotency early-return above skips the
+  // whole insert path on any repeat. Still the accepted trade: a gap that
+  // heals eventually for new requests beats one that heals never.)
+  //
+  // Second bug fix, same relatório (§3) — catalog_deliveries can have no
+  // row at all for this (org, investor) pair (measured live: 0% coverage
+  // for two of four orgs with any pipeline activity), which used to insert
+  // the task with entity_id = null. decideInterestLevel3 only closes tasks
+  // by matching entity_id to what catalog_deliveries resolves AT DECISION
+  // TIME — a null entity_id can never match that filter, so the task
+  // could never close, regardless of source tagging. Same fix as above,
+  // applied to the second way this exact class of bug reaches the same
+  // outcome: no entity to link to means no task, not an unlinkable one.
+  // The request itself is never invisible either way — the founder's own
+  // "Contact requests" card (InterestLevelRequestsCard) reads
+  // investor_interest_levels directly, not tasks.
   const [{ data: catalogEntity }, { data: delivery }] = await Promise.all([
     admin.from('catalog_entities').select('name').eq('id', opts.investorCatalogEntityId).maybeSingle(),
     admin.from('catalog_deliveries').select('entity_id').eq('org_id', opts.orgId).eq('catalog_id', opts.investorCatalogEntityId).maybeSingle(),
   ]);
-  const title = `${catalogEntity?.name ?? 'An investor'} requested contact access`;
   const entityId = (delivery?.entity_id as string | undefined) ?? null;
+  if (!entityId) {
+    console.error('interest_level_request task skipped — no catalog_deliveries entity_id for this (org, investor) pair yet');
+    return { error: null };
+  }
+  const title = `${catalogEntity?.name ?? 'An investor'} requested contact access`;
   const { error: taskError } = await admin.from('tasks').insert({
     org_id: opts.orgId, title, due_at: new Date().toISOString(), entity_id: entityId,
     kind: 'follow_up', action_type: 'follow_up_thread', source: 'interest_level_request',
