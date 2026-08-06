@@ -7,6 +7,7 @@
 // complete or fires any request — every milestone's `done` is recomputed
 // live from `db` on every render, same as the badge itself.
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { useW1Milestones } from './W1Badge';
 
@@ -29,11 +30,18 @@ export function FirstStepsPanel({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+  // mini_prompt_firststeps_panel_portal_e_varrimento_overlays_20260806 — same
+  // mechanism as the MatchDeal modal (434dd27): this panel mounts inside
+  // WorkspaceHeader via W1Badge, and the header's backdrop-blur becomes the
+  // containing block for this fixed-inset-0 overlay, collapsing it to the
+  // header's own box. Portal to document.body, same fix.
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="first-steps-title"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-lg">
+        className="my-8 max-h-[85vh] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-5 shadow-lg">
         <div className="flex items-start justify-between gap-2">
           <h2 id="first-steps-title" className="text-base font-semibold text-gray-800">
             First steps {doneCount}/{milestones.length}
@@ -71,6 +79,7 @@ export function FirstStepsPanel({ onClose }: { onClose: () => void }) {
           ))}
         </ul>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
