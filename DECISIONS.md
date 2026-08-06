@@ -3535,3 +3535,27 @@ count only Tier A/B rows (a "40 investors" plan promising 40 unusable rows
 isn't actually delivering 40 of anything), and the matching engine
 (whenever built) will rank only Tier A/B — a Tier C row never enters any
 wave.
+
+## `is_test` (orgs, catalog_entities) — never filters authorization
+
+**Decision, after a same-day production regression (778f1bf → reverted in
+the following commit)**: `is_test` filters *discovery* and *aggregate
+stats*, never *authorization*. `activeGrantOrgIds()` is explicitly out of
+scope for this flag — it must always return `[...ids]` unfiltered.
+
+**Why this needs writing down, not just fixing**: 100% of the platform's
+`access_grants` rows point at the same org (`ablute_` — the backoffice's
+investor-access-request approval route grants against a fixed
+`ABLUTE_ORG_ID` for every approval). Marking that org `is_test = true` and
+filtering it out of `activeGrantOrgIds()` made that function return `[]`
+for every investor on the platform — Data Room, Today, Agenda, diligence
+checklist, all blank, no exceptions. `is_ablute_developer()` doesn't
+rescue this path either: it only recognizes `@ablute.pt` sessions, not the
+gmail-style accounts real testers and even QA use day to day. A grant is a
+deliberate human act (a founder, or the backoffice on their behalf,
+choosing to let this specific person in); `is_test` marking an org for
+statistics purposes must never retroactively revoke that.
+
+`eligiblePipelineOrgIds()` (discovery — a startup's published MatchDeal
+profile) and `computeTrackingCountsByStage()` (aggregate cross-investor
+stats) are the correct, and only correct, places for this filter.

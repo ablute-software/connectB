@@ -24,6 +24,22 @@ export async function resolveInvestorCatalogEntityId(admin: SupabaseClient, user
   return member?.catalog_entity_id ?? null;
 }
 
+// Item #15 correction (mini_prompt_URGENTE_regressao_778f1bf_activegrantorgids
+// _20260806) — activeGrantOrgIds() must NEVER filter by is_test. A grant is
+// a deliberate human act (a founder, or the backoffice on their behalf,
+// choosing to let this specific person in); is_test is for discovery and
+// aggregate stats, never for authorization. This was tried in 778f1bf and
+// reverted: 100% of the platform's access_grants rows point at the SAME org
+// (ablute_ — the backoffice's investor-access-request approval route grants
+// against a fixed ABLUTE_ORG_ID for every approval), so marking that one org
+// is_test made this function return [] for literally every investor on the
+// platform, real or not — Data Room, Today, Agenda, diligence checklist, all
+// blank. is_ablute_developer() doesn't rescue it either: it only recognizes
+// @ablute.pt sessions, not the gmail-style accounts QA/testers actually use.
+// eligiblePipelineOrgIds (discovery) and computeTrackingCountsByStage
+// (aggregate stats) are the correct, and only correct, places for the
+// is_test filter — see excludeTestOrgIds below, called from
+// eligiblePipelineOrgIds only.
 export async function activeGrantOrgIds(admin: SupabaseClient, email: string, personId: string | null) {
   const orParts = [`grantee_email.eq.${email}`, `invited_email.eq.${email}`];
   if (personId) orParts.push(`person_id.eq.${personId}`);
@@ -36,15 +52,14 @@ export async function activeGrantOrgIds(admin: SupabaseClient, email: string, pe
     const confirmedIfInvited = !g.invited_email || g.confirmed_at;
     if (notExpired && confirmedIfInvited) ids.add(g.org_id as string);
   }
-  return excludeTestOrgIds(admin, [...ids]);
+  return [...ids];
 }
 
-// Item #15 — a grant from an internal/QA org (e.g. ablute_'s own dogfood
-// org granting itself access) must never surface as "Data room open" in a
-// real investor's own Pipeline stats. Filters both eligiblePipelineOrgIds
-// and activeGrantOrgIds against the same is_test flag rather than each
-// re-deriving its own notion of "internal" — see migration 0139. No-ops
-// (returns ids unchanged) until that migration is applied.
+// Item #15 — a test/internal org (e.g. a seeded demo, or Sherlock Deal_'s
+// own dogfood profile) must never surface as a discovery card or inflate an
+// aggregate stat. Deliberately NOT called from activeGrantOrgIds — see its
+// own comment above for why that specific combination is a regression, not
+// a fix. No-ops (returns ids unchanged) until migration 0139 is applied.
 async function excludeTestOrgIds(admin: SupabaseClient, ids: string[]): Promise<string[]> {
   if (ids.length === 0 || !(await pipelineTestFlagAvailable())) return ids;
   const { data: testOrgs } = await admin.from('orgs').select('id').eq('is_test', true).in('id', ids);

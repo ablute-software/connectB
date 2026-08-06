@@ -1,9 +1,16 @@
 -- =============================================================================
 -- 0139_add_is_test_flag_orgs_catalog_entities.sql
 --
--- ESTADO: PROPOSTO. NAO APLICADO. Requer decisao do Nuno antes de correr.
--- A sessao Code nunca chama apply_migration -- fica para o revisor aplicar e
--- devolver a confirmacao pos-aplicacao.
+-- ESTADO: NAO CORRER -- COLISAO DE NUMERO DE MIGRACAO. O revisor ja aplicou
+-- em producao uma 0139 DIFERENTE (0139_is_test_flag_orgs_and_catalog_entities,
+-- version 20260806202717), com um DDL equivalente (coluna existe, backfill
+-- feito, correcto) mas nome de ficheiro diferente -- ver
+-- mini_prompt_URGENTE_regressao_778f1bf_activegrantorgids_20260806.md §5.3.
+-- Este ficheiro fica no repositorio so ate a sessao Code receber o texto
+-- exacto da migracao aplicada, para o substituir verbatim (Nuno prefere a
+-- opcao (b): apagar este e adicionar o ficheiro real com o nome que foi
+-- corrido). NAO fabricar esse texto a partir da descricao -- pedido
+-- explicitamente ao Nuno.
 --
 -- Ficheiro companheiro:
 --   mini_prompt_item15_pipeline_stats_contaminacao_estrutural_20260806.md
@@ -56,16 +63,11 @@
 --      catalog_entities: as 5 entidades seedadas "(demo)" mais
 --            "ablute_ — Internal QA"
 --
--- 3. Duas funcoes SQL para marcar is_test manualmente dai em diante, ate
---    existir um toggle no backoffice (nao construido nesta proposta -- ver
---    nota no fim). Reachable so por postgres/service_role (revogado de
---    public/anon/authenticated de proposito): destinam-se a ser corridas
---    pelo revisor ou pelo Nuno directamente no SQL editor do Supabase, o
---    mesmo modelo de acesso que qualquer outra migracao ja usa -- nao pela
---    app. Se um toggle no backoffice vier a ser construido, a ACL destas
---    funcoes precisa de ser alargada a `authenticated` NESSA altura, com uma
---    guarda is_platform_admin() acrescentada ao corpo primeiro (hoje seria
---    inseguro conceder a authenticated sem essa guarda).
+-- 3. (Movido para 0141_matchdeal_test_flag_admin_functions.sql) As funcoes
+--    de manutencao set_org_is_test/set_catalog_entity_is_test ficam numa
+--    migracao propria dai em diante, por pedido explicito -- ver o cabecalho
+--    desse ficheiro para o porque e para a guarda de admin agora feita
+--    dentro do corpo da funcao, nao so confiada ao revoke.
 --
 -- =============================================================================
 -- O QUE ESTA MIGRACAO NAO FAZ (deliberado)
@@ -129,42 +131,21 @@ where id in (
 -- Backfill -- as 5 entidades seedadas "(demo)" mais a "ablute_ — Internal QA".
 update public.catalog_entities set is_test = true
 where id in (
-  'd0000000-0000-0000-0000-000000000001',
-  'd0000000-0000-0000-0000-000000000002',
-  'd0000000-0000-0000-0000-000000000003',
-  'd0000000-0000-0000-0000-000000000004',
-  'd0000000-0000-0000-0000-000000000005',
+  'd0000000-0000-4000-8000-000000000001',
+  'd0000000-0000-4000-8000-000000000002',
+  'd0000000-0000-4000-8000-000000000003',
+  'd0000000-0000-4000-8000-000000000004',
+  'd0000000-0000-4000-8000-000000000005',
   'f2a94a65-3489-4b50-827f-9d3b5b521322' -- ablute_ — Internal QA
 );
 
--- Funcoes de manutencao -- so postgres/service_role (revogado de
--- public/anon/authenticated). Ver nota no cabecalho sobre alargar a ACL se
--- um toggle de backoffice vier a existir.
-create or replace function public.set_org_is_test(p_org_id uuid, p_is_test boolean)
-returns void
-language plpgsql
-security definer
-set search_path = public, pg_temp
-as $function$
-begin
-  update public.orgs set is_test = p_is_test where id = p_org_id;
-end;
-$function$;
-revoke all on function public.set_org_is_test(uuid, boolean) from public, anon, authenticated;
-
-create or replace function public.set_catalog_entity_is_test(p_catalog_entity_id uuid, p_is_test boolean)
-returns void
-language plpgsql
-security definer
-set search_path = public, pg_temp
-as $function$
-begin
-  update public.catalog_entities set is_test = p_is_test where id = p_catalog_entity_id;
-end;
-$function$;
-revoke all on function public.set_catalog_entity_is_test(uuid, boolean) from public, anon, authenticated;
-
 commit;
+
+-- Funcoes de manutencao (set_org_is_test / set_catalog_entity_is_test):
+-- movidas para 0141_matchdeal_test_flag_admin_functions.sql por pedido
+-- explicito (mini_prompt_URGENTE_regressao_778f1bf_activegrantorgids
+-- _20260806 §5.3) -- ficam numa migracao propria, com search_path fixado e
+-- a verificacao de admin feita DENTRO da funcao, nao so confiada ao revoke.
 
 -- =============================================================================
 -- VERIFICACAO PARA CORRER LOGO A SEGUIR
@@ -178,21 +159,19 @@ commit;
 --
 -- select id, name, is_test from public.catalog_entities
 -- where id in (
---   'd0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000002',
---   'd0000000-0000-0000-0000-000000000003', 'd0000000-0000-0000-0000-000000000004',
---   'd0000000-0000-0000-0000-000000000005', 'f2a94a65-3489-4b50-827f-9d3b5b521322'
+--   'd0000000-0000-4000-8000-000000000001', 'd0000000-0000-4000-8000-000000000002',
+--   'd0000000-0000-4000-8000-000000000003', 'd0000000-0000-4000-8000-000000000004',
+--   'd0000000-0000-4000-8000-000000000005', 'f2a94a65-3489-4b50-827f-9d3b5b521322'
 -- );
 -- Esperado: is_test = true nas seis.
 --
 -- select count(*) from public.orgs where is_test = true;    -- esperado: 4
 -- select count(*) from public.catalog_entities where is_test = true; -- esperado: 6
 --
--- select has_function_privilege('authenticated', 'public.set_org_is_test(uuid,boolean)', 'EXECUTE') as auth_pode_org,
---        has_function_privilege('authenticated', 'public.set_catalog_entity_is_test(uuid,boolean)', 'EXECUTE') as auth_pode_catalog;
--- Esperado: false, false (so postgres/service_role podem chamar).
---
 -- Teste funcional (depois do codigo do lado da app tambem estar deployed --
 -- ver commit companheiro): a Pipeline de um investidor real ja nao deve
--- mostrar "Sherlock Deal_ test" como card de Tracking, nem "ablute_" como
--- "Data room open" para contas que so tem esse grant interno.
+-- mostrar "Sherlock Deal_ test" como card de Tracking; a Data Room, o Today
+-- e a Agenda de um investidor real APROVADO PELO BACKOFFICE tem de
+-- continuar a carregar -- os dois ao mesmo tempo, nunca um a custo do outro
+-- (mini_prompt_URGENTE_regressao_778f1bf §6, pontos 2 e 3).
 -- =============================================================================
