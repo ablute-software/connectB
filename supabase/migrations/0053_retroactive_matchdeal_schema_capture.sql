@@ -1102,7 +1102,32 @@ create or replace trigger trg_matchdeal_confirm_meeting_overlap
 -- 5. VIEW
 -- ============================================================
 
-create or replace view public.matchdeal_startup_hype as
+-- Bug fix (2026-08-06, migration 0135's own §5 finding) — this view was
+-- created without `with (security_invoker = true)`, so it ran SECURITY
+-- DEFINER by default: reads underlying tables as its owner (postgres, who
+-- has rolbypassrls), bypassing RLS entirely. It was also left with
+-- Supabase's default grants to anon/authenticated, so PostgREST served it
+-- to anyone with the publishable key — a real, measured leak (5 swipes and
+-- 86 exposures visible through the view that RLS shows as 0 to that same
+-- caller directly). 0135 fixed this in production with a revoke (the
+-- durable control) plus `alter view ... set (security_invoker = true)`
+-- (mostly cosmetic once the revoke is in place, since the view's only
+-- remaining readers — postgres, service_role — have rolbypassrls anyway;
+-- it exists to make the advisor lint honest and to survive a future
+-- `create or replace view` that forgets the revoke).
+--
+-- Why the clause is added HERE, on the already-applied 0053, rather than
+-- left to 0135 alone: `alter view ... set (security_invoker)` is fragile —
+-- confirmed empirically that a bare `create or replace view` (no `with`
+-- clause) silently clears it while leaving the revoke's ACL intact. A
+-- schema rebuilt from these migrations from scratch must get the correct
+-- clause the first time, at the point the view is actually defined, not
+-- rely on a later migration to re-apply what a replay of this one would
+-- have already erased. This edit changes what a FROM-SCRATCH REPLAY
+-- produces; it does not re-run anything in production, where the option is
+-- already set (by 0135).
+create or replace view public.matchdeal_startup_hype
+  with (security_invoker = true) as
 with w as (
   select * from public.matchdeal_hype_weights()
 ), week as (

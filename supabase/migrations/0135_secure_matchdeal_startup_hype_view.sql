@@ -1,0 +1,134 @@
+-- 0135 — fecha o único ERROR do projecto: `security_definer_view` na vista
+-- `public.matchdeal_startup_hype`.
+--
+-- APLICADA EM PRODUÇÃO A 06/08/2026 pelo revisor, ao abrigo da autorização
+-- geral do Nuno de 05/08. Este ficheiro é o texto exacto aplicado; falta
+-- commitá-lo para o repositório voltar a ser fonte da verdade do esquema.
+-- Aplicar num ambiente que já a tem é inofensivo (revoke e alter ... set são
+-- ambos idempotentes).
+--
+-- ======================================================================
+-- 1. O QUE ESTAVA MAL
+-- ======================================================================
+--
+-- `matchdeal_startup_hype` é a ÚNICA vista do schema `public` (confirmado:
+-- zero vistas materializadas, zero outras vistas). Nasceu na 0053 com um
+-- `create or replace view` sem `with (security_invoker = ...)`, portanto em
+-- modo SECURITY DEFINER — lê as tabelas de baixo com os privilégios do dono
+-- (`postgres`, que tem `rolbypassrls`), ignorando a RLS.
+--
+-- Os grants a `anon` e `authenticated` são EXPLÍCITOS no ACL (não vêm de uma
+-- entrada PUBLIC, ao contrário do que sucedia com as funções da 0134): são o
+-- default privilege que o Supabase aplica a relações novas no `public`.
+-- Resultado: a vista estava a ser servida pelo PostgREST em
+-- GET /rest/v1/matchdeal_startup_hype a quem tivesse a publishable key.
+--
+-- ======================================================================
+-- 2. A FUGA, MEDIDA — NÃO INFERIDA
+-- ======================================================================
+--
+-- Com a publishable key, 06/08/2026:
+--
+--   GET /rest/v1/matchdeal_startup_hype  -> HTTP 200, 6 linhas
+--   GET /rest/v1/matchdeal_swipes        -> HTTP 200, []      (a RLS tapa)
+--   GET /rest/v1/matchdeal_exposures     -> HTTP 200, []      (a RLS tapa)
+--
+-- A vista lê exactamente essas duas tabelas. Contagens visíveis por papel:
+--
+--                     swipes  exposures  boosts  profiles
+--   postgres (bypassrls)   5         86       0        18
+--   authenticated          0          0       0        13
+--
+-- Ou seja: a vista estava a agregar 5 swipes e 86 exposures que a RLS mostra
+-- como 0 a quem a chama. O output publicado são só duas colunas
+-- (`startup_profile_id`, `is_hype`), e os ids já são visíveis ao `anon` pela
+-- política `matchdeal_profiles_select_visible` — a fuga marginal é o booleano.
+-- Severidade real: baixa. Mas `is_hype` é normalizado pelo `max(likes_week)`
+-- de TODA a coorte, portanto quem sondar a vista ao longo do tempo consegue
+-- inferir variações de actividade de likes — dados que a RLS protege ao ponto
+-- de a própria startup não poder ver os likes que recebe.
+--
+-- ======================================================================
+-- 3. PORQUE NÃO BASTA `security_invoker = true`
+-- ======================================================================
+--
+-- A doc do Supabase diz "usa security_invoker quando a vista DEVE respeitar a
+-- RLS". Esta não pode: é um agregado deliberadamente cross-user — só faz
+-- sentido a somar os swipes de toda a gente. Posta a respeitar a RLS, e lida
+-- por um papel sem bypassrls, ela não falha: devolve as mesmas 6 linhas com
+-- as contagens todas a zero. Passa a mentir em silêncio.
+--
+-- Por isso esta migração faz as DUAS coisas, e por esta ordem.
+--
+-- ======================================================================
+-- 4. PORQUE NADA NA APLICAÇÃO PARTE
+-- ======================================================================
+--
+-- Levantamento no commit af82bb3 — a vista é lida numa única linha de todo o
+-- repositório:
+--
+--   src/lib/investor-archive.ts:78
+--     admin.from('matchdeal_startup_hype').select('is_hype')...
+--
+-- `admin` é service_role nos três callers (`portal/archive`, `portal/export`,
+-- `portal/pipeline`), todos com `createClient(url, SUPABASE_SERVICE_ROLE_KEY)`.
+-- As outras 2 ocorrências de "startup_hype" em src/ são comentários.
+--
+-- E `service_role` tem `rolbypassrls = true`, portanto o `security_invoker`
+-- não lhe altera nada. Validado empiricamente antes de aplicar, em transacção
+-- descartada, com a opção já activa e `set local role service_role`:
+--
+--   swipes 5 | exposures 86 | profiles 18 | linhas da vista 6
+--
+-- — exactamente a baseline do `postgres`.
+--
+-- Zero dependências na base de dados: nenhuma vista, regra ou função referencia
+-- `matchdeal_startup_hype`. Nenhuma das 2 Edge Functions (`matchdeal-pair`,
+-- `matchdeal-qr-pair`) lhe toca.
+--
+-- ======================================================================
+-- 5. ACHADO QUE MUDOU O DESENHO DESTA MIGRAÇÃO
+-- ======================================================================
+--
+-- Testado em transacção descartada: com o revoke e o security_invoker já
+-- aplicados, corri um `create or replace view` com a definição devolvida por
+-- `pg_get_viewdef()` — que é o que uma re-execução da 0053 faria.
+--
+--   reloptions depois -> NULL          (o security_invoker foi APAGADO)
+--   relacl     depois -> {postgres,service_role}   (o revoke SOBREVIVEU)
+--
+-- Isto é a razão de ser do revoke. `alter view ... set (security_invoker)` é
+-- frágil: qualquer `create or replace view` futuro sem a cláusula `with`
+-- desfá-lo em silêncio, e o ERROR volta sem ninguém dar por isso. O revoke é
+-- o controlo durável; o security_invoker é o que apaga o lint.
+--
+-- PARA A SESSÃO CODE: corrigir também na origem — a definição da vista na
+-- 0053 deve passar a `create or replace view public.matchdeal_startup_hype
+-- with (security_invoker = true) as ...`. Enquanto isso não for feito, uma
+-- reposição do esquema a partir das migrações deixa a opção por pôr (embora
+-- esta 0135, corrida na ordem certa, a volte a pôr).
+--
+-- ======================================================================
+-- 6. OBJECTOS SOB PROIBIÇÃO PERMANENTE
+-- ======================================================================
+--
+-- Esta migração não toca em `access_grants` nem no motor de matching. Não
+-- altera a definição da vista, nem uma linha de dados. Âncoras medidas antes
+-- e depois: `access_grants` 105 linhas, último granted_at
+-- 2026-08-03 13:34:53.915+00; `matchdeal_eligible_deck` md5 do corpo
+-- b74197a2e721df7112165064504e63b4.
+
+-- ----------------------------------------------------------------------
+-- (a) O controlo durável: tirar a vista da superfície do PostgREST.
+--     `public` vai na lista por defesa — aqui os grants a anon/authenticated
+--     são explícitos, não herdados de PUBLIC, ao contrário da 0134.
+--     ACL alvo: {postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+-- ----------------------------------------------------------------------
+revoke all on public.matchdeal_startup_hype from public, anon, authenticated;
+
+-- ----------------------------------------------------------------------
+-- (b) O que apaga o lint: pôr a vista a declarar honestamente o seu modelo
+--     de privilégios. Sem efeito prático depois de (a) — os únicos leitores
+--     que restam (postgres, service_role) têm rolbypassrls.
+-- ----------------------------------------------------------------------
+alter view public.matchdeal_startup_hype set (security_invoker = true);

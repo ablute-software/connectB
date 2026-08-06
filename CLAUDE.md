@@ -58,5 +58,6 @@ reuse them as-is when wiring to Supabase; don't reimplement.
 - Server-only code imports from `supabase-server.ts` (has `import 'server-only'`); never import `next/headers` into anything a client component pulls in (that split exists on purpose).
 - Keep the two-mode behaviour: if env vars are absent, fall back to demo/localStorage so local dev and previews work.
 - Commit messages end with the Co-Authored-By / session trailers already used on `main`.
+- Every new Postgres `view` must specify `with (security_invoker = true)` explicitly in its own `create` statement, unless it's a deliberately cross-user aggregate that documents in a comment why it needs SECURITY DEFINER semantics (the default when the clause is omitted). A bare `create or replace view` silently clears the option even when a later `alter view ... set (security_invoker)` has been applied separately — confirmed empirically (2026-08-06, migration 0135) — so relying on a follow-up `alter` instead of the clause at the point of definition lets the gap silently reopen on the next schema replay.
 
 See `NEXT_STEPS.md` for the prioritised build plan.
