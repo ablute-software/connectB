@@ -1,10 +1,14 @@
 'use client';
 // Prompt 126 E — "an investor expressed interest" popup. The decision
-// itself is already recorded (investor_relationship_decisions) and an
-// interaction + entity already auto-created server-side (migration 0124,
-// matchdeal_record_interest_notification) by the time this ever shows
-// anything — this only surfaces what already happened and lets the founder
-// dismiss it. Polls + reacts to visibilitychange, same shape as
+// itself is always recorded (investor_relationship_decisions) by the time
+// this shows anything; the entity/interaction/task side effect
+// (matchdeal_record_interest_notification) is best-effort and, as of
+// 2026-08-06, actually reliable — for months it silently failed for any
+// investor catalog entity with no website/phone/address on file (fixed in
+// migrations 0127/0129; the caller's swallowed error is fixed in
+// pipeline/route.ts, same commit). Don't assume the entity exists purely
+// because this popup is showing — that's exactly the bug that went
+// unnoticed. Polls + reacts to visibilitychange, same shape as
 // ReminderPopup.tsx; placed bottom-left so the two never overlap if both
 // are showing at once.
 import { useEffect, useState } from 'react';

@@ -199,11 +199,17 @@ export async function POST(req: Request) {
   // posture as the email block — a failure here never un-does the decision
   // that already committed above via decide_investor_relationship.
   if (action === 'interest' && await investorInterestNotifyAvailable()) {
-    try {
-      await admin.rpc('matchdeal_record_interest_notification', {
-        p_org_id: orgId, p_catalog_id: investorCatalogEntityId, p_reason_detail: reason ?? null,
-      });
-    } catch { /* best-effort — the decision itself is already recorded */ }
+    // Bug fix (2026-08-06) — supabase-js's rpc() never throws; it always
+    // resolves to { data, error }. The old bare try/catch never actually
+    // caught anything because there was nothing to catch — every failure
+    // of this RPC (e.g. the entities_has_identity_evidence violation fixed
+    // in migration 0127/0129) resolved silently, `.error` unread, with
+    // zero trace anywhere. Still best-effort (a failure here never undoes
+    // the decision itself, already recorded above) — just no longer mute.
+    const { error: notifyError } = await admin.rpc('matchdeal_record_interest_notification', {
+      p_org_id: orgId, p_catalog_id: investorCatalogEntityId, p_reason_detail: reason ?? null,
+    });
+    if (notifyError) console.error('matchdeal_record_interest_notification failed', notifyError);
   }
 
   if (action === 'pass') {
