@@ -1113,8 +1113,14 @@ create or replace trigger trg_matchdeal_confirm_meeting_overlap
 -- durable control) plus `alter view ... set (security_invoker = true)`
 -- (mostly cosmetic once the revoke is in place, since the view's only
 -- remaining readers — postgres, service_role — have rolbypassrls anyway;
--- it exists to make the advisor lint honest and to survive a future
--- `create or replace view` that forgets the revoke).
+-- it exists to make the advisor lint honest. Correction, 2026-08-06,
+-- caught in verification: under `create or replace view` it is the
+-- REVOKE that survives and the security_invoker option that gets erased —
+-- see the measured finding two paragraphs below. The scenario where the
+-- source clause is the thing that matters is `drop view` + recreate, which
+-- resets the ACL back to Supabase's public-schema defaults — re-exposing
+-- anon/authenticated — and would need the `with` clause present at
+-- creation to avoid also reopening the DEFINER behavior at the same time).
 --
 -- Why the clause is added HERE, on the already-applied 0053, rather than
 -- left to 0135 alone: `alter view ... set (security_invoker)` is fragile —
