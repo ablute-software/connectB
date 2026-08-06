@@ -5,6 +5,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from './investor-match-score';
 import { activeGrantOrgIds, eligiblePipelineOrgIds, resolveInvestorCatalogEntityId, resolveInvestorProfile } from './portal-access';
+import { pipelineTestFlagAvailable } from './pipeline-test-flag-capability';
 import { roundValuationBasisAvailable } from './round-valuation-basis-capability';
 
 const WAVE_SIZE = 8;
@@ -18,24 +19,74 @@ const TRACKING_WINDOW_DAYS = 30;
 // (single-digit orgs on the platform). If this table grows large, an index
 // on (direction, created_at) would keep this query cheap; flagging rather
 // than adding pre-emptively.
+//
+// Item #15 — this aggregates ACROSS every investor and startup on the
+// platform, which is exactly where internal/QA activity is most invisible
+// to spot and most damaging to trust ("6 other investors are tracking
+// this" counting the team's own dogfood swipes). Two independent filters,
+// both no-ops until migration 0139 lands: startups whose org is_test never
+// contribute a target stage, and investor actors whose catalog_entity
+// is_test never contribute a like.
 async function computeTrackingCountsByStage(admin: SupabaseClient, excludeInvestorProfileId: string) {
   const since = new Date(Date.now() - TRACKING_WINDOW_DAYS * 86400000).toISOString();
+  const testFlagAvailable = await pipelineTestFlagAvailable();
+
   const { data: allStartupProfiles } = await admin.from('matchdeal_profiles').select('id, membership_id').eq('kind', 'startup');
-  const { data: allOrgs } = await admin.from('orgs').select('id, stage');
+  const { data: allOrgs } = testFlagAvailable
+    ? await admin.from('orgs').select('id, stage, is_test')
+    : await admin.from('orgs').select('id, stage');
   const stageByOrgId = new Map((allOrgs ?? []).map((o) => [o.id as string, o.stage as string | null]));
-  const stageByProfileId = new Map((allStartupProfiles ?? []).map((p) => [p.id as string, stageByOrgId.get(p.membership_id as string) ?? null]));
+  const testOrgIds = new Set((allOrgs ?? []).filter((o) => (o as { is_test?: boolean }).is_test).map((o) => o.id as string));
+  const stageByProfileId = new Map(
+    (allStartupProfiles ?? [])
+      .filter((p) => !testOrgIds.has(p.membership_id as string))
+      .map((p) => [p.id as string, stageByOrgId.get(p.membership_id as string) ?? null]),
+  );
 
   const { data: recentLikes } = await admin.from('matchdeal_swipes').select('actor_profile_id, target_profile_id')
     .eq('direction', 'like').gte('created_at', since).neq('actor_profile_id', excludeInvestorProfileId);
 
+  const testActorProfileIds = testFlagAvailable
+    ? await testInvestorActorProfileIds(admin, (recentLikes ?? []).map((s) => s.actor_profile_id as string))
+    : new Set<string>();
+
   const byStage = new Map<string, Set<string>>();
   for (const swipe of recentLikes ?? []) {
+    if (testActorProfileIds.has(swipe.actor_profile_id as string)) continue;
     const stage = stageByProfileId.get(swipe.target_profile_id as string);
     if (!stage) continue;
     if (!byStage.has(stage)) byStage.set(stage, new Set());
     byStage.get(stage)!.add(swipe.actor_profile_id as string);
   }
   return byStage;
+}
+
+// Item #15 — an investor matchdeal_profile's membership_id points at
+// matchdeal_investor_members.id, which in turn carries the firm-level
+// catalog_entity_id (0053) — is_test lives on catalog_entities, two hops
+// away from the profile id a swipe row actually stores.
+async function testInvestorActorProfileIds(admin: SupabaseClient, actorProfileIds: string[]): Promise<Set<string>> {
+  const uniqueActorIds = [...new Set(actorProfileIds)];
+  if (uniqueActorIds.length === 0) return new Set();
+
+  const { data: actorProfiles } = await admin.from('matchdeal_profiles').select('id, membership_id')
+    .in('id', uniqueActorIds).eq('kind', 'investor');
+  const memberIds = [...new Set((actorProfiles ?? []).map((p) => p.membership_id as string))];
+  if (memberIds.length === 0) return new Set();
+
+  const { data: members } = await admin.from('matchdeal_investor_members').select('id, catalog_entity_id').in('id', memberIds);
+  const catalogIdByMemberId = new Map((members ?? []).map((m) => [m.id as string, m.catalog_entity_id as string]));
+  const catalogIds = [...new Set((members ?? []).map((m) => m.catalog_entity_id as string))];
+  if (catalogIds.length === 0) return new Set();
+
+  const { data: testCatalogEntities } = await admin.from('catalog_entities').select('id').eq('is_test', true).in('id', catalogIds);
+  const testCatalogIds = new Set((testCatalogEntities ?? []).map((c) => c.id as string));
+
+  return new Set(
+    (actorProfiles ?? [])
+      .filter((p) => testCatalogIds.has(catalogIdByMemberId.get(p.membership_id as string) ?? ''))
+      .map((p) => p.id as string),
+  );
 }
 
 // P132-A — the ID-only half of the union, for callers (the POST action

@@ -4,6 +4,7 @@
 // so this became worth sharing rather than a third copy-paste).
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveActiveInvestorMember } from './investor-membership';
+import { pipelineTestFlagAvailable } from './pipeline-test-flag-capability';
 
 export async function resolveInvestorProfile(admin: SupabaseClient, userId: string) {
   const member = await resolveActiveInvestorMember(admin, userId);
@@ -35,7 +36,20 @@ export async function activeGrantOrgIds(admin: SupabaseClient, email: string, pe
     const confirmedIfInvited = !g.invited_email || g.confirmed_at;
     if (notExpired && confirmedIfInvited) ids.add(g.org_id as string);
   }
-  return [...ids];
+  return excludeTestOrgIds(admin, [...ids]);
+}
+
+// Item #15 — a grant from an internal/QA org (e.g. ablute_'s own dogfood
+// org granting itself access) must never surface as "Data room open" in a
+// real investor's own Pipeline stats. Filters both eligiblePipelineOrgIds
+// and activeGrantOrgIds against the same is_test flag rather than each
+// re-deriving its own notion of "internal" — see migration 0139. No-ops
+// (returns ids unchanged) until that migration is applied.
+async function excludeTestOrgIds(admin: SupabaseClient, ids: string[]): Promise<string[]> {
+  if (ids.length === 0 || !(await pipelineTestFlagAvailable())) return ids;
+  const { data: testOrgs } = await admin.from('orgs').select('id').eq('is_test', true).in('id', ids);
+  const testIds = new Set((testOrgs ?? []).map((o) => o.id as string));
+  return ids.filter((id) => !testIds.has(id));
 }
 
 // Prompt 120 Block A — Pipeline eligibility, deliberately separate from
@@ -54,7 +68,8 @@ export async function activeGrantOrgIds(admin: SupabaseClient, email: string, pe
 // means.
 export async function eligiblePipelineOrgIds(admin: SupabaseClient) {
   const { data } = await admin.from('matchdeal_profiles').select('membership_id').eq('kind', 'startup').eq('is_visible', true);
-  return [...new Set((data ?? []).map((p) => p.membership_id as string))];
+  const ids = [...new Set((data ?? []).map((p) => p.membership_id as string))];
+  return excludeTestOrgIds(admin, ids);
 }
 
 // Same QA fallback as /api/portal/access — @ablute.pt sessions get into the
