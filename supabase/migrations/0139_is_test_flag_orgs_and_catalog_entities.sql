@@ -28,10 +28,16 @@ alter table public.orgs
 alter table public.catalog_entities
   add column if not exists is_test boolean not null default false;
 
+-- Item verbatim (relatorio_verificacao_40a0835_e_reposicao_is_test_20260806
+-- §4): estes dois literais tem de ficar SEM acentuacao e com hifen simples,
+-- byte a byte iguais ao texto que passou por apply_migration em producao
+-- (version 20260806202717, md5 dos statements c6e69455c0e0a8b8c02e1f02bc492a39)
+-- -- nao "corrigir" a acentuacao aqui, isso reabre exactamente a divergencia
+-- repo-vs-producao que este ficheiro existe para fechar.
 comment on column public.orgs.is_test is
-  'Org interna/de teste da equipa. Deve ser excluída da descoberta publicada e de qualquer estatística agregada mostrada a utilizadores reais.';
+  'Org interna/de teste da equipa. Deve ser excluida da descoberta publicada e de qualquer estatistica agregada mostrada a utilizadores reais.';
 comment on column public.catalog_entities.is_test is
-  'Entidade investidora interna/de teste. Mesma semântica de orgs.is_test.';
+  'Entidade investidora interna/de teste. Mesma semantica de orgs.is_test.';
 
 create index if not exists orgs_is_test_idx on public.orgs (is_test) where is_test;
 create index if not exists catalog_entities_is_test_idx on public.catalog_entities (is_test) where is_test;

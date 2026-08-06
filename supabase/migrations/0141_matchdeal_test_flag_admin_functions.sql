@@ -24,13 +24,44 @@
 -- DENTRO do corpo da funcao, nao so confiada ao revoke de ACL. Adicionado
 -- `is_platform_admin()`, mas com uma condicao: so se aplica quando
 -- auth.role() = 'authenticated' (ou seja, um JWT real de utilizador
--- autenticado via PostgREST). Uma ligacao directa via SQL editor do
--- Supabase (psql, postgres, service_role) nao tem auth.role() nenhum —
--- fica NULL, nunca 'authenticated' — e portanto nao passa pela guarda:
--- continua reachable pelo revisor/Nuno exactamente como antes. Se a ACL for
--- alargada a `authenticated` no futuro (quando um toggle de backoffice
--- vier a chamar isto directamente da app), a guarda ja esta pronta para
--- recusar quem nao for platform_admin — nao e preciso voltar aqui.
+-- autenticado via PostgREST).
+--
+-- CORRECCAO (relatorio_verificacao_40a0835_e_reposicao_is_test_20260806 §5)
+-- a uma alegacao errada que estava aqui: "uma ligacao directa via SQL
+-- editor... (psql, postgres, service_role) nao tem auth.role() nenhum".
+-- So metade e verdade. Medido em producao (verificacao da 0138): uma
+-- ligacao directa pelo SQL editor tem mesmo auth.role() = NULL, mas
+-- service_role VIA POSTGREST (qualquer rota de API que use o admin/
+-- service-role client, como todas as rotas de backoffice deste
+-- repositorio) tem auth.role() = 'service_role' -- uma string real, nunca
+-- NULL. auth.role() le o CLAIM do JWT, nao o papel de ligacao a base.
+--
+-- Isto nao muda a conclusao pratica: nos dois casos (SQL directo e
+-- service_role) a condicao `auth.role() = 'authenticated'` e falsa, logo a
+-- guarda nao dispara em nenhum dos dois -- exactamente como a app precisa
+-- hoje (revisor/Nuno via SQL editor; qualquer futura rota de API via o
+-- admin client). A alegacao errada era so na explicacao de PORQUE, nao no
+-- comportamento.
+--
+-- O revisor propos endurecer para bloquear tambem `service_role` sem
+-- is_platform_admin(). Avaliado e NAO adoptado, por duas razoes: (1)
+-- nenhuma rota do repositorio chama esta funcao hoje -- e revogada de
+-- public/anon/authenticated, so alcancavel por quem ja tem acesso directo
+-- a base (SQL editor) ou pelo service_role, que sao precisamente os dois
+-- chamadores de confianca que este ficheiro pretende continuar a servir;
+-- (2) e inconsistente com o modelo de seguranca que o resto do backoffice
+-- ja usa em todo o lado (requirePlatformAdmin() ao nivel da ROTA antes de
+-- chamar o cliente service_role -- ver src/lib/backoffice-auth.ts e todas
+-- as rotas /api/backoffice/*) -- nenhuma outra mutacao admin deste
+-- repositorio re-verifica o admin dentro da funcao SQL, so na rota. Se um
+-- toggle de backoffice vier a chamar isto directamente de uma rota de API,
+-- essa rota tem de trazer o proprio requirePlatformAdmin() antes de tocar
+-- no cliente admin -- mesma disciplina que todas as outras, nao uma
+-- excepcao.
+--
+-- `is_platform_admin()` continua a existir aqui como a camada que recusa
+-- um `authenticated` sem ser admin -- o caso real que esta guarda existe
+-- para apanhar, e o unico que muda de comportamento consoante quem chama.
 --
 -- `set search_path = public, pg_temp` ja estava nas duas, mantido.
 -- `revoke all ... from public, anon, authenticated` mantido tambem — a

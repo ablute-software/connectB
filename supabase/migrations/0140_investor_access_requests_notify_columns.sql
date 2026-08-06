@@ -20,7 +20,10 @@ alter table public.investor_access_requests
   add column if not exists notified_at timestamptz,
   add column if not exists notify_failed boolean not null default false;
 
+-- Mesma nota da 0139: os dois literais abaixo ficam sem acentuacao e com
+-- hifen simples, byte a byte iguais ao texto aplicado em producao (version
+-- 20260806202724, md5 dos statements e84c2d9bf3c74173084add11e29b9e32).
 comment on column public.investor_access_requests.notified_at is
-  'Quando o requerente foi notificado por email da decisão (approve/reject). Null = nunca notificado.';
+  'Quando o requerente foi notificado por email da decisao (approve/reject). Null = nunca notificado.';
 comment on column public.investor_access_requests.notify_failed is
-  'True quando a tentativa de envio falhou — permite ao backoffice mostrar e reenviar, em vez de a falha ficar invisível.';
+  'True quando a tentativa de envio falhou - permite ao backoffice mostrar e reenviar, em vez de a falha ficar invisivel.';
