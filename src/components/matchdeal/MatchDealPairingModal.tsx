@@ -18,6 +18,7 @@
 // matchdeal-qr-pair and the app is store-published. See /matchdeal/pair
 // for the honest holding page a phone lands on today.
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import QRCode from 'qrcode';
 
 type PairingKind = 'startup' | 'investor';
@@ -131,7 +132,18 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
     }
   }
 
-  return (
+  // mini_prompt_modal_matchdeal_fora_do_ecra_causa_medida_20260806 — this
+  // fixed-inset-0 overlay used to render inline inside WorkspaceHeader's
+  // subtree. A `backdrop-filter` ancestor (the header's `backdrop-blur`)
+  // becomes the containing block for `position: fixed` descendants per the
+  // CSS spec, so the overlay resolved against the ~53px header instead of
+  // the viewport, pushing most of the card off the top of the screen.
+  // Portalling to document.body is immune to any CSS an ancestor gains in
+  // the future — same fix/reasoning already used by WelcomeModal.tsx and
+  // HelpSupportWidget.tsx.
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/30 p-4" onClick={onClose}>
       <div className="my-8 max-h-[85vh] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-2">
@@ -235,6 +247,7 @@ export function MatchDealPairingModal({ kind, onClose }: { kind: PairingKind; on
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
