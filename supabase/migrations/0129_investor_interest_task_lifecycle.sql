@@ -15,16 +15,26 @@
 -- task immediately overdue, landing on Today's red "Overdue" card rather
 -- than the quiet "This week" one. One line to change if Nuno wants a grace
 -- period instead.
-create or replace function public.matchdeal_record_interest_notification(
-  p_org_id uuid, p_catalog_id uuid, p_reason_detail text default null
-) returns uuid
-language plpgsql security definer set search_path = public as $$
+-- Function body below is 0127's own verbatim production body (the
+-- identity-evidence fix), plus exactly one addition — the task insert —
+-- so this migration reads as a clean evolution of that one, not a second,
+-- independently-drifted copy of the same fix.
+CREATE OR REPLACE FUNCTION public.matchdeal_record_interest_notification(
+  p_org_id uuid,
+  p_catalog_id uuid,
+  p_reason_detail text DEFAULT NULL::text
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
 declare
   v_entity_id uuid;
   v_catalog record;
   v_interaction_id uuid;
   v_email_domain text;
-  v_has_identity_evidence boolean;
+  v_has_evidence boolean;
 begin
   select entity_id into v_entity_id
   from catalog_deliveries
@@ -36,27 +46,29 @@ begin
       raise exception 'MATCHDEAL_CATALOG_ENTITY_MISSING';
     end if;
 
-    v_email_domain := lower(split_part(v_catalog.email, '@', 2));
-    if v_email_domain = '' then
-      v_email_domain := null;
-    end if;
+    v_email_domain := nullif(lower(split_part(coalesce(v_catalog.email, ''), '@', 2)), '');
 
-    v_has_identity_evidence := v_catalog.website is not null or v_email_domain is not null
-      or v_catalog.phone is not null or v_catalog.address is not null;
+    v_has_evidence := (
+      v_catalog.website is not null
+      or v_email_domain is not null
+      or v_catalog.phone is not null
+      or v_catalog.address is not null
+    );
 
     insert into entities (
       org_id, name, type, hq_city, hq_country, website, website_verified,
-      email, email_domain, phone, address, stage_min, stage_max,
+      email, email_domain, phone, address, unverified_stub_at,
+      stage_min, stage_max,
       check_min_eur, check_max_eur, sectors, thesis, fit_score, wave,
-      submission_channel_type, hard_filter_status, status, source, unverified_stub_at
+      submission_channel_type, hard_filter_status, status, source
     ) values (
       p_org_id, v_catalog.name, v_catalog.type, v_catalog.hq_city, v_catalog.hq_country,
       v_catalog.website, v_catalog.website is not null,
       v_catalog.email, v_email_domain, v_catalog.phone, v_catalog.address,
+      case when v_has_evidence then null else now() end,
       v_catalog.stage_min, v_catalog.stage_max, v_catalog.check_min_eur, v_catalog.check_max_eur,
       v_catalog.sectors, v_catalog.thesis, 'high', 1,
-      'unknown', 'not_applicable', 'not_contacted', 'match_deal',
-      case when v_has_identity_evidence then null else now() end
+      'unknown', 'not_applicable', 'not_contacted', 'match_deal'
     ) returning id into v_entity_id;
 
     insert into catalog_deliveries (org_id, catalog_id, entity_id, via_pack)
@@ -79,7 +91,7 @@ begin
   values (p_org_id, 'Respond to expressed interest', now(), v_entity_id, 'follow_up', 'follow_up_thread', 'investor_interest');
 
   return v_interaction_id;
-end; $$;
+end; $function$;
 
 revoke execute on function public.matchdeal_record_interest_notification(uuid, uuid, text) from public, anon, authenticated;
 
