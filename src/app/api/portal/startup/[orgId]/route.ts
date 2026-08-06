@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
+import { getStartupPeople } from '@/lib/investor-interaction-log';
 
 export async function GET(req: Request, { params }: { params: { orgId: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -43,5 +44,15 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
     } : null;
   }
 
-  return NextResponse.json({ card, overview });
+  // relatorio_verificacao_..._20260805 §4 — the Overview tab never actually
+  // read company_people (only team_summary/representative_* free text on
+  // matchdeal_profiles), even though the startup's real team roster
+  // already exists and is filled in. Emails deliberately excluded here —
+  // see the ladder in §5 (pending Nuno's own decision on when contacts
+  // should open up); name/title/founder-flag/LinkedIn are already surfaced
+  // elsewhere to investors (the RPC's own founders[] jsonb includes name/
+  // title/bio) so showing them plainly here isn't a new disclosure.
+  const team = await getStartupPeople(admin, params.orgId);
+
+  return NextResponse.json({ card, overview, team });
 }

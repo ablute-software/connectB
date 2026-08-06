@@ -4,15 +4,46 @@
 // that reads investor_interaction_log — this is the only place it's ever
 // queried, and only ever with the service-role client.
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { pipelineEligibleOrgIds } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
-import { interactionLogAvailable } from '@/lib/investor-interaction-log-capability';
-import { getInteractionTimeline, createManualInteractionEntry } from '@/lib/investor-interaction-log';
+import { interactionLogAvailable, interactionLogPersonDocumentAvailable } from '@/lib/investor-interaction-log-capability';
+import { getInteractionTimeline, createManualInteractionEntry, getStartupPeople } from '@/lib/investor-interaction-log';
+import { resolveDocumentAccess, type GrantLike } from '@/lib/data-room';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
 const CHANNELS = ['matchdeal', 'email', 'call', 'meeting', 'message', 'other'] as const;
+
+// P134-D §4 — documents this firm may attach to a manual entry: exactly
+// the ones already visible via a real access_grants row for THIS org, same
+// resolveDocumentAccess() the Documents tab itself uses and the same
+// validate-server-side-never-trust-the-client posture P134-C's messages
+// already established for document_ids. Scoped to a single explicit
+// org_id equality check throughout — not the "first active grant" fallback
+// /api/portal/access uses for its own different purpose — so this can
+// never resolve to a different org's documents.
+async function attachableDocuments(admin: SupabaseClient, orgId: string, email: string) {
+  const { data: grants } = await admin.from('access_grants').select('*').eq('org_id', orgId).is('revoked_at', null)
+    .or([`grantee_email.eq.${email}`, `invited_email.eq.${email}`].join(','));
+  const now = new Date();
+  const activeGrants = ((grants ?? []) as unknown as (GrantLike & { expires_at?: string | null; invited_email?: string | null; confirmed_at?: string | null })[])
+    .filter((g) => (!g.expires_at || new Date(g.expires_at) > now) && (!g.invited_email || g.confirmed_at));
+  if (activeGrants.length === 0) return [];
+
+  const folderIds = activeGrants.filter((g) => g.folder_id).map((g) => g.folder_id as string);
+  const directDocIds = activeGrants.filter((g) => g.document_id).map((g) => g.document_id as string);
+  const [{ data: docsInFolders }, { data: directDocs }] = await Promise.all([
+    folderIds.length ? admin.from('documents').select('id, name, folder_id').in('folder_id', folderIds).eq('org_id', orgId) : Promise.resolve({ data: [] }),
+    directDocIds.length ? admin.from('documents').select('id, name, folder_id').in('id', directDocIds).eq('org_id', orgId) : Promise.resolve({ data: [] }),
+  ]);
+  const docMap = new Map<string, { id: string; name: string; folder_id: string | null }>();
+  for (const d of [...(docsInFolders ?? []), ...(directDocs ?? [])]) docMap.set(d.id as string, d as { id: string; name: string; folder_id: string | null });
+  const candidateDocs = [...docMap.values()];
+
+  const { visibleIds } = resolveDocumentAccess(activeGrants, candidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id ?? undefined })));
+  return candidateDocs.filter((d) => visibleIds.includes(d.id)).map((d) => ({ id: d.id, name: d.name }));
+}
 
 export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -37,8 +68,12 @@ export async function GET(req: Request) {
   const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
   if (!investorCatalogEntityId) return NextResponse.json({ entries: [] });
 
-  const entries = await getInteractionTimeline(admin, { investorCatalogEntityId, email, orgId });
-  return NextResponse.json({ entries });
+  const [entries, people, documents] = await Promise.all([
+    getInteractionTimeline(admin, { investorCatalogEntityId, email, orgId }),
+    getStartupPeople(admin, orgId),
+    attachableDocuments(admin, orgId, email),
+  ]);
+  return NextResponse.json({ entries, people, documents, personDocumentAvailable: await interactionLogPersonDocumentAvailable() });
 }
 
 export async function POST(req: Request) {
@@ -61,6 +96,7 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({})) as {
     orgId?: string; channel?: string; content?: string; links?: unknown; occurredAt?: string;
+    personId?: string; personNameOther?: string; documentId?: string;
   };
   if (!body.orgId) return NextResponse.json({ ok: false, error: 'orgId is required.' }, { status: 400 });
   if (!body.channel || !(CHANNELS as readonly string[]).includes(body.channel)) {
@@ -76,8 +112,30 @@ export async function POST(req: Request) {
   const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
   if (!investorCatalogEntityId) return NextResponse.json({ ok: false, error: 'No investor firm linked to this session.' }, { status: 403 });
 
+  // person_id, if given, must genuinely be a person at THIS startup — never
+  // trusted as an opaque id from the client.
+  let personId: string | null = null;
+  if (body.personId) {
+    const { data: personRow } = await admin.from('company_people').select('id').eq('id', body.personId).eq('org_id', body.orgId).maybeSingle();
+    if (!personRow) return NextResponse.json({ ok: false, error: 'That person is not on record for this startup.' }, { status: 400 });
+    personId = body.personId;
+  }
+
+  // document_id, if given, must be one this firm already has grant access
+  // to — recomputed here, never trusted from the client, same posture as
+  // P134-C's own document_ids validation in /api/portal/messages.
+  let documentId: string | null = null;
+  if (body.documentId) {
+    const allowed = await attachableDocuments(admin, body.orgId, email);
+    if (!allowed.some((d) => d.id === body.documentId)) {
+      return NextResponse.json({ ok: false, error: 'That document is not accessible to your firm.' }, { status: 403 });
+    }
+    documentId = body.documentId;
+  }
+
   const { error } = await createManualInteractionEntry(admin, {
-    investorCatalogEntityId, orgId: body.orgId, userId: user.id, channel: body.channel, content: body.content, links: body.links, occurredAt: body.occurredAt,
+    investorCatalogEntityId, orgId: body.orgId, userId: user.id, channel: body.channel, content: body.content, links: body.links,
+    occurredAt: body.occurredAt, personId, personNameOther: body.personNameOther ?? null, documentId,
   });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

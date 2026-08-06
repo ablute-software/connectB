@@ -38,10 +38,11 @@ export async function GET(req: Request) {
     const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
     const entries = investorCatalogEntityId ? await getInteractionTimeline(admin, { investorCatalogEntityId, email, orgId }) : [];
     const rows = entries.map((e) => ({
-      at: e.at, kind: e.kind, channel: e.channel ?? '', content: e.content,
+      at: e.at, kind: e.kind, channel: e.channel ?? '', person: e.personName ?? '', content: e.content,
       links: e.links.map((l) => `${l.label} (${l.url})`).join('; '),
+      document: e.document ? e.document.name : '',
     }));
-    csv = toCsv(rows, ['at', 'kind', 'channel', 'content', 'links']);
+    csv = toCsv(rows, ['at', 'kind', 'channel', 'person', 'content', 'links', 'document']);
     filename = 'interaction-log.csv';
   } else if (type === 'pipeline') {
     const result = await getPipelineWaves(sb, admin, user.id, email);

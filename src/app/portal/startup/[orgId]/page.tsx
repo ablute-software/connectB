@@ -33,6 +33,7 @@ interface Overview {
   founders: { full_name: string; title: string | null; bio: string | null; photo_url: string | null }[] | null;
   team_summary: string | null; representative_name: string | null; representative_linkedin: string | null;
 }
+interface TeamMember { id: string; fullName: string; title: string | null; isFounder: boolean; linkedinUrl: string | null }
 interface PortalDoc { id: string; name: string; version?: string; watermark: boolean; downloadable: boolean; folder_id?: string; url: string | null }
 interface DocSection { key: string; label: string; documents: PortalDoc[] }
 
@@ -54,7 +55,7 @@ export default function StartupDossierPage() {
   const orgId = params.orgId;
 
   const [sessionEmail, setSessionEmail] = useState<string | null | undefined>(undefined);
-  const [data, setData] = useState<{ card: Card; overview: Overview | null } | null | 'not-found'>(null);
+  const [data, setData] = useState<{ card: Card; overview: Overview | null; team: TeamMember[] } | null | 'not-found'>(null);
   const [tab, setTab] = useState<'overview' | 'documents' | 'messages' | 'activity'>('overview');
   const [docs, setDocs] = useState<{ sections: DocSection[]; pendingNdaCount: number } | null>(null);
   // P134-C — fetched regardless of which tab is active: the Documents tab's
@@ -159,7 +160,7 @@ export default function StartupDossierPage() {
   }
   if (!data) return <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>;
 
-  const { card, overview } = data;
+  const { card, overview, team } = data;
 
   return (
     <div className="min-h-screen bg-[#F7F9FA]">
@@ -247,7 +248,7 @@ export default function StartupDossierPage() {
       </div>
 
       <main className={tab === 'messages' ? 'mx-auto max-w-4xl p-4 md:p-8' : 'mx-auto max-w-2xl p-4 md:p-8'}>
-        {tab === 'overview' && <OverviewTab card={card} overview={overview} />}
+        {tab === 'overview' && <OverviewTab card={card} overview={overview} team={team} />}
         {tab === 'documents' && <DocumentsTab hasAccess={card.hasDataRoomAccess} docs={docs} sharedInMessages={messagesInfo?.messages ?? []} />}
         {tab === 'messages' && (
           <div className="flex flex-col gap-4 md:flex-row">
@@ -276,9 +277,15 @@ export default function StartupDossierPage() {
   );
 }
 
-function OverviewTab({ card, overview }: { card: Card; overview: Overview | null }) {
+function OverviewTab({ card, overview, team }: { card: Card; overview: Overview | null; team: TeamMember[] }) {
   const hasMarket = overview && (overview.tam_eur != null || overview.sam_eur != null || overview.som_eur != null);
-  const hasTeam = overview && (overview.team_summary || overview.representative_name);
+  // relatorio_verificacao_..._20260805 §4 — this used to only ever show
+  // team_summary (free text) or a single representative_name/linkedin from
+  // matchdeal_profiles, never company_people — even though the real roster
+  // (name, title, founder flag, LinkedIn) already exists and is filled in.
+  // Emails are deliberately excluded here — see §5's disclosure ladder,
+  // pending Nuno's own decision on when contacts should open up.
+  const hasTeam = team.length > 0 || (overview && (overview.team_summary || overview.representative_name));
   const traction = overview?.traction_metrics && typeof overview.traction_metrics === 'object'
     ? Object.entries(overview.traction_metrics as Record<string, unknown>) : [];
 
@@ -326,17 +333,35 @@ function OverviewTab({ card, overview }: { card: Card; overview: Overview | null
         <div className="rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-gray-900">Team</h2>
           {overview?.team_summary && <p className="mt-1 text-sm text-gray-700">{overview.team_summary}</p>}
-          {overview?.representative_name && (
-            <p className="mt-1 text-xs text-gray-500">
-              {overview.representative_name}
-              {overview.representative_linkedin && (
-                <> · <a href={overview.representative_linkedin} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">LinkedIn</a></>
+          {team.length > 0 ? (
+            <ul className="mt-2 space-y-1.5">
+              {team.map((p) => (
+                <li key={p.id} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="text-gray-700">
+                    {p.fullName}{p.title && <span className="text-gray-400"> — {p.title}</span>}
+                    {p.isFounder && <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[10px] font-semibold text-[#0E7490]">Founder</span>}
+                  </span>
+                  {p.linkedinUrl && (
+                    <a href={p.linkedinUrl} target="_blank" rel="noreferrer" className="shrink-0 text-[#0E7490] hover:underline">LinkedIn</a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <>
+              {overview?.representative_name && (
+                <p className="mt-1 text-xs text-gray-500">
+                  {overview.representative_name}
+                  {overview.representative_linkedin && (
+                    <> · <a href={overview.representative_linkedin} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">LinkedIn</a></>
+                  )}
+                </p>
               )}
-            </p>
+              {(overview?.founders ?? []).map((f, i) => (
+                <p key={i} className="mt-1 text-xs text-gray-500">{f.full_name}{f.title && ` — ${f.title}`}</p>
+              ))}
+            </>
           )}
-          {(overview?.founders ?? []).map((f, i) => (
-            <p key={i} className="mt-1 text-xs text-gray-500">{f.full_name}{f.title && ` — ${f.title}`}</p>
-          ))}
         </div>
       )}
 
