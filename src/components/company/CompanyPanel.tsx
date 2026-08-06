@@ -19,7 +19,7 @@ import { RoundCard } from './RoundCard';
 import { TractionCard } from './TractionCard';
 import { OutreachSettingsCard } from './OutreachSettingsCard';
 import { DataroomChecklistCard } from './DataroomChecklistCard';
-import { InvestorDecisionsCard, InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEngagementCards';
+import { InvestorDecisionsCard, InterestLevelRequestsCard, InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEngagementCards';
 
 function DemoResetCard() {
   const { resetDemo } = useStore();
@@ -84,6 +84,7 @@ export function CompanyPanel() {
       </div>
       <DataroomChecklistCard />
       <InvestorDecisionsCard />
+      <InterestLevelRequestsCard />
       <SoftCommitsCard />
       <RoundUpdatesCard />
       <InvestorQACard />

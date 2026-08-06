@@ -173,6 +173,86 @@ export function InvestorDecisionsCard() {
   );
 }
 
+// P136 — the disclosure ladder's own founder-side approval surface. Level
+// 3 (named-contact messaging + a data-room request) is the one step in the
+// ladder that needs a human decision — level 2 is frictionless by design
+// (see investor-interest-level.ts's own header). Lands here (Company tab,
+// right alongside the read-only Investor decisions card) AND as a real
+// task on the founder's own Today (see requestInterestLevel in
+// investor-interest-level-db.ts) — two surfaces, one underlying row.
+interface InterestLevelRequest {
+  id: string; investorName: string; status: 'granted' | 'pending' | 'denied';
+  requestedAt: string; decidedAt: string | null; note: string | null; shareDirectEmail: boolean;
+}
+
+export function InterestLevelRequestsCard() {
+  const [requests, setRequests] = useState<InterestLevelRequest[] | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState<Record<string, string>>({});
+  const [shareEmailDraft, setShareEmailDraft] = useState<Record<string, boolean>>({});
+
+  function load() {
+    fetch('/api/founder/interest-level-requests').then((r) => r.json()).then((d) => setRequests(d.requests ?? []));
+  }
+  useEffect(load, []);
+
+  async function decide(id: string, decision: 'granted' | 'denied') {
+    setBusyId(id);
+    try {
+      await fetch('/api/founder/interest-level-requests', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, decision, note: noteDraft[id]?.trim() || undefined, shareDirectEmail: !!shareEmailDraft[id] }),
+      });
+      load();
+    } finally { setBusyId(null); }
+  }
+
+  if (!requests || requests.length === 0) return null;
+  const pending = requests.filter((r) => r.status === 'pending');
+  const decided = requests.filter((r) => r.status !== 'pending');
+
+  return (
+    <Card title="Contact requests">
+      <div className="space-y-2">
+        {pending.map((r) => (
+          <div key={r.id} className="rounded-lg border border-gray-100 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium text-gray-800">{r.investorName}</span>
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Pending</span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-gray-400">Requested {new Date(r.requestedAt).toLocaleDateString()}</p>
+            <p className="mt-1.5 text-xs text-gray-600">Wants to message a named contact at your company and ask about data-room access.</p>
+            <textarea value={noteDraft[r.id] ?? ''} onChange={(e) => setNoteDraft({ ...noteDraft, [r.id]: e.target.value })}
+              rows={1} placeholder="Note (optional)" className="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs" />
+            <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-gray-500">
+              <input type="checkbox" checked={!!shareEmailDraft[r.id]} onChange={(e) => setShareEmailDraft({ ...shareEmailDraft, [r.id]: e.target.checked })} />
+              Also share our direct email with this firm
+            </label>
+            <div className="mt-2 flex items-center gap-2">
+              <button onClick={() => decide(r.id, 'granted')} disabled={busyId === r.id}
+                className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">Approve</button>
+              <button onClick={() => decide(r.id, 'denied')} disabled={busyId === r.id}
+                className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">Deny</button>
+            </div>
+          </div>
+        ))}
+        {decided.map((r) => (
+          <div key={r.id} className="rounded-lg border border-gray-100 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium text-gray-800">{r.investorName}</span>
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${r.status === 'granted' ? 'bg-[#E8F4F8] text-[#0E7490]' : 'bg-gray-100 text-gray-500'}`}>
+                {r.status === 'granted' ? 'Granted' : 'Denied'}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-gray-400">{r.decidedAt && new Date(r.decidedAt).toLocaleDateString()}{r.status === 'granted' && r.shareDirectEmail && ' · Direct email shared'}</p>
+            {r.note && <p className="mt-1.5 text-xs text-gray-600">{r.note}</p>}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 export function SoftCommitsCard() {
   const [commits, setCommits] = useState<SoftCommit[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);

@@ -33,7 +33,18 @@ interface Overview {
   founders: { full_name: string; title: string | null; bio: string | null; photo_url: string | null }[] | null;
   team_summary: string | null; representative_name: string | null; representative_linkedin: string | null;
 }
-interface TeamMember { id: string; fullName: string; title: string | null; isFounder: boolean; linkedinUrl: string | null }
+interface TeamMember { id: string; fullName: string; title: string | null; isFounder: boolean; linkedinUrl: string | null; email?: string }
+interface ContactHistoryItem { id: string; at: string; content: string; channel: string | null }
+interface DocumentTitle { id: string; name: string }
+// P136 — the disclosure ladder's own response shape. Keys are ABSENT (not
+// null/empty) below the level that unlocks them — server-enforced in
+// /api/portal/startup/[orgId] via projectDossier, never a client-side hide.
+interface Dossier {
+  overview?: Overview; tractionDetailed?: Record<string, unknown>; team?: TeamMember[];
+  contactHistory?: ContactHistoryItem[]; documentTitles?: DocumentTitle[];
+  canMessageNamedPerson?: boolean; canRequestDataRoom?: boolean;
+}
+interface LevelRow { level: 2 | 3; status: 'granted' | 'pending' | 'denied' }
 interface PortalDoc { id: string; name: string; version?: string; watermark: boolean; downloadable: boolean; folder_id?: string; url: string | null }
 interface DocSection { key: string; label: string; documents: PortalDoc[] }
 
@@ -55,8 +66,10 @@ export default function StartupDossierPage() {
   const orgId = params.orgId;
 
   const [sessionEmail, setSessionEmail] = useState<string | null | undefined>(undefined);
-  const [data, setData] = useState<{ card: Card; overview: Overview | null; team: TeamMember[] } | null | 'not-found'>(null);
+  const [data, setData] = useState<{ card: Card; level: 0 | 1 | 2 | 3; levelRows: LevelRow[]; dossier: Dossier } | null | 'not-found'>(null);
   const [tab, setTab] = useState<'overview' | 'documents' | 'messages' | 'activity'>('overview');
+  const [levelBusy, setLevelBusy] = useState(false);
+  const [levelError, setLevelError] = useState<string | null>(null);
   const [docs, setDocs] = useState<{ sections: DocSection[]; pendingNdaCount: number } | null>(null);
   // P134-C — fetched regardless of which tab is active: the Documents tab's
   // own "Shared in messages" cross-ref needs this even if the investor
@@ -127,6 +140,19 @@ export default function StartupDossierPage() {
     } finally { setBusy(false); }
   }
 
+  async function requestLevel(level: 2 | 3) {
+    setLevelBusy(true); setLevelError(null);
+    try {
+      const res = await fetch('/api/portal/interest-level', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId, level }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.ok === false) setLevelError(body.error ?? 'Something went wrong — please try again.');
+      load();
+    } finally { setLevelBusy(false); }
+  }
+
   async function archiveManually() {
     setBusy(true);
     try {
@@ -160,7 +186,8 @@ export default function StartupDossierPage() {
   }
   if (!data) return <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>;
 
-  const { card, overview, team } = data;
+  const { card, level, levelRows, dossier } = data;
+  const level3Row = levelRows.find((r) => r.level === 3);
 
   return (
     <div className="min-h-screen bg-[#F7F9FA]">
@@ -198,11 +225,39 @@ export default function StartupDossierPage() {
           {card.status === 'passed' ? (
             <p className="text-xs text-gray-400">Passed{fmtDecidedAt(card.decidedAt, card.decidedByMe)}{card.passReason && ` — ${card.passReason}`}</p>
           ) : card.status === 'interested' ? (
-            <div className="flex items-center gap-2">
-              <p className="text-xs font-medium text-[#0E7490]">Interest expressed{fmtDecidedAt(card.decidedAt, card.decidedByMe)}</p>
-              {!card.isArchived && (
-                <button onClick={archiveManually} disabled={busy} className="text-xs text-gray-400 hover:underline disabled:opacity-40">Archive</button>
-              )}
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-medium text-[#0E7490]">Interest expressed{fmtDecidedAt(card.decidedAt, card.decidedByMe)}</p>
+                {!card.isArchived && (
+                  <button onClick={archiveManually} disabled={busy} className="text-xs text-gray-400 hover:underline disabled:opacity-40">Archive</button>
+                )}
+              </div>
+              {/* P136 — the disclosure ladder. Level 2 is frictionless (the
+                  investor's own act, granted the instant it's asked for);
+                  level 3 needs the founder's approval, shown here as
+                  "Requested — waiting for {startup}" once pending. */}
+              <div className="mt-1.5 flex items-center gap-2">
+                {level < 2 && (
+                  <button onClick={() => requestLevel(2)} disabled={levelBusy}
+                    className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490] disabled:opacity-40">
+                    Request full profile
+                  </button>
+                )}
+                {level >= 2 && level < 3 && (
+                  level3Row?.status === 'pending' ? (
+                    <span className="text-xs text-gray-400">Contact requested — waiting for {card.name}</span>
+                  ) : level3Row?.status === 'denied' ? (
+                    <span className="text-xs text-gray-400">Contact request declined</span>
+                  ) : (
+                    <button onClick={() => requestLevel(3)} disabled={levelBusy}
+                      className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490] disabled:opacity-40">
+                      Request contact
+                    </button>
+                  )
+                )}
+                {level >= 3 && <span className="text-xs font-medium text-emerald-700">✓ Contact access granted</span>}
+              </div>
+              {levelError && <p className="mt-1 text-[11px] text-[#B00000]">{levelError}</p>}
             </div>
           ) : confirming ? (
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -248,7 +303,7 @@ export default function StartupDossierPage() {
       </div>
 
       <main className={tab === 'messages' ? 'mx-auto max-w-4xl p-4 md:p-8' : 'mx-auto max-w-2xl p-4 md:p-8'}>
-        {tab === 'overview' && <OverviewTab card={card} overview={overview} team={team} />}
+        {tab === 'overview' && <OverviewTab card={card} level={level} dossier={dossier} onRequestLevel={requestLevel} levelBusy={levelBusy} />}
         {tab === 'documents' && <DocumentsTab hasAccess={card.hasDataRoomAccess} docs={docs} sharedInMessages={messagesInfo?.messages ?? []} />}
         {tab === 'messages' && (
           <div className="flex flex-col gap-4 md:flex-row">
@@ -277,17 +332,23 @@ export default function StartupDossierPage() {
   );
 }
 
-function OverviewTab({ card, overview, team }: { card: Card; overview: Overview | null; team: TeamMember[] }) {
+// P136 — reads exclusively from `dossier`, whose keys are ABSENT below the
+// level that unlocks them (never present-but-hidden). "Not shared yet" for
+// the About block falls back to card.oneLiner — that field is already
+// Discovery-visible on the compact Pipeline row (P134-A), so repeating it
+// in the header/About isn't a new disclosure, just a friendlier empty state
+// than a bare prompt while overview itself stays gated behind level 1.
+function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
+  card: Card; level: 0 | 1 | 2 | 3; dossier: Dossier; onRequestLevel: (level: 2 | 3) => void; levelBusy: boolean;
+}) {
+  const overview = dossier.overview;
   const hasMarket = overview && (overview.tam_eur != null || overview.sam_eur != null || overview.som_eur != null);
-  // relatorio_verificacao_..._20260805 §4 — this used to only ever show
-  // team_summary (free text) or a single representative_name/linkedin from
-  // matchdeal_profiles, never company_people — even though the real roster
-  // (name, title, founder flag, LinkedIn) already exists and is filled in.
-  // Emails are deliberately excluded here — see §5's disclosure ladder,
-  // pending Nuno's own decision on when contacts should open up.
+  const team = dossier.team ?? [];
   const hasTeam = team.length > 0 || (overview && (overview.team_summary || overview.representative_name));
-  const traction = overview?.traction_metrics && typeof overview.traction_metrics === 'object'
-    ? Object.entries(overview.traction_metrics as Record<string, unknown>) : [];
+  const traction = dossier.tractionDetailed && Object.keys(dossier.tractionDetailed).length > 0
+    ? Object.entries(dossier.tractionDetailed) : [];
+  const documentTitles = dossier.documentTitles ?? [];
+  const contactHistory = dossier.contactHistory ?? [];
 
   return (
     <div className="space-y-4">
@@ -329,52 +390,95 @@ function OverviewTab({ card, overview, team }: { card: Card; overview: Overview 
         </div>
       )}
 
-      {hasTeam && (
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-gray-900">Team</h2>
-          {overview?.team_summary && <p className="mt-1 text-sm text-gray-700">{overview.team_summary}</p>}
-          {team.length > 0 ? (
-            <ul className="mt-2 space-y-1.5">
-              {team.map((p) => (
-                <li key={p.id} className="flex items-center justify-between gap-2 text-xs">
-                  <span className="text-gray-700">
-                    {p.fullName}{p.title && <span className="text-gray-400"> — {p.title}</span>}
-                    {p.isFounder && <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[10px] font-semibold text-[#0E7490]">Founder</span>}
-                  </span>
-                  {p.linkedinUrl && (
-                    <a href={p.linkedinUrl} target="_blank" rel="noreferrer" className="shrink-0 text-[#0E7490] hover:underline">LinkedIn</a>
+      {level >= 2 ? (
+        <>
+          {hasTeam && (
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <h2 className="text-sm font-semibold text-gray-900">Team</h2>
+              {overview?.team_summary && <p className="mt-1 text-sm text-gray-700">{overview.team_summary}</p>}
+              {team.length > 0 ? (
+                <ul className="mt-2 space-y-1.5">
+                  {team.map((p) => (
+                    <li key={p.id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="text-gray-700">
+                        {p.fullName}{p.title && <span className="text-gray-400"> — {p.title}</span>}
+                        {p.isFounder && <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[10px] font-semibold text-[#0E7490]">Founder</span>}
+                        {p.email && <span className="ml-1.5 text-gray-400">· {p.email}</span>}
+                      </span>
+                      {p.linkedinUrl && (
+                        <a href={p.linkedinUrl} target="_blank" rel="noreferrer" className="shrink-0 text-[#0E7490] hover:underline">LinkedIn</a>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <>
+                  {overview?.representative_name && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      {overview.representative_name}
+                      {overview.representative_linkedin && (
+                        <> · <a href={overview.representative_linkedin} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">LinkedIn</a></>
+                      )}
+                    </p>
                   )}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <>
-              {overview?.representative_name && (
-                <p className="mt-1 text-xs text-gray-500">
-                  {overview.representative_name}
-                  {overview.representative_linkedin && (
-                    <> · <a href={overview.representative_linkedin} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">LinkedIn</a></>
-                  )}
-                </p>
+                  {(overview?.founders ?? []).map((f, i) => (
+                    <p key={i} className="mt-1 text-xs text-gray-500">{f.full_name}{f.title && ` — ${f.title}`}</p>
+                  ))}
+                </>
               )}
-              {(overview?.founders ?? []).map((f, i) => (
-                <p key={i} className="mt-1 text-xs text-gray-500">{f.full_name}{f.title && ` — ${f.title}`}</p>
-              ))}
-            </>
+              {!dossier.canMessageNamedPerson && team.length > 0 && (
+                <button onClick={() => onRequestLevel(3)} disabled={levelBusy}
+                  className="mt-2 text-xs text-[#0E7490] hover:underline disabled:opacity-40">
+                  Request contact →
+                </button>
+              )}
+            </div>
           )}
-        </div>
-      )}
 
-      {traction.length > 0 && (
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-gray-900">Traction</h2>
-          <div className="mt-2 flex flex-wrap gap-4">
-            {traction.map(([label, value]) => (
-              <div key={label}><div className="text-xs text-gray-400">{label}</div><div className="text-sm font-semibold text-gray-900">{String(value)}</div></div>
-            ))}
-          </div>
+          {traction.length > 0 && (
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <h2 className="text-sm font-semibold text-gray-900">Traction</h2>
+              <div className="mt-2 flex flex-wrap gap-4">
+                {traction.map(([label, value]) => (
+                  <div key={label}><div className="text-xs text-gray-400">{label}</div><div className="text-sm font-semibold text-gray-900">{String(value)}</div></div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {documentTitles.length > 0 && (
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <h2 className="text-sm font-semibold text-gray-900">Documents on file</h2>
+              <p className="mt-0.5 text-xs text-gray-400">Titles only — request access to view contents.</p>
+              <ul className="mt-2 space-y-1 text-xs text-gray-600">
+                {documentTitles.map((d) => <li key={d.id}>▤ {d.name}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {contactHistory.length > 0 && (
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <h2 className="text-sm font-semibold text-gray-900">Recent activity</h2>
+              <ul className="mt-2 space-y-1.5 text-xs">
+                {contactHistory.slice(0, 5).map((e) => (
+                  <li key={e.id} className="text-gray-600">
+                    <span className="text-gray-400">{new Date(e.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+                    {' — '}{e.content.length > 100 ? `${e.content.slice(0, 100)}…` : e.content}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      ) : level === 1 ? (
+        <div className="rounded-lg border border-dashed border-gray-200 bg-white p-4 text-center">
+          <p className="text-sm text-gray-600">Request the full profile to see the team, detailed traction, document titles, and contact history.</p>
+          <button onClick={() => onRequestLevel(2)} disabled={levelBusy}
+            className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+            Request full profile
+          </button>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

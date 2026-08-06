@@ -1,14 +1,26 @@
-// P134-B — the startup dossier's own data: header (name/badges/decision
-// state/data-room state) plus Overview. Eligibility is the exact same P132-A
-// union every other portal route uses (getPipelineWaves) — a startup that
-// isn't in this investor's Pipeline gets a flat 404, identical whether the
-// org doesn't exist or the investor just has no relationship to it, so this
-// never leaks which orgs exist (per the mini-prompt's own requirement).
+// P134-B / P136 — the startup dossier's own data: header (name/badges/
+// decision state/data-room state, unchanged since P134-B — this is exactly
+// what the compact Pipeline row already reveals at Discovery, per P134-A,
+// so re-gating it a second time here would be security theater over data
+// already sitting in the investor's browser from the Pipeline fetch) plus
+// the disclosure ladder's own level-projected content (P136 §6): Overview
+// body, team, traction, contact history, and document titles are NEVER
+// sent below the level that unlocks them — projectDossier builds a
+// DIFFERENT object per level, nothing is ever hidden client-side.
+//
+// Eligibility is the exact same P132-A union every other portal route uses
+// (getPipelineWaves) — a startup that isn't in this investor's Pipeline
+// gets a flat 404, identical whether the org doesn't exist or the investor
+// just has no relationship to it, so this never leaks which orgs exist.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
-import { getStartupPeople } from '@/lib/investor-interaction-log';
+import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
+import { currentInterestLevel, projectDossier, type FullDossierData } from '@/lib/investor-interest-level';
+import { getInterestLevelRows } from '@/lib/investor-interest-level-db';
+import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
+import { getInteractionTimeline } from '@/lib/investor-interaction-log';
 
 export async function GET(req: Request, { params }: { params: { orgId: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -25,34 +37,66 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   const card = result.linked ? result.waves.flatMap((w) => w.items).find((c) => c.orgId === params.orgId) : null;
   if (!card) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
-  // Overview — deliberately the SAME data surface matchdeal_startup_pitch_data
+  // P136 — compute the current level. investor_relationship_decisions'
+  // own decision drives level 0/1 and the mandatory pass-collapse; levels
+  // 2/3 come from investor_interest_levels (0131, propose-only — degrades
+  // to level-1-max, never crashes, on an environment that hasn't applied it).
+  const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
+  const decisionForLevel: 'interested' | 'passed' | null = card.status === 'passed' ? 'passed' : card.status === 'interested' ? 'interested' : null;
+  const levelRows = investorCatalogEntityId && await interestLevelAvailable()
+    ? await getInterestLevelRows(admin, params.orgId, investorCatalogEntityId) : [];
+  const level = currentInterestLevel(decisionForLevel, levelRows);
+  const shareEmail = levelRows.some((r) => r.level === 3 && r.status === 'granted' && r.shareDirectEmail);
+
+  // Overview body — deliberately the SAME data surface matchdeal_startup_pitch_data
   // already exposes to investors browsing the MatchDeal deck (Prompt 98's
   // own SECURITY DEFINER RPC): no new private-data surface, just a second
-  // place that reads it.
-  const { data: startupProfile } = await admin.from('matchdeal_profiles')
-    .select('id, team_summary, representative_name, representative_linkedin')
-    .eq('kind', 'startup').eq('membership_id', params.orgId).maybeSingle();
-  let overview = null;
-  if (startupProfile) {
-    const { data: pitch } = await admin.rpc('matchdeal_startup_pitch_data', { p_profile_id: startupProfile.id });
-    // team_summary/representative fields live on matchdeal_profiles itself,
-    // not the RPC's return shape — same is_visible=true gated row the RPC
-    // already resolved from, just two more already-investor-facing columns.
-    overview = pitch?.[0] ? {
-      ...pitch[0], team_summary: startupProfile.team_summary,
-      representative_name: startupProfile.representative_name, representative_linkedin: startupProfile.representative_linkedin,
-    } : null;
+  // place that reads it. Only fetched at all once level >= 1 unlocks it —
+  // not fetched-then-hidden.
+  let overview: Record<string, unknown> | null = null;
+  if (level >= 1) {
+    const { data: startupProfile } = await admin.from('matchdeal_profiles')
+      .select('id, team_summary, representative_name, representative_linkedin')
+      .eq('kind', 'startup').eq('membership_id', params.orgId).maybeSingle();
+    if (startupProfile) {
+      const { data: pitch } = await admin.rpc('matchdeal_startup_pitch_data', { p_profile_id: startupProfile.id });
+      overview = pitch?.[0] ? {
+        ...pitch[0], team_summary: startupProfile.team_summary,
+        representative_name: startupProfile.representative_name, representative_linkedin: startupProfile.representative_linkedin,
+      } : null;
+    }
   }
 
-  // relatorio_verificacao_..._20260805 §4 — the Overview tab never actually
-  // read company_people (only team_summary/representative_* free text on
-  // matchdeal_profiles), even though the startup's real team roster
-  // already exists and is filled in. Emails deliberately excluded here —
-  // see the ladder in §5 (pending Nuno's own decision on when contacts
-  // should open up); name/title/founder-flag/LinkedIn are already surfaced
-  // elsewhere to investors (the RPC's own founders[] jsonb includes name/
-  // title/bio) so showing them plainly here isn't a new disclosure.
-  const team = await getStartupPeople(admin, params.orgId);
+  // Everything below is only ever FETCHED at level >= 2 — not fetched-then-
+  // hidden, genuinely not read, so a bug in projectDossier could at worst
+  // leak an already-fetched (level 1) overview, never team/traction/
+  // contacts/documents a level-0/1 investor was never supposed to see.
+  let team: FullDossierData['team'] = [];
+  let contactHistory: FullDossierData['contactHistory'] = [];
+  let documentTitles: FullDossierData['documentTitles'] = [];
+  let tractionDetailed: Record<string, unknown> = {};
+  if (level >= 2) {
+    const [{ data: people }, { data: docs }] = await Promise.all([
+      admin.from('company_people').select('id, full_name, title, is_founder, linkedin_url, email').eq('org_id', params.orgId).order('sort_order', { ascending: true }),
+      admin.from('documents').select('id, name').eq('org_id', params.orgId),
+    ]);
+    team = (people ?? []).map((p) => ({
+      id: p.id as string, fullName: p.full_name as string, title: p.title as string | null,
+      isFounder: p.is_founder as boolean, linkedinUrl: p.linkedin_url as string | null, email: p.email as string | null,
+    }));
+    documentTitles = (docs ?? []).map((d) => ({ id: d.id as string, name: d.name as string }));
+    tractionDetailed = (overview?.traction_metrics as Record<string, unknown> | null) ?? {};
+    if (investorCatalogEntityId) {
+      const timeline = await getInteractionTimeline(admin, { investorCatalogEntityId, email, orgId: params.orgId });
+      contactHistory = timeline.map((t) => ({ id: t.id, at: t.at, content: t.content, channel: t.channel }));
+    }
+  }
 
-  return NextResponse.json({ card, overview, team });
+  const full: FullDossierData = {
+    overview: (overview ?? {}) as FullDossierData['overview'],
+    tractionDetailed, team, contactHistory, documentTitles,
+  };
+  const dossier = projectDossier(level, full, shareEmail);
+
+  return NextResponse.json({ card, level, levelRows, dossier });
 }
