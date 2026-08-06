@@ -1,13 +1,17 @@
 -- =============================================================================
 -- 0136_bind_matchdeal_rpcs_to_caller.sql
 --
--- ESTADO: PROPOSTO. NAO APLICADO. Requer decisao do Nuno antes de correr.
+-- ESTADO: APROVADO por Nuno (opcao A2 + D3), 2026-08-06, via sessao Code.
+-- AINDA NAO APLICADO -- a sessao Code nunca chama apply_migration; fica para
+-- o revisor aplicar e devolver a confirmacao pos-aplicacao (ancoras + advisors).
 --
--- Porque nao apliquei sozinho, tendo autorizacao geral para migracoes:
---   matchdeal_record_swipe termina em matchdeal_handle_mutual_match(), ou seja,
---   cria matches. Mexer-lhe cai no ESPIRITO da proibicao permanente
---   "nao tocar no motor de matching", mesmo que a letra da proibicao aponte a
---   matchdeal_eligible_deck e a access_grants. Entrego .sql pronto + decisao.
+-- Porque a sessao Code nao aplicou sozinha, tendo autorizacao geral para
+-- migracoes: matchdeal_record_swipe termina em matchdeal_handle_mutual_match(),
+-- ou seja, cria matches. Mexer-lhe cai no ESPIRITO da proibicao permanente
+-- "nao tocar no motor de matching", mesmo que a letra da proibicao aponte a
+-- matchdeal_eligible_deck e a access_grants. Por isso a decisao (incl. D3, que
+-- toca precisamente a ACL de matchdeal_eligible_deck) foi apresentada ao Nuno
+-- em vez de assumida -- ver as opcoes A/A2/A3/B/C/D3 no relatorio.
 --
 -- Ficheiro companheiro (a leitura obrigatoria antes de decidir):
 --   relatorio_tier2_matchdeal_rpcs_forjaveis_por_anon_20260806.md
@@ -129,9 +133,11 @@
 -- =============================================================================
 -- O QUE ESTE FICHEIRO NAO TOCA
 -- =============================================================================
--- matchdeal_eligible_deck: NAO e tocada aqui. Proibicao permanente. Fica em
--- aberto a decisao D3 (revogar anon so na ACL, sem tocar no prosrc, mantendo a
--- ancora md5 b74197a2e721df7112165064504e63b4 intacta) -- ver relatorio.
+-- matchdeal_eligible_deck: o CORPO (prosrc) nao e tocado aqui -- proibicao
+-- permanente, motor de matching. D3 (aprovada por Nuno, ver CAMADA 1b abaixo)
+-- e so ACL: revoga o EXECUTE a anon, mantendo authenticated. Nao mexe numa
+-- linha do prosrc, e a ancora md5 b74197a2e721df7112165064504e63b4 mantem-se
+-- verificavel antes e depois -- ver a verificacao no fim do ficheiro.
 -- access_grants: nao e tocada.
 -- =============================================================================
 
@@ -303,6 +309,18 @@ revoke execute on function public.matchdeal_record_swipe(uuid, uuid, text) from 
 revoke execute on function public.matchdeal_record_exposure(uuid, uuid) from public, anon;
 revoke execute on function public.matchdeal_undo_swipe(uuid, uuid) from public, anon;
 
+-- -----------------------------------------------------------------------------
+-- CAMADA 1b :: D3, aprovada por Nuno na mesma janela desta decisao.
+-- So ACL -- nao toca prosrc nem proconfig de matchdeal_eligible_deck, portanto
+-- a ancora md5(prosrc) = b74197a2e721df7112165064504e63b4 fica intacta e
+-- verificavel antes/depois. Fecha o angulo de enumeracao de ids que o
+-- relatorio apontou como a outra via do ataque (o deck devolve p.* com o id,
+-- executavel por anon, e essa e a municao com que o forjador dispara os
+-- swipes/exposures das camadas acima). authenticated fica -- os call sites
+-- reais correm autenticados.
+-- -----------------------------------------------------------------------------
+revoke execute on function public.matchdeal_eligible_deck(uuid, integer) from public, anon;
+
 commit;
 
 -- =============================================================================
@@ -328,4 +346,16 @@ commit;
 -- 200 e nao 403. Se der 403 com MATCHDEAL_NOT_YOUR_PROFILE, a sessao GoTrue nao
 -- esta hidratada nesse dispositivo -- e isso e um bug que ate hoje estava
 -- escondido pelo buraco.
+--
+-- VERIFICACAO DA D3 (so ACL -- confirmar tambem que o prosrc nao mudou).
+-- Assinatura real: matchdeal_eligible_deck(p_viewer_profile_id uuid,
+-- p_limit integer default 20) -- ver 0053:426. A funcao tem DOIS parametros;
+-- um revoke com a assinatura errada falha em "function does not exist".
+-- select has_function_privilege('anon', p.oid, 'EXECUTE')          as anon_pode,
+--        has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_pode,
+--        md5(p.prosrc)                                             as md5_prosrc
+-- from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+-- where n.nspname = 'public' and p.proname = 'matchdeal_eligible_deck';
+-- Esperado: anon_pode=false, auth_pode=TRUE,
+--           md5_prosrc=b74197a2e721df7112165064504e63b4 (inalterado).
 -- =============================================================================
