@@ -135,7 +135,32 @@ export default function PairPage() {
             body: JSON.stringify({ token: t, deviceId: getOrCreateDeviceId() }),
           });
           const body = await res.json();
-          if (!body.ok) { setErrorMsg(body.error ?? 'Could not pair.'); setStage('error'); return; }
+          if (!body.ok) {
+            // relatorio_verificacao_..._20260805 §2 point 1 — a token can
+            // fail (expired — the common case, per production evidence: a
+            // 5-minute TTL didn't survive an email round-trip — or already
+            // used) on a device that's ALREADY paired from an earlier
+            // session on THIS SAME account. Before showing an error and
+            // sending the person back to generate a fresh code they don't
+            // need, check whether this device already has a working
+            // session (from that earlier pairing) that resolves to an
+            // active MatchDeal profile — if so, recognize it and skip
+            // straight to the deck instead of a dead end.
+            const { data: { user: existingUser } } = await browserClient().auth.getUser();
+            if (existingUser) {
+              try {
+                const selfRes = await fetch(`/api/matchdeal/pairing/self?deviceId=${encodeURIComponent(getOrCreateDeviceId())}`);
+                const selfBody = await selfRes.json();
+                if (selfBody.ok && selfBody.kind) {
+                  setKind(selfBody.kind); setOwnProfileId(selfBody.ownProfileId ?? null); setPairedAt(null);
+                  setDeckLimit(selfBody.deckLimit);
+                  setStage('paired');
+                  return;
+                }
+              } catch { /* fall through to the real error below */ }
+            }
+            setErrorMsg(body.error ?? 'Could not pair.'); setStage('error'); return;
+          }
 
           // Hydrate the session the server just issued for the token's own
           // owner before touching anything session-gated below (launch-gate
@@ -318,25 +343,19 @@ export default function PairPage() {
                   className="mt-4 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2.5 text-sm text-white placeholder:text-white/30"
                 />
 
-                {magicLinkSent ? (
-                  <div className="mt-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-left text-[12px] text-white/70">
-                    <p>We sent a sign-in link and a sign-in code to {loginEmail}.</p>
-                    <p className="mt-1 text-white/50">Tap the link on this device, or enter the code below.</p>
-                    <button onClick={() => { setMagicLinkSent(false); setLoginMsg(''); }} className="mt-1 text-white/40 hover:underline">
-                      Not you? Start over
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    disabled={loginBusy || !loginEmail} onClick={() => void sendMagicLink()}
-                    className="mt-3 w-full rounded-2xl bg-gradient-to-r from-blue-500 to-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-lg transition active:scale-[.98] disabled:opacity-40"
-                  >
-                    {loginBusy ? 'Sending…' : 'Email me a sign-in link'}
-                  </button>
-                )}
-
+                {/* relatorio_verificacao_..._20260805 §2 point 3 — this
+                    screen is only ever reached already on the phone itself
+                    (device === 'mobile' gates the whole route), where the
+                    code is the reliable path — an email round-trip to the
+                    SAME device you're already holding is the one that
+                    stalls (confirmed live: a 5-minute pairing-token TTL
+                    lost to exactly this race). Promoted to the same visual
+                    weight as the primary CTA (text-sm, full-width, framed)
+                    instead of a 12px/40%-opacity afterthought, and ordered
+                    first. Sending logic is unchanged — the code arrives in
+                    the same email signInWithOtp already sends below. */}
                 {showCodeEntry ? (
-                  <div className="mt-3 border-t border-white/10 pt-3 text-left">
+                  <div className="mt-3 text-left">
                     <label className="mb-1 block text-[11px] font-medium text-white/50">Code from the email</label>
                     <input
                       value={loginCode} onChange={(e) => setLoginCode(e.target.value)} placeholder="Code from the email" inputMode="numeric"
@@ -344,17 +363,42 @@ export default function PairPage() {
                     />
                     <button
                       onClick={() => void verifyLoginCode()} disabled={!loginEmail || !loginCode || codeBusy}
-                      className="mt-2 w-full rounded-xl bg-white/10 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+                      className="mt-2 w-full rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white/90 disabled:opacity-40"
                     >
                       {codeBusy ? 'Checking…' : 'Use code'}
                     </button>
                     {codeErr && <p className="mt-2 text-[12px] text-rose-300">{codeErr}</p>}
+                    {!magicLinkSent && (
+                      <p className="mt-2 text-[12px] text-white/40">
+                        Haven&apos;t got a code yet? <button onClick={() => void sendMagicLink()} disabled={loginBusy || !loginEmail} className="underline disabled:opacity-40">Send one</button>
+                      </p>
+                    )}
                   </div>
                 ) : (
-                  <button onClick={() => setShowCodeEntry(true)} className="mt-2 block w-full text-center text-[12px] text-white/40 hover:underline">
+                  <button onClick={() => setShowCodeEntry(true)}
+                    className="mt-3 w-full rounded-2xl border border-white/20 px-4 py-3 text-sm font-semibold text-white/70 transition active:scale-[.98]">
                     Have a sign-in code instead?
                   </button>
                 )}
+
+                <div className="mt-3 border-t border-white/10 pt-3">
+                  {magicLinkSent ? (
+                    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-left text-[12px] text-white/70">
+                      <p>We sent a sign-in link and a sign-in code to {loginEmail}.</p>
+                      <p className="mt-1 text-white/50">Tap the link on this device, or enter the code above.</p>
+                      <button onClick={() => { setMagicLinkSent(false); setLoginMsg(''); }} className="mt-1 text-white/40 hover:underline">
+                        Not you? Start over
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      disabled={loginBusy || !loginEmail} onClick={() => void sendMagicLink()}
+                      className="w-full rounded-2xl bg-gradient-to-r from-blue-500 to-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-lg transition active:scale-[.98] disabled:opacity-40"
+                    >
+                      {loginBusy ? 'Sending…' : 'Email me a sign-in link'}
+                    </button>
+                  )}
+                </div>
 
                 {loginMsg && <p className="mt-2 text-[12px] text-rose-300">{loginMsg}</p>}
               </>

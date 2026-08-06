@@ -12,7 +12,14 @@ import { logEvent } from './analytics-events';
 import { resolveActiveInvestorMember } from './investor-membership';
 import { MATCHDEAL_WEEKLY, normalizePlan } from './plans';
 
-export const PAIRING_TOKEN_TTL_MS = 5 * 60 * 1000; // spec Section 4 — 5 minutes
+// relatorio_verificacao_..._20260805 §2 point 2 — 5 minutes was calibrated
+// for "QR on screen, phone in hand," but the token also has to survive an
+// email round-trip (magic-link/OTP-code delivery) whenever pairing starts
+// from a link instead of a scan — confirmed live: a real token expired 4
+// minutes before the phone finished that round-trip. 30 minutes stays a
+// short window in security terms (single-use, bound to the device that
+// consumes it) while giving that round-trip real room.
+export const PAIRING_TOKEN_TTL_MS = 30 * 60 * 1000; // spec Section 4 — was 5 minutes
 export const PAIRING_RATE_LIMIT_PER_HOUR = 10; // spec Section 8
 
 // Prompt 114 Fase 4.1 — device_id's resilient copy. localStorage is what the
