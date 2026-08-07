@@ -4,7 +4,7 @@
 // "what's in my Pipeline" would drift.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from './investor-match-score';
-import { activeGrantOrgIds, eligiblePipelineOrgIds, resolveInvestorCatalogEntityId, resolveInvestorProfile } from './portal-access';
+import { activeGrantOrgIds, eligiblePipelineOrgIds, resolveInvestorCatalogEntityId, resolveInvestorProfile, resolveViewerIsTest } from './portal-access';
 import { pipelineTestFlagAvailable } from './pipeline-test-flag-capability';
 import { roundValuationBasisAvailable } from './round-valuation-basis-capability';
 
@@ -95,11 +95,12 @@ async function testInvestorActorProfileIds(admin: SupabaseClient, actorProfileId
 // full "why a union" reasoning; kept in sync with it deliberately (both
 // read the same three sources), not re-derived independently.
 export async function pipelineEligibleOrgIds(admin: SupabaseClient, userId: string, email: string, personId: string | null): Promise<string[]> {
-  const [published, granted, investorCatalogEntityId] = await Promise.all([
-    eligiblePipelineOrgIds(admin),
+  const [granted, investorCatalogEntityId] = await Promise.all([
     activeGrantOrgIds(admin, email, personId),
     resolveInvestorCatalogEntityId(admin, userId),
   ]);
+  const viewerIsTest = await resolveViewerIsTest(admin, investorCatalogEntityId);
+  const published = await eligiblePipelineOrgIds(admin, viewerIsTest);
   const { data: decisions } = investorCatalogEntityId
     ? await admin.from('investor_relationship_decisions').select('org_id').eq('investor_catalog_entity_id', investorCatalogEntityId)
     : { data: [] as { org_id: string }[] };
@@ -141,7 +142,8 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   const decisionByOrg = new Map((decisions ?? []).map((d) => [d.org_id as string, d]));
   const decidedOrgIds = new Set(decisionByOrg.keys());
 
-  const publishedOrgIds = await eligiblePipelineOrgIds(admin);
+  const viewerIsTest = await resolveViewerIsTest(admin, investorCatalogEntityId);
+  const publishedOrgIds = await eligiblePipelineOrgIds(admin, viewerIsTest);
   const orgIds = [...new Set([...publishedOrgIds, ...grantedOrgIdList, ...decidedOrgIds])];
   const usualCoInvestors = (investorProfile as { usual_co_investors: string | null }).usual_co_investors;
   if (orgIds.length === 0) return { linked: true as const, waves: [], usualCoInvestors };

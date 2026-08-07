@@ -272,6 +272,12 @@ export function PipelinePanel({ onOpenStartup, onGoToArchive }: {
     { label: 'Meetings', n: meetingsCount ?? 0 },
   ];
   const overviewMax = Math.max(1, ...overviewStats.map((s) => s.n));
+  // Visibilidade simétrica (07/08/2026) — a real account with zero real
+  // startups published yet reads this block honestly (four 0s with a
+  // near-invisible 4%-wide bar each) rather than looking like a broken
+  // widget. Only reachable when waves.length > 0 already, so this is the
+  // "activity hasn't started" case, not the zero-waves one (handled above).
+  const overviewAllZero = overviewStats.every((s) => s.n === 0);
 
   return (
     <div className="max-w-2xl space-y-4">
@@ -289,6 +295,9 @@ export function PipelinePanel({ onOpenStartup, onGoToArchive }: {
             </Fragment>
           ))}
         </div>
+        {overviewAllZero && (
+          <p className="mt-2 text-xs text-gray-400">No activity yet — this fills in as you and other investors review startups on the platform.</p>
+        )}
       </div>
       <div className="flex items-center gap-1.5">
         {STATUS_FILTERS.map((f) => (

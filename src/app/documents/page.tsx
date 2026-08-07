@@ -35,6 +35,11 @@ const VISIBILITY_META: Record<DocVisibility, { icon: string; label: string; titl
 };
 const VISIBILITY_OPTIONS: DocVisibility[] = ['open', 'on_grant', 'due_diligence'];
 
+interface PendingAccessRequest {
+  id: string; requesterName: string | null; requesterEmail: string | null;
+  folderNames: string[]; documentNames: string[]; requestedAt: string;
+}
+
 export default function DocumentsPage() {
   useTrackPageView('/documents');
   const { db } = useStore();
@@ -67,6 +72,12 @@ function DocumentsPageInner() {
   const [ndaSystemAvailable, setNdaSystemAvailable] = useState(false);
   const [documentOrderingAvailable, setDocumentOrderingAvailable] = useState(false);
   const [documentVersionsAvailable, setDocumentVersionsAvailable] = useState(false);
+  // Item 1 (Lote E) step 5 — pending access_requests for this org, the
+  // founder-side half of the request/grant cycle (the investor-side write
+  // and the guest-token preview flow already shipped; this was the one
+  // still-stalled piece, confirmed in scope by Nuno).
+  const [pendingAccessRequests, setPendingAccessRequests] = useState<PendingAccessRequest[]>([]);
+  const [requestActionId, setRequestActionId] = useState<string | null>(null);
   // E5 drag-and-drop state. `dragDocId` is the document currently being
   // dragged (reorder within a folder, or move onto a folder node in the
   // tree); `dragOverDocId` / `dragOverFolderId` drive the drop-target
@@ -89,6 +100,29 @@ function DocumentsPageInner() {
       setDocumentVersionsAvailable(!!me.capabilities?.documentVersions);
     }).catch(() => {});
   }, []);
+
+  // Item 1 (Lote E) step 5 — reload whenever the org id resolves (real
+  // Supabase mode; demo mode never has a real org id here, and the fetch
+  // below just no-ops on a 400/404, same as every other org-scoped fetch
+  // already in this file).
+  function loadPendingAccessRequests() {
+    if (!db.org.id) return;
+    fetch(`/api/data-room/access-requests?orgId=${db.org.id}`).then((r) => r.json())
+      .then((body) => setPendingAccessRequests(body.requests ?? [])).catch(() => {});
+  }
+  useEffect(loadPendingAccessRequests, [db.org.id]);
+
+  async function respondToAccessRequest(id: string, action: 'grant' | 'decline') {
+    setRequestActionId(id);
+    try {
+      const res = await fetch(`/api/data-room/access-requests/${id}/action`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) { setResendMsg(body.error ?? 'Could not update this request.'); return; }
+      setPendingAccessRequests((prev) => prev.filter((r) => r.id !== id));
+    } finally { setRequestActionId(null); }
+  }
 
   // Load persisted collapse state once the org id is known.
   useEffect(() => {
@@ -1026,6 +1060,42 @@ function DocumentsPageInner() {
                 document or metadata — until they sign in via magic link and confirm “Is this you?”. Folder-level clicks
                 cascade to everything inside it — click an individual document afterward to override just that one.
               </p>
+            </div>
+
+            {/* Item 1 (Lote E) step 5 — pending access_requests waiting on
+                THIS founder, above the existing grants list so it's seen
+                before scrolling, same "reachable with zero scroll" reasoning
+                P120 Block B.1 already applied to Grant access itself. */}
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <div className="mb-2 text-xs font-medium text-gray-500">
+                Pending requests{pendingAccessRequests.length > 0 && ` — ${pendingAccessRequests.length}`}
+              </div>
+              {pendingAccessRequests.length === 0 ? (
+                <p className="text-sm text-gray-400">No one is waiting on a response right now.</p>
+              ) : (
+                <ul className="divide-y divide-gray-100 text-sm">
+                  {pendingAccessRequests.map((r) => (
+                    <li key={r.id} className="flex items-center justify-between gap-3 py-2">
+                      <div>
+                        <div className="font-medium text-gray-800">{r.requesterName ?? r.requesterEmail ?? 'Unknown investor'}</div>
+                        <div className="text-xs text-gray-400">
+                          {[...r.folderNames, ...r.documentNames].join(', ') || 'access'} · requested {new Date(r.requestedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button onClick={() => respondToAccessRequest(r.id, 'decline')} disabled={requestActionId === r.id}
+                          className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                          Decline
+                        </button>
+                        <button onClick={() => respondToAccessRequest(r.id, 'grant')} disabled={requestActionId === r.id}
+                          className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b] disabled:opacity-40">
+                          {requestActionId === r.id ? 'Working…' : 'Grant'}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             {/* P120 Block B.2/B.3 — grants grouped by person (3 people, not

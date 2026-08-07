@@ -9,10 +9,12 @@
 // flow, migration 0045) shows on neither tab — same non-leak rule
 // /api/portal/access already applies: no document/metadata until confirmed.
 //
-// "Access requested" has no real data here — access_requests doesn't exist
-// until migration 0114 lands (PROPOSED, NOT APPLIED); the client reads
-// /api/me's accessRequests capability to decide whether to show real
-// content or a "coming soon" placeholder for that tab.
+// "Access requested" (item 1 (Lote E) step 5, 07/08/2026) — access_requests
+// is applied (migration 0114) and now actually read here: pending rows show
+// as "waiting on the founder," and a request the founder just declined
+// shows for one more load so the investor isn't left wondering — the client
+// still gates the tab's content on /api/me's accessRequests capability for
+// pre-migration environments.
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
@@ -124,5 +126,28 @@ export async function GET() {
     }
   }
 
-  return NextResponse.json({ granted, requested: [], expired });
+  // Item 1 (Lote E) step 5 — this investor's own access_requests rows,
+  // pending or recently declined (granted ones become real access_grants
+  // rows and already show on the Granted tab above — showing them here too
+  // would be the same relationship in two tabs at once). requested_email
+  // covers a request filed before this session ever resolved a person_id.
+  const reqOrParts = [`person_id.eq.${person?.id ?? '00000000-0000-0000-0000-000000000000'}`, `requested_email.eq.${email}`];
+  const { data: accessRequests } = await admin.from('access_requests').select('org_id, status, requested_at, responded_at')
+    .or(reqOrParts.join(',')).in('status', ['pending', 'declined']);
+  const requestOrgIds = [...new Set((accessRequests ?? []).map((r) => r.org_id as string))];
+  const requestOrgNameById = new Map<string, string>(orgNameById);
+  const missingOrgIds = requestOrgIds.filter((id) => !requestOrgNameById.has(id));
+  if (missingOrgIds.length > 0) {
+    const { data: extraOrgs } = await admin.from('orgs').select('id, name').in('id', missingOrgIds);
+    for (const o of extraOrgs ?? []) requestOrgNameById.set(o.id as string, o.name as string);
+  }
+  const requested = (accessRequests ?? []).map((r) => ({
+    orgId: r.org_id as string,
+    orgName: requestOrgNameById.get(r.org_id as string) ?? 'Unknown startup',
+    status: r.status as 'pending' | 'declined',
+    requestedAt: r.requested_at as string,
+    respondedAt: (r.responded_at as string | null) ?? null,
+  }));
+
+  return NextResponse.json({ granted, requested, expired });
 }

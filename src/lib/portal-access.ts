@@ -55,16 +55,29 @@ export async function activeGrantOrgIds(admin: SupabaseClient, email: string, pe
   return [...ids];
 }
 
-// Item #15 — a test/internal org (e.g. a seeded demo, or Sherlock Deal_'s
-// own dogfood profile) must never surface as a discovery card or inflate an
-// aggregate stat. Deliberately NOT called from activeGrantOrgIds — see its
-// own comment above for why that specific combination is a regression, not
-// a fix. No-ops (returns ids unchanged) until migration 0139 is applied.
-async function excludeTestOrgIds(admin: SupabaseClient, ids: string[]): Promise<string[]> {
-  if (ids.length === 0 || !(await pipelineTestFlagAvailable())) return ids;
+// Prompt 07/08 visibilidade simétrica — is_test is a COHORT, not censorship:
+// a test-account viewer sees test + real content; a real-account viewer sees
+// real only. Previously this excluded test orgs unconditionally, which made
+// the platform untestable (test accounts are the only accounts that exist
+// today). Deliberately NOT called from activeGrantOrgIds — see its own
+// comment above for why that specific combination is a regression, not a
+// fix. No-ops (returns ids unchanged) until migration 0139 is applied.
+async function excludeTestOrgIds(admin: SupabaseClient, ids: string[], viewerIsTest: boolean): Promise<string[]> {
+  if (ids.length === 0 || viewerIsTest || !(await pipelineTestFlagAvailable())) return ids;
   const { data: testOrgs } = await admin.from('orgs').select('id').eq('is_test', true).in('id', ids);
   const testIds = new Set((testOrgs ?? []).map((o) => o.id as string));
   return ids.filter((id) => !testIds.has(id));
+}
+
+// Resolves whether the CALLER (not the target) is a test-cohort viewer, from
+// their investor catalog_entities.is_test — the same identity
+// resolveInvestorCatalogEntityId already gives every caller here. Unresolved
+// (no linked investor entity) defaults to false — closed by default, per the
+// visibilidade simétrica spec.
+export async function resolveViewerIsTest(admin: SupabaseClient, catalogEntityId: string | null): Promise<boolean> {
+  if (!catalogEntityId || !(await pipelineTestFlagAvailable())) return false;
+  const { data } = await admin.from('catalog_entities').select('is_test').eq('id', catalogEntityId).maybeSingle();
+  return !!(data as { is_test?: boolean } | null)?.is_test;
 }
 
 // Prompt 120 Block A — Pipeline eligibility, deliberately separate from
@@ -81,10 +94,10 @@ async function excludeTestOrgIds(admin: SupabaseClient, ids: string[]): Promise<
 // select): migration 0105 made it computed as is_complete AND not
 // owner/platform-suspended, exactly "published" in the sense this prompt
 // means.
-export async function eligiblePipelineOrgIds(admin: SupabaseClient) {
+export async function eligiblePipelineOrgIds(admin: SupabaseClient, viewerIsTest: boolean) {
   const { data } = await admin.from('matchdeal_profiles').select('membership_id').eq('kind', 'startup').eq('is_visible', true);
   const ids = [...new Set((data ?? []).map((p) => p.membership_id as string))];
-  return excludeTestOrgIds(admin, ids);
+  return excludeTestOrgIds(admin, ids, viewerIsTest);
 }
 
 // Same QA fallback as /api/portal/access — @ablute.pt sessions get into the

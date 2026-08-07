@@ -14,7 +14,8 @@ interface GrantedCard {
   folders: { folderName: string; documents: { id: string; name: string; url: string | null; expiresAt: string | null }[] }[];
 }
 interface ExpiredCard { orgId: string; orgName: string; expiredAt: string | null; count: number }
-interface AccessGrantedResponse { granted: GrantedCard[]; requested: unknown[]; expired: ExpiredCard[] }
+interface RequestedCard { orgId: string; orgName: string; status: 'pending' | 'declined'; requestedAt: string; respondedAt: string | null }
+interface AccessGrantedResponse { granted: GrantedCard[]; requested: RequestedCard[]; expired: ExpiredCard[] }
 
 function fmtDate(iso: string | null) {
   return iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : null;
@@ -49,7 +50,7 @@ export function AccessGrantedPanel() {
 
   const SUB_TABS: { value: SubTab; label: string; count?: number }[] = [
     { value: 'granted', label: 'Access granted', count: data.granted.length },
-    { value: 'requested', label: 'Access requested' },
+    { value: 'requested', label: 'Access requested', count: data.requested.filter((r) => r.status === 'pending').length },
     { value: 'expired', label: 'Expired', count: data.expired.length },
   ];
 
@@ -119,13 +120,31 @@ export function AccessGrantedPanel() {
       )}
 
       {subTab === 'requested' && (
-        <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6 text-center">
-          <p className="text-sm text-gray-500">
-            {accessRequestsAvailable
-              ? 'No pending requests right now.'
-              : 'Coming soon — this tab will show access you\'ve requested but the founder hasn\'t granted yet.'}
-          </p>
-        </div>
+        !accessRequestsAvailable ? (
+          <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6 text-center">
+            <p className="text-sm text-gray-500">Coming soon — this tab will show access you&apos;ve requested but the founder hasn&apos;t granted yet.</p>
+          </div>
+        ) : data.requested.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6 text-center">
+            <p className="text-sm text-gray-500">No pending requests right now.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {data.requested.map((r) => (
+              <div key={`${r.orgId}-${r.requestedAt}`} className="rounded-lg border border-gray-200 bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900">{r.orgName}</div>
+                    <div className="text-xs text-gray-400">requested {fmtDate(r.requestedAt)}</div>
+                  </div>
+                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${r.status === 'pending' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {r.status === 'pending' ? 'Waiting on founder' : 'Declined'}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
       )}
 
       {subTab === 'expired' && (

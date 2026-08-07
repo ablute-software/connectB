@@ -40,14 +40,14 @@ describe('eligiblePipelineOrgIds', () => {
     const admin = fakeAdmin([
       { kind: 'startup', is_visible: true, membership_id: 'org-caramel-biscuit' },
     ]);
-    expect(await eligiblePipelineOrgIds(admin)).toEqual(['org-caramel-biscuit']);
+    expect(await eligiblePipelineOrgIds(admin, false)).toEqual(['org-caramel-biscuit']);
   });
 
   it('excludes a startup profile that is not yet published (is_visible=false)', async () => {
     const admin = fakeAdmin([
       { kind: 'startup', is_visible: false, membership_id: 'org-not-ready' },
     ]);
-    expect(await eligiblePipelineOrgIds(admin)).toEqual([]);
+    expect(await eligiblePipelineOrgIds(admin, false)).toEqual([]);
   });
 
   it('never depends on access_grants — a published org with zero grants is still eligible', async () => {
@@ -57,14 +57,14 @@ describe('eligiblePipelineOrgIds', () => {
       { kind: 'startup', is_visible: true, membership_id: 'org-ablute' },
       { kind: 'startup', is_visible: true, membership_id: 'org-caramel-biscuit' },
     ]);
-    expect(await eligiblePipelineOrgIds(admin)).toEqual(expect.arrayContaining(['org-ablute', 'org-caramel-biscuit']));
+    expect(await eligiblePipelineOrgIds(admin, false)).toEqual(expect.arrayContaining(['org-ablute', 'org-caramel-biscuit']));
   });
 
   it('excludes investor profiles', async () => {
     const admin = fakeAdmin([
       { kind: 'investor', is_visible: true, membership_id: 'investor-member-1' },
     ]);
-    expect(await eligiblePipelineOrgIds(admin)).toEqual([]);
+    expect(await eligiblePipelineOrgIds(admin, false)).toEqual([]);
   });
 
   it('dedupes if a startup somehow has more than one matching profile row', async () => {
@@ -72,6 +72,6 @@ describe('eligiblePipelineOrgIds', () => {
       { kind: 'startup', is_visible: true, membership_id: 'org-dup' },
       { kind: 'startup', is_visible: true, membership_id: 'org-dup' },
     ]);
-    expect(await eligiblePipelineOrgIds(admin)).toEqual(['org-dup']);
+    expect(await eligiblePipelineOrgIds(admin, false)).toEqual(['org-dup']);
   });
 });
