@@ -882,6 +882,13 @@ export async function startupOrgRows(admin: SupabaseClient): Promise<StartupOrgR
 
 export interface InvestorOrgRow {
   entityId: string; name: string; verified: boolean; planTier: string | null;
+  // Item 11 — the investor-side mirror of orgs.plan_change_requested: a
+  // pending request existed (plan/request/route.ts writes it) but nothing
+  // on the backoffice side ever read it back. Picked the same "first
+  // member with a value" convention planTier itself already uses above —
+  // plan is displayed as one firm-level value even though it technically
+  // lives per matchdeal_investor_members seat.
+  planTierRequested: string | null; planTierRequestedAt: string | null;
   seatsLinked: number; startupsAnalyzed: number; activityState: 'highly_active' | 'active' | 'low_activity' | 'inactive';
 }
 
@@ -901,12 +908,16 @@ export async function investorOrgRows(admin: SupabaseClient): Promise<InvestorOr
 
   const allMemberIds = activeMembers.map((m) => m.id);
   const { data: profiles } = allMemberIds.length
-    ? await admin.from('matchdeal_profiles').select('id, membership_id, plan_tier').eq('kind', 'investor').in('membership_id', allMemberIds)
+    ? await admin.from('matchdeal_profiles').select('id, membership_id, plan_tier, plan_tier_requested, plan_tier_requested_at').eq('kind', 'investor').in('membership_id', allMemberIds)
     : { data: [] };
   const planTierByMember = new Map<string, string>();
+  const planTierRequestedByMember = new Map<string, string>();
+  const planTierRequestedAtByMember = new Map<string, string>();
   const profileIdByMember = new Map<string, string>();
   for (const p of profiles ?? []) {
     planTierByMember.set(p.membership_id as string, p.plan_tier as string);
+    if (p.plan_tier_requested) planTierRequestedByMember.set(p.membership_id as string, p.plan_tier_requested as string);
+    if (p.plan_tier_requested_at) planTierRequestedAtByMember.set(p.membership_id as string, p.plan_tier_requested_at as string);
     profileIdByMember.set(p.membership_id as string, p.id as string);
   }
 
@@ -924,8 +935,10 @@ export async function investorOrgRows(admin: SupabaseClient): Promise<InvestorOr
     const daysAgo = lastSwipe ? (now - lastSwipe) / 86400000 : Infinity;
     const activityState: InvestorOrgRow['activityState'] = daysAgo <= 3 ? 'highly_active' : daysAgo <= 14 ? 'active' : daysAgo <= 30 ? 'low_activity' : 'inactive';
     const planTier = memberIds.map((id) => planTierByMember.get(id)).find(Boolean) ?? null;
+    const planTierRequested = memberIds.map((id) => planTierRequestedByMember.get(id)).find(Boolean) ?? null;
+    const planTierRequestedAt = memberIds.map((id) => planTierRequestedAtByMember.get(id)).find(Boolean) ?? null;
     return {
-      entityId: c.id, name: c.name, verified: true, planTier, seatsLinked: memberIds.length,
+      entityId: c.id, name: c.name, verified: true, planTier, planTierRequested, planTierRequestedAt, seatsLinked: memberIds.length,
       startupsAnalyzed: new Set(entitySwipes.map((s) => s.target_profile_id)).size, activityState,
     };
   });

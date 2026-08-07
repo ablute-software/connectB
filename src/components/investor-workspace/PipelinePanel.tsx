@@ -35,7 +35,10 @@ interface Card {
   isArchived?: boolean;
   trackingCount: number; hasDataRoomAccess: boolean;
 }
-interface Wave { index: number; items: Card[]; unlocked: boolean }
+// Item 14 — a locked wave's `items` now arrives empty from the server
+// (/api/portal/pipeline strips real card data for any wave with
+// unlocked=false); hiddenCount is the only signal of what's behind it.
+interface Wave { index: number; items: Card[]; unlocked: boolean; hiddenCount?: number }
 interface PipelineResponse { linked: boolean; waves?: Wave[]; usualCoInvestors?: string | null }
 
 const REASON_MAX_LEN = 1000;
@@ -55,6 +58,35 @@ function fmtDecidedAt(iso: string | null | undefined, decidedByMe: boolean | nul
   const date = new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   const who = decidedByMe == null ? '' : decidedByMe ? ' by you' : ' by a colleague at your firm';
   return ` on ${date}${who}`;
+}
+
+// Item 14 — replaces the old opacity-50 treatment, which left the real
+// (locked) card data sitting in the DOM, readable and selectable — the
+// server no longer sends that data at all (see the Wave/hiddenCount
+// comment above), so this renders skeleton rows only. No `position: fixed`
+// element lives inside this overlay — a backdrop-blur ancestor becomes the
+// containing block for any fixed descendant, which is exactly what broke
+// the MatchDeal pairing modal (see CLAUDE.md's note on that bug); the
+// "Review" button here just scrolls, it never opens a modal.
+function LockedWave({ hiddenCount, onReview }: { hiddenCount: number; onReview: () => void }) {
+  return (
+    <div className="relative">
+      <div aria-hidden className="space-y-3">
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} className="h-[56px] rounded-lg border border-gray-100 bg-gray-100" />
+        ))}
+      </div>
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-white/55 px-4 text-center backdrop-blur-sm">
+        <span className="text-2xl">🔒</span>
+        <p className="text-sm font-semibold text-gray-700">
+          {hiddenCount} more startup{hiddenCount === 1 ? '' : 's'} unlock{hiddenCount === 1 ? 's' : ''} when you&apos;ve treated this wave
+        </p>
+        <button onClick={onReview} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0c637b]">
+          Review the wave above
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function PipelinePanel({ onOpenStartup, onGoToArchive }: {
@@ -324,12 +356,18 @@ export function PipelinePanel({ onOpenStartup, onGoToArchive }: {
 
       <div data-tour-id="investor-pipeline-list" className="space-y-4">
       {waves.map((wave) => (
-        <div key={wave.index} className={wave.unlocked ? '' : 'opacity-50'}>
+        <div key={wave.index} id={`wave-${wave.index}`}>
           {waves.length > 1 && (
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
               Wave {wave.index + 1}{!wave.unlocked && ' — locked until the wave above is treated'}
             </p>
           )}
+          {!wave.unlocked ? (
+            <LockedWave
+              hiddenCount={wave.hiddenCount ?? wave.items.length}
+              onReview={() => document.getElementById(`wave-${wave.index - 1}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            />
+          ) : (
           <div className="space-y-3">
             {/* Prompt 60 — a passed card moves to the Archive tab, not just
                 grayed out here; still counted server-side toward this
@@ -527,6 +565,7 @@ export function PipelinePanel({ onOpenStartup, onGoToArchive }: {
               );
             })}
           </div>
+          )}
         </div>
       ))}
       </div>

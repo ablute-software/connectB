@@ -64,6 +64,17 @@ export async function GET() {
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const result = await getPipelineWaves(sb, admin, user.id, email);
+  // Item 14 — the wave-gate was opacity-only: locked-wave card data (startup
+  // names, sectors, round terms) was still sent to the browser and sitting
+  // in the DOM, readable/selectable regardless of the CSS. This is the only
+  // caller of getPipelineWaves that serves the browser directly (CSV
+  // export, the message/startup-detail routes, all stay server-side and
+  // keep the full result), so the strip happens here, not in the shared
+  // lib function — a locked wave now leaves the server as a count only.
+  if (result.linked) {
+    const waves = result.waves.map((w) => (w.unlocked ? w : { index: w.index, unlocked: w.unlocked, items: [], hiddenCount: w.items.length }));
+    return NextResponse.json({ ...result, waves });
+  }
   return NextResponse.json(result);
 }
 

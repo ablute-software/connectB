@@ -99,6 +99,9 @@ export async function GET() {
 
     return {
       entityId: r.entityId, name: r.name, planTier: r.planTier,
+      // Item 11 — pass-through from investorOrgRows(); see that function's
+      // own comment for why "first member with a value" is the convention.
+      planTierRequested: r.planTierRequested, planTierRequestedAt: r.planTierRequestedAt,
       registrationDate: registeredAtByEntity.get(r.entityId) ?? null,
       seats: r.seatsLinked,
       // % Completeness: only a BINARY is_complete exists for investor

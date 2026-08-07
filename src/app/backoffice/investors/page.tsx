@@ -11,6 +11,23 @@ import type { DomainMatchVerdict } from '@/lib/investor-domain-match';
 import { ModerationControls } from '@/components/backoffice/ModerationControls';
 import { ModerationHistoryCard } from '@/components/backoffice/ModerationHistoryCard';
 import type { ModerationStatus } from '@/lib/account-moderation';
+import { INVESTOR_PLANS } from '@/lib/plans';
+
+// Item 11 — matchdeal_profiles.plan_tier/plan_tier_requested store MatchDeal's
+// own tier keys, not InvestorPlanTier ('pro_scout' etc) — same small local
+// map InvestorPlansPanel.tsx already carries under its own MATCHDEAL_TO_TIER
+// name (deliberately not centralized into lib/plans.ts, see that file's own
+// comment above INVESTOR_PLANS). Names are read from INVESTOR_PLANS itself
+// so the price/seat spec stays the single source of truth for naming.
+const MATCHDEAL_TIERS = ['tier_a', 'tier_b', 'tier_c'] as const;
+const MATCHDEAL_TO_INVESTOR_TIER: Record<string, 'pro_scout' | 'ace_spotter' | 'legendary_sleuth'> = {
+  tier_a: 'pro_scout', tier_b: 'ace_spotter', tier_c: 'legendary_sleuth',
+};
+function tierName(matchdealTier: string | null): string {
+  if (!matchdealTier) return '—';
+  const t = MATCHDEAL_TO_INVESTOR_TIER[matchdealTier];
+  return t ? (INVESTOR_PLANS.find((p) => p.tier === t)?.name ?? matchdealTier) : matchdealTier;
+}
 
 type Totals = {
   total: number; verified: number; imported: number; demo: number; backfilled: number;
@@ -230,7 +247,9 @@ function PipelineDecisionsPanel() {
 // exist yet — not a zero, an honest "not tracked" (per the doc's own
 // instruction for "Files viewed").
 interface InvestorAccountRow {
-  entityId: string; name: string; planTier: string | null; registrationDate: string | null; seats: number;
+  entityId: string; name: string; planTier: string | null;
+  planTierRequested: string | null; planTierRequestedAt: string | null;
+  registrationDate: string | null; seats: number;
   complete: boolean; lastLogin: string | null; status: 'active' | 'quiet' | 'inactive';
   accessGrantedLastMonth: number; filesViewedLastMonth: number; startupsInteractedWith: number;
   moderationStatus: ModerationStatus; moderationQuarantineUntil: string | null;
@@ -251,6 +270,7 @@ function InvestorAccountsTable() {
   const [moderationAvailable, setModerationAvailable] = useState(false);
   const [err, setErr] = useState('');
   const [q, setQ] = useState('');
+  const [savingEntityId, setSavingEntityId] = useState<string | null>(null);
 
   function load() {
     fetch('/api/backoffice/investor-accounts').then((r) => r.json()).then((body) => {
@@ -261,13 +281,64 @@ function InvestorAccountsTable() {
   }
   useEffect(load, []);
 
-  const rows = useMemo(() => (accounts ?? []).filter((a) => a.name.toLowerCase().includes(q.toLowerCase())), [accounts, q]);
+  // Item 11 step 3 — mirrors set-plan exactly: apply the requested tier
+  // (accept), or re-apply the current tier (reject) — either way
+  // plan_tier_requested/plan_tier_requested_at clear on the server.
+  async function setInvestorPlan(entityId: string, tier: string) {
+    setSavingEntityId(entityId);
+    try {
+      const res = await fetch('/api/backoffice/set-investor-plan', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityId, tier }),
+      });
+      const body = await res.json();
+      if (!body.ok) { alert(`Set plan failed: ${body.error}`); return; }
+      load();
+    } finally {
+      setSavingEntityId(null);
+    }
+  }
+
+  // Item 11 step 2 — "ordenando os pendentes primeiro", same as the
+  // startups table's own pending-first Card above its full table (search
+  // filter composes with this, not replaces it).
+  const rows = useMemo(() => {
+    const filtered = (accounts ?? []).filter((a) => a.name.toLowerCase().includes(q.toLowerCase()));
+    return [...filtered].sort((a, b) => (b.planTierRequested ? 1 : 0) - (a.planTierRequested ? 1 : 0));
+  }, [accounts, q]);
+  const pending = (accounts ?? []).filter((a) => a.planTierRequested);
 
   if (err) return <Card title="Investor accounts"><p className="text-sm text-[#B00000]">{err}</p></Card>;
   if (!accounts) return <Card title="Investor accounts"><p className="text-sm text-gray-400">Loading…</p></Card>;
 
   return (
-    <Card title={`Investor accounts (${rows.length}${q ? ` of ${accounts.length}` : ''})`}>
+    <div className="space-y-5">
+      {pending.length > 0 && (
+        <Card title={`Pending plan-change requests (${pending.length})`}>
+          <ul className="divide-y divide-gray-100 text-sm">
+            {pending.map((a) => (
+              <li key={a.entityId} className="flex flex-wrap items-center gap-2 py-2">
+                <span className="font-medium">{a.name}</span>
+                <span className="text-xs text-gray-500">
+                  {tierName(a.planTier ?? 'tier_a')} → <b>{tierName(a.planTierRequested)}</b>
+                  {a.planTierRequestedAt && ` · requested ${a.planTierRequestedAt.slice(0, 10)}`}
+                </span>
+                <div className="ml-auto flex gap-2">
+                  <button onClick={() => setInvestorPlan(a.entityId, a.planTierRequested!)} disabled={savingEntityId === a.entityId}
+                    className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
+                    {savingEntityId === a.entityId ? 'Applying…' : 'Apply request'}
+                  </button>
+                  <button onClick={() => setInvestorPlan(a.entityId, a.planTier ?? 'tier_a')} disabled={savingEntityId === a.entityId}
+                    className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                    Reject
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+      <Card title={`Investor accounts (${rows.length}${q ? ` of ${accounts.length}` : ''})`}>
       <div className="mb-3 flex items-center gap-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by firm name…"
           className="w-56 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
@@ -288,7 +359,19 @@ function InvestorAccountsTable() {
             {rows.map((a) => (
               <tr key={a.entityId} className="border-t border-gray-50 align-top">
                 <td className="py-2 pr-3 font-medium">{a.name}</td>
-                <td className="pr-3 text-gray-500">{a.planTier ?? '—'}</td>
+                <td className="pr-3">
+                  <div className="flex items-center gap-1.5">
+                    <select value={a.planTier ?? 'tier_a'} disabled={savingEntityId === a.entityId}
+                      onChange={(e) => setInvestorPlan(a.entityId, e.target.value)}
+                      className="rounded border border-gray-300 px-1.5 py-0.5 text-xs">
+                      {MATCHDEAL_TIERS.map((t) => <option key={t} value={t}>{tierName(t)}</option>)}
+                    </select>
+                    {a.planTierRequested && (
+                      <span title={`Requested ${tierName(a.planTierRequested)}`}
+                        className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">req</span>
+                    )}
+                  </div>
+                </td>
                 <td className="pr-3 text-xs text-gray-400 whitespace-nowrap">{a.registrationDate ? a.registrationDate.slice(0, 10) : '—'}</td>
                 <td className="pr-3 text-gray-600">{a.seats}</td>
                 <td className="pr-3 text-gray-600">{a.complete ? 'Complete' : 'Incomplete'}</td>
@@ -323,7 +406,8 @@ function InvestorAccountsTable() {
         </table>
       </div>
       {!moderationAvailable && <p className="mt-3 text-[11px] text-gray-400">Suspend/Delete activates once migration 0121 is applied.</p>}
-    </Card>
+      </Card>
+    </div>
   );
 }
 

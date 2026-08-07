@@ -3662,3 +3662,45 @@ Health"]` will not overlap a startup's `["digital health"]`, silently,
 even after this fix makes the two source columns internally consistent.
 Deciding a canonical sector list (names, casing, synonyms) is a product
 call, not a data-consistency fix, so it isn't attempted here.
+
+## Startup vs investor plan-change-request models — kept separate, not converged (item 11)
+
+**Decision**: `orgs.plan_change_requested` (startups) and
+`matchdeal_profiles.plan_tier_requested` (investors, `kind='investor'`)
+stay as two separate columns/mechanisms. Not converged into one shared
+table or column as part of this fix.
+
+**Why they're not actually the same thing wearing two names**: `orgs` is
+one row per startup account, so a plan-change request is naturally
+firm-level. Investor plan tier lives per
+`matchdeal_investor_members` seat on `matchdeal_profiles` (`kind =
+'investor'`) — a firm with 5 seats has 5 membership rows, each capable
+of its own `plan_tier`/`plan_tier_requested` in principle, even though
+today's UI (both the request route, which writes to the requesting
+user's own membership, and the backoffice display fixed by this item,
+which shows/sets one value per firm) treats plan as firm-wide in
+practice. Converging onto one model means picking a side: either give
+`catalog_entities` an org-style single request column (replicating the
+firm-vs-seat mismatch `investorOrgRows()` already flags as a documented
+simplification, not resolving it), or move `orgs.plan_change_requested`
+down into `matchdeal_profiles` (`kind = 'startup'`) to match. The second
+direction is the more defensible one long-term — `matchdeal_profiles.
+plan_tier` is already the column `matchdeal_tier_limits()` actually
+enforces for both kinds; `orgs.plan`/`plan_change_requested` are a
+startup-only display copy kept in sync by `applyPlanChangeSideEffects()`
+— but it's a real schema migration touching a request flow already live
+in production, which is out of this Lote's "sem migração" scope and out
+of proportion to the bug actually reported (the investor side's request
+column existed and worked; only the backoffice read/apply side was
+missing). Fixing the missing read/write side on investor's own existing
+columns doesn't require resolving this first.
+
+**Flagged, not fixed**: the org-side request encodes `{tier, period}`
+(`encodePlanRequest`/`parsePlanRequest` — monthly vs annual); the
+investor-side request (`/api/portal/plan/request`) only ever writes a
+tier, even though `InvestorPlansPanel` itself has its own monthly/annual
+toggle. An investor's chosen billing period is never captured anywhere
+today — not a regression from this fix, a pre-existing gap this fix's
+own reading surfaced. Left alone; adding period tracking is a product
+decision (does per-seat billing period even make sense here) this Lote
+wasn't asked to make.
