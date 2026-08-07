@@ -132,11 +132,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // Caught live: without this, /guest rendered wrapped in Shell — page
   // title stayed the layout default, clicks landed on ghost nav elements
   // instead of the page's own CTA button, nothing about the flow worked.
-  // (/invite/[token] has this same gap — pre-existing, not this item's
-  // scope, flagged separately rather than folded in here silently.)
   // "Claim this profile" (2026-08-07) — reached anonymously from
   // /investors; same reasoning as /guest just above.
-  if (path === '/' || path === '/investors' || path === '/pair' || isStandaloneAuthPage || path?.startsWith('/guest') || path?.startsWith('/claim') || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
+  //
+  // /invite/[token] (accept a team invitation) is opened by a brand-new
+  // user with no session yet — same standalone centered-card layout as the
+  // auth pages above, and was missing from this list for the same reason
+  // /pair was: it renders fine on its own but inherits the founder sidebar
+  // (wrong title, ghost nav links that 401/redirect for someone with no
+  // org membership yet) when wrapped. Flagged separately from the /guest
+  // fix above rather than folded in silently; fixed here.
+  if (path === '/' || path === '/investors' || path === '/pair' || isStandaloneAuthPage || path?.startsWith('/guest') || path?.startsWith('/claim') || path?.startsWith('/invite') || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
 
   // Two item lists from the same `visibleNav`, not one: the sidebar and the
   // mobile bottom nav have always used slightly different active-match
