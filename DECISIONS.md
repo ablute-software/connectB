@@ -3581,3 +3581,84 @@ SPF/DKIM — it can point anywhere today. Sender display name changed to
 - `RESEND_REPLY_TO` — can be set **today**, to `sherlockdeal.com@gmail.com`,
   with no domain verification required. This is the env var that actually
   gives Nuno the effect he asked for, without waiting on the DNS work above.
+
+## Five orphan seed matchdeal_profiles (item 3.1) — unpublish, not delete; no FK yet
+
+**Decision**: leave the 5 `e2000000-…` startup profiles (seed data whose
+`membership_id` points at `orgs` rows that were never created,
+`e1000000-…`) as `is_visible = false`, never delete them. Checked directly
+against production: `matchdeal_swipes` has a real row targeting
+`e2000000-…-0005`, and `matchdeal_exposures` has rows for `-0002` and
+`-0005`. Deleting the profiles would orphan those historical rows instead
+of the current (harmless, already-hidden) membership_id dangling
+reference. Confirmed live: all 5 are already `is_visible = false` in
+production as of 2026-08-06 — this decision matches the current state,
+not a change from it.
+
+**Not adding a `matchdeal_profiles.membership_id → orgs(id)` foreign key
+in this pass.** These 5 rows would violate it today (their `membership_id`
+matches no `orgs.id` at all), so `alter table ... add constraint` would
+fail outright against current data — adding the FK requires a data
+remediation step first (nulling or repointing the 5 rows' membership_id,
+which itself has to account for the swipes/exposures above), and that's
+a separate, more invasive migration than this pass's scope. The defensive
+measure shipped instead: `getPipelineWaves()` now logs a `console.error`
+naming any eligible org id that resolves to no row in `orgs`, so this
+exact failure mode (a membership_id silently falling through a `.in()`)
+can't hide again even without the hard constraint.
+
+## `ablute_`'s missing MatchDeal photo — feature already exists, just unused
+
+Investigated as part of item 3.2 (the report's option (a)/(b)/(c) choice
+for reconciling `orgs.logo_url` — a signed data-room storage path — with
+`matchdeal_profiles.photo_url` — a raw URL). **No code decision needed
+here: option (a) is already built.** `ProfilePanel.tsx`'s
+`applySherlockDealLogo()` ("Use your Sherlock Deal logo" button, Prompt
+125 Block B) already signs the org's logo for a 10-year TTL and writes
+that into `photo_url` — deliberately choosing "sign once, long-lived"
+over "resolve at render time in 3+ places," with the documented,
+accepted trade-off that it goes stale only if the founder re-uploads a
+new logo afterward. `ablute_`'s `matchdeal_profiles.photo_url` is `null`
+today simply because nobody has clicked that existing button for
+`ablute_`'s own profile — not because the mechanism is missing.
+
+Doesn't change the item 3 finding either way: `ablute_` is also `is_test
+= true`, so even a fully-complete, published `ablute_` profile would
+still be correctly excluded from a real investor's Pipeline by the item
+15 filter. Fixing the photo doesn't fix "the Pipeline is empty of real
+data" — only a real startup publishing does.
+
+## `orgs.sectors`/`country` are canonical for startups (item 3.3)
+
+**Decision**: `orgs.sectors`/`orgs.country` is the canonical source for a
+startup's sectors/country; `matchdeal_profiles.sectors`/`country` is a
+read-only mirror for `kind = 'startup'` rows, kept in sync by the
+one-way trigger migration `0098` already added (`orgs` update →
+`matchdeal_profiles`). This isn't a new design — `0098`'s own comment
+already said the intent was for `ProfilePanel.tsx` to "stop offering a
+second edit form" for these fields once the trigger existed; that step
+just never happened, so founders had two independent editable copies
+and only Settings saves flowed through the sync. `ProfilePanel.tsx` now
+shows both as read-only for startup profiles ("edit in Settings"), same
+treatment as `description`/`website`/`founded_year` already got in
+Prompt 98. `matchdeal_eligible_deck()` is untouched — it keeps reading
+`matchdeal_profiles.sectors`, never `orgs.sectors`; this fix makes that
+column trustworthy again, it doesn't change what the matching engine
+reads.
+
+Migration `0142` backfills the divergence that already existed in
+production before this fix (confirmed live: "Caramel Biscuit" had 1 org
+sector vs 0 profile sectors; "Test & trial" 2 vs 0; "Sherlock Deal_
+test" 0 org sectors vs 2 profile sectors) — the `0098` trigger only
+fires on future `orgs` updates, not retroactively.
+
+**Not in scope, flagged not decided**: sector *taxonomy* normalization.
+Measured real casing/synonym mismatches between the two columns even
+where content was semantically aligned ("Digital Health" vs "health",
+"digital health" vs "health, wellness"). `matchdeal_eligible_deck`'s
+sector filter is a Postgres array-overlap (`&&`), which is exact
+per-element string equality — a real investor thesis of `["Digital
+Health"]` will not overlap a startup's `["digital health"]`, silently,
+even after this fix makes the two source columns internally consistent.
+Deciding a canonical sector list (names, casing, synonyms) is a product
+call, not a data-consistency fix, so it isn't attempted here.

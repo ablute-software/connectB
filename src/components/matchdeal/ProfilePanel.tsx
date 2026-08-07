@@ -5,15 +5,26 @@
 // photo_url gates startup completeness but not investor, per that trigger.
 // Prompt 98 — for startup profiles, name/description/founded_year/
 // round_target_eur/revenue_eur/logo_url are now shown read-only, sourced
-// from orgs (edited in Settings) instead of duplicated here. sectors/country
-// stay editable on matchdeal_profiles per explicit pause (matchdeal_eligible_deck()
-// matches on those, not orgs). website/description/photo_url on
-// matchdeal_profiles are LEFT AS EDITABLE for now — they gate
+// from orgs (edited in Settings) instead of duplicated here.
+// Item 3.3 (2026-08-06) — sectors/country closed the "explicit pause"
+// this comment used to describe: they're now read-only here too, for
+// startup profiles. matchdeal_eligible_deck() still matches on
+// matchdeal_profiles.sectors/country, not orgs — that's unchanged and
+// deliberately untouched — but orgs.sectors/country is canonical, kept in
+// sync one-way by migration 0098's trigger (orgs -> matchdeal_profiles on
+// every orgs update). Editing it a second time here just drifted from
+// that sync until the next Settings save silently overwrote it — measured
+// live pre-fix: "Caramel Biscuit" had 1 org sector vs 0 profile sectors,
+// "Test & trial" 2 vs 0, "Sherlock Deal_ test" 0 vs 2, and multiple rows
+// carried different casing for the same sector ("Digital Health" vs
+// "health"/"digital health") — a normalization problem this fix doesn't
+// solve, only stops making worse; flagged, not silently decided, since a
+// canonical sector taxonomy is a product call. website/description/
+// photo_url on matchdeal_profiles stay editable — they gate
 // matchdeal_recompute_profile_completeness(), and photo_url in particular
-// stores a raw URL while orgs.logo_url stores a data-room storage path, so
-// swapping the source needs a format-reconciling sync trigger that hasn't
-// been proposed/confirmed yet (mirrors the sectors/country trigger pattern
-// once it is).
+// stores a raw URL while orgs.logo_url stores a data-room storage path
+// (see "Use your Sherlock Deal logo" below, which already reconciles the
+// two formats via a long-lived signed URL rather than a sync trigger).
 import { useEffect, useRef, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { computeProfilePrefill } from '@/lib/matchdeal-profile-prefill';
@@ -31,7 +42,7 @@ interface Profile {
 
 interface Org {
   id: string; name: string; description: string | null; one_liner: string | null;
-  website: string | null; country: string | null;
+  website: string | null; country: string | null; sectors: string[];
   founded_year: number | null; round_target_eur: number | null; revenue_eur: number | null; logo_url: string | null;
 }
 
@@ -94,7 +105,7 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
     if (!profile || profile.kind !== 'startup' || !profile.membership_id) { setOrg(null); return; }
     (async () => {
       const { data } = await browserClient().from('orgs')
-        .select('id, name, description, one_liner, website, country, founded_year, round_target_eur, revenue_eur, logo_url')
+        .select('id, name, description, one_liner, website, country, sectors, founded_year, round_target_eur, revenue_eur, logo_url')
         .eq('id', profile.membership_id).maybeSingle();
       setOrg(data as unknown as Org);
     })();
@@ -263,13 +274,25 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
           </Field>
         )}
         <Field label="Website"><input className={inputCls} value={profile.website ?? ''} onChange={(e) => set('website', e.target.value)} placeholder="https://…" /></Field>
-        <Field label="Country"><input className={inputCls} value={profile.country ?? ''} onChange={(e) => set('country', e.target.value)} /></Field>
+        {/* Item 3.3 — country/sectors for a startup profile are sourced from
+            orgs (edited in Settings), same as name/description/founded_year
+            above, closing the "explicit pause" migration 0098's own comment
+            named: matchdeal_eligible_deck() matches on THIS column, and
+            orgs_sync_matchdeal_sectors_country (0098) already keeps it in
+            sync one-way (orgs -> matchdeal_profiles) on every orgs update —
+            editing it here a second time only drifted from that sync until
+            the next Settings save silently overwrote it. See DECISIONS.md. */}
+        {viewerKind === 'startup' ? (
+          <Field label="Country"><p className="text-[13px] text-white/70">{profile.country || '—'} <span className="text-white/30">· edit in Settings</span></p></Field>
+        ) : (
+          <Field label="Country"><input className={inputCls} value={profile.country ?? ''} onChange={(e) => set('country', e.target.value)} /></Field>
+        )}
         <Field label="Description"><textarea rows={3} className={inputCls} value={profile.description ?? ''} onChange={(e) => set('description', e.target.value)} /></Field>
 
         {viewerKind === 'startup' ? (
           <>
-            <Field label="Sectors (comma-separated)">
-              <input className={inputCls} value={profile.sectors.join(', ')} onChange={(e) => set('sectors', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))} />
+            <Field label="Sectors">
+              <p className="text-[13px] text-white/70">{profile.sectors.length ? profile.sectors.join(', ') : '—'} <span className="text-white/30">· edit in Settings</span></p>
             </Field>
             <Field label="Stage sought">
               <select className={inputCls} value={profile.investment_stage_sought ?? ''} onChange={(e) => set('investment_stage_sought', e.target.value || null)}>

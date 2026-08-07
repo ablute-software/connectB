@@ -169,6 +169,20 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     : await admin.from('orgs').select(
         'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur',
       ).in('id', orgIds);
+
+  // Item 3.1 — a membership_id an eligible source resolved that doesn't
+  // exist in orgs used to fall through this .in() silently: the card just
+  // never rendered, with no error, no log, nothing to grep for. That's
+  // exactly how five seed-data matchdeal_profiles rows (e1000000-… orgs,
+  // never created) stayed invisible for as long as they did. This can't
+  // recover the row — the fix is publishing real startups — but it can
+  // stop hiding the inconsistency.
+  const resolvedOrgIds = new Set((orgs ?? []).map((o) => o.id as string));
+  const missingOrgIds = orgIds.filter((id) => !resolvedOrgIds.has(id));
+  if (missingOrgIds.length > 0) {
+    console.error('getPipelineWaves: eligible org id(s) resolved to no row in orgs — data inconsistency, not expected:', missingOrgIds);
+  }
+
   const { data: startupProfiles } = await admin.from('matchdeal_profiles').select('id, membership_id, description')
     .eq('kind', 'startup').in('membership_id', orgIds);
   const profileByOrg = new Map((startupProfiles ?? []).map((p) => [p.membership_id as string, p.id as string]));
