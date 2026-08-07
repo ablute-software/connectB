@@ -11,6 +11,10 @@ import { countDistinctVoucherEntities } from '@/lib/investor-vouching';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
+
 export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -19,7 +23,10 @@ export async function GET(req: Request) {
   const token = new URL(req.url).searchParams.get('token');
   if (!token) return NextResponse.json({ error: 'token is required.' }, { status: 400 });
 
-  const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  const admin = createClient(url, serviceKey, {
+    auth: { persistSession: false },
+    global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
+  });
   const { data: vouch } = await admin.from('investor_vouches')
     .select('id, status, target_email, expires_at, requester_catalog_entity_id, catalog_entities:requester_catalog_entity_id(name)')
     .eq('token', token).maybeSingle();
