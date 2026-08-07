@@ -6,6 +6,7 @@ import { useStore } from '@/lib/store';
 import { outboundCounts } from '@/lib/rules';
 import { Tooltip } from '@/components/ui';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
+import { useSupportUnreadCount } from '@/components/SupportTicketsPanel';
 import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
 import { W1Badge } from '@/components/onboarding/W1Badge';
@@ -87,6 +88,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
       .then((d) => setUnreadMessages((d.threads ?? []).filter((t: { unread: boolean }) => t.unread).length))
       .catch(() => setUnreadMessages(0));
   }, []);
+  // Item 13 — the Messages nav badge used to count only deal_messages
+  // threads; a support ticket with an unread admin reply is exactly the
+  // same kind of "something's waiting on you" signal and now lives under
+  // the same page's Support tab, so it counts toward the same badge.
+  const unreadSupport = useSupportUnreadCount();
 
   // Dual-role (e.g. Nuno: founder of ablute_ AND platform admin) gets a
   // switcher into the fully separate back-office console (own layout/chrome
@@ -128,7 +134,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const navItem = (n: typeof visibleNav[number], active: boolean): WorkspaceNavItem => {
     const isAbout = n.href === '/settings';
     const badge = n.href === '/tasks' && pendingRuns > 0 ? pendingRuns
-      : n.href === '/messages' && unreadMessages > 0 ? unreadMessages
+      : n.href === '/messages' && (unreadMessages + unreadSupport) > 0 ? unreadMessages + unreadSupport
       : isAbout && needsReviewCount > 0 ? needsReviewCount
       : undefined;
     return {

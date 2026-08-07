@@ -13,6 +13,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Tabs } from '@/components/ui';
+import { SupportTicketsPanel } from '@/components/SupportTicketsPanel';
 
 interface ThreadRow { threadId: string; investorName: string; lastMessageAt: string; unread: boolean }
 interface EligibleFirm { investorCatalogEntityId: string; name: string }
@@ -30,6 +32,10 @@ export default function FounderMessagesPage() {
   const [draftBody, setDraftBody] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Item 13 — "a Support tab where messages already live," per the
+  // mini-prompt: reuses this page's own header/layout instead of adding a
+  // 10th top-level nav item or a second messaging system.
+  const [tab, setTab] = useState<'messages' | 'support'>('messages');
 
   useEffect(() => {
     fetch('/api/founder/messages').then((r) => r.json()).then((d) => setThreads(d.threads ?? []));
@@ -60,14 +66,21 @@ export default function FounderMessagesPage() {
           <h1 className="text-lg font-bold text-gray-900">Messages</h1>
           <p className="mt-1 text-sm text-gray-500">Conversations with investors on your Pipeline.</p>
         </div>
-        {eligible.length > 0 && (
+        {tab === 'messages' && eligible.length > 0 && (
           <button onClick={() => setShowNew((v) => !v)} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">
             + New conversation
           </button>
         )}
       </div>
 
-      {showNew && (
+      <div className="mt-3">
+        <Tabs active={tab} onChange={(v) => setTab(v as 'messages' | 'support')}
+          items={[{ key: 'messages', label: 'Messages' }, { key: 'support', label: 'Support' }]} />
+      </div>
+
+      {tab === 'support' && <div className="mt-4"><SupportTicketsPanel /></div>}
+
+      {tab === 'messages' && showNew && (
         <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
           <label className="mb-1 block text-xs font-medium text-gray-700">Start a conversation with</label>
           <select value={selectedFirmId} onChange={(e) => setSelectedFirmId(e.target.value)}
@@ -87,7 +100,7 @@ export default function FounderMessagesPage() {
         </div>
       )}
 
-      <div className="mt-4 space-y-2">
+      {tab === 'messages' && <div className="mt-4 space-y-2">
         {threads == null ? (
           <p className="text-sm text-gray-400">Loading…</p>
         ) : threads.length === 0 ? (
@@ -111,7 +124,7 @@ export default function FounderMessagesPage() {
             </Link>
           ))
         )}
-      </div>
+      </div>}
     </div>
   );
 }

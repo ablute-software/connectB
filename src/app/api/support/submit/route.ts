@@ -12,7 +12,7 @@ import { supportTicketsAvailable } from '@/lib/support-capability';
 import { sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { BRAND_NAME } from '@/lib/brand';
 
-const SOURCES = ['landing', 'landing_investors', 'founder_app', 'investor_portal'] as const;
+const SOURCES = ['landing', 'landing_investors', 'founder_app', 'investor_portal', 'suspended'] as const;
 const CATEGORIES = ['question', 'problem', 'billing', 'data_correction', 'claim_profile', 'other'] as const;
 const RATE_LIMIT_PER_HOUR = 5;
 
@@ -77,13 +77,29 @@ export async function POST(req: Request) {
     orgId = member?.org_id ?? null;
   }
 
-  const { data: ticket, error } = await admin.from('support_tickets').insert({
+  let { data: ticket, error } = await admin.from('support_tickets').insert({
     source, org_id: orgId, user_id: user?.id ?? null,
     name: name.trim(), email: finalEmail, category, subject: subject.trim(),
     message: message.trim(), context: context?.trim() || null,
     area: area?.trim() || null,
   }).select('id').single();
-  if (error) { console.error('[support/submit] insert failed', error.message); return genericOk(); }
+  // Item 6 — 'suspended' as a source value needs migration 0143 (widens the
+  // source check constraint) applied; until it is, an insert with
+  // source='suspended' fails the DB constraint even though this route's own
+  // SOURCES list already accepts it. Retrying once with 'founder_app'
+  // (already always allowed) means a ticket from a suspended account is
+  // never silently lost to a constraint the DB hasn't caught up to yet —
+  // it just gets a slightly generic source label until 0143 lands.
+  if (error && source === 'suspended') {
+    console.warn('[support/submit] insert with source=suspended failed (migration 0143 not applied yet?), retrying as founder_app:', error.message);
+    ({ data: ticket, error } = await admin.from('support_tickets').insert({
+      source: 'founder_app', org_id: orgId, user_id: user?.id ?? null,
+      name: name.trim(), email: finalEmail, category, subject: subject.trim(),
+      message: message.trim(), context: context?.trim() || null,
+      area: area?.trim() || null,
+    }).select('id').single());
+  }
+  if (error || !ticket) { console.error('[support/submit] insert failed', error?.message); return genericOk(); }
 
   // AWAITED, deliberately. This was fire-and-forget (a dangling promise with
   // .then/.catch) and the email was never actually sent: on serverless the

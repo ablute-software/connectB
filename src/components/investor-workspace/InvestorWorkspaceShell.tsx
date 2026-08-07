@@ -24,8 +24,9 @@ import { LogoutButton } from '@/components/workspace-shell/LogoutButton';
 import { EmptyState } from '@/components/workspace-shell/EmptyState';
 import type { WorkspaceNavItem } from '@/components/workspace-shell/types';
 import { BRAND_NAME } from '@/lib/brand';
+import { SupportTicketsPanel, useSupportUnreadCount } from '@/components/SupportTicketsPanel';
 
-export type Tab = 'pipeline' | 'about' | 'access' | 'agenda' | 'today' | 'archive' | 'plans' | 'evaluation';
+export type Tab = 'pipeline' | 'about' | 'access' | 'agenda' | 'today' | 'archive' | 'plans' | 'evaluation' | 'support';
 
 const COMPLETENESS_GATE = 50;
 
@@ -116,6 +117,11 @@ export function InvestorWorkspaceShell({
 
   const aboutLabel = investorFirmName ? `About ${investorFirmName}` : 'About your firm';
   const gateOpen = pct != null && pct >= COMPLETENESS_GATE;
+  // Item 13 — investor side never had a support-tickets surface at all
+  // (only the founder shell's "Help & support" widget submits one); this
+  // is the read/reply half, same panel the founder Messages page's new
+  // Support tab uses.
+  const unreadSupport = useSupportUnreadCount();
 
   const NAV: { key: Tab; label: string; icon: string }[] = [
     { key: 'pipeline', label: 'Pipeline', icon: '▤' },
@@ -129,6 +135,7 @@ export function InvestorWorkspaceShell({
     { key: 'agenda', label: 'Agenda', icon: '◔' },
     { key: 'today', label: 'Today', icon: '☀' },
     { key: 'archive', label: 'Archive', icon: '▣' },
+    { key: 'support', label: 'Support', icon: '☎' },
     { key: 'plans', label: 'Plans & billing', icon: '◈' },
   ];
 
@@ -140,6 +147,7 @@ export function InvestorWorkspaceShell({
   const navItems: WorkspaceNavItem[] = NAV.map((n) => ({
     key: n.key, icon: n.icon, label: n.label,
     active: tab === n.key, emphasize: n.key === 'about',
+    badge: n.key === 'support' && unreadSupport > 0 ? unreadSupport : undefined,
     onSelect: () => setTab(n.key),
   }));
 
@@ -225,6 +233,7 @@ export function InvestorWorkspaceShell({
           {tab === 'agenda' && <InvestorAgendaPanel />}
           {tab === 'today' && <InvestorTodayPanel />}
           {tab === 'archive' && <ArchivePanel />}
+          {tab === 'support' && <SupportTicketsPanel />}
           {tab === 'plans' && <InvestorPlansPanel />}
         </main>
       </div>

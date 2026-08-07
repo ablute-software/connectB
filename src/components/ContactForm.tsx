@@ -5,7 +5,7 @@
 // channel.
 import { useState } from 'react';
 
-export type SupportSource = 'landing' | 'landing_investors' | 'founder_app' | 'investor_portal';
+export type SupportSource = 'landing' | 'landing_investors' | 'founder_app' | 'investor_portal' | 'suspended';
 
 const CATEGORIES: { value: string; label: string }[] = [
   { value: 'question', label: 'Question' },
@@ -16,12 +16,17 @@ const CATEGORIES: { value: string; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
-export function ContactForm({ source, defaultName = '', defaultEmail = '', showContext = false, onDone }: {
-  source: SupportSource; defaultName?: string; defaultEmail?: string; showContext?: boolean; onDone?: () => void;
+export function ContactForm({ source, defaultName = '', defaultEmail = '', defaultCategory, hideCategory = false, showContext = false, onDone }: {
+  source: SupportSource; defaultName?: string; defaultEmail?: string; defaultCategory?: string;
+  // Item 6 — a suspended-account ticket already knows what it's about; asking
+  // the affected user to pick a category on top of the trouble they're
+  // already in is friction with no payoff, since `source` alone already
+  // gives the backoffice the operational signal it needs.
+  hideCategory?: boolean; showContext?: boolean; onDone?: () => void;
 }) {
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
-  const [category, setCategory] = useState('question');
+  const [category, setCategory] = useState(defaultCategory ?? 'question');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [context, setContext] = useState('');
@@ -83,10 +88,12 @@ export function ContactForm({ source, defaultName = '', defaultEmail = '', showC
         <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@company.com"
           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
       </div>
-      <select value={category} onChange={(e) => setCategory(e.target.value)}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-        {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-      </select>
+      {!hideCategory && (
+        <select value={category} onChange={(e) => setCategory(e.target.value)}
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+          {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+        </select>
+      )}
       <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject" maxLength={200}
         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
       <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5} maxLength={5000}
