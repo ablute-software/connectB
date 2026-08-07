@@ -3704,3 +3704,80 @@ today — not a regression from this fix, a pre-existing gap this fix's
 own reading surfaced. Left alone; adding period tracking is a product
 decision (does per-seat billing period even make sense here) this Lote
 wasn't asked to make.
+
+## Vault guest access token storage — filled into access_grants, not a new table (item 1)
+
+**Decision, confirmed by Nuno (2026-08-07)**: `guest_token`/
+`guest_token_expires_at` are written directly onto `access_grants`
+(migration 0114's own columns, added for exactly this and never used
+until now) — the same row an invite already creates, in the same write.
+Not a separate `data_room_guest_links` table.
+
+The mini-prompt itself flagged this as needing explicit sign-off, not a
+call this session makes alone, given the standing prohibition on
+touching `access_grants`. Asked; Nuno chose "fill the existing columns."
+The reasoning that made this the reasonable default in the first place:
+an invite grant already represents exactly "these documents, this
+person" (migration 0045's `invited_email`/`invited_name`/`confirmed_at`)
+— a guest link is just another way to resolve the SAME row before a real
+session exists, not a new access concept. The prohibition this session
+otherwise honors is about the access *model* (who gets access to what,
+how it's resolved) — filling two dormant columns on the row an invite
+was already going to create doesn't touch that model.
+
+**Token generation stays server-side** (`/api/data-room/guest-invite`),
+reusing `generateRawToken()` from `matchdeal-pairing.ts` (crypto-random
+32 bytes, base64url) rather than a new implementation — same standard
+this app already holds pairing tokens to. Unlike MatchDeal's tokens,
+`guest_token` is stored raw, not hashed — the column is a plain lookup
+column on an existing table (no separate hash column exists to store),
+and the threat model differs: a MatchDeal token is a bearer credential
+straight into an authenticated session; a guest token only ever
+unlocks a read-only preview of document *names* (see item 1's own "never
+a signed URL" rule below) — a DB compromise that leaks `access_grants`
+already exposes `invited_email` in the clear on the same row regardless.
+
+**Expiry: 14 days** (`GUEST_TOKEN_TTL_MS`, `/api/data-room/guest-invite`)
+— the mini-prompt asked for a number to be picked and recorded. Long
+enough that "I'll look at this later" doesn't expire before the investor
+gets to it, short enough that a stale, never-opened invite doesn't stay
+guessable-and-valid indefinitely.
+
+**Token consumption: at confirmation, not at first view** — per the
+mini-prompt's own explicit instruction. `guest_token`/
+`guest_token_expires_at` are cleared inside `/api/portal/confirm-identity`
+(the pre-existing "Is this you?" flow, unchanged otherwise), in the same
+update that sets `confirmed_at`, not in `GET /api/guest/[token]`. A guest
+previewing a link, closing the tab, and opening it again later (or on a
+different device) must keep working right up until they actually create
+an account — a link that dies on first read would generate more support
+tickets than it prevents.
+
+## `access_requests` (item 1, step 5) — confirmed stalled, not folded into this fix
+
+Per the mini-prompt's own instruction ("verifiquem se o ciclo está ligado
+ponta a ponta... se estiver parada, digam-no claramente"): checked, and
+it's in the same state `guest_token` was — the schema and one write path
+exist, the rest doesn't.
+
+What's real: `POST /api/portal/access-requests` (investor's "Request
+again" on an expired grant) genuinely inserts into `access_requests` and
+emails the founder. What isn't: `GET /api/portal/access-granted` — the
+route the investor-side "Access requested" tab reads — still hard-codes
+`requested: []` and never queries the table at all (its own header
+comment already said this, dated to before migration 0114 was applied;
+it was never revisited once the migration landed). An investor who
+requests access again has no way to ever see that request was received.
+On the founder side, `grep -rln "access_requests" src` turns up zero
+consumers beyond the two write/probe files — no queue, no list, nothing
+in `/documents` for a founder to review, grant, or decline a pending
+request from. The notification email the investor's request sends
+already points founders at `/documents`, which has nothing there to
+find.
+
+Not built here: a founder-facing review queue and the investor-side read
+path are each their own real feature (a list, actions, wiring the
+existing capability probe through to real data), not a one-line fix
+alongside `guest_token`, and item 1's own critério de aceitação doesn't
+ask for it. Flagged rather than silently expanded into this Lote's scope,
+per the mini-prompt's own instruction not to do that.

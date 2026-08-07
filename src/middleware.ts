@@ -16,7 +16,11 @@ const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/ap
   // Exact path only (not a prefix) — every other /api/matchdeal/pairing/*
   // route (self, disconnect, generate, status) still requires a real
   // session and must NOT be added here.
-  '/api/matchdeal/pairing/consume'];
+  '/api/matchdeal/pairing/consume',
+  // Item 1 (Lote E) — same reasoning as the pairing token above: a guest
+  // link's whole point is working with no session. /api/guest never returns
+  // signed URLs or document content, only names/counts (see that route).
+  '/guest', '/api/guest'];
 
 // Where a signed-in user belongs. '/' is the public landing now, so the app
 // home is the pipeline.

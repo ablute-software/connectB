@@ -125,7 +125,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // it read as "sherlockdeal.com badly scaled" rather than as MatchDeal.
   // It owns its whole viewport and brings its own chrome; nothing from the
   // founder app belongs on top of it.
-  if (path === '/' || path === '/investors' || path === '/pair' || isStandaloneAuthPage || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
+  //
+  // Item 1 (Lote E) — /guest/[token] is the whole point of this bug class:
+  // an anonymous visitor with a preview link must never see the founder
+  // sidebar (Pipeline/Tasks/Agenda/…, "+ Log interaction") around it.
+  // Caught live: without this, /guest rendered wrapped in Shell — page
+  // title stayed the layout default, clicks landed on ghost nav elements
+  // instead of the page's own CTA button, nothing about the flow worked.
+  // (/invite/[token] has this same gap — pre-existing, not this item's
+  // scope, flagged separately rather than folded in here silently.)
+  if (path === '/' || path === '/investors' || path === '/pair' || isStandaloneAuthPage || path?.startsWith('/guest') || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
 
   // Two item lists from the same `visibleNav`, not one: the sidebar and the
   // mobile bottom nav have always used slightly different active-match

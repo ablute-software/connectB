@@ -1,0 +1,91 @@
+// Item 1 (Lote E) — public, no-session resolution of a guest preview link.
+// Public in middleware.ts (see that file's own note on why). Service-role
+// only: an unauthenticated caller has no RLS identity to read access_grants
+// or documents through, same reasoning as /api/portal/access.
+//
+// The one hard rule this route exists to enforce: never a signed URL, never
+// document content. A guest token proves "someone was invited," not "this
+// person may download files" — that still requires a real account and a
+// confirmed grant (see /api/portal/confirm-identity, /api/portal/view).
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { resolveDocumentAccess } from '@/lib/data-room';
+import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
+
+// This route reads no cookies/headers — unlike every other GET route in
+// this app, which calls serverClient() first and reads a cookie, implicitly
+// opting the whole request into dynamic rendering. Without cookies, the App
+// Router's default is to treat plain fetch() calls (which is all
+// supabase-js's REST client makes) as cacheable, and it does: confirmed
+// live, an expired/revoked/confirmed grant kept resolving its ORIGINAL
+// pre-change response indefinitely, `dynamic = 'force-dynamic'` alone did
+// NOT fix it (verified after a full dev-server restart). The `global.fetch`
+// override below forces every request this admin client makes to bypass
+// Next's fetch cache directly, which is the layer actually caching it.
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+export const revalidate = 0;
+
+export async function GET(_req: Request, { params }: { params: { token: string } }) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !service) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200 });
+  if (!(await guestGrantTokenAvailable())) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200 });
+
+  const admin = createClient(url, service, {
+    auth: { persistSession: false },
+    global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
+  });
+
+  const { data: grant } = await admin.from('access_grants').select('*')
+    .eq('guest_token', params.token).is('revoked_at', null).maybeSingle();
+  // Not found, revoked, or already confirmed (the account exists now — this
+  // link's job is done, /portal is the right place from here) all read the
+  // same to a caller who can't distinguish them from an invalid token
+  // anyway; only "found but past guest_token_expires_at" gets its own
+  // reason, since that's the one case with a real, actionable next step
+  // ("ask the founder for a new one").
+  if (!grant || grant.confirmed_at) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200 });
+  if (!grant.guest_token_expires_at || new Date(grant.guest_token_expires_at as string) <= new Date()) {
+    return NextResponse.json({ ok: false, reason: 'expired' }, { status: 200 });
+  }
+
+  const orgId = grant.org_id as string;
+  const invitedEmail = grant.invited_email as string;
+
+  const [{ data: org }, { data: profile }, { data: pendingGrants }] = await Promise.all([
+    admin.from('orgs').select('name, one_liner').eq('id', orgId).single(),
+    admin.from('matchdeal_profiles').select('photo_url, description').eq('kind', 'startup').eq('membership_id', orgId).maybeSingle(),
+    admin.from('access_grants').select('folder_id, document_id, nda_required, nda_accepted_at')
+      .eq('org_id', orgId).eq('invited_email', invitedEmail).is('confirmed_at', null).is('revoked_at', null),
+  ]);
+  if (!org) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200 });
+
+  const grants = pendingGrants ?? [];
+  const folderIds = grants.filter((g) => g.folder_id).map((g) => g.folder_id as string);
+  const directDocIds = grants.filter((g) => g.document_id).map((g) => g.document_id as string);
+  const [{ data: docsInFolders }, { data: directDocs }] = await Promise.all([
+    folderIds.length ? admin.from('documents').select('id, name, folder_id').in('folder_id', folderIds) : Promise.resolve({ data: [] }),
+    directDocIds.length ? admin.from('documents').select('id, name, folder_id').in('id', directDocIds) : Promise.resolve({ data: [] }),
+  ]);
+  const docMap = new Map<string, { id: string; name: string; folder_id?: string }>();
+  for (const d of [...(docsInFolders ?? []), ...(directDocs ?? [])]) docMap.set(d.id as string, d as { id: string; name: string; folder_id?: string });
+  const candidateDocs = [...docMap.values()];
+
+  // Same visibility rule /api/portal/access-granted uses (document-level
+  // grant overrides its folder's, NDA-gated docs stay hidden) — a guest
+  // preview should never claim to show more than the real portal will once
+  // they're actually signed in.
+  const { visibleIds } = resolveDocumentAccess(grants, candidateDocs);
+  const documentNames = candidateDocs.filter((d) => visibleIds.includes(d.id)).map((d) => d.name).sort();
+
+  return NextResponse.json({
+    ok: true,
+    orgName: org.name as string,
+    orgDescription: (org.one_liner as string | null) ?? (profile?.description as string | null) ?? null,
+    orgLogoUrl: (profile?.photo_url as string | null) ?? null,
+    invitedEmail,
+    documentNames,
+    documentCount: documentNames.length,
+  });
+}

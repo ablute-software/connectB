@@ -351,7 +351,38 @@ function DocumentsPageInner() {
     }
     const invitedEmailToNotify = invitedPersonId ? inviteEmail.trim().toLowerCase() : null;
     resetGrantFlow();
-    if (invitedEmailToNotify) await resendInvite(invitedEmailToNotify);
+    if (invitedEmailToNotify) {
+      await resendInvite(invitedEmailToNotify);
+      // Item 1 (Lote E) — mints the guest-preview token on the just-created
+      // invite grant so it's there immediately (the acceptance criterion is
+      // "the query shows the guest_token right after inviting", not only
+      // once someone clicks Copy). Best-effort: a failure here still leaves
+      // the OTP invite above working (resendInvite already sent) — the
+      // "Copy guest link" button (below) mints/fetches on demand too, so a
+      // missed mint here just means the founder needs one click there.
+      await fetch('/api/data-room/guest-invite', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: db.org.id, invitedEmail: invitedEmailToNotify }),
+      }).catch(() => {});
+    }
+  }
+
+  // Item 1 (Lote E) — the route is idempotent (hands back the existing
+  // token if it's still live), so this doubles as "mint on demand" for any
+  // pending invite that doesn't have one cached in `db.grants` yet (e.g. the
+  // eager mint above failed, or the store hasn't refetched since).
+  const [copiedGuestLinkFor, setCopiedGuestLinkFor] = useState<string | null>(null);
+  async function copyGuestLink(invitedEmail: string) {
+    const res = await fetch('/api/data-room/guest-invite', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: db.org.id, invitedEmail }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!body.ok || !body.token) { setResendMsg(body.error ?? 'Could not create a guest link.'); return; }
+    const link = `${window.location.origin}/guest/${body.token}`;
+    await navigator.clipboard.writeText(link).catch(() => {});
+    setCopiedGuestLinkFor(invitedEmail);
+    setTimeout(() => setCopiedGuestLinkFor((cur) => (cur === invitedEmail ? null : cur)), 2000);
   }
 
   async function uploadNda(file: File, inv: { personId?: string; email?: string }) {
@@ -1048,9 +1079,14 @@ function DocumentsPageInner() {
                           )}
                           <div className="ml-auto flex gap-2">
                             {pendingInvite && (
-                              <button onClick={() => resendInvite(pendingInvite.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
-                                Resend
-                              </button>
+                              <>
+                                <button onClick={() => resendInvite(pendingInvite.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
+                                  Resend
+                                </button>
+                                <button onClick={() => copyGuestLink(pendingInvite.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
+                                  {copiedGuestLinkFor === pendingInvite.invited_email ? 'Copied!' : 'Copy guest link'}
+                                </button>
+                              </>
                             )}
                             <button onClick={() => revokeAllInGroup(group, labelText)} className="rounded border border-red-200 px-2 py-0.5 text-xs text-[#B00000] hover:bg-red-50">
                               Revoke all

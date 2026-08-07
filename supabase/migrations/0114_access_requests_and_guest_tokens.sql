@@ -1,4 +1,7 @@
--- Prompt 121 §2.5 + §2.6-invite — PROPOSED, NOT APPLIED.
+-- Prompt 121 §2.5 + §2.6-invite — APPLIED (confirmed in production,
+-- 2026-08-06; this header previously said "PROPOSED, NOT APPLIED", which
+-- was stale and wrong by the time item 1 of the 2026-08-06 mini-prompt
+-- batch was written).
 -- Two additive, independent pieces:
 --
 -- 1. access_requests — backs the "Access requested" tab on the investor's

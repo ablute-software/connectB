@@ -80,8 +80,14 @@ export async function POST(req: Request) {
   // once — that confirmation must land on every one of those rows, not just
   // the grantId the card happened to reference, or the other N-1 stay
   // pending_confirmation forever and their documents never unlock.
+  // Item 1 (Lote E) §4 — the guest token is single-use, but "use" means
+  // "the account got created and the grant confirmed", never "the page was
+  // opened". Someone previews a link, closes the tab, comes back on another
+  // device — that must still work right up until this moment, which is
+  // also the first point a founder's revoke could plausibly race a guest
+  // signup, so it's the correct place to retire the token, not the GET.
   const { error: updateErr } = await admin.from('access_grants')
-    .update({ confirmed_at, self_verified: true })
+    .update({ confirmed_at, self_verified: true, guest_token: null, guest_token_expires_at: null })
     .eq('org_id', grant.org_id).eq('invited_email', grant.invited_email).is('confirmed_at', null).is('revoked_at', null);
   if (updateErr) return NextResponse.json({ ok: false, error: updateErr.message }, { status: 500 });
 

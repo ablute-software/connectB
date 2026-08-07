@@ -516,6 +516,12 @@ export interface AccessGrant {
   invited_name?: string;
   confirmed_at?: string;
   self_verified?: boolean;
+  // Item 1 (Lote E) — migration 0114's guest-access columns, filled at
+  // invite time so an invitee can preview the data room before creating an
+  // account. Cleared (not the row itself) once the account is created and
+  // the grant confirmed — see /api/portal/confirm-identity.
+  guest_token?: string | null;
+  guest_token_expires_at?: string | null;
 }
 
 export interface DocumentView {
