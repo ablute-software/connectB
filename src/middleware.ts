@@ -20,7 +20,13 @@ const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/ap
   // Item 1 (Lote E) — same reasoning as the pairing token above: a guest
   // link's whole point is working with no session. /api/guest never returns
   // signed URLs or document content, only names/counts (see that route).
-  '/guest', '/api/guest'];
+  '/guest', '/api/guest',
+  // "Claim this profile" (2026-08-07) — reached straight from the
+  // unauthenticated /investors landing page's CTA; the page itself shows
+  // InvestorSignInForm when there's no session, same as /portal. The write
+  // routes (/api/portal/claims*) are already covered by the existing
+  // '/api/portal' prefix above.
+  '/claim'];
 
 // Where a signed-in user belongs. '/' is the public landing now, so the app
 // home is the pipeline.

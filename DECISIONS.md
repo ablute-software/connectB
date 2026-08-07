@@ -3536,12 +3536,13 @@ isn't actually delivering 40 of anything), and the matching engine
 (whenever built) will rank only Tier A/B — a Tier C row never enters any
 wave.
 
-## `is_test` (orgs, catalog_entities) — never filters authorization
+## `is_test` (orgs, catalog_entities) — never filters authorization; discovery is a COHORT, not a blanket exclusion (updated 07/08/2026)
 
 **Decision, after a same-day production regression (778f1bf → reverted in
-the following commit)**: `is_test` filters *discovery* and *aggregate
-stats*, never *authorization*. `activeGrantOrgIds()` is explicitly out of
-scope for this flag — it must always return `[...ids]` unfiltered.
+the following commit)**: `is_test` never filters *authorization*.
+`activeGrantOrgIds()` is explicitly out of scope for this flag — it must
+always return `[...ids]` unfiltered. This part is unchanged by the update
+below.
 
 **Why this needs writing down, not just fixing**: 100% of the platform's
 `access_grants` rows point at the same org (`ablute_` — the backoffice's
@@ -3556,9 +3557,55 @@ deliberate human act (a founder, or the backoffice on their behalf,
 choosing to let this specific person in); `is_test` marking an org for
 statistics purposes must never retroactively revoke that.
 
+**Update 07/08/2026 — discovery is now a COHORT filter, not unconditional
+exclusion.** The original rule above — and the item #15 fix that shipped
+in `ee34eaf` — excluded `is_test` content from discovery unconditionally,
+for every viewer. That was wrong: it made the platform untestable, since
+test accounts are the only accounts that exist today — a founder testing
+their own product could no longer see their own seeded test data. The
+corrected rule is symmetric: `(viewer.is_test) OR (NOT target.is_test)` —
+a test-account viewer sees test + real; a real-account viewer sees real
+only. `excludeTestOrgIds()` / `eligiblePipelineOrgIds()`
+(`src/lib/portal-access.ts`) now take a `viewerIsTest` flag, resolved via
+the new `resolveViewerIsTest()` from the caller's own
+`catalog_entities.is_test` (unresolved → `false`, closed by default).
+
+**`computeTrackingCountsByStage()` (aggregate cross-investor stats) is
+UNCHANGED — it still excludes `is_test` unconditionally, with no
+symmetry.** A business statistic (e.g. "N other investors are tracking
+this") must never include test/internal activity, even for a test-account
+viewer looking at their own dashboard — the number itself would misstate
+real platform activity either way.
+
+**`matchdeal_eligible_deck()` — the actual security hole, not a cosmetic
+one.** Measured 07/08/2026: this RPC never joined `orgs` or
+`catalog_entities` at all — no `is_test` awareness in either direction.
+Every one of the 6 currently-published startup MatchDeal profiles is
+`is_test=true` (no real startup has published yet); checked against the
+two real, `is_test=false` investor profiles with representative_name/
+website still null (the ones the acceptance criteria points at) that
+today's "0 test cards shown" is incidental — a pre-existing country-casing
+mismatch (`geographies: ['portugal']` vs `orgs.country: 'Portugal'`, the
+same taxonomy gap flagged unfixed under item 3.3 below) happens to zero
+the geo filter for every candidate, not any `is_test` protection, since
+none existed. Migration `0144` (proposed, not applied) adds
+`matchdeal_profile_is_test(profile_id)` — Option 1 from the spec, a helper
+function resolving through the polymorphic `membership_id`, not a
+denormalized column + sync triggers; today's scale (single-digit orgs)
+doesn't justify the extra moving parts — and applies the same symmetric
+predicate at both places inside `matchdeal_eligible_deck()` that test a
+profile's eligibility: the `v_pool_count` calculation `deck_replay_mode`
+uses to detect a full cycle, and the main return query. This is the one
+explicitly authorized exception to the otherwise-permanent prohibition on
+touching the matching engine (see
+`0136_bind_matchdeal_rpcs_to_caller.sql`'s comment) — nothing else in the
+function (ordering, quotas, cooldowns, replay logic) was touched.
+
 `eligiblePipelineOrgIds()` (discovery — a startup's published MatchDeal
-profile) and `computeTrackingCountsByStage()` (aggregate cross-investor
-stats) are the correct, and only correct, places for this filter.
+profile), `matchdeal_eligible_deck()` (the swipe deck, once 0144 lands),
+and `computeTrackingCountsByStage()` (aggregate cross-investor stats,
+unconditional, no symmetry) are the correct, and only correct, places for
+this filter.
 
 ## Transactional email sender (item 12) — `reply_to`, not `from`
 
@@ -3781,3 +3828,117 @@ existing capability probe through to real data), not a one-line fix
 alongside `guest_token`, and item 1's own critério de aceitação doesn't
 ask for it. Flagged rather than silently expanded into this Lote's scope,
 per the mini-prompt's own instruction not to do that.
+
+**Update 07/08/2026 — built, on Nuno's explicit confirmation to bring it
+into scope.** Both stalled halves now exist. Investor side:
+`GET /api/portal/access-granted` queries `access_requests` for the caller
+(`person_id` OR `requested_email`, matching the same OR-shape every other
+portal route resolving "which rows are mine" already uses) and returns
+`pending`/`declined` rows in the `requested` array; `AccessGrantedPanel`'s
+"Access requested" tab renders them instead of a hardcoded empty message.
+Granted rows aren't shown here — they've already become real
+`access_grants` rows and surface on the Granted tab; showing the same
+relationship in two tabs at once would be confusing, not thorough.
+
+Founder side: new `GET /api/data-room/access-requests?orgId=` (org-member
+auth, service-role for the name-resolution joins across `people`/
+`folders`/`documents` the same way `/api/portal/access-granted` already
+does) and `POST /api/data-room/access-requests/[id]/action` (`grant` |
+`decline`). Auth reads org membership off the **request's own** `org_id`,
+not a client-supplied one, so a caller can't point the action at an org
+they don't belong to. `decline` just flips status; `grant` inserts real
+`access_grants` rows — one per `folder_id`/`document_id` on the request,
+same shape `documents/page.tsx`'s `submitGrantTree` already writes for a
+manual grant — with **no expiry guessed**: a re-grant lands open-ended,
+same as any grant does by default, and the founder can add an expiry
+afterward through the existing per-grant UI exactly like any other grant.
+A request with `person_id` null (no known person yet) grants onto
+`invited_email` instead, landing `pending_confirmation` — the exact same
+shape an external invite already produces, not a special case. Both
+actions best-effort-notify the requester by email (reply_to per Lote A),
+never blocking or reverting the decision that already committed. UI: a
+"Pending requests" block in the `documents/page.tsx` Access grants card,
+placed above the existing grants list for the same "reachable with zero
+scroll" reason P120 Block B.1 already put Grant access itself first.
+
+## "Claim this profile" via email-domain verification (2026-08-07, Nuno's decision B)
+
+**Decision**: domain comparison is by registrable domain (eTLD+1) with
+exact equality, using a real public-suffix-list library (`psl`) — never
+`endsWith`/`includes` on raw hostnames. This is the entire security
+property the prompt asked to be proven, not just implemented: a naive
+`emailDomain.endsWith(entityDomain)` check (no dot prefix) would let
+`x@evilnorthbridge.com` pass as a match for `northbridge.com` —
+confirmed live in this repo's own test suite
+(`"xnorthbridge.com".endsWith("northbridge.com")` is `true` in plain JS).
+`src/lib/investor-entity-claims.ts`'s `registrableDomain()` resolves both
+sides to their eTLD+1 via `psl.get()` first, then compares with plain
+`===` — a subdomain (`mail.entity.com`) still matches because its eTLD+1
+IS `entity.com`, not because of any prefix/suffix string check.
+
+Deliberately a NEW, separate function from `investor-domain-match.ts`'s
+existing `domainMatchesEntity()` (used by the unrelated
+`investor_access_requests` lead-form flow), not a shared rewrite — that
+function's own dot-prefixed `endsWith` check (`.endsWith('.' + entityDomain)`)
+is a different, narrower call site this item wasn't asked to touch, and
+IS already safe from the exact `evilnorthbridge` attack (the leading dot
+requirement blocks it) — it just doesn't use a real public-suffix list,
+so it can't distinguish `co.uk`-style multi-label suffixes correctly.
+Left alone; not this item's scope to fix or unify.
+
+**Storage**: a new `investor_entity_claims` table (migration 0145,
+PROPOSED, NOT APPLIED), not an extension of the existing
+`investor_access_requests` table — a profile claim and a platform-access
+request are different concepts (which catalog_entities row someone
+manages vs. whether they may sign in at all) that happen to share an
+approve/reject queue *shape*, not underlying data. `matchdeal_investor_members.role`
+was added too: the prompt's own §0 claimed this column already exists;
+grepped every migration in this repo and confirmed it does not — added
+here as a small additive column, since approving a claim needs somewhere
+to record it (same place `domain_verified` already lives, per-seat).
+
+**Snapshot, not live recomputation**: `claimant_email_domain`/
+`entity_domain_at_claim`/`domain_match` are computed once, at claim time,
+and stored — deliberately NOT recomputed when an admin approves later
+(unlike `investor_access_requests`' own approve route, which recomputes
+for audit provenance). Reasoning: a claim's evidence must reflect what it
+was actually decided on; if the entity's `website` changes between claim
+and review, recomputing would silently rewrite the historical record of
+what the claimant's email was checked against.
+
+**Dispute handling**: a second claim on an already-approved entity is
+never auto-rejected — it's created as a normal `pending` row with
+`evidence.isDispute = true`, and the current owner(s) get a best-effort
+email right away (independent of whatever the backoffice later decides).
+No new DB column for this; it's derived at claim-creation time from
+whether `investor_entity_claims` already has an `approved` row for that
+`catalog_entity_id`.
+
+**Not built here, flagged**: the `/claim` page's entity search
+(`GET /api/portal/claims/search-entities`) requires a signed-in session
+before it will search at all — the full ~500-row catalog is not exposed
+as an anonymous public search surface, even though the underlying data
+(`catalog_entities.name`) isn't itself sensitive. This matches the
+landing page's own existing copy ("Claiming requires a verified work
+email") but is a product choice about search UX, not a security
+requirement re-derived from the prompt — worth revisiting once real
+claim volume exists and the friction of "sign in before you can even
+search" is measured against real drop-off.
+
+**Verification note**: migration 0145 has NOT been applied anywhere
+(this session never applies its own migrations) — `investor_entity_claims`
+does not exist in the shared Supabase project yet, so nothing that writes
+to it could be live-tested end to end this session. What IS fully proven:
+the domain-matching logic itself (`investor-entity-claims.test.ts`, 16
+tests, including the exact `evilnorthbridge` scenario the prompt names as
+decisive), `tsc`/`vitest`/`npm run build` all clean, and every new
+surface degrading gracefully (not crashing) while the capability probe
+reports the table unavailable — confirmed live for the backoffice queue
+("Profile claims activates once migration 0145 is applied") and for
+`POST /api/portal/claims` (`{ok:false, error:"Claiming a profile isn't
+available yet."}`, no 500). `scripts/_verify_claim_domain_20260807.mjs`
+is a complete, ready-to-run live-verification script (creates a test
+catalog entity + 5 test users covering every acceptance criterion —
+match, freemail, the endsWith attack, subdomain, dispute — asserts, then
+cleans up after itself) for whoever applies 0145 next to run immediately
+after.

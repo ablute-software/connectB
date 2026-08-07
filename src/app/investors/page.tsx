@@ -196,7 +196,11 @@ export default async function InvestorLandingPage() {
               <span className={s.claimBadge}>Not yet managed by the organisation</span>
               <div className={s.claimOrg}>Northbridge Capital</div>
               <div className={s.claimMeta}>Seed &amp; Series A · Fintech, Climate · Berlin</div>
-              <Link className={s.claimBtn} href={SIGNUP_HREF}>Claim this profile</Link>
+              {/* "Claim this profile" (2026-08-07) — the one button on this
+                  page that means literally that; the other three
+                  "Claim your investor profile" CTAs elsewhere are the
+                  broader request-access lead form and are unchanged. */}
+              <Link className={s.claimBtn} href="/claim">Claim this profile</Link>
             </div>
           </div>
         </div>

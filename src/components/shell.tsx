@@ -134,7 +134,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // instead of the page's own CTA button, nothing about the flow worked.
   // (/invite/[token] has this same gap — pre-existing, not this item's
   // scope, flagged separately rather than folded in here silently.)
-  if (path === '/' || path === '/investors' || path === '/pair' || isStandaloneAuthPage || path?.startsWith('/guest') || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
+  // "Claim this profile" (2026-08-07) — reached anonymously from
+  // /investors; same reasoning as /guest just above.
+  if (path === '/' || path === '/investors' || path === '/pair' || isStandaloneAuthPage || path?.startsWith('/guest') || path?.startsWith('/claim') || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
 
   // Two item lists from the same `visibleNav`, not one: the sidebar and the
   // mobile bottom nav have always used slightly different active-match

@@ -466,8 +466,129 @@ function CatalogStatsTab() {
   );
 }
 
+// "Claim this profile" (2026-08-07) — evidence for domain_match/dispute/
+// role-mailbox/freemail is a SNAPSHOT taken at claim time (migration
+// 0145's own comment), read straight off the row — never recomputed here,
+// so what the admin sees is exactly what the claimant's decision was based
+// on, even if the entity's website changes later.
+interface ClaimEvidence {
+  claimantDomain: string | null; entityDomain: string | null;
+  entityDomainIsFreemail: boolean; roleMailbox: boolean;
+  isDispute: boolean; disputedOwnerEmails: string[]; requestedRole: string | null;
+}
+interface EntityClaimRow {
+  id: string; catalog_entity_id: string; claimant_email: string;
+  claimant_email_domain: string | null; entity_domain_at_claim: string | null;
+  domain_match: boolean; status: 'pending' | 'approved' | 'rejected';
+  requested_role: string | null; evidence: ClaimEvidence | null;
+  resolved_at: string | null; notified_at: string | null; notify_failed: boolean; created_at: string;
+  entity: { id: string; name: string; website: string | null; verification_status: string } | null;
+}
+
+function ClaimsQueue() {
+  const [claims, setClaims] = useState<EntityClaimRow[] | null>(null);
+  const [available, setAvailable] = useState(true);
+  const [err, setErr] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  function refresh() {
+    fetch('/api/backoffice/investor-entity-claims').then((r) => r.json()).then((body) => {
+      if (body.ok === false) { setErr(body.error); return; }
+      setClaims(body.claims);
+      setAvailable(body.available !== false);
+    }).catch(() => setErr('Failed to load.'));
+  }
+  useEffect(refresh, []);
+
+  async function act(id: string, action: 'approve' | 'reject') {
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/backoffice/investor-entity-claims/${id}/${action}`, { method: 'POST' });
+      const body = await res.json();
+      if (!body.ok) { setErr(body.error); return; }
+      refresh();
+    } finally { setBusyId(null); }
+  }
+
+  if (err) return <Card title="Profile claims"><p className="text-sm text-[#B00000]">{err}</p></Card>;
+  if (!claims) return <Card title="Profile claims"><p className="text-sm text-gray-400">Loading…</p></Card>;
+  if (!available) return <Card title="Profile claims"><p className="text-[11px] text-gray-400">Profile claims activates once migration 0145 is applied.</p></Card>;
+
+  const pending = claims.filter((c) => c.status === 'pending');
+  const resolved = claims.filter((c) => c.status !== 'pending');
+
+  return (
+    <Card title={`Profile claims (${pending.length} pending)`}>
+      <p className="mb-3 text-xs text-gray-500">
+        Domain match is evidence, never an auto-decision — every claim needs an explicit approve or reject here,
+        even when the domain matches exactly.
+      </p>
+      {pending.length === 0 ? <p className="text-sm text-gray-400">No pending claims.</p> : (
+        <ul className="mb-4 space-y-2">
+          {pending.map((c) => (
+            <li key={c.id} className={`rounded-xl border p-3 text-sm ${c.domain_match ? 'border-green-200 bg-green-50/40' : 'border-amber-200 bg-amber-50/50'}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{c.entity?.name ?? 'Unknown profile'}</span>
+                <span className="text-gray-500">· {c.claimant_email}</span>
+                <span className="text-xs text-gray-400">{c.created_at.slice(0, 10)}</span>
+                <div className="ml-auto flex gap-2">
+                  <button disabled={busyId === c.id} onClick={() => act(c.id, 'approve')}
+                    className="rounded-lg bg-green-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-green-800 disabled:opacity-40">
+                    Approve
+                  </button>
+                  <button disabled={busyId === c.id} onClick={() => act(c.id, 'reject')}
+                    className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                    Reject
+                  </button>
+                </div>
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                {c.domain_match ? (
+                  <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-semibold text-green-700">
+                    ✅ {c.claimant_email_domain} matches {c.entity_domain_at_claim}
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                    ⚠️ {c.claimant_email_domain ?? 'no domain'} does not match {c.entity_domain_at_claim ?? "this profile's domain"} — manual verification required
+                  </span>
+                )}
+                {c.evidence?.roleMailbox && (
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600" title="Generic role inbox (info@/contact@/office@…) — confirm this is actually the claimant, not just anyone with access to a shared inbox.">
+                    role mailbox
+                  </span>
+                )}
+                {c.evidence?.isDispute && (
+                  <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-[#B00000]" title={`Already claimed by: ${c.evidence.disputedOwnerEmails.join(', ')}`}>
+                    ⚠ dispute — already claimed
+                  </span>
+                )}
+                {c.requested_role && <span className="text-[11px] text-gray-400">requested role: {c.requested_role}</span>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {resolved.length > 0 && (
+        <details>
+          <summary className="cursor-pointer text-xs text-gray-400">{resolved.length} resolved</summary>
+          <ul className="mt-2 space-y-1">
+            {resolved.map((c) => (
+              <li key={c.id} className="rounded-lg py-1 text-xs text-gray-500">
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${c.status === 'approved' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{c.status}</span>
+                {' '}{c.entity?.name ?? 'Unknown profile'} · {c.claimant_email}
+                {c.resolved_at && <span className="text-gray-400"> · {c.resolved_at.slice(0, 10)}</span>}
+                {c.notify_failed && <span className="ml-1 text-amber-700">⚠️ notification failed</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </Card>
+  );
+}
+
 export default function InvestorsPage() {
-  const [tab, setTab] = useState<'accounts' | 'catalog' | 'history'>('accounts');
+  const [tab, setTab] = useState<'accounts' | 'claims' | 'catalog' | 'history'>('accounts');
   const [accounts, setAccounts] = useState<InvestorAccountRow[] | null>(null);
 
   useEffect(() => {
@@ -479,9 +600,10 @@ export default function InvestorsPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-bold">Investors</h1>
-      <Tabs active={tab} onChange={(v) => setTab(v as 'accounts' | 'catalog' | 'history')}
-        items={[{ key: 'accounts', label: 'Accounts' }, { key: 'catalog', label: 'Catalog stats' }, { key: 'history', label: 'History' }]} />
+      <Tabs active={tab} onChange={(v) => setTab(v as 'accounts' | 'claims' | 'catalog' | 'history')}
+        items={[{ key: 'accounts', label: 'Accounts' }, { key: 'claims', label: 'Profile claims' }, { key: 'catalog', label: 'Catalog stats' }, { key: 'history', label: 'History' }]} />
       {tab === 'accounts' && <InvestorAccountsTable />}
+      {tab === 'claims' && <ClaimsQueue />}
       {tab === 'catalog' && <CatalogStatsTab />}
       {tab === 'history' && <ModerationHistoryCard targetType="investor" nameById={nameById} />}
     </div>
