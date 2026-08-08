@@ -22,6 +22,22 @@
 // nesse caso e uma chamada por pagina, nunca concatenada. A verificacao de
 // subcadeia e sempre contra o texto DAQUELA pagina especifica.
 //
+// D1 estendido (incidente Faber, 2026-08-08): D1 so cobria bio_raw. O
+// worker pedia linkedin_url e individual_profile_url ao modelo como texto
+// livre, mas htmlToText() descarta todos os href antes do texto chegar ao
+// prompt — o modelo nunca via um URL real e pattern-completava um slug
+// plausivel a partir do nome (13 de 16 URLs errados, 3 certos por acaso).
+// Regra geral daqui em diante: nenhum campo cujo valor nao exista
+// literalmente no texto entregue ao modelo pode ser pedido como string
+// livre — ou entra no texto (candidato extraido por codigo, o modelo so
+// escolhe), ou e extraido por codigo directamente, ou nao se pede.
+// extractLinkedinCandidates/extractInternalLinkCandidates fazem essa
+// extraccao por DOM antes da chamada; full_name/title/submission_channel
+// sao validados por presenca literal no texto (isLiterallyOnPage) em vez
+// de assumidos. thesis/sectors ficam de fora — sao sintese por natureza,
+// nao extraccao, o mesmo risco residual do hook da Camada 2, nao fechado
+// por esta correccao.
+//
 // Camada 2: hook so se escreve se houver pelo menos uma fonte (URL de
 // pesquisa real) a suporta-lo em catalog_entity_enrichment_sources — um hook
 // inventado queima o contacto de forma permanente, pior que hook nenhum.
@@ -272,6 +288,99 @@ function looksLikeJsOnlyShell(html: string, extractedTextLength: number): boolea
 }
 
 // ============================================================
+// Regra geral (confirmada com o Nuno apos o incidente do linkedin_url de
+// Faber): qualquer campo cujo valor nao exista literalmente no texto
+// entregue ao modelo NAO pode ser pedido ao modelo como string livre. Ou
+// entra no texto (como candidato de uma lista fechada), ou e extraido por
+// codigo, ou nao se pede. htmlToText() descarta todos os href — por isso
+// linkedin_url e individual_profile_url nunca estiveram, de facto, no texto
+// que o modelo via, e o modelo preenchia-os por padrao a partir do nome
+// (ex.: "brunoferreira" em vez do real "brunosommerferreira"). Estas
+// funcoes extraem os candidatos reais por DOM, ANTES de qualquer chamada ao
+// modelo; o modelo so pode escolher um da lista (passada no prompt), e o
+// codigo valida a escolha contra essa mesma lista antes de gravar —
+// gravando sempre o candidato do codigo, nunca a string do modelo, mesmo
+// quando coincidem (mesmo principio D1(c) do bio_raw).
+// ============================================================
+
+// LinkedIn e sempre um dominio absoluto, por isso procura-se o padrao
+// directamente na string do href (nao resolvida via new URL) — isto
+// reconhece mesmo um href malformado/sem protocolo, como o encontrado em
+// faber.vc/team/ ("www.linkedin.com/in/lara-branco-1b84b82b0", sem
+// "https://"), que new URL(href, baseUrl) resolveria incorrectamente para
+// dentro do proprio dominio do fundo em vez de o descartar ou corrigir.
+function extractLinkedinCandidates(html: string): string[] {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  if (!doc) return [];
+  const out = new Set<string>();
+  const pattern = /linkedin\.com\/in\/([a-zA-Z0-9\-_%]+)/i;
+  for (const a of [...doc.querySelectorAll('a')] as any[]) {
+    const href = a.getAttribute('href');
+    if (!href) continue;
+    const m = href.match(pattern);
+    if (m) out.add(`https://www.linkedin.com/in/${m[1].replace(/\/+$/, '')}`);
+  }
+  return [...out];
+}
+
+// Paginas individuais de perfil sao internas ao proprio site (nunca um
+// dominio fixo como o LinkedIn) — por isso, ao contrario do LinkedIn, tem
+// de se resolver o href contra baseUrl e ficar so com o mesmo origin.
+function extractInternalLinkCandidates(html: string, baseUrl: string): string[] {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  if (!doc) return [];
+  let base: URL;
+  try {
+    base = new URL(baseUrl);
+  } catch {
+    return [];
+  }
+  const out = new Set<string>();
+  for (const a of [...doc.querySelectorAll('a')] as any[]) {
+    const href = a.getAttribute('href');
+    if (!href) continue;
+    if (/^(mailto|tel|javascript):/i.test(href)) continue;
+    if (/linkedin\.com/i.test(href)) continue;
+    try {
+      const resolved = new URL(href, baseUrl);
+      if (resolved.origin !== base.origin) continue;
+      out.add(resolved.toString());
+    } catch {
+      // href invalido — ignora
+    }
+  }
+  return [...out];
+}
+
+function formatCandidateList(candidates: string[]): string {
+  return candidates.length ? candidates.map((c) => `- ${c}`).join('\n') : '(nenhum encontrado nesta pagina)';
+}
+
+// Devolve sempre o candidato do CODIGO, nunca a string do modelo — mesmo
+// quando coincidem, para que o valor gravado seja sempre, por construcao,
+// um href real extraido da pagina.
+function pickMatchingLinkedinCandidate(modelValue: string | null, candidates: string[]): string | null {
+  if (!modelValue) return null;
+  const target = normalizeLinkedinForLookup(modelValue);
+  return candidates.find((c) => normalizeLinkedinForLookup(c) === target) ?? null;
+}
+
+function pickMatchingUrlCandidate(modelValue: string | null, candidates: string[]): string | null {
+  if (!modelValue) return null;
+  const norm = (u: string) => u.replace(/\/+$/, '');
+  const target = norm(modelValue);
+  return candidates.find((c) => norm(c) === target) ?? null;
+}
+
+// Para campos de texto livre (nome, cargo, canal de submissao) que devem
+// ser literais mas nao tem um dominio fixo para gerar uma lista fechada de
+// candidatos — verifica presenca no texto normalizado da pagina.
+function isLiterallyOnPage(value: string | null | undefined, pageTextNormalized: string): boolean {
+  if (!value) return false;
+  return pageTextNormalized.includes(normalizeForMatch(value));
+}
+
+// ============================================================
 // Anthropic Messages API — fetch directo (sem SDK, edge function Deno).
 // claude-haiku-4-5 e claude-sonnet-5 sao os IDs correntes (nao datados).
 // ============================================================
@@ -317,7 +426,7 @@ function extractToolInput(response: any, toolName: string): any | null {
 const EXTRACT_TEAM_TOOL = {
   name: 'extract_team',
   description:
-    'Regista as pessoas e factos do fundo encontrados NESTA pagina especifica. Para cada pessoa, bio_start_anchor e bio_end_anchor tem de ser copiados literalmente do texto da pagina (6-10 palavras cada) — nunca parafraseados.',
+    'Regista as pessoas e factos do fundo encontrados NESTA pagina especifica. bio_start_anchor/bio_end_anchor tem de ser copiados literalmente do texto da pagina (6-10 palavras cada) — nunca parafraseados. linkedin_url e individual_profile_url tem de ser copiados EXACTAMENTE (byte a byte) de uma das listas de candidatos fornecidas no texto — nunca inventados, nunca derivados do nome da pessoa. Se nenhum candidato corresponder a esta pessoa, usa null.',
   input_schema: {
     type: 'object',
     properties: {
@@ -326,7 +435,7 @@ const EXTRACT_TEAM_TOOL = {
         properties: {
           thesis: { type: ['string', 'null'] },
           sectors: { type: 'array', items: { type: 'string' } },
-          submission_channel: { type: ['string', 'null'], description: 'email ou URL de submissao de pitches, se visivel nesta pagina' },
+          submission_channel: { type: ['string', 'null'], description: 'email ou URL de submissao de pitches — so se aparecer literalmente no texto da pagina' },
           submission_channel_type: { type: ['string', 'null'] },
         },
       },
@@ -337,8 +446,8 @@ const EXTRACT_TEAM_TOOL = {
           properties: {
             full_name: { type: 'string' },
             title: { type: ['string', 'null'] },
-            linkedin_url: { type: ['string', 'null'] },
-            individual_profile_url: { type: ['string', 'null'], description: 'link para a pagina individual desta pessoa nesta mesma pagina, se existir' },
+            linkedin_url: { type: ['string', 'null'], description: 'copiado EXACTAMENTE de uma das linhas em "Links LinkedIn encontrados nesta pagina" abaixo, ou null' },
+            individual_profile_url: { type: ['string', 'null'], description: 'copiado EXACTAMENTE de uma das linhas em "Links de perfil individual encontrados nesta pagina" abaixo, ou null' },
             bio_start_anchor: { type: ['string', 'null'], description: 'primeiras 6-10 palavras da bio desta pessoa, copiadas exactamente do texto da pagina' },
             bio_end_anchor: { type: ['string', 'null'], description: 'ultimas 6-10 palavras da bio desta pessoa, copiadas exactamente do texto da pagina' },
           },
@@ -353,7 +462,7 @@ const EXTRACT_TEAM_TOOL = {
 const EXTRACT_PERSON_BIO_TOOL = {
   name: 'extract_person_bio',
   description:
-    'Regista a biografia desta pessoa a partir da sua pagina individual. bio_start_anchor e bio_end_anchor tem de ser copiados literalmente do texto da pagina.',
+    'Regista a biografia desta pessoa a partir da sua pagina individual. bio_start_anchor/bio_end_anchor tem de ser copiados literalmente do texto da pagina. linkedin_url tem de ser copiado EXACTAMENTE de uma das linhas em "Links LinkedIn encontrados nesta pagina" — nunca inventado.',
   input_schema: {
     type: 'object',
     properties: {
@@ -457,11 +566,23 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
     };
   }
 
+  // D1 estendido ao linkedin_url/individual_profile_url (incidente Faber,
+  // confirmado com o Nuno): os candidatos reais extraem-se por codigo,
+  // ANTES da chamada, e entram no proprio texto do prompt — o modelo so
+  // pode copiar um destes, nunca inventar a partir do nome.
+  const linkedinCandidates = extractLinkedinCandidates(teamPage.html);
+  const profileCandidates = extractInternalLinkCandidates(teamPage.html, teamUrl);
+
   const extraction = await callClaude({
     model: LAYER1_MODEL,
     system:
-      'Extrai pessoas e factos do fundo a partir do texto de uma pagina de equipa de venture capital. As ancoras de biografia (inicio/fim) tem de ser copiadas EXACTAMENTE do texto dado — nunca parafraseadas, nunca resumidas. Se uma pessoa nao tiver biografia visivel, deixa as ancoras a null.',
-    messages: [{ role: 'user', content: `URL: ${teamUrl}\n\nTexto da pagina:\n${teamText}` }],
+      'Extrai pessoas e factos do fundo a partir do texto de uma pagina de equipa de venture capital. As ancoras de biografia (inicio/fim) tem de ser copiadas EXACTAMENTE do texto dado — nunca parafraseadas, nunca resumidas. Se uma pessoa nao tiver biografia visivel, deixa as ancoras a null. linkedin_url e individual_profile_url tem de vir EXACTAMENTE das listas de candidatos fornecidas no texto — nunca inventados a partir do nome da pessoa.',
+    messages: [
+      {
+        role: 'user',
+        content: `URL: ${teamUrl}\n\nTexto da pagina:\n${teamText}\n\nLinks LinkedIn encontrados nesta pagina (usa um destes por pessoa, ou null se nenhum corresponder):\n${formatCandidateList(linkedinCandidates)}\n\nLinks de perfil individual encontrados nesta pagina (usa um destes, ou null):\n${formatCandidateList(profileCandidates)}`,
+      },
+    ],
     tools: [EXTRACT_TEAM_TOOL],
     toolChoice: { type: 'tool', name: 'extract_team' },
   });
@@ -470,16 +591,22 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
   const parsed = extractToolInput(extraction, 'extract_team');
   if (!parsed) throw new Error('extraction_validation_failed: no tool_use block returned');
 
-  // catalog_entities: thesis/sectors/submission_channel (factos neutros de entidade)
+  // catalog_entities: thesis/sectors sao sintese (nao literais por
+  // natureza — risco residual diferente do das URLs, nao coberto por esta
+  // correccao, ver nota no relatorio). submission_channel TEM de ser
+  // literal: se nao aparecer na pagina, descarta-se em vez de gravar sem prova.
   const fundPatch: Record<string, unknown> = {};
   if (parsed.fund?.thesis) fundPatch.thesis = parsed.fund.thesis;
   if (parsed.fund?.sectors?.length) fundPatch.sectors = parsed.fund.sectors;
-  if (parsed.fund?.submission_channel) fundPatch.submission_channel = parsed.fund.submission_channel;
-  if (parsed.fund?.submission_channel_type) fundPatch.submission_channel_type = parsed.fund.submission_channel_type;
+  const submissionChannel = isLiterallyOnPage(parsed.fund?.submission_channel, teamText) ? parsed.fund.submission_channel : null;
+  if (submissionChannel) {
+    fundPatch.submission_channel = submissionChannel;
+    if (parsed.fund?.submission_channel_type) fundPatch.submission_channel_type = parsed.fund.submission_channel_type;
+  }
   if (Object.keys(fundPatch).length) {
     await supabase.from('catalog_entities').update(fundPatch).eq('id', entity.id);
   }
-  if (parsed.fund?.submission_channel) {
+  if (submissionChannel) {
     await supabase.from('catalog_entity_enrichment_sources').insert({
       entity_id: entity.id,
       source_url: teamUrl,
@@ -495,31 +622,40 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
   const affiliationsCreated: string[] = [];
 
   for (const p of parsed.people ?? []) {
-    if (!p.full_name) continue;
+    // Nome e a ancora de identidade da pessoa — se nao aparecer literalmente
+    // na pagina, nao ha base para gravar nada sobre ela.
+    if (!isLiterallyOnPage(p.full_name, teamText)) continue;
+    // Cargo fica por confirmar sem invalidar a pessoa inteira — so se
+    // esconde o campo, nao se descarta o registo.
+    const title = isLiterallyOnPage(p.title, teamText) ? p.title : null;
+    // Grava sempre o candidato do codigo, nunca a string do modelo, mesmo
+    // quando coincidem (mesmo principio D1(c) do bio_raw).
+    let linkedinUrl = pickMatchingLinkedinCandidate(p.linkedin_url, linkedinCandidates);
+    const individualProfileUrl = pickMatchingUrlCandidate(p.individual_profile_url, profileCandidates);
 
     let bioRaw = sliceByAnchors(teamText, p.bio_start_anchor, p.bio_end_anchor);
     let bioSourceUrl = teamUrl;
 
     // D1-b: escala so quando a bio da pagina de equipa fica curta, e so para
     // ESSA pessoa, e so uma chamada, e so contra o texto DAQUELA pagina.
-    if ((!bioRaw || bioRaw.length < BIO_LENGTH_THRESHOLD) && p.individual_profile_url && peopleProcessed < MAX_PROFILE_PAGES_PER_ENTITY) {
-      let profileUrl: string | null = null;
-      try {
-        profileUrl = new URL(p.individual_profile_url, teamUrl).toString();
-      } catch {
-        profileUrl = null;
-      }
-      if (profileUrl && (await isAllowedByRobots(profileUrl))) {
-        const profilePage = await fetchPage(profileUrl);
+    if ((!bioRaw || bioRaw.length < BIO_LENGTH_THRESHOLD) && individualProfileUrl && peopleProcessed < MAX_PROFILE_PAGES_PER_ENTITY) {
+      if (await isAllowedByRobots(individualProfileUrl)) {
+        const profilePage = await fetchPage(individualProfileUrl);
         if (profilePage.ok) {
           telemetry.webCalls += 1;
           const profileText = htmlToText(profilePage.html);
           if (profileText.length > 50 && !looksLikeJsOnlyShell(profilePage.html, profileText.length)) {
+            const profileLinkedinCandidates = extractLinkedinCandidates(profilePage.html);
             const profileExtraction = await callClaude({
               model: LAYER1_MODEL,
               system:
-                'Extrai a biografia desta pessoa a partir do texto da sua pagina individual. As ancoras (inicio/fim) tem de ser copiadas EXACTAMENTE do texto dado.',
-              messages: [{ role: 'user', content: `Pessoa: ${p.full_name}\nURL: ${profileUrl}\n\nTexto da pagina:\n${profileText}` }],
+                'Extrai a biografia desta pessoa a partir do texto da sua pagina individual. As ancoras (inicio/fim) tem de ser copiadas EXACTAMENTE do texto dado. linkedin_url tem de vir EXACTAMENTE da lista de candidatos fornecida — nunca inventado.',
+              messages: [
+                {
+                  role: 'user',
+                  content: `Pessoa: ${p.full_name}\nURL: ${individualProfileUrl}\n\nTexto da pagina:\n${profileText}\n\nLinks LinkedIn encontrados nesta pagina:\n${formatCandidateList(profileLinkedinCandidates)}`,
+                },
+              ],
               tools: [EXTRACT_PERSON_BIO_TOOL],
               toolChoice: { type: 'tool', name: 'extract_person_bio' },
             });
@@ -528,8 +664,10 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
             const profileBio = profileParsed ? sliceByAnchors(profileText, profileParsed.bio_start_anchor, profileParsed.bio_end_anchor) : null;
             if (profileBio && (!bioRaw || profileBio.length > bioRaw.length)) {
               bioRaw = profileBio;
-              bioSourceUrl = profileUrl;
-              if (!p.linkedin_url && profileParsed?.linkedin_url) p.linkedin_url = profileParsed.linkedin_url;
+              bioSourceUrl = individualProfileUrl;
+            }
+            if (!linkedinUrl) {
+              linkedinUrl = pickMatchingLinkedinCandidate(profileParsed?.linkedin_url ?? null, profileLinkedinCandidates);
             }
           }
         }
@@ -539,8 +677,8 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
     // upsert catalog_people — chave: linkedin_url normalizado; sem
     // linkedin, chave secundaria nome+entidade (via afiliacao existente).
     let personId: string | null = null;
-    if (p.linkedin_url) {
-      const normalized = normalizeLinkedinForLookup(p.linkedin_url);
+    if (linkedinUrl) {
+      const normalized = normalizeLinkedinForLookup(linkedinUrl);
       const { data: existing } = await supabase.from('catalog_people').select('id').eq('linkedin_url_normalized', normalized).maybeSingle();
       personId = existing?.id ?? null;
     }
@@ -555,7 +693,7 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
     }
 
     const personPatch: Record<string, unknown> = { full_name: p.full_name, entity_id: entity.id, updated_at: new Date().toISOString() };
-    if (p.linkedin_url) personPatch.linkedin_url = p.linkedin_url;
+    if (linkedinUrl) personPatch.linkedin_url = linkedinUrl;
     if (bioRaw) personPatch.enrichment_status = 'enriched';
 
     if (personId) {
@@ -569,7 +707,7 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
     await supabase
       .from('catalog_person_affiliations')
       .upsert(
-        { person_id: personId, entity_id: entity.id, title: p.title ?? null, kind: 'other', is_primary: true, current: true },
+        { person_id: personId, entity_id: entity.id, title: title ?? null, kind: 'other', is_primary: true, current: true },
         { onConflict: 'person_id,entity_id,kind' },
       );
     affiliationsCreated.push(personId!); // sempre nao-nulo aqui: ramo if era truthy, ramo else fez `continue` antes se falhou
