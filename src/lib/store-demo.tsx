@@ -699,7 +699,13 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     // Unlock a pack: verified catalog entries not yet in the pipeline are copied
     // into the org as entities (wave 3, not_contacted). Deliveries are recorded so
     // the back-office never distributes the same investor to the same org twice.
-    unlockPack(packId) {
+    // Prompt 139 D3 — the real matching engine (catalog_top_matches) is a
+    // Postgres RPC; demo mode has no server, so it deliberately keeps this
+    // exact pack-based logic rather than reimplementing scoring client-side
+    // (CLAUDE.md's two-mode rule is "keep working," not "match production").
+    // Wrapped in Promise.resolve() only to satisfy the now-async StoreApi
+    // contract — the body itself stays synchronous.
+    async unlockPack(packId) {
       let delivered = 0;
       setDb((prev) => {
         const pack = prev.packs.find((p) => p.id === packId);

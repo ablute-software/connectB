@@ -139,10 +139,10 @@ function EmptyCompanyBlock({ variant }: { variant: 'screen' | 'banner' }) {
   const starterPack = db.packs.find((p) => p.name === STARTER_PACK_NAME);
   const eligible = pct >= SELF_SERVICE_COMPLETENESS_THRESHOLD && !!starterPack;
 
-  function unlock() {
+  async function unlock() {
     if (!starterPack) return;
     setUnlocking(true);
-    const added = unlockPack(starterPack.id);
+    const added = await unlockPack(starterPack.id);
     setUnlocking(false);
     setResult(added > 0 ? 'added' : 'none');
   }

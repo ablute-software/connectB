@@ -225,6 +225,16 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     }).catch(() => { /* never blocks the confirm */ });
   }
 
+  // Prompt 139 D3 — maps catalog_top_matches' raw 0-100 score to the
+  // fit_score bucket unlockPack writes onto the new entity row. Thresholds
+  // per the prompt: high >=75, medium_high >=55, medium >=35, else low.
+  function fitBucketFromScore(score: number): FitScore {
+    if (score >= 75) return 'high';
+    if (score >= 55) return 'medium_high';
+    if (score >= 35) return 'medium';
+    return 'low';
+  }
+
   // Prompt 138 D2 — queue-only, never invokes the worker. Fire-and-forget:
   // enrichment_jobs is admin-only under RLS, so this has to go through a
   // service-role route rather than a direct insert from here.
@@ -1201,26 +1211,50 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       void refetch();
     },
 
-    unlockPack(packId: string) {
+    async unlockPack(packId: string) {
       const prev = dbRef.current;
       const pack = prev.packs.find((p) => p.id === packId);
       if (!pack || prev.unlocks.some((u) => u.pack_id === packId)) return 0;
+      const o = orgIdRef.current;
+      if (!o) return 0;
 
-      const alreadyDelivered = new Set(prev.unlocks.flatMap((u) => u.delivered_catalog_ids));
+      // Prompt 139 D3 — pack_items/pack.catalog_ids no longer decide what's
+      // delivered (kept on disk, inert, for easy rollback); catalog_top_matches
+      // does. p_limit is computed here, not inside the function, from a LIVE
+      // read (never the cached client state) of orgs.catalog_quota — an
+      // accumulated ceiling that's never lowered (plan-sync.ts), not a
+      // "remaining" counter — minus how many catalog entities this org
+      // already has, so a second call (once multi-wave exists) still
+      // computes correctly instead of assuming today's guard is the only
+      // thing preventing a second unlock.
+      const [{ data: orgRow }, { count: deliveredCount }] = await Promise.all([
+        sb.from('orgs').select('catalog_quota').eq('id', o).maybeSingle(),
+        sb.from('catalog_deliveries').select('catalog_id', { count: 'exact', head: true }).eq('org_id', o),
+      ]);
+      const quota = (orgRow as { catalog_quota: number | null } | null)?.catalog_quota ?? 0;
+      const pLimit = Math.max(0, quota - (deliveredCount ?? 0));
+      if (pLimit === 0) return 0;
+
+      const { data: matches, error: matchErr } = await sb.rpc('catalog_top_matches', { p_org_id: o, p_limit: pLimit });
+      if (matchErr || !matches?.length) return 0;
+
+      const catalogIds = (matches as { catalog_id: string; score: number }[]).map((m) => m.catalog_id);
+      const { data: catalogRows } = await sb.from('catalog_entities').select('*').in('id', catalogIds);
+      const scoreById = new Map((matches as { catalog_id: string; score: number }[]).map((m) => [m.catalog_id, m.score]));
+
       const ownedNames = new Set(prev.entities.map((e) => e.name.toLowerCase()));
       const newEntities: Entity[] = [];
       const deliveredIds: string[] = [];
-      for (const cid of pack.catalog_ids) {
-        const c = prev.catalog.find((x) => x.id === cid);
-        if (!c || c.verification_status !== 'verified') continue;
-        if (alreadyDelivered.has(cid) || ownedNames.has(c.name.toLowerCase())) continue;
-        deliveredIds.push(cid);
+      for (const row of (catalogRows ?? []) as Record<string, unknown>[]) {
+        const c = fromRow<CatalogEntity>(row);
+        if (ownedNames.has(c.name.toLowerCase())) continue;
+        deliveredIds.push(c.id);
         newEntities.push({
           id: uuid(), name: c.name, type: c.type, hq_city: c.hq_city, hq_country: c.hq_country,
           invests_in_geographies: [], website: c.website, website_verified: true,
           email_domain_verified: false, stage_min: c.stage_min, stage_max: c.stage_max,
           check_min_eur: c.check_min_eur, check_max_eur: c.check_max_eur,
-          sectors: c.sectors, thesis: c.thesis, fit_score: 'medium', wave: 3,
+          sectors: c.sectors, thesis: c.thesis, fit_score: fitBucketFromScore(scoreById.get(c.id) ?? 0), wave: 1,
           submission_channel_type: 'unknown', hard_filter_status: 'not_applicable',
           status: 'not_contacted', source: 'catalog',
         });
@@ -1234,16 +1268,13 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         unlocks: [...prev.unlocks, { id: unlockId, pack_id: packId, unlocked_at: unlockedAt, delivered_catalog_ids: deliveredIds }],
       });
 
-      const o = orgIdRef.current;
-      if (o) {
-        if (newEntities.length) persist(sb.from('entities').insert(newEntities.map((e) => ({ ...e, org_id: o }))), 'unlockPack:entities');
-        persist(sb.from('pack_unlocks').insert({ id: unlockId, org_id: o, pack_id: packId, unlocked_at: unlockedAt }), 'unlockPack:pack_unlocks');
-        if (deliveredIds.length) {
-          persist(sb.from('catalog_deliveries').insert(deliveredIds.map((cid, i) => ({
-            org_id: o, catalog_id: cid, entity_id: newEntities[i]?.id, via_pack: packId,
-          }))), 'unlockPack:catalog_deliveries');
-          triggerEnrichmentEnqueue(deliveredIds);
-        }
+      if (newEntities.length) persist(sb.from('entities').insert(newEntities.map((e) => ({ ...e, org_id: o }))), 'unlockPack:entities');
+      persist(sb.from('pack_unlocks').insert({ id: unlockId, org_id: o, pack_id: packId, unlocked_at: unlockedAt }), 'unlockPack:pack_unlocks');
+      if (deliveredIds.length) {
+        persist(sb.from('catalog_deliveries').insert(deliveredIds.map((cid, i) => ({
+          org_id: o, catalog_id: cid, entity_id: newEntities[i]?.id, via_pack: packId,
+        }))), 'unlockPack:catalog_deliveries');
+        triggerEnrichmentEnqueue(deliveredIds);
       }
       return newEntities.length;
     },
