@@ -908,6 +908,13 @@ Deno.serve(async (req) => {
   // dos 6 VC primeiro, so a Camada 2 dos 3 angels depois). Omitido = qualquer
   // camada, o comportamento normal do cron.
   const layerFilter = body?.layer === 1 || body?.layer === 2 ? body.layer : null;
+  // Override manual do tecto de jobs por invocacao — medido no piloto: a
+  // Camada 2 (duas chamadas ao Claude por pessoa, com web_search) e pesada
+  // o suficiente para que 3 jobs numa so invocacao esgotassem os recursos
+  // da function (WORKER_RESOURCE_LIMIT, 2026-08-08). BATCH_SIZE continua a
+  // ser o tecto normal do cron; isto e so para forcar um numero menor numa
+  // chamada manual sem precisar de mudar o secret.
+  const maxJobs = typeof body?.maxJobs === 'number' && body.maxJobs > 0 ? Math.min(body.maxJobs, BATCH_SIZE) : BATCH_SIZE;
 
   if (!dryRun && !ENRICHMENT_ENABLED) {
     return json({ ok: true, skipped: true, reason: 'ENRICHMENT_ENABLED is false' });
@@ -917,6 +924,20 @@ Deno.serve(async (req) => {
   const results: any[] = [];
 
   if (!dryRun) {
+    // Recuperacao de jobs presos em 'running' por um kill duro da
+    // plataforma (WORKER_RESOURCE_LIMIT) a meio do processamento — medido
+    // no piloto, nao hipotetico: um job assim nunca passa pelo try/catch
+    // normal, fica sem telemetria e sem last_error, e o indice unico de um
+    // job activo por alvo bloqueia esse alvo PARA SEMPRE sem isto (nunca
+    // mais volta a 'queued' sozinho). 5 min e generoso face ao timeout de
+    // 60s por chamada ao Claude em callClaude.
+    const staleThreshold = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    await supabase
+      .from('enrichment_jobs')
+      .update({ status: 'queued', started_at: null, last_error: 'stale_running_recovered' })
+      .eq('status', 'running')
+      .lt('started_at', staleThreshold);
+
     const startOfDay = new Date();
     startOfDay.setUTCHours(0, 0, 0, 0);
     const { data: todaySpend } = await supabase.from('enrichment_jobs').select('cost_eur').gte('started_at', startOfDay.toISOString());
@@ -930,14 +951,14 @@ Deno.serve(async (req) => {
   // suficiente para reportar sobre todos os alvos do piloto numa so chamada
   // em vez de ficar preso aos primeiros BATCH_SIZE para sempre (dry run
   // nunca reivindica um job, por isso repetir a chamada devolveria os
-  // mesmos candidatos). Corridas a serio mantem o tecto de BATCH_SIZE.
+  // mesmos candidatos). Corridas a serio mantem o tecto de maxJobs.
   let candidatesQuery = supabase
     .from('enrichment_jobs')
     .select('id, target_type, target_id, layer, attempts')
     .eq('status', 'queued')
     .order('priority', { ascending: true })
     .order('created_at', { ascending: true })
-    .limit(dryRun ? 50 : BATCH_SIZE);
+    .limit(dryRun ? 50 : maxJobs);
   if (layerFilter) candidatesQuery = candidatesQuery.eq('layer', layerFilter);
   const { data: candidates } = await candidatesQuery;
 
