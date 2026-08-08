@@ -732,6 +732,10 @@ Deno.serve(async (req) => {
 
   const body = await req.json().catch(() => ({}));
   const dryRun = body?.dryRun === true;
+  // Filtro opcional de camada para corridas escalonadas (ex.: so a Camada 1
+  // dos 6 VC primeiro, so a Camada 2 dos 3 angels depois). Omitido = qualquer
+  // camada, o comportamento normal do cron.
+  const layerFilter = body?.layer === 1 || body?.layer === 2 ? body.layer : null;
 
   if (!dryRun && !ENRICHMENT_ENABLED) {
     return json({ ok: true, skipped: true, reason: 'ENRICHMENT_ENABLED is false' });
@@ -750,13 +754,20 @@ Deno.serve(async (req) => {
     }
   }
 
-  const { data: candidates } = await supabase
+  // Ensaio a seco e inerte (nao gasta dinheiro, nao muda estado) — busca o
+  // suficiente para reportar sobre todos os alvos do piloto numa so chamada
+  // em vez de ficar preso aos primeiros BATCH_SIZE para sempre (dry run
+  // nunca reivindica um job, por isso repetir a chamada devolveria os
+  // mesmos candidatos). Corridas a serio mantem o tecto de BATCH_SIZE.
+  let candidatesQuery = supabase
     .from('enrichment_jobs')
     .select('id, target_type, target_id, layer, attempts')
     .eq('status', 'queued')
     .order('priority', { ascending: true })
     .order('created_at', { ascending: true })
-    .limit(BATCH_SIZE);
+    .limit(dryRun ? 50 : BATCH_SIZE);
+  if (layerFilter) candidatesQuery = candidatesQuery.eq('layer', layerFilter);
+  const { data: candidates } = await candidatesQuery;
 
   for (const candidate of candidates ?? []) {
     // Reivindicacao atomica: UPDATE condicional (WHERE status='queued') —
