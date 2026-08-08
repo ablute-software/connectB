@@ -390,6 +390,7 @@ async function callClaude(opts: {
   messages: any[];
   tools?: any[];
   toolChoice?: any;
+  timeoutMs?: number;
 }): Promise<any> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -406,7 +407,13 @@ async function callClaude(opts: {
       ...(opts.tools ? { tools: opts.tools } : {}),
       ...(opts.toolChoice ? { tool_choice: opts.toolChoice } : {}),
     }),
-    signal: AbortSignal.timeout(60000),
+    // 60s (default) chega para as chamadas de extraccao da Camada 1. A
+    // chamada de pesquisa da Camada 2 (web_search) mede-se diferente: o
+    // servidor da Anthropic pode fazer varias pesquisas dentro da MESMA
+    // chamada ate max_uses, e isso ultrapassa 60s com frequencia — medido
+    // no piloto, 3 tentativas seguidas com "Signal timed out." no mesmo
+    // job antes de se perceber que nao era falha transitoria de rede.
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 60000),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -797,6 +804,7 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
     system: 'Es um assistente de investigacao. So relatas factos que encontraste nas fontes pesquisadas — nunca inventas.',
     messages: searchMessages,
     tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 3, blocked_domains: ['linkedin.com'] }],
+    timeoutMs: 120000,
   });
   addUsage(telemetry, LAYER2_MODEL, searchResponse.usage);
   collectFromContent(searchResponse.content);
