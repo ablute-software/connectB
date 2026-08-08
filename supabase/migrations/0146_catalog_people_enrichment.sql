@@ -173,7 +173,7 @@ create index catalog_person_affiliations_person_idx on public.catalog_person_aff
 create index catalog_person_affiliations_entity_idx on public.catalog_person_affiliations (entity_id);
 -- D6: pontuar em alta quem tem mais do que uma afiliacao corrente — este
 -- indice parcial e o que torna essa consulta barata.
-create index catalog_person_affiliations_current_idx on public.catalog_person_affiliations (person_id) where current;
+create index catalog_person_affiliations_current_idx on public.catalog_person_affiliations (person_id) where current = true;
 
 -- D5: aviso antes de contactar a mesma pessoa duas vezes via fundos
 -- diferentes na mesma campanha. Vista consultavel — o aviso na interface
@@ -284,7 +284,17 @@ alter table public.enrichment_jobs enable row level security;
 
 -- catalog_people / catalog_person_affiliations: factos neutros, mesmo padrao
 -- de catalog_entities (0002) — legivel quando afiliado a entidade verificada,
--- ou admin.
+-- OU quando a entidade esta na pipeline de uma org do leitor (via
+-- catalog_deliveries), ou admin.
+--
+-- O segundo ramo nao e opcional: medido em producao, 173 das 554 linhas de
+-- catalog_deliveries (31%) apontam para entidades cujo verification_status
+-- nao e 'verified' (entregas historicas, submissoes de utilizador ainda por
+-- rever, etc.). Sem este ramo, uma org com uma dessas entidades na pipeline
+-- veria a entidade mas nenhuma pessoa afiliada — e catalog_people_research
+-- (que ja usa so catalog_deliveries, sem exigir verificado) ficaria a
+-- conceder acesso a pessoas invisiveis em catalog_people. Confirmado por
+-- medicao dentro de begin/rollback, nao so por leitura do plano de RLS.
 create policy catalog_people_read on public.catalog_people for select
   using (
     is_platform_admin()
@@ -293,6 +303,12 @@ create policy catalog_people_read on public.catalog_people for select
       join public.catalog_entities ce on ce.id = cpa.entity_id
       where cpa.person_id = catalog_people.id
         and ce.verification_status = 'verified'
+    )
+    or exists (
+      select 1 from public.catalog_person_affiliations cpa2
+      join public.catalog_deliveries cd on cd.catalog_id = cpa2.entity_id
+      where cpa2.person_id = catalog_people.id
+        and is_org_member(cd.org_id)
     )
   );
 create policy catalog_people_admin_write on public.catalog_people for all
@@ -305,6 +321,11 @@ create policy catalog_person_affiliations_read on public.catalog_person_affiliat
       select 1 from public.catalog_entities ce
       where ce.id = catalog_person_affiliations.entity_id
         and ce.verification_status = 'verified'
+    )
+    or exists (
+      select 1 from public.catalog_deliveries cd
+      where cd.catalog_id = catalog_person_affiliations.entity_id
+        and is_org_member(cd.org_id)
     )
   );
 create policy catalog_person_affiliations_admin_write on public.catalog_person_affiliations for all
