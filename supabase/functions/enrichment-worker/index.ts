@@ -744,7 +744,15 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
     }
 
     const personPatch: Record<string, unknown> = { full_name: p.full_name, entity_id: entity.id, updated_at: new Date().toISOString() };
-    if (linkedinUrl) personPatch.linkedin_url = linkedinUrl;
+    // linkedinUrl only ever reaches here via pickMatchingLinkedinCandidate —
+    // a code-verified candidate, never the model's raw string (D1 estendido)
+    // — so accepting it here IS the verification; linkedin_verified must be
+    // set in the same write. Bug found 2026-08-08 (Prompt 138 addendum): this
+    // was missing, so linkedin_verified stayed false forever and the People
+    // panel (which only shows LinkedIn when linkedin_verified=true) never
+    // rendered a single link despite linkedin_url being correctly populated.
+    // Existing rows were backfilled directly by Nuno; this is the forward fix.
+    if (linkedinUrl) { personPatch.linkedin_url = linkedinUrl; personPatch.linkedin_verified = true; }
     if (bioRaw) personPatch.enrichment_status = 'enriched';
 
     if (personId) {

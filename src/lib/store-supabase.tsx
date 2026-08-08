@@ -225,6 +225,17 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     }).catch(() => { /* never blocks the confirm */ });
   }
 
+  // Prompt 138 D2 — queue-only, never invokes the worker. Fire-and-forget:
+  // enrichment_jobs is admin-only under RLS, so this has to go through a
+  // service-role route rather than a direct insert from here.
+  function triggerEnrichmentEnqueue(catalogIds: string[]) {
+    if (!catalogIds.length) return;
+    fetch('/api/pipeline/enqueue-enrichment', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ catalogIds }),
+    }).catch(() => { /* never blocks the unlock */ });
+  }
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1231,6 +1242,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
           persist(sb.from('catalog_deliveries').insert(deliveredIds.map((cid, i) => ({
             org_id: o, catalog_id: cid, entity_id: newEntities[i]?.id, via_pack: packId,
           }))), 'unlockPack:catalog_deliveries');
+          triggerEnrichmentEnqueue(deliveredIds);
         }
       }
       return newEntities.length;
