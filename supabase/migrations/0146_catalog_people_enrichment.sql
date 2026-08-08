@@ -1,8 +1,9 @@
 -- Prompt 137 — motor de enriquecimento de investidores (pessoas, hooks,
 -- proveniencia). PROPOSTA, NAO APLICADA — mostrada a Nuno para confirmacao
--- antes de correr via apply_migration, por instrucao explicita do prompt.
+-- antes de correr via apply_migration, por instrucao explicita do prompt e
+-- da regra permanente deste projecto: a sessao revisora aplica, nao esta.
 --
--- DESVIO FACE AO PROMPT ORIGINAL, confirmado com o Nuno antes de escrever
+-- DESVIO 1 FACE AO PROMPT ORIGINAL, confirmado com o Nuno antes de escrever
 -- esta migracao: o prompt assumia que as tabelas people / person_affiliations
 -- / entity_enrichment_sources (0009, 0032) ja eram o modelo certo para isto.
 -- Verificado em producao que NAO sao — o FK de people.entity_id e
@@ -13,20 +14,49 @@
 -- tabelas exigiria org_id nullable numa tabela cujo modelo de RLS inteiro
 -- assenta em pertenca a org — dois modelos de acesso na mesma tabela, e uma
 -- falha nesse ponto mostra a uma startup a investigacao privada de outra.
--- Por isso: tabelas novas, catalog_*, penduradas em catalog_entities, com RLS
--- calcada no padrao ja usado por catalog_entities (0002): leitura publica de
--- dados "verificados", escrita so is_platform_admin(). As tabelas privadas
--- people/person_affiliations/entity_enrichment_sources nao sao tocadas.
+-- Por isso: tabelas novas, catalog_*, penduradas em catalog_entities. As
+-- tabelas privadas people/person_affiliations/entity_enrichment_sources nao
+-- sao tocadas.
+--
+-- DESVIO 2, decidido com o Nuno depois de rever a primeira proposta: dados
+-- de pessoa nao sao dados de empresa. Espelhar cegamente a RLS de
+-- catalog_entities (leitura publica quando verificado) exporia, a qualquer
+-- visitante nao autenticado, biografias e ganchos de milhares de pessoas que
+-- nunca deram consentimento a esta plataforma — problema de RGPD — e daria
+-- de graca a um concorrente a base de investigacao que pagamos para
+-- construir — problema comercial. Por isso a tabela de pessoa fica dividida
+-- em duas:
+--   catalog_people            — factos neutros (nome, linkedin_url,
+--                                afiliacao primaria, hook_status, flags de
+--                                compliance) — mesma regra do catalogo:
+--                                legivel quando afiliado a entidade
+--                                verificada, ou admin.
+--   catalog_people_research   — material caro/sensivel (bio_raw, hook,
+--                                intro_path, watch_outs, kill_words,
+--                                background, email_guess) — legivel so por
+--                                is_platform_admin() ou por um membro de uma
+--                                org que tenha essa entidade na sua pipeline
+--                                (catalog_deliveries, o ledger que ja existe
+--                                para isto — 0002). do_not_contact e
+--                                privacy_notice_sent ficam NEUTROS de
+--                                proposito: sao travoes de seguranca, nao
+--                                investigacao competitiva, e esconde-los
+--                                atras do RLS sensivel arriscaria um
+--                                outreach indevido por quem ainda nao
+--                                desbloqueou a entidade.
 --
 -- Numeracao: o prompt sugeria 0145, mas esse numero ja esta ocupado
--- (0145_investor_entity_claims.sql, committed, ainda nao aplicado). Este
--- ficheiro e 0146.
+-- (0145_investor_entity_claims.sql, committed em main, ainda NAO aplicado a
+-- producao — ultimo registo aplicado e 20260807111204). Esta migracao nao
+-- depende de nenhum objecto criado pela 0145 (nao toca investor_entity_claims
+-- nem matchdeal_investor_members.role) — pode ser aplicada antes ou depois
+-- dela, mas quem aplica e sempre a sessao revisora, nunca esta sessao.
 --
 -- NAO TOCA em access_grants, matchdeal_eligible_deck, matchdeal_profiles,
 -- nem nas tabelas privadas people/person_affiliations/entity_enrichment_sources.
 
 -- ============================================================
--- 1. catalog_people — pessoa global, independente de org.
+-- 1. catalog_people — pessoa global, factos neutros.
 -- ============================================================
 
 create table public.catalog_people (
@@ -36,22 +66,10 @@ create table public.catalog_people (
   linkedin_url text,
   linkedin_verified boolean not null default false,
 
-  -- D1 (requisito mais importante do prompt): a biografia integral,
-  -- verbatim, tal como extraida da pagina de equipa. Nenhum campo
-  -- estruturado abaixo substitui isto — se a extraccao so puder guardar uma
-  -- coisa, e esta.
-  bio_raw text,
-
-  hook text,
   hook_status hook_status not null default 'to_research',
-  intro_path text,
-  watch_outs text,
-  kill_words text[],
-  background text,
 
-  email_guess text,
-  email_guess_confidence email_confidence,
-
+  -- Travoes de seguranca, deliberadamente NEUTROS (ver nota de topo) — visiveis
+  -- sempre que a pessoa e visivel, independentemente de pipeline.
   do_not_contact boolean not null default false,
   privacy_notice_sent boolean not null default false,
 
@@ -102,7 +120,34 @@ create index catalog_people_entity_idx on public.catalog_people (entity_id);
 create index catalog_people_enrichment_status_idx on public.catalog_people (enrichment_status);
 
 -- ============================================================
--- 2. catalog_person_affiliations — o muitos-para-muitos (D3, D6).
+-- 2. catalog_people_research — material caro/sensivel, 1:1 com catalog_people.
+-- ============================================================
+
+create table public.catalog_people_research (
+  person_id uuid primary key references public.catalog_people(id) on delete cascade,
+
+  -- D1 (requisito mais importante do prompt): a biografia integral,
+  -- verbatim, tal como extraida da pagina de equipa. Nenhum campo
+  -- estruturado abaixo substitui isto — se a extraccao so puder guardar uma
+  -- coisa, e esta.
+  bio_raw text,
+
+  hook text,
+  intro_path text,
+  watch_outs text,
+  kill_words text[],
+  background text,
+
+  email_guess text,
+  email_guess_confidence email_confidence,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- ============================================================
+-- 3. catalog_person_affiliations — o muitos-para-muitos (D3, D6). Neutro
+-- (cargo, entidade, tipo) — mesma regra do catalogo.
 -- ============================================================
 
 create table public.catalog_person_affiliations (
@@ -132,7 +177,9 @@ create index catalog_person_affiliations_current_idx on public.catalog_person_af
 
 -- D5: aviso antes de contactar a mesma pessoa duas vezes via fundos
 -- diferentes na mesma campanha. Vista consultavel — o aviso na interface
--- fica para depois, isto so expoe a informacao.
+-- fica para depois, isto so expoe a informacao. So factos neutros, por isso
+-- security_invoker e suficiente (a RLS de catalog_people/afiliacoes ja
+-- decide quem ve cada linha).
 create view public.catalog_people_multi_affiliated
   with (security_invoker = true) as
 select
@@ -147,7 +194,7 @@ group by cpa.person_id, cp.full_name, cp.linkedin_url
 having count(*) filter (where cpa.current) > 1;
 
 -- ============================================================
--- 3. catalog_entity_enrichment_sources — proveniencia (D8).
+-- 4. catalog_entity_enrichment_sources — proveniencia (D8).
 -- ============================================================
 
 create table public.catalog_entity_enrichment_sources (
@@ -174,7 +221,7 @@ create index catalog_entity_enrichment_sources_person_idx on public.catalog_enti
 create index catalog_entity_enrichment_sources_batch_idx on public.catalog_entity_enrichment_sources (batch_id);
 
 -- ============================================================
--- 4. enrichment_jobs — fila de trabalho do worker.
+-- 5. enrichment_jobs — fila de trabalho do worker.
 -- ============================================================
 
 create table public.enrichment_jobs (
@@ -214,7 +261,7 @@ create index enrichment_jobs_queue_order_idx
 create index enrichment_jobs_created_at_idx on public.enrichment_jobs (created_at);
 
 -- ============================================================
--- 5. Estado de enriquecimento em catalog_entities (aditivo).
+-- 6. Estado de enriquecimento em catalog_entities (aditivo).
 -- ============================================================
 
 alter table public.catalog_entities
@@ -226,19 +273,18 @@ alter table public.catalog_entities
 create index if not exists catalog_entities_enrichment_status_idx on public.catalog_entities (enrichment_status);
 
 -- ============================================================
--- 6. RLS — mesmo padrao de catalog_entities (0002): leitura publica de
--- dados verificados, escrita so is_platform_admin(). O worker escreve via
--- service_role (bypassa RLS).
+-- 7. RLS.
 -- ============================================================
 
 alter table public.catalog_people enable row level security;
+alter table public.catalog_people_research enable row level security;
 alter table public.catalog_person_affiliations enable row level security;
 alter table public.catalog_entity_enrichment_sources enable row level security;
 alter table public.enrichment_jobs enable row level security;
 
--- Uma pessoa e legivel se estiver afiliada (corrente ou passada — o
--- historico tambem interessa) a pelo menos uma entidade verificada, ou se
--- quem le for admin.
+-- catalog_people / catalog_person_affiliations: factos neutros, mesmo padrao
+-- de catalog_entities (0002) — legivel quando afiliado a entidade verificada,
+-- ou admin.
 create policy catalog_people_read on public.catalog_people for select
   using (
     is_platform_admin()
@@ -264,9 +310,28 @@ create policy catalog_person_affiliations_read on public.catalog_person_affiliat
 create policy catalog_person_affiliations_admin_write on public.catalog_person_affiliations for all
   using (is_platform_admin()) with check (is_platform_admin());
 
+-- catalog_people_research: material caro/sensivel. Legivel so por admin ou
+-- por um membro de uma org que tenha ALGUMA das entidades afiliadas desta
+-- pessoa na sua pipeline — catalog_deliveries e o ledger que ja existe para
+-- "esta entidade do catalogo foi entregue a este org" (0002, unique
+-- (org_id, catalog_id)). Nao ha leitura publica desta tabela, verificado ou
+-- nao — e exactamente o que a separacao de tabelas serve para evitar.
+create policy catalog_people_research_read on public.catalog_people_research for select
+  using (
+    is_platform_admin()
+    or exists (
+      select 1 from public.catalog_person_affiliations cpa
+      join public.catalog_deliveries cd on cd.catalog_id = cpa.entity_id
+      where cpa.person_id = catalog_people_research.person_id
+        and is_org_member(cd.org_id)
+    )
+  );
+create policy catalog_people_research_admin_write on public.catalog_people_research for all
+  using (is_platform_admin()) with check (is_platform_admin());
+
 -- Proveniencia e metadado operacional (URLs de fontes, auto-avaliacao de
 -- qualidade) — mesmo padrao admin-only que entity_enrichment_sources (0032)
--- ja usa, nao o padrao "leitura publica" de catalog_people/afiliacoes.
+-- ja usa.
 create policy catalog_entity_enrichment_sources_admin_only on public.catalog_entity_enrichment_sources for all
   using (is_platform_admin()) with check (is_platform_admin());
 
