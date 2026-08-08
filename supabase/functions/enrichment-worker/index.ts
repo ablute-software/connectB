@@ -35,10 +35,14 @@
 // tentativas. Custo acumula-se SEMPRE (mesmo em jobs skipped/failed) — nunca
 // sobreposto entre tentativas.
 //
-// Travoes antes de qualquer corrida paga: ENRICHMENT_ENABLED, tecto diario,
-// is_test bloqueado (na fila E aqui, defensivo), e modo de ensaio a seco
-// (dryRun no corpo do POST) que faz os fetches e reporta sem chamar o modelo
-// nem escrever nada.
+// Travoes antes de qualquer corrida paga: autenticacao do chamador (so
+// is_platform_admin() ou o proprio pg_cron via service role — ver bloco de
+// auth abaixo, mesmo padrao de matchdeal-pair/index.ts), ENRICHMENT_ENABLED,
+// tecto diario, is_test bloqueado (na fila E aqui, defensivo), e modo de
+// ensaio a seco (dryRun no corpo do POST) que faz os fetches e reporta sem
+// chamar o modelo nem escrever nada — dryRun fica ATRAS da mesma porta de
+// autenticacao que a corrida a serio, porque continua a fazer fetches reais
+// contra sites de terceiros mesmo sem chamar o modelo.
 //
 // NAO TOCA em access_grants, matchdeal_eligible_deck, matchdeal_profiles, nem
 // nas tabelas privadas people/person_affiliations/entity_enrichment_sources.
@@ -48,6 +52,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.45/deno-dom-wasm.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!;
 
@@ -112,9 +117,13 @@ function addUsage(t: Telemetry, model: string, usage: any) {
 async function flushTelemetry(jobId: string, t: Telemetry, extra: Record<string, unknown> = {}) {
   const { data: current } = await supabase
     .from('enrichment_jobs')
-    .select('tokens_in, tokens_out, web_calls, cost_eur')
+    .select('tokens_in, tokens_out, web_calls, cost_eur, model')
     .eq('id', jobId)
     .single();
+  // Junta modelos (nunca sobrepoe) — uma tentativa que muda de modelo (ex.
+  // repeticao com config diferente) nao pode perder o registo da primeira.
+  const priorModels = (current?.model ?? '').split(',').map((m: string) => m.trim()).filter(Boolean);
+  const mergedModels = new Set([...priorModels, ...t.models]);
   await supabase
     .from('enrichment_jobs')
     .update({
@@ -122,7 +131,7 @@ async function flushTelemetry(jobId: string, t: Telemetry, extra: Record<string,
       tokens_out: (current?.tokens_out ?? 0) + t.tokensOut,
       web_calls: (current?.web_calls ?? 0) + t.webCalls,
       cost_eur: Number(((current?.cost_eur ?? 0) + t.costEur).toFixed(5)),
-      model: [...t.models].join(','),
+      model: [...mergedModels].join(','),
       ...extra,
     })
     .eq('id', jobId);
@@ -148,22 +157,43 @@ function htmlToText(html: string): string {
   return normalizeForMatch(doc.body.textContent ?? '');
 }
 
-// D1(c): o codigo corta a fatia — o modelo nunca devolve a biografia. Se as
-// ancoras nao aparecerem literalmente no texto normalizado da pagina, e
-// tratado como falha de validacao (retry), nunca como paraphrase aceite.
+// D1(c): o codigo corta a fatia — o modelo nunca devolve a biografia, nem
+// sequer no ramo sem ancora de fim (ai tambem se corta da pagina, nunca se
+// devolve a string vinda do modelo directamente). Se as ancoras nao
+// aparecerem literalmente no texto normalizado da pagina, e tratado como
+// falha de validacao (retry), nunca como paraphrase aceite.
+//
+// Ancora de inicio ambigua = corrupcao silenciosa, nao um caso a tolerar: se
+// aparecer mais do que uma vez na pagina, o corte podia comecar no sitio
+// errado e colar a biografia de outra pessoa a esta. Rejeita (null -> retry
+// a pedir uma ancora mais longa) em vez de assumir a primeira ocorrencia.
+// Tecto de comprimento (4000 caracteres) protege o caso simetrico do lado do
+// fim: uma ancora de fim que so casa muito mais tarde colaria varias
+// biografias seguidas sem que isso apareca como erro.
+const MAX_BIO_SLICE_LENGTH = 4000;
+
 function sliceByAnchors(pageTextNormalized: string, startAnchor: string | null, endAnchor: string | null): string | null {
   if (!startAnchor) return null;
-  const start = pageTextNormalized.indexOf(normalizeForMatch(startAnchor));
+  const startNeedle = normalizeForMatch(startAnchor);
+  const start = pageTextNormalized.indexOf(startNeedle);
   if (start === -1) return null;
+  if (pageTextNormalized.indexOf(startNeedle, start + 1) !== -1) return null; // ancora de inicio ambigua
+
+  let slice: string;
   if (!endAnchor) {
     // sem ancora de fim: aceita so a ancora de inicio como bio curta (raro,
-    // mas mais seguro que inventar um fim).
-    return normalizeForMatch(startAnchor);
+    // mas mais seguro que inventar um fim) — cortada da pagina, nao devolvida
+    // a partir da string do modelo.
+    slice = pageTextNormalized.slice(start, start + startNeedle.length);
+  } else {
+    const endNeedle = normalizeForMatch(endAnchor);
+    const endIdx = pageTextNormalized.indexOf(endNeedle, start);
+    if (endIdx === -1) return null;
+    slice = pageTextNormalized.slice(start, endIdx + endNeedle.length);
   }
-  const endNeedle = normalizeForMatch(endAnchor);
-  const endIdx = pageTextNormalized.indexOf(endNeedle, start);
-  if (endIdx === -1) return null;
-  return pageTextNormalized.slice(start, endIdx + endNeedle.length).trim();
+  slice = slice.trim();
+  if (slice.length > MAX_BIO_SLICE_LENGTH) return null;
+  return slice;
 }
 
 // ============================================================
@@ -677,6 +707,28 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
 // ============================================================
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
+
+  // Autenticacao do chamador — bloqueante, mesmo padrao de
+  // matchdeal-pair/index.ts. So dois chamadores legitimos: (a) o proprio
+  // pg_cron, que invoca com a service role key como Bearer token; (b) um
+  // membro de platform_admins com sessao valida. Nenhum utilizador normal
+  // da plataforma pode disparar isto — e um worker que gasta dinheiro de
+  // API e faz fetches contra sites de terceiros, nao uma rota de produto.
+  // Fica ANTES de qualquer outra logica, incluindo dryRun: um ensaio a seco
+  // continua a fazer fetches reais contra infra de terceiros, so nao chama
+  // o modelo nem escreve — exige o mesmo nivel de autorizacao que a corrida
+  // a serio, nao menos.
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader) return json({ ok: false, error: 'Missing Authorization.' }, 401);
+  const bearerToken = authHeader.replace(/^Bearer\s+/i, '');
+  const isServiceRoleCall = bearerToken === SERVICE_ROLE_KEY;
+  if (!isServiceRoleCall) {
+    const asCaller = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: authHeader } } });
+    const { data: { user }, error: userErr } = await asCaller.auth.getUser();
+    if (userErr || !user) return json({ ok: false, error: 'Not a valid Sherlock Deal session.' }, 401);
+    const { data: isAdmin } = await asCaller.rpc('is_platform_admin');
+    if (!isAdmin) return json({ ok: false, error: 'Platform admin only.' }, 403);
+  }
 
   const body = await req.json().catch(() => ({}));
   const dryRun = body?.dryRun === true;

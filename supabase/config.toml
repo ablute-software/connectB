@@ -9,3 +9,6 @@ project_id = "wkjcaoqdvhykrfacsylr"
 
 [functions.matchdeal-pair]
 verify_jwt = true
+
+[functions.enrichment-worker]
+verify_jwt = true
