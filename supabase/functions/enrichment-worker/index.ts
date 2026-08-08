@@ -1044,13 +1044,15 @@ Deno.serve(async (req) => {
   // dos 6 VC primeiro, so a Camada 2 dos 3 angels depois). Omitido = qualquer
   // camada, o comportamento normal do cron.
   const layerFilter = body?.layer === 1 || body?.layer === 2 ? body.layer : null;
-  // Override manual do tecto de jobs por invocacao — medido no piloto: a
-  // Camada 2 (duas chamadas ao Claude por pessoa, com web_search) e pesada
-  // o suficiente para que 3 jobs numa so invocacao esgotassem os recursos
-  // da function (WORKER_RESOURCE_LIMIT, 2026-08-08). BATCH_SIZE continua a
-  // ser o tecto normal do cron; isto e so para forcar um numero menor numa
-  // chamada manual sem precisar de mudar o secret.
-  const maxJobs = typeof body?.maxJobs === 'number' && body.maxJobs > 0 ? Math.min(body.maxJobs, BATCH_SIZE) : BATCH_SIZE;
+  // Override manual do tecto de jobs por invocacao. BATCH_SIZE continua a
+  // ser o tecto normal do cron; maxJobs deixa uma chamada manual pedir um
+  // numero DIFERENTE — mais pequeno (Camada 2 e pesada, 3 jobs numa so
+  // invocacao ja esgotou os recursos da function em 2026-08-08) ou maior
+  // (lote de arranque da Camada 1, mais leve por job). Bug corrigido no
+  // mesmo dia: Math.min(maxJobs, BATCH_SIZE) so deixava ir para BAIXO do
+  // default — um pedido de 50 ficava preso em 5. O tecto agora e um limite
+  // de seguranca fixo (100), nao o BATCH_SIZE do cron.
+  const maxJobs = typeof body?.maxJobs === 'number' && body.maxJobs > 0 ? Math.min(body.maxJobs, 100) : BATCH_SIZE;
 
   if (!dryRun && !ENRICHMENT_ENABLED) {
     return json({ ok: true, skipped: true, reason: 'ENRICHMENT_ENABLED is false' });
