@@ -261,6 +261,11 @@ function discoverTeamPageUrl(homepageHtml: string, baseUrl: string): string | nu
   return best;
 }
 
+// Recurso barato quando discoverTeamPageUrl nao encontra nada (menu
+// renderizado por JavaScript e o caso medido — kimaventures.com/team). Sem
+// custo de modelo: so caminhos directos comuns, tentados por ordem.
+const TEAM_PATH_FALLBACKS = ['/team', '/about', '/people', '/our-team', '/about-us', '/equipa'];
+
 function looksLikeJsOnlyShell(html: string, extractedTextLength: number): boolean {
   const scriptCount = (html.match(/<script/gi) ?? []).length;
   return extractedTextLength < 200 && scriptCount > 5;
@@ -402,14 +407,43 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
   if (!homepage.ok) return { status: 'failed', reason: homepage.reason };
   telemetry.webCalls += 1;
 
-  const teamUrl = discoverTeamPageUrl(homepage.html, homepageUrl);
-  if (!teamUrl) return { status: 'skipped', reason: 'team_page_not_found' };
+  let teamUrl = discoverTeamPageUrl(homepage.html, homepageUrl);
+  let teamPage: { ok: true; html: string } | null = null;
 
-  if (!(await isAllowedByRobots(teamUrl))) return { status: 'skipped', reason: 'robots_disallowed' };
-
-  const teamPage = await fetchPage(teamUrl);
-  if (!teamPage.ok) return { status: 'failed', reason: teamPage.reason };
-  telemetry.webCalls += 1;
+  if (teamUrl) {
+    if (!(await isAllowedByRobots(teamUrl))) return { status: 'skipped', reason: 'robots_disallowed' };
+    const fetched = await fetchPage(teamUrl);
+    telemetry.webCalls += 1;
+    if (!fetched.ok) return { status: 'failed', reason: fetched.reason };
+    teamPage = fetched;
+  } else {
+    // Recurso barato: a descoberta por link falhou. Caso real medido antes
+    // da corrida paga — kimaventures.com/team existe e tem gente (Xavier
+    // Niel, Jerémie Berrebi, Michel Sassano, Vincent Jacobs), mas o menu e
+    // renderizado por JavaScript, por isso a heuristica de links na
+    // homepage nunca encontrou o href. Tenta caminhos directos comuns antes
+    // de desistir — sem custo de modelo, aceita o primeiro que devolva HTML
+    // com texto suficiente.
+    for (const path of TEAM_PATH_FALLBACKS) {
+      let candidateUrl: string;
+      try {
+        candidateUrl = new URL(path, homepageUrl).toString();
+      } catch {
+        continue;
+      }
+      if (!(await isAllowedByRobots(candidateUrl))) continue;
+      const candidatePage = await fetchPage(candidateUrl);
+      telemetry.webCalls += 1;
+      if (!candidatePage.ok) continue;
+      const candidateText = htmlToText(candidatePage.html);
+      if (looksLikeJsOnlyShell(candidatePage.html, candidateText.length)) continue;
+      if (candidateText.length < 50) continue;
+      teamUrl = candidateUrl;
+      teamPage = candidatePage;
+      break;
+    }
+    if (!teamUrl || !teamPage) return { status: 'skipped', reason: 'team_page_not_found' };
+  }
 
   const teamText = htmlToText(teamPage.html);
   if (looksLikeJsOnlyShell(teamPage.html, teamText.length)) return { status: 'skipped', reason: 'js_only_site' };
