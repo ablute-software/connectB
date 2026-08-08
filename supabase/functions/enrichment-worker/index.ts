@@ -38,12 +38,23 @@
 // nao extraccao, o mesmo risco residual do hook da Camada 2, nao fechado
 // por esta correccao.
 //
-// Camada 2: hook so se escreve se houver pelo menos uma fonte (URL de
-// pesquisa real) a suporta-lo em catalog_entity_enrichment_sources — um hook
-// inventado queima o contacto de forma permanente, pior que hook nenhum.
-// Sem fonte: hook_status='none_found', campo vazio. Os restantes campos da
+// Camada 2: hook so se escreve se houver pelo menos uma fonte LIDA (nao so
+// encontrada) em catalog_entity_enrichment_sources — um hook inventado
+// queima o contacto de forma permanente, pior que hook nenhum. Sem fonte
+// lida: hook_status='none_found', campo vazio. Os restantes campos da
 // Camada 2 (intro_path, watch_outs, kill_words, background) nao levam esta
 // obrigacao — so hook, por instrucao explicita.
+//
+// Camada 2 estendida (piloto de 3 angels, 2026-08-08): pesquisar sem ler
+// nunca deu material para um gancho — so titulos e snippets. Agora e
+// pesquisa -> escolhe ate 3 fontes reais (mesma lista-fechada-validada-por-
+// codigo do linkedin_url) -> le-as com o mesmo fetchPage/htmlToText da
+// Camada 1 -> so entao sintetiza, a partir do texto lido, nao dos
+// snippets. Reaproveita fontes ja registadas em vez de pesquisar de novo
+// quando ja existem para a pessoa. max_uses subiu de 3 para 10, e o prompt
+// de pesquisa diz explicitamente que atingir esse tecto e normal — era o
+// nosso proprio limite mal interpretado pelo modelo como a ferramenta
+// estar indisponivel.
 //
 // Falhas: robots.txt / site so JavaScript / pagina de equipa inexistente ->
 // 'skipped', sem incrementar attempts (nao entram no ciclo de repeticoes).
@@ -482,7 +493,7 @@ const EXTRACT_PERSON_BIO_TOOL = {
 
 const RECORD_RESEARCH_TOOL = {
   name: 'record_research',
-  description: 'Regista a sintese da investigacao sobre esta pessoa, com base apenas no que foi encontrado na pesquisa.',
+  description: 'Regista a sintese da investigacao sobre esta pessoa, com base apenas no texto das fontes lidas.',
   input_schema: {
     type: 'object',
     properties: {
@@ -496,6 +507,39 @@ const RECORD_RESEARCH_TOOL = {
     },
   },
 };
+
+// Falha de desenho identificada pelo Nuno apos o piloto de 3 angels: a
+// Camada 2 pesquisava mas nunca lia — sintetizava a partir de titulos e
+// snippets de resultados de pesquisa, que nao dao material para um gancho.
+// No piloto manual do Nuno, a qualidade veio de abrir e ler um artigo
+// (as citacoes da Sarah Kunst vieram do texto da peca do technical.ly, nao
+// de um snippet). Este tool escolhe ate 3 fontes reais para ler na integra
+// antes de sintetizar — mesma disciplina de "lista fechada, o codigo
+// valida" que ja se aplica a linkedin_url/individual_profile_url na
+// Camada 1: o modelo so pode escolher URLs que ja existem na lista de
+// candidatos, o codigo confirma antes de ir buscar a pagina.
+const SELECT_SOURCES_TOOL = {
+  name: 'select_sources',
+  description:
+    'Escolhe ate 3 fontes desta lista para ler na integra antes de sintetizar. Prefere entrevistas, perfis pessoais, biografias e anuncios — evita agregadores de dados (crunchbase, pitchbook, tracxn, cbinsights, angel.co, endole, redes sociais). Copia os URLs EXACTAMENTE da lista fornecida.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      urls: { type: 'array', items: { type: 'string' }, description: 'ate 3 URLs, copiados exactamente da lista de fontes fornecida' },
+    },
+    required: ['urls'],
+  },
+};
+
+// Falha de desenho identificada pelo Nuno: max_uses e o NOSSO proprio
+// tecto, nao um limite da Anthropic ou da rede — mas o modelo, ao esgota-lo,
+// recebe um erro e conclui (com toda a logica) que a ferramenta de
+// pesquisa esta indisponivel, escrevendo isso literalmente nos watch_outs
+// em vez de trabalhar com os resultados que ja tinha. Corrigido em dois
+// pontos: max_uses subiu de 3 para 10, e o prompt diz explicitamente que
+// atingir o tecto e normal e esperado.
+const SEARCH_SYSTEM_PROMPT =
+  'Es um assistente de investigacao. Podes fazer varias pesquisas nesta chamada, ate ao limite disponivel — atingir esse limite e normal e esperado, NAO significa que a ferramenta de pesquisa esta indisponivel ou avariada. Quando isso acontecer, continua com os resultados que ja tens em vez de reportar falha. So relatas factos que encontraste nas fontes pesquisadas — nunca inventas.';
 
 // ============================================================
 // Camada 1 — processa uma catalog_entities.
@@ -781,55 +825,120 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
 
   if (dryRun) return { status: 'dry_run', reason: null, dryRunReport: { person: person.full_name } };
 
-  // Passo 1: pesquisa (server-side web_search tool, D9: linkedin.com bloqueado
-  // ao nivel do proprio tool, nao so por instrucao).
-  const searchMessages: any[] = [
-    {
+  const sourceUrls = new Set<string>();
+  const searchMessages: any[] = [];
+
+  // Reaproveita fontes ja pagas antes de pesquisar de novo — nao repete uma
+  // pesquisa ja feita e registada. A pesquisa em si nunca foi o problema
+  // (o piloto de 3 angels encontrou material genuinamente bom); o problema
+  // era nunca ler o que a pesquisa encontrou. Reutilizar e por isso a
+  // correccao certa, nao so uma poupanca pontual.
+  const { data: existingSources } = await supabase
+    .from('catalog_entity_enrichment_sources')
+    .select('source_url')
+    .eq('person_id', person.id)
+    .eq('source_type', 'web_search');
+
+  if (existingSources && existingSources.length > 0) {
+    for (const s of existingSources) sourceUrls.add(s.source_url);
+  } else {
+    // Passo 1: pesquisa (server-side web_search tool, D9: linkedin.com
+    // bloqueado ao nivel do proprio tool, nao so por instrucao).
+    searchMessages.push({
       role: 'user',
       content: `Pesquisa informacao publica sobre ${person.full_name}, que trabalha em ${entity?.name ?? 'um fundo de investimento'}. Interessa: percurso profissional, exits/empresas anteriores, entrevistas, artigos, podcasts. Nunca leias linkedin.com. Resume o que encontraste e cita as fontes (URLs).`,
-    },
-  ];
-  const sourceUrls = new Set<string>();
-  function collectFromContent(content: any[]) {
-    for (const block of content ?? []) {
-      if (block.type === 'web_search_tool_result' && Array.isArray(block.content)) {
-        for (const r of block.content) if (r?.url) sourceUrls.add(r.url);
+    });
+    function collectFromContent(content: any[]) {
+      for (const block of content ?? []) {
+        if (block.type === 'web_search_tool_result' && Array.isArray(block.content)) {
+          for (const r of block.content) if (r?.url) sourceUrls.add(r.url);
+        }
+        if (block.type === 'server_tool_use' && block.name === 'web_search') telemetry.webCalls += 1;
       }
-      if (block.type === 'server_tool_use' && block.name === 'web_search') telemetry.webCalls += 1;
     }
-  }
 
-  let searchResponse = await callClaude({
-    model: LAYER2_MODEL,
-    system: 'Es um assistente de investigacao. So relatas factos que encontraste nas fontes pesquisadas — nunca inventas.',
-    messages: searchMessages,
-    tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 3, blocked_domains: ['linkedin.com'] }],
-    timeoutMs: 120000,
-  });
-  addUsage(telemetry, LAYER2_MODEL, searchResponse.usage);
-  collectFromContent(searchResponse.content);
-
-  // server tool com loop interno; pause_turn = atingiu o limite de iteracoes
-  // do lado do servidor — reenvia para continuar (nao e um "Continue." manual).
-  while (searchResponse.stop_reason === 'pause_turn') {
-    searchMessages.push({ role: 'assistant', content: searchResponse.content });
-    searchResponse = await callClaude({
+    let searchResponse = await callClaude({
       model: LAYER2_MODEL,
-      system: 'Es um assistente de investigacao. So relatas factos que encontraste nas fontes pesquisadas — nunca inventas.',
+      system: SEARCH_SYSTEM_PROMPT,
       messages: searchMessages,
-      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 3, blocked_domains: ['linkedin.com'] }],
+      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 10, blocked_domains: ['linkedin.com'] }],
+      timeoutMs: 120000,
     });
     addUsage(telemetry, LAYER2_MODEL, searchResponse.usage);
     collectFromContent(searchResponse.content);
+
+    // server tool com loop interno; pause_turn = atingiu o limite de
+    // iteracoes do lado do servidor — reenvia para continuar (nao e um
+    // "Continue." manual).
+    while (searchResponse.stop_reason === 'pause_turn') {
+      searchMessages.push({ role: 'assistant', content: searchResponse.content });
+      searchResponse = await callClaude({
+        model: LAYER2_MODEL,
+        system: SEARCH_SYSTEM_PROMPT,
+        messages: searchMessages,
+        tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 10, blocked_domains: ['linkedin.com'] }],
+        timeoutMs: 120000,
+      });
+      addUsage(telemetry, LAYER2_MODEL, searchResponse.usage);
+      collectFromContent(searchResponse.content);
+    }
+    searchMessages.push({ role: 'assistant', content: searchResponse.content });
   }
 
-  // Passo 2: sintese estruturada, a partir do que foi encontrado no passo 1.
-  searchMessages.push({ role: 'assistant', content: searchResponse.content });
-  searchMessages.push({ role: 'user', content: 'Com base apenas no que encontraste acima, regista a sintese.' });
+  const candidateList = [...sourceUrls];
+  const isFreshSearch = searchMessages.length > 0;
+
+  // Passo 2: escolhe ate 3 fontes para LER na integra — a falha de desenho
+  // que o piloto revelou. Snippets de resultados de pesquisa dao titulos,
+  // nao dao material para um gancho; isso vem de ler o artigo. Mesma
+  // disciplina "lista fechada, o codigo valida" ja usada para
+  // linkedin_url/individual_profile_url na Camada 1.
+  const readSources: { url: string; text: string }[] = [];
+  if (candidateList.length > 0) {
+    const selectionMessages = isFreshSearch
+      ? searchMessages
+      : [{ role: 'user', content: `Fontes disponiveis sobre ${person.full_name} (${entity?.name ?? 'fundo de investimento'}):\n${formatCandidateList(candidateList)}` }];
+    const selection = await callClaude({
+      model: LAYER2_MODEL,
+      system: 'Escolhe fontes para ler, copiando os URLs EXACTAMENTE da lista fornecida — nunca inventes nem alteres um URL.',
+      messages: [...selectionMessages, { role: 'user', content: `Escolhe ate 3 destas fontes para ler na integra:\n${formatCandidateList(candidateList)}` }],
+      tools: [SELECT_SOURCES_TOOL],
+      toolChoice: { type: 'tool', name: 'select_sources' },
+    });
+    addUsage(telemetry, LAYER2_MODEL, selection.usage);
+    const selectionParsed = extractToolInput(selection, 'select_sources');
+    const chosenUrls: string[] = (selectionParsed?.urls ?? [])
+      .map((u: string) => candidateList.find((c) => c === u))
+      .filter((u: string | undefined): u is string => !!u)
+      .slice(0, 3);
+
+    for (const url of chosenUrls) {
+      if (!(await isAllowedByRobots(url))) continue;
+      const page = await fetchPage(url);
+      telemetry.webCalls += 1;
+      if (!page.ok) continue;
+      const text = htmlToText(page.html);
+      if (text.length < 100) continue;
+      readSources.push({ url, text: text.slice(0, 20000) });
+    }
+  }
+
+  const readContext = readSources.length
+    ? readSources.map((s) => `URL: ${s.url}\n\nTexto:\n${s.text}`).join('\n\n---\n\n')
+    : '(nenhuma fonte foi lida com sucesso)';
+
+  // Passo 3: sintese estruturada, a partir do texto REAL lido — nao dos
+  // snippets de pesquisa. hasReadSource (nao so ter um URL) e o que decide
+  // se o hook pode ser escrito.
   const synthesis = await callClaude({
     model: LAYER2_MODEL,
-    system: 'Sintetiza apenas com base na pesquisa feita nesta conversa. Se nao encontraste nada de util, deixa os campos a null em vez de inventar.',
-    messages: searchMessages,
+    system: 'Sintetiza apenas com base no texto das fontes lidas abaixo. Se nao conseguiste ler nenhuma fonte com substancia suficiente, deixa os campos a null em vez de inventar ou de usar so titulos/resumos de pesquisa.',
+    messages: [
+      {
+        role: 'user',
+        content: `Pessoa: ${person.full_name} (${entity?.name ?? 'fundo de investimento'})\n\nFontes lidas:\n${readContext}\n\nCom base APENAS neste texto, regista a sintese.`,
+      },
+    ],
     tools: [RECORD_RESEARCH_TOOL],
     toolChoice: { type: 'tool', name: 'record_research' },
   });
@@ -838,23 +947,34 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
   const result = extractToolInput(synthesis, 'record_research');
   if (!result) throw new Error('synthesis_validation_failed: no tool_use block returned');
 
-  const hasSource = sourceUrls.size > 0;
+  const hasReadSource = readSources.length > 0;
 
-  // D8: toda a informacao escrita regista proveniencia — uma linha por fonte.
-  for (const url of sourceUrls) {
-    await supabase.from('catalog_entity_enrichment_sources').insert({
-      entity_id: person.entity_id,
-      person_id: person.id,
-      source_url: url,
-      source_type: 'web_search',
-      supports: 'hook/background',
-      quality: 'search_result',
-      batch_id: batchId,
-    });
+  // D8: pesquisa nova insere uma linha por fonte encontrada, como antes.
+  // Reaproveitamento nao insere de novo (as linhas ja existem) — so marca
+  // como lidas as que efectivamente foram lidas, abaixo.
+  if (isFreshSearch) {
+    for (const url of sourceUrls) {
+      await supabase.from('catalog_entity_enrichment_sources').insert({
+        entity_id: person.entity_id,
+        person_id: person.id,
+        source_url: url,
+        source_type: 'web_search',
+        supports: 'hook/background',
+        quality: 'search_result',
+        batch_id: batchId,
+      });
+    }
+  }
+  for (const s of readSources) {
+    await supabase
+      .from('catalog_entity_enrichment_sources')
+      .update({ quality: 'read_full_text', supports: 'hook', batch_id: batchId })
+      .eq('person_id', person.id)
+      .eq('source_url', s.url);
   }
 
-  // Regra do Nuno: hook so se escreve com fonte. Sem fonte, hook_status =
-  // none_found e o campo fica vazio — um hook inventado queima o contacto.
+  // Regra do Nuno: hook so se escreve com fonte LIDA. Sem isso, hook_status
+  // = none_found e o campo fica vazio — um hook inventado queima o contacto.
   const researchPatch: Record<string, unknown> = {
     intro_path: result.intro_path ?? null,
     watch_outs: result.watch_outs ?? null,
@@ -864,7 +984,7 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
     email_guess_confidence: result.email_guess_confidence ?? null,
     updated_at: new Date().toISOString(),
   };
-  if (hasSource && result.hook) {
+  if (hasReadSource && result.hook) {
     researchPatch.hook = result.hook;
   }
   await supabase.from('catalog_people_research').upsert({ person_id: person.id, ...researchPatch }, { onConflict: 'person_id' });
@@ -872,14 +992,22 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
   await supabase
     .from('catalog_people')
     .update({
-      hook_status: hasSource && result.hook ? 'researched' : 'none_found',
+      hook_status: hasReadSource && result.hook ? 'researched' : 'none_found',
       enrichment_status: 'enriched',
       enriched_at: new Date().toISOString(),
       enrichment_stale_after: addDays(new Date(), 90).toISOString(), // Camada 2 = 90 dias
     })
     .eq('id', person.id);
 
-  return { status: 'done', reason: null, hasSource, hookWritten: hasSource && !!result.hook, sourcesFound: sourceUrls.size };
+  return {
+    status: 'done',
+    reason: null,
+    hasReadSource,
+    hookWritten: hasReadSource && !!result.hook,
+    sourcesFound: sourceUrls.size,
+    sourcesRead: readSources.length,
+    reusedExistingSources: !isFreshSearch,
+  };
 }
 
 // ============================================================
