@@ -39,6 +39,22 @@ import type { PlanTier } from '@/lib/types';
 
 const PERIOD_LABEL: Record<BillingPeriod, string> = { monthly: 'Monthly', annual: 'Annual' };
 
+// Prompt 151 — the app's own promo_codes/promo_redemptions system is
+// completely disconnected from Stripe: redeeming a code here only writes a
+// promo_redemptions row and changes what price this page DISPLAYS
+// (discountedPriceEur below); it never reaches /api/stripe/checkout, which
+// always charges the plan's full price. A real founder tested this live:
+// redeemed a 99%-off code, the app showed "you pay €1/month," Stripe
+// Checkout showed the full €149. Hidden until (a) checkout/route.ts learns
+// to apply the redemption's discount at Stripe (on-the-fly coupon, or a
+// Stripe Promotion Code id stored on the promo_codes row) or (b) is
+// otherwise decided — a billing/money design call, not made here. Does NOT
+// affect kind='free_trial' (100% off) redemptions: those raise the org's
+// effective plan tier directly (plan-server.ts) and never touch Stripe
+// Checkout at all, so they're unaffected by this gap — "Free trial via
+// CODE" below stays visible on purpose.
+const PROMO_REDEEM_UI_ENABLED = false;
+
 type ActivePromo = { code: string; kind: string; discount_pct: number; applicable_plans: PlanTier[]; benefit_ends_at: string | null };
 
 function fmtPromoDate(iso: string | null) {
@@ -291,38 +307,40 @@ export function PlansPanel() {
         </Card>
         </div>
 
-        <Card title="Promo code">
-          {activePromos.length > 0 && (
-            <div className="mb-2.5 space-y-1">
-              {activePromos.map((ap) => {
-                const until = fmtPromoDate(ap.benefit_ends_at);
-                return (
-                  <div key={ap.code} className="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-800">
-                    <b>{ap.code}</b> — {ap.discount_pct}% off {ap.applicable_plans.map((t) => planName(t)).join(', ')}
-                    {until ? ` until ${until}` : ' (no expiry)'}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {!canManage ? (
-            <p className="text-xs text-gray-400">Only the owner/admin can apply a promo code.</p>
-          ) : (
-            <>
-              <div className="flex gap-1.5">
-                <input value={promoCodeInput} onChange={(e) => setPromoCodeInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') applyPromoCode(); }}
-                  placeholder="Enter a promo code" autoCapitalize="none" autoCorrect="off"
-                  className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
-                <button onClick={applyPromoCode} disabled={promoBusy || !promoCodeInput.trim()}
-                  className="shrink-0 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
-                  {promoBusy ? 'Applying…' : 'Apply'}
-                </button>
+        {PROMO_REDEEM_UI_ENABLED && (
+          <Card title="Promo code">
+            {activePromos.length > 0 && (
+              <div className="mb-2.5 space-y-1">
+                {activePromos.map((ap) => {
+                  const until = fmtPromoDate(ap.benefit_ends_at);
+                  return (
+                    <div key={ap.code} className="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-800">
+                      <b>{ap.code}</b> — {ap.discount_pct}% off {ap.applicable_plans.map((t) => planName(t)).join(', ')}
+                      {until ? ` until ${until}` : ' (no expiry)'}
+                    </div>
+                  );
+                })}
               </div>
-              {promoErr && <p className="mt-1.5 text-xs text-[#B00000]">{promoErr}</p>}
-            </>
-          )}
-        </Card>
+            )}
+            {!canManage ? (
+              <p className="text-xs text-gray-400">Only the owner/admin can apply a promo code.</p>
+            ) : (
+              <>
+                <div className="flex gap-1.5">
+                  <input value={promoCodeInput} onChange={(e) => setPromoCodeInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') applyPromoCode(); }}
+                    placeholder="Enter a promo code" autoCapitalize="none" autoCorrect="off"
+                    className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
+                  <button onClick={applyPromoCode} disabled={promoBusy || !promoCodeInput.trim()}
+                    className="shrink-0 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+                    {promoBusy ? 'Applying…' : 'Apply'}
+                  </button>
+                </div>
+                {promoErr && <p className="mt-1.5 text-xs text-[#B00000]">{promoErr}</p>}
+              </>
+            )}
+          </Card>
+        )}
       </div>
 
       {/* Billing period toggle — drives every price below. */}
