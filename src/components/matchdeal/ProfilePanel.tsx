@@ -24,13 +24,19 @@
 // but stores a raw URL while orgs.logo_url stores a data-room storage path
 // (see "Use your Sherlock Deal logo" below, which already reconciles the
 // two formats via a long-lived signed URL rather than a sync trigger).
-// Prompt 147 §2 — website/description were left editable here despite
-// being synced one-way from orgs same as country/sectors, an inconsistency
-// applied by omission rather than by design: same drift-until-next-Settings-
-// save problem, plus description was shown TWICE on one screen (read-only
-// in the "From your Sherlock Deal profile" card above, and editable again
-// here, with no guarantee the two values matched). Now read-only/redirect
-// for startup profiles, same as country/sectors, for the same reason.
+// Prompt 147 §2 (reverted by Prompt 148 §2) — website/description were
+// briefly made read-only/redirect here on the assumption that they synced
+// one-way from orgs same as country/sectors (migration 0098). Confirmed
+// false on independent review: 0098 only syncs sectors/country — there is
+// no trigger or route that ever moves orgs.website/orgs.description into
+// matchdeal_profiles.*. The only thing that ever touched them was
+// computeProfilePrefill() below, a ONE-TIME fill for an empty field, never
+// a continuing sync. Making them redirect-only left a startup with no way
+// to update either one on their MatchDeal card at all — "edit in Settings"
+// pointed at a save that never reaches this table. Reverted to editable
+// here, same as before Prompt 147 §2; the description-shown-twice cosmetic
+// issue that change was also fixing stays open (real, just not worth
+// reintroducing a functional regression to fix a display duplication).
 import { useEffect, useRef, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { computeProfilePrefill } from '@/lib/matchdeal-profile-prefill';
@@ -312,11 +318,7 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
             </div>
           </Field>
         )}
-        {viewerKind === 'startup' ? (
-          <Field label="Website"><p className="text-[13px] text-white/70">{profile.website || '—'} <span className="text-white/30">· edit in Settings</span></p></Field>
-        ) : (
-          <Field label="Website"><input className={inputCls} value={profile.website ?? ''} onChange={(e) => set('website', e.target.value)} placeholder="https://…" /></Field>
-        )}
+        <Field label="Website"><input className={inputCls} value={profile.website ?? ''} onChange={(e) => set('website', e.target.value)} placeholder="https://…" /></Field>
         {/* Item 3.3 — country/sectors for a startup profile are sourced from
             orgs (edited in Settings), same as name/description/founded_year
             above, closing the "explicit pause" migration 0098's own comment
@@ -330,11 +332,7 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
         ) : (
           <Field label="Country"><input className={inputCls} value={profile.country ?? ''} onChange={(e) => set('country', e.target.value)} /></Field>
         )}
-        {viewerKind === 'startup' ? (
-          <Field label="Description"><p className="text-[13px] text-white/70">{profile.description || '—'} <span className="text-white/30">· edit in Settings</span></p></Field>
-        ) : (
-          <Field label="Description"><textarea rows={3} className={inputCls} value={profile.description ?? ''} onChange={(e) => set('description', e.target.value)} /></Field>
-        )}
+        <Field label="Description"><textarea rows={3} className={inputCls} value={profile.description ?? ''} onChange={(e) => set('description', e.target.value)} /></Field>
 
         {viewerKind === 'startup' ? (
           <>

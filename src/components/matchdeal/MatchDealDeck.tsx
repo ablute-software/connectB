@@ -728,19 +728,28 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
   // it just surfaces later rather than instantly here. Fixing that needs
   // the RPC's own return shape to change — a real (if small) schema touch,
   // out of scope for "wire the existing backend to UI."
+  //
+  // Prompt 148 §1 — this used to call the RPC directly as `authenticated`,
+  // which has never had EXECUTE on it (service_role-only since migration
+  // 0136, confirmed live) — every boost tap failed with a Postgres
+  // permission error, never reaching the weekly-limit handling below at
+  // all. Now goes through /api/matchdeal/boost, which resolves the actor
+  // from the session server-side and calls the RPC with service-role.
   async function activateBoost() {
     if (!current || boostBusy) return;
     setBoostBusy(true);
     setBoostError(null);
     try {
-      const { error } = await browserClient().rpc('matchdeal_activate_super_like', {
-        p_actor_profile_id: viewerProfileId, p_target_profile_id: current.id,
+      const res = await fetch('/api/matchdeal/boost', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ kind: viewerKind, targetProfileId: current.id }),
       });
-      if (error) {
+      const body = await res.json();
+      if (!body.ok) {
         setBoostError(
-          error.message.includes('SUPER_LIKE_NOT_AVAILABLE')
+          (body.error ?? '').includes('SUPER_LIKE_NOT_AVAILABLE')
             ? 'Boost is only available on the List of Suspects plan or higher.'
-            : error.message.includes('SUPER_LIKE_ALREADY_USED')
+            : (body.error ?? '').includes('SUPER_LIKE_ALREADY_USED')
               ? "You've already used this week's Boost."
               : 'Could not boost — try again.',
         );
