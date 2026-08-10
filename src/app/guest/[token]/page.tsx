@@ -17,14 +17,23 @@
 //    on isn't worth it for a decorative backdrop.
 // 2. The document list is now a real folder tree (see GuestPreview type),
 //    not a flat sorted name list.
-// 3. The CTA now links straight to /signup?as=investor (InvestorSignupPanel)
-//    with the invited email/org prefilled via query params, replacing the
-//    generic-OTP-to-/portal button.
-// 4. (documents/page.tsx's grant flow) — separate file, see that page.
+// 3. (documents/page.tsx's grant flow) — separate file, see that page.
+//
+// Prompt 159 — reverts gap 3 as originally shipped here (commit 26455c1),
+// which had pointed this CTA at /signup?as=investor (InvestorSignupPanel ->
+// /api/investor-access-request, a manual-review lead form). Flagged in that
+// same commit and confirmed a real regression, not a judgment call: this
+// page already knows it's talking to a VALIDATED guest — data.invitedEmail
+// only exists because /api/guest/[token] resolved a real, used
+// access_grants.guest_token row. Routing a validated guest through a cold-
+// lead review queue was a real downgrade from the original signInWithOtp()
+// -> /portal flow, where "Is this you?" (Bloco 33/47) is what actually
+// confirms the grant. /signup?as=investor stays available for genuine cold
+// leads (someone arriving with no invite at all) — just no longer what
+// this specific, already-invited CTA uses.
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { BRAND_NAME } from '@/lib/brand';
-import { authEnabled } from '@/lib/supabase';
+import { browserClient, authEnabled } from '@/lib/supabase';
 
 type GuestFolder = { id: string; name: string; documents: { id: string; name: string }[] };
 type GuestPreview = {
@@ -69,14 +78,27 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
   const { token } = params;
   const [data, setData] = useState<GuestResponse | null>(null);
   const [loadErr, setLoadErr] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [sendErr, setSendErr] = useState('');
 
   useEffect(() => {
     fetch(`/api/guest/${token}`).then((r) => r.json()).then(setData).catch(() => setLoadErr(true));
   }, [token]);
 
-  const signupHref = data?.ok
-    ? `/signup?as=investor&email=${encodeURIComponent(data.invitedEmail)}&note=${encodeURIComponent(`Invited via data room preview for ${data.orgName}`)}`
-    : '/signup?as=investor';
+  async function createAccount() {
+    if (!data?.ok) return;
+    setSending(true); setSendErr('');
+    try {
+      const sb = browserClient();
+      const { error } = await sb.auth.signInWithOtp({
+        email: data.invitedEmail,
+        options: { shouldCreateUser: true, emailRedirectTo: `${window.location.origin}/auth/callback?next=/portal` },
+      });
+      if (error) { setSendErr(error.message); return; }
+      setSent(true);
+    } finally { setSending(false); }
+  }
 
   return (
     <div className="min-h-screen bg-[#F7F9FA]">
@@ -117,13 +139,20 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
               </div>
               <p className="mb-4 text-xs text-gray-400">This preview was shared with {data.invitedEmail}.</p>
 
-              <div className="mb-5 rounded-xl border border-cyan-100 bg-[#E8F4F8]/70 px-4 py-3.5 text-center">
-                <p className="mb-2 text-sm font-medium text-gray-800">Create your free investor account to open these documents</p>
-                <Link href={signupHref}
-                  className="block w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-semibold text-white hover:bg-[#0c637b]">
-                  Create your free account
-                </Link>
-              </div>
+              {sent ? (
+                <div className="mb-5 rounded-xl border border-cyan-100 bg-[#E8F4F8] px-3 py-3 text-sm text-gray-700">
+                  Check your email — click the link we just sent to {data.invitedEmail} to open the data room.
+                </div>
+              ) : (
+                <div className="mb-5 rounded-xl border border-cyan-100 bg-[#E8F4F8]/70 px-4 py-3.5 text-center">
+                  <p className="mb-2 text-sm font-medium text-gray-800">Create your free account to open these documents</p>
+                  <button disabled={sending} onClick={() => void createAccount()}
+                    className="w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+                    {sending ? 'Sending…' : 'Create your free account'}
+                  </button>
+                  {sendErr && <p className="mt-2 text-xs text-[#B00000]">{sendErr}</p>}
+                </div>
+              )}
 
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
                 {data.documentCount} document{data.documentCount === 1 ? '' : 's'} shared with you
