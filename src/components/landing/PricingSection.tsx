@@ -4,9 +4,7 @@
 // the same module the in-app Plans page uses — so prices can never drift
 // between the marketing page and the product.
 import { useState } from 'react';
-import {
-  PLANS, CONSULTANCY_TEASER_EN_LEAD, CONSULTANCY_TEASER_EN_REST,
-} from '@/lib/plans';
+import { PLANS } from '@/lib/plans';
 import type { PlanTier } from '@/lib/types';
 import s from '@/app/landing.module.css';
 
@@ -124,10 +122,6 @@ export function PricingSection() {
             );
           })}
         </div>
-
-        <p className={`${s.teaser} ${s.rv}`} data-reveal>
-          <b>{CONSULTANCY_TEASER_EN_LEAD}</b>{CONSULTANCY_TEASER_EN_REST}
-        </p>
       </div>
     </section>
   );

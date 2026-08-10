@@ -188,7 +188,10 @@ export interface StoreApi {
   updateRunDraft: (id: string, draft: string) => void;
   resetDemo: () => void;
   // v3: packs / catalog / back-office
-  unlockPack: (packId: string) => number;
+  // Prompt 139 D3 — async in the Supabase backend (catalog_top_matches is a
+  // server round-trip); store-demo.tsx's implementation stays synchronous
+  // internally but returns a resolved Promise to satisfy this one contract.
+  unlockPack: (packId: string) => Promise<number>;
   submitInvestor: (payload: InvestorSubmission['payload']) => void;
   reviewSubmission: (id: string, decision: 'approved' | 'rejected', notes?: string) => void;
   // IRM_SPEC §4e: relationship roadmap overlay

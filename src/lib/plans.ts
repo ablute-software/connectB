@@ -140,13 +140,14 @@ export const PLANS: PlanRow[] = [
     // doc: Elementary's own bullets carry forward (Smart Calendar, Protected
     // Outreach, Actionable Review Queue, Bulk Investor Import, NDA sharing),
     // with Investor Pipeline/Vault/seats replaced by this tier's own numbers
-    // and the items below added. Advanced Review & Optimization / Investability
-    // Reports are named in the doc's List of Suspects bullets, but the real
-    // entitlement (reviewOptimization) is still platform-only preview (Prompt
-    // 115) — not open to any paying plan yet. Kept in `comingSoon` rather than
-    // promised as live, to avoid advertising a feature paying customers can't
-    // actually use. FLAGGED for Nuno — this is the doc vs. product-state
-    // conflict that matters most in this block.
+    // and the items below added.
+    // Prompt 158 — Advanced Review & Optimization / Investability reports
+    // promoted out of `comingSoon` into real bullets: Nuno confirmed
+    // (10/08) they'll be ready by launch, so the "(coming soon)" label no
+    // longer applies to the CARD COPY. Prompt 160 (same day) closed the
+    // gap this comment used to flag: planEntitlements().reviewOptimization
+    // now actually opens for both paid plans too, so the card and the
+    // in-app gate agree again.
     bullets: [
       '2 users',
       'Investor Pipeline\n'
@@ -165,10 +166,8 @@ export const PLANS: PlanRow[] = [
       'Investor re-engagement engine',
       'Access to MatchDeal\n'
         + `· ${MATCHDEAL_WEEKLY.garage.deck} new investors per week\n`
-        + `· ${MATCHDEAL_WEEKLY.garage.likes} investor picks per week\n`
-        + `· ${MATCHDEAL_WEEKLY.garage.undos} reconsiderations per week`,
-    ],
-    comingSoon: [
+        + `· ${MATCHDEAL_WEEKLY.garage.likes} Swipe Rights per week\n`
+        + `· ${MATCHDEAL_WEEKLY.garage.undos} Reconsiderations per week`,
       'Advanced Review & Optimization',
       'Investability reports',
     ],
@@ -179,9 +178,10 @@ export const PLANS: PlanRow[] = [
     tagline: 'For serious, multi-investor raises',
     // Prompt 123 §0.1/§B.1 — base 25 (card wins over the doc's "5/10/20"
     // unlock-rules section; see PLAN_PIPELINE_BASE.motherfunding in
-    // pipeline-unlock.ts). Everything from List of Suspects carries forward
-    // (same comingSoon caveat re: Review & Optimization applies here too —
-    // still platform-only preview, not actually live for this plan).
+    // pipeline-unlock.ts). Everything from List of Suspects carries forward.
+    // Prompt 158/160 — see garage's own comment above: Advanced Review &
+    // Optimization / Investability reports promoted out of `comingSoon`
+    // here too, and the entitlement gate opens for this tier as well.
     bullets: [
       '5 users',
       'Investor Pipeline\n'
@@ -200,10 +200,8 @@ export const PLANS: PlanRow[] = [
       'Investor re-engagement engine',
       'Access to MatchDeal\n'
         + `· ${MATCHDEAL_WEEKLY.motherfunding.deck} new investors per week\n`
-        + `· ${MATCHDEAL_WEEKLY.motherfunding.likes} investor picks per week\n`
-        + '· unlimited reconsiderations',
-    ],
-    comingSoon: [
+        + `· ${MATCHDEAL_WEEKLY.motherfunding.likes} Swipe Rights per week\n`
+        + `· Unlimited Reconsiderations until you use the ${MATCHDEAL_WEEKLY.motherfunding.likes} weekly Swipe Rights`,
       'Advanced Review & Optimization',
       'Investability reports',
     ],
@@ -213,13 +211,10 @@ export const PLANS: PlanRow[] = [
 // Success fee SUSPENDED (founder decision, post legal consultation, 2026-07-23):
 // pending regulatory clarity. All user-facing fee copy (the 1,3%, the 18-month
 // tail, the plan-deduction, the "Termos sujeitos a contrato" caveat) is removed
-// — subscriptions are the only thing a startup pays at this stage. Replaced on
-// the Plans page by this one discreet, terms-free note. No percentages, no terms.
-export const CONSULTANCY_TEASER = 'Brevemente: opção de consultoria para captação de capital.';
-// English rendering of the same teaser, for the public (English) landing page.
-// Same promise, no percentages, no terms — the fee stays suspended.
-export const CONSULTANCY_TEASER_EN_LEAD = 'Coming soon:';
-export const CONSULTANCY_TEASER_EN_REST = ' a capital-raising consultancy option, for founders who want hands-on help with their round.';
+// — subscriptions are the only thing a startup pays at this stage.
+// Prompt 158 — the consultancy teaser itself ("Coming soon: a capital-raising
+// consultancy option…") is also removed now, per Nuno (10/08): no fee copy,
+// no consultancy teaser, no terms, nothing in its place.
 
 // Billing period toggle (Mensal / Anual). Annual falls back to the monthly
 // label when a tier has no annual price (the free 'idea' tier is €0 either way).
@@ -249,7 +244,14 @@ export const AI_COMPOSER_LOCKED_COPY = 'AI personalization is part of the paid p
 // Prompt 117 Bloco G.2 — was hardcoded to 'the Premium plan', a tier name
 // that has never existed in this product (see WATSON_DRAFT_QUOTA's own
 // 100/300-vs-90/210 divergence bug for why hardcoded tier names rot).
-export const REVIEW_OPTIMIZATION_PREVIEW_COPY = `Coming soon on the ${planName('motherfunding')} plan`;
+// Prompt 160 — was `Coming soon on the ${planName('motherfunding')} plan`,
+// naming only the top tier; now inaccurate now that planEntitlements()
+// opens reviewOptimization on BOTH paid plans (garage too), and this
+// message only ever shows to the free plan now (see ReadinessPanel.tsx's
+// `locked` — purely entitlement-driven). Reworded generically, matching
+// AI_COMPOSER_LOCKED_COPY's own "part of the paid plans" phrasing, so it
+// can't drift out of sync with which specific tier(s) unlock it again.
+export const REVIEW_OPTIMIZATION_PREVIEW_COPY = 'Review & Optimization is part of the paid plans';
 
 export function planRow(plan: PlanTier): PlanRow {
   return PLANS.find((p) => p.tier === plan) ?? PLANS[0];
@@ -282,11 +284,11 @@ export interface Entitlements {
   // pass) — this function is only the plan half.
   aiComposer: boolean;
   // A — Review & Optimization (investability ranking et al.). Prompt 115
-  // Fase 0: no longer parked for everyone — it's platform-only preview now,
-  // open for `ablute_` (the platform org) to validate the v1 against real
-  // documents before it opens to paid plans. Every customer plan still sees
-  // the frosted-glass overlay. Lift further later by also returning true for
-  // e.g. `plan === 'motherfunding'` — no schema change needed for that.
+  // Fase 0 opened it platform-only, to validate the v1 against real
+  // documents before paid plans got it. Prompt 160 (10/08) — Nuno confirmed
+  // it's ready for launch; opened to both paid plans below, same pattern as
+  // aiComposer. Free ('idea') stays excluded — the plan card never promised
+  // this on the free tier (plans.ts's own PLANS bullets).
   reviewOptimization: boolean;
   // Prompt 117 Bloco G — Cross-document check and Market data are the two
   // heavier-compute review tools; restricted to the top tier once
@@ -307,8 +309,9 @@ export function planEntitlements(plan: PlanTier, isDeveloperRole: boolean): Enti
     // Developer role gets full access; paid plans get the AI composer; the
     // free 'idea' tier does not.
     aiComposer: isDeveloperRole || planIsPaid(plan),
-    // Platform-only preview (Prompt 115 Fase 0) — see the note on the field above.
-    reviewOptimization: isDeveloperRole,
+    // Prompt 160 — opened to both paid plans, same pattern as aiComposer
+    // above. See the note on the field itself for why.
+    reviewOptimization: isDeveloperRole || planIsPaid(plan),
     reviewTopTierTools: isDeveloperRole || plan === 'motherfunding',
   };
 }
@@ -416,6 +419,16 @@ export const INVESTOR_PLANS: InvestorPlanRow[] = [
 export function investorPlanRow(tier: InvestorPlanTier): InvestorPlanRow {
   return INVESTOR_PLANS.find((p) => p.tier === tier) ?? INVESTOR_PLANS[0];
 }
+
+// matchdeal_profiles.plan_tier (kind='investor') stores MatchDeal's own
+// internal tier names, not these plan tiers — see set-investor-plan/route.ts's
+// own header comment. Centralized here (was previously duplicated as a
+// local const inside InvestorPlansPanel.tsx, a client component) so
+// investor-pipeline.ts's server-side monthlyCap lookup (Prompt 153) uses
+// the exact same mapping, not a second copy that could drift.
+export const MATCHDEAL_TIER_TO_INVESTOR_PLAN: Record<string, InvestorPlanTier> = {
+  tier_a: 'pro_scout', tier_b: 'ace_spotter', tier_c: 'legendary_sleuth',
+};
 
 // PLAN-02 — the 4th plan: no fixed price, a contact form instead of a
 // checkout/request CTA. Deliberately NOT part of INVESTOR_PLANS (which

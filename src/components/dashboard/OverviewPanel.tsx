@@ -9,7 +9,6 @@ import { useStore } from '@/lib/store';
 import { Card, EntityLink, fmtRoundEur } from '@/components/ui';
 import { outboundCounts, passReasonAlert } from '@/lib/rules';
 import { PageTour } from '@/components/onboarding/PageTour';
-import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import { MatchDealVisibilityBanner } from './MatchDealVisibilityBanner';
 import type { EntityStatus } from '@/lib/types';
 
@@ -61,7 +60,6 @@ export function OverviewPanel() {
       <PageTour pageKey="guide_dashboard" />
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold">Dashboard</h1>
-        <PageGuideButton pageKey="guide_dashboard" />
       </div>
 
       <MatchDealVisibilityBanner />

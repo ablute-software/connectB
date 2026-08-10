@@ -20,12 +20,19 @@ export function PlanCards({
     <div className="grid gap-4 md:grid-cols-3">
       {plans.map((p, i) => {
         const isCurrent = p.id === currentId;
-        // The first plan has nothing before it to be "new" relative to —
-        // without this guard, newBulletsSince(p, undefined) treats an empty
-        // previous set as the baseline and tags every one of its own
-        // bullets "New", which is wrong (confirmed live: it did exactly
-        // that before this guard existed).
-        const isNew = i === 0 ? new Set<string>() : newBulletsSince(p, plans[i - 1]);
+        // Prompt 158 §6 — each feature is shown once, on the card of the
+        // first plan that includes it; later plans don't repeat it (the
+        // comparison table still ticks ✓ for every plan that has it — see
+        // ComparisonTable.tsx, untouched by this). newBulletsSince still
+        // does the real work here (bullets are cumulative arrays per
+        // plans.ts's own contract — "each tier's array is the previous
+        // tier's plus what's new"), it just now controls which bullets
+        // render at all instead of which get a "New" badge — Prompt 158 §3
+        // removed the badge itself, not this function; UpgradeConfirmModal
+        // still uses it unchanged for its own "what you gain by upgrading"
+        // list, a different feature entirely.
+        const newSincePrevious = i === 0 ? null : newBulletsSince(p, plans[i - 1]);
+        const visibleBullets = newSincePrevious ? p.bullets.filter((b) => newSincePrevious.has(b)) : p.bullets;
         return (
           <div key={p.id}
             className={`relative flex flex-col rounded-2xl border bg-white p-5 shadow-sm ${
@@ -56,22 +63,16 @@ export function PlanCards({
             )}
 
             <ul className="mt-4 flex-1 space-y-1.5 text-xs text-gray-600">
-              {p.bullets.map((b) => {
+              {visibleBullets.map((b) => {
                 // Prompt 123 §B.1 — a bullet can carry embedded sub-items
                 // (e.g. "Investor Pipeline\n· 5 investors…") for doc-mandated
-                // nested lists (Investor Pipeline, Access to MatchDeal). The
-                // diffing above keys on the WHOLE string, so a tier whose
-                // numbers changed still shows as "New" — intended, since the
-                // numbers genuinely did change at that tier.
+                // nested lists (Investor Pipeline, Access to MatchDeal).
                 const [head, ...subLines] = b.split('\n');
                 return (
-                  <li key={b} className={`flex items-start gap-1.5 ${isNew.has(b) ? 'font-semibold text-gray-800' : ''}`}>
-                    <span className={isNew.has(b) ? 'text-[#0E7490]' : 'text-gray-400'}>✓</span>
+                  <li key={b} className="flex items-start gap-1.5">
+                    <span className="text-gray-400">✓</span>
                     <span>
                       {head}
-                      {isNew.has(b) && (
-                        <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#0E7490]">New</span>
-                      )}
                       {subLines.length > 0 && (
                         <ul className="mt-1 space-y-0.5 pl-1 font-normal text-gray-500">
                           {subLines.map((line) => <li key={line}>{line}</li>)}

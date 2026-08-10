@@ -98,9 +98,17 @@ export async function GET(req: Request) {
     distinctVoucherEntityCount,
   });
 
+  // Prompt 156 — migration 0156. A separate small query rather than adding
+  // this to resolveActiveInvestorMember's own select: that helper is shared
+  // across 11 call sites, most of which have nothing to do with the
+  // Pipeline confirm step.
+  const { data: memberRow } = await admin.from('matchdeal_investor_members')
+    .select('pipeline_confirmed_at').eq('id', member.id).maybeSingle();
+
   return NextResponse.json({
     linked: true, entityName: entity?.name ?? null, profile, completeness: completeness(profile ?? {}),
     sectorOptions: SECTOR_TAXONOMY, identityStatus,
+    pipelineConfirmedAt: (memberRow?.pipeline_confirmed_at as string | null) ?? null,
   });
 }
 

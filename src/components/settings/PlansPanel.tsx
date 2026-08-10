@@ -28,14 +28,13 @@ import { ComparisonTable } from '@/components/plans/ComparisonTable';
 import { UpgradeConfirmModal } from '@/components/plans/UpgradeConfirmModal';
 import type { PlanCardData } from '@/components/plans/types';
 import {
-  PLANS, CONSULTANCY_TEASER_EN_LEAD, CONSULTANCY_TEASER_EN_REST, BILLING_PERIODS,
+  PLANS, BILLING_PERIODS,
   planPriceLabel, parsePlanRequest, normalizePlan, planName, type BillingPeriod,
 } from '@/lib/plans';
 import { SECURE_PAYMENT_COPY } from '@/lib/billing';
 import { discountedPriceEur } from '@/lib/promo';
 import { can, type OrgRole } from '@/lib/permissions';
 import { PageTour } from '@/components/onboarding/PageTour';
-import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import type { PlanTier } from '@/lib/types';
 
 const PERIOD_LABEL: Record<BillingPeriod, string> = { monthly: 'Monthly', annual: 'Annual' };
@@ -269,7 +268,6 @@ export function PlansPanel() {
       <PageTour pageKey="guide_plans" />
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold">Plans &amp; billing</h1>
-        <PageGuideButton pageKey="guide_plans" />
       </div>
 
       {notice && <div className="rounded-lg border border-cyan-100 bg-[#E8F4F8] px-3 py-2 text-xs text-[#0E7490]">{notice}</div>}
@@ -366,8 +364,6 @@ export function PlansPanel() {
       {showCompare && <ComparisonTable plans={cardPlans} />}
 
       {billing && <p className="text-[11px] text-gray-400">🔒 {SECURE_PAYMENT_COPY}. Cancel anytime.</p>}
-
-      <p className="text-xs text-gray-400"><b>{CONSULTANCY_TEASER_EN_LEAD}</b>{CONSULTANCY_TEASER_EN_REST}</p>
 
       {!billing && (
         <p className="text-[11px] text-gray-400">

@@ -22,7 +22,6 @@ import { CompanyPanel } from '@/components/company/CompanyPanel';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { APP_URL } from '@/lib/brand';
 import { PageTour } from '@/components/onboarding/PageTour';
-import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import { VisibilityToggle } from '@/components/VisibilityToggle';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 
@@ -393,7 +392,6 @@ function SettingsInner() {
     <div>
       <div className="mb-1 flex items-center justify-between">
         <h1 className="text-lg font-bold">About {db.org.name || 'your company'}</h1>
-        <PageGuideButton pageKey="guide_settings" />
       </div>
       <VisibilityToggle kind="startup" />
       <Tabs items={tabs} active={effectiveTab} onChange={setTab} />

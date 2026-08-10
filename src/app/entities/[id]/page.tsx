@@ -8,6 +8,7 @@ import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
 import { ThreadDrawer } from '@/components/ThreadDrawer';
 import { ContributionBox } from '@/components/ContributionBox';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
+import { EntityPeoplePanel } from '@/components/EntityPeoplePanel';
 import { entityCompleteness, qualifiesForContactEnrichment } from '@/lib/completeness';
 import { isPersonCandidate, isUnverifiedStub, relatedContacts } from '@/lib/relationship';
 import { computeAlignment } from '@/lib/company-canon-logic';
@@ -238,6 +239,8 @@ export default function EntityPage({ params }: { params: { id: string } }) {
             onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} refreshKey={contributionsRefreshKey} />
         </div>
       </Card>
+
+      <EntityPeoplePanel entityId={entity.id} />
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-4 md:col-span-2">

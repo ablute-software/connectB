@@ -229,9 +229,101 @@ function EquitySimulatorTool({ cards }: { cards: PipelineCard[] }) {
   );
 }
 
+// Prompt 142 Bloco 1 — criteria are managed here (define once); scoring a
+// specific startup against them lives on that startup's own dossier page
+// (portal/startup/[orgId]) instead, so this stays the CRUD half only —
+// keeps the two concerns apart rather than duplicating a scorer here too.
+interface Criterion { id: string; label: string; weight: number; sort_order: number }
+
+function ScorecardCriteriaTool() {
+  const [criteria, setCriteria] = useState<Criterion[] | null>(null);
+  const [newLabel, setNewLabel] = useState('');
+  const [newWeight, setNewWeight] = useState('1');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    fetch('/api/portal/scorecard/criteria').then((r) => r.json()).then((d) => setCriteria(d.criteria ?? []));
+  }
+  useEffect(() => { load(); }, []);
+
+  async function post(body: Record<string, unknown>) {
+    setBusy(true); setError(null);
+    try {
+      const res = await fetch('/api/portal/scorecard/criteria', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) { setError(data.error ?? 'Something went wrong — please try again.'); return; }
+      load();
+    } finally { setBusy(false); }
+  }
+
+  async function addCriterion() {
+    if (!newLabel.trim()) return;
+    await post({ action: 'create', label: newLabel.trim(), weight: Number(newWeight) || 1 });
+    setNewLabel(''); setNewWeight('1');
+  }
+
+  function move(index: number, dir: -1 | 1) {
+    if (!criteria) return;
+    const j = index + dir;
+    if (j < 0 || j >= criteria.length) return;
+    const order = criteria.map((c) => c.id);
+    [order[index], order[j]] = [order[j], order[index]];
+    void post({ action: 'reorder', order });
+  }
+
+  if (criteria === null) return <p className="text-sm text-gray-400">Loading…</p>;
+
+  return (
+    <div className="max-w-lg space-y-4">
+      <p className="text-sm text-gray-500">
+        Define the criteria you personally weigh a startup against — score each one from the startup&apos;s own page.
+        These are yours alone; a colleague at your firm defines their own set independently.
+      </p>
+      {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{error}</p>}
+
+      {criteria.length === 0 ? (
+        <p className="text-sm text-gray-400">No criteria yet — add your first one below.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {criteria.map((c, i) => (
+            <li key={c.id} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white p-2.5 text-sm">
+              <div className="flex flex-col">
+                <button disabled={i === 0 || busy} onClick={() => move(i, -1)} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30">▲</button>
+                <button disabled={i === criteria.length - 1 || busy} onClick={() => move(i, 1)} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30">▼</button>
+              </div>
+              <span className="flex-1 text-gray-800">{c.label}</span>
+              <span className="text-xs text-gray-400">weight {c.weight}</span>
+              <button disabled={busy} onClick={() => post({ action: 'delete', id: c.id })}
+                className="text-xs text-gray-400 hover:text-[#B00000] disabled:opacity-30">Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex items-end gap-2 rounded-lg border border-dashed border-gray-200 p-3">
+        <label className="flex-1 text-xs text-gray-500">
+          New criterion
+          <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="e.g. Team, Market size, Traction"
+            className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+        </label>
+        <label className="text-xs text-gray-500">
+          Weight
+          <input type="number" min={0} value={newWeight} onChange={(e) => setNewWeight(e.target.value)}
+            className="mt-1 w-16 rounded border border-gray-300 px-2 py-1.5 text-sm" />
+        </label>
+        <button onClick={addCriterion} disabled={busy || !newLabel.trim()}
+          className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Add</button>
+      </div>
+    </div>
+  );
+}
+
 export function EvaluationToolsPanel({ initialOrgId }: { initialOrgId?: string | null }) {
   const [cards, setCards] = useState<PipelineCard[]>([]);
-  const [tool, setTool] = useState<'calculator' | 'simulator'>('calculator');
+  const [tool, setTool] = useState<'calculator' | 'simulator' | 'scorecard'>('calculator');
   const [selectedOrgId, setSelectedOrgId] = useState(initialOrgId ?? '');
 
   useEffect(() => {
@@ -258,12 +350,18 @@ export function EvaluationToolsPanel({ initialOrgId }: { initialOrgId?: string |
           className={`rounded-full px-3 py-1.5 text-xs font-medium ${tool === 'simulator' ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
           Equity simulator
         </button>
+        <button onClick={() => setTool('scorecard')}
+          className={`rounded-full px-3 py-1.5 text-xs font-medium ${tool === 'scorecard' ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+          Scorecard criteria
+        </button>
       </div>
 
       {tool === 'calculator' ? (
         <OwnershipCalculatorTool cards={cards} selectedOrgId={selectedOrgId} onSelectOrg={setSelectedOrgId} onSwitchToSimulator={() => setTool('simulator')} />
-      ) : (
+      ) : tool === 'simulator' ? (
         <EquitySimulatorTool cards={cards} />
+      ) : (
+        <ScorecardCriteriaTool />
       )}
     </div>
   );

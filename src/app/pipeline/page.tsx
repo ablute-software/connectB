@@ -14,7 +14,6 @@ import { AddInvestorModal } from '@/components/AddInvestorModal';
 import { isPersonCandidate, isUnverifiedStub } from '@/lib/relationship';
 import { CoachMark } from '@/components/onboarding/CoachMark';
 import { PageTour } from '@/components/onboarding/PageTour';
-import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 import type { Db, Entity, TaskItem } from '@/lib/types';
@@ -134,16 +133,25 @@ function EmptyCompanyBlock({ variant }: { variant: 'screen' | 'banner' }) {
   const { db, unlockPack } = useStore();
   const [unlocking, setUnlocking] = useState(false);
   const [result, setResult] = useState<'added' | 'none' | null>(null);
+  // Prompt 156 — the match runs off the profile data as it stands the
+  // instant unlockPack() fires, and (per the plan's monthly cadence) can't
+  // be re-run on demand afterward — so this button used to go straight
+  // from "eligible" to "unlocked" with nothing in between confirming the
+  // founder actually meant to lock that data in now. `confirming` is a
+  // pure UI gate in front of the same unlockPack() call below — no new
+  // state, no new endpoint, matches this prompt's own "UI only" scope.
+  const [confirming, setConfirming] = useState(false);
 
   const { pct } = calcCompanyCompleteness(db.org, db.companyPeople);
   const starterPack = db.packs.find((p) => p.name === STARTER_PACK_NAME);
   const eligible = pct >= SELF_SERVICE_COMPLETENESS_THRESHOLD && !!starterPack;
 
-  function unlock() {
+  async function unlock() {
     if (!starterPack) return;
     setUnlocking(true);
-    const added = unlockPack(starterPack.id);
+    const added = await unlockPack(starterPack.id);
     setUnlocking(false);
+    setConfirming(false);
     setResult(added > 0 ? 'added' : 'none');
   }
 
@@ -151,25 +159,47 @@ function EmptyCompanyBlock({ variant }: { variant: 'screen' | 'banner' }) {
     <div className={variant === 'screen' ? 'flex min-h-[50vh] items-center justify-center' : 'rounded-2xl border border-gray-100 bg-white p-6 shadow-sm'}>
       <div className="mx-auto max-w-[420px] text-center">
         <div className="mx-auto mb-5 flex h-[80px] w-[80px] items-center justify-center rounded-full bg-gray-50 text-3xl">🔍</div>
-        <h2 className="mb-2 text-lg font-semibold text-gray-900">No investors in the pipeline yet</h2>
-        <p className="mb-5 text-sm text-gray-500">
-          {eligible
-            ? 'Your profile is complete enough to unlock your first batch of catalog investors, or you can import your own contacts.'
-            : `As soon as your profile is at least ${SELF_SERVICE_COMPLETENESS_THRESHOLD}% complete you can unlock investors from the catalog yourself, or you can import your own contacts now.`}
-        </p>
-        {result === 'added' && <p className="mb-3 text-sm font-medium text-emerald-700">Done — check the table below.</p>}
-        {result === 'none' && <p className="mb-3 text-sm text-gray-500">No new investors left in this pack for your account.</p>}
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          {eligible && (
-            <button disabled={unlocking} onClick={unlock}
-              className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b] disabled:opacity-50">
-              {unlocking ? 'Unlocking…' : 'Unlock my pipeline'}
-            </button>
-          )}
-          <Link href="/settings" className="inline-block rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-            {eligible ? 'Import contacts instead' : 'Complete your profile'}
-          </Link>
-        </div>
+        {confirming ? (
+          <>
+            <h2 className="mb-2 text-lg font-semibold text-gray-900">Congratulations — we have enough to show you your best-matched investors</h2>
+            <p className="mb-5 text-sm text-gray-500">
+              Confirm your company profile is accurate before you unlock — the match uses this data as it stands right now.
+              If something&apos;s wrong, fix it first: you won&apos;t get a fresh match until your plan&apos;s monthly renewal.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button disabled={unlocking} onClick={unlock}
+                className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b] disabled:opacity-50">
+                {unlocking ? 'Unlocking…' : 'Confirm and unlock my pipeline'}
+              </button>
+              <button disabled={unlocking} onClick={() => setConfirming(false)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                Let me check my profile first
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 className="mb-2 text-lg font-semibold text-gray-900">No investors in the pipeline yet</h2>
+            <p className="mb-5 text-sm text-gray-500">
+              {eligible
+                ? 'Your profile is complete enough to unlock your first batch of catalog investors, or you can import your own contacts.'
+                : `As soon as your profile is at least ${SELF_SERVICE_COMPLETENESS_THRESHOLD}% complete you can unlock investors from the catalog yourself, or you can import your own contacts now.`}
+            </p>
+            {result === 'added' && <p className="mb-3 text-sm font-medium text-emerald-700">Done — check the table below.</p>}
+            {result === 'none' && <p className="mb-3 text-sm text-gray-500">No new investors left in this pack for your account.</p>}
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {eligible && (
+                <button onClick={() => setConfirming(true)}
+                  className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b] disabled:opacity-50">
+                  Unlock my pipeline
+                </button>
+              )}
+              <Link href="/settings" className="inline-block rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                {eligible ? 'Import contacts instead' : 'Complete your profile'}
+              </Link>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -349,9 +379,6 @@ export default function PipelinePage() {
           never had it. Same component, same /api/company/visibility source,
           no new logic. */}
       <MatchDealVisibilityBanner />
-      <div className="flex items-center justify-end">
-        <PageGuideButton pageKey="guide_pipeline" />
-      </div>
       <PageTour pageKey="guide_pipeline" />
       <PipelineUnlockBadge unlock={unlock} />
       {noneClassified && <EmptyCompanyBlock variant="banner" />}

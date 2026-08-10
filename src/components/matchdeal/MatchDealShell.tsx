@@ -15,11 +15,11 @@ export function MatchDealShell({ viewerProfileId, viewerKind, deckLimit }: { vie
   const [tab, setTab] = useState<MatchDealTab>('deck');
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {tab === 'deck' && <MatchDealDeck viewerProfileId={viewerProfileId} viewerKind={viewerKind} deckLimit={deckLimit} />}
       {tab === 'matches' && <MatchesPanel viewerProfileId={viewerProfileId} viewerKind={viewerKind} />}
       {tab === 'messages' && <InstantMessagePanel viewerProfileId={viewerProfileId} viewerKind={viewerKind} />}
-      {tab === 'boost' && <BoostExtraPanel />}
+      {tab === 'boost' && <BoostExtraPanel viewerProfileId={viewerProfileId} viewerKind={viewerKind} />}
       {tab === 'profile' && <ProfilePanel viewerProfileId={viewerProfileId} viewerKind={viewerKind} />}
       <MatchDealTabBar active={tab} onChange={setTab} />
     </div>

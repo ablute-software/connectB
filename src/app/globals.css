@@ -55,3 +55,27 @@ body {
     animation: none;
   }
 }
+
+/* Prompt 147 §5 — the card BEHIND the deck's front card (scaled to .94,
+   dropped 10px, faded to .6 opacity — see MatchDealDeck.tsx's stack
+   rendering) used to swap into the front position with no transition at
+   all: swiping advances `index`, and without a key change React reused the
+   same DOM node, so the new content just appeared already at its final
+   transform in the very next paint — no frame ever existed for the browser
+   to interpolate from. MatchDealDeck.tsx now keys the front card by
+   profile id, so every swipe is a genuine fresh mount, which is what
+   lets this same trigger-on-mount pattern (already used above for
+   sub-card entrances) apply here too: it starts painted at the back-stack
+   transform and animates in from there. */
+@keyframes matchdeal-card-promote-in {
+  from { opacity: .6; transform: scale(.94) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.matchdeal-card-promote {
+  animation: matchdeal-card-promote-in 260ms cubic-bezier(.16, 1, .3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .matchdeal-card-promote {
+    animation: none;
+  }
+}

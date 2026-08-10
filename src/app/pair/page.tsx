@@ -17,6 +17,7 @@
 // survives a notch and a home indicator when installed to the home
 // screen.
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { browserClient } from '@/lib/supabase';
 import { MatchDealShell } from '@/components/matchdeal/MatchDealShell';
 import { InstallPrompt } from '@/components/matchdeal/InstallPrompt';
@@ -433,17 +434,29 @@ export default function PairPage() {
           </div>
         </div>
       ) : (
-        <div className="relative flex flex-1 flex-col">
+        <div className="relative flex min-h-0 flex-1 flex-col">
           <InstallPrompt />
           <header className="flex shrink-0 items-center justify-between px-4 pb-1 pt-3">
             <Wordmark compact />
-            <span
-              className="flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-300"
-              title={pairedAt ? `Paired on ${new Date(pairedAt).toLocaleDateString()}` : undefined}
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              {pairedAt ? 'Paired' : 'This device'}
-            </span>
+            <div className="flex items-center gap-2.5">
+              {/* Prompt 161 B — the one way back to the CRM from inside
+                  MatchDeal. /pair is standalone by design (MD-08, no CRM
+                  chrome), but anyone arriving via a link — not the
+                  installed PWA — had no exit at all except the browser's
+                  own back button, which the installed PWA doesn't even
+                  have. Deliberately small/low-contrast: an emergency exit,
+                  not primary navigation. */}
+              <Link href="/pipeline" className="text-[11px] font-medium text-white/40 hover:text-white/70">
+                ← Sherlock Deal
+              </Link>
+              <span
+                className="flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-300"
+                title={pairedAt ? `Paired on ${new Date(pairedAt).toLocaleDateString()}` : undefined}
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                {pairedAt ? 'Paired' : 'This device'}
+              </span>
+            </div>
           </header>
 
           {ownProfileId && kind ? (

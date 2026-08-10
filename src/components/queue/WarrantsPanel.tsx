@@ -12,7 +12,6 @@ import { useStore } from '@/lib/store';
 import { Card, EntityLink, PersonLink, Tabs } from '@/components/ui';
 import { lintMessage } from '@/lib/rules';
 import { PageTour } from '@/components/onboarding/PageTour';
-import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import { useTabParam } from '@/lib/use-tab';
 import type { AutomationRun } from '@/lib/types';
 
@@ -118,7 +117,6 @@ export function WarrantsPanel() {
             className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50">
             Run engine tick now
           </button>
-          <PageGuideButton pageKey="guide_warrants" />
         </div>
       </div>
       {tickMsg && <div className="rounded bg-[#E8F4F8] px-3 py-2 text-sm text-cyan-900">{tickMsg}</div>}

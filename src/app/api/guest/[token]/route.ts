@@ -77,7 +77,34 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   // preview should never claim to show more than the real portal will once
   // they're actually signed in.
   const { visibleIds } = resolveDocumentAccess(grants, candidateDocs);
-  const documentNames = candidateDocs.filter((d) => visibleIds.includes(d.id)).map((d) => d.name).sort();
+  const visibleDocs = candidateDocs.filter((d) => visibleIds.includes(d.id));
+
+  // Prompt 154 gap 2 — the real folder/document tree, not just a flat
+  // sorted name list: every visible document already carries its real
+  // folder_id (documents always belong to a folder), so this is a lookup +
+  // group, not a new query shape. Still never a signed URL or document
+  // content — same hard rule this route's own header states; only names
+  // and structure cross this boundary.
+  const treeFolderIds = [...new Set(visibleDocs.map((d) => d.folder_id).filter(Boolean))] as string[];
+  const { data: folderRows } = treeFolderIds.length
+    ? await admin.from('folders').select('id, name').in('id', treeFolderIds)
+    : { data: [] };
+  const folderNameById = new Map((folderRows ?? []).map((f) => [f.id as string, f.name as string]));
+  const docsByFolder = new Map<string, { id: string; name: string }[]>();
+  for (const d of visibleDocs) {
+    const key = d.folder_id ?? '';
+    const list = docsByFolder.get(key) ?? [];
+    list.push({ id: d.id, name: d.name });
+    docsByFolder.set(key, list);
+  }
+  const folders = [...docsByFolder.entries()]
+    .filter(([folderId]) => folderId && folderNameById.has(folderId))
+    .map(([folderId, documents]) => ({
+      id: folderId, name: folderNameById.get(folderId)!,
+      documents: documents.sort((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const documentNames = visibleDocs.map((d) => d.name).sort();
 
   return NextResponse.json({
     ok: true,
@@ -85,6 +112,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     orgDescription: (org.one_liner as string | null) ?? (profile?.description as string | null) ?? null,
     orgLogoUrl: (profile?.photo_url as string | null) ?? null,
     invitedEmail,
+    folders,
     documentNames,
     documentCount: documentNames.length,
   });

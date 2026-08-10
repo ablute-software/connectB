@@ -71,6 +71,8 @@ function ExclusionsPicker({ selected, onChange }: { selected: string[]; onChange
 export interface ProfileResponse {
   linked: boolean; entityName?: string | null; profile?: Profile; completeness?: number; sectorOptions?: string[];
   identityStatus?: IdentityStatus;
+  // Prompt 156 — migration 0156.
+  pipelineConfirmedAt?: string | null;
 }
 
 // Bloco 4 placeholder legal text — EXACT strings from the prompt, never a
@@ -87,6 +89,23 @@ const BA_WARNING_TEXT = 'As an individual investor, some platform features may b
 const STAGES = ['pre_seed', 'seed', 'series_a', 'series_b_plus', 'growth'];
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
 const INSTRUMENTS = ['equity', 'safe', 'convertible_note', 'venture_debt', 'grant', 'revenue_based'];
+
+// Prompt 144 §4 — the redesign's own grouping headers. Every one of the
+// form's ~17 existing fields lands in exactly one section below; nothing
+// removed, nothing added, just given a home. "Team & Contact" doesn't map
+// onto a literal contact-person field (none exists in this editable
+// Profile — representative_name/linkedin are read-only, set via entity
+// linking, not part of this form) — Cold contact fits there instead, since
+// it IS a contact preference. This mapping is my own judgment call, not
+// dictated field-by-field by the prompt; flagged in the delivery report.
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="border-t border-gray-100 pt-4 first:border-t-0 first:pt-0">
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">{title}</h3>
+      <div className="space-y-4">{children}</div>
+    </div>
+  );
+}
 
 function MultiSelect({ options, selected, onChange }: { options: string[]; selected: string[]; onChange: (v: string[]) => void }) {
   return (
@@ -402,141 +421,151 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange,
       <ColleaguesCard />
 
       <div data-tour-id="investor-about-form" className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Ticket range (EUR)</label>
-          <div className="grid grid-cols-2 gap-4">
-            <TicketAmountSlider label="Min" value={draft.ticket_min}
-              onChange={(v) => setDraft({ ...draft, ticket_min: draft.ticket_max != null && v > draft.ticket_max ? draft.ticket_max : v })} />
-            <TicketAmountSlider label="Max" value={draft.ticket_max}
-              onChange={(v) => setDraft({ ...draft, ticket_max: draft.ticket_min != null && v < draft.ticket_min ? draft.ticket_min : v })} />
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Sectors invested in</label>
-          <MultiSelect options={sectorOptions} selected={draft.sectors ?? []} onChange={(v) => setDraft({ ...draft, sectors: v })} />
-        </div>
-
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Round role</label>
-          <div className="flex gap-3 text-sm">
-            {(['lead', 'co_lead', 'both'] as const).map((v) => (
-              <label key={v} className="flex items-center gap-1.5">
-                <input type="radio" checked={draft.lead_or_colead === v} onChange={() => setDraft({ ...draft, lead_or_colead: v })} />
-                {v === 'lead' ? 'Leads' : v === 'co_lead' ? 'Follows' : 'Both'}
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
+        <Section title="General Information">
           <label className="flex flex-col gap-1 text-xs text-gray-500">
             Entity HQ
             <input value={draft.country ?? ''} onChange={(e) => setDraft({ ...draft, country: e.target.value })} placeholder="e.g. Portugal" className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
           </label>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Round role</label>
+            <div className="flex gap-3 text-sm">
+              {(['lead', 'co_lead', 'both'] as const).map((v) => (
+                <label key={v} className="flex items-center gap-1.5">
+                  <input type="radio" checked={draft.lead_or_colead === v} onChange={() => setDraft({ ...draft, lead_or_colead: v })} />
+                  {v === 'lead' ? 'Leads' : v === 'co_lead' ? 'Follows' : 'Both'}
+                </label>
+              ))}
+            </div>
+          </div>
+        </Section>
+
+        <Section title="Investment Strategy">
           <label className="flex flex-col gap-1 text-xs text-gray-500">
-            Capital to deploy / yr (EUR, optional)
+            Thesis notes
+            <textarea value={draft.specific_criteria ?? ''} onChange={(e) => setDraft({ ...draft, specific_criteria: e.target.value })} rows={3} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
+          </label>
+        </Section>
+
+        <Section title="Ticket & Budget">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Ticket range (EUR)</label>
+            <div className="grid grid-cols-2 gap-4">
+              <TicketAmountSlider label="Min" value={draft.ticket_min}
+                onChange={(v) => setDraft({ ...draft, ticket_min: draft.ticket_max != null && v > draft.ticket_max ? draft.ticket_max : v })} />
+              <TicketAmountSlider label="Max" value={draft.ticket_max}
+                onChange={(v) => setDraft({ ...draft, ticket_max: draft.ticket_min != null && v < draft.ticket_min ? draft.ticket_min : v })} />
+            </div>
+          </div>
+          <label className="flex flex-col gap-1 text-xs text-gray-500">
+            Yearly investment budget (EUR, optional)
             <input type="number" value={draft.capital_to_deploy_eur ?? ''} onChange={(e) => setDraft({ ...draft, capital_to_deploy_eur: e.target.value ? Number(e.target.value) : null })} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
           </label>
-        </div>
+        </Section>
 
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Investment geographies</label>
-          <input value={(draft.geographies ?? []).join(', ')} onChange={(e) => setDraft({ ...draft, geographies: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
-            placeholder="e.g. Portugal, Spain, Europe" className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
-        </div>
+        <Section title="Geography">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Investment geographies</label>
+            <input value={(draft.geographies ?? []).join(', ')} onChange={(e) => setDraft({ ...draft, geographies: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
+              placeholder="e.g. Portugal, Spain, Europe" className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+          </div>
+        </Section>
 
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Stages</label>
-          <MultiSelect options={STAGES.map((s) => STAGE_LABELS[s])} selected={(draft.stages_invested ?? []).map((s) => STAGE_LABELS[s] ?? s)}
-            onChange={(labels) => setDraft({ ...draft, stages_invested: STAGES.filter((s) => labels.includes(STAGE_LABELS[s])) })} />
-        </div>
-
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Preferred instruments</label>
-          <MultiSelect options={INSTRUMENTS.map((i) => INSTRUMENT_LABELS[i])} selected={(draft.instruments ?? []).map((i) => INSTRUMENT_LABELS[i] ?? i)}
-            onChange={(labels) => setDraft({ ...draft, instruments: INSTRUMENTS.filter((i) => labels.includes(INSTRUMENT_LABELS[i])) })} />
-        </div>
-
-        <label className="flex flex-col gap-1 text-xs text-gray-500">
-          Usual co-investors (optional)
-          <input value={draft.usual_co_investors ?? ''} onChange={(e) => setDraft({ ...draft, usual_co_investors: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
-        </label>
+        <Section title="Sectors & Stages">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Sectors invested in</label>
+            <MultiSelect options={sectorOptions} selected={draft.sectors ?? []} onChange={(v) => setDraft({ ...draft, sectors: v })} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Stages</label>
+            <MultiSelect options={STAGES.map((s) => STAGE_LABELS[s])} selected={(draft.stages_invested ?? []).map((s) => STAGE_LABELS[s] ?? s)}
+              onChange={(labels) => setDraft({ ...draft, stages_invested: STAGES.filter((s) => labels.includes(STAGE_LABELS[s])) })} />
+          </div>
+        </Section>
 
         {/* Prompt 110 Block D — the "first call" questions the deck's Block
             A cheque slide now surfaces. All five optional, all null by
             default (migration 0107 is purely additive). */}
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Cold contact</label>
-          <div className="flex gap-3 text-sm">
-            {([[true, 'Open to cold approaches'], [false, 'Warm intros only']] as const).map(([v, label]) => (
-              <label key={String(v)} className="flex items-center gap-1.5">
-                <input type="radio" checked={draft.accepts_cold_contact === v} onChange={() => setDraft({ ...draft, accepts_cold_contact: v })} />
-                {label}
-              </label>
-            ))}
+        <Section title="Current Mandate">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Preferred instruments</label>
+            <MultiSelect options={INSTRUMENTS.map((i) => INSTRUMENT_LABELS[i])} selected={(draft.instruments ?? []).map((i) => INSTRUMENT_LABELS[i] ?? i)}
+              onChange={(labels) => setDraft({ ...draft, instruments: INSTRUMENTS.filter((i) => labels.includes(INSTRUMENT_LABELS[i])) })} />
           </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-xs text-gray-500">
+              Typical decision time (weeks, optional)
+              <input type="number" min={0} value={draft.typical_decision_weeks ?? ''} onChange={(e) => setDraft({ ...draft, typical_decision_weeks: e.target.value ? Number(e.target.value) : null })} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-gray-500">
+              Who decides (optional)
+              <input value={draft.decision_process ?? ''} onChange={(e) => setDraft({ ...draft, decision_process: e.target.value })} placeholder="e.g. Full partnership vote" className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
+            </label>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Follow-on</label>
+            <div className="flex gap-3 text-sm">
+              {([[true, 'Reserves for follow-on'], [false, 'First cheque only']] as const).map(([v, label]) => (
+                <label key={String(v)} className="flex items-center gap-1.5">
+                  <input type="radio" checked={draft.does_follow_on === v} onChange={() => setDraft({ ...draft, does_follow_on: v })} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Board seat</label>
+            <div className="flex gap-3 text-sm">
+              {(['always', 'sometimes', 'never'] as const).map((v) => (
+                <label key={v} className="flex items-center gap-1.5">
+                  <input type="radio" checked={draft.takes_board_seat === v} onChange={() => setDraft({ ...draft, takes_board_seat: v })} />
+                  {v === 'always' ? 'Always' : v === 'sometimes' ? 'Sometimes' : 'Never'}
+                </label>
+              ))}
+            </div>
+          </div>
           <label className="flex flex-col gap-1 text-xs text-gray-500">
-            Typical decision time (weeks, optional)
-            <input type="number" min={0} value={draft.typical_decision_weeks ?? ''} onChange={(e) => setDraft({ ...draft, typical_decision_weeks: e.target.value ? Number(e.target.value) : null })} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
+            Usual co-investors (optional)
+            <input value={draft.usual_co_investors ?? ''} onChange={(e) => setDraft({ ...draft, usual_co_investors: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-500">
-            Who decides (optional)
-            <input value={draft.decision_process ?? ''} onChange={(e) => setDraft({ ...draft, decision_process: e.target.value })} placeholder="e.g. Full partnership vote" className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
-          </label>
-        </div>
+        </Section>
 
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Follow-on</label>
-          <div className="flex gap-3 text-sm">
-            {([[true, 'Reserves for follow-on'], [false, 'First cheque only']] as const).map(([v, label]) => (
-              <label key={String(v)} className="flex items-center gap-1.5">
-                <input type="radio" checked={draft.does_follow_on === v} onChange={() => setDraft({ ...draft, does_follow_on: v })} />
-                {label}
-              </label>
-            ))}
+        <Section title="Exclusions">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Exclusions — we never invest in</label>
+            <ExclusionsPicker selected={draft.exclusions_sectors ?? []} onChange={(v) => setDraft({ ...draft, exclusions_sectors: v })} />
+            <input value={draft.exclusions_notes ?? ''} onChange={(e) => setDraft({ ...draft, exclusions_notes: e.target.value })} placeholder="Anything else to exclude (free text)"
+              className="mt-1.5 w-full rounded border border-gray-300 px-2 py-1 text-sm" />
           </div>
-        </div>
+        </Section>
 
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Board seat</label>
-          <div className="flex gap-3 text-sm">
-            {(['always', 'sometimes', 'never'] as const).map((v) => (
-              <label key={v} className="flex items-center gap-1.5">
-                <input type="radio" checked={draft.takes_board_seat === v} onChange={() => setDraft({ ...draft, takes_board_seat: v })} />
-                {v === 'always' ? 'Always' : v === 'sometimes' ? 'Sometimes' : 'Never'}
-              </label>
-            ))}
+        <Section title="Team & Contact">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Cold contact</label>
+            <div className="flex gap-3 text-sm">
+              {([[true, 'Open to cold approaches'], [false, 'Warm intros only']] as const).map(([v, label]) => (
+                <label key={String(v)} className="flex items-center gap-1.5">
+                  <input type="radio" checked={draft.accepts_cold_contact === v} onChange={() => setDraft({ ...draft, accepts_cold_contact: v })} />
+                  {label}
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
+        </Section>
 
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Exclusions — we never invest in</label>
-          <ExclusionsPicker selected={draft.exclusions_sectors ?? []} onChange={(v) => setDraft({ ...draft, exclusions_sectors: v })} />
-          <input value={draft.exclusions_notes ?? ''} onChange={(e) => setDraft({ ...draft, exclusions_notes: e.target.value })} placeholder="Anything else to exclude (free text)"
-            className="mt-1.5 w-full rounded border border-gray-300 px-2 py-1 text-sm" />
-        </div>
-
-        <div>
+        <Section title="Additional Information">
           {/* Prompt 80 addenda — deliberately NOT read by the match-score
               function or any scoring path (see matchdeal-match-score.ts /
               investor-pipeline.ts, both untouched by this field). Wiring
               these keywords into matching is its own future decision, not
               an implicit side effect of adding this input. */}
-          <label className="mb-1 block text-xs font-medium text-gray-500">Focus keywords (optional)</label>
-          <TagInput tags={draft.focus_keywords ?? []} onChange={(v) => setDraft({ ...draft, focus_keywords: v })}
-            placeholder="e.g. health, agriculture, fintech B2B…" />
-        </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Focus keywords (optional)</label>
+            <TagInput tags={draft.focus_keywords ?? []} onChange={(v) => setDraft({ ...draft, focus_keywords: v })}
+              placeholder="e.g. health, agriculture, fintech B2B…" />
+          </div>
+        </Section>
 
-        <label className="flex flex-col gap-1 text-xs text-gray-500">
-          Thesis notes
-          <textarea value={draft.specific_criteria ?? ''} onChange={(e) => setDraft({ ...draft, specific_criteria: e.target.value })} rows={3} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
-        </label>
-
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 border-t border-gray-100 pt-4">
           <button onClick={save} disabled={saving} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
             {saving ? 'Saving…' : 'Save'}
           </button>
