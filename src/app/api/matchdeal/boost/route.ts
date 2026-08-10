@@ -17,6 +17,25 @@
 // is therefore resolved here from the session, never taken from the
 // request body — only p_target_profile_id (which card to boost, not a
 // sensitive value) comes from the client.
+//
+// Prompt 149 — the RPC itself (migration 0053) never validates the target
+// either: it only checks the ACTOR's plan_tier/weekly quota, then accepts
+// any existing p_target_profile_id of any kind. Two real effects, found on
+// independent review of 7add5c8: (1) a tier_b user can boost a profile
+// that never appeared on their own deck, forcing a "you got a super like"
+// notification on someone who's never seen them; (2) when actor/target
+// kind aren't opposite, the matchdeal_boosts insert is skipped (its own
+// `if v_actor.kind = 'investor' and v_target.kind = 'startup'` guard), but
+// the function's LAST line — `perform matchdeal_record_swipe(actor,
+// target, 'like')` — has no such guard and runs unconditionally, recording
+// a real 'like' for a same-kind pairing that should never have been
+// possible. Both are closed here, before the RPC (and its quota spend) is
+// ever reached: target must (a) be the opposite kind from the actor, and
+// (b) have actually been exposed to this actor (matchdeal_exposures).
+// Fixed at the route, not inside 0053 itself — this is the only real call
+// site today, and any other service_role caller inherits the same gap;
+// flagged for a possible follow-up hardening the RPC directly, not done
+// here (see this prompt's own note on that trade-off).
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
@@ -42,6 +61,16 @@ export async function POST(req: NextRequest) {
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const actorProfileId = await resolveOwnMatchdealProfileId(admin, user.id, body.kind);
   if (!actorProfileId) return NextResponse.json({ ok: false, error: 'No MatchDeal profile for this account.' }, { status: 403 });
+
+  const { data: target } = await admin.from('matchdeal_profiles').select('kind').eq('id', body.targetProfileId).maybeSingle();
+  const expectedTargetKind = body.kind === 'startup' ? 'investor' : 'startup';
+  if (!target || target.kind !== expectedTargetKind) {
+    return NextResponse.json({ ok: false, error: 'MATCHDEAL_TARGET_WRONG_KIND' }, { status: 400 });
+  }
+
+  const { data: exposure } = await admin.from('matchdeal_exposures').select('id')
+    .eq('viewer_profile_id', actorProfileId).eq('shown_profile_id', body.targetProfileId).limit(1).maybeSingle();
+  if (!exposure) return NextResponse.json({ ok: false, error: 'MATCHDEAL_TARGET_NOT_SHOWN' }, { status: 400 });
 
   const { error } = await admin.rpc('matchdeal_activate_super_like', {
     p_actor_profile_id: actorProfileId, p_target_profile_id: body.targetProfileId,

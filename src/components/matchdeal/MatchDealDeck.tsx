@@ -746,12 +746,19 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
       });
       const body = await res.json();
       if (!body.ok) {
+        // Prompt 149 — MATCHDEAL_TARGET_WRONG_KIND/_NOT_SHOWN are a
+        // defense-in-depth backstop (see /api/matchdeal/boost's own
+        // comment): current is always the opposite kind and always
+        // exposed, by construction of the deck this button lives in, so
+        // in normal use these two should never actually surface here.
         setBoostError(
           (body.error ?? '').includes('SUPER_LIKE_NOT_AVAILABLE')
             ? 'Boost is only available on the List of Suspects plan or higher.'
             : (body.error ?? '').includes('SUPER_LIKE_ALREADY_USED')
               ? "You've already used this week's Boost."
-              : 'Could not boost — try again.',
+              : (body.error ?? '').includes('MATCHDEAL_TARGET_WRONG_KIND') || (body.error ?? '').includes('MATCHDEAL_TARGET_NOT_SHOWN')
+                ? 'This profile is no longer boostable — try reloading the deck.'
+                : 'Could not boost — try again.',
         );
         return;
       }
