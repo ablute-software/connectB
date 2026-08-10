@@ -181,6 +181,15 @@ function DocumentsPageInner() {
   const [inviteName, setInviteName] = useState('');
   const [grantExpiry, setGrantExpiry] = useState('');
   const [selection, setSelection] = useState<Record<string, GrantState>>({});
+  // Prompt 154 gap 4 — a genuinely separate path from the entity-first flow
+  // above, not a variant of it: this is for someone not anywhere in the CRM
+  // yet (no entity to attach them to), so it skips straight from "who" to
+  // "what they see," reusing the same tree picker (roots/GrantTreeNode/
+  // selection) and the same addGrant() call, just with person_id omitted —
+  // access_grants already supports that (PeopleAccessPanel.tsx's own
+  // "orphan grants" basket is exactly this shape: person_id null,
+  // invited_email/invited_name only).
+  const [adHocInviteMode, setAdHocInviteMode] = useState(false);
 
   // "Everyone confirmed at this entity" — resolved live from
   // person_affiliations at grant-creation time, per the decision that this
@@ -328,7 +337,7 @@ function DocumentsPageInner() {
   function resetGrantFlow() {
     setGrantEntityId(''); setGrantScope(''); setGrantSpecificIds([]);
     setGrantShowInvite(false); setInviteEmail(''); setInviteName('');
-    setGrantExpiry(''); setSelection({});
+    setGrantExpiry(''); setSelection({}); setAdHocInviteMode(false);
   }
 
   function toggleFolderSelection(folderId: string) {
@@ -398,6 +407,35 @@ function DocumentsPageInner() {
         body: JSON.stringify({ orgId: db.org.id, invitedEmail: invitedEmailToNotify }),
       }).catch(() => {});
     }
+  }
+
+  // Prompt 154 gap 4 — same shape as the invite branch inside
+  // submitGrantTree above, minus person_id/entity entirely: a genuinely
+  // unknown contact, not yet anywhere in the CRM. Lands in
+  // PeopleAccessPanel.tsx's existing "orphan grants" basket until someone
+  // signs in and confirms "Is this you?", same as any other invited grant.
+  async function submitAdHocEmailGrant() {
+    const email = inviteEmail.trim().toLowerCase();
+    const nameTrimmed = inviteName.trim();
+    if (!email || !nameTrimmed) return;
+    const expires_at = grantExpiry ? `${grantExpiry}T23:59:59Z` : undefined;
+    const selectedNodes = Object.entries(selection).filter(([, s]) => s !== 'none');
+    if (!selectedNodes.length) return;
+
+    for (const [key, state] of selectedNodes) {
+      const [kind, id] = key.split(':');
+      addGrant({
+        person_id: undefined, document_id: kind === 'doc' ? id : undefined,
+        folder_id: kind === 'folder' ? id : undefined, expires_at, nda_required: state === 'shared_nda',
+        invited_email: email, invited_name: nameTrimmed,
+      });
+    }
+    resetGrantFlow();
+    await resendInvite(email);
+    await fetch('/api/data-room/guest-invite', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ orgId: db.org.id, invitedEmail: email }),
+    }).catch(() => {});
   }
 
   // Item 1 (Lote E) — the route is idempotent (hands back the existing
@@ -914,8 +952,17 @@ function DocumentsPageInner() {
                 With 100 grants across 3 people this used to sit ~100 rows
                 down; it must be reachable with zero scroll. */}
             <div>
-              <div className="text-xs font-medium text-gray-500">Grant access</div>
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-medium text-gray-500">Grant access</div>
+                {/* Prompt 154 gap 4 */}
+                <button type="button"
+                  onClick={() => { const next = !adHocInviteMode; resetGrantFlow(); setAdHocInviteMode(next); }}
+                  className="text-[11px] font-medium text-[#0E7490] hover:underline">
+                  {adHocInviteMode ? '← Back to entity search' : "Don't know who yet? Invite by email →"}
+                </button>
+              </div>
 
+              {!adHocInviteMode && <>
               <div className="mt-2">
                 <label className="mb-1 block text-[11px] font-medium text-gray-400">1. Which investor entity?</label>
                 {grantEntityId && grantEntity ? (
@@ -1048,6 +1095,45 @@ function DocumentsPageInner() {
                     </button>
                     <button onClick={resetGrantFlow} className="mt-2 ml-2 text-sm text-gray-400 hover:underline">Cancel</button>
                   </div>
+                </div>
+              )}
+              </>}
+
+              {adHocInviteMode && (
+                <div className="mt-2 space-y-2">
+                  <label className="mb-1 block text-[11px] font-medium text-gray-400">Invite by email — not in your CRM yet</label>
+                  <div className="flex flex-wrap gap-2">
+                    <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Their name"
+                      className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                    <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Their email" type="email"
+                      className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    Creates a grant with no entity/person record attached — it lands in People &amp; Access as an unassociated
+                    grant until they sign in and confirm “Is this you?”, same as any other invite.
+                  </p>
+
+                  {inviteEmail.trim() && inviteName.trim() && (
+                    <div className="mt-3">
+                      <label className="mb-1 block text-[11px] font-medium text-gray-400">What do they see?</label>
+                      <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50 p-2">
+                        {roots.map((f) => <GrantTreeNode key={f.id} f={f} depth={0} />)}
+                      </div>
+                      <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-400">
+                        <span className="flex items-center gap-1"><TriStateBox state="shared" onClick={() => {}} /> shared</span>
+                        <span className="flex items-center gap-1"><TriStateBox state="shared_nda" onClick={() => {}} /> shared + NDA required</span>
+                        <span className="flex items-center gap-1"><TriStateBox state="none" onClick={() => {}} /> not shared</span>
+                      </div>
+                      <input type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
+                        className="mt-2 rounded border border-gray-300 px-2 py-1.5 text-sm" title="Expiry (optional)" />
+                      <div>
+                        <button onClick={() => void submitAdHocEmailGrant()} className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">
+                          Confirm — grant access
+                        </button>
+                        <button onClick={resetGrantFlow} className="mt-2 ml-2 text-sm text-gray-400 hover:underline">Cancel</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
