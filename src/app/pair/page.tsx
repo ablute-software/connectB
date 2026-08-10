@@ -433,7 +433,7 @@ export default function PairPage() {
           </div>
         </div>
       ) : (
-        <div className="relative flex flex-1 flex-col">
+        <div className="relative flex min-h-0 flex-1 flex-col">
           <InstallPrompt />
           <header className="flex shrink-0 items-center justify-between px-4 pb-1 pt-3">
             <Wordmark compact />

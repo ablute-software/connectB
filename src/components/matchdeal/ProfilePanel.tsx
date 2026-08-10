@@ -19,15 +19,22 @@
 // carried different casing for the same sector ("Digital Health" vs
 // "health"/"digital health") — a normalization problem this fix doesn't
 // solve, only stops making worse; flagged, not silently decided, since a
-// canonical sector taxonomy is a product call. website/description/
-// photo_url on matchdeal_profiles stay editable — they gate
-// matchdeal_recompute_profile_completeness(), and photo_url in particular
-// stores a raw URL while orgs.logo_url stores a data-room storage path
+// canonical sector taxonomy is a product call. photo_url stays editable —
+// it gates matchdeal_recompute_profile_completeness() same as the rest,
+// but stores a raw URL while orgs.logo_url stores a data-room storage path
 // (see "Use your Sherlock Deal logo" below, which already reconciles the
 // two formats via a long-lived signed URL rather than a sync trigger).
+// Prompt 147 §2 — website/description were left editable here despite
+// being synced one-way from orgs same as country/sectors, an inconsistency
+// applied by omission rather than by design: same drift-until-next-Settings-
+// save problem, plus description was shown TWICE on one screen (read-only
+// in the "From your Sherlock Deal profile" card above, and editable again
+// here, with no guarantee the two values matched). Now read-only/redirect
+// for startup profiles, same as country/sectors, for the same reason.
 import { useEffect, useRef, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { computeProfilePrefill } from '@/lib/matchdeal-profile-prefill';
+import { MiniPitchPreviewModal } from './MiniPitchPreviewModal';
 
 interface Profile {
   id: string; kind: 'startup' | 'investor'; is_complete: boolean; membership_id: string | null;
@@ -38,6 +45,22 @@ interface Profile {
   specific_criteria: string | null; ticket_min: number | null; ticket_max: number | null;
   tam_eur: number | null; sam_eur: number | null; som_eur: number | null;
   revenue_projection_12mo_eur: number | null; revenue_projection_5yr_eur: number | null;
+  // Prompt 147 §4 — migration 0155. Closed vocabulary, see that file's
+  // header for exactly which 5 values and why those 5.
+  hidden_fields: string[];
+}
+
+// Prompt 147 §4 — small checkbox next to a hideable field's own Field.
+// Deliberately terse ("Hide from card"), not the full "don't show on your
+// mini-pitch" phrasing every time — the section intro below carries that
+// context once.
+function HideToggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <label className="mt-1 flex items-center gap-1.5 text-[10.5px] text-white/40">
+      <input type="checkbox" checked={checked} onChange={onChange} className="h-3 w-3" />
+      Hide from card
+    </label>
+  );
 }
 
 interface Org {
@@ -93,6 +116,7 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
   // every account, every time. Every hook must run unconditionally on every
   // render; this one just needed to move up here with the others.
   const [logoBusy, setLogoBusy] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -146,6 +170,16 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
     setProfile((p) => (p ? { ...p, [key]: value } : p));
   }
 
+  function toggleHidden(field: string) {
+    setProfile((p) => {
+      if (!p) return p;
+      const hidden_fields = p.hidden_fields.includes(field)
+        ? p.hidden_fields.filter((f) => f !== field)
+        : [...p.hidden_fields, field];
+      return { ...p, hidden_fields };
+    });
+  }
+
   // Bug fix (2026-08-06) — renamed from useSherlockDealLogo: a plain
   // function whose name starts with "use" reads as a hook to both React's
   // own conventions and the react-hooks/rules-of-hooks lint rule (which
@@ -194,6 +228,7 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
       specific_criteria: profile.specific_criteria, ticket_min: profile.ticket_min, ticket_max: profile.ticket_max,
       tam_eur: profile.tam_eur, sam_eur: profile.sam_eur, som_eur: profile.som_eur,
       revenue_projection_12mo_eur: profile.revenue_projection_12mo_eur, revenue_projection_5yr_eur: profile.revenue_projection_5yr_eur,
+      hidden_fields: profile.hidden_fields,
     }).eq('id', profile.id).select('*').maybeSingle();
     setSaving(false);
     if (!error && data) { setProfile(data as unknown as Profile); setSavedAt(Date.now()); }
@@ -217,6 +252,10 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
             </span>
           ))}
         </div>
+        <button type="button" onClick={() => setShowPreview(true)}
+          className="mt-3 w-full rounded-xl border border-white/15 bg-white/5 py-2 text-[12.5px] font-medium text-white/80 hover:bg-white/10">
+          👁 See as {viewerKind === 'startup' ? 'investors' : 'startups'} see it
+        </button>
       </div>
 
       {viewerKind === 'startup' && (
@@ -273,7 +312,11 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
             </div>
           </Field>
         )}
-        <Field label="Website"><input className={inputCls} value={profile.website ?? ''} onChange={(e) => set('website', e.target.value)} placeholder="https://…" /></Field>
+        {viewerKind === 'startup' ? (
+          <Field label="Website"><p className="text-[13px] text-white/70">{profile.website || '—'} <span className="text-white/30">· edit in Settings</span></p></Field>
+        ) : (
+          <Field label="Website"><input className={inputCls} value={profile.website ?? ''} onChange={(e) => set('website', e.target.value)} placeholder="https://…" /></Field>
+        )}
         {/* Item 3.3 — country/sectors for a startup profile are sourced from
             orgs (edited in Settings), same as name/description/founded_year
             above, closing the "explicit pause" migration 0098's own comment
@@ -287,7 +330,11 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
         ) : (
           <Field label="Country"><input className={inputCls} value={profile.country ?? ''} onChange={(e) => set('country', e.target.value)} /></Field>
         )}
-        <Field label="Description"><textarea rows={3} className={inputCls} value={profile.description ?? ''} onChange={(e) => set('description', e.target.value)} /></Field>
+        {viewerKind === 'startup' ? (
+          <Field label="Description"><p className="text-[13px] text-white/70">{profile.description || '—'} <span className="text-white/30">· edit in Settings</span></p></Field>
+        ) : (
+          <Field label="Description"><textarea rows={3} className={inputCls} value={profile.description ?? ''} onChange={(e) => set('description', e.target.value)} /></Field>
+        )}
 
         {viewerKind === 'startup' ? (
           <>
@@ -308,7 +355,10 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
             </Field>
             <Field label="Team summary"><textarea rows={2} className={inputCls} value={profile.team_summary ?? ''} onChange={(e) => set('team_summary', e.target.value)} /></Field>
 
-            <p className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-white/50">Mini-pitch — market &amp; projections</p>
+            <div className="flex items-center justify-between pt-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-white/50">Mini-pitch — market &amp; projections</p>
+              <HideToggle checked={profile.hidden_fields.includes('market_projections')} onChange={() => toggleHidden('market_projections')} />
+            </div>
             <div className="grid grid-cols-3 gap-2">
               <Field label="TAM (€)"><input type="number" className={inputCls} value={profile.tam_eur ?? ''} onChange={(e) => set('tam_eur', e.target.value ? Number(e.target.value) : null)} /></Field>
               <Field label="SAM (€)"><input type="number" className={inputCls} value={profile.sam_eur ?? ''} onChange={(e) => set('sam_eur', e.target.value ? Number(e.target.value) : null)} /></Field>
@@ -340,14 +390,22 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
                   );
                 })}
               </div>
+              <HideToggle checked={profile.hidden_fields.includes('stages')} onChange={() => toggleHidden('stages')} />
             </Field>
             <Field label="Geographies (comma-separated)">
               <input className={inputCls} value={profile.geographies.join(', ')} onChange={(e) => set('geographies', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))} />
+              <HideToggle checked={profile.hidden_fields.includes('geographies')} onChange={() => toggleHidden('geographies')} />
             </Field>
-            <Field label="What you look for"><textarea rows={2} className={inputCls} value={profile.specific_criteria ?? ''} onChange={(e) => set('specific_criteria', e.target.value)} /></Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Ticket min (€)"><input type="number" className={inputCls} value={profile.ticket_min ?? ''} onChange={(e) => set('ticket_min', e.target.value ? Number(e.target.value) : null)} /></Field>
-              <Field label="Ticket max (€)"><input type="number" className={inputCls} value={profile.ticket_max ?? ''} onChange={(e) => set('ticket_max', e.target.value ? Number(e.target.value) : null)} /></Field>
+            <Field label="What you look for">
+              <textarea rows={2} className={inputCls} value={profile.specific_criteria ?? ''} onChange={(e) => set('specific_criteria', e.target.value)} />
+              <HideToggle checked={profile.hidden_fields.includes('specific_criteria')} onChange={() => toggleHidden('specific_criteria')} />
+            </Field>
+            <div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Ticket min (€)"><input type="number" className={inputCls} value={profile.ticket_min ?? ''} onChange={(e) => set('ticket_min', e.target.value ? Number(e.target.value) : null)} /></Field>
+                <Field label="Ticket max (€)"><input type="number" className={inputCls} value={profile.ticket_max ?? ''} onChange={(e) => set('ticket_max', e.target.value ? Number(e.target.value) : null)} /></Field>
+              </div>
+              <HideToggle checked={profile.hidden_fields.includes('ticket')} onChange={() => toggleHidden('ticket')} />
             </div>
           </>
         )}
@@ -359,6 +417,10 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
       >
         {saving ? 'Saving…' : savedAt && Date.now() - savedAt < 2000 ? 'Saved ✓' : 'Save changes'}
       </button>
+
+      {showPreview && (
+        <MiniPitchPreviewModal profileId={profile.id} kind={profile.kind} onClose={() => setShowPreview(false)} />
+      )}
     </div>
   );
 }

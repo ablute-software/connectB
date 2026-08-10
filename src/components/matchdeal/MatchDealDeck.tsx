@@ -18,13 +18,17 @@
 //
 // Backend contract is unchanged: matchdeal_eligible_deck /
 // matchdeal_record_exposure / matchdeal_record_swipe, all pre-existing
-// RPCs called under RLS. No schema change ships with this.
+// RPCs called under RLS, none of their bodies touched.
+// Prompt 147 §4 — one exception: matchdeal_profiles.hidden_fields
+// (migration 0155) is a new column, but matchdeal_eligible_deck already
+// `returns setof matchdeal_profiles` with no column projection, so it
+// reaches this file's MatchDealProfile rows with zero RPC change.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { INSTRUMENT_LABELS, LEAD_OR_COLEAD_LABELS } from '@/lib/investor-taxonomy';
 import { HypeListOverlay } from './HypeListOverlay';
 
-interface MatchDealProfile {
+export interface MatchDealProfile {
   id: string; kind: 'startup' | 'investor'; entity_name: string | null; photo_url: string | null;
   entity_logo_url: string | null; description: string | null; sectors: string[]; country: string | null;
   investment_stage_sought: string | null; stages_invested: string[]; founded_year: number | null;
@@ -58,6 +62,13 @@ interface MatchDealProfile {
   decision_process: string | null;
   does_follow_on: boolean | null;
   takes_board_seat: string | null;
+  // Prompt 147 §4 — closed vocabulary enforced by migration 0155's CHECK
+  // constraint; filtered client-side here (CardFace/StartupMiniPitch), not
+  // at the matchdeal_eligible_deck RPC layer — a display preference, not a
+  // hard privacy boundary (a determined technical investor calling the RPC
+  // directly still sees the raw row). Flagged as a deliberate scope choice
+  // in the Prompt 147 delivery report, not an oversight.
+  hidden_fields: string[];
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -128,7 +139,7 @@ function Field({ label, children, warn }: { label: string; children: React.React
 // explicitly deferred until Prompt 109's gesture rewrite lands first, per
 // Prompt 110's own ordering instruction (same lines, sequenced not
 // parallel).
-function subCardCountFor(kind: 'startup' | 'investor') {
+export function subCardCountFor(kind: 'startup' | 'investor') {
   return 4;
 }
 
@@ -137,9 +148,9 @@ const TRACTION_LABELS: Record<string, string> = {
   lois_pilots: 'LOIs / pilots signed', waitlist: 'Waitlist', partnerships: 'Partnerships signed', other: 'Other',
 };
 
-interface PitchFounder { full_name: string; title: string | null; bio: string | null; photo_url: string | null }
-interface PitchTractionMetric { type: string; value: string; label?: string }
-interface PitchData {
+export interface PitchFounder { full_name: string; title: string | null; bio: string | null; photo_url: string | null }
+export interface PitchTractionMetric { type: string; value: string; label?: string }
+export interface PitchData {
   org_name: string | null; one_liner: string | null; description: string | null;
   country: string | null; hq_city: string | null; sectors: string[];
   founded_year: number | null; round_target_eur: number | null; revenue_eur: number | null;
@@ -186,7 +197,7 @@ function MarketFunnel({ tam, sam, som }: { tam: number; sam: number | null; som:
 // matchdeal_profiles mini-pitch fields, joined server-side — RLS on orgs/
 // company_people has no cross-org read path, so this can't be a direct
 // client query). null while loading or for a profile with none yet.
-function StartupMiniPitch({ i, pitchData, phaseChip }: { i: number; pitchData: PitchData | null; phaseChip: string[] }) {
+function StartupMiniPitch({ i, pitchData, phaseChip, hiddenFields }: { i: number; pitchData: PitchData | null; phaseChip: string[]; hiddenFields: string[] }) {
   const [activeFounderIdx, setActiveFounderIdx] = useState<number | null>(null);
 
   if (!pitchData) {
@@ -245,7 +256,13 @@ function StartupMiniPitch({ i, pitchData, phaseChip }: { i: number; pitchData: P
   }
 
   if (i === 2) {
-    if (pitchData.tam_eur == null) return <p className="mt-3 text-[13px] text-white/50">Market size not reported yet.</p>;
+    // Prompt 147 §4 — a hidden market_projections slide looks exactly like
+    // an unfilled one (same fallback copy), deliberately: telegraphing
+    // "this was hidden on purpose" reads worse to an investor than simply
+    // not having it.
+    if (hiddenFields.includes('market_projections') || pitchData.tam_eur == null) {
+      return <p className="mt-3 text-[13px] text-white/50">Market size not reported yet.</p>;
+    }
     return (
       <>
         <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-white/60">Market</p>
@@ -350,16 +367,24 @@ function ActivityBand({ activity }: { activity: ActivitySummary | null | undefin
   );
 }
 
-function CardFace({ p, subIndex, active, pitchData, slideDir }: { p: MatchDealProfile; subIndex?: number; active?: boolean; pitchData?: PitchData | null; slideDir?: 'up' | 'down' | null }) {
+export function CardFace({ p, subIndex, active, pitchData, slideDir }: { p: MatchDealProfile; subIndex?: number; active?: boolean; pitchData?: PitchData | null; slideDir?: 'up' | 'down' | null }) {
   const name = p.entity_name || (p.kind === 'startup' ? 'A startup' : 'An investor');
   const image = p.photo_url ?? p.entity_logo_url;
   const [from, to] = GRADIENTS[hashString(name) % GRADIENTS.length];
+  // Prompt 147 §4 — hidden_fields only applies to investor-kind cards
+  // (the 5-value vocabulary migration 0155 enforces has no startup-side
+  // members besides market_projections, handled separately in
+  // StartupMiniPitch below). A hidden field reads as simply absent, same
+  // reasoning as the market_projections fallback.
+  const hidden = p.hidden_fields ?? [];
   const stages = p.kind === 'startup'
     ? (p.investment_stage_sought ? [STAGE_LABELS[p.investment_stage_sought] ?? p.investment_stage_sought] : [])
-    : p.stages_invested.map((s) => STAGE_LABELS[s] ?? s);
+    : hidden.includes('stages') ? [] : p.stages_invested.map((s) => STAGE_LABELS[s] ?? s);
+  const geographies = p.kind === 'investor' && hidden.includes('geographies') ? [] : p.geographies;
+  const specificCriteria = p.kind === 'investor' && hidden.includes('specific_criteria') ? null : p.specific_criteria;
   const money = p.kind === 'startup'
     ? (fmtEur(p.target_round_amount) ? `Raising ${fmtEur(p.target_round_amount)}` : null)
-    : (fmtEur(p.ticket_min) || fmtEur(p.ticket_max) ? `Ticket ${fmtEur(p.ticket_min) ?? '—'}–${fmtEur(p.ticket_max) ?? '—'}` : null);
+    : (hidden.includes('ticket') ? null : (fmtEur(p.ticket_min) || fmtEur(p.ticket_max) ? `Ticket ${fmtEur(p.ticket_min) ?? '—'}–${fmtEur(p.ticket_max) ?? '—'}` : null));
   const i = subIndex ?? 0;
   const cardCount = subCardCountFor(p.kind);
   const activity = useInvestorActivity(active && p.kind === 'investor' ? p.id : null);
@@ -434,8 +459,8 @@ function CardFace({ p, subIndex, active, pitchData, slideDir }: { p: MatchDealPr
                 founder asks before any other: is this money the right
                 size, and in what form? */}
             {i === 1 && (() => {
-              const min = fmtEur(p.ticket_min);
-              const max = fmtEur(p.ticket_max);
+              const min = hidden.includes('ticket') ? null : fmtEur(p.ticket_min);
+              const max = hidden.includes('ticket') ? null : fmtEur(p.ticket_max);
               const ticket = min && max ? `${min}–${max}` : min ? `From ${min}` : max ? `Up to ${max}` : null;
               const instruments = p.instruments.map((v) => INSTRUMENT_LABELS[v] ?? v).join(' · ') || null;
               const role = p.lead_or_colead ? LEAD_OR_COLEAD_LABELS[p.lead_or_colead] ?? p.lead_or_colead : null;
@@ -486,18 +511,18 @@ function CardFace({ p, subIndex, active, pitchData, slideDir }: { p: MatchDealPr
               const boardSeat = p.takes_board_seat
                 ? { always: 'Always takes a board seat', sometimes: 'Sometimes takes a board seat', never: "Doesn't take board seats" }[p.takes_board_seat] ?? p.takes_board_seat
                 : null;
-              const empty = p.geographies.length === 0 && p.sectors.length === 0 && stages.length === 0
-                && p.phases_accepted.length === 0 && p.company_types.length === 0 && !p.specific_criteria
+              const empty = geographies.length === 0 && p.sectors.length === 0 && stages.length === 0
+                && p.phases_accepted.length === 0 && p.company_types.length === 0 && !specificCriteria
                 && p.focus_keywords.length === 0 && exclusions.length === 0 && !coldContact && !boardSeat;
               return empty ? <p className="mt-3 text-[13px] text-white/50">Nothing more here yet.</p> : (
                 <div className="mt-2 space-y-2.5">
                   {coldContact && <Field label="Cold contact">{coldContact}</Field>}
-                  {p.geographies.length > 0 && <Field label="Geographies">{p.geographies.join(' · ')}</Field>}
+                  {geographies.length > 0 && <Field label="Geographies">{geographies.join(' · ')}</Field>}
                   {p.sectors.length > 0 && <Field label="Sectors">{p.sectors.join(' · ')}</Field>}
                   {stages.length > 0 && <Field label="Stages">{stages.join(' · ')}</Field>}
                   {p.phases_accepted.length > 0 && <Field label="Company phases">{p.phases_accepted.join(' · ')}</Field>}
                   {p.company_types.length > 0 && <Field label="Company types">{p.company_types.join(' · ')}</Field>}
-                  {p.specific_criteria && <Field label="What they look for">{p.specific_criteria}</Field>}
+                  {specificCriteria && <Field label="What they look for">{specificCriteria}</Field>}
                   {p.focus_keywords.length > 0 && <Field label="Focus">{p.focus_keywords.join(' · ')}</Field>}
                   {boardSeat && <Field label="Board seat">{boardSeat}</Field>}
                   {exclusions.length > 0 && <Field label="Does not invest in" warn>{exclusions.join(' · ')}</Field>}
@@ -506,7 +531,7 @@ function CardFace({ p, subIndex, active, pitchData, slideDir }: { p: MatchDealPr
             })()}
           </>
         ) : (
-          <StartupMiniPitch i={i} pitchData={pitchData ?? null} phaseChip={stages} />
+          <StartupMiniPitch i={i} pitchData={pitchData ?? null} phaseChip={stages} hiddenFields={hidden} />
         )}
         </div>
       </div>
@@ -844,9 +869,10 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
         )}
 
         <div
+          key={current.id}
           role="group"
           aria-label={`${current.entity_name ?? 'Profile'} — drag right to like, left to pass, up for more, down to boost`}
-          className="absolute inset-x-4 inset-y-1 touch-none select-none"
+          className="absolute inset-x-4 inset-y-1 touch-none select-none matchdeal-card-promote"
           style={{
             transform: `translate(${offsetX}px, ${offsetY}px) rotate(${rotation}deg)`,
             transition: settling ? 'transform 220ms cubic-bezier(.16,1,.3,1)' : 'none',
