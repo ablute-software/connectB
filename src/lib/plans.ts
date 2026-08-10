@@ -417,6 +417,16 @@ export function investorPlanRow(tier: InvestorPlanTier): InvestorPlanRow {
   return INVESTOR_PLANS.find((p) => p.tier === tier) ?? INVESTOR_PLANS[0];
 }
 
+// matchdeal_profiles.plan_tier (kind='investor') stores MatchDeal's own
+// internal tier names, not these plan tiers — see set-investor-plan/route.ts's
+// own header comment. Centralized here (was previously duplicated as a
+// local const inside InvestorPlansPanel.tsx, a client component) so
+// investor-pipeline.ts's server-side monthlyCap lookup (Prompt 153) uses
+// the exact same mapping, not a second copy that could drift.
+export const MATCHDEAL_TIER_TO_INVESTOR_PLAN: Record<string, InvestorPlanTier> = {
+  tier_a: 'pro_scout', tier_b: 'ace_spotter', tier_c: 'legendary_sleuth',
+};
+
 // PLAN-02 — the 4th plan: no fixed price, a contact form instead of a
 // checkout/request CTA. Deliberately NOT part of INVESTOR_PLANS (which
 // models priced, structured plans with seats/caps/bullets) — the card and

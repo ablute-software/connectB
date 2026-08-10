@@ -6,12 +6,8 @@
 // (INVESTOR_PLANS — names/prices are the founder's own spec, not invented
 // here), and a request button writing to matchdeal_profiles.plan_tier_requested.
 import { useEffect, useState } from 'react';
-import { INVESTOR_PLANS, INVESTOR_PLAN_FOOTNOTES, type InvestorPlanTier } from '@/lib/plans';
+import { INVESTOR_PLANS, INVESTOR_PLAN_FOOTNOTES, MATCHDEAL_TIER_TO_INVESTOR_PLAN as MATCHDEAL_TO_TIER, type InvestorPlanTier } from '@/lib/plans';
 import { PrivateDetectiveCard } from '@/components/plans/PrivateDetectiveCard';
-
-const MATCHDEAL_TO_TIER: Record<string, InvestorPlanTier> = {
-  tier_a: 'pro_scout', tier_b: 'ace_spotter', tier_c: 'legendary_sleuth',
-};
 
 interface Profile { plan_tier?: string | null; plan_tier_requested?: string | null }
 

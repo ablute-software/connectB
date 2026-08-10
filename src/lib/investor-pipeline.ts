@@ -7,9 +7,13 @@ import { computeMatchScore, type InvestorThesis, type StartupRound } from './inv
 import { activeGrantOrgIds, eligiblePipelineOrgIds, resolveInvestorCatalogEntityId, resolveInvestorProfile, resolveViewerIsTest } from './portal-access';
 import { pipelineTestFlagAvailable } from './pipeline-test-flag-capability';
 import { roundValuationBasisAvailable } from './round-valuation-basis-capability';
+import { MATCHDEAL_TIER_TO_INVESTOR_PLAN, investorPlanRow } from './plans';
 
 const WAVE_SIZE = 8;
 const TRACKING_WINDOW_DAYS = 30;
+// Default when matchdeal_profiles.plan_tier is unset — same fallback
+// InvestorPlansPanel.tsx's own `current` already uses ('tier_a').
+const DEFAULT_MATCHDEAL_TIER = 'tier_a';
 
 // Prompt 62.3 — map of stage -> set of distinct investor profile ids who
 // liked a startup at that stage in the last 30 days, excluding the caller.
@@ -265,16 +269,60 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // to the discovery wave-gate: the relationship already exists, so there's
   // nothing left to "unlock" by treating other cards first. Only the
   // remaining discovery-only cards go through the original doseamento.
+  // Prompt 153 — nor to the monthlyCap admission gate below, same reasoning:
+  // a real grant/decision is consent that already happened, not a
+  // discovery-quota spend.
   const relationshipCards = cards.filter((c) => c.viaGrant || c.viaDecision);
   const discoveryCards = cards.filter((c) => !c.viaGrant && !c.viaDecision);
+
+  // Prompt 153 — monthlyCap (plans.ts, by investor plan tier) now limits
+  // how many NEW discovery candidates this investor firm is ever admitted
+  // to, per calendar month; WAVE_SIZE (unchanged, below) still controls how
+  // many of the admitted set are shown at once. Coexistence model, not
+  // "WAVE_SIZE = monthlyCap" — confirmed with Nuno. investor_pipeline_admissions
+  // (migration 0157) is what makes "new this month" answerable at all: this
+  // function recomputes discoveryCards from scratch on every call, with no
+  // other record of when a candidate first became visible.
+  let admittedDiscoveryCards = discoveryCards;
+  if (investorCatalogEntityId) {
+    const { data: admissionRows } = await admin.from('investor_pipeline_admissions')
+      .select('org_id, admitted_at').eq('investor_catalog_entity_id', investorCatalogEntityId);
+    const admittedAtByOrg = new Map((admissionRows ?? []).map((a) => [a.org_id as string, a.admitted_at as string]));
+
+    const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
+    const admittedThisMonthCount = [...admittedAtByOrg.values()].filter((t) => t >= monthStart).length;
+
+    const { data: investorProfileRow } = await admin.from('matchdeal_profiles').select('plan_tier')
+      .eq('id', investorProfile.id).maybeSingle();
+    const planTier = MATCHDEAL_TIER_TO_INVESTOR_PLAN[(investorProfileRow?.plan_tier as string) ?? DEFAULT_MATCHDEAL_TIER] ?? 'pro_scout';
+    const monthlyCap = investorPlanRow(planTier).monthlyCap;
+
+    let admissionBudget = Math.max(0, monthlyCap - admittedThisMonthCount);
+    const newlyAdmitted: { investor_catalog_entity_id: string; org_id: string }[] = [];
+    admittedDiscoveryCards = discoveryCards.filter((c) => {
+      if (admittedAtByOrg.has(c.orgId)) return true;
+      if (admissionBudget <= 0) return false;
+      admissionBudget -= 1;
+      newlyAdmitted.push({ investor_catalog_entity_id: investorCatalogEntityId, org_id: c.orgId });
+      return true;
+    });
+    if (newlyAdmitted.length > 0) {
+      // Idempotent by the table's own unique(investor_catalog_entity_id,
+      // org_id) constraint — a concurrent call admitting the same
+      // candidate is a harmless no-op, not a double-spend of the budget.
+      await admin.from('investor_pipeline_admissions').upsert(newlyAdmitted, {
+        onConflict: 'investor_catalog_entity_id,org_id', ignoreDuplicates: true,
+      });
+    }
+  }
 
   const waves = [];
   if (relationshipCards.length > 0) {
     waves.push({ index: waves.length, items: relationshipCards, unlocked: true });
   }
-  for (let i = 0; i < discoveryCards.length; i += WAVE_SIZE) {
-    const items = discoveryCards.slice(i, i + WAVE_SIZE);
-    const priorTreated = discoveryCards.slice(0, i).every((c) => c.status !== 'open');
+  for (let i = 0; i < admittedDiscoveryCards.length; i += WAVE_SIZE) {
+    const items = admittedDiscoveryCards.slice(i, i + WAVE_SIZE);
+    const priorTreated = admittedDiscoveryCards.slice(0, i).every((c) => c.status !== 'open');
     waves.push({ index: waves.length, items, unlocked: i === 0 || priorTreated });
   }
 
