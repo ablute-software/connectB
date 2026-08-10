@@ -28,7 +28,7 @@ import { ComparisonTable } from '@/components/plans/ComparisonTable';
 import { UpgradeConfirmModal } from '@/components/plans/UpgradeConfirmModal';
 import type { PlanCardData } from '@/components/plans/types';
 import {
-  PLANS, CONSULTANCY_TEASER_EN_LEAD, CONSULTANCY_TEASER_EN_REST, BILLING_PERIODS,
+  PLANS, BILLING_PERIODS,
   planPriceLabel, parsePlanRequest, normalizePlan, planName, type BillingPeriod,
 } from '@/lib/plans';
 import { SECURE_PAYMENT_COPY } from '@/lib/billing';
@@ -364,8 +364,6 @@ export function PlansPanel() {
       {showCompare && <ComparisonTable plans={cardPlans} />}
 
       {billing && <p className="text-[11px] text-gray-400">🔒 {SECURE_PAYMENT_COPY}. Cancel anytime.</p>}
-
-      <p className="text-xs text-gray-400"><b>{CONSULTANCY_TEASER_EN_LEAD}</b>{CONSULTANCY_TEASER_EN_REST}</p>
 
       {!billing && (
         <p className="text-[11px] text-gray-400">

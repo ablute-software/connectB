@@ -140,13 +140,22 @@ export const PLANS: PlanRow[] = [
     // doc: Elementary's own bullets carry forward (Smart Calendar, Protected
     // Outreach, Actionable Review Queue, Bulk Investor Import, NDA sharing),
     // with Investor Pipeline/Vault/seats replaced by this tier's own numbers
-    // and the items below added. Advanced Review & Optimization / Investability
-    // Reports are named in the doc's List of Suspects bullets, but the real
-    // entitlement (reviewOptimization) is still platform-only preview (Prompt
-    // 115) — not open to any paying plan yet. Kept in `comingSoon` rather than
-    // promised as live, to avoid advertising a feature paying customers can't
-    // actually use. FLAGGED for Nuno — this is the doc vs. product-state
-    // conflict that matters most in this block.
+    // and the items below added.
+    // Prompt 158 — Advanced Review & Optimization / Investability reports
+    // promoted out of `comingSoon` into real bullets: Nuno confirmed
+    // (10/08) they'll be ready by launch, so the "(coming soon)" label no
+    // longer applies to the CARD COPY. NOT done here: the actual in-app
+    // gate (planEntitlements().reviewOptimization, still isDeveloperRole-
+    // only — see that field's own comment — and ReadinessPanel.tsx's
+    // REVIEW_OPTIMIZATION_PREVIEW_COPY frosted overlay) is untouched. This
+    // prompt was explicitly content/presentation only ("sem alterações a
+    // billing/lógica de pagamento"), and flipping the entitlement is a real
+    // capability-readiness call, not a copy fix. FLAGGED FOR NUNO: until
+    // that entitlement actually opens for paid plans, this card now
+    // advertises these two as included while the app itself still shows
+    // paying customers the "coming soon" frosted gate when they try to use
+    // them — these two need to ship together before launch, or the card is
+    // overpromising again, just with the label moved rather than removed.
     bullets: [
       '2 users',
       'Investor Pipeline\n'
@@ -165,10 +174,8 @@ export const PLANS: PlanRow[] = [
       'Investor re-engagement engine',
       'Access to MatchDeal\n'
         + `· ${MATCHDEAL_WEEKLY.garage.deck} new investors per week\n`
-        + `· ${MATCHDEAL_WEEKLY.garage.likes} investor picks per week\n`
-        + `· ${MATCHDEAL_WEEKLY.garage.undos} reconsiderations per week`,
-    ],
-    comingSoon: [
+        + `· ${MATCHDEAL_WEEKLY.garage.likes} Swipe Rights per week\n`
+        + `· ${MATCHDEAL_WEEKLY.garage.undos} Reconsiderations per week`,
       'Advanced Review & Optimization',
       'Investability reports',
     ],
@@ -179,9 +186,10 @@ export const PLANS: PlanRow[] = [
     tagline: 'For serious, multi-investor raises',
     // Prompt 123 §0.1/§B.1 — base 25 (card wins over the doc's "5/10/20"
     // unlock-rules section; see PLAN_PIPELINE_BASE.motherfunding in
-    // pipeline-unlock.ts). Everything from List of Suspects carries forward
-    // (same comingSoon caveat re: Review & Optimization applies here too —
-    // still platform-only preview, not actually live for this plan).
+    // pipeline-unlock.ts). Everything from List of Suspects carries forward.
+    // Prompt 158 — see garage's own comment above: Advanced Review &
+    // Optimization / Investability reports promoted out of `comingSoon`
+    // here too, same FLAGGED entitlement caveat applies.
     bullets: [
       '5 users',
       'Investor Pipeline\n'
@@ -200,10 +208,8 @@ export const PLANS: PlanRow[] = [
       'Investor re-engagement engine',
       'Access to MatchDeal\n'
         + `· ${MATCHDEAL_WEEKLY.motherfunding.deck} new investors per week\n`
-        + `· ${MATCHDEAL_WEEKLY.motherfunding.likes} investor picks per week\n`
-        + '· unlimited reconsiderations',
-    ],
-    comingSoon: [
+        + `· ${MATCHDEAL_WEEKLY.motherfunding.likes} Swipe Rights per week\n`
+        + `· Unlimited Reconsiderations until you use the ${MATCHDEAL_WEEKLY.motherfunding.likes} weekly Swipe Rights`,
       'Advanced Review & Optimization',
       'Investability reports',
     ],
@@ -213,13 +219,10 @@ export const PLANS: PlanRow[] = [
 // Success fee SUSPENDED (founder decision, post legal consultation, 2026-07-23):
 // pending regulatory clarity. All user-facing fee copy (the 1,3%, the 18-month
 // tail, the plan-deduction, the "Termos sujeitos a contrato" caveat) is removed
-// — subscriptions are the only thing a startup pays at this stage. Replaced on
-// the Plans page by this one discreet, terms-free note. No percentages, no terms.
-export const CONSULTANCY_TEASER = 'Brevemente: opção de consultoria para captação de capital.';
-// English rendering of the same teaser, for the public (English) landing page.
-// Same promise, no percentages, no terms — the fee stays suspended.
-export const CONSULTANCY_TEASER_EN_LEAD = 'Coming soon:';
-export const CONSULTANCY_TEASER_EN_REST = ' a capital-raising consultancy option, for founders who want hands-on help with their round.';
+// — subscriptions are the only thing a startup pays at this stage.
+// Prompt 158 — the consultancy teaser itself ("Coming soon: a capital-raising
+// consultancy option…") is also removed now, per Nuno (10/08): no fee copy,
+// no consultancy teaser, no terms, nothing in its place.
 
 // Billing period toggle (Mensal / Anual). Annual falls back to the monthly
 // label when a tier has no annual price (the free 'idea' tier is €0 either way).

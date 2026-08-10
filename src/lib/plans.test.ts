@@ -147,15 +147,17 @@ describe('plan bullets — shared features persist across tiers (Prompt 123 §B.
     expect(planRow('motherfunding').bullets.some((b) => b.startsWith('Access to MatchDeal'))).toBe(true);
   });
 
-  // Review & Optimization / Investability Reports stay in `comingSoon` for
-  // every paid tier — the real entitlement (reviewOptimization) is still
-  // platform-only preview (Prompt 115), so the doc's own bullets naming
-  // these as live features are deliberately NOT promoted into `bullets`.
-  it('Review & Optimization and Investability Reports stay parked, not promised live, on paid tiers', () => {
+  // Prompt 158 — promoted out of `comingSoon` into real bullets on both
+  // paid tiers (Nuno confirmed 10/08 they'll be ready by launch). The
+  // underlying entitlement (planEntitlements().reviewOptimization) is a
+  // separate, NOT-yet-flipped concern — flagged in plans.ts's own comment,
+  // not re-litigated by this test, which only pins the card copy.
+  it('Review & Optimization and Investability Reports are live bullets, not comingSoon, on paid tiers', () => {
     for (const tier of ['garage', 'motherfunding'] as const) {
       const row = planRow(tier);
-      expect(row.bullets.some((b) => b.includes('Review and Optimization') || b.includes('Investability Reports'))).toBe(false);
-      expect(row.comingSoon).toEqual(expect.arrayContaining(['Advanced Review & Optimization', 'Investability reports']));
+      expect(row.bullets).toContain('Advanced Review & Optimization');
+      expect(row.bullets).toContain('Investability reports');
+      expect(row.comingSoon ?? []).toEqual([]);
     }
   });
 });
