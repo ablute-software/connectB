@@ -12,7 +12,6 @@ import {
 import { grantStatus } from '@/lib/access-grants';
 import { PeopleAccessPanel } from '@/components/documents/PeopleAccessPanel';
 import { PageTour } from '@/components/onboarding/PageTour';
-import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import { VaultPinGate } from '@/components/documents/VaultPinGate';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 
@@ -680,8 +679,6 @@ function DocumentsPageInner() {
       {tab === 'people' && <PageTour pageKey="guide_people_access" />}
       <div className="flex items-center justify-between gap-1.5">
         <h1 className="text-lg font-bold">{tab === 'documents' ? 'Documents & Vault Data Room' : 'People & Access'}</h1>
-        {tab === 'documents' && <PageGuideButton pageKey="guide_documents" />}
-        {tab === 'people' && <PageGuideButton pageKey="guide_people_access" />}
       </div>
       <div className="flex gap-1.5 border-b border-gray-100 pb-2">
         <button onClick={() => setTab('documents')}

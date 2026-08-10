@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 import { INSTRUMENT_LABELS, LEAD_OR_COLEAD_LABELS } from '@/lib/investor-taxonomy';
+import { HypeListOverlay } from './HypeListOverlay';
 
 interface MatchDealProfile {
   id: string; kind: 'startup' | 'investor'; entity_name: string | null; photo_url: string | null;
@@ -449,7 +450,7 @@ function CardFace({ p, subIndex, active, pitchData, slideDir }: { p: MatchDealPr
                   {ticket && <Field label="Ticket">{ticket}</Field>}
                   {instruments && <Field label="Instruments">{instruments}</Field>}
                   {role && <Field label="Role in the round">{role}</Field>}
-                  {deploy && <Field label="Capital to deploy">{deploy}</Field>}
+                  {deploy && <Field label="Yearly investment budget">{deploy}</Field>}
                   {perYear && <Field label="Deals per year">{perYear}</Field>}
                   {p.active_fund && <Field label="Active fund">{p.active_fund}</Field>}
                   {decisionTime && <Field label="Typical decision time">{decisionTime}</Field>}
@@ -530,6 +531,9 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
   const [subIndex, setSubIndex] = useState(0);
   const [subSlideDir, setSubSlideDir] = useState<'up' | 'down' | null>(null);
   const [showBoostSheet, setShowBoostSheet] = useState(false);
+  const [boostBusy, setBoostBusy] = useState(false);
+  const [boostError, setBoostError] = useState<string | null>(null);
+  const [showHypeList, setShowHypeList] = useState(false);
   const startRef = useRef<{ x: number; y: number } | null>(null);
   // Prompt 125 Block C — "reconsider" a pass (the ONLY undo the backend
   // actually supports: matchdeal_undo_swipe converts a 'pass' row into a
@@ -686,6 +690,48 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
     }
   }
 
+  // Prompt 143 — matchdeal_activate_super_like already exists and is tested
+  // at the DB layer (tier_b gate, 1x/week via super_like_used_at); this is
+  // only the UI wire-up, no schema change. It ALSO records a 'like' swipe
+  // server-side (its own SQL body ends in `perform matchdeal_record_swipe`)
+  // — a successful boost advances the deck the same way a plain like does.
+  // One real gap, not silently papered over: matchdeal_activate_super_like
+  // returns void, unlike matchdeal_record_swipe (which returns the new
+  // match id) — so a boost that happens to create a mutual match can't
+  // trigger this screen's "It's a match!" celebration the way a normal
+  // like does. The match still lands (matchdeal_handle_mutual_match ran),
+  // it just surfaces later rather than instantly here. Fixing that needs
+  // the RPC's own return shape to change — a real (if small) schema touch,
+  // out of scope for "wire the existing backend to UI."
+  async function activateBoost() {
+    if (!current || boostBusy) return;
+    setBoostBusy(true);
+    setBoostError(null);
+    try {
+      const { error } = await browserClient().rpc('matchdeal_activate_super_like', {
+        p_actor_profile_id: viewerProfileId, p_target_profile_id: current.id,
+      });
+      if (error) {
+        setBoostError(
+          error.message.includes('SUPER_LIKE_NOT_AVAILABLE')
+            ? 'Boost is only available on the List of Suspects plan or higher.'
+            : error.message.includes('SUPER_LIKE_ALREADY_USED')
+              ? "You've already used this week's Boost."
+              : 'Could not boost — try again.',
+        );
+        return;
+      }
+      setShowBoostSheet(false);
+      setToast(`Boosted — ${current.entity_name ?? 'this profile'}`);
+      setLastPass(null);
+      await new Promise((r) => setTimeout(r, 220));
+      setIndex((i) => i + 1);
+      setDrag({ x: 0, y: 0, active: false });
+    } finally {
+      setBoostBusy(false);
+    }
+  }
+
   function onPointerDown(e: React.PointerEvent) {
     if (busy || !current) return;
     startRef.current = { x: e.clientX, y: e.clientY };
@@ -708,7 +754,7 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
   }
   function goToPrevSubCardOrBoost() {
     if (subIndex > 0) { setSubSlideDir('down'); setSubIndex((s) => s - 1); }
-    else setShowBoostSheet(true);
+    else { setBoostError(null); setShowBoostSheet(true); }
   }
 
   // Prompt 91 §2.1 — direction corrected (found live, reported wrong the
@@ -777,6 +823,17 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
 
   return (
     <div className="relative flex flex-1 flex-col">
+      {/* Prompt 143 — Hype List v1 trigger. Investor-only (the list is
+          "which startups are trending," a discovery aid for the side that's
+          picking among many, not something a startup viewer needs). Kept
+          outside the card's own touch-none/pointer-capture div, same
+          reasoning as the ▲/▼ chevrons below. */}
+      {viewerKind === 'investor' && (
+        <button type="button" onClick={() => setShowHypeList(true)}
+          className="absolute right-4 top-2 z-10 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-sm">
+          🔥 Hype List
+        </button>
+      )}
       <div className="relative flex-1 px-4 pb-1 pt-1">
         {/* Card behind, so the deck reads as a stack rather than a single
             card that blinks out of existence on every swipe. */}
@@ -871,15 +928,14 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
       )}
 
       {/* Prompt 81 Bloco 1 — swipe-up opens this, it never boosts on its
-          own. Boost itself (Bloco 3: matchdeal_boosts, cadence per tier) is
-          schema-only tonight — zero rows, zero code wired to it — so this is
-          an honest "not live yet" state rather than a Confirm button with
-          nothing real behind it. */}
+          own. Prompt 143 — now calls matchdeal_activate_super_like for
+          real; the RPC's own errors (plan gate, weekly limit) get a clear
+          message here instead of a generic one. */}
       {showBoostSheet && (
         <div
           role="dialog" aria-label="Boost this profile"
           className="absolute inset-0 z-20 flex flex-col items-center justify-end bg-[#0B1220]/70 backdrop-blur-sm"
-          onClick={() => setShowBoostSheet(false)}
+          onClick={() => !boostBusy && setShowBoostSheet(false)}
         >
           <div
             className="w-full rounded-t-3xl border-t border-white/10 bg-[#111a2e] p-6 pb-8 text-center"
@@ -889,17 +945,28 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
             <div className="text-3xl">🚀</div>
             <h2 className="mt-2 text-[17px] font-bold text-white">Boost this profile</h2>
             <p className="mt-2 text-[13.5px] leading-relaxed text-white/65">
-              Boosting isn&apos;t live yet — it&apos;s coming to MatchDeal soon.
+              Uses your one Boost for this week — {current.entity_name ?? 'this profile'} gets extra visibility, and this counts as a Like.
             </p>
-            <button
-              type="button" onClick={() => setShowBoostSheet(false)}
-              className="mt-5 w-full rounded-full bg-white/10 py-3 text-[14px] font-semibold text-white"
-            >
-              Close
-            </button>
+            {boostError && <p className="mt-2 text-[13px] font-medium text-rose-300">{boostError}</p>}
+            <div className="mt-5 flex gap-2.5">
+              <button
+                type="button" onClick={() => setShowBoostSheet(false)} disabled={boostBusy}
+                className="flex-1 rounded-full bg-white/10 py-3 text-[14px] font-semibold text-white disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button" onClick={() => void activateBoost()} disabled={boostBusy}
+                className="flex-1 rounded-full bg-gradient-to-br from-emerald-400 to-green-600 py-3 text-[14px] font-semibold text-white disabled:opacity-40"
+              >
+                {boostBusy ? 'Boosting…' : 'Boost'}
+              </button>
+            </div>
           </div>
         </div>
       )}
+
+      {showHypeList && <HypeListOverlay onClose={() => setShowHypeList(false)} />}
 
       <div className="relative shrink-0 px-4 pb-2 pt-3">
         {toast && (

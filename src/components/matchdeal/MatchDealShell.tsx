@@ -19,7 +19,7 @@ export function MatchDealShell({ viewerProfileId, viewerKind, deckLimit }: { vie
       {tab === 'deck' && <MatchDealDeck viewerProfileId={viewerProfileId} viewerKind={viewerKind} deckLimit={deckLimit} />}
       {tab === 'matches' && <MatchesPanel viewerProfileId={viewerProfileId} viewerKind={viewerKind} />}
       {tab === 'messages' && <InstantMessagePanel viewerProfileId={viewerProfileId} viewerKind={viewerKind} />}
-      {tab === 'boost' && <BoostExtraPanel />}
+      {tab === 'boost' && <BoostExtraPanel viewerProfileId={viewerProfileId} viewerKind={viewerKind} />}
       {tab === 'profile' && <ProfilePanel viewerProfileId={viewerProfileId} viewerKind={viewerKind} />}
       <MatchDealTabBar active={tab} onChange={setTab} />
     </div>

@@ -35,7 +35,6 @@ import { SECURE_PAYMENT_COPY } from '@/lib/billing';
 import { discountedPriceEur } from '@/lib/promo';
 import { can, type OrgRole } from '@/lib/permissions';
 import { PageTour } from '@/components/onboarding/PageTour';
-import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import type { PlanTier } from '@/lib/types';
 
 const PERIOD_LABEL: Record<BillingPeriod, string> = { monthly: 'Monthly', annual: 'Annual' };
@@ -253,7 +252,6 @@ export function PlansPanel() {
       <PageTour pageKey="guide_plans" />
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold">Plans &amp; billing</h1>
-        <PageGuideButton pageKey="guide_plans" />
       </div>
 
       {notice && <div className="rounded-lg border border-cyan-100 bg-[#E8F4F8] px-3 py-2 text-xs text-[#0E7490]">{notice}</div>}

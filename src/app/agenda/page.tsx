@@ -5,7 +5,6 @@
 // same component the merged /today page rendered under its "Agenda" tab.
 import { AgendaPanel } from '@/components/today/AgendaPanel';
 import { PageTour } from '@/components/onboarding/PageTour';
-import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 
 export default function AgendaPage() {
   return (
@@ -13,7 +12,6 @@ export default function AgendaPage() {
       <PageTour pageKey="guide_agenda" />
       <div className="flex items-center justify-between gap-1.5">
         <h1 className="text-lg font-bold">Agenda</h1>
-        <PageGuideButton pageKey="guide_agenda" />
       </div>
       <AgendaPanel />
     </div>

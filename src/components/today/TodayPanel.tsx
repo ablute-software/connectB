@@ -9,7 +9,6 @@ import { Card, EntityLink, PersonLink, WaveTag, fmtRoundEur } from '@/components
 import { outboundCounts, preflight, preflightSummary } from '@/lib/rules';
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, recommendedActionType } from '@/lib/relationship';
 import { PageTour } from '@/components/onboarding/PageTour';
-import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import type { ActionType } from '@/lib/types';
 
 function ActionTypePill({ type }: { type: ActionType }) {
@@ -64,7 +63,6 @@ export function TodayPanel() {
           <h1 className="text-lg font-bold">Today</h1>
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">{now.toISOString().slice(0, 10)}</span>
-            <PageGuideButton pageKey="guide_today" />
           </div>
         </div>
 

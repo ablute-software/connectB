@@ -12,6 +12,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { InteractionLogTimeline } from '@/components/investor-workspace/InteractionLogTimeline';
+import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
 import { DealThreadView, type DealMessage } from '@/components/deal-messages/DealThreadView';
 
 interface Card {
@@ -209,6 +210,10 @@ export default function StartupDossierPage() {
               className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
               🧮 Equity calculator
             </Link>
+            <Link href={`/portal/startup/${orgId}/memo`}
+              className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+              📄 Export deal memo
+            </Link>
             {card.hasDataRoomAccess ? (
               <span className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-500">Data room open</span>
             ) : (
@@ -389,6 +394,8 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
           </dl>
         </div>
       )}
+
+      <ScorecardPanel orgId={card.orgId} />
 
       {level >= 2 ? (
         <>

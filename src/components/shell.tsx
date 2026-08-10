@@ -19,7 +19,26 @@ import { WorkspaceSidebar } from '@/components/workspace-shell/WorkspaceSidebar'
 import { WorkspaceMobileNav } from '@/components/workspace-shell/WorkspaceMobileNav';
 import { WorkspaceHeader } from '@/components/workspace-shell/WorkspaceHeader';
 import { LogoutButton } from '@/components/workspace-shell/LogoutButton';
+import { LampButton } from '@/components/onboarding/LampButton';
 import type { WorkspaceNavItem } from '@/components/workspace-shell/types';
+
+// Prompt 141 — pathname -> this page's tour key(s), for the header lamp.
+// Deliberately NOT useSearchParams-based for tab-scoped pages (/tasks,
+// /documents both hide their active tab in local component state, not the
+// URL, except /tasks which IS URL-synced but reading it here would force
+// every route through a Suspense boundary just for the lamp) — both list
+// every key that page can show rather than guessing the active one. Pages
+// with no tour yet (readiness, messages, …) fall through to [].
+function tourKeysForPath(path: string | null): string[] {
+  if (path === '/pipeline') return ['guide_pipeline'];
+  if (path === '/documents') return ['guide_documents', 'guide_people_access'];
+  if (path === '/tasks') return ['guide_today', 'guide_warrants'];
+  if (path === '/dashboard') return ['guide_dashboard'];
+  if (path === '/settings') return ['guide_settings'];
+  if (path === '/plans') return ['guide_plans'];
+  if (path === '/agenda') return ['guide_agenda'];
+  return [];
+}
 
 type Me = {
   authEnabled: boolean; user: { email?: string } | null; role: string;
@@ -239,6 +258,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   + Log interaction
                 </Link>
               </Tooltip>
+              <LampButton tourKeys={tourKeysForPath(path)} supportSource="founder_app" />
             </>
           }
         />

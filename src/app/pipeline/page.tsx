@@ -14,7 +14,6 @@ import { AddInvestorModal } from '@/components/AddInvestorModal';
 import { isPersonCandidate, isUnverifiedStub } from '@/lib/relationship';
 import { CoachMark } from '@/components/onboarding/CoachMark';
 import { PageTour } from '@/components/onboarding/PageTour';
-import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 import type { Db, Entity, TaskItem } from '@/lib/types';
@@ -349,9 +348,6 @@ export default function PipelinePage() {
           never had it. Same component, same /api/company/visibility source,
           no new logic. */}
       <MatchDealVisibilityBanner />
-      <div className="flex items-center justify-end">
-        <PageGuideButton pageKey="guide_pipeline" />
-      </div>
       <PageTour pageKey="guide_pipeline" />
       <PipelineUnlockBadge unlock={unlock} />
       {noneClassified && <EmptyCompanyBlock variant="banner" />}
