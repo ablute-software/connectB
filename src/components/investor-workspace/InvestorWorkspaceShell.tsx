@@ -87,6 +87,11 @@ export function InvestorWorkspaceShell({
   // the prompt asked for) for a fraction of the wiring three separate
   // fetches would need.
   const [identityStatus, setIdentityStatus] = useState<IdentityStatus | null>(null);
+  // Prompt 156 — migration 0156. null = not yet confirmed; a real
+  // timestamp once the investor has explicitly confirmed their thesis data
+  // and unlocked the Pipeline.
+  const [pipelineConfirmedAt, setPipelineConfirmedAt] = useState<string | null>(null);
+  const [confirmingPipeline, setConfirmingPipeline] = useState(false);
   // Top bar activity counter (Bloco 1) — reuses Today's own item list rather
   // than a second aggregation query; a plain count, not a kind-by-kind
   // breakdown, since Today's items already vary in shape per kind and this
@@ -111,8 +116,20 @@ export function InvestorWorkspaceShell({
       if (d.completeness != null) setPct(d.completeness);
       setInvestorFirmName(d.linked ? d.entityName ?? null : null);
       setIdentityStatus(d.linked ? d.identityStatus ?? null : null);
+      setPipelineConfirmedAt(d.linked ? d.pipelineConfirmedAt ?? null : null);
     }).catch(() => {});
   }, []);
+
+  async function confirmPipeline() {
+    setConfirmingPipeline(true);
+    try {
+      const res = await fetch('/api/portal/pipeline/confirm', { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (body?.ok) setPipelineConfirmedAt(body.pipelineConfirmedAt as string);
+    } finally {
+      setConfirmingPipeline(false);
+    }
+  }
 
   const aboutLabel = investorFirmName ? `About ${investorFirmName}` : 'About your firm';
   const gateOpen = pct != null && pct >= COMPLETENESS_GATE;
@@ -211,20 +228,45 @@ export function InvestorWorkspaceShell({
             other tab keeps the original width unchanged. */}
         <main className={`mx-auto p-4 md:p-8 ${tab === 'plans' ? 'max-w-6xl' : 'max-w-3xl'}`}>
           {tab === 'pipeline' && (
-            gateOpen ? (
-              openStartup ? (
-                <div>
-                  <button onClick={onBackToPipeline} className="mb-3 text-xs text-gray-400 hover:underline">← Back to Pipeline</button>
-                  {startupCard}
-                </div>
-              ) : (
-                <PipelinePanel onOpenStartup={onOpenStartup} onGoToArchive={() => setTab('archive')} />
-              )
-            ) : (
+            !gateOpen ? (
               <EmptyState
                 message="Complete your investor profile to start receiving startups matched to your thesis."
                 action={{ label: 'Go to About', onClick: () => setTab('about') }}
               />
+            ) : openStartup ? (
+              <div>
+                <button onClick={onBackToPipeline} className="mb-3 text-xs text-gray-400 hover:underline">← Back to Pipeline</button>
+                {startupCard}
+              </div>
+            ) : !pipelineConfirmedAt ? (
+              // Prompt 156 — crossing the completeness gate above used to
+              // flip straight into a live, already-populated Pipeline with
+              // no moment where the investor confirms their thesis data is
+              // what they meant to match against. Mirrors the startup
+              // side's own confirm step (pipeline/page.tsx's
+              // EmptyCompanyBlock) — same idea, investor-specific copy.
+              <div className="flex min-h-[50vh] items-center justify-center">
+                <div className="mx-auto max-w-[420px] text-center">
+                  <div className="mx-auto mb-5 flex h-[80px] w-[80px] items-center justify-center rounded-full bg-gray-50 text-3xl">🔍</div>
+                  <h2 className="mb-2 text-lg font-semibold text-gray-900">Congratulations — we have enough to show you your best-matched startups</h2>
+                  <p className="mb-5 text-sm text-gray-500">
+                    Confirm your investor profile is accurate before you unlock — the match uses this data as it stands right now.
+                    If something&apos;s wrong, fix it first: you won&apos;t get a fresh match until your plan&apos;s monthly renewal.
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button disabled={confirmingPipeline} onClick={() => void confirmPipeline()}
+                      className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b] disabled:opacity-50">
+                      {confirmingPipeline ? 'Unlocking…' : 'Confirm and unlock my Pipeline'}
+                    </button>
+                    <button onClick={() => setTab('about')}
+                      className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                      Let me check my profile first
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <PipelinePanel onOpenStartup={onOpenStartup} onGoToArchive={() => setTab('archive')} />
             )
           )}
           {tab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} onEntityNameChange={setInvestorFirmName} onIdentityStatusChange={setIdentityStatus} />}

@@ -71,6 +71,8 @@ function ExclusionsPicker({ selected, onChange }: { selected: string[]; onChange
 export interface ProfileResponse {
   linked: boolean; entityName?: string | null; profile?: Profile; completeness?: number; sectorOptions?: string[];
   identityStatus?: IdentityStatus;
+  // Prompt 156 — migration 0156.
+  pipelineConfirmedAt?: string | null;
 }
 
 // Bloco 4 placeholder legal text — EXACT strings from the prompt, never a
