@@ -38,9 +38,15 @@ const STAGES = [
 const ACQUISITION_SOURCES = ['', 'Organic', 'Referral', 'Campaign', 'Partner', 'Direct', 'Other'];
 
 function InvestorSignupPanel() {
-  const [email, setEmail] = useState('');
+  // Prompt 154 gap 3 — prefilled when this panel is reached from a Data
+  // Room guest preview link (/signup?as=investor&email=…&note=…): the
+  // guest already has a real access_grants row (invited_email + a used
+  // guest_token), so their request here isn't a cold lead — the prefilled
+  // note tells back-office reviewers that context instead of losing it.
+  const sp = useSearchParams();
+  const [email, setEmail] = useState(() => sp.get('email') ?? '');
   const [firmName, setFirmName] = useState('');
-  const [note, setNote] = useState('');
+  const [note, setNote] = useState(() => sp.get('note') ?? '');
   const [website, setWebsite] = useState(''); // honeypot — never shown to real visitors
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
@@ -143,8 +149,51 @@ function FounderSignupForm() {
   const [password, setPassword] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  // Prompt 152 — set once the auth account exists (signUp succeeded), so a
+  // failed/ambiguous provision-org call can be retried with the SAME
+  // already-created account instead of silently proceeding or dead-ending.
+  // `session` is captured here (not read from the original signUp() result
+  // later) because that result goes out of scope once this state is set —
+  // a retry needs to know, without re-calling signUp(), whether to redirect
+  // straight in or show the "check your email" message.
+  const [pendingAccount, setPendingAccount] = useState<{ userId: string; session: boolean } | null>(null);
 
   const canSubmit = !busy && !!email && checkPassword(password).valid && !!org && !!name && !!title;
+
+  // Prompt 152 — found live: a real signup left auth.users with a row and
+  // zero org_members, because the old code treated a network/parse failure
+  // on this call (res.json().catch(() => ({}))) the same as success —
+  // `{}.ok === false` is false, so it fell through to "Account created,
+  // check your email," indistinguishable from a real success. Every path
+  // through this function now either provisions successfully or sets
+  // pendingAccount + a message that says so explicitly; nothing falls
+  // through silently.
+  async function attemptProvision(userId: string): Promise<boolean> {
+    try {
+      const res = await fetch('/api/provision-org', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId, org_name: org, email,
+          website, sector, stage, round_target_eur: roundTarget ? Number(roundTarget) : undefined,
+          country, one_liner: oneLiner,
+          full_name: name, title, phone, linkedin_url: linkedin,
+          // Prompt 124 C1 — UTM wins when present; the self-reported pick is
+          // the fallback signal, never both merged into one ambiguous value.
+          acquisition_source: utmSource ? 'Campaign' : howHeard || undefined,
+          acquisition_source_detail: utmSource ? `utm_source=${utmSource}${utmCampaign ? `&utm_campaign=${utmCampaign}` : ''}` : undefined,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok || !body || body.ok === false) {
+        setMsg(`Your account was created, but we couldn't finish setting up your workspace${body?.error ? ` (${body.error})` : ''}. Click Retry.`);
+        return false;
+      }
+      return true;
+    } catch {
+      setMsg("Your account was created, but we couldn't reach the server to finish setting up your workspace. Check your connection and click Retry.");
+      return false;
+    }
+  }
 
   async function submit() {
     setBusy(true); setMsg('');
@@ -159,23 +208,24 @@ function FounderSignupForm() {
         options: { data: { full_name: name, org_name: org, password_set: true } },
       });
       if (error) { setMsg(error.message); return; }
-      // Provision org + membership (server route uses service role).
-      const res = await fetch('/api/provision-org', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: data.user?.id, org_name: org, email,
-          website, sector, stage, round_target_eur: roundTarget ? Number(roundTarget) : undefined,
-          country, one_liner: oneLiner,
-          full_name: name, title, phone, linkedin_url: linkedin,
-          // Prompt 124 C1 — UTM wins when present; the self-reported pick is
-          // the fallback signal, never both merged into one ambiguous value.
-          acquisition_source: utmSource ? 'Campaign' : howHeard || undefined,
-          acquisition_source_detail: utmSource ? `utm_source=${utmSource}${utmCampaign ? `&utm_campaign=${utmCampaign}` : ''}` : undefined,
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (body && body.ok === false) { setMsg(body.error ?? 'Could not provision your org.'); return; }
-      if (data.session) { window.location.href = '/'; }
+      const userId = data.user?.id;
+      if (!userId) { setMsg('Something went wrong creating your account — please try again.'); return; }
+      const hasSession = !!data.session;
+      const provisioned = await attemptProvision(userId);
+      if (!provisioned) { setPendingAccount({ userId, session: hasSession }); return; }
+      if (hasSession) window.location.href = '/';
+      else setMsg('Account created. Check your email to confirm, then sign in.');
+    } finally { setBusy(false); }
+  }
+
+  async function retry() {
+    if (!pendingAccount) return;
+    setBusy(true); setMsg('');
+    try {
+      const provisioned = await attemptProvision(pendingAccount.userId);
+      if (!provisioned) return;
+      setPendingAccount(null);
+      if (pendingAccount.session) window.location.href = '/';
       else setMsg('Account created. Check your email to confirm, then sign in.');
     } finally { setBusy(false); }
   }
@@ -241,10 +291,17 @@ function FounderSignupForm() {
           className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         <PasswordRequirementsIndicator password={password} />
 
-        <button disabled={!canSubmit} onClick={submit}
-          className="mt-3 w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
-          {busy ? 'Creating…' : 'Create account'}
-        </button>
+        {pendingAccount ? (
+          <button disabled={busy} onClick={retry}
+            className="mt-3 w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+            {busy ? 'Retrying…' : 'Retry'}
+          </button>
+        ) : (
+          <button disabled={!canSubmit} onClick={submit}
+            className="mt-3 w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+            {busy ? 'Creating…' : 'Create account'}
+          </button>
+        )}
         <p className="mt-2 text-[11px] text-gray-400">* required</p>
         {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">{msg}</div>}
         <div className="mt-5 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
