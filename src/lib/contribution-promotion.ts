@@ -87,9 +87,27 @@ export async function applyVerifiedContribution(admin: SupabaseClient, c: Promot
 // can't create duplicate rows for the same field. Complements
 // prepareEnrichmentProposals's entityHasValue check, which only sees what's
 // already landed on the entity row, not what's still sitting unreviewed.
+//
+// Prompt 146 §3 — 'rejected' added as a second layer: buildEntityEnrichmentPrompt
+// already tells the AI not to repropose a rejected field/value, but this is
+// the hard backstop if it does anyway (or proposes the same field with a
+// different value) — dropped before a new row is ever created, not just
+// discouraged in the prompt.
 export async function fieldsAlreadyProposed(admin: SupabaseClient, subjectType: 'entity' | 'person', subjectId: string): Promise<Set<string>> {
   const { data } = await admin.from('contributions').select('field')
     .eq('subject_type', subjectType).eq('subject_id', subjectId)
-    .eq('source', 'ai').in('status', ['submitted', 'verified']);
+    .eq('source', 'ai').in('status', ['submitted', 'verified', 'rejected']);
   return new Set((data ?? []).map((r) => r.field as string));
+}
+
+// Prompt 146 §2 — feeds buildEntityEnrichmentPrompt's "previously rejected"
+// section. Restricted to source='ai' for the same reason fieldsAlreadyProposed
+// is: a manually-added "+ Add info" contribution typically has a freeform
+// field name (e.g. "co-investor") the AI never proposes on in the first
+// place (it only searches AI_SEARCH_FIELDS), so it would just be noise here.
+export async function fetchRejectedAiContributions(admin: SupabaseClient, subjectType: 'entity' | 'person', subjectId: string): Promise<{ field: string; value: unknown; reviewer_notes: string | null }[]> {
+  const { data } = await admin.from('contributions').select('field, value, reviewer_notes')
+    .eq('subject_type', subjectType).eq('subject_id', subjectId)
+    .eq('source', 'ai').eq('status', 'rejected');
+  return (data ?? []) as { field: string; value: unknown; reviewer_notes: string | null }[];
 }

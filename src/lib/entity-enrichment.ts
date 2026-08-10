@@ -163,12 +163,27 @@ export function knownEnrichmentValues(entity: Entity): Partial<Record<EntityEnri
   return known;
 }
 
-export function buildEntityEnrichmentPrompt(name: string, known: Partial<Record<EntityEnrichmentField, unknown>>): string {
+// Prompt 146 §2 — a field/value a human already reviewed and rejected is
+// know-how, not just a struck-through row in the UI: without this, "Request
+// more info" had no memory and could re-surface the exact same rejected
+// value on the next run. Kept as a loosely-typed shape here (rather than
+// importing contribution-promotion.ts's row type) to avoid entity-enrichment
+// <-> contribution-promotion becoming a circular import — contribution-promotion.ts
+// already imports resolveEntityFieldWrite from this file.
+export interface RejectedEnrichmentFact { field: string; value: unknown; reviewer_notes?: string | null }
+
+export function buildEntityEnrichmentPrompt(name: string, known: Partial<Record<EntityEnrichmentField, unknown>>, rejected: RejectedEnrichmentFact[] = []): string {
+  const rejectedBlock = rejected.length === 0 ? [] : [
+    '',
+    'Previously suggested and rejected by a human — do not repropose these unless you have new, materially different evidence:',
+    ...rejected.map((r) => `- ${r.field}: "${String(r.value)}"${r.reviewer_notes ? ` (reviewer note: ${r.reviewer_notes})` : ''}`),
+  ];
   return [
     `Research the investment fund/firm "${name}" using real public web sources only`,
     "(the fund's own website, news coverage, interviews, portfolio pages). Never use LinkedIn as a source, and never scrape or quote private/gated content.",
     '',
     `Already known — do not re-propose these, only fill genuine gaps: ${JSON.stringify(known)}`,
+    ...rejectedBlock,
     '',
     `Try to find real values for: ${AI_SEARCH_FIELDS.join(', ')}.`,
     '- sectors and invests_in_geographies: return a comma-separated list.',

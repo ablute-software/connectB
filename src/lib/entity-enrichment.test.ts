@@ -223,4 +223,20 @@ describe('buildEntityEnrichmentPrompt', () => {
     expect(prompt).toContain('oneplanet.capital');
     expect(prompt).toContain('do not re-propose');
   });
+
+  it('says nothing about rejected facts when there are none', () => {
+    const prompt = buildEntityEnrichmentPrompt('One Planet', {});
+    expect(prompt).not.toContain('Previously suggested and rejected');
+  });
+
+  it('tells the model what a human already rejected, and why (Prompt 146 §2)', () => {
+    const prompt = buildEntityEnrichmentPrompt('One Planet', {}, [
+      { field: 'sectors', value: 'crypto, web3', reviewer_notes: 'wrong fund, confused with a different One Planet' },
+      { field: 'email', value: 'info@wrong.com' },
+    ]);
+    expect(prompt).toContain('Previously suggested and rejected by a human');
+    expect(prompt).toContain('sectors: "crypto, web3"');
+    expect(prompt).toContain('confused with a different One Planet');
+    expect(prompt).toContain('email: "info@wrong.com"');
+  });
 });

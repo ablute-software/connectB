@@ -89,6 +89,11 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
   const [conflictPopover, setConflictPopover] = useState<Contribution | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolvingAiId, setResolvingAiId] = useState<string | null>(null);
+  // Prompt 146 §1 — rejected rows stayed struck-through forever, visible to
+  // anyone: useful as a "we already said no to this" signal, but permanent
+  // clutter on entities with a lot of AI churn. Hidden by default now, still
+  // reachable (not deleted, not restricted) via this toggle.
+  const [showRejected, setShowRejected] = useState(false);
 
   function refresh() {
     browserClient().from('contributions').select('id, field, value, note, status, created_at, source, confidence, source_url, kind, reviewer_notes')
@@ -155,6 +160,9 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
 
   if (!authEnabled) return <AddInfoButton />;
 
+  const rejectedItems = items.filter((c) => c.status === 'rejected');
+  const visibleItems = items.filter((c) => c.status !== 'rejected');
+
   return (
     <div>
       <div className="flex items-center gap-2">
@@ -176,9 +184,9 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
           </div>
         </div>
       )}
-      {items.length > 0 && (
+      {visibleItems.length > 0 && (
         <div className="mt-2 space-y-1.5">
-          {items.map((c) => (
+          {visibleItems.map((c) => (
             isCorrectionRow(c) ? (
               <div key={c.id} className="rounded-lg border border-orange-200 bg-orange-50 p-2 text-xs">
                 <div className="flex items-center gap-1.5">
@@ -254,24 +262,6 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
                     className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 hover:bg-amber-200">
                     por verificar
                   </button>
-                ) : c.status === 'rejected' ? (
-                  // Prompt 49 §1 — a bare "rejected" pill next to a value
-                  // read as if the value itself were a fact with a status
-                  // tag, not a proposal that got turned down. Strike the
-                  // proposed value through and say explicitly that the
-                  // field's existing data was kept; the reviewer's own
-                  // reason (when one was given) goes in the tooltip rather
-                  // than inline — most are short enough to want a hover,
-                  // not a permanent second line per rejected field.
-                  <>
-                    <span className="text-gray-400 line-through">{formatContributionValue(c.value)}</span>
-                    <span
-                      className="ml-1.5 cursor-help rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
-                      title={c.reviewer_notes ? `Rejected: ${c.reviewer_notes}` : 'Rejected in review — no reason recorded.'}
-                    >
-                      suggested value rejected — kept previous data
-                    </span>
-                  </>
                 ) : (
                   <>
                     {formatContributionValue(c.value)}
@@ -281,6 +271,37 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
               </div>
             )
           ))}
+        </div>
+      )}
+      {rejectedItems.length > 0 && (
+        <div className="mt-2">
+          <button onClick={() => setShowRejected((v) => !v)} className="text-[11px] text-gray-400 hover:text-gray-600 hover:underline">
+            {showRejected ? 'Hide history' : `Ver histórico (${rejectedItems.length} rejeitada${rejectedItems.length === 1 ? '' : 's'})`}
+          </button>
+          {showRejected && (
+            <div className="mt-1.5 space-y-1.5">
+              {rejectedItems.map((c) => (
+                <div key={c.id} className="text-xs text-gray-600">
+                  <span className="font-medium">{c.field}:</span>{' '}
+                  {/* Prompt 49 §1 — a bare "rejected" pill next to a value
+                      read as if the value itself were a fact with a status
+                      tag, not a proposal that got turned down. Strike the
+                      proposed value through and say explicitly that the
+                      field's existing data was kept; the reviewer's own
+                      reason (when one was given) goes in the tooltip rather
+                      than inline — most are short enough to want a hover,
+                      not a permanent second line per rejected field. */}
+                  <span className="text-gray-400 line-through">{formatContributionValue(c.value)}</span>
+                  <span
+                    className="ml-1.5 cursor-help rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
+                    title={c.reviewer_notes ? `Rejected: ${c.reviewer_notes}` : 'Rejected in review — no reason recorded.'}
+                  >
+                    suggested value rejected — kept previous data
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {conflictPopover && (

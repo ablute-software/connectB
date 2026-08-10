@@ -18,7 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { buildEntityEnrichmentPrompt, knownEnrichmentValues, prepareEnrichmentProposals, type RawProposal } from '@/lib/entity-enrichment';
-import { fieldsAlreadyProposed } from '@/lib/contribution-promotion';
+import { fieldsAlreadyProposed, fetchRejectedAiContributions } from '@/lib/contribution-promotion';
 import type { Entity } from '@/lib/types';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
@@ -98,7 +98,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   try {
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
     const known = knownEnrichmentValues(entity as Entity);
-    const raw = await callClaude(apiKey, model, buildEntityEnrichmentPrompt(entity.name as string, known));
+    const rejected = await fetchRejectedAiContributions(admin, 'entity', entity.id as string);
+    const raw = await callClaude(apiKey, model, buildEntityEnrichmentPrompt(entity.name as string, known, rejected));
     const alreadyProposed = await fieldsAlreadyProposed(admin, 'entity', entity.id as string);
     // alreadyProposed also catches fields a previous run proposed that are
     // still 'submitted' (not yet reviewed) or already 'verified' — entityHasValue
