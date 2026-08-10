@@ -8,7 +8,6 @@ import { useEffect, useState } from 'react';
 import { InvestorProfilePanel, type ProfileResponse } from './InvestorProfilePanel';
 import { PipelinePanel } from './PipelinePanel';
 import { InvestorAgendaPanel } from './InvestorAgendaPanel';
-import { InvestorTodayPanel } from './InvestorTodayPanel';
 import { ArchivePanel } from './ArchivePanel';
 import { AccessGrantedPanel } from './AccessGrantedPanel';
 import { InvestorPlansPanel } from './InvestorPlansPanel';
@@ -16,7 +15,7 @@ import { EvaluationToolsPanel } from './EvaluationToolsPanel';
 import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
 import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { PageTour } from '@/components/onboarding/PageTour';
-import { PageGuideButton } from '@/components/onboarding/PageGuideButton';
+import { LampButton } from '@/components/onboarding/LampButton';
 import { WorkspaceSidebar } from '@/components/workspace-shell/WorkspaceSidebar';
 import { WorkspaceMobileNav } from '@/components/workspace-shell/WorkspaceMobileNav';
 import { WorkspaceHeader } from '@/components/workspace-shell/WorkspaceHeader';
@@ -26,7 +25,7 @@ import type { WorkspaceNavItem } from '@/components/workspace-shell/types';
 import { BRAND_NAME } from '@/lib/brand';
 import { SupportTicketsPanel, useSupportUnreadCount } from '@/components/SupportTicketsPanel';
 
-export type Tab = 'pipeline' | 'about' | 'access' | 'agenda' | 'today' | 'archive' | 'plans' | 'evaluation' | 'support';
+export type Tab = 'pipeline' | 'about' | 'access' | 'agenda' | 'archive' | 'plans' | 'evaluation' | 'support';
 
 const COMPLETENESS_GATE = 50;
 
@@ -133,7 +132,6 @@ export function InvestorWorkspaceShell({
     // real page) + Equity simulator, structured to grow with more tools.
     { key: 'evaluation', label: 'Evaluation tools', icon: '⚖' },
     { key: 'agenda', label: 'Agenda', icon: '◔' },
-    { key: 'today', label: 'Today', icon: '☀' },
     { key: 'archive', label: 'Archive', icon: '▣' },
     { key: 'support', label: 'Support', icon: '☎' },
     { key: 'plans', label: 'Plans & billing', icon: '◈' },
@@ -195,12 +193,14 @@ export function InvestorWorkspaceShell({
                 className="rounded-full border border-gray-100 bg-white px-3 py-1 text-xs text-gray-500">
                 {todayCount == null ? 'Today —' : `Today ${todayCount} update${todayCount === 1 ? '' : 's'}`}
               </span>
-              {/* Prompt 121 §2.1 — the "?" lives in the header (persistent
-                  across every tab) rather than next to each tab's own title,
-                  since this header is the one element common to all of them;
-                  only rearms the current tab's guide, hidden on tabs that
-                  don't have one yet (Agenda/Today/Archive). */}
-              {tourKey && <PageGuideButton pageKey={tourKey} />}
+              {/* Prompt 121 §2.1 / Prompt 141 — the lamp lives in the header
+                  (persistent across every tab) rather than next to each
+                  tab's own title, since this header is the one element
+                  common to all of them; resolves to this tab's guide,
+                  empty-state ("No page guide here yet") on tabs that don't
+                  have one (Agenda/Archive) rather than hiding itself,
+                  since Help & support is still reachable either way. */}
+              <LampButton tourKeys={tourKey ? [tourKey] : []} supportSource="investor_portal" />
             </>
           }
         />
@@ -231,7 +231,6 @@ export function InvestorWorkspaceShell({
           {tab === 'access' && <AccessGrantedPanel />}
           {tab === 'evaluation' && <EvaluationToolsPanel initialOrgId={evaluationTargetOrgId} />}
           {tab === 'agenda' && <InvestorAgendaPanel />}
-          {tab === 'today' && <InvestorTodayPanel />}
           {tab === 'archive' && <ArchivePanel />}
           {tab === 'support' && <SupportTicketsPanel />}
           {tab === 'plans' && <InvestorPlansPanel />}

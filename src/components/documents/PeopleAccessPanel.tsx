@@ -1,10 +1,9 @@
 'use client';
 // P78 Bloco 1 — "People & Access", the transposed view of the data room:
-// entity → person → document matrix, read-only ("o objetivo é pôr toda a
-// gente a ver a mesma realidade antes de lhe mexer" — no edits here, that's
-// Bloco 2+). Reuses the exact grant/person resolution the Grant Access flow
-// in documents/page.tsx already established (person_affiliations, current
-// only, entity_id fallback) — not a second mechanism.
+// entity → person → document matrix. Reuses the exact grant/person
+// resolution the Grant Access flow in documents/page.tsx already
+// established (person_affiliations, current only, entity_id fallback) —
+// not a second mechanism.
 //
 // Revised 2026-07-31 per Nuno's own review of the first pass (adenda ao
 // Prompt 78): that pass filtered the left column down to entities that
@@ -14,11 +13,27 @@
 // added: document descriptions, the private-document 4th effect state, and
 // the granted/expires dates per cell (spec §9 — these existed on the
 // access_grants row the whole time, just never surfaced here).
+//
+// Prompt 145 (Bloco 2) — the matrix is now clickable. A `not_shared` cell
+// opens the inline grant form below (NDA + optional expiry, same fields
+// submitGrantTree() in documents/page.tsx already writes); a
+// shared/shared_pending_* cell offers to revoke, confirm()-gated. Both
+// reuse store.addGrant()/revokeGrant() directly — no new route, no
+// access_grants schema/RLS change, per the prompt's own boundary.
+// `no_effect_private` cells are deliberately left non-interactive: that
+// effect fires because the document's own visibility is 'due_diligence'
+// (checked in computeCellEffect() BEFORE any grant lookup, see
+// people-access-matrix.ts), so a grant on it can never change what the
+// cell shows — the prompt's literal wording ("clicar numa célula
+// not_shared/no_effect_private chama addGrant()") would create a grant
+// that's permanently inert. Flagged as a deviation, not silently applied.
 import { useMemo, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { computeCellEffect, findEffectiveGrant, type CellEffect } from '@/lib/people-access-matrix';
 import type { Folder, PortalSection } from '@/lib/types';
+
+type GrantTarget = { kind: 'folder' | 'doc'; id: string; name: string };
 
 const SECTION_LABELS: Record<PortalSection, string> = {
   start_here: 'Start here', product_market: 'Product & market', traction_commercial: 'Traction & commercial',
@@ -48,9 +63,12 @@ function fmtDate(iso?: string) {
 }
 
 export function PeopleAccessPanel() {
-  const { db } = useStore();
+  const { db, addGrant, revokeGrant } = useStore();
   const [query, setQuery] = useState('');
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [grantTarget, setGrantTarget] = useState<GrantTarget | null>(null);
+  const [grantNda, setGrantNda] = useState(false);
+  const [grantExpiry, setGrantExpiry] = useState('');
   const now = new Date();
 
   function peopleForEntity(entityId: string) {
@@ -92,6 +110,50 @@ export function PeopleAccessPanel() {
   const selectedEntity = db.entities.find((e) => e.id === selectedEntityId);
   const selectedPeople = selectedEntityId ? peopleForEntity(selectedEntityId) : [];
   const selectedPersonIds = new Set(selectedPeople.map((p) => p.id));
+
+  function openGrantForm(target: GrantTarget) {
+    setGrantTarget(target);
+    setGrantNda(false);
+    setGrantExpiry('');
+  }
+
+  function confirmGrant() {
+    if (!grantTarget || selectedPersonIds.size === 0) return;
+    const expires_at = grantExpiry ? `${grantExpiry}T23:59:59Z` : undefined;
+    for (const personId of selectedPersonIds) {
+      addGrant({
+        person_id: personId,
+        document_id: grantTarget.kind === 'doc' ? grantTarget.id : undefined,
+        folder_id: grantTarget.kind === 'folder' ? grantTarget.id : undefined,
+        expires_at, nda_required: grantNda,
+      });
+    }
+    setGrantTarget(null);
+  }
+
+  function revokeForItem(kind: 'folder' | 'doc', id: string, name: string) {
+    const active = db.grants.filter((g) =>
+      g.person_id && selectedPersonIds.has(g.person_id) && !g.revoked_at
+      && (kind === 'doc' ? g.document_id === id : g.folder_id === id && !g.document_id));
+    if (!active.length) return;
+    const ok = window.confirm(`Revoke access to "${name}" for ${active.length} ${active.length === 1 ? 'person' : 'people'} at ${selectedEntity?.name ?? 'this entity'}?`);
+    if (!ok) return;
+    active.forEach((g) => revokeGrant(g.id));
+  }
+
+  function cellProps(effect: CellEffect, kind: 'folder' | 'doc', id: string, name: string) {
+    if (effect === 'no_effect_private') return { as: 'span' as const };
+    if (effect === 'not_shared') {
+      const disabled = selectedPersonIds.size === 0;
+      return {
+        as: 'button' as const,
+        disabled,
+        title: disabled ? 'No known people at this entity yet' : `Grant "${name}" to ${selectedPersonIds.size} ${selectedPersonIds.size === 1 ? 'person' : 'people'}`,
+        onClick: () => openGrantForm({ kind, id, name }),
+      };
+    }
+    return { as: 'button' as const, title: `Revoke access to "${name}"`, onClick: () => revokeForItem(kind, id, name) };
+  }
 
   const rootFolders = db.folders.filter((f) => !f.parent_id);
   const docsIn = (folderId: string) => db.documents.filter((d) => d.folder_id === folderId);
@@ -183,6 +245,27 @@ export function PeopleAccessPanel() {
                 {selectedPeople.length} known {selectedPeople.length === 1 ? 'person' : 'people'} at this entity:{' '}
                 {selectedPeople.map((p) => p.full_name).join(', ') || '—'}
               </p>
+
+              {grantTarget && (
+                <div className="rounded-lg border border-[#0E7490] bg-cyan-50 p-3">
+                  <p className="text-xs font-medium text-[#0E7490]">
+                    Grant &quot;{grantTarget.name}&quot; to {selectedPersonIds.size} {selectedPersonIds.size === 1 ? 'person' : 'people'} at {selectedEntity.name}
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                      <input type="checkbox" checked={grantNda} onChange={(e) => setGrantNda(e.target.checked)} />
+                      Requires NDA
+                    </label>
+                    <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                      Expires
+                      <input type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)} className="rounded border border-gray-300 px-1.5 py-0.5 text-xs" />
+                    </label>
+                    <button onClick={confirmGrant} className="rounded-lg bg-[#0E7490] px-3 py-1 text-xs font-medium text-white">Grant access</button>
+                    <button onClick={() => setGrantTarget(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+                  </div>
+                </div>
+              )}
+
               {SECTION_ORDER.map((key) => {
                 const folders = sections.get(key) ?? [];
                 if (folders.length === 0) return null;
@@ -200,9 +283,17 @@ export function PeopleAccessPanel() {
                           <div key={f.id} className="rounded-lg border border-gray-100 p-2">
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-sm font-medium text-gray-800">▣ {f.name}</span>
-                              <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${EFFECT_STYLE[folderEffect]}`}>
-                                {EFFECT_LABEL[folderEffect]}<DateHint grant={folderGrant} />
-                              </span>
+                              {(() => {
+                                const cp = cellProps(folderEffect, 'folder', f.id, f.name);
+                                const cls = `rounded px-1.5 py-0.5 text-[10px] font-semibold ${EFFECT_STYLE[folderEffect]} ${cp.as === 'button' && !cp.disabled ? 'cursor-pointer hover:ring-1 hover:ring-[#0E7490]' : ''} ${cp.disabled ? 'cursor-not-allowed' : ''}`;
+                                return cp.as === 'button' ? (
+                                  <button type="button" disabled={cp.disabled} title={cp.title} onClick={cp.onClick} className={cls}>
+                                    {EFFECT_LABEL[folderEffect]}<DateHint grant={folderGrant} />
+                                  </button>
+                                ) : (
+                                  <span className={cls}>{EFFECT_LABEL[folderEffect]}<DateHint grant={folderGrant} /></span>
+                                );
+                              })()}
                             </div>
                             {docs.length > 0 && (
                               <ul className="mt-1.5 space-y-1 border-t border-gray-50 pt-1.5">
@@ -215,9 +306,17 @@ export function PeopleAccessPanel() {
                                         {d.name}
                                         {d.details && <span className="block text-[10px] text-gray-400">{d.details}</span>}
                                       </span>
-                                      <span className={`shrink-0 rounded px-1.5 py-0.5 text-right text-[10px] font-semibold ${EFFECT_STYLE[effect]}`}>
-                                        {EFFECT_LABEL[effect]}<DateHint grant={docGrant} />
-                                      </span>
+                                      {(() => {
+                                        const cp = cellProps(effect, 'doc', d.id, d.name);
+                                        const cls = `shrink-0 rounded px-1.5 py-0.5 text-right text-[10px] font-semibold ${EFFECT_STYLE[effect]} ${cp.as === 'button' && !cp.disabled ? 'cursor-pointer hover:ring-1 hover:ring-[#0E7490]' : ''} ${cp.disabled ? 'cursor-not-allowed' : ''}`;
+                                        return cp.as === 'button' ? (
+                                          <button type="button" disabled={cp.disabled} title={cp.title} onClick={cp.onClick} className={cls}>
+                                            {EFFECT_LABEL[effect]}<DateHint grant={docGrant} />
+                                          </button>
+                                        ) : (
+                                          <span className={cls}>{EFFECT_LABEL[effect]}<DateHint grant={docGrant} /></span>
+                                        );
+                                      })()}
                                     </li>
                                   );
                                 })}
