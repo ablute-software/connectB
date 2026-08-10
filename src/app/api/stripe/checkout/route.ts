@@ -42,6 +42,13 @@ export async function POST(req: Request) {
   form.set('mode', 'subscription');
   form.set('line_items[0][price]', priceId);
   form.set('line_items[0][quantity]', '1');
+  // Prompt 151 — without this, Stripe's own Checkout screen doesn't even
+  // show a field to enter a Promotion Code, so a real code created in the
+  // Stripe Dashboard (e.g. for a discounted test payment) had no way to
+  // ever be applied. Unrelated to this app's own promo_codes/promo_redemptions
+  // system (PlansPanel.tsx's "Promo code" field) — that one is a separate,
+  // still-disconnected-from-Stripe mechanism, not touched by this fix.
+  form.set('allow_promotion_codes', 'true');
   // Return URLs from APP_URL (canonical domain) so the cutover is one env change.
   form.set('success_url', `${APP_URL}/plans?checkout=success`);
   form.set('cancel_url', `${APP_URL}/plans?checkout=cancel`);
