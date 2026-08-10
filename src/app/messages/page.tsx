@@ -10,11 +10,11 @@
 // /api/founder/messages/eligible and re-checked again on POST) — a
 // founder can never cold-message a Pipeline relationship that has no
 // match, only reply once an investor writes first.
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Tabs } from '@/components/ui';
-import { SupportTicketsPanel } from '@/components/SupportTicketsPanel';
+import { SupportTicketsPanel, useSupportUnreadCount } from '@/components/SupportTicketsPanel';
 
 interface ThreadRow { threadId: string; investorName: string; lastMessageAt: string; unread: boolean }
 interface EligibleFirm { investorCatalogEntityId: string; name: string }
@@ -41,6 +41,13 @@ export default function FounderMessagesPage() {
     fetch('/api/founder/messages').then((r) => r.json()).then((d) => setThreads(d.threads ?? []));
     fetch('/api/founder/messages/eligible').then((r) => r.json()).then((d) => setEligible(d.firms ?? []));
   }, []);
+
+  // Prompt 155 — same computation shell.tsx's own sidebar badge already
+  // does (unreadMessages = unread thread count, unreadSupport = the shared
+  // hook), just surfaced per-tab here too instead of only at the sidebar
+  // level. Derived from `threads`, already fetched above — no second call.
+  const unreadMessages = useMemo(() => (threads ?? []).filter((t) => t.unread).length, [threads]);
+  const unreadSupport = useSupportUnreadCount();
 
   async function startConversation() {
     if (!selectedFirmId || !draftBody.trim()) return;
@@ -75,7 +82,7 @@ export default function FounderMessagesPage() {
 
       <div className="mt-3">
         <Tabs active={tab} onChange={(v) => setTab(v as 'messages' | 'support')}
-          items={[{ key: 'messages', label: 'Messages' }, { key: 'support', label: 'Support' }]} />
+          items={[{ key: 'messages', label: 'Messages', badge: unreadMessages }, { key: 'support', label: 'Support', badge: unreadSupport }]} />
       </div>
 
       {tab === 'support' && <div className="mt-4"><SupportTicketsPanel /></div>}
