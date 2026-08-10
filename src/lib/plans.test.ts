@@ -61,11 +61,14 @@ describe('planEntitlements (C — plan-gate resolution)', () => {
     expect(planEntitlements('idea', true).aiComposer).toBe(true);
   });
 
-  it('Review & Optimization is platform-only (Fase 0) — frosted for every customer plan', () => {
+  // Prompt 160 (10/08) — opened for both paid plans, same pattern as
+  // aiComposer; free ('idea') stays frosted, the plan card never promised
+  // this there.
+  it('Review & Optimization is open on both paid plans, frosted only on the free plan', () => {
     expect(planEntitlements('idea', false).reviewOptimization).toBe(false);
-    expect(planEntitlements('garage', false).reviewOptimization).toBe(false);
-    expect(planEntitlements('motherfunding', false).reviewOptimization).toBe(false);
-    expect(planEntitlements('motherfunding', true).reviewOptimization).toBe(true); // ablute_
+    expect(planEntitlements('garage', false).reviewOptimization).toBe(true);
+    expect(planEntitlements('motherfunding', false).reviewOptimization).toBe(true);
+    expect(planEntitlements('idea', true).reviewOptimization).toBe(true); // ablute_ bypasses regardless of plan
   });
 
   it('reviewTopTierTools (Prompt 117 Bloco G) is motherfunding-only among customer plans', () => {
@@ -148,10 +151,10 @@ describe('plan bullets — shared features persist across tiers (Prompt 123 §B.
   });
 
   // Prompt 158 — promoted out of `comingSoon` into real bullets on both
-  // paid tiers (Nuno confirmed 10/08 they'll be ready by launch). The
-  // underlying entitlement (planEntitlements().reviewOptimization) is a
-  // separate, NOT-yet-flipped concern — flagged in plans.ts's own comment,
-  // not re-litigated by this test, which only pins the card copy.
+  // paid tiers (Nuno confirmed 10/08 they'll be ready by launch). Prompt
+  // 160 (same day) opened the underlying entitlement to match — see the
+  // 'planEntitlements' describe block above for that behavior; this test
+  // only pins the card copy.
   it('Review & Optimization and Investability Reports are live bullets, not comingSoon, on paid tiers', () => {
     for (const tier of ['garage', 'motherfunding'] as const) {
       const row = planRow(tier);

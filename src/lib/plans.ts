@@ -144,18 +144,10 @@ export const PLANS: PlanRow[] = [
     // Prompt 158 — Advanced Review & Optimization / Investability reports
     // promoted out of `comingSoon` into real bullets: Nuno confirmed
     // (10/08) they'll be ready by launch, so the "(coming soon)" label no
-    // longer applies to the CARD COPY. NOT done here: the actual in-app
-    // gate (planEntitlements().reviewOptimization, still isDeveloperRole-
-    // only — see that field's own comment — and ReadinessPanel.tsx's
-    // REVIEW_OPTIMIZATION_PREVIEW_COPY frosted overlay) is untouched. This
-    // prompt was explicitly content/presentation only ("sem alterações a
-    // billing/lógica de pagamento"), and flipping the entitlement is a real
-    // capability-readiness call, not a copy fix. FLAGGED FOR NUNO: until
-    // that entitlement actually opens for paid plans, this card now
-    // advertises these two as included while the app itself still shows
-    // paying customers the "coming soon" frosted gate when they try to use
-    // them — these two need to ship together before launch, or the card is
-    // overpromising again, just with the label moved rather than removed.
+    // longer applies to the CARD COPY. Prompt 160 (same day) closed the
+    // gap this comment used to flag: planEntitlements().reviewOptimization
+    // now actually opens for both paid plans too, so the card and the
+    // in-app gate agree again.
     bullets: [
       '2 users',
       'Investor Pipeline\n'
@@ -187,9 +179,9 @@ export const PLANS: PlanRow[] = [
     // Prompt 123 §0.1/§B.1 — base 25 (card wins over the doc's "5/10/20"
     // unlock-rules section; see PLAN_PIPELINE_BASE.motherfunding in
     // pipeline-unlock.ts). Everything from List of Suspects carries forward.
-    // Prompt 158 — see garage's own comment above: Advanced Review &
+    // Prompt 158/160 — see garage's own comment above: Advanced Review &
     // Optimization / Investability reports promoted out of `comingSoon`
-    // here too, same FLAGGED entitlement caveat applies.
+    // here too, and the entitlement gate opens for this tier as well.
     bullets: [
       '5 users',
       'Investor Pipeline\n'
@@ -252,7 +244,14 @@ export const AI_COMPOSER_LOCKED_COPY = 'AI personalization is part of the paid p
 // Prompt 117 Bloco G.2 — was hardcoded to 'the Premium plan', a tier name
 // that has never existed in this product (see WATSON_DRAFT_QUOTA's own
 // 100/300-vs-90/210 divergence bug for why hardcoded tier names rot).
-export const REVIEW_OPTIMIZATION_PREVIEW_COPY = `Coming soon on the ${planName('motherfunding')} plan`;
+// Prompt 160 — was `Coming soon on the ${planName('motherfunding')} plan`,
+// naming only the top tier; now inaccurate now that planEntitlements()
+// opens reviewOptimization on BOTH paid plans (garage too), and this
+// message only ever shows to the free plan now (see ReadinessPanel.tsx's
+// `locked` — purely entitlement-driven). Reworded generically, matching
+// AI_COMPOSER_LOCKED_COPY's own "part of the paid plans" phrasing, so it
+// can't drift out of sync with which specific tier(s) unlock it again.
+export const REVIEW_OPTIMIZATION_PREVIEW_COPY = 'Review & Optimization is part of the paid plans';
 
 export function planRow(plan: PlanTier): PlanRow {
   return PLANS.find((p) => p.tier === plan) ?? PLANS[0];
@@ -285,11 +284,11 @@ export interface Entitlements {
   // pass) — this function is only the plan half.
   aiComposer: boolean;
   // A — Review & Optimization (investability ranking et al.). Prompt 115
-  // Fase 0: no longer parked for everyone — it's platform-only preview now,
-  // open for `ablute_` (the platform org) to validate the v1 against real
-  // documents before it opens to paid plans. Every customer plan still sees
-  // the frosted-glass overlay. Lift further later by also returning true for
-  // e.g. `plan === 'motherfunding'` — no schema change needed for that.
+  // Fase 0 opened it platform-only, to validate the v1 against real
+  // documents before paid plans got it. Prompt 160 (10/08) — Nuno confirmed
+  // it's ready for launch; opened to both paid plans below, same pattern as
+  // aiComposer. Free ('idea') stays excluded — the plan card never promised
+  // this on the free tier (plans.ts's own PLANS bullets).
   reviewOptimization: boolean;
   // Prompt 117 Bloco G — Cross-document check and Market data are the two
   // heavier-compute review tools; restricted to the top tier once
@@ -310,8 +309,9 @@ export function planEntitlements(plan: PlanTier, isDeveloperRole: boolean): Enti
     // Developer role gets full access; paid plans get the AI composer; the
     // free 'idea' tier does not.
     aiComposer: isDeveloperRole || planIsPaid(plan),
-    // Platform-only preview (Prompt 115 Fase 0) — see the note on the field above.
-    reviewOptimization: isDeveloperRole,
+    // Prompt 160 — opened to both paid plans, same pattern as aiComposer
+    // above. See the note on the field itself for why.
+    reviewOptimization: isDeveloperRole || planIsPaid(plan),
     reviewTopTierTools: isDeveloperRole || plan === 'motherfunding',
   };
 }
