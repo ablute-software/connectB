@@ -123,6 +123,9 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
   // render; this one just needed to move up here with the others.
   const [logoBusy, setLogoBusy] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  // Prompt 161 D
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoErr, setPhotoErr] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -200,6 +203,26 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
       if (data?.signedUrl) set('photo_url', data.signedUrl);
     } finally {
       setLogoBusy(false);
+    }
+  }
+
+  // Prompt 161 D — see the file input below and /api/matchdeal/photo's own
+  // header. Only fills local photo_url state; Save persists it.
+  async function uploadPhoto(file: File) {
+    if (!profile) return;
+    setPhotoErr(''); setPhotoUploading(true);
+    try {
+      const form = new FormData();
+      form.set('file', file);
+      form.set('profileId', profile.id);
+      const res = await fetch('/api/matchdeal/photo', { method: 'POST', body: form });
+      const body = await res.json().catch(() => null);
+      if (!body?.ok) { setPhotoErr(body?.error ?? 'Upload failed — try again.'); return; }
+      set('photo_url', body.photoUrl as string);
+    } catch {
+      setPhotoErr('Network error — try again.');
+    } finally {
+      setPhotoUploading(false);
     }
   }
 
@@ -315,6 +338,21 @@ export function ProfilePanel({ viewerProfileId, viewerKind }: { viewerProfileId:
                   {logoBusy ? 'Loading…' : 'Use your Sherlock Deal logo'}
                 </button>
               )}
+            </div>
+            {/* Prompt 161 D — upload/take a photo, as an alternative to
+                pasting a URL. `capture` (no value) lets a phone offer its
+                camera alongside the gallery; on desktop it's ignored and
+                the plain file picker opens. Goes through /api/matchdeal/photo
+                (see that route for why not a direct storage upload); the
+                returned long-lived signed URL lands in the same photo_url
+                local state and persists on Save, same contract as the
+                Sherlock Deal logo button above. */}
+            <div className="mt-1.5">
+              <input type="file" accept="image/*" capture disabled={photoUploading}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadPhoto(f); e.target.value = ''; }}
+                className="text-[12px] text-white/60 file:mr-2 file:rounded-lg file:border-0 file:bg-white/10 file:px-2.5 file:py-1.5 file:text-[12px] file:font-medium file:text-white/80" />
+              {photoUploading && <p className="mt-1 text-[11px] text-white/40">Uploading…</p>}
+              {photoErr && <p className="mt-1 text-[11px] text-rose-300">{photoErr}</p>}
             </div>
           </Field>
         )}
