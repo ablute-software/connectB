@@ -8,16 +8,27 @@
 // generation itself stays server-side (never in the browser), same
 // mechanism as MatchDeal's pairing tokens (matchdeal-pairing.ts):
 // crypto-random, opaque, never derived from the email or the grant id.
+// Prompt 171 §A — this route now also sends the ONE email a guest invite
+// should ever trigger automatically: the protected /guest/[token] preview
+// link, never signInWithOtp/`/portal`. That OTP flow stays exclusively
+// inside /guest/[token]'s own "Is this you?" CTA (Prompt 159), reached only
+// after the recipient has already seen the gated preview — this route never
+// creates a real account, only mints a token and (optionally) emails it.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { generateRawToken } from '@/lib/matchdeal-pairing';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
+import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
+import { APP_URL, BRAND_NAME } from '@/lib/brand';
 
 // Decision (2026-08-07, per the mini-prompt's own ask to pick and record
 // one): 14 days. Long enough that "I'll look at this later" doesn't expire
 // before the investor gets to it, short enough that a stale, unconfirmed
-// invite doesn't stay guessable-and-valid indefinitely.
+// invite doesn't stay guessable-and-valid indefinitely. Prompt 171 §B — this
+// is now only the FALLBACK for when none of the pending grants for this
+// email have their own expires_at at all; when at least one does, the link
+// follows the latest of those instead (see the mint branch below).
 const GUEST_TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 // The client-side access_grants insert (store-supabase.tsx's addGrant) is a
@@ -31,13 +42,17 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function formatExpiry(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
   if (!(await guestGrantTokenAvailable())) return NextResponse.json({ ok: false, error: 'not available yet' }, { status: 200 });
 
-  const { orgId, invitedEmail } = await req.json().catch(() => ({})) as { orgId?: string; invitedEmail?: string };
+  const { orgId, invitedEmail, sendEmail } = await req.json().catch(() => ({})) as { orgId?: string; invitedEmail?: string; sendEmail?: boolean };
   const email = invitedEmail?.trim().toLowerCase();
   if (!orgId || !email) return NextResponse.json({ ok: false, error: 'orgId and invitedEmail are required.' }, { status: 400 });
 
@@ -65,15 +80,78 @@ export async function POST(req: Request) {
   }
   if (!grant) return NextResponse.json({ ok: false, error: 'No pending invite found for that email yet.' }, { status: 404 });
 
+  let token: string;
+  let expiresAt: string;
   const stillLive = grant.guest_token && grant.guest_token_expires_at && new Date(grant.guest_token_expires_at) > new Date();
-  if (stillLive) return NextResponse.json({ ok: true, token: grant.guest_token, expiresAt: grant.guest_token_expires_at });
+  if (stillLive) {
+    // Unchanged from before — "a previously-shared link should keep
+    // working," so a live token is handed back as-is, expiry included, not
+    // recomputed against the pending grants' current state.
+    token = grant.guest_token as string;
+    expiresAt = grant.guest_token_expires_at as string;
+  } else {
+    // Prompt 171 §B — the link's own expiry follows the REAL access it
+    // unlocks, not a flat 14 days: the latest expires_at among every
+    // currently-pending grant for this email (Nuno's decision — the link
+    // stays open as long as at least one grant behind it still is;
+    // individual documents still disappear the moment their OWN grant
+    // expires, enforced separately via grantIsActive/grantStatus in
+    // /api/guest/[token]/route.ts). Only when NONE of the pending grants
+    // have an expires_at at all (fully indefinite access) does this fall
+    // back to the original 14-day default.
+    const { data: pendingGrants } = await admin.from('access_grants').select('expires_at')
+      .eq('org_id', orgId).eq('invited_email', email).is('confirmed_at', null).is('revoked_at', null);
+    const datedExpiries = (pendingGrants ?? []).map((g) => g.expires_at as string | null).filter((e): e is string => !!e);
+    const latestGrantExpiry = datedExpiries.length > 0 ? datedExpiries.reduce((a, b) => (a > b ? a : b)) : null;
 
-  const token = generateRawToken();
-  const expiresAt = new Date(Date.now() + GUEST_TOKEN_TTL_MS).toISOString();
-  const { error } = await admin.from('access_grants')
-    .update({ guest_token: token, guest_token_expires_at: expiresAt })
-    .eq('id', grant.id);
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    token = generateRawToken();
+    expiresAt = latestGrantExpiry ?? new Date(Date.now() + GUEST_TOKEN_TTL_MS).toISOString();
+    const { error } = await admin.from('access_grants')
+      .update({ guest_token: token, guest_token_expires_at: expiresAt })
+      .eq('id', grant.id);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
 
-  return NextResponse.json({ ok: true, token, expiresAt });
+  // `sendEmail` is opt-in: "Copy guest link" (documents/page.tsx) mints/
+  // fetches the SAME token without it — that button's whole point is the
+  // founder sending it themselves, not the app auto-emailing on every click.
+  if (!sendEmail) return NextResponse.json({ ok: true, token, expiresAt });
+
+  // Prompt 171 §A — the actual bug fix. Never falls back to signInWithOtp
+  // when Resend isn't configured/fails — the token mint above already
+  // succeeded regardless, so the caller can always still offer "Copy guest
+  // link" (documents/page.tsx surfaces emailError for exactly that).
+  let emailSent = false;
+  let emailError: string | undefined;
+  if (!resendConfigured) {
+    emailError = 'Could not send the invite email — copy the link below and send it yourself';
+  } else {
+    const [{ data: org }, { data: inviterPerson }] = await Promise.all([
+      admin.from('orgs').select('name').eq('id', orgId).maybeSingle(),
+      // Best-effort personalization — company_people.email is free-text, not
+      // guaranteed to match the inviter's auth email; falls back to that
+      // email itself, then a generic "The team" if even that's missing.
+      user.email ? admin.from('company_people').select('full_name').eq('org_id', orgId).ilike('email', user.email).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+    const orgName = (org?.name as string | undefined) ?? 'A startup';
+    const inviterName = (inviterPerson?.full_name as string | undefined) ?? user.email ?? 'The team';
+    const heading = `${orgName} shared their data room with you`;
+    const result = await sendTransactionalEmail({
+      to: email,
+      subject: heading,
+      html: transactionalTemplate({
+        heading,
+        body: `${inviterName} has given you protected access to specific files and folders in their data room on ${BRAND_NAME}.`
+          + `<br/><br/>This is a secure, limited preview — you'll only see what's been shared with you, nothing else.`,
+        ctaLabel: 'View data room',
+        ctaUrl: `${APP_URL}/guest/${token}`,
+        footer: `This link expires on ${formatExpiry(expiresAt)}.`,
+      }),
+    });
+    emailSent = result.sent;
+    if (!result.sent) emailError = 'Could not send the invite email — copy the link below and send it yourself';
+  }
+
+  return NextResponse.json({ ok: true, token, expiresAt, emailSent, emailError });
 }

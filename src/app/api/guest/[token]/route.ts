@@ -7,10 +7,17 @@
 // document content. A guest token proves "someone was invited," not "this
 // person may download files" — that still requires a real account and a
 // confirmed grant (see /api/portal/confirm-identity, /api/portal/view).
+//
+// Prompt 171 §B.1 — was missing its own expiry check entirely: a grant past
+// its expires_at kept showing its document in this preview forever, even
+// though the real portal (post-login) already hid it. Now filtered before
+// resolveDocumentAccess runs — see the comment at that filter's own site
+// for why grantStatus's expiry check is reused here and not grantIsActive.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { resolveDocumentAccess } from '@/lib/data-room';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
+import { grantStatus } from '@/lib/access-grants';
 
 // This route reads no cookies/headers — unlike every other GET route in
 // this app, which calls serverClient() first and reads a cookie, implicitly
@@ -56,12 +63,24 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   const [{ data: org }, { data: profile }, { data: pendingGrants }] = await Promise.all([
     admin.from('orgs').select('name, one_liner').eq('id', orgId).single(),
     admin.from('matchdeal_profiles').select('photo_url, description').eq('kind', 'startup').eq('membership_id', orgId).maybeSingle(),
-    admin.from('access_grants').select('folder_id, document_id, nda_required, nda_accepted_at')
+    admin.from('access_grants').select('folder_id, document_id, nda_required, nda_accepted_at, expires_at')
       .eq('org_id', orgId).eq('invited_email', invitedEmail).is('confirmed_at', null).is('revoked_at', null),
   ]);
   if (!org) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200 });
 
-  const grants = pendingGrants ?? [];
+  // Prompt 171 §B.1 — the bug: this route never checked an individual
+  // grant's own expires_at at all, so an expired grant's document kept
+  // appearing in the preview forever. NOT grantIsActive() here — every row
+  // this query returns is, by construction, invited_email set + confirmed_at
+  // null (a guest preview is inherently pre-confirmation), which grantStatus
+  // always resolves to 'pending_confirmation' (never 'active') unless it's
+  // expired first. grantIsActive() checks specifically for 'active', so it
+  // would filter out EVERY row here, including perfectly valid ones — it's
+  // calibrated for the real, post-login portal, not this pre-account
+  // preview. grantStatus's own expiry check is the one piece actually
+  // missing, so that's what's reused here — not a full status enum.
+  const now = new Date();
+  const grants = (pendingGrants ?? []).filter((g) => grantStatus(g, now) !== 'expired');
   const folderIds = grants.filter((g) => g.folder_id).map((g) => g.folder_id as string);
   const directDocIds = grants.filter((g) => g.document_id).map((g) => g.document_id as string);
   const [{ data: docsInFolders }, { data: directDocs }] = await Promise.all([
@@ -75,8 +94,11 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   // Same visibility rule /api/portal/access-granted uses (document-level
   // grant overrides its folder's, NDA-gated docs stay hidden) — a guest
   // preview should never claim to show more than the real portal will once
-  // they're actually signed in.
-  const { visibleIds } = resolveDocumentAccess(grants, candidateDocs);
+  // they're actually signed in. `pendingCount` (NDA-gated, not yet
+  // accepted) rides along so the client can tell "nothing shared" apart
+  // from "shared, but all pending NDA" (§ Nota — partilha com NDA) instead
+  // of rendering an unexplained empty folder either way.
+  const { visibleIds, pendingCount } = resolveDocumentAccess(grants, candidateDocs);
   const visibleDocs = candidateDocs.filter((d) => visibleIds.includes(d.id));
 
   // Prompt 154 gap 2 — the real folder/document tree, not just a flat
@@ -115,5 +137,6 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     folders,
     documentNames,
     documentCount: documentNames.length,
+    pendingNdaCount: pendingCount,
   });
 }

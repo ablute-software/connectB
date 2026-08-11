@@ -257,22 +257,32 @@ function DocumentsPageInner() {
       .slice(0, 20);
   }, [db.catalog, db.entities, grantEntityQuery_]);
 
-  // Prompt 47 point 5/6 — "Resend invite". A founder-triggered
-  // signInWithOtp for someone else's email can't rely on the resulting
-  // LINK working (PKCE's code_verifier lives in the browser that requested
-  // it, not the founder's) — but the same email also carries the 6-digit
-  // code (prompt 44's fallback), which the invitee can use from their own
-  // device regardless of who triggered the send. That's the real mechanism
-  // here, not a link that's expected to work.
+  // Prompt 171 §A — was signInWithOtp (a founder-triggered magic link into
+  // the FULL /portal, "shouldCreateUser: true") — the actual bug: an
+  // invited guest got the whole workspace, not the protected /guest/[token]
+  // preview, because this OTP send was standing in for a real invite email
+  // that never existed. Now calls the guest-invite route with
+  // sendEmail:true, which mints/reuses the guest token and sends the
+  // "{OrgName} shared their data room with you" email pointing at
+  // /guest/[token] — signInWithOtp only ever runs now from inside that
+  // page's own "Is this you?" CTA, after the recipient has already seen the
+  // gated preview. No silent OTP fallback if Resend isn't configured or the
+  // send fails — the founder sees the error and still has "Copy guest link".
   const [resendMsg, setResendMsg] = useState('');
-  async function resendInvite(email: string) {
+  async function sendGuestInviteEmail(email: string) {
     setResendMsg('');
-    const sb = browserClient();
-    const { error } = await sb.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/portal`, shouldCreateUser: true },
-    });
-    setResendMsg(error ? error.message : `Sign-in link sent to ${email}.`);
+    try {
+      const res = await fetch('/api/data-room/guest-invite', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: db.org.id, invitedEmail: email, sendEmail: true }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) { setResendMsg(body.error ?? 'Could not send the invite email — copy the link below and send it yourself'); return; }
+      if (body.emailSent === false) { setResendMsg(body.emailError ?? 'Could not send the invite email — copy the link below and send it yourself'); return; }
+      setResendMsg(`Data room invite sent to ${email}.`);
+    } catch (e) {
+      setResendMsg((e as Error).message ?? 'Could not send the invite email — copy the link below and send it yourself');
+    }
   }
 
   // Data Room V2 — per-document management
@@ -393,20 +403,10 @@ function DocumentsPageInner() {
     }
     const invitedEmailToNotify = invitedPersonId ? inviteEmail.trim().toLowerCase() : null;
     resetGrantFlow();
-    if (invitedEmailToNotify) {
-      await resendInvite(invitedEmailToNotify);
-      // Item 1 (Lote E) — mints the guest-preview token on the just-created
-      // invite grant so it's there immediately (the acceptance criterion is
-      // "the query shows the guest_token right after inviting", not only
-      // once someone clicks Copy). Best-effort: a failure here still leaves
-      // the OTP invite above working (resendInvite already sent) — the
-      // "Copy guest link" button (below) mints/fetches on demand too, so a
-      // missed mint here just means the founder needs one click there.
-      await fetch('/api/data-room/guest-invite', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ orgId: db.org.id, invitedEmail: invitedEmailToNotify }),
-      }).catch(() => {});
-    }
+    // Item 1 (Lote E) / Prompt 171 §A — one call now both mints the
+    // guest-preview token on the just-created invite grant AND sends the
+    // guest-link email; no separate OTP send and no separate bare mint.
+    if (invitedEmailToNotify) await sendGuestInviteEmail(invitedEmailToNotify);
   }
 
   // Prompt 154 gap 4 — same shape as the invite branch inside
@@ -431,11 +431,7 @@ function DocumentsPageInner() {
       });
     }
     resetGrantFlow();
-    await resendInvite(email);
-    await fetch('/api/data-room/guest-invite', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ orgId: db.org.id, invitedEmail: email }),
-    }).catch(() => {});
+    await sendGuestInviteEmail(email);
   }
 
   // Item 1 (Lote E) — the route is idempotent (hands back the existing
@@ -1233,7 +1229,7 @@ function DocumentsPageInner() {
                           <div className="ml-auto flex gap-2">
                             {pendingInvite && (
                               <>
-                                <button onClick={() => resendInvite(pendingInvite.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
+                                <button onClick={() => sendGuestInviteEmail(pendingInvite.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
                                   Resend
                                 </button>
                                 <button onClick={() => copyGuestLink(pendingInvite.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
@@ -1265,7 +1261,7 @@ function DocumentsPageInner() {
                                     NDA {g.nda_accepted_at ? 'accepted' : 'pending'}</span>}
                                   <div className="ml-auto flex gap-2">
                                     {status === 'pending_confirmation' && g.invited_email && (
-                                      <button onClick={() => resendInvite(g.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
+                                      <button onClick={() => sendGuestInviteEmail(g.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
                                         Resend invite
                                       </button>
                                     )}

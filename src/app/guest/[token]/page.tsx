@@ -39,6 +39,11 @@ type GuestFolder = { id: string; name: string; documents: { id: string; name: st
 type GuestPreview = {
   ok: true; orgName: string; orgDescription: string | null; orgLogoUrl: string | null;
   invitedEmail: string; folders: GuestFolder[]; documentNames: string[]; documentCount: number;
+  // Prompt 171 — NDA-gated documents the founder hasn't yet accepted a
+  // signed NDA for (uploaded by the founder themselves — see /api/data-room/
+  // nda-upload; a guest is never prompted for NDA action here). Lets the
+  // empty state read as "still in progress" rather than "nothing shared."
+  pendingNdaCount: number;
 };
 type GuestError = { ok: false; reason: 'expired' | 'invalid' };
 type GuestResponse = GuestPreview | GuestError;
@@ -158,7 +163,13 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
                 {data.documentCount} document{data.documentCount === 1 ? '' : 's'} shared with you
               </p>
               {data.documentCount === 0 ? (
-                <p className="text-sm text-gray-400">No documents shared yet — check back later.</p>
+                data.pendingNdaCount > 0 ? (
+                  <p className="text-sm text-gray-400">
+                    {data.pendingNdaCount} document{data.pendingNdaCount === 1 ? '' : 's'} pending NDA signature.
+                  </p>
+                ) : (
+                  <p className="text-sm text-gray-400">No documents shared yet — check back later.</p>
+                )
               ) : (
                 <div className="space-y-3">
                   {data.folders.map((f) => (
