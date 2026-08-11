@@ -575,6 +575,9 @@ export default function PipelinePage() {
       )}
 
       {addInvestorOpen && <AddInvestorModal onClose={() => setAddInvestorOpen(false)} />}
+
+      {/* TEMP — git→deploy pipeline test marker, remove after confirmed in production */}
+      <div style={{ position: 'fixed', bottom: 16, right: 16, width: 24, height: 24, borderRadius: '9999px', background: 'red', zIndex: 9999 }} />
     </div>
   );
 }
