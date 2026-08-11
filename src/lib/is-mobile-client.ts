@@ -23,7 +23,35 @@ export function detectMobileClient(): boolean {
   if (typeof navigator === 'undefined') return false;
   if (isMobileUserAgent(navigator.userAgent)) return true;
   if (typeof window !== 'undefined' && window.matchMedia) {
-    return window.matchMedia('(pointer: coarse) and (hover: none)').matches;
+    // Prompt 163 A — confirmed live on Nuno's own touchscreen PC: a
+    // desktop Chrome (desktop UA, so the regex above correctly said no)
+    // fell through to this fallback, matched `pointer: coarse` via the
+    // touchscreen, and opened the full deck on a desktop — the exact false
+    // positive Prompt 82's comment anticipated but had never seen happen.
+    // Two extra signals, both required to still call it a phone:
+    // 1. `any-pointer: fine` must be absent — true whenever ANY fine
+    //    pointer (mouse, trackpad, pen) is attached, even non-primary; no
+    //    real phone has one.
+    // 2. The screen's SHORTER dimension must be phone-sized. Measured on
+    //    the exact machine that reproduced the bug (2026-08-11): it
+    //    reports pointer:coarse, hover:none, maxTouchPoints:10 AND
+    //    any-pointer:fine=false — a touchscreen PC indistinguishable from
+    //    a phone by pointer media queries alone, which is why signal 1 by
+    //    itself wasn't enough and Prompt 161 A's suggested viewport-width
+    //    second layer is applied too. Real phones' shorter CSS dimension
+    //    is ~320-450px; the smallest desktop/laptop panels are ≥600.
+    //    (Touch tablets like iPad land ≥768 here, but those match the UA
+    //    regex above and never reach this fallback.)
+    const touchOnly = window.matchMedia('(pointer: coarse) and (hover: none)').matches;
+    const hasFinePointer = window.matchMedia('(any-pointer: fine)').matches;
+    // screen.* can report 0×0 in embedded/offscreen browsers (observed on
+    // the same machine, in an Electron pane) — fall back to the viewport,
+    // and treat a size we can't determine as NOT a phone (every real phone
+    // browser reports its real screen size; only desktops embed).
+    const shortSide = Math.min(window.screen.width || 0, window.screen.height || 0)
+      || Math.min(window.innerWidth, window.innerHeight);
+    const phoneSizedScreen = shortSide > 0 && shortSide < 600;
+    return touchOnly && !hasFinePointer && phoneSizedScreen;
   }
   return false;
 }
