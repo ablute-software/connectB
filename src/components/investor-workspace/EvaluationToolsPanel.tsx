@@ -10,6 +10,7 @@
 //   scenarios side by side.
 import { useEffect, useState } from 'react';
 import { computeDilution, type ValuationBasis } from '@/lib/dilution';
+import { ReturnScenarioTool } from './ReturnScenarioTool';
 
 interface PipelineCard {
   orgId: string; name: string; roundTargetEur: number | null; roundValuationEur: number | null;
@@ -446,16 +447,27 @@ function BerkusMethodTool({ cards }: { cards: PipelineCard[] }) {
 // subtitle on each selector button and a header line on each tool spells
 // out the real difference: real Pipeline round data vs. your own
 // hypothetical numbers.
-const TOOLS: { key: 'calculator' | 'simulator' | 'scorecard' | 'berkus'; label: string; subtitle: string }[] = [
+const TOOLS: { key: 'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'return'; label: string; subtitle: string }[] = [
   { key: 'calculator', label: 'Ownership calculator', subtitle: 'Real round data from your Pipeline' },
   { key: 'simulator', label: 'Equity simulator', subtitle: 'Your own hypothetical numbers' },
   { key: 'scorecard', label: 'Scorecard criteria', subtitle: 'Your private scoring criteria' },
   { key: 'berkus', label: 'Berkus Method', subtitle: 'Pre-revenue valuation estimate' },
+  // Prompt 169 §C — MOIC over the same real ownership math as the
+  // calculator above, against an assumed exit value (from Berkus × a
+  // growth multiple, or typed directly).
+  { key: 'return', label: 'Return scenario', subtitle: 'Model MOIC against an exit value' },
 ];
 
-export function EvaluationToolsPanel({ initialOrgId }: { initialOrgId?: string | null }) {
+export function EvaluationToolsPanel({ initialOrgId, onGoToPipelineComparison }: {
+  initialOrgId?: string | null;
+  // Prompt 169 §B — "Compare startups from your Pipeline →" shortcut at the
+  // top of this panel; the actual tab-switch + comparator-open mechanism
+  // lives in InvestorWorkspaceShell (goToPipelineComparison), same as every
+  // other cross-tab navigation this shell already does.
+  onGoToPipelineComparison: () => void;
+}) {
   const [cards, setCards] = useState<PipelineCard[]>([]);
-  const [tool, setTool] = useState<'calculator' | 'simulator' | 'scorecard' | 'berkus'>('calculator');
+  const [tool, setTool] = useState<'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'return'>('calculator');
   const [selectedOrgId, setSelectedOrgId] = useState(initialOrgId ?? '');
 
   useEffect(() => {
@@ -472,7 +484,12 @@ export function EvaluationToolsPanel({ initialOrgId }: { initialOrgId?: string |
 
   return (
     <div className="max-w-3xl space-y-4">
-      <h1 className="text-lg font-bold text-gray-900">Evaluation tools</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-lg font-bold text-gray-900">Evaluation tools</h1>
+        <button onClick={onGoToPipelineComparison} className="text-xs font-medium text-[#0E7490] hover:underline">
+          Compare startups from your Pipeline →
+        </button>
+      </div>
       <div className="flex flex-wrap items-stretch gap-1.5">
         {TOOLS.map((t) => (
           <button key={t.key} onClick={() => setTool(t.key)}
@@ -499,8 +516,10 @@ export function EvaluationToolsPanel({ initialOrgId }: { initialOrgId?: string |
         </>
       ) : tool === 'scorecard' ? (
         <ScorecardCriteriaTool />
-      ) : (
+      ) : tool === 'berkus' ? (
         <BerkusMethodTool cards={cards} />
+      ) : (
+        <ReturnScenarioTool cards={cards} onSwitchToSimulator={() => setTool('simulator')} />
       )}
     </div>
   );

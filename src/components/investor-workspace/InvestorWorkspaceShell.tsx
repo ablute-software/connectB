@@ -79,6 +79,19 @@ export function InvestorWorkspaceShell({
   // (removed per the redesign); this is now seeded only from the dossier
   // header's deep link (initialEvaluationOrgId, via /portal?tab=evaluation&orgId=…).
   const [evaluationTargetOrgId] = useState<string | null>(() => initialEvaluationOrgId ?? null);
+  // Prompt 169 §B — lifted out of PipelinePanel so a selection made there
+  // survives a trip to another tab and back; see PipelinePanel's own prop
+  // comment for why this couldn't stay local state. goToPipelineComparison
+  // is the Evaluation tools shortcut's actual mechanism: switch tabs, and
+  // only force the comparator open if there's already something to compare
+  // — otherwise Pipeline just shows its normal "tick a card" discovery
+  // banner instead of an empty comparator with nothing selected.
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [showComparison, setShowComparison] = useState(false);
+  function goToPipelineComparison() {
+    setTab('pipeline');
+    if (compareIds.length >= 2) setShowComparison(true);
+  }
   const [pct, setPct] = useState<number | null>(null);
   const [investorFirmName, setInvestorFirmName] = useState<string | null>(null);
   // Identity verification Fase B (prompt 64), Bloco 1 — the badge lives in
@@ -266,12 +279,13 @@ export function InvestorWorkspaceShell({
                 </div>
               </div>
             ) : (
-              <PipelinePanel onOpenStartup={onOpenStartup} onGoToArchive={() => setTab('archive')} />
+              <PipelinePanel onOpenStartup={onOpenStartup} onGoToArchive={() => setTab('archive')}
+                compareIds={compareIds} setCompareIds={setCompareIds} showComparison={showComparison} setShowComparison={setShowComparison} />
             )
           )}
           {tab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} onEntityNameChange={setInvestorFirmName} onIdentityStatusChange={setIdentityStatus} />}
           {tab === 'access' && <AccessGrantedPanel />}
-          {tab === 'evaluation' && <EvaluationToolsPanel initialOrgId={evaluationTargetOrgId} />}
+          {tab === 'evaluation' && <EvaluationToolsPanel initialOrgId={evaluationTargetOrgId} onGoToPipelineComparison={goToPipelineComparison} />}
           {tab === 'agenda' && <InvestorAgendaPanel />}
           {tab === 'archive' && <ArchivePanel />}
           {tab === 'support' && <SupportTicketsPanel />}

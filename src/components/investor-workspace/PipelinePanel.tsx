@@ -89,10 +89,21 @@ function LockedWave({ hiddenCount, onReview }: { hiddenCount: number; onReview: 
   );
 }
 
-export function PipelinePanel({ onOpenStartup, onGoToArchive }: {
+export function PipelinePanel({
+  onOpenStartup, onGoToArchive, compareIds, setCompareIds, showComparison, setShowComparison,
+}: {
   onOpenStartup: (orgId: string) => void;
   // Item 8 — the archive success toast's "Go to Archive" link.
   onGoToArchive: () => void;
+  // Prompt 169 §B — lifted up to InvestorWorkspaceShell (was local state
+  // here) so a selection made on this tab survives a trip to Evaluation
+  // tools and back — that tab's own "Compare startups from your Pipeline →"
+  // shortcut needs "the compareIds the investor already had marked, if
+  // any" to mean something; local state here would already be gone by the
+  // time the investor reaches that other tab (this component unmounts on
+  // tab switch, same as every other tab's panel).
+  compareIds: string[]; setCompareIds: (ids: string[] | ((prev: string[]) => string[])) => void;
+  showComparison: boolean; setShowComparison: (v: boolean) => void;
 }) {
   // P134-A — which rows are expanded (chevron), independent of data —
   // toggling never fetches, per the mini-prompt's own acceptance criterion.
@@ -129,8 +140,6 @@ export function PipelinePanel({ onOpenStartup, onGoToArchive }: {
   const [interactionLogOrgId, setInteractionLogOrgId] = useState<string | null>(null);
   const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
   const [remindedOrgId, setRemindedOrgId] = useState<string | null>(null);
-  const [compareIds, setCompareIds] = useState<string[]>([]);
-  const [showComparison, setShowComparison] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'interested' | 'passed'>('all');
   // Prompt 121 §2.3 — sector/geography/stage filters, composed with the
   // existing status filter and the wave doseamento: filtering only decides
@@ -161,6 +170,43 @@ export function PipelinePanel({ onOpenStartup, onGoToArchive }: {
       .then((d) => setScorecardAvgs(d.averages ?? {}))
       .catch(() => setScorecardAvgs({}));
   }, []);
+
+  // Prompt 169 §A — Berkus total + TAM/SAM/SOM for the comparison table.
+  // Deliberately lazy (only once the comparator is actually shown, only for
+  // the up-to-3 orgIds being compared) — unlike scorecardAvgs above (one
+  // cheap summary call covering every org at once), Berkus has no batch
+  // endpoint and TAM/SAM/SOM only exists on the full dossier route
+  // (/api/portal/startup/[orgId], the same route Prompt 166/167/168 already
+  // load a lot from) — firing that for every Pipeline card on every page
+  // load would be real, unnecessary load for a table almost nobody opens.
+  const [compareEnrichment, setCompareEnrichment] = useState<Record<string, {
+    berkusTotal: number | null; tamEur: number | null; samEur: number | null; somEur: number | null;
+  }>>({});
+  useEffect(() => {
+    if (!showComparison || compareIds.length === 0) return;
+    const missing = compareIds.filter((id) => !(id in compareEnrichment));
+    if (missing.length === 0) return;
+    Promise.all(missing.map(async (orgId) => {
+      const [berkusRes, dossierRes] = await Promise.all([
+        fetch(`/api/portal/berkus?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).catch(() => ({ estimate: null })),
+        fetch(`/api/portal/startup/${orgId}`).then((r) => r.json()).catch(() => ({ dossier: {} })),
+      ]);
+      const estimate = berkusRes.estimate as { sound_idea_eur: number; prototype_eur: number; team_eur: number; relationships_eur: number; sales_eur: number } | null;
+      const berkusTotal = estimate
+        ? estimate.sound_idea_eur + estimate.prototype_eur + estimate.team_eur + estimate.relationships_eur + estimate.sales_eur
+        : null;
+      const overview = dossierRes.dossier?.overview as { tam_eur?: number | null; sam_eur?: number | null; som_eur?: number | null } | undefined;
+      return [orgId, {
+        berkusTotal, tamEur: overview?.tam_eur ?? null, samEur: overview?.sam_eur ?? null, somEur: overview?.som_eur ?? null,
+      }] as const;
+    })).then((entries) => {
+      setCompareEnrichment((prev) => {
+        const next = { ...prev };
+        for (const [orgId, enrichment] of entries) next[orgId] = enrichment;
+        return next;
+      });
+    });
+  }, [showComparison, compareIds, compareEnrichment]);
 
   function toggleCompare(orgId: string) {
     setCompareIds((ids) => (ids.includes(orgId) ? ids.filter((id) => id !== orgId) : ids.length < MAX_COMPARE ? [...ids, orgId] : ids));
@@ -245,7 +291,18 @@ export function PipelinePanel({ onOpenStartup, onGoToArchive }: {
   }
 
   const allCards = waves.flatMap((w) => w.items);
-  const compareCards = compareIds.map((id) => allCards.find((c) => c.orgId === id)).filter((c): c is Card => !!c);
+  // Prompt 169 §A — the enrichment merge itself. scorecardAvgs already
+  // covers every org (cheap summary call, not lazy); berkus/tam/sam/som
+  // come from compareEnrichment, only populated for orgIds actually being
+  // compared (see that state's own comment above).
+  const compareCards = compareIds.map((id) => allCards.find((c) => c.orgId === id)).filter((c): c is Card => !!c)
+    .map((c) => ({
+      ...c, scorecardAvg: scorecardAvgs[c.orgId] ?? null,
+      berkusTotal: compareEnrichment[c.orgId]?.berkusTotal ?? null,
+      tamEur: compareEnrichment[c.orgId]?.tamEur ?? null,
+      samEur: compareEnrichment[c.orgId]?.samEur ?? null,
+      somEur: compareEnrichment[c.orgId]?.somEur ?? null,
+    }));
   // Prompt 121 §2.3 — option lists built from whatever's actually in the
   // Pipeline right now (not a fixed taxonomy import): org.sectors is free
   // text on the founder side (see investor-sector-taxonomy.ts's own
