@@ -12,6 +12,11 @@
 // 166 §B added the monthly quota check below (REVIEW_QUOTA in plans.ts).
 // Prompt 168 §E — every org clarification (any past run) is fed back in as
 // a distinct context block, never suppression logic — see clarificationsBlock.
+// Prompt 170 §A — bullets were coming back as full paragraphs sometimes;
+// BULLET_LENGTH_RULE is now stated in both the prompt and every array
+// field's own schema description (belt and suspenders — a tool schema
+// description is a strong steer but not a hard constraint, so the prompt
+// says it too). Applies only to new runs; old rows are never rewritten.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, resolveRole } from '@/lib/supabase-server';
@@ -24,6 +29,9 @@ interface Report extends SwotData {
   score: number; summary: string;
   risks: string[]; recommendations: string[];
 }
+
+const BULLET_LENGTH_RULE = 'One sentence, concrete, max ~20 words — no paragraphs. Never drop information to '
+  + 'fit: if a point genuinely needs more than one sentence, split it into a second short bullet instead of one long one.';
 
 export async function POST(req: Request) {
   const { facts, pipeline, company } = await req.json() as {
@@ -104,7 +112,9 @@ export async function POST(req: Request) {
     + 'could pursue — market timing, a gap a competitor left open, a partnership angle) and Threats (external, '
     + 'strategic risks — a competitor raising a larger round, a market or regulatory shift against this startup) — '
     + 'distinct from Risks/Recommendations, which stay internal/operational. Same discipline throughout: only from '
-    + 'confirmed facts, never invented. Always finish by calling report_investability.'
+    + 'confirmed facts, never invented.\n\n'
+    + `Every bullet, in all 6 categories (strengths/weaknesses/opportunities/threats/risks/recommendations): ${BULLET_LENGTH_RULE}\n\n`
+    + 'Always finish by calling report_investability.'
     + clarificationsBlock;
 
   try {
@@ -117,8 +127,8 @@ export async function POST(req: Request) {
         system: 'You are an investability analyst for an early-stage startup founder. You produce a structured, honest '
           + 'readiness assessment grounded strictly in the facts given — no invented traction, revenue, or clinical claims. '
           + 'Opportunities and Threats are external/strategic (the market, competitors, timing) — never restate an '
-          + 'internal Weakness as a Threat or an internal fix as an Opportunity. You never send or mutate anything; you '
-          + 'return a report.',
+          + 'internal Weakness as a Threat or an internal fix as an Opportunity. Every bullet you write is short: '
+          + `${BULLET_LENGTH_RULE} You never send or mutate anything; you return a report.`,
         messages: [{ role: 'user', content: prompt }],
         tools: [{
           name: 'report_investability',
@@ -128,18 +138,30 @@ export async function POST(req: Request) {
             properties: {
               score: { type: 'number', description: '0-100 readiness vs round value.' },
               summary: { type: 'string', description: 'One or two sentences: the headline verdict.' },
-              strengths: { type: 'array', items: { type: 'string' } },
-              weaknesses: { type: 'array', items: { type: 'string' } },
+              strengths: {
+                type: 'array', items: { type: 'string' },
+                description: `Concrete strengths grounded in the confirmed facts. ${BULLET_LENGTH_RULE}`,
+              },
+              weaknesses: {
+                type: 'array', items: { type: 'string' },
+                description: `Concrete weaknesses grounded in the confirmed facts. ${BULLET_LENGTH_RULE}`,
+              },
               opportunities: {
                 type: 'array', items: { type: 'string' },
-                description: 'External, strategic openings this startup could pursue (market gap, timing, partnership) — never invented, only what the facts support.',
+                description: `External, strategic openings this startup could pursue (market gap, timing, partnership) — never invented, only what the facts support. ${BULLET_LENGTH_RULE}`,
               },
               threats: {
                 type: 'array', items: { type: 'string' },
-                description: 'External, strategic threats (a competitor\'s move, a market or regulatory shift) — distinct from `risks`, which are this startup\'s own internal/operational risks.',
+                description: `External, strategic threats (a competitor's move, a market or regulatory shift) — distinct from \`risks\`, which are this startup's own internal/operational risks. ${BULLET_LENGTH_RULE}`,
               },
-              risks: { type: 'array', items: { type: 'string' } },
-              recommendations: { type: 'array', items: { type: 'string' }, description: 'Concrete things to improve, most impactful first.' },
+              risks: {
+                type: 'array', items: { type: 'string' },
+                description: `This startup's own internal/operational risks. ${BULLET_LENGTH_RULE}`,
+              },
+              recommendations: {
+                type: 'array', items: { type: 'string' },
+                description: `Concrete things to improve, most impactful first. ${BULLET_LENGTH_RULE}`,
+              },
             },
             required: ['score', 'summary', 'strengths', 'weaknesses', 'opportunities', 'threats', 'risks', 'recommendations'],
           },

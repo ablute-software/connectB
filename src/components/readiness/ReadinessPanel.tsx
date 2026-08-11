@@ -41,7 +41,12 @@ function ReadinessInner() {
   const activeTab = TABS.some((t) => t.key === tab) ? tab : 'review';
 
   return (
-    <div className="max-w-3xl space-y-4">
+    // Prompt 170 §C — was max-w-3xl: on a wide screen the SWOT quadrant (2
+    // columns) and the Review cards had a lot of unused space to their
+    // right. max-w-5xl gives the quadrant room to breathe without each card
+    // stretching too wide to read comfortably, and leaves headroom for
+    // Prompt 168's clarification balloons without a second widening later.
+    <div className="max-w-5xl space-y-4">
       <h1 className="text-lg font-bold">Readiness & Train</h1>
       <p className="text-xs text-gray-400">
         Feeds on your confirmed <b>Company facts</b> (Settings) and pipeline to help improve the company itself —

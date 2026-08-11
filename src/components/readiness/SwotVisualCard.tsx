@@ -14,11 +14,46 @@ import type { SwotData } from '@/lib/types';
 import { ClarificationBullet } from './ClarificationBullet';
 import { clarificationKey, type ReviewClarification } from '@/lib/review-clarifications';
 
-const QUADRANTS: { key: keyof SwotData; label: string; icon: string; classes: string }[] = [
-  { key: 'strengths', label: 'Strengths', icon: '💪', classes: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
-  { key: 'weaknesses', label: 'Weaknesses', icon: '⚠️', classes: 'border-orange-200 bg-orange-50 text-orange-800' },
-  { key: 'opportunities', label: 'Opportunities', icon: '🚀', classes: 'border-blue-200 bg-blue-50 text-blue-800' },
-  { key: 'threats', label: 'Threats', icon: '⚡', classes: 'border-red-200 bg-red-50 text-[#B00000]' },
+// Prompt 170 §B — redesign: a square icon badge (solid category color) +
+// title + descriptive caption in the header, a count pill top-right, and
+// every bullet as its own mini-card (lighter tint than the quadrant's own
+// background) instead of a loose `<li>` bullet. Palette unchanged (green/
+// orange/blue/red-terracotta) — only the treatment (solid badges/pills/
+// mini-cards vs. flat tinted boxes) is new, per the reference design; #0E7490
+// stays the app's own contrast/accent reference, used on SwotVisualCard's
+// own title below, not inside the quadrant colors themselves.
+const QUADRANTS: {
+  key: keyof SwotData; label: string; caption: string; icon: string;
+  container: string; iconBadge: string; countPill: string; itemCard: string;
+}[] = [
+  {
+    key: 'strengths', label: 'Strengths', caption: 'What gives you a competitive advantage?', icon: '💪',
+    container: 'border-emerald-200 bg-emerald-50/60',
+    iconBadge: 'bg-emerald-600',
+    countPill: 'border-emerald-200 bg-emerald-100 text-emerald-700',
+    itemCard: 'border-emerald-100 bg-white',
+  },
+  {
+    key: 'weaknesses', label: 'Weaknesses', caption: 'What are your main limitations?', icon: '⚠️',
+    container: 'border-orange-200 bg-orange-50/60',
+    iconBadge: 'bg-orange-500',
+    countPill: 'border-orange-200 bg-orange-100 text-orange-700',
+    itemCard: 'border-orange-100 bg-white',
+  },
+  {
+    key: 'opportunities', label: 'Opportunities', caption: 'What external factors could help you?', icon: '🚀',
+    container: 'border-blue-200 bg-blue-50/60',
+    iconBadge: 'bg-blue-600',
+    countPill: 'border-blue-200 bg-blue-100 text-blue-700',
+    itemCard: 'border-blue-100 bg-white',
+  },
+  {
+    key: 'threats', label: 'Threats', caption: 'What external risks could impact you?', icon: '⚡',
+    container: 'border-red-200 bg-red-50/60',
+    iconBadge: 'bg-[#B00000]',
+    countPill: 'border-red-200 bg-red-100 text-[#B00000]',
+    itemCard: 'border-red-100 bg-white',
+  },
 ];
 
 // Prompt 168 §B — `clarify` is only ever passed by SwotVisualCard's own
@@ -26,37 +61,53 @@ const QUADRANTS: { key: keyof SwotData; label: string; icon: string; classes: st
 // investor-facing dossier page (Prompt 166 §D) renders SwotQuadrant
 // directly with no `clarify` prop, so it stays exactly the plain read-only
 // grid it's always been — the bubble/editor UI never reaches that surface.
+// Prompt 170 §B — the redesign below applies to BOTH surfaces automatically
+// (same shared component), no extra work needed for the investor side.
 export function SwotQuadrant({ data, clarify }: {
   data: SwotData;
   clarify?: { orgId: string; reviewRunId: string; clarifications: Map<string, ReviewClarification>; onSaved: (c: ReviewClarification) => void };
 }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      {QUADRANTS.map((q) => (
-        <div key={q.key} className={`rounded-lg border p-3 ${q.classes}`}>
-          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
-            <span aria-hidden="true">{q.icon}</span><span>{q.label}</span>
+    <div className="grid gap-4 sm:grid-cols-2">
+      {QUADRANTS.map((q) => {
+        const items = data[q.key] ?? [];
+        return (
+          <div key={q.key} className={`rounded-2xl border p-4 ${q.container}`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <span aria-hidden="true" className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg ${q.iconBadge}`}>
+                  {q.icon}
+                </span>
+                <div>
+                  <div className="text-sm font-bold text-gray-900">{q.label}</div>
+                  <div className="text-[11px] text-gray-500">{q.caption}</div>
+                </div>
+              </div>
+              <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${q.countPill}`}>
+                {items.length} item{items.length === 1 ? '' : 's'}
+              </span>
+            </div>
+            {items.length > 0 ? (
+              <div className="mt-3 space-y-1.5">
+                {items.map((item, i) => (
+                  <div key={i} className={`flex items-start justify-between gap-1.5 rounded-lg border px-3 py-2 text-xs text-gray-700 ${q.itemCard}`}>
+                    <span className="flex-1">{item}</span>
+                    {clarify && (
+                      <ClarificationBullet
+                        orgId={clarify.orgId} reviewRunId={clarify.reviewRunId} category={q.key} itemIndex={i} itemText={item}
+                        existing={clarify.clarifications.get(clarificationKey(clarify.reviewRunId, q.key, i)) ?? null}
+                        onSaved={clarify.onSaved}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 rounded-lg border border-dashed border-gray-200 bg-white/60 px-3 py-2 text-xs text-gray-400">Nothing flagged.</p>
+            )}
           </div>
-          {data[q.key]?.length ? (
-            <ul className="mt-1.5 ml-4 list-disc space-y-0.5 text-xs">
-              {data[q.key].map((item, i) => (
-                <li key={i}>
-                  {item}
-                  {clarify && (
-                    <ClarificationBullet
-                      orgId={clarify.orgId} reviewRunId={clarify.reviewRunId} category={q.key} itemIndex={i} itemText={item}
-                      existing={clarify.clarifications.get(clarificationKey(clarify.reviewRunId, q.key, i)) ?? null}
-                      onSaved={clarify.onSaved}
-                    />
-                  )}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-1.5 text-xs opacity-60">Nothing flagged.</p>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
