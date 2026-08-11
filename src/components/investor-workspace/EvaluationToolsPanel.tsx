@@ -321,9 +321,141 @@ function ScorecardCriteriaTool() {
   );
 }
 
+// Prompt 164 C — Berkus Method, the first real valuation method tool: five
+// classic risk factors, each manually scored 0–€500,000 (European ceiling
+// per the reference doc, not the classic US $500k). Always presented as a
+// decomposed per-factor sum, never a single "official" number — and always
+// under the permanent private-judgment disclaimer that keeps this on the
+// safe side of the open legal question (valuation-as-regulated-service):
+// the platform never produces or endorses the number, the investor does,
+// from inputs they typed themselves. No auto-inference from the company
+// canon at this stage — the canon is too thin to ground it (3 confirmed
+// facts platform-wide at time of writing).
+const BERKUS_FACTOR_MAX_EUR = 500000;
+const BERKUS_FACTORS = [
+  { key: 'sound_idea_eur', label: 'Sound idea', hint: 'Basic value of the idea itself — product risk' },
+  { key: 'prototype_eur', label: 'Prototype', hint: 'Working prototype — technology risk' },
+  { key: 'team_eur', label: 'Quality of the team', hint: 'Execution risk' },
+  { key: 'relationships_eur', label: 'Strategic relationships', hint: 'Market/competitive risk' },
+  { key: 'sales_eur', label: 'Early sales / rollout', hint: 'Production and financial risk' },
+] as const;
+type BerkusFactorKey = typeof BERKUS_FACTORS[number]['key'];
+type BerkusEstimate = Record<BerkusFactorKey, number>;
+const EMPTY_BERKUS: BerkusEstimate = { sound_idea_eur: 0, prototype_eur: 0, team_eur: 0, relationships_eur: 0, sales_eur: 0 };
+
+function BerkusMethodTool({ cards }: { cards: PipelineCard[] }) {
+  const [orgId, setOrgId] = useState('');
+  const [estimate, setEstimate] = useState<BerkusEstimate>(EMPTY_BERKUS);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!orgId) { setEstimate(EMPTY_BERKUS); return; }
+    setLoading(true); setError(null);
+    fetch(`/api/portal/berkus?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json())
+      .then((d) => {
+        const e = d.estimate as (BerkusEstimate & { updated_at: string }) | null;
+        setEstimate(e ? {
+          sound_idea_eur: e.sound_idea_eur, prototype_eur: e.prototype_eur, team_eur: e.team_eur,
+          relationships_eur: e.relationships_eur, sales_eur: e.sales_eur,
+        } : EMPTY_BERKUS);
+      })
+      .catch(() => setError('Could not load your estimate — try again.'))
+      .finally(() => setLoading(false));
+  }, [orgId]);
+
+  async function save() {
+    if (!orgId) return;
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch('/api/portal/berkus', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId, ...estimate }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.ok === false) { setError(body.error ?? 'Could not save — try again.'); return; }
+      setSavedAt(Date.now());
+    } finally { setSaving(false); }
+  }
+
+  const total = BERKUS_FACTORS.reduce((s, f) => s + estimate[f.key], 0);
+
+  return (
+    <div className="max-w-lg space-y-4">
+      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+        Your own estimate — private, not shown to the startup, not investment advice.
+      </p>
+      <p className="text-xs text-gray-500">
+        The Berkus Method values a <b>pre-revenue</b> startup by pricing five risk areas separately — up to
+        €500,000 each, your judgment on every one. The result is the sum of your five estimates, not a
+        precise valuation.
+      </p>
+
+      <select value={orgId} onChange={(e) => setOrgId(e.target.value)}
+        className="w-full max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm">
+        <option value="">Select a startup from your Pipeline…</option>
+        {cards.map((c) => <option key={c.orgId} value={c.orgId}>{c.name}</option>)}
+      </select>
+
+      {!orgId ? (
+        <p className="text-sm text-gray-400">Pick a startup above to start estimating.</p>
+      ) : loading ? (
+        <p className="text-sm text-gray-400">Loading your estimate…</p>
+      ) : (
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          {error && <p className="mb-2 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-[#B00000]">{error}</p>}
+          <div className="space-y-3">
+            {BERKUS_FACTORS.map((f) => (
+              <div key={f.key}>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-800">{f.label} <span className="cursor-help text-gray-400" title={f.hint}>ⓘ</span></span>
+                  <span className="font-medium text-[#0E7490]">{fmtEur(estimate[f.key])}</span>
+                </div>
+                <input type="range" min={0} max={BERKUS_FACTOR_MAX_EUR} step={10000} value={estimate[f.key]}
+                  onChange={(e) => setEstimate((prev) => ({ ...prev, [f.key]: Number(e.target.value) }))}
+                  className="mt-1 w-full accent-[#0E7490]" aria-label={`${f.label} (0 to €500,000)`} />
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 border-t border-gray-100 pt-3">
+            <div className="text-xs text-gray-500">Sum of your five factor estimates</div>
+            <div className="text-xl font-semibold text-[#0E7490]">{fmtEur(total)}</div>
+            <div className="mt-1 text-[11px] text-gray-400">
+              {BERKUS_FACTORS.map((f) => `${f.label} ${fmtEur(estimate[f.key])}`).join(' + ')}
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center gap-2">
+            <button onClick={() => void save()} disabled={saving}
+              className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+              {saving ? 'Saving…' : savedAt && Date.now() - savedAt < 2000 ? 'Saved ✓' : 'Save estimate'}
+            </button>
+            <span className="text-[11px] text-gray-400">Saved privately to your seat only.</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Prompt 164 A — the two dilution tools kept being mistaken for duplicates
+// (they share computeDilution, so the results LOOK alike); a one-line
+// subtitle on each selector button and a header line on each tool spells
+// out the real difference: real Pipeline round data vs. your own
+// hypothetical numbers.
+const TOOLS: { key: 'calculator' | 'simulator' | 'scorecard' | 'berkus'; label: string; subtitle: string }[] = [
+  { key: 'calculator', label: 'Ownership calculator', subtitle: 'Real round data from your Pipeline' },
+  { key: 'simulator', label: 'Equity simulator', subtitle: 'Your own hypothetical numbers' },
+  { key: 'scorecard', label: 'Scorecard criteria', subtitle: 'Your private scoring criteria' },
+  { key: 'berkus', label: 'Berkus Method', subtitle: 'Pre-revenue valuation estimate' },
+];
+
 export function EvaluationToolsPanel({ initialOrgId }: { initialOrgId?: string | null }) {
   const [cards, setCards] = useState<PipelineCard[]>([]);
-  const [tool, setTool] = useState<'calculator' | 'simulator' | 'scorecard'>('calculator');
+  const [tool, setTool] = useState<'calculator' | 'simulator' | 'scorecard' | 'berkus'>('calculator');
   const [selectedOrgId, setSelectedOrgId] = useState(initialOrgId ?? '');
 
   useEffect(() => {
@@ -341,27 +473,34 @@ export function EvaluationToolsPanel({ initialOrgId }: { initialOrgId?: string |
   return (
     <div className="max-w-3xl space-y-4">
       <h1 className="text-lg font-bold text-gray-900">Evaluation tools</h1>
-      <div className="flex items-center gap-1.5">
-        <button onClick={() => setTool('calculator')}
-          className={`rounded-full px-3 py-1.5 text-xs font-medium ${tool === 'calculator' ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-          Ownership calculator
-        </button>
-        <button onClick={() => setTool('simulator')}
-          className={`rounded-full px-3 py-1.5 text-xs font-medium ${tool === 'simulator' ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-          Equity simulator
-        </button>
-        <button onClick={() => setTool('scorecard')}
-          className={`rounded-full px-3 py-1.5 text-xs font-medium ${tool === 'scorecard' ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-          Scorecard criteria
-        </button>
+      <div className="flex flex-wrap items-stretch gap-1.5">
+        {TOOLS.map((t) => (
+          <button key={t.key} onClick={() => setTool(t.key)}
+            className={`rounded-xl px-3 py-1.5 text-left ${tool === t.key ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            <span className="block text-xs font-medium">{t.label}</span>
+            <span className={`block text-[10px] ${tool === t.key ? 'text-white/70' : 'text-gray-400'}`}>{t.subtitle}</span>
+          </button>
+        ))}
       </div>
 
       {tool === 'calculator' ? (
-        <OwnershipCalculatorTool cards={cards} selectedOrgId={selectedOrgId} onSelectOrg={setSelectedOrgId} onSwitchToSimulator={() => setTool('simulator')} />
+        <>
+          <p className="text-xs text-gray-500">
+            How much of a <b>real startup from your Pipeline</b> your ticket buys, using the round data that startup actually registered — for the &quot;what do I get in this specific deal&quot; question.
+          </p>
+          <OwnershipCalculatorTool cards={cards} selectedOrgId={selectedOrgId} onSelectOrg={setSelectedOrgId} onSwitchToSimulator={() => setTool('simulator')} />
+        </>
       ) : tool === 'simulator' ? (
-        <EquitySimulatorTool cards={cards} />
-      ) : (
+        <>
+          <p className="text-xs text-gray-500">
+            The same math over <b>your own hypothetical numbers</b> — up to 3 what-if scenarios side by side, independent of any startup&apos;s registered data (you can prefill one from a real startup, then edit freely).
+          </p>
+          <EquitySimulatorTool cards={cards} />
+        </>
+      ) : tool === 'scorecard' ? (
         <ScorecardCriteriaTool />
+      ) : (
+        <BerkusMethodTool cards={cards} />
       )}
     </div>
   );

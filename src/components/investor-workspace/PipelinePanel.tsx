@@ -151,6 +151,16 @@ export function PipelinePanel({ onOpenStartup, onGoToArchive }: {
       .then((d) => setMeetingsCount((d.items ?? []).filter((i: { kind: string }) => i.kind === 'meeting').length))
       .catch(() => setMeetingsCount(null));
   }, []);
+  // Prompt 164 B — this member's own weighted scorecard average per org
+  // (same formula ScorecardPanel computes, aggregated server-side), so the
+  // score stops living only on the isolated dossier page. Absent for any
+  // org never scored — the badge simply doesn't render then.
+  const [scorecardAvgs, setScorecardAvgs] = useState<Record<string, number>>({});
+  useEffect(() => {
+    fetch('/api/portal/scorecard/summary').then((r) => r.json())
+      .then((d) => setScorecardAvgs(d.averages ?? {}))
+      .catch(() => setScorecardAvgs({}));
+  }, []);
 
   function toggleCompare(orgId: string) {
     setCompareIds((ids) => (ids.includes(orgId) ? ids.filter((id) => id !== orgId) : ids.length < MAX_COMPARE ? [...ids, orgId] : ids));
@@ -425,6 +435,12 @@ export function PipelinePanel({ onOpenStartup, onGoToArchive }: {
                       <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-semibold text-[#0E7490]" title={c.matchReasons.join(', ')}>
                         {c.matchScore}%
                       </span>
+                      {scorecardAvgs[c.orgId] != null && (
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700"
+                          title="Your scorecard average — private to you, never shown to the startup.">
+                          ★ {scorecardAvgs[c.orgId]}/10
+                        </span>
+                      )}
                     </div>
                     <div className="hidden shrink-0 whitespace-nowrap text-xs text-gray-400 md:block">
                       {c.stage && (STAGE_LABELS[c.stage] ?? c.stage)}
@@ -452,6 +468,11 @@ export function PipelinePanel({ onOpenStartup, onGoToArchive }: {
                         <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500">W{wave.index + 1}</span>
                       )}
                       <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-semibold text-[#0E7490]">{c.matchScore}% match</span>
+                      {scorecardAvgs[c.orgId] != null && (
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                          ★ {scorecardAvgs[c.orgId]}/10 your scorecard
+                        </span>
+                      )}
                       <span className="text-[11px] text-gray-400">
                         {c.stage && (STAGE_LABELS[c.stage] ?? c.stage)}
                         {fmtEur(c.roundTargetEur) && ` · ${fmtEur(c.roundTargetEur)}`}
