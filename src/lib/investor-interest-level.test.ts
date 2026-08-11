@@ -150,3 +150,37 @@ describe('projectDossier — founderClarifications', () => {
     expect('founderClarifications' in result).toBe(false);
   });
 });
+
+// Prompt 167 §C — the roadmap gate: level >= 1 AND
+// roadmap_visible_to_investors, same shape as swot's own gate above. Unlike
+// founderClarifications, an empty milestone list is a real, projectable
+// state (the founding node is always there), not a "hide the section" signal.
+describe('projectDossier — roadmap', () => {
+  const MILESTONES = [{ period_kind: 'year' as const, period_year: 2026, items: ['Reach breakeven'] }];
+
+  it('level 0, visible=true — still absent (level gate wins)', () => {
+    const result = projectDossier(0, FULL, false, null, null, { visible: true, milestones: MILESTONES });
+    expect('roadmap' in result).toBe(false);
+  });
+
+  it('level 1, visible=true — present, exactly what the caller passed', () => {
+    const result = projectDossier(1, FULL, false, null, null, { visible: true, milestones: MILESTONES });
+    expect(result.roadmap).toEqual(MILESTONES);
+  });
+
+  it('level 1, visible=false — absent regardless of level', () => {
+    const result = projectDossier(3, FULL, false, null, null, { visible: false, milestones: MILESTONES });
+    expect('roadmap' in result).toBe(false);
+  });
+
+  it('visible=true with zero milestones — present as an EMPTY array, not absent', () => {
+    const result = projectDossier(1, FULL, false, null, null, { visible: true, milestones: [] });
+    expect('roadmap' in result).toBe(true);
+    expect(result.roadmap).toEqual([]);
+  });
+
+  it('arg omitted entirely — absent, no throw', () => {
+    const result = projectDossier(1, FULL, false, null, null);
+    expect('roadmap' in result).toBe(false);
+  });
+});

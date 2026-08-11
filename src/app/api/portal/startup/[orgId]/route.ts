@@ -21,12 +21,16 @@
 // level >= 1, filtered at the query itself (visible_to_investors = true),
 // projected to {category, text} only — item_text never has a path into
 // this route's response.
+//
+// Prompt 167 §C — `dossier.roadmap` is the same pattern once more:
+// level >= 1 AND orgs.roadmap_visible_to_investors, projected to only
+// period_kind/period_year/period_quarter/items (migration 0161).
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
-import { currentInterestLevel, projectDossier, type FullDossierData, type FounderClarificationFull } from '@/lib/investor-interest-level';
+import { currentInterestLevel, projectDossier, type FullDossierData, type FounderClarificationFull, type RoadmapMilestoneFull } from '@/lib/investor-interest-level';
 import { getInterestLevelRows, toInvestorFacingLevelRows } from '@/lib/investor-interest-level-db';
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
 import { getInteractionTimeline } from '@/lib/investor-interaction-log';
@@ -131,6 +135,29 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
     }
   }
 
+  // Prompt 167 §C — roadmap. Only ever fetched at level >= 1, only when the
+  // founder's own toggle is on — same "not fetched-then-hidden" discipline
+  // as swot/overview above. Selects only period_kind/period_year/
+  // period_quarter/items (§C.5 — never created_at/updated_at/sort_order),
+  // ordered by year so the client doesn't have to — RoadmapTimeline still
+  // re-sorts defensively (sortRoadmapPeriods), same as every other reader.
+  let roadmap: { visible: boolean; milestones: RoadmapMilestoneFull[] } | null = null;
+  if (level >= 1) {
+    const { data: orgRow } = await admin.from('orgs').select('roadmap_visible_to_investors').eq('id', params.orgId).maybeSingle();
+    const visible = (orgRow?.roadmap_visible_to_investors as boolean | null | undefined) ?? true;
+    if (visible) {
+      const { data: milestoneRows } = await admin.from('company_roadmap_milestones')
+        .select('period_kind, period_year, period_quarter, items').eq('org_id', params.orgId).order('period_year', { ascending: true });
+      roadmap = {
+        visible: true,
+        milestones: (milestoneRows ?? []).map((r) => ({
+          period_kind: r.period_kind as RoadmapMilestoneFull['period_kind'], period_year: r.period_year as number,
+          period_quarter: (r.period_quarter as number | null) ?? undefined, items: (r.items as string[] | null) ?? [],
+        })),
+      };
+    }
+  }
+
   // Prompt 168 §D — founder clarifications. `.eq('visible_to_investors',
   // true)` in the query itself, not a JS filter after the fact — a hidden
   // clarification (including every clarification on a weaknesses/risks/
@@ -152,7 +179,7 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
     overview: (overview ?? {}) as FullDossierData['overview'],
     tractionDetailed, team, contactHistory, documentTitles,
   };
-  const dossier = projectDossier(level, full, shareEmail, swot, founderClarifications);
+  const dossier = projectDossier(level, full, shareEmail, swot, founderClarifications, roadmap);
 
   // Bug fix (relatorio_verificacao_..._8143c75_p136 §3) — this used to
   // forward `levelRows` in full, `note` included: the founder's own

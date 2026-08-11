@@ -12,6 +12,7 @@ import { documentDetailsAvailable, ndaSystemAvailable } from '@/lib/data-room-ca
 import { entityContactFieldsAvailable } from '@/lib/entity-contact-capability';
 import { reviewRunsAvailable } from '@/lib/review-capability';
 import { reviewClarificationsAvailable } from '@/lib/review-clarifications-capability';
+import { companyRoadmapAvailable } from '@/lib/company-roadmap-capability';
 import { permissionMatrixAvailable } from '@/lib/permission-matrix-capability';
 import { documentOrderingAvailable } from '@/lib/document-ordering-capability';
 import { documentVersionsAvailable } from '@/lib/document-versions-capability';
@@ -39,6 +40,7 @@ export async function GET(req: NextRequest) {
     entityContactFields: await entityContactFieldsAvailable(),
     reviewRuns: await reviewRunsAvailable(),
     reviewClarifications: await reviewClarificationsAvailable(),
+    companyRoadmap: await companyRoadmapAvailable(),
     permissionMatrix: await permissionMatrixAvailable(),
     documentOrdering: await documentOrderingAvailable(),
     documentVersions: await documentVersionsAvailable(),

@@ -7,8 +7,19 @@
 // deliberately not re-materialized in investor_interest_levels (that would
 // create two places asserting the same fact, and they'd eventually
 // disagree). Levels 2/3 live in investor_interest_levels (migration 0131).
-import type { SwotData } from './types';
+import type { SwotData, RoadmapPeriodKind } from './types';
 import type { ReviewCategory } from './review-clarifications';
+
+// Prompt 167 §C.5 — explicit field-by-field projection, same discipline as
+// FounderClarificationFull above: period_kind/period_year/period_quarter/
+// items only, never created_at/updated_at/sort_order or any other internal
+// column off company_roadmap_milestones.
+export interface RoadmapMilestoneFull {
+  period_kind: RoadmapPeriodKind;
+  period_year: number;
+  period_quarter?: number;
+  items: string[];
+}
 
 // Prompt 168 §D — the narrow shape that ever reaches an investor: category
 // (as a caption, e.g. "Re: a weakness") + the clarification text itself.
@@ -70,6 +81,8 @@ export interface FullDossierData {
 // swot_visible_to_investors toggle to be on (a per-org fact, not a level),
 // so a static "present at level N" table can't describe it. It's handled by
 // its own explicit `swot` param on projectDossier instead — see there.
+// Prompt 167 §C — `roadmap` is the same shape of exception, for the same
+// reason (roadmap_visible_to_investors).
 export const LEVEL_FIELDS: Record<InterestLevel, string[]> = {
   0: [],
   1: ['overview'],
@@ -102,6 +115,13 @@ export function projectDossier(
   // empty list", so the investor page's own `count > 0` check never needs
   // to distinguish the two.
   founderClarifications?: FounderClarificationFull[] | null,
+  // Prompt 167 §C — same visible+level gate shape as swot above (a per-org
+  // toggle, not purely level-derived, so — like swot — deliberately absent
+  // from the static LEVEL_FIELDS table). Unlike founderClarifications,
+  // there's no "hide if empty" rule here: a roadmap with zero milestones
+  // yet still shows the (always-present) founding node, so an empty array
+  // is a legitimate, real state to project, not a signal to omit the key.
+  roadmap?: { visible: boolean; milestones: RoadmapMilestoneFull[] } | null,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { level };
   if (level >= 1) out.overview = full.overview;
@@ -110,6 +130,7 @@ export function projectDossier(
   // call site" discipline as the shareEmail gate below.
   if (level >= 1 && swot?.visible && swot.data) out.swot = swot.data;
   if (level >= 1 && founderClarifications && founderClarifications.length > 0) out.founderClarifications = founderClarifications;
+  if (level >= 1 && roadmap?.visible) out.roadmap = roadmap.milestones;
   if (level >= 2) {
     out.tractionDetailed = full.tractionDetailed;
     out.team = full.team.map((p) => (shareEmail && level >= 3

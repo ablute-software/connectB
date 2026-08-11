@@ -13,6 +13,7 @@ import { OrganisationCard } from '@/components/OrganisationCard';
 import { CompanyFactsPanel } from '@/components/CompanyFactsPanel';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { CompletenessBar } from './CompletenessBar';
+import { RoadmapCard } from './RoadmapCard';
 import { IdentityCard } from './IdentityCard';
 import { StartupTeamCard } from './StartupTeamCard';
 import { RoundCard } from './RoundCard';
@@ -39,12 +40,14 @@ export function CompanyPanel() {
   const { db } = useStore();
   const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
   const [companyProfile, setCompanyProfile] = useState<boolean | null>(null);
+  const [roadmapAvailable, setRoadmapAvailable] = useState(false);
   const [flashId, setFlashId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => {
       setOrgRole(me.orgRole ?? null);
       setCompanyProfile(!!me.capabilities?.companyProfile);
+      setRoadmapAvailable(!!me.capabilities?.companyRoadmap);
     }).catch(() => setCompanyProfile(false));
   }, []);
 
@@ -72,7 +75,8 @@ export function CompanyPanel() {
       <div data-tour-id="settings-completeness">
         <CompletenessBar pct={pct} missing={missing} orgId={db.org.id} onFlash={setFlashId} />
       </div>
-      <div data-tour-id="settings-identity">
+      <RoadmapCard canEdit={canEdit} available={roadmapAvailable} />
+      <div id="settings-identity" data-tour-id="settings-identity">
         <IdentityCard canEdit={canEdit} missing={missing} flashId={flashId} />
       </div>
       <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />

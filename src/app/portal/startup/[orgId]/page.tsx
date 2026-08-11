@@ -15,7 +15,8 @@ import { InteractionLogTimeline } from '@/components/investor-workspace/Interact
 import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
 import { DealThreadView, type DealMessage } from '@/components/deal-messages/DealThreadView';
 import { SwotQuadrant } from '@/components/readiness/SwotVisualCard';
-import type { SwotData } from '@/lib/types';
+import { RoadmapTimeline } from '@/components/company/RoadmapCard';
+import type { SwotData, RoadmapPeriodKind } from '@/lib/types';
 import type { ReviewCategory } from '@/lib/review-clarifications';
 
 interface Card {
@@ -56,6 +57,11 @@ interface Dossier {
   // is individually marked visible_to_investors=true. Each entry is ONLY
   // {category, text} — never the original bullet it responds to.
   founderClarifications?: { category: ReviewCategory; text: string }[];
+  // Prompt 167 §C — absent unless BOTH level >= 1 AND the founder's own
+  // roadmap_visible_to_investors toggle is on. Present as an empty array
+  // when the org just hasn't added any milestones yet (still shows the
+  // founding node) — only truly ABSENT when the gate itself fails.
+  roadmap?: { period_kind: RoadmapPeriodKind; period_year: number; period_quarter?: number; items: string[] }[];
 }
 
 const CLARIFICATION_CAPTION: Record<ReviewCategory, string> = {
@@ -393,6 +399,22 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
         <div className="rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-[#0E7490]">SWOT snapshot</h2>
           <div className="mt-2"><SwotQuadrant data={dossier.swot} /></div>
+        </div>
+      )}
+
+      {/* Prompt 167 §C.4 — same positioning logic as SWOT above: a quick
+          summary belongs near the top, before the round's financial
+          details. dossier.roadmap is present (possibly an empty array) once
+          level + the founder's toggle both allow it — RoadmapTimeline
+          itself handles zero milestones by showing just the founding node,
+          same as it does founder-side in RoadmapCard.tsx. editable={false}
+          and no callbacks: no "+", no edit/remove hover-actions here. */}
+      {dossier.roadmap && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-gray-900">Roadmap</h2>
+          <div className="mt-2">
+            <RoadmapTimeline foundedYear={overview?.founded_year ?? null} milestones={dossier.roadmap} editable={false} />
+          </div>
         </div>
       )}
 

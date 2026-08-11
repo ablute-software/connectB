@@ -45,6 +45,9 @@ const EDITABLE = [
   // 0159, propose-only). A plain boolean toggle, same owner/admin gate as
   // every other column in this list.
   'swot_visible_to_investors',
+  // Prompt 167 §C.2 — same shape, for the Roadmap-sharing tickbox in
+  // RoadmapCard.tsx (migration 0161, propose-only).
+  'roadmap_visible_to_investors',
 ] as const;
 
 export async function POST(req: Request) {

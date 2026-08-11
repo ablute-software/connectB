@@ -252,6 +252,25 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, tractionMetrics: prev.tractionMetrics.filter((m) => m.id !== id) }));
     },
 
+    // Prompt 167 — demo-mode roadmap milestones: local state only, same
+    // add/update/remove shape as traction metrics above, no rejection path
+    // (roadmap has no equivalent of the dealdigger-limit trigger).
+    async addRoadmapMilestone(m) {
+      setDb((prev) => {
+        const sortOrder = prev.roadmapMilestones.length ? Math.max(...prev.roadmapMilestones.map((x) => x.sort_order)) + 1 : 0;
+        const now = new Date().toISOString();
+        return { ...prev, roadmapMilestones: [...prev.roadmapMilestones, { ...m, id: uid('rm'), org_id: prev.org.id, sort_order: sortOrder, created_at: now, updated_at: now }] };
+      });
+      return {};
+    },
+    async updateRoadmapMilestone(id, patch) {
+      setDb((prev) => ({ ...prev, roadmapMilestones: prev.roadmapMilestones.map((r) => (r.id === id ? { ...r, ...patch, updated_at: new Date().toISOString() } : r)) }));
+      return {};
+    },
+    removeRoadmapMilestone(id) {
+      setDb((prev) => ({ ...prev, roadmapMilestones: prev.roadmapMilestones.filter((r) => r.id !== id) }));
+    },
+
     setEntityStatus(id, status, reason) {
       setDb((prev) => ({
         ...prev,

@@ -7,7 +7,7 @@ import { createContext, useContext } from 'react';
 import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, CompanyPerson, Db,
   Direction, DocumentItem, DocVisibility, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
-  PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric,
+  PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone,
 } from './types';
 
 export type LogInput = {
@@ -248,6 +248,11 @@ export interface StoreApi {
   addTractionMetric: (m: Omit<TractionMetric, 'id' | 'org_id' | 'sort_order' | 'created_at' | 'updated_at'>) => Promise<{ error?: string }>;
   updateTractionMetric: (id: string, patch: Partial<TractionMetric>) => Promise<{ error?: string }>;
   removeTractionMetric: (id: string) => void;
+  // Prompt 167 — Company tab roadmap milestones, same pattern as traction
+  // metrics above (org-scoped, founder-editable, no AI involved at all).
+  addRoadmapMilestone: (m: Omit<RoadmapMilestone, 'id' | 'org_id' | 'sort_order' | 'created_at' | 'updated_at'>) => Promise<{ error?: string }>;
+  updateRoadmapMilestone: (id: string, patch: Partial<RoadmapMilestone>) => Promise<{ error?: string }>;
+  removeRoadmapMilestone: (id: string) => void;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);

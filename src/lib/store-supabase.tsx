@@ -12,7 +12,7 @@ import type {
   AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, CompanyFact, CompanyPerson, Db, DocumentItem,
   DocumentVersion, DocumentView, Entity, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
-  RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric,
+  RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone,
 } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
@@ -26,7 +26,7 @@ const EMPTY_DB: Db = {
   org: EMPTY_ORG, entities: [], people: [], personAffiliations: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
-  documentVersions: [], reawakeningProposals: [], tractionMetrics: [],
+  documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -72,7 +72,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     foldersRes, documentsRes, grantsRes, viewsRes, templatesRes, automationsRes,
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
-    documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes,
+    documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes, roadmapMilestonesRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -115,6 +115,12 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // Investor Workspace Fase 1 (0054) — org_traction_metrics may not exist
     // yet. Same missing-table-safe pattern as company_facts/ndas above.
     sb.from('org_traction_metrics').select('*').eq('org_id', orgId).order('sort_order', { ascending: true }),
+    // Prompt 167 — company_roadmap_milestones may not exist yet (0161). Same
+    // missing-table-safe pattern as company_facts/ndas above. Ordered by
+    // year first; the (year, quarter) display sort (year-milestone before
+    // that year's quarters) is computed in RoadmapCard.tsx, not here — it
+    // depends on period_kind too, not just a column order.
+    sb.from('company_roadmap_milestones').select('*').eq('org_id', orgId).order('period_year', { ascending: true }),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -176,6 +182,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     documentVersions: ((documentVersionsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<DocumentVersion>(r)),
     reawakeningProposals: ((reawakeningProposalsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<ReawakeningProposal>(r)),
     tractionMetrics: ((tractionMetricsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<TractionMetric>(r)),
+    roadmapMilestones: ((roadmapMilestonesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RoadmapMilestone>(r)),
   };
 }
 
@@ -579,6 +586,37 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const prev = dbRef.current;
       commit({ ...prev, tractionMetrics: prev.tractionMetrics.filter((m) => m.id !== id) });
       persist(sb.from('org_traction_metrics').delete().eq('id', id), 'removeTractionMetric');
+    },
+
+    // Prompt 167 — same add/update/remove shape as traction metrics above,
+    // minus the dealdigger-limit rejection path (roadmap has no such
+    // constraint, so these stay simple fire-and-forget-with-error-surfaced
+    // rather than needing an awaited-before-commit round trip).
+    async addRoadmapMilestone(m) {
+      const prev = dbRef.current;
+      const sortOrder = prev.roadmapMilestones.length
+        ? Math.max(...prev.roadmapMilestones.map((x) => x.sort_order)) + 1 : 0;
+      const now = new Date().toISOString();
+      const row: RoadmapMilestone = { ...m, id: uuid(), org_id: prev.org.id, sort_order: sortOrder, created_at: now, updated_at: now };
+      const o = orgIdRef.current;
+      if (o) {
+        const { error } = await sb.from('company_roadmap_milestones').insert({ ...row, org_id: o });
+        if (error) return { error: error.message };
+      }
+      commit({ ...prev, roadmapMilestones: [...prev.roadmapMilestones, row] });
+      return {};
+    },
+    async updateRoadmapMilestone(id, patch) {
+      const { error } = await sb.from('company_roadmap_milestones').update(nullify(patch)).eq('id', id);
+      if (error) return { error: error.message };
+      const prev = dbRef.current;
+      commit({ ...prev, roadmapMilestones: prev.roadmapMilestones.map((r) => (r.id === id ? { ...r, ...patch, updated_at: new Date().toISOString() } : r)) });
+      return {};
+    },
+    removeRoadmapMilestone(id) {
+      const prev = dbRef.current;
+      commit({ ...prev, roadmapMilestones: prev.roadmapMilestones.filter((r) => r.id !== id) });
+      persist(sb.from('company_roadmap_milestones').delete().eq('id', id), 'removeRoadmapMilestone');
     },
 
     setEntityStatus(id: string, status: EntityStatus, reason?: string) {

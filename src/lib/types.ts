@@ -144,6 +144,27 @@ export interface Org {
   // (migration 0159, not yet applied) — undefined pre-migration, in which
   // case every reader treats it as the DB default (true), never as false.
   swot_visible_to_investors?: boolean;
+  // Prompt 167 §C — same toggle shape, for the Roadmap (below). Additive,
+  // propose-only (migration 0161).
+  roadmap_visible_to_investors?: boolean;
+}
+
+// Prompt 167 §A — one row per roadmap period (a quarter or a whole year).
+// The founding node is NOT one of these — it's always derived from
+// org.founded_year and drawn as a fixed, non-editable starting point.
+export type RoadmapPeriodKind = 'quarter' | 'year';
+export interface RoadmapMilestone {
+  id: string;
+  org_id: string;
+  period_kind: RoadmapPeriodKind;
+  period_year: number;
+  // Null exactly when period_kind === 'year' — mirrors the DB check
+  // constraint (migration 0161), not re-validated independently here.
+  period_quarter?: number;
+  items: string[];
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 }
 
 // Prompt 166 — the four SWOT bullet-list categories, shared by:
@@ -732,4 +753,5 @@ export interface Db {
   ndas: Nda[];
   documentVersions: DocumentVersion[];
   reawakeningProposals: ReawakeningProposal[];
+  roadmapMilestones: RoadmapMilestone[];
 }
