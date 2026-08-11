@@ -19,10 +19,13 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import type { Contradiction } from '@/lib/action-plan';
 import { ReportView, type StructuredReport } from './ReportView';
 import { PlanBadge } from '@/components/PlanBadge';
-import { planName } from '@/lib/plans';
+import { planName, REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
+import { can, type OrgRole } from '@/lib/permissions';
+import { SwotVisualCard } from './SwotVisualCard';
+import type { SwotData } from '@/lib/types';
 
 interface ReviewRun { id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string }
-interface InvestabilityReport { score: number; summary: string; strengths: string[]; weaknesses: string[]; risks: string[]; recommendations: string[] }
+interface InvestabilityReport extends SwotData { score: number; summary: string; risks: string[]; recommendations: string[] }
 
 const DOC_KINDS = [
   { value: 'deck_review', label: 'Pitch deck' },
@@ -59,9 +62,14 @@ function TopTierLocked() {
   );
 }
 
+interface ReviewQuota { quota: number; used: number; remaining: number; resetsAt: string }
+
 export function ReviewPanel() {
-  const { db } = useStore();
-  const [caps, setCaps] = useState<{ ai: boolean; reviewRuns: boolean; reviewOptimization: boolean; reviewTopTierTools: boolean } | null>(null);
+  const { db, updateOrg } = useStore();
+  const [caps, setCaps] = useState<{
+    ai: boolean; reviewRuns: boolean; reviewOptimization: boolean; reviewTopTierTools: boolean;
+    orgRole: OrgRole | null; reviewQuota: ReviewQuota | null;
+  } | null>(null);
 
   const [draft, setDraft] = useState('');
   const [personId, setPersonId] = useState('');
@@ -94,8 +102,9 @@ export function ReviewPanel() {
       .then((me) => setCaps({
         ai: !!me.capabilities?.ai, reviewRuns: !!me.capabilities?.reviewRuns,
         reviewOptimization: !!me.entitlements?.reviewOptimization, reviewTopTierTools: !!me.entitlements?.reviewTopTierTools,
+        orgRole: (me.orgRole ?? null) as OrgRole | null, reviewQuota: (me.reviewQuota ?? null) as ReviewQuota | null,
       }))
-      .catch(() => setCaps({ ai: false, reviewRuns: false, reviewOptimization: false, reviewTopTierTools: false }));
+      .catch(() => setCaps({ ai: false, reviewRuns: false, reviewOptimization: false, reviewTopTierTools: false, orgRole: null, reviewQuota: null }));
   }, []);
 
   useEffect(() => {
@@ -199,21 +208,62 @@ export function ReviewPanel() {
 
   const latest = runs[0];
 
+  // Prompt 166 §B/§C — a new review can start only with feature access AND
+  // quota left; reviewQuota is null either while /api/me hasn't resolved yet
+  // (treated as "can't start" until it has) or for an unlimited plan (never
+  // blocks). Kept as one derivation so the button, the quota line, and
+  // SwotVisualCard's own empty/lock state can never disagree with each other.
+  const quotaExhausted = !!caps?.reviewQuota && caps.reviewQuota.remaining <= 0;
+  const canRunReview = !!caps && caps.ai && caps.reviewRuns && !quotaExhausted;
+  const swotLockedReason = caps && !canRunReview && !latest
+    ? (!caps.ai || !caps.reviewRuns
+      ? REVIEW_OPTIMIZATION_PREVIEW_COPY
+      : `You've used your ${caps.reviewQuota?.quota} review${caps.reviewQuota?.quota === 1 ? '' : 's'} this month — resets on the 1st.`)
+    : null;
+
   return (
     <>
+      <SwotVisualCard
+        data={latest?.report ? {
+          strengths: latest.report.strengths ?? [], weaknesses: latest.report.weaknesses ?? [],
+          opportunities: latest.report.opportunities ?? [], threats: latest.report.threats ?? [],
+        } : null}
+        canRun={canRunReview} lockedReason={swotLockedReason} running={runLoading} onRun={runInvestability}
+      />
+
+      {/* Prompt 166 §D.2 — owner/admin only, mirroring manage_org_settings'
+          gate elsewhere (promo code redemption, org settings). Non-owner/
+          admin members simply don't see the control — same pattern as every
+          other settings toggle in this codebase, not a disabled checkbox. */}
+      {caps?.orgRole && can(caps.orgRole, 'manage_org_settings') && (
+        <label className="-mt-2 flex items-center gap-1.5 px-1 text-xs text-gray-500">
+          <input type="checkbox" checked={db.org.swot_visible_to_investors ?? true}
+            onChange={(e) => updateOrg({ swot_visible_to_investors: e.target.checked })} />
+          Let investors you&apos;re in contact with see this SWOT
+        </label>
+      )}
+
       <Card title="Investability ranking — readiness vs round value">
         <p className="mb-2 text-xs text-gray-500">
           Consumes your confirmed canon facts + pipeline stats and returns a score with concrete strengths, weaknesses,
-          risks and recommendations. Each run is stored so you can watch it improve as you add facts and close conversations.
+          opportunities, threats, risks and recommendations. Each run is stored so you can watch it improve as you add
+          facts and close conversations.
         </p>
         {!caps ? <p className="text-sm text-gray-400">Loading…</p>
           : !caps.reviewRuns || !caps.ai ? <ComingSoon />
           : (
             <>
-              <button disabled={runLoading} onClick={runInvestability}
+              <button disabled={runLoading || !canRunReview} onClick={runInvestability}
                 className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
                 {runLoading ? 'Running…' : 'Run review'}
               </button>
+              {caps.reviewQuota && (
+                <p className="mt-1 text-xs text-gray-400">
+                  {caps.reviewQuota.quota === 0
+                    ? REVIEW_OPTIMIZATION_PREVIEW_COPY
+                    : `${caps.reviewQuota.used} of ${caps.reviewQuota.quota} review${caps.reviewQuota.quota === 1 ? '' : 's'} used this month`}
+                </p>
+              )}
               {runErr && <p className="mt-2 text-xs text-[#B00000]">{runErr}</p>}
               {latest && (
                 <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
@@ -222,7 +272,11 @@ export function ReviewPanel() {
                     <span className="text-xs text-gray-400">/ 100 · {latest.created_at.slice(0, 10)}</span>
                   </div>
                   {latest.summary && <p className="mt-1 text-gray-700">{latest.summary}</p>}
-                  {(['strengths', 'weaknesses', 'risks', 'recommendations'] as const).map((k) => (
+                  {/* strengths/weaknesses/opportunities/threats now live in
+                      SwotVisualCard above — only the two categories it
+                      doesn't cover stay in this plain list, so nothing is
+                      shown twice. */}
+                  {(['risks', 'recommendations'] as const).map((k) => (
                     latest.report?.[k]?.length ? (
                       <div key={k} className="mt-2">
                         <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{k}</div>

@@ -78,7 +78,10 @@ describe('projectDossier', () => {
   });
 
   // §10.3 — fails if projectDossier's own output keys drift from the §6
-  // table (LEVEL_FIELDS) without both being updated together.
+  // table (LEVEL_FIELDS) without both being updated together. Called with
+  // no `swot` arg (defaults to undefined) — LEVEL_FIELDS deliberately never
+  // lists `swot` (see its own comment), so this must keep passing exactly
+  // as-is once swot support lands, not just today.
   for (const level of [0, 1, 2, 3] as const) {
     it(`level ${level}'s output keys match LEVEL_FIELDS[${level}] exactly`, () => {
       const result = projectDossier(level, FULL, true);
@@ -86,4 +89,37 @@ describe('projectDossier', () => {
       expect(keys).toEqual([...LEVEL_FIELDS[level]].sort());
     });
   }
+});
+
+// Prompt 166 §D — the SWOT gate: level >= 1 AND the founder's own
+// swot_visible_to_investors toggle, both required, either checked at either
+// layer (route.ts's own gate before fetching + this function's own gate on
+// the way out).
+const SWOT_DATA = { strengths: ['s1'], weaknesses: ['w1'], opportunities: ['o1'], threats: ['t1'] };
+
+describe('projectDossier — swot', () => {
+  it('level 0, visible=true — still absent (level gate wins)', () => {
+    const result = projectDossier(0, FULL, false, { visible: true, data: SWOT_DATA });
+    expect('swot' in result).toBe(false);
+  });
+
+  it('level 1, visible=true — present, exactly the 4 arrays', () => {
+    const result = projectDossier(1, FULL, false, { visible: true, data: SWOT_DATA });
+    expect(result.swot).toEqual(SWOT_DATA);
+  });
+
+  it('level 3, visible=false — absent regardless of level', () => {
+    const result = projectDossier(3, FULL, false, { visible: false, data: SWOT_DATA });
+    expect('swot' in result).toBe(false);
+  });
+
+  it('level 1, swot arg omitted entirely — absent, no throw', () => {
+    const result = projectDossier(1, FULL, false);
+    expect('swot' in result).toBe(false);
+  });
+
+  it('level 1, visible=true but no run yet (data undefined) — absent, not an empty object', () => {
+    const result = projectDossier(1, FULL, false, { visible: true, data: undefined as unknown as typeof SWOT_DATA });
+    expect('swot' in result).toBe(false);
+  });
 });

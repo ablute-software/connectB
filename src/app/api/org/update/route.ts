@@ -41,6 +41,10 @@ const EDITABLE = [
   // fixed-taxonomy picks) so matching can treat it distinctly (see
   // sector-taxonomy.ts / SectorPicker.tsx).
   'sectors_other',
+  // Prompt 166 §D.2 — the SWOT-sharing tickbox in ReviewPanel.tsx (migration
+  // 0159, propose-only). A plain boolean toggle, same owner/admin gate as
+  // every other column in this list.
+  'swot_visible_to_investors',
 ] as const;
 
 export async function POST(req: Request) {

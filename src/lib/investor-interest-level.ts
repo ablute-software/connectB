@@ -7,6 +7,8 @@
 // deliberately not re-materialized in investor_interest_levels (that would
 // create two places asserting the same fact, and they'd eventually
 // disagree). Levels 2/3 live in investor_interest_levels (migration 0131).
+import type { SwotData } from './types';
+
 export type InterestLevel = 0 | 1 | 2 | 3;
 export type LevelStatus = 'granted' | 'pending' | 'denied';
 export interface InterestLevelRow { level: 2 | 3; status: LevelStatus }
@@ -54,6 +56,12 @@ export interface FullDossierData {
 // keys exist at which level. The test suite asserts projectDossier's own
 // output keys against this exact list, so the two can never silently drift
 // apart (prompt_136 §10.3's own requirement).
+//
+// Prompt 166 §D — `swot` is deliberately NOT listed here. Unlike every key
+// below, it isn't purely level-gated: it also needs the founder's own
+// swot_visible_to_investors toggle to be on (a per-org fact, not a level),
+// so a static "present at level N" table can't describe it. It's handled by
+// its own explicit `swot` param on projectDossier instead — see there.
 export const LEVEL_FIELDS: Record<InterestLevel, string[]> = {
   0: [],
   1: ['overview'],
@@ -70,9 +78,21 @@ export const LEVEL_FIELDS: Record<InterestLevel, string[]> = {
 // the level-3 row itself, decided in the same founder approval dialog,
 // checked separately — an email is a copy, not a view, and never rides
 // along with the rest of level 3 "for free").
-export function projectDossier(level: InterestLevel, full: FullDossierData, shareEmail: boolean): Record<string, unknown> {
+export function projectDossier(
+  level: InterestLevel, full: FullDossierData, shareEmail: boolean,
+  // Prompt 166 §D.5 — deliberately just the 4 bullet arrays, never the
+  // route's own review_runs.report row: the caller (route.ts) is
+  // responsible for projecting the report down to SwotData BEFORE it ever
+  // reaches here, so score/summary/risks/recommendations/company_facts have
+  // no path into this function's input at all, let alone its output.
+  swot?: { visible: boolean; data: SwotData } | null,
+): Record<string, unknown> {
   const out: Record<string, unknown> = { level };
   if (level >= 1) out.overview = full.overview;
+  // Checked again here (visible AND level >= 1), not just trusted from the
+  // caller — same "the security-critical function doesn't trust a single
+  // call site" discipline as the shareEmail gate below.
+  if (level >= 1 && swot?.visible && swot.data) out.swot = swot.data;
   if (level >= 2) {
     out.tractionDetailed = full.tractionDetailed;
     out.team = full.team.map((p) => (shareEmail && level >= 3

@@ -24,7 +24,9 @@ interface AiReviewRow {
 }
 interface ReviewRunRow {
   id: string; org_id: string; score: number | null; summary: string | null; created_at: string;
-  report: { strengths: string[]; weaknesses: string[]; risks: string[]; recommendations: string[] } | null;
+  // Prompt 166 §A — opportunities/threats added; optional since runs from
+  // before that prompt won't have them.
+  report: { strengths: string[]; weaknesses: string[]; opportunities?: string[]; threats?: string[]; risks: string[]; recommendations: string[] } | null;
 }
 
 type Loaded =
@@ -121,11 +123,11 @@ export default function ReportPage({ params, searchParams }: { params: { id: str
               <span className="text-xs text-gray-400">/ 100</span>
             </div>
             {loaded.row.summary && <p className="mt-1 text-gray-700">{loaded.row.summary}</p>}
-            {loaded.row.report && (['strengths', 'weaknesses', 'risks', 'recommendations'] as const).map((k) => (
+            {loaded.row.report && (['strengths', 'weaknesses', 'opportunities', 'threats', 'risks', 'recommendations'] as const).map((k) => (
               loaded.kind === 'review_run' && loaded.row.report?.[k]?.length ? (
                 <div key={k} className="mt-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{k}</div>
-                  <ul className="ml-4 list-disc text-xs text-gray-700">{loaded.row.report[k].map((x, i) => <li key={i}>{x}</li>)}</ul>
+                  <ul className="ml-4 list-disc text-xs text-gray-700">{(loaded.row.report[k] ?? []).map((x, i) => <li key={i}>{x}</li>)}</ul>
                 </div>
               ) : null
             ))}

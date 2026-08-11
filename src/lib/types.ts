@@ -139,6 +139,25 @@ export interface Org {
   current_phase?: CompanyPhase;
   revenue_eur?: number;
   primary_contact_person_id?: string;
+  // Prompt 166 §D — per-org toggle for whether the SWOT snapshot (below) is
+  // shown on the investor-facing startup dossier. Additive, propose-only
+  // (migration 0159, not yet applied) — undefined pre-migration, in which
+  // case every reader treats it as the DB default (true), never as false.
+  swot_visible_to_investors?: boolean;
+}
+
+// Prompt 166 — the four SWOT bullet-list categories, shared by:
+// review_runs.report (strengths/weaknesses always existed; opportunities/
+// threats added in Prompt 166 §A), the founder-facing SwotVisualCard, and
+// the investor-facing dossier projection (investor-interest-level.ts),
+// which is deliberately narrowed to ONLY these four arrays — never score,
+// summary, risks, recommendations, or the confirmed facts that generated
+// the analysis (see that file's own header comment).
+export interface SwotData {
+  strengths: string[];
+  weaknesses: string[];
+  opportunities: string[];
+  threats: string[];
 }
 
 export type CompanyPhase = 'concept_idea' | 'prototype' | 'pilot' | 'launch_early_adopters' | 'growth';

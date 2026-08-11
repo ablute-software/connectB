@@ -40,6 +40,24 @@ export const WATSON_DRAFT_QUOTA: Record<PlanTier, number> = {
   motherfunding: 210,
 };
 
+// Prompt 166 §B — monthly investability-review quota, per STARTUP plan (not
+// the investor side). Nuno's decision: idea=0 (Review & Optimization is
+// already excluded at that tier — see planEntitlements().reviewOptimization
+// — so this is defense in depth, made explicit in the UI per his own
+// instruction, not the primary gate), garage=5, motherfunding=null
+// (unlimited, same null-means-unlimited convention as
+// MATCHDEAL_WEEKLY.motherfunding.undos above). Enforced in
+// /api/review/investability by counting review_runs created since the start
+// of the current CALENDAR month — deliberately NOT the Watson-style rolling
+// window anchored to a stored reset column, since review_runs already
+// timestamps every run and the spec asks for calendar-month resets
+// specifically ("resets on the 1st").
+export const REVIEW_QUOTA: Record<PlanTier, number | null> = {
+  idea: 0,
+  garage: 5,
+  motherfunding: null,
+};
+
 // MatchDeal weekly allowance per startup plan tier. These are DISPLAY copy for
 // the plan cards; the enforced numbers live in the Postgres function
 // matchdeal_tier_limits(tier_a|tier_b|tier_c) and are keyed on

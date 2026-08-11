@@ -14,6 +14,8 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import { InteractionLogTimeline } from '@/components/investor-workspace/InteractionLogTimeline';
 import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
 import { DealThreadView, type DealMessage } from '@/components/deal-messages/DealThreadView';
+import { SwotQuadrant } from '@/components/readiness/SwotVisualCard';
+import type { SwotData } from '@/lib/types';
 
 interface Card {
   orgId: string; name: string; oneLiner: string | null; description: string | null;
@@ -44,6 +46,11 @@ interface Dossier {
   overview?: Overview; tractionDetailed?: Record<string, unknown>; team?: TeamMember[];
   contactHistory?: ContactHistoryItem[]; documentTitles?: DocumentTitle[];
   canMessageNamedPerson?: boolean; canRequestDataRoom?: boolean;
+  // Prompt 166 §D — absent unless BOTH level >= 1 AND the founder's own
+  // swot_visible_to_investors toggle is on (projectDossier's own gate,
+  // server-enforced) — same absent-not-hidden discipline as every other key
+  // here.
+  swot?: SwotData;
 }
 interface LevelRow { level: 2 | 3; status: 'granted' | 'pending' | 'denied' }
 interface PortalDoc { id: string; name: string; version?: string; watermark: boolean; downloadable: boolean; folder_id?: string; url: string | null }
@@ -366,6 +373,18 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
           {(overview?.hq_city || overview?.country) && <span>{[overview?.hq_city, overview?.country].filter(Boolean).join(', ')}</span>}
         </div>
       </div>
+
+      {/* Prompt 166 §D.4 — right after the About/summary block, before the
+          round's financial details: a quick strategic read comes before the
+          numbers. Server-gated (dossier.swot is absent unless both the
+          level and the founder's toggle allow it) — no "hidden" message
+          when it's off, consistent with every other gated section here. */}
+      {dossier.swot && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-[#0E7490]">SWOT snapshot</h2>
+          <div className="mt-2"><SwotQuadrant data={dossier.swot} /></div>
+        </div>
+      )}
 
       {(card.roundTargetEur != null || card.roundValuationEur != null || card.roundMinTicketEur != null || card.roundInstruments.length > 0) && (
         <div className="rounded-lg border border-gray-200 bg-white p-4">

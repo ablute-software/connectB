@@ -25,7 +25,7 @@ import { ecosystemFactsAvailable } from '@/lib/ecosystem-facts-capability';
 import { vaultPinOwnerManagedAvailable } from '@/lib/vault-pin-owner-managed-capability';
 import { taskRemindersAvailable } from '@/lib/task-reminders-capability';
 import { resolveUserPlan } from '@/lib/plan-server';
-import { planEntitlements, WATSON_DRAFT_QUOTA } from '@/lib/plans';
+import { planEntitlements, WATSON_DRAFT_QUOTA, REVIEW_QUOTA } from '@/lib/plans';
 import { stripeConfigured } from '@/lib/stripe-env';
 
 export async function GET(req: NextRequest) {
@@ -77,6 +77,23 @@ export async function GET(req: NextRequest) {
     const status = (statusRow as { used: number; remaining: number; reset_at: string }[] | null)?.[0];
     if (status) watson = { quota: watsonQuota, used: status.used, remaining: status.remaining, resetAt: status.reset_at };
   }
+  // Prompt 166 §B — investability-review monthly quota (REVIEW_QUOTA in
+  // plans.ts), display-truth for the "X of Y reviews used this month" line
+  // in ReviewPanel.tsx; /api/review/investability re-checks and is the real
+  // enforcement point. null quota (motherfunding, unlimited) deliberately
+  // resolves reviewQuota to null too — nothing to show for an unlimited
+  // plan. Not resolved for the platform org, same as watson above.
+  let reviewQuota: { quota: number; used: number; remaining: number; resetsAt: string } | null = null;
+  const reviewMonthlyQuota = REVIEW_QUOTA[plan];
+  if (orgId && role !== 'developer' && reviewMonthlyQuota !== null) {
+    const now = new Date();
+    const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+    const { count } = await sb.from('review_runs').select('id', { count: 'exact', head: true })
+      .eq('org_id', orgId).gte('created_at', startOfMonth.toISOString());
+    const used = count ?? 0;
+    reviewQuota = { quota: reviewMonthlyQuota, used, remaining: Math.max(reviewMonthlyQuota - used, 0), resetsAt: nextMonth.toISOString() };
+  }
   // Prompt 123 Block A — Developer Viewer. Only ever resolved for a
   // session that ALSO currently resolves as 'developer' — a stale cookie
   // on a session that no longer is one (e.g. platform_admins row removed)
@@ -91,5 +108,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ authEnabled: true, user: { id: user.id, email: user.email }, role, orgRole, plan, entitlements, capabilities, watson, viewer });
+  return NextResponse.json({ authEnabled: true, user: { id: user.id, email: user.email }, role, orgRole, plan, entitlements, capabilities, watson, reviewQuota, viewer });
 }
