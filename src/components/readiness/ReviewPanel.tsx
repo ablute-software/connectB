@@ -22,7 +22,9 @@ import { PlanBadge } from '@/components/PlanBadge';
 import { planName, REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
 import { can, type OrgRole } from '@/lib/permissions';
 import { SwotVisualCard } from './SwotVisualCard';
+import { ClarificationBullet } from './ClarificationBullet';
 import type { SwotData } from '@/lib/types';
+import { clarificationsByKey, clarificationKey, upsertClarification, type ReviewClarification } from '@/lib/review-clarifications';
 
 interface ReviewRun { id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string }
 interface InvestabilityReport extends SwotData { score: number; summary: string; risks: string[]; recommendations: string[] }
@@ -67,7 +69,7 @@ interface ReviewQuota { quota: number; used: number; remaining: number; resetsAt
 export function ReviewPanel() {
   const { db, updateOrg } = useStore();
   const [caps, setCaps] = useState<{
-    ai: boolean; reviewRuns: boolean; reviewOptimization: boolean; reviewTopTierTools: boolean;
+    ai: boolean; reviewRuns: boolean; reviewOptimization: boolean; reviewTopTierTools: boolean; reviewClarifications: boolean;
     orgRole: OrgRole | null; reviewQuota: ReviewQuota | null;
   } | null>(null);
 
@@ -97,14 +99,23 @@ export function ReviewPanel() {
   const [runLoading, setRunLoading] = useState(false);
   const [runErr, setRunErr] = useState('');
 
+  // Prompt 168 §B — org-wide, not per-run: the same lookup covers the latest
+  // run's inline risks/recommendations below AND SwotVisualCard's four
+  // categories, without a second fetch.
+  const [clarifications, setClarifications] = useState<ReviewClarification[]>([]);
+
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
       .then((me) => setCaps({
         ai: !!me.capabilities?.ai, reviewRuns: !!me.capabilities?.reviewRuns,
         reviewOptimization: !!me.entitlements?.reviewOptimization, reviewTopTierTools: !!me.entitlements?.reviewTopTierTools,
+        reviewClarifications: !!me.capabilities?.reviewClarifications,
         orgRole: (me.orgRole ?? null) as OrgRole | null, reviewQuota: (me.reviewQuota ?? null) as ReviewQuota | null,
       }))
-      .catch(() => setCaps({ ai: false, reviewRuns: false, reviewOptimization: false, reviewTopTierTools: false, orgRole: null, reviewQuota: null }));
+      .catch(() => setCaps({
+        ai: false, reviewRuns: false, reviewOptimization: false, reviewTopTierTools: false, reviewClarifications: false,
+        orgRole: null, reviewQuota: null,
+      }));
   }, []);
 
   useEffect(() => {
@@ -113,6 +124,13 @@ export function ReviewPanel() {
       .eq('org_id', db.org.id).order('created_at', { ascending: false }).limit(10)
       .then(({ data }) => setRuns((data as ReviewRun[] | null) ?? []));
   }, [caps?.reviewRuns, db.org.id]);
+
+  useEffect(() => {
+    if (!authEnabled || !caps?.reviewClarifications || !db.org.id) return;
+    browserClient().from('review_clarifications').select('*')
+      .eq('org_id', db.org.id).order('created_at', { ascending: false })
+      .then(({ data }) => setClarifications((data as ReviewClarification[] | null) ?? []));
+  }, [caps?.reviewClarifications, db.org.id]);
 
   const confirmedFacts = db.companyFacts.filter((f) => f.status === 'confirmed').map((f) => f.statement);
   const companyContext = {
@@ -221,6 +239,14 @@ export function ReviewPanel() {
       : `You've used your ${caps.reviewQuota?.quota} review${caps.reviewQuota?.quota === 1 ? '' : 's'} this month — resets on the 1st.`)
     : null;
 
+  // Prompt 168 §B — one lookup shared by SwotVisualCard's four categories and
+  // the risks/recommendations list below; a save in either place appends/
+  // replaces locally so both stay in sync without a refetch.
+  const clarificationMap = clarificationsByKey(clarifications);
+  function handleClarificationSaved(c: ReviewClarification) {
+    setClarifications((prev) => upsertClarification(prev, c));
+  }
+
   return (
     <>
       <SwotVisualCard
@@ -229,6 +255,9 @@ export function ReviewPanel() {
           opportunities: latest.report.opportunities ?? [], threats: latest.report.threats ?? [],
         } : null}
         canRun={canRunReview} lockedReason={swotLockedReason} running={runLoading} onRun={runInvestability}
+        clarify={caps?.reviewClarifications && latest ? {
+          orgId: db.org.id, reviewRunId: latest.id, clarifications: clarificationMap, onSaved: handleClarificationSaved,
+        } : undefined}
       />
 
       {/* Prompt 166 §D.2 — owner/admin only, mirroring manage_org_settings'
@@ -280,7 +309,20 @@ export function ReviewPanel() {
                     latest.report?.[k]?.length ? (
                       <div key={k} className="mt-2">
                         <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{k}</div>
-                        <ul className="ml-4 list-disc text-xs text-gray-700">{latest.report[k].map((x, i) => <li key={i}>{x}</li>)}</ul>
+                        <ul className="ml-4 list-disc text-xs text-gray-700">
+                          {latest.report[k].map((x, i) => (
+                            <li key={i}>
+                              {x}
+                              {caps?.reviewClarifications && (
+                                <ClarificationBullet
+                                  orgId={db.org.id} reviewRunId={latest.id} category={k} itemIndex={i} itemText={x}
+                                  existing={clarificationMap.get(clarificationKey(latest.id, k, i)) ?? null}
+                                  onSaved={handleClarificationSaved}
+                                />
+                              )}
+                            </li>
+                          ))}
+                        </ul>
                       </div>
                     ) : null
                   ))}

@@ -11,6 +11,7 @@ import { needsReviewAiAvailable } from '@/lib/needs-review-ai';
 import { documentDetailsAvailable, ndaSystemAvailable } from '@/lib/data-room-capability';
 import { entityContactFieldsAvailable } from '@/lib/entity-contact-capability';
 import { reviewRunsAvailable } from '@/lib/review-capability';
+import { reviewClarificationsAvailable } from '@/lib/review-clarifications-capability';
 import { permissionMatrixAvailable } from '@/lib/permission-matrix-capability';
 import { documentOrderingAvailable } from '@/lib/document-ordering-capability';
 import { documentVersionsAvailable } from '@/lib/document-versions-capability';
@@ -37,6 +38,7 @@ export async function GET(req: NextRequest) {
     ndaSystem: await ndaSystemAvailable(),
     entityContactFields: await entityContactFieldsAvailable(),
     reviewRuns: await reviewRunsAvailable(),
+    reviewClarifications: await reviewClarificationsAvailable(),
     permissionMatrix: await permissionMatrixAvailable(),
     documentOrdering: await documentOrderingAvailable(),
     documentVersions: await documentVersionsAvailable(),

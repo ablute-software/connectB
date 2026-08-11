@@ -8,6 +8,14 @@
 // create two places asserting the same fact, and they'd eventually
 // disagree). Levels 2/3 live in investor_interest_levels (migration 0131).
 import type { SwotData } from './types';
+import type { ReviewCategory } from './review-clarifications';
+
+// Prompt 168 §D — the narrow shape that ever reaches an investor: category
+// (as a caption, e.g. "Re: a weakness") + the clarification text itself.
+// Never item_text (the original bullet — negative categories stay
+// completely out of the investor's view, even through a clarification that
+// responds to one) and never any other review_clarifications column.
+export interface FounderClarificationFull { category: ReviewCategory; text: string }
 
 export type InterestLevel = 0 | 1 | 2 | 3;
 export type LevelStatus = 'granted' | 'pending' | 'denied';
@@ -86,6 +94,14 @@ export function projectDossier(
   // reaches here, so score/summary/risks/recommendations/company_facts have
   // no path into this function's input at all, let alone its output.
   swot?: { visible: boolean; data: SwotData } | null,
+  // Prompt 168 §D — already filtered to visible_to_investors=true rows by
+  // the caller (route.ts queries WHERE visible_to_investors = true, so a
+  // hidden clarification never even leaves the database, let alone reaches
+  // this function). §D's own spec: "if N=0, the section doesn't appear at
+  // all" — an empty/absent array both mean "don't add the key", not "add an
+  // empty list", so the investor page's own `count > 0` check never needs
+  // to distinguish the two.
+  founderClarifications?: FounderClarificationFull[] | null,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { level };
   if (level >= 1) out.overview = full.overview;
@@ -93,6 +109,7 @@ export function projectDossier(
   // caller — same "the security-critical function doesn't trust a single
   // call site" discipline as the shareEmail gate below.
   if (level >= 1 && swot?.visible && swot.data) out.swot = swot.data;
+  if (level >= 1 && founderClarifications && founderClarifications.length > 0) out.founderClarifications = founderClarifications;
   if (level >= 2) {
     out.tractionDetailed = full.tractionDetailed;
     out.team = full.team.map((p) => (shareEmail && level >= 3

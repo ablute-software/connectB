@@ -16,6 +16,7 @@ import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
 import { DealThreadView, type DealMessage } from '@/components/deal-messages/DealThreadView';
 import { SwotQuadrant } from '@/components/readiness/SwotVisualCard';
 import type { SwotData } from '@/lib/types';
+import type { ReviewCategory } from '@/lib/review-clarifications';
 
 interface Card {
   orgId: string; name: string; oneLiner: string | null; description: string | null;
@@ -51,7 +52,16 @@ interface Dossier {
   // server-enforced) — same absent-not-hidden discipline as every other key
   // here.
   swot?: SwotData;
+  // Prompt 168 §D — absent unless level >= 1 AND at least one clarification
+  // is individually marked visible_to_investors=true. Each entry is ONLY
+  // {category, text} — never the original bullet it responds to.
+  founderClarifications?: { category: ReviewCategory; text: string }[];
 }
+
+const CLARIFICATION_CAPTION: Record<ReviewCategory, string> = {
+  strengths: 'Re: a strength', weaknesses: 'Re: a weakness', opportunities: 'Re: an opportunity',
+  threats: 'Re: a threat', risks: 'Re: a risk', recommendations: 'Re: a recommendation',
+};
 interface LevelRow { level: 2 | 3; status: 'granted' | 'pending' | 'denied' }
 interface PortalDoc { id: string; name: string; version?: string; watermark: boolean; downloadable: boolean; folder_id?: string; url: string | null }
 interface DocSection { key: string; label: string; documents: PortalDoc[] }
@@ -383,6 +393,27 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
         <div className="rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-[#0E7490]">SWOT snapshot</h2>
           <div className="mt-2"><SwotQuadrant data={dossier.swot} /></div>
+        </div>
+      )}
+
+      {/* Prompt 168 §D — server-gated absence: this key only exists at all
+          when N > 0 (projectDossier's own rule), so there's no "0
+          clarifications" state to render here — the section simply isn't
+          there, same as the rest of this page's disclosure-ladder sections. */}
+      {dossier.founderClarifications && dossier.founderClarifications.length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-gray-900">Founder clarifications</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            The founder added {dossier.founderClarifications.length} clarification{dossier.founderClarifications.length === 1 ? '' : 's'} to their review.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {dossier.founderClarifications.map((c, i) => (
+              <li key={i} className="rounded-lg border border-gray-100 bg-gray-50 p-2.5 text-sm">
+                <div className="text-xs font-medium text-gray-400">{CLARIFICATION_CAPTION[c.category]}</div>
+                <p className="mt-0.5 text-gray-700">{c.text}</p>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

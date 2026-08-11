@@ -123,3 +123,30 @@ describe('projectDossier — swot', () => {
     expect('swot' in result).toBe(false);
   });
 });
+
+// Prompt 168 §D — founderClarifications: already pre-filtered to
+// visible_to_investors=true by the caller; this function's own job is just
+// the level gate plus "empty list means absent, not an empty array".
+describe('projectDossier — founderClarifications', () => {
+  const CLARIFICATIONS = [{ category: 'weaknesses' as const, text: 'Fixed since the last round.' }];
+
+  it('level 0 — absent (level gate wins)', () => {
+    const result = projectDossier(0, FULL, false, null, CLARIFICATIONS);
+    expect('founderClarifications' in result).toBe(false);
+  });
+
+  it('level 1 — present, exactly what the caller passed', () => {
+    const result = projectDossier(1, FULL, false, null, CLARIFICATIONS);
+    expect(result.founderClarifications).toEqual(CLARIFICATIONS);
+  });
+
+  it('empty array — absent, not an empty array (N=0 means the section does not appear)', () => {
+    const result = projectDossier(1, FULL, false, null, []);
+    expect('founderClarifications' in result).toBe(false);
+  });
+
+  it('arg omitted entirely — absent, no throw', () => {
+    const result = projectDossier(1, FULL, false, null);
+    expect('founderClarifications' in result).toBe(false);
+  });
+});

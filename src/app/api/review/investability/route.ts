@@ -10,6 +10,8 @@
 // fields: strategic/external categories, deliberately distinct from
 // risks/recommendations (internal/operational) per Nuno's decision. Prompt
 // 166 §B added the monthly quota check below (REVIEW_QUOTA in plans.ts).
+// Prompt 168 §E — every org clarification (any past run) is fed back in as
+// a distinct context block, never suppression logic — see clarificationsBlock.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, resolveRole } from '@/lib/supabase-server';
@@ -74,6 +76,23 @@ export async function POST(req: Request) {
     }
   }
 
+  // Prompt 168 §E — every clarification the founder has ever added, across
+  // every past run (not just the last one — they represent the founder's
+  // in-progress corrections). Context only: no suppression logic, no
+  // requirement to justify keeping a point, exactly as decided. Read via
+  // `sb` (the caller's own RLS-scoped client) — review_clarifications'
+  // policy already lets an org member select their own org's rows, so no
+  // service-role client is needed just to read this. A missing/pre-
+  // migration table degrades to an empty array (data: null), not an error —
+  // this is supplementary context, never a reason to fail the whole review.
+  const { data: clarificationRows } = await sb.from('review_clarifications')
+    .select('category, item_text, clarification_text').eq('org_id', orgId).order('created_at', { ascending: false });
+  const clarificationsBlock = clarificationRows && clarificationRows.length > 0
+    ? '\n\nFOUNDER CLARIFICATIONS ON PAST REVIEWS (context — weigh these, but you may still raise a concern again if you '
+      + 'believe it\'s still valid; you don\'t need to justify keeping it):\n'
+      + clarificationRows.map((c) => `- [${c.category}] "${c.item_text}" — founder says: "${c.clarification_text}"`).join('\n')
+    : '';
+
   const prompt =
     'Assess this startup\'s investability (readiness to raise vs the value of the round it wants) using ONLY the '
     + 'confirmed company facts and pipeline stats below — never invent facts not present.\n\n'
@@ -85,7 +104,8 @@ export async function POST(req: Request) {
     + 'could pursue — market timing, a gap a competitor left open, a partnership angle) and Threats (external, '
     + 'strategic risks — a competitor raising a larger round, a market or regulatory shift against this startup) — '
     + 'distinct from Risks/Recommendations, which stay internal/operational. Same discipline throughout: only from '
-    + 'confirmed facts, never invented. Always finish by calling report_investability.';
+    + 'confirmed facts, never invented. Always finish by calling report_investability.'
+    + clarificationsBlock;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {

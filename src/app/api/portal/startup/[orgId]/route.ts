@@ -16,16 +16,22 @@
 // Prompt 166 §D — `dossier.swot` follows the exact same level-gated,
 // never-fetched-below-its-level pattern as `overview`, plus one extra gate
 // of its own (orgs.swot_visible_to_investors, migration 0159).
+//
+// Prompt 168 §D — `dossier.founderClarifications` is the same pattern again:
+// level >= 1, filtered at the query itself (visible_to_investors = true),
+// projected to {category, text} only — item_text never has a path into
+// this route's response.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
-import { currentInterestLevel, projectDossier, type FullDossierData } from '@/lib/investor-interest-level';
+import { currentInterestLevel, projectDossier, type FullDossierData, type FounderClarificationFull } from '@/lib/investor-interest-level';
 import { getInterestLevelRows, toInvestorFacingLevelRows } from '@/lib/investor-interest-level-db';
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
 import { getInteractionTimeline } from '@/lib/investor-interaction-log';
 import type { SwotData } from '@/lib/types';
+import type { ReviewCategory } from '@/lib/review-clarifications';
 
 export async function GET(req: Request, { params }: { params: { orgId: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -125,11 +131,28 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
     }
   }
 
+  // Prompt 168 §D — founder clarifications. `.eq('visible_to_investors',
+  // true)` in the query itself, not a JS filter after the fact — a hidden
+  // clarification (including every clarification on a weaknesses/risks/
+  // threats bullet, per Nuno's own decision that those stay fully out of
+  // view even via a clarification) never leaves the database. Selects
+  // ONLY category + clarification_text — never item_text or any other
+  // column — the same explicit field-by-field projection §D.5 asks for,
+  // matching the SWOT projection above rather than ever forwarding a raw row.
+  let founderClarifications: FounderClarificationFull[] = [];
+  if (level >= 1) {
+    const { data: clarificationRows } = await admin.from('review_clarifications')
+      .select('category, clarification_text').eq('org_id', params.orgId).eq('visible_to_investors', true);
+    founderClarifications = (clarificationRows ?? []).map((r) => ({
+      category: r.category as ReviewCategory, text: r.clarification_text as string,
+    }));
+  }
+
   const full: FullDossierData = {
     overview: (overview ?? {}) as FullDossierData['overview'],
     tractionDetailed, team, contactHistory, documentTitles,
   };
-  const dossier = projectDossier(level, full, shareEmail, swot);
+  const dossier = projectDossier(level, full, shareEmail, swot, founderClarifications);
 
   // Bug fix (relatorio_verificacao_..._8143c75_p136 §3) — this used to
   // forward `levelRows` in full, `note` included: the founder's own

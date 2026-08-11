@@ -7,7 +7,9 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card, Tooltip } from '@/components/ui';
+import { authEnabled, browserClient } from '@/lib/supabase';
 import type { CompanyFact, CompanyFactCategory } from '@/lib/types';
+import { upsertClarification, type ReviewClarification } from '@/lib/review-clarifications';
 
 const CATEGORIES: CompanyFactCategory[] = [
   'product', 'traction', 'team', 'positioning', 'financing', 'regulatory', 'market', 'metrics', 'other',
@@ -165,6 +167,107 @@ export function CompanyFactsPanel() {
           </ul>
         </details>
       )}
+
+      <ClarificationsSection />
     </div>
+  );
+}
+
+// Prompt 168 §C — every clarification the founder has ever added, across
+// every Review run, most recent first. Same table, same fields, same
+// visible_to_investors flag as the per-bullet editor in ReviewPanel/
+// History/the report page (ClarificationBullet.tsx) — this is just a second
+// place to reach the identical rows, never a separate copy.
+function ClarificationsSection() {
+  const { db } = useStore();
+  const [available, setAvailable] = useState<boolean | null>(null);
+  const [rows, setRows] = useState<ReviewClarification[]>([]);
+  const [editing, setEditing] = useState<Record<string, { text: string; visible: boolean }>>({});
+  const [saving, setSaving] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
+      .then((me) => setAvailable(!!me.capabilities?.reviewClarifications))
+      .catch(() => setAvailable(false));
+  }, []);
+
+  useEffect(() => {
+    if (!authEnabled || !available || !db.org.id) return;
+    browserClient().from('review_clarifications').select('*')
+      .eq('org_id', db.org.id).order('created_at', { ascending: false })
+      .then(({ data }) => setRows((data as ReviewClarification[] | null) ?? []));
+  }, [available, db.org.id]);
+
+  if (!available) return null;
+
+  function startEdit(r: ReviewClarification) {
+    setEditing((e) => ({ ...e, [r.id]: { text: r.clarification_text, visible: r.visible_to_investors } }));
+  }
+  function cancelEdit(id: string) {
+    setEditing((e) => { const n = { ...e }; delete n[id]; return n; });
+  }
+  async function save(id: string) {
+    const draft = editing[id];
+    if (!draft || !draft.text.trim()) return;
+    setSaving((s) => ({ ...s, [id]: true }));
+    try {
+      const { data, error } = await browserClient().from('review_clarifications')
+        .update({ clarification_text: draft.text.trim(), visible_to_investors: draft.visible, updated_at: new Date().toISOString() })
+        .eq('id', id).select().single();
+      if (!error && data) {
+        setRows((prev) => upsertClarification(prev, data as ReviewClarification));
+        cancelEdit(id);
+      }
+    } finally { setSaving((s) => { const n = { ...s }; delete n[id]; return n; }); }
+  }
+
+  return (
+    <Card title={`Clarifications (${rows.length})`}>
+      <p className="mb-2 text-xs text-gray-500">
+        Your own notes on individual Review bullets — added from the Review tab, editable here too. One source of truth:
+        a change here shows up there and vice versa.
+      </p>
+      {rows.length === 0 ? (
+        <p className="text-xs text-gray-500">No clarifications yet — add one from a bullet on the Review tab.</p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((r) => (
+            <li key={r.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">{r.category}</span>
+                <span className="text-xs text-gray-400">{r.created_at.slice(0, 10)}</span>
+              </div>
+              <p className="mt-1 text-xs text-gray-500 line-through decoration-gray-300">{r.item_text}</p>
+              {editing[r.id] ? (
+                <div className="mt-1 space-y-1.5">
+                  <textarea value={editing[r.id].text} onChange={(e) => setEditing((ed) => ({ ...ed, [r.id]: { ...ed[r.id], text: e.target.value } }))}
+                    rows={2} className="w-full rounded border border-gray-300 p-2 text-sm" />
+                  <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                    <input type="checkbox" checked={editing[r.id].visible}
+                      onChange={(e) => setEditing((ed) => ({ ...ed, [r.id]: { ...ed[r.id], visible: e.target.checked } }))} />
+                    Visible to investors
+                  </label>
+                  <div className="flex gap-2">
+                    <button disabled={!editing[r.id].text.trim() || saving[r.id]} onClick={() => save(r.id)}
+                      className="rounded bg-[#0E7490] px-2 py-1 text-xs font-medium text-white disabled:opacity-40">
+                      {saving[r.id] ? 'Saving…' : 'Save'}
+                    </button>
+                    <button onClick={() => cancelEdit(r.id)} className="rounded border border-gray-300 px-2 py-1 text-xs">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="mt-1 text-gray-700">{r.clarification_text}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <span className="text-[11px] text-gray-400">{r.visible_to_investors ? 'Visible to investors' : 'Hidden from investors'}</span>
+                    <button onClick={() => startEdit(r)} className="text-xs text-[#0E7490] hover:underline">Edit</button>
+                  </div>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }

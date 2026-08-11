@@ -59,7 +59,7 @@ export function CompanyPanel() {
           The redesigned Identity/Team/Round profile activates once migration 0037 is applied. Here&apos;s what&apos;s editable today.
         </p>
         <OrganisationCard />
-        <Card title="Company facts"><CompanyFactsPanel /></Card>
+        <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
         <DemoResetCard />
       </div>
     );
@@ -88,7 +88,7 @@ export function CompanyPanel() {
       <SoftCommitsCard />
       <RoundUpdatesCard />
       <InvestorQACard />
-      <Card title="Company facts"><CompanyFactsPanel /></Card>
+      <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
       <OutreachSettingsCard canEdit={canEdit} />
       <DemoResetCard />
     </div>

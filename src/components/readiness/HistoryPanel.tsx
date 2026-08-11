@@ -18,6 +18,8 @@ import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { ReviewResultBody } from './ReviewResultBody';
+import { ClarificationBullet } from './ClarificationBullet';
+import { clarificationsByKey, clarificationKey, upsertClarification, type ReviewCategory, type ReviewClarification } from '@/lib/review-clarifications';
 
 interface AiReviewRow {
   id: string; kind: string; title: string | null; created_at: string;
@@ -66,7 +68,14 @@ function aiReviewToItem(row: AiReviewRow): HistoryItem {
   };
 }
 
-function reviewRunToItem(row: ReviewRunRow): HistoryItem {
+// Prompt 168 §B — "any visible run" includes every row History renders, not
+// just the latest — orgId/clarifications/onSaved come from the panel below
+// so the same lookup + local-state update ClarificationBullet relies on
+// stays in one place, not duplicated per row.
+function reviewRunToItem(
+  row: ReviewRunRow, orgId: string,
+  clarifications: Map<string, ReviewClarification> | null, onSaved: (c: ReviewClarification) => void,
+): HistoryItem {
   const r = row.report;
   const body = (
     <div className="mt-2 text-sm">
@@ -79,7 +88,20 @@ function reviewRunToItem(row: ReviewRunRow): HistoryItem {
         r[k]?.length ? (
           <div key={k} className="mt-2">
             <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{k}</div>
-            <ul className="ml-4 list-disc text-xs text-gray-700">{(r[k] ?? []).map((x, i) => <li key={i}>{x}</li>)}</ul>
+            <ul className="ml-4 list-disc text-xs text-gray-700">
+              {(r[k] ?? []).map((x, i) => (
+                <li key={i}>
+                  {x}
+                  {clarifications && (
+                    <ClarificationBullet
+                      orgId={orgId} reviewRunId={row.id} category={k as ReviewCategory} itemIndex={i} itemText={x}
+                      existing={clarifications.get(clarificationKey(row.id, k as ReviewCategory, i)) ?? null}
+                      onSaved={onSaved}
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null
       ))}
@@ -93,15 +115,27 @@ function reviewRunToItem(row: ReviewRunRow): HistoryItem {
 
 export function HistoryPanel() {
   const { db } = useStore();
-  const [caps, setCaps] = useState<{ ai: boolean; reviewRuns: boolean } | null>(null);
+  const [caps, setCaps] = useState<{ ai: boolean; reviewRuns: boolean; reviewClarifications: boolean } | null>(null);
   const [items, setItems] = useState<HistoryItem[] | null>(null);
   const [err, setErr] = useState('');
+  const [clarifications, setClarifications] = useState<ReviewClarification[]>([]);
 
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
-      .then((me) => setCaps({ ai: !!me.capabilities?.ai, reviewRuns: !!me.capabilities?.reviewRuns }))
-      .catch(() => setCaps({ ai: false, reviewRuns: false }));
+      .then((me) => setCaps({ ai: !!me.capabilities?.ai, reviewRuns: !!me.capabilities?.reviewRuns, reviewClarifications: !!me.capabilities?.reviewClarifications }))
+      .catch(() => setCaps({ ai: false, reviewRuns: false, reviewClarifications: false }));
   }, []);
+
+  useEffect(() => {
+    if (!authEnabled || !caps?.reviewClarifications || !db.org.id) return;
+    browserClient().from('review_clarifications').select('*')
+      .eq('org_id', db.org.id).order('created_at', { ascending: false })
+      .then(({ data }) => setClarifications((data as ReviewClarification[] | null) ?? []));
+  }, [caps?.reviewClarifications, db.org.id]);
+
+  function handleClarificationSaved(c: ReviewClarification) {
+    setClarifications((prev) => upsertClarification(prev, c));
+  }
 
   useEffect(() => {
     if (!authEnabled || !caps?.ai || !db.org.id) { if (caps) setItems([]); return; }
@@ -115,13 +149,18 @@ export function HistoryPanel() {
           : Promise.resolve({ data: [], error: null }),
       ]);
       if (aiReviews.error || runs.error) { setErr(aiReviews.error?.message ?? runs.error?.message ?? 'Failed to load history'); setItems([]); return; }
+      // Rebuilt from the `clarifications` array (a stable reference until a
+      // save updates it), never from a freshly-allocated Map in a dep array
+      // — that would re-run this fetch on every render.
+      const clarificationMap = caps.reviewClarifications ? clarificationsByKey(clarifications) : null;
       const merged = [
         ...((aiReviews.data as AiReviewRow[] | null) ?? []).map(aiReviewToItem),
-        ...((runs.data as ReviewRunRow[] | null) ?? []).map(reviewRunToItem),
+        ...((runs.data as ReviewRunRow[] | null) ?? []).map((row) => reviewRunToItem(row, db.org.id, clarificationMap, handleClarificationSaved)),
       ].sort((a, b) => b.created_at.localeCompare(a.created_at));
       setItems(merged);
     })();
-  }, [caps, db.org.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caps, db.org.id, clarifications]);
 
   return (
     <Card title="History — every past review, one archive">

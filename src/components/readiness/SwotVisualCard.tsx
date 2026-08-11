@@ -11,6 +11,8 @@
 // wrapper below it.
 import { Card } from '@/components/ui';
 import type { SwotData } from '@/lib/types';
+import { ClarificationBullet } from './ClarificationBullet';
+import { clarificationKey, type ReviewClarification } from '@/lib/review-clarifications';
 
 const QUADRANTS: { key: keyof SwotData; label: string; icon: string; classes: string }[] = [
   { key: 'strengths', label: 'Strengths', icon: '💪', classes: 'border-emerald-200 bg-emerald-50 text-emerald-800' },
@@ -19,7 +21,15 @@ const QUADRANTS: { key: keyof SwotData; label: string; icon: string; classes: st
   { key: 'threats', label: 'Threats', icon: '⚡', classes: 'border-red-200 bg-red-50 text-[#B00000]' },
 ];
 
-export function SwotQuadrant({ data }: { data: SwotData }) {
+// Prompt 168 §B — `clarify` is only ever passed by SwotVisualCard's own
+// founder-facing wrapper below (the latest run, editable). The
+// investor-facing dossier page (Prompt 166 §D) renders SwotQuadrant
+// directly with no `clarify` prop, so it stays exactly the plain read-only
+// grid it's always been — the bubble/editor UI never reaches that surface.
+export function SwotQuadrant({ data, clarify }: {
+  data: SwotData;
+  clarify?: { orgId: string; reviewRunId: string; clarifications: Map<string, ReviewClarification>; onSaved: (c: ReviewClarification) => void };
+}) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {QUADRANTS.map((q) => (
@@ -29,7 +39,18 @@ export function SwotQuadrant({ data }: { data: SwotData }) {
           </div>
           {data[q.key]?.length ? (
             <ul className="mt-1.5 ml-4 list-disc space-y-0.5 text-xs">
-              {data[q.key].map((item, i) => <li key={i}>{item}</li>)}
+              {data[q.key].map((item, i) => (
+                <li key={i}>
+                  {item}
+                  {clarify && (
+                    <ClarificationBullet
+                      orgId={clarify.orgId} reviewRunId={clarify.reviewRunId} category={q.key} itemIndex={i} itemText={item}
+                      existing={clarify.clarifications.get(clarificationKey(clarify.reviewRunId, q.key, i)) ?? null}
+                      onSaved={clarify.onSaved}
+                    />
+                  )}
+                </li>
+              ))}
             </ul>
           ) : (
             <p className="mt-1.5 text-xs opacity-60">Nothing flagged.</p>
@@ -40,7 +61,7 @@ export function SwotQuadrant({ data }: { data: SwotData }) {
   );
 }
 
-export function SwotVisualCard({ data, canRun, lockedReason, running, onRun }: {
+export function SwotVisualCard({ data, canRun, lockedReason, running, onRun, clarify }: {
   data: SwotData | null;
   /** Whether a NEW review can be started right now (feature on + quota left). */
   canRun: boolean;
@@ -50,11 +71,14 @@ export function SwotVisualCard({ data, canRun, lockedReason, running, onRun }: {
   lockedReason: string | null;
   running: boolean;
   onRun: () => void;
+  /** Prompt 168 §B — omit to render the quadrant read-only (no `data` means
+   *  there's nothing to clarify yet anyway). */
+  clarify?: { orgId: string; reviewRunId: string; clarifications: Map<string, ReviewClarification>; onSaved: (c: ReviewClarification) => void };
 }) {
   return (
     <Card title={<span className="text-[#0E7490]">SWOT snapshot</span>}>
       {data ? (
-        <SwotQuadrant data={data} />
+        <SwotQuadrant data={data} clarify={clarify} />
       ) : lockedReason ? (
         <div className="relative overflow-hidden rounded-lg border border-dashed border-gray-200 bg-white/60 px-4 py-6 text-center backdrop-blur-[2px]">
           <span className="rounded-full border border-cyan-200 bg-white/90 px-3 py-1 text-xs font-semibold text-[#0E7490] shadow-sm">

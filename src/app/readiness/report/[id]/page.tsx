@@ -16,6 +16,8 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card } from '@/components/ui';
 import { ReviewResultBody } from '@/components/readiness/ReviewResultBody';
 import { KIND_LABEL } from '@/components/readiness/HistoryPanel';
+import { ClarificationBullet } from '@/components/readiness/ClarificationBullet';
+import { clarificationsByKey, clarificationKey, upsertClarification, type ReviewCategory, type ReviewClarification } from '@/lib/review-clarifications';
 import { reviewResultToMarkdown } from '@/lib/review-result-markdown';
 
 interface AiReviewRow {
@@ -37,6 +39,19 @@ export default function ReportPage({ params, searchParams }: { params: { id: str
   const type = searchParams.type === 'review_run' ? 'review_run' : 'ai_review';
   const [loaded, setLoaded] = useState<Loaded | null | 'not_found'>(null);
   const [copied, setCopied] = useState(false);
+  // Prompt 168 §B — "any visible run" includes this standalone report page.
+  // Fetched per-run (not org-wide like ReviewPanel/History) since only one
+  // run is ever on screen here. reviewClarifications === false (capability
+  // not yet applied) leaves this null, same "absent means not editable yet"
+  // read as everywhere else.
+  const [reviewClarifications, setReviewClarifications] = useState<boolean | null>(null);
+  const [clarifications, setClarifications] = useState<ReviewClarification[]>([]);
+
+  useEffect(() => {
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
+      .then((me) => setReviewClarifications(!!me.capabilities?.reviewClarifications))
+      .catch(() => setReviewClarifications(false));
+  }, []);
 
   useEffect(() => {
     if (!authEnabled) { setLoaded('not_found'); return; }
@@ -52,6 +67,17 @@ export default function ReportPage({ params, searchParams }: { params: { id: str
       }
     })();
   }, [type, params.id]);
+
+  useEffect(() => {
+    if (!authEnabled || !reviewClarifications || type !== 'review_run') return;
+    browserClient().from('review_clarifications').select('*').eq('review_run_id', params.id)
+      .then(({ data }) => setClarifications((data as ReviewClarification[] | null) ?? []));
+  }, [reviewClarifications, type, params.id]);
+
+  function handleClarificationSaved(c: ReviewClarification) {
+    setClarifications((prev) => upsertClarification(prev, c));
+  }
+  const clarificationMap = reviewClarifications ? clarificationsByKey(clarifications) : null;
 
   if (loaded === null) return <div className="mx-auto max-w-2xl p-6 text-sm text-gray-400">Loading…</div>;
   if (loaded === 'not_found') {
@@ -127,7 +153,20 @@ export default function ReportPage({ params, searchParams }: { params: { id: str
               loaded.kind === 'review_run' && loaded.row.report?.[k]?.length ? (
                 <div key={k} className="mt-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{k}</div>
-                  <ul className="ml-4 list-disc text-xs text-gray-700">{(loaded.row.report[k] ?? []).map((x, i) => <li key={i}>{x}</li>)}</ul>
+                  <ul className="ml-4 list-disc text-xs text-gray-700">
+                    {(loaded.row.report[k] ?? []).map((x, i) => (
+                      <li key={i}>
+                        {x}
+                        {clarificationMap && loaded.kind === 'review_run' && (
+                          <ClarificationBullet
+                            orgId={loaded.row.org_id} reviewRunId={loaded.row.id} category={k as ReviewCategory} itemIndex={i} itemText={x}
+                            existing={clarificationMap.get(clarificationKey(loaded.row.id, k as ReviewCategory, i)) ?? null}
+                            onSaved={handleClarificationSaved} hideOnPrint
+                          />
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : null
             ))}
