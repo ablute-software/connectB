@@ -7,6 +7,7 @@ import { outboundCounts } from '@/lib/rules';
 import { Tooltip } from '@/components/ui';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
 import { useSupportUnreadCount } from '@/components/SupportTicketsPanel';
+import { useUnreadMessagesCount } from '@/components/deal-messages/DealThreadView';
 import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
 import { W1Badge } from '@/components/onboarding/W1Badge';
@@ -94,7 +95,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const needsReviewCount = db.interactions.filter((i) => i.needs_review).length;
   const [me, setMe] = useState<Me | null>(null);
   // P134-C — unread Sherlock messaging threads, for the Messages nav badge.
-  const [unreadMessages, setUnreadMessages] = useState(0);
+  // Prompt 182 — was a one-shot fetch-on-mount local state that never
+  // refetched after a thread was read, unlike Support's own badge; now the
+  // same live-refresh hook pattern (see DealThreadView.tsx's own header).
+  const unreadMessages = useUnreadMessagesCount();
   // Prompt 125 Block A — reports this nav's real rendered height (only
   // ever present on mobile, md:hidden) to ReportProblemWidget.
   const mobileNavRef = useBottomNavRef<HTMLElement>();
@@ -103,11 +107,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
     fetch('/api/me').then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false, user: null, role: 'none' }));
   }, []);
 
-  useEffect(() => {
-    fetch('/api/founder/messages').then((r) => r.json())
-      .then((d) => setUnreadMessages((d.threads ?? []).filter((t: { unread: boolean }) => t.unread).length))
-      .catch(() => setUnreadMessages(0));
-  }, []);
   // Item 13 — the Messages nav badge used to count only deal_messages
   // threads; a support ticket with an unread admin reply is exactly the
   // same kind of "something's waiting on you" signal and now lives under

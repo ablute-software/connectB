@@ -11,6 +11,40 @@ export interface DealMessage {
 }
 export interface AttachableDoc { id: string; name: string }
 
+// Prompt 182 — mirrors SupportTicketsPanel.tsx's SUPPORT_TICKET_READ_EVENT/
+// useSupportUnreadCount exactly (Prompt 176 §B.4). shell.tsx's Messages nav
+// badge used to fetch /api/founder/messages once on mount and never again:
+// opening and reading a thread DOES mark it read server-side (GET
+// /api/founder/messages/[threadId] -> markThreadRead, see that route) but
+// nothing ever told the badge to re-check, so it stayed stuck at whatever
+// it was on first load until a full page reload. Dispatched from load()
+// below, right after a successful GET — the same moment the founder route
+// marks the thread read — so every independently-mounted badge instance
+// (today, just shell.tsx's sidebar) re-fetches in response.
+//
+// Founder-only: the investor side (InvestorWorkspaceShell.tsx) has no
+// Messages badge to refresh (only Support, already correct) — this
+// component is shared by both viewerSide values, so the dispatch itself is
+// gated to avoid firing a pointless event on the investor side.
+const MESSAGE_THREAD_READ_EVENT = 'sherlock-message-thread-read';
+
+export function useUnreadMessagesCount(): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    function load() {
+      fetch('/api/founder/messages').then((r) => r.json()).then((d) => {
+        if (cancelled) return;
+        setCount((d.threads ?? []).filter((t: { unread: boolean }) => t.unread).length);
+      }).catch(() => {});
+    }
+    load();
+    window.addEventListener(MESSAGE_THREAD_READ_EVENT, load);
+    return () => { cancelled = true; window.removeEventListener(MESSAGE_THREAD_READ_EVENT, load); };
+  }, []);
+  return count;
+}
+
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
@@ -52,6 +86,11 @@ export function DealThreadView({
       // Investor route returns founderLastReadAt; founder route (per-thread)
       // has no equivalent field yet — undefined just means no "Seen" shown.
       if ('founderLastReadAt' in d) setOtherLastReadAt(d.founderLastReadAt ?? null);
+      // This GET is also what marks the thread read server-side on the
+      // founder route (markThreadRead) — telling every mounted
+      // useUnreadMessagesCount() to re-check is what makes the badge drop
+      // immediately instead of only after a full page reload.
+      if (viewerSide === 'founder') window.dispatchEvent(new Event(MESSAGE_THREAD_READ_EVENT));
     });
   }
   useEffect(load, [fetchUrl]);
