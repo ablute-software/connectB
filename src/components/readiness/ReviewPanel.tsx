@@ -14,7 +14,7 @@
 // not just investability.
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
-import { Card } from '@/components/ui';
+import { Card, Toggle } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import type { Contradiction } from '@/lib/action-plan';
 import { ReportView, type StructuredReport } from './ReportView';
@@ -263,13 +263,16 @@ export function ReviewPanel() {
       {/* Prompt 166 §D.2 — owner/admin only, mirroring manage_org_settings'
           gate elsewhere (promo code redemption, org settings). Non-owner/
           admin members simply don't see the control — same pattern as every
-          other settings toggle in this codebase, not a disabled checkbox. */}
+          other settings toggle in this codebase, not a disabled checkbox.
+          Prompt 175 §C — real Toggle now, matching RoadmapCard.tsx's own
+          swap (both were plain checkboxes; no reusable toggle existed
+          anywhere in the app before that prompt built one). */}
       {caps?.orgRole && can(caps.orgRole, 'manage_org_settings') && (
-        <label className="-mt-2 flex items-center gap-1.5 px-1 text-xs text-gray-500">
-          <input type="checkbox" checked={db.org.swot_visible_to_investors ?? true}
-            onChange={(e) => updateOrg({ swot_visible_to_investors: e.target.checked })} />
-          Let investors you&apos;re in contact with see this SWOT
-        </label>
+        <div className="-mt-2 px-1">
+          <Toggle checked={db.org.swot_visible_to_investors ?? true}
+            onChange={(v) => updateOrg({ swot_visible_to_investors: v })}
+            label={<span className="text-xs text-gray-500">Let investors you&apos;re in contact with see this SWOT</span>} />
+        </div>
       )}
 
       <Card title="Investability ranking — readiness vs round value">

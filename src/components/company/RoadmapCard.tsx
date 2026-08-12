@@ -7,13 +7,38 @@
 // (portal/startup/[orgId]/page.tsx, Prompt 167 §C) — same component, just
 // `editable={false}` and no callbacks, so the redesign/behavior of one
 // never has to be kept in sync with a second copy of the other.
-import { useState } from 'react';
+//
+// Prompt 175 — two fixes on top of the Prompt 167 build:
+// §A: the founding node's axis circle was h-8 w-8 while every milestone
+// node's was h-6 w-6 — same centering logic, different circle heights, so
+// the horizontal line sat at a different pixel height on the first segment
+// than every other one ("desalinhado"). Both are NODE_SIZE now, no
+// exceptions.
+// §B: a from-scratch visual match against the reference image (not a loose
+// restyle) — pastel theme rotating per card (not tied to past/future, per
+// spec), an in-card status badge echoing the axis signal, themed item
+// dots, a fuller Founded card, and always-visible click-to-scroll arrows
+// alongside the native horizontal scroll.
+import { useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
-import { Card } from '@/components/ui';
+import { Card, TermHint, Toggle } from '@/components/ui';
 import type { RoadmapMilestone, RoadmapPeriodKind } from '@/lib/types';
 import { periodHasPassed, periodLabel, sortRoadmapPeriods, type RoadmapPeriod } from '@/lib/roadmap';
 
 const QUARTERS = [1, 2, 3, 4] as const;
+// Prompt 175 §A — the one size every axis circle (founding node included)
+// now shares, so the connecting line never has to change height.
+const NODE_SIZE = 'h-8 w-8';
+
+// Prompt 175 §B.1 — "rodar por uma pequena paleta... não necessariamente
+// ligado ao passado/futuro" (Nuno's own words): a milestone's card color
+// is purely its position in the rotation, never its past/future status —
+// that signal lives in the status badge (§B.2) and the axis node instead.
+const CARD_THEMES = [
+  { bg: 'bg-emerald-50', badge: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500', statusOn: 'border-emerald-500 bg-emerald-500', statusOff: 'border-emerald-300 bg-white text-emerald-300' },
+  { bg: 'bg-blue-50', badge: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500', statusOn: 'border-blue-500 bg-blue-500', statusOff: 'border-blue-300 bg-white text-blue-300' },
+  { bg: 'bg-purple-50', badge: 'bg-purple-100 text-purple-700', dot: 'bg-purple-500', statusOn: 'border-purple-500 bg-purple-500', statusOff: 'border-purple-300 bg-white text-purple-300' },
+];
 
 function FoundedNode({ foundedYear }: { foundedYear: number | null }) {
   return (
@@ -24,15 +49,19 @@ function FoundedNode({ foundedYear }: { foundedYear: number | null }) {
             Set your founding year in <a href="#settings-identity" className="font-semibold underline">Identity</a> to start your roadmap.
           </div>
         ) : (
-          <div className="w-32 rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-center">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Founded</div>
-            <div className="text-lg font-bold text-amber-900">{foundedYear}</div>
+          <div className="w-36 rounded-xl bg-amber-50 p-3 shadow-sm">
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Founded</span>
+              <span aria-hidden="true" className="text-sm">🚩</span>
+            </div>
+            <div className="mt-1.5 text-lg font-bold text-amber-900">{foundedYear}</div>
+            <div className="text-[11px] text-amber-700/80">Company founded</div>
           </div>
         )}
       </div>
       <div className="flex w-full items-center">
         <div className="h-0.5 flex-1" />
-        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-sm ${foundedYear == null ? 'border-dashed border-amber-300 bg-white text-amber-300' : 'border-amber-500 bg-amber-400 text-white'}`}>
+        <div className={`flex ${NODE_SIZE} shrink-0 items-center justify-center rounded-full border-2 text-sm ${foundedYear == null ? 'border-dashed border-amber-300 bg-white text-amber-300' : 'border-amber-500 bg-amber-400 text-white'}`}>
           🚩
         </div>
         <div className="h-0.5 flex-1 bg-cyan-200" />
@@ -43,37 +72,42 @@ function FoundedNode({ foundedYear }: { foundedYear: number | null }) {
 }
 
 function MilestoneNode<T extends RoadmapPeriod & { items: string[] }>({
-  m, index, editable, onEdit, onRemove, now,
+  m, index, theme, editable, onEdit, onRemove, now,
 }: {
-  m: T; index: number; editable: boolean; onEdit?: (m: T) => void; onRemove?: (m: T) => void; now: Date;
+  m: T; index: number; theme: typeof CARD_THEMES[number]; editable: boolean; onEdit?: (m: T) => void; onRemove?: (m: T) => void; now: Date;
 }) {
   const label = periodLabel(m.period_kind, m.period_year, m.period_quarter);
   const past = periodHasPassed(m, now);
   const top = index % 2 === 0;
   const card = (
-    <div className="w-48 rounded-xl border border-gray-200 bg-white p-3 text-xs shadow-sm">
+    <div className={`w-48 rounded-xl p-3 text-xs shadow-sm ${theme.bg}`}>
       <div className="flex items-center justify-between gap-1.5">
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${past ? 'bg-cyan-50 text-[#0E7490]' : 'border border-gray-200 text-gray-500'}`}>
-          {label}
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${theme.badge}`}>{label}</span>
+        {/* Prompt 175 §B.2 — the axis's own past/future signal, repeated
+            inside the card so the state reads without following the line
+            down to the node. */}
+        <span aria-hidden="true"
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold text-white ${past ? theme.statusOn : theme.statusOff}`}>
+          {past ? '✓' : ''}
         </span>
-        {editable && (
-          <div className="flex shrink-0 gap-1.5 text-[11px] text-gray-400">
-            <button onClick={() => onEdit?.(m)} className="hover:text-gray-700">Edit</button>
-            <button onClick={() => onRemove?.(m)} className="hover:text-[#B00000]">Remove</button>
-          </div>
-        )}
       </div>
       {m.items.length > 0 ? (
         <ul className="mt-1.5 space-y-1">
           {m.items.map((it, i) => (
             <li key={i} className="flex items-start gap-1.5 text-gray-700">
-              <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
+              <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${theme.dot}`} aria-hidden="true" />
               <span>{it}</span>
             </li>
           ))}
         </ul>
       ) : (
         <p className="mt-1.5 text-gray-400">No milestones listed.</p>
+      )}
+      {editable && (
+        <div className="mt-2 flex justify-end gap-2 border-t border-black/5 pt-1.5 text-[11px] text-gray-500">
+          <button onClick={() => onEdit?.(m)} className="hover:text-gray-800">Edit</button>
+          <button onClick={() => onRemove?.(m)} className="hover:text-[#B00000]">Remove</button>
+        </div>
       )}
     </div>
   );
@@ -83,7 +117,7 @@ function MilestoneNode<T extends RoadmapPeriod & { items: string[] }>({
       <div className="flex h-28 items-end pb-2">{top && card}</div>
       <div className="flex w-full items-center">
         <div className={`h-0.5 flex-1 ${past ? 'bg-[#0E7490]' : 'bg-cyan-200'}`} />
-        <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-[10px] text-white ${past ? 'border-[#0E7490] bg-[#0E7490]' : 'border-cyan-300 bg-white'}`}>
+        <div className={`flex ${NODE_SIZE} shrink-0 items-center justify-center rounded-full border-2 text-sm text-white ${past ? 'border-[#0E7490] bg-[#0E7490]' : 'border-cyan-300 bg-white'}`}>
           {past && '✓'}
         </div>
         <div className={`h-0.5 flex-1 ${past ? 'bg-[#0E7490]' : 'bg-cyan-200'}`} />
@@ -106,22 +140,40 @@ export function RoadmapTimeline<T extends RoadmapPeriod & { items: string[] }>({
   now?: Date;
 }) {
   const sorted = sortRoadmapPeriods(milestones);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  function scrollBy(dir: -1 | 1) {
+    scrollRef.current?.scrollBy({ left: dir * 320, behavior: 'smooth' });
+  }
+
   return (
-    <div className="flex items-stretch overflow-x-auto pb-1">
-      <FoundedNode foundedYear={foundedYear} />
-      {sorted.map((m, i) => (
-        <MilestoneNode key={`${m.period_kind}:${m.period_year}:${m.period_quarter ?? ''}`}
-          m={m} index={i + 1} editable={editable} onEdit={onEditClick} onRemove={onRemoveClick} now={now} />
-      ))}
-      {editable && (
-        <div className="flex w-28 shrink-0 flex-col items-center justify-center">
-          <button onClick={onAddClick}
-            className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-dashed border-cyan-300 text-xl font-bold text-[#0E7490] hover:bg-cyan-50">
-            +
-          </button>
-          <span className="mt-1 text-xs font-medium text-[#0E7490]">Add milestone</span>
-        </div>
-      )}
+    <div className="flex items-center gap-1">
+      {/* Prompt 175 §B.5 — always visible (not hover-only), alongside the
+          native horizontal scroll the container already had. */}
+      <button type="button" onClick={() => scrollBy(-1)} aria-label="Scroll timeline left"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-gray-200 text-gray-500 hover:border-[#0E7490] hover:text-[#0E7490]">
+        ‹
+      </button>
+      <div ref={scrollRef} className="flex flex-1 items-stretch overflow-x-auto pb-1">
+        <FoundedNode foundedYear={foundedYear} />
+        {sorted.map((m, i) => (
+          <MilestoneNode key={`${m.period_kind}:${m.period_year}:${m.period_quarter ?? ''}`}
+            m={m} index={i + 1} theme={CARD_THEMES[i % CARD_THEMES.length]}
+            editable={editable} onEdit={onEditClick} onRemove={onRemoveClick} now={now} />
+        ))}
+        {editable && (
+          <div className="flex w-28 shrink-0 flex-col items-center justify-center">
+            <button onClick={onAddClick}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-dashed border-cyan-300 text-xl font-bold text-[#0E7490] hover:bg-cyan-50">
+              +
+            </button>
+            <span className="mt-1 text-xs font-medium text-[#0E7490]">Add milestone</span>
+          </div>
+        )}
+      </div>
+      <button type="button" onClick={() => scrollBy(1)} aria-label="Scroll timeline right"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-gray-200 text-gray-500 hover:border-[#0E7490] hover:text-[#0E7490]">
+        ›
+      </button>
     </div>
   );
 }
@@ -229,15 +281,18 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
   }
 
   return (
-    <Card title="Roadmap">
+    <Card title={<span className="inline-flex items-center gap-1">Roadmap <TermHint text="Key milestones and goals for the journey ahead." /></span>}>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-gray-400">Key milestones and goals for the journey ahead.</p>
         {canEdit && (
-          <label className="flex items-center gap-1.5 text-xs text-gray-500">
-            <input type="checkbox" checked={db.org.roadmap_visible_to_investors ?? true}
-              onChange={(e) => updateOrg({ roadmap_visible_to_investors: e.target.checked })} />
-            Let investors you&apos;re in contact with see this roadmap
-          </label>
+          <Toggle checked={db.org.roadmap_visible_to_investors ?? true}
+            onChange={(v) => updateOrg({ roadmap_visible_to_investors: v })}
+            label={
+              <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                Let investors you&apos;re in contact with see this roadmap
+                <TermHint text="Visible to any investor at level 1+ (they've expressed interest or you've granted access) once this is on." />
+              </span>
+            } />
         )}
       </div>
 

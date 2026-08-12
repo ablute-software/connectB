@@ -62,6 +62,26 @@ export function TermHint({ text }: { text: string }) {
   );
 }
 
+// Prompt 175 §C — no reusable toggle/switch existed anywhere in the app
+// before this (confirmed — every on/off setting was a plain checkbox,
+// including swot_visible_to_investors/roadmap_visible_to_investors). Pill
+// track + sliding thumb, brand color when on, pure CSS (no new
+// dependency) — the actual `<input type="checkbox">` stays present but
+// visually hidden (`sr-only`), so this keeps native keyboard/
+// screen-reader semantics rather than reinventing them with a plain div.
+export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: React.ReactNode }) {
+  return (
+    <label className="inline-flex cursor-pointer items-center gap-2">
+      <span className="relative inline-flex">
+        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="peer sr-only" />
+        <span className={`h-5 w-9 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-offset-1 ${checked ? 'bg-[#0E7490] peer-focus-visible:ring-[#0E7490]' : 'bg-gray-300 peer-focus-visible:ring-gray-400'}`} />
+        <span className={`pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0'}`} />
+      </span>
+      {label}
+    </label>
+  );
+}
+
 export function Card({ title, children, tint, right }: {
   title?: React.ReactNode; children: React.ReactNode;
   tint?: 'red' | 'amber' | 'blue'; right?: React.ReactNode;
