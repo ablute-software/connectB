@@ -17,6 +17,17 @@
 // field's own schema description (belt and suspenders — a tool schema
 // description is a strong steer but not a hard constraint, so the prompt
 // says it too). Applies only to new runs; old rows are never rewritten.
+//
+// Prompt 178 — ~20 words still wasn't short enough: the real cards
+// (screenshot) kept rendering 3-4 line bullets because dense content
+// (a number stacked with its consequence, e.g. "42 total passes (21
+// explicit + dormant/contacted likely stalled) suggests pitch or readiness
+// issues") fills the line visually even within the word budget. Lowered to
+// ~12 words / one clause, and the split-into-two-bullets instruction is now
+// stated as the DEFAULT whenever a point has more than one relevant fact,
+// not a fallback for an edge case. Structure (icons/colors/header,
+// SwotVisualCard.tsx) is untouched — Prompt 173 already got that right;
+// this prompt is purely about bullet density.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, resolveRole } from '@/lib/supabase-server';
@@ -30,8 +41,9 @@ interface Report extends SwotData {
   risks: string[]; recommendations: string[];
 }
 
-const BULLET_LENGTH_RULE = 'One sentence, concrete, max ~20 words — no paragraphs. Never drop information to '
-  + 'fit: if a point genuinely needs more than one sentence, split it into a second short bullet instead of one long one.';
+const BULLET_LENGTH_RULE = '~12 words, one clear clause — pick the single most important number or fact, never stack '
+  + 'two in the same bullet. Never drop information to fit: if a point has more than one relevant fact (e.g. a number '
+  + 'AND a consequence), splitting into a second short bullet is the DEFAULT, not the exception.';
 
 export async function POST(req: Request) {
   const { facts, pipeline, company } = await req.json() as {
