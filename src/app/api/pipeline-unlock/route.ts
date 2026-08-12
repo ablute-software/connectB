@@ -11,7 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer, readViewerOrgId } from '@/lib/developer-viewer';
 import { isProfileGateComplete } from '@/lib/pipeline-unlock';
-import { computeVisiblePipelineSize } from '@/lib/pipeline-unlock-server';
+import { computeVisiblePipelineSize, raiseCatalogQuotaFloor } from '@/lib/pipeline-unlock-server';
 import { pipelineUnlockAnchorsAvailable } from '@/lib/pipeline-unlock-capability';
 
 export async function GET(req: NextRequest) {
@@ -43,6 +43,14 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const { visible, gateComplete, eligiblePoolSize } = await computeVisiblePipelineSize(admin, orgId);
-  return NextResponse.json({ ok: true, gateComplete, visible, eligiblePoolSize, anchorsAvailable });
+  const { visible, gateComplete, eligiblePoolSize, catalogQuotaTarget } = await computeVisiblePipelineSize(admin, orgId);
+  // Prompt 180 — the live recompute trigger for orgs.catalog_quota's
+  // event-based floor (see raiseCatalogQuotaFloor's own header): this route
+  // is already polled by the founder-facing Pipeline page every time
+  // entities change, which is exactly the same "did an input to the formula
+  // just change" moment the badge above reacts to. No-ops cheaply when
+  // gateComplete is false (catalogQuotaTarget is 0) or the target isn't
+  // higher than what's already stored.
+  await raiseCatalogQuotaFloor(admin, orgId, catalogQuotaTarget);
+  return NextResponse.json({ ok: true, gateComplete, visible, eligiblePoolSize, catalogQuotaTarget, anchorsAvailable });
 }

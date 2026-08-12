@@ -5,7 +5,8 @@
 // drift again exactly the way they already had.
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { CATALOG_QUOTA, PLAN_TO_MATCHDEAL_TIER, type PlanTier } from './plans';
+import { PLAN_TO_MATCHDEAL_TIER, type PlanTier } from './plans';
+import { computeVisiblePipelineSize, raiseCatalogQuotaFloor } from './pipeline-unlock-server';
 
 export async function applyPlanChangeSideEffects(admin: SupabaseClient, orgId: string, tier: PlanTier): Promise<void> {
   // matchdeal_profiles.plan_tier — what matchdeal_tier_limits() actually
@@ -16,12 +17,13 @@ export async function applyPlanChangeSideEffects(admin: SupabaseClient, orgId: s
   await admin.from('matchdeal_profiles')
     .upsert({ membership_id: orgId, kind: 'startup', plan_tier: PLAN_TO_MATCHDEAL_TIER[tier] }, { onConflict: 'membership_id,kind' });
 
-  // orgs.catalog_quota — an accumulating counter (RLS reads this column
-  // directly, never the CATALOG_QUOTA constant), never lowered so an org
-  // never loses entities it already unlocked.
-  const { data: org } = await admin.from('orgs').select('catalog_quota').eq('id', orgId).maybeSingle();
-  const floor = CATALOG_QUOTA[tier];
-  if (org && (org.catalog_quota ?? 0) < floor) {
-    await admin.from('orgs').update({ catalog_quota: floor }).eq('id', orgId);
-  }
+  // orgs.catalog_quota — Prompt 180: no longer floored against the retired
+  // CATALOG_QUOTA[tier] constant (plans.ts). Both callers of this function
+  // (Stripe webhook, backoffice set-plan) already write orgs.plan = tier to
+  // the DB BEFORE calling this, so re-deriving the target from the org row
+  // read fresh here already reflects the NEW tier — same formula/inputs as
+  // the pipeline-unlock badge (computeVisiblePipelineSize, uncapped by the
+  // eligible pool), never a second calculation.
+  const { catalogQuotaTarget } = await computeVisiblePipelineSize(admin, orgId);
+  await raiseCatalogQuotaFloor(admin, orgId, catalogQuotaTarget);
 }

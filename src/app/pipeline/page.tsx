@@ -16,7 +16,6 @@ import { CoachMark } from '@/components/onboarding/CoachMark';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import { useTrackPageView } from '@/lib/use-track-page-view';
-import { CATALOG_QUOTA, normalizePlan } from '@/lib/plans';
 import { nextMonthlyDeliveryDate } from '@/lib/catalog-monthly-delivery';
 import type { Db, Entity, TaskItem } from '@/lib/types';
 
@@ -274,11 +273,11 @@ export default function PipelinePage() {
   // whenever entities change so it visibly moves right after a founder
   // completes their profile or uploads a deck, per the block's own
   // acceptance criterion.
-  const [unlock, setUnlock] = useState<{ visible: number; gateComplete: boolean; eligiblePoolSize: number } | null>(null);
+  const [unlock, setUnlock] = useState<{ visible: number; gateComplete: boolean; eligiblePoolSize: number; catalogQuotaTarget: number } | null>(null);
   useEffect(() => {
     if (!authEnabled) return;
     fetch('/api/pipeline-unlock', { cache: 'no-store' }).then((r) => r.json())
-      .then((b) => { if (b.ok) setUnlock({ visible: b.visible, gateComplete: b.gateComplete, eligiblePoolSize: b.eligiblePoolSize }); })
+      .then((b) => { if (b.ok) setUnlock({ visible: b.visible, gateComplete: b.gateComplete, eligiblePoolSize: b.eligiblePoolSize, catalogQuotaTarget: b.catalogQuotaTarget ?? 0 }); })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [db.entities.length]);
@@ -566,24 +565,27 @@ export default function PipelinePage() {
           there's nothing here to hide via CSS — this section has no data
           about the blocked entities at all, by construction.
 
-          Prompt 179 §C — two distinct messages, not one. Whether an upgrade
-          CTA makes sense depends on whether this org's accumulated
-          catalog_quota has already reached its OWN tier's day-one ceiling
-          (CATALOG_QUOTA[tier], plans.ts — the 3/15/40 numbers, deliberately
-          untouched by this prompt): below it, there's already more room on
-          the CURRENT plan and nothing has run yet to fill it (the monthly
-          job, §B) — no reason to push an upgrade. At or above it, the
-          founder has already gotten everything this tier's baseline
-          promises; upgrading is what would raise catalog_quota AND the
-          monthly growth rate going forward, so the CTA is honest here. */}
+          Prompt 179 §C, updated by Prompt 180 — two distinct messages, not
+          one. Whether an upgrade CTA makes sense depends on whether this
+          org's accumulated catalog_quota has already reached the target the
+          pipeline-unlock formula currently computes for it (unlock.
+          catalogQuotaTarget — same base+bonuses formula as the badge above,
+          uncapped; CATALOG_QUOTA/plans.ts, the old fixed 3/15/40 constant
+          this used to compare against, is retired — see plans.ts's own
+          header): below it, catalog_quota just hasn't caught up to its own
+          live target yet (the next poll of /api/pipeline-unlock raises it)
+          — no reason to push an upgrade. At or above it, the founder has
+          already gotten everything the current formula computes for their
+          plan; upgrading is what would raise the formula's own inputs (a
+          higher PLAN_PIPELINE_BASE/MONTHLY_ADDITION tier) going forward, so
+          the CTA is honest here. */}
       {blockedCount > 0 && (() => {
-        const orgTier = normalizePlan(db.org.plan);
-        const tierCeiling = CATALOG_QUOTA[orgTier];
-        const atTierCeiling = (db.org.catalog_quota ?? tierCeiling) >= tierCeiling;
+        const target = unlock?.catalogQuotaTarget ?? 0;
+        const atTarget = (db.org.catalog_quota ?? 0) >= target;
         return (
           <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white/60 p-6 text-center shadow-sm backdrop-blur-sm">
             <div className="text-2xl">🔒</div>
-            {atTierCeiling ? (
+            {atTarget ? (
               <>
                 <p className="mt-2 text-sm font-medium text-gray-700">More catalog investors are blocked on your current plan.</p>
                 <p className="mt-1 text-xs text-gray-500">{blockedCount} additional catalog investor{blockedCount === 1 ? '' : 's'} available with an upgrade.</p>
