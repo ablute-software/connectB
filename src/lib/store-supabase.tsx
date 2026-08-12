@@ -18,6 +18,7 @@ import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval } from './reawakening';
 import { STAGE_LABEL, getStage } from './relationship';
+import { fitBucketFromScore } from './catalog-fit-bucket';
 
 type SB = ReturnType<typeof browserClient>;
 
@@ -232,15 +233,8 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     }).catch(() => { /* never blocks the confirm */ });
   }
 
-  // Prompt 139 D3 — maps catalog_top_matches' raw 0-100 score to the
-  // fit_score bucket unlockPack writes onto the new entity row. Thresholds
-  // per the prompt: high >=75, medium_high >=55, medium >=35, else low.
-  function fitBucketFromScore(score: number): FitScore {
-    if (score >= 75) return 'high';
-    if (score >= 55) return 'medium_high';
-    if (score >= 35) return 'medium';
-    return 'low';
-  }
+  // Prompt 179 §B — extracted to catalog-fit-bucket.ts so the server-side
+  // monthly delivery cron job can reuse the exact same bucketing.
 
   // Prompt 138 D2 — queue-only, never invokes the worker. Fire-and-forget:
   // enrichment_jobs is admin-only under RLS, so this has to go through a

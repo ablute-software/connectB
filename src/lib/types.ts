@@ -147,6 +147,16 @@ export interface Org {
   // Prompt 167 §C — same toggle shape, for the Roadmap (below). Additive,
   // propose-only (migration 0161).
   roadmap_visible_to_investors?: boolean;
+  // Catalog-investor accumulated quota (pipeline "vidro fosco" blocking —
+  // DECISIONS.md, migration 0042). Existed in the DB since 0042 but was
+  // never declared here (Prompt 179 gap found while fixing
+  // catalog_blocked_count) — every store already fetches it via `select('*')`,
+  // this just lets the client actually read the field it's already getting.
+  catalog_quota?: number;
+  // Prompt 179 §B — the "1st of month" marker the monthly catalog delivery
+  // job stamps once it's grown catalog_quota for this org this month.
+  // Additive, propose-only (migration 0165) — undefined pre-migration.
+  catalog_last_monthly_delivery?: string;
 }
 
 // Prompt 167 §A — one row per roadmap period (a quarter or a whole year).

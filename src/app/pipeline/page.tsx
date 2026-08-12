@@ -16,6 +16,8 @@ import { CoachMark } from '@/components/onboarding/CoachMark';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import { useTrackPageView } from '@/lib/use-track-page-view';
+import { CATALOG_QUOTA, normalizePlan } from '@/lib/plans';
+import { nextMonthlyDeliveryDate } from '@/lib/catalog-monthly-delivery';
 import type { Db, Entity, TaskItem } from '@/lib/types';
 
 const fitOrder = { high: 0, medium_high: 1, medium: 2, low: 3 };
@@ -562,17 +564,44 @@ export default function PipelinePage() {
           investor. Purely a count (blockedCount, from the catalog_blocked_
           count RPC); the blocked rows themselves are never fetched, so
           there's nothing here to hide via CSS — this section has no data
-          about the blocked entities at all, by construction. */}
-      {blockedCount > 0 && (
-        <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white/60 p-6 text-center shadow-sm backdrop-blur-sm">
-          <div className="text-2xl">🔒</div>
-          <p className="mt-2 text-sm font-medium text-gray-700">More catalog investors are blocked on your current plan.</p>
-          <p className="mt-1 text-xs text-gray-500">{blockedCount} additional catalog investor{blockedCount === 1 ? '' : 's'} available with an upgrade.</p>
-          <Link href="/plans" className="mt-3 inline-block rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#0c637b]">
-            View plans
-          </Link>
-        </div>
-      )}
+          about the blocked entities at all, by construction.
+
+          Prompt 179 §C — two distinct messages, not one. Whether an upgrade
+          CTA makes sense depends on whether this org's accumulated
+          catalog_quota has already reached its OWN tier's day-one ceiling
+          (CATALOG_QUOTA[tier], plans.ts — the 3/15/40 numbers, deliberately
+          untouched by this prompt): below it, there's already more room on
+          the CURRENT plan and nothing has run yet to fill it (the monthly
+          job, §B) — no reason to push an upgrade. At or above it, the
+          founder has already gotten everything this tier's baseline
+          promises; upgrading is what would raise catalog_quota AND the
+          monthly growth rate going forward, so the CTA is honest here. */}
+      {blockedCount > 0 && (() => {
+        const orgTier = normalizePlan(db.org.plan);
+        const tierCeiling = CATALOG_QUOTA[orgTier];
+        const atTierCeiling = (db.org.catalog_quota ?? tierCeiling) >= tierCeiling;
+        return (
+          <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white/60 p-6 text-center shadow-sm backdrop-blur-sm">
+            <div className="text-2xl">🔒</div>
+            {atTierCeiling ? (
+              <>
+                <p className="mt-2 text-sm font-medium text-gray-700">More catalog investors are blocked on your current plan.</p>
+                <p className="mt-1 text-xs text-gray-500">{blockedCount} additional catalog investor{blockedCount === 1 ? '' : 's'} available with an upgrade.</p>
+                <Link href="/plans" className="mt-3 inline-block rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#0c637b]">
+                  View plans
+                </Link>
+              </>
+            ) : (
+              <>
+                <p className="mt-2 text-sm font-medium text-gray-700">New matching investors are delivered automatically.</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Next batch arrives {nextMonthlyDeliveryDate(new Date().toISOString()).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}.
+                </p>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {addInvestorOpen && <AddInvestorModal onClose={() => setAddInvestorOpen(false)} />}
 
