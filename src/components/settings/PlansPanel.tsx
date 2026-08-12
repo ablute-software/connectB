@@ -39,21 +39,15 @@ import type { PlanTier } from '@/lib/types';
 
 const PERIOD_LABEL: Record<BillingPeriod, string> = { monthly: 'Monthly', annual: 'Annual' };
 
-// Prompt 151 — the app's own promo_codes/promo_redemptions system is
-// completely disconnected from Stripe: redeeming a code here only writes a
-// promo_redemptions row and changes what price this page DISPLAYS
-// (discountedPriceEur below); it never reaches /api/stripe/checkout, which
-// always charges the plan's full price. A real founder tested this live:
-// redeemed a 99%-off code, the app showed "you pay €1/month," Stripe
-// Checkout showed the full €149. Hidden until (a) checkout/route.ts learns
-// to apply the redemption's discount at Stripe (on-the-fly coupon, or a
-// Stripe Promotion Code id stored on the promo_codes row) or (b) is
-// otherwise decided — a billing/money design call, not made here. Does NOT
-// affect kind='free_trial' (100% off) redemptions: those raise the org's
-// effective plan tier directly (plan-server.ts) and never touch Stripe
-// Checkout at all, so they're unaffected by this gap — "Free trial via
-// CODE" below stays visible on purpose.
-const PROMO_REDEEM_UI_ENABLED = false;
+// Prompt 151 — the app's own promo_codes/promo_redemptions system used to be
+// completely disconnected from Stripe: redeeming a code here only wrote a
+// promo_redemptions row and changed what price this page DISPLAYED
+// (discountedPriceEur below); it never reached /api/stripe/checkout, which
+// always charged the plan's full price. Fixed in Prompt 163 B
+// (ensureStripeCoupon — a redemption now becomes a real Stripe coupon on
+// the Checkout Session automatically) and confirmed again in Prompt 161 §B
+// (this section re-enabled as part of that prompt, not a step left over).
+const PROMO_REDEEM_UI_ENABLED = true;
 
 type ActivePromo = { code: string; kind: string; discount_pct: number; applicable_plans: PlanTier[]; benefit_ends_at: string | null };
 
@@ -62,9 +56,12 @@ function fmtPromoDate(iso: string | null) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+// Prompt 161 §D.2 — a Pioneer org's own 3 referral codes.
+interface ReferralCode { code: string; redeemedByOrgName: string | null; redeemedAt: string | null; expired: boolean }
+
 export function PlansPanel() {
   const { db } = useStore();
-  const [me, setMe] = useState<{ authEnabled: boolean; plan?: PlanTier; orgRole?: OrgRole; capabilities?: { planAccounts?: boolean; billing?: boolean } } | null>(null);
+  const [me, setMe] = useState<{ authEnabled: boolean; plan?: PlanTier; orgRole?: OrgRole; capabilities?: { planAccounts?: boolean; billing?: boolean }; pioneerBadge?: boolean } | null>(null);
   const [period, setPeriod] = useState<BillingPeriod>('monthly');
   const [busy, setBusy] = useState<PlanTier | 'portal' | null>(null);
   const [requestedLocal, setRequestedLocal] = useState<{ tier: PlanTier; period: BillingPeriod } | null>(null);
@@ -76,6 +73,8 @@ export function PlansPanel() {
   const [promoCodeInput, setPromoCodeInput] = useState('');
   const [promoBusy, setPromoBusy] = useState(false);
   const [promoErr, setPromoErr] = useState('');
+  const [referralCodes, setReferralCodes] = useState<ReferralCode[]>([]);
+  const [copiedCode, setCopiedCode] = useState('');
 
   function refreshPromoStatus() {
     fetch('/api/promo/status', { cache: 'no-store' }).then((r) => r.json())
@@ -85,6 +84,12 @@ export function PlansPanel() {
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false }));
     refreshPromoStatus();
+    // Prompt 161 §D.2 — only ever non-empty for an org that already has the
+    // badge; a non-Pioneer org's own 3 referral codes simply don't exist
+    // yet, so this is harmless to always call rather than gate on `me`
+    // (which loads async, right above).
+    fetch('/api/promo/referrals', { cache: 'no-store' }).then((r) => r.json())
+      .then((body) => { if (body.ok) setReferralCodes(body.codes ?? []); }).catch(() => {});
     // Post-checkout return (?checkout=success|cancel) — read client-side to
     // avoid a Suspense boundary for useSearchParams.
     const q = new URLSearchParams(window.location.search).get('checkout');
@@ -286,12 +291,27 @@ export function PlansPanel() {
           ) : undefined}>
           <div className="flex flex-wrap items-baseline gap-2">
             <span className="text-xl font-bold text-[#0E7490]">{planName(current)}</span>
+            {/* Prompt 161 §C.4 — the badge image itself, next to the company's
+                own plan name (the "own dossier" equivalent of the investor-
+                facing placement next to the company name — see
+                portal/startup/[orgId]/page.tsx). onError hides it rather than
+                showing a broken-image icon on any environment where the
+                asset file hasn't been dropped into public/badges/ yet. */}
+            {me?.pioneerBadge && (
+              <img src="/badges/pioneer.png" alt="Pioneer" title="Pioneer — permanent badge"
+                className="h-6 w-6" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+            )}
             {grantingPromo ? (
               <span className="text-sm font-semibold text-emerald-700">€0/month</span>
             ) : (
               currentRow && <span className="text-sm text-gray-500">{planPriceLabel(currentRow, period)}</span>
             )}
           </div>
+          {me?.pioneerBadge && (
+            <p className="mt-1 text-xs font-medium text-amber-800">
+              🏅 Pioneer — permanent, survives any plan change. Lifetime 20% off any future paid plan.
+            </p>
+          )}
           {grantingPromo && (
             <p className="mt-1 text-xs text-emerald-700">
               Free trial via <b>{grantingPromo.code}</b>
@@ -342,6 +362,43 @@ export function PlansPanel() {
           </Card>
         )}
       </div>
+
+      {/* Prompt 161 §D.2 — only ever visible to an org that already has the
+          badge (growth idea A3: 3 nominal referral codes per Pioneer, no
+          public page or email flow this phase — copy/paste is enough). */}
+      {me?.pioneerBadge && (
+        <Card title="Invite other founders">
+          <p className="mb-2 text-xs text-gray-500">
+            Share these with founders you think should be on Sherlock Deal — each unlocks the same free trial you got.
+          </p>
+          {referralCodes.length === 0 ? (
+            <p className="text-xs text-gray-400">Your referral codes will appear here.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {referralCodes.map((rc) => (
+                <div key={rc.code} className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm">
+                  <span className="font-mono font-semibold text-gray-800">{rc.code}</span>
+                  {rc.redeemedByOrgName ? (
+                    <span className="text-xs text-gray-400">Used by {rc.redeemedByOrgName}</span>
+                  ) : rc.expired ? (
+                    <span className="text-xs text-amber-700">Expired</span>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(rc.code).catch(() => {});
+                        setCopiedCode(rc.code);
+                        setTimeout(() => setCopiedCode((c) => (c === rc.code ? '' : c)), 1500);
+                      }}
+                      className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">
+                      {copiedCode === rc.code ? 'Copied!' : 'Copy'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Billing period toggle — drives every price below. */}
       <div data-tour-id="plans-toggle" className="flex w-fit items-center gap-1 rounded-full border border-gray-200 bg-white p-0.5 text-xs">

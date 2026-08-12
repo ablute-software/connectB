@@ -29,6 +29,7 @@ import { taskRemindersAvailable } from '@/lib/task-reminders-capability';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, WATSON_DRAFT_QUOTA, REVIEW_QUOTA } from '@/lib/plans';
 import { stripeConfigured } from '@/lib/stripe-env';
+import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 
 export async function GET(req: NextRequest) {
   const capabilities = {
@@ -71,6 +72,16 @@ export async function GET(req: NextRequest) {
   // write path (e.g. the compose route), so this is display-truth, not the
   // enforcement point. Platform admins (role 'developer') get full access.
   const entitlements = planEntitlements(plan, role === 'developer');
+  // Prompt 161 §C — permanent, independent of `plan`/`entitlements` above
+  // (a downgrade never clears it). Display-truth for the Plans & billing
+  // badge and the "Invite other founders" referral section's visibility
+  // gate; the referral codes themselves are re-fetched from their own
+  // route, not carried here.
+  let pioneerBadge = false;
+  if (orgId && await pioneerBadgeAvailable()) {
+    const { data: orgRow } = await sb.from('orgs').select('pioneer_badge').eq('id', orgId).maybeSingle();
+    pioneerBadge = !!orgRow?.pioneer_badge;
+  }
   // Prompt 106 §B — Watson drafts-left, for the "/log" card. Display-truth
   // only, same as `entitlements` above; /api/compose re-checks and is the
   // real enforcement point. Not resolved for the platform org (unlimited).
@@ -112,5 +123,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ authEnabled: true, user: { id: user.id, email: user.email }, role, orgRole, plan, entitlements, capabilities, watson, reviewQuota, viewer });
+  return NextResponse.json({ authEnabled: true, user: { id: user.id, email: user.email }, role, orgRole, plan, entitlements, capabilities, watson, reviewQuota, viewer, pioneerBadge });
 }

@@ -15,6 +15,9 @@ type Promo = {
   id: string; code: string; label: string | null; kind: PromoKind; discount_pct: number;
   applicable_plans: PlanTier[]; redeemable_until: string | null; benefit_duration_months: number | null;
   max_redemptions: number | null; active: boolean; created_at: string; redemption_count: number;
+  // Prompt 161 §A — absent on an unmigrated environment (0167 not applied
+  // yet); every reader treats missing/undefined as false.
+  is_pioneer?: boolean;
 };
 type Redemption = {
   id: string; org_id: string; org_name: string; redeemed_at: string;
@@ -37,6 +40,11 @@ function CreatePromoForm({ onCreated }: { onCreated: () => void }) {
   const [redeemableUntil, setRedeemableUntil] = useState('');
   const [durationMonths, setDurationMonths] = useState('');
   const [maxRedemptions, setMaxRedemptions] = useState('');
+  // Prompt 161 §A.2 — campaign codes (public, accelerators, investor
+  // portfolios) are always is_pioneer=true; a one-off discount to someone
+  // stays false. Defaults to false — an admin has to deliberately opt a
+  // code into the Pioneer campaign, not the other way round.
+  const [isPioneer, setIsPioneer] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -56,11 +64,12 @@ function CreatePromoForm({ onCreated }: { onCreated: () => void }) {
           redeemable_until: redeemableUntil ? new Date(redeemableUntil).toISOString() : null,
           benefit_duration_months: durationMonths || null,
           max_redemptions: maxRedemptions || null,
+          is_pioneer: isPioneer,
         }),
       });
       const body = await res.json();
       if (!body.ok) { setErr(body.error ?? 'Could not create the promo.'); return; }
-      setCode(''); setLabel(''); setPlans([]); setRedeemableUntil(''); setDurationMonths(''); setMaxRedemptions('');
+      setCode(''); setLabel(''); setPlans([]); setRedeemableUntil(''); setDurationMonths(''); setMaxRedemptions(''); setIsPioneer(false);
       onCreated();
     } finally {
       setBusy(false);
@@ -144,6 +153,15 @@ function CreatePromoForm({ onCreated }: { onCreated: () => void }) {
             placeholder="e.g. 100" className="mt-1 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm" />
           <p className="mt-1 text-[11px] text-gray-400">Blank = unlimited.</p>
         </div>
+        <div className="sm:col-span-2">
+          <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm">
+            <input type="checkbox" checked={isPioneer} onChange={(e) => setIsPioneer(e.target.checked)} />
+            Pioneer campaign code
+          </label>
+          <p className="mt-1 text-[11px] text-gray-400">
+            Whoever redeems this earns the permanent Pioneer badge once the trial ends (lifetime 20% discount, 3 referral codes) — check this only for public/accelerator/investor-portfolio campaign codes, not a one-off discount.
+          </p>
+        </div>
       </div>
 
       {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}
@@ -201,6 +219,7 @@ function PromoRow({ promo, onChanged }: { promo: Promo; onChanged: () => void })
         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600">
           {promo.kind === 'free_trial' ? 'Free trial' : `${promo.discount_pct}% off`}
         </span>
+        {promo.is_pioneer && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">🏅 Pioneer</span>}
         <span className="text-[11px] text-gray-400">{promo.applicable_plans.join(', ')}</span>
         {promo.benefit_duration_months && <span className="text-[11px] text-gray-400">for {promo.benefit_duration_months}mo</span>}
         {!promo.active && <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[11px] font-semibold text-gray-600">Inactive</span>}

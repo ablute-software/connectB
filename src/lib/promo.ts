@@ -19,6 +19,10 @@ export interface PromoCode {
   max_redemptions: number | null;
   active: boolean;
   deleted_at: string | null;
+  // Prompt 161 — additive, capability-gated (pioneerBadgeAvailable,
+  // migration 0167). Absent/undefined pre-migration.
+  is_pioneer?: boolean;
+  referral_of_org_id?: string | null;
 }
 
 // Plans a promo can meaningfully apply to — 'idea' is already free.

@@ -13,11 +13,18 @@
 // comment on PLAN_PIPELINE_MONTHLY_ADDITION). Piggybacked here rather than a
 // second cron entry specifically because of the Hobby-plan 1x/day cron
 // limit named in the prompt.
+//
+// Prompt 161 §C.2 — also runs the Pioneer badge-grant sweep. Unlike the
+// monthly catalog job, no day-of-month gate: a Pioneer redemption's
+// benefit_ends_at can fall on any day, and runPioneerExpiryJob is cheap and
+// idempotent (skips orgs already badged), so it just runs every tick.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { monthlyDeliveryDue } from '@/lib/catalog-monthly-delivery';
 import { catalogMonthlyDeliveryAvailable } from '@/lib/catalog-monthly-delivery-capability';
 import { deliverMonthlyForOrg, type MonthlyDeliveryOrgRow, type MonthlyDeliveryResult } from '@/lib/catalog-monthly-delivery-server';
+import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
+import { runPioneerExpiryJob } from '@/lib/pioneer-server';
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -49,11 +56,17 @@ export async function GET() {
     monthlyDelivery = { ranFor: results.length, results };
   }
 
+  let pioneerBadges: { orgsGranted: number } | null = null;
+  if (await pioneerBadgeAvailable()) {
+    pioneerBadges = await runPioneerExpiryJob(admin, now);
+  }
+
   // TODO: implement server-side automation-rules tick — see src/lib/rules.ts
   // (pure functions, ready to reuse). Unchanged scope from before this prompt.
   return NextResponse.json({
     ok: true,
     message: 'Engine tick placeholder — automation-rules tick not yet wired to the real database.',
     monthlyDelivery,
+    pioneerBadges,
   });
 }

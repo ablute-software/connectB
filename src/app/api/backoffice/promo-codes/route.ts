@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { logAdminAction } from '@/lib/audit';
 import { PROMO_ELIGIBLE_PLANS, normalizeDiscountForKind, normalizePromoCodeInput, type PromoKind } from '@/lib/promo';
+import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import type { PlanTier } from '@/lib/types';
 
 export async function GET() {
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const {
     code, label, kind, discount_pct, applicable_plans,
-    redeemable_until, benefit_duration_months, max_redemptions,
+    redeemable_until, benefit_duration_months, max_redemptions, is_pioneer,
   } = body as Record<string, unknown>;
 
   if (typeof code !== 'string' || !code.trim()) {
@@ -65,6 +66,13 @@ export async function POST(req: Request) {
   }
 
   const normalizedCode = normalizePromoCodeInput(code);
+  // Prompt 161 §A.2 — campaign codes (public, accelerators, investor
+  // portfolios) are always created with is_pioneer=true from the
+  // back-office; a one-off discount stays false (the default). Only
+  // written when the migration's landed — omitting the key entirely on an
+  // unmigrated environment, rather than sending `undefined` through, keeps
+  // the insert from erroring on a column that doesn't exist yet.
+  const pioneerFields = await pioneerBadgeAvailable() ? { is_pioneer: is_pioneer === true } : {};
   const { data: promo, error } = await admin.from('promo_codes').insert({
     code: normalizedCode,
     label: typeof label === 'string' && label.trim() ? label.trim() : null,
@@ -75,6 +83,7 @@ export async function POST(req: Request) {
     benefit_duration_months: durationMonths,
     max_redemptions: maxRedemptions,
     created_by: userId,
+    ...pioneerFields,
   }).select('*').single();
 
   if (error) {

@@ -90,7 +90,7 @@ export default function StartupDossierPage() {
   const orgId = params.orgId;
 
   const [sessionEmail, setSessionEmail] = useState<string | null | undefined>(undefined);
-  const [data, setData] = useState<{ card: Card; level: 0 | 1 | 2 | 3; levelRows: LevelRow[]; dossier: Dossier } | null | 'not-found'>(null);
+  const [data, setData] = useState<{ card: Card; pioneerBadge?: boolean; level: 0 | 1 | 2 | 3; levelRows: LevelRow[]; dossier: Dossier } | null | 'not-found'>(null);
   const [tab, setTab] = useState<'overview' | 'documents' | 'messages' | 'activity'>('overview');
   const [levelBusy, setLevelBusy] = useState(false);
   const [levelError, setLevelError] = useState<string | null>(null);
@@ -210,7 +210,7 @@ export default function StartupDossierPage() {
   }
   if (!data) return <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>;
 
-  const { card, level, levelRows, dossier } = data;
+  const { card, pioneerBadge, level, levelRows, dossier } = data;
   const level3Row = levelRows.find((r) => r.level === 3);
 
   return (
@@ -219,7 +219,16 @@ export default function StartupDossierPage() {
         <Link href="/portal" className="text-xs text-gray-400 hover:underline">← Back to Pipeline</Link>
         <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-lg font-bold text-gray-900">{card.name}</h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-lg font-bold text-gray-900">{card.name}</h1>
+              {/* Prompt 161 §C.4 — same asset/placement discipline as the
+                  founder's own Plans & billing card (PlansPanel.tsx):
+                  onError hides it rather than a broken-image icon. */}
+              {pioneerBadge && (
+                <img src="/badges/pioneer.png" alt="Pioneer" title="Pioneer — permanent badge"
+                  className="h-5 w-5" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+              )}
+            </div>
             {card.oneLiner && <p className="text-sm text-gray-500">{card.oneLiner}</p>}
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400">
               {card.stage && <span>{STAGE_LABELS[card.stage] ?? card.stage}</span>}

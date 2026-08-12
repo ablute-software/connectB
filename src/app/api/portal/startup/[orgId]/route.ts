@@ -34,6 +34,7 @@ import { currentInterestLevel, projectDossier, type FullDossierData, type Founde
 import { getInterestLevelRows, toInvestorFacingLevelRows } from '@/lib/investor-interest-level-db';
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
 import { getInteractionTimeline } from '@/lib/investor-interaction-log';
+import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import type { SwotData } from '@/lib/types';
 import type { ReviewCategory } from '@/lib/review-clarifications';
 
@@ -51,6 +52,17 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   const result = await getPipelineWaves(sb, admin, user.id, email);
   const card = result.linked ? result.waves.flatMap((w) => w.items).find((c) => c.orgId === params.orgId) : null;
   if (!card) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
+
+  // Prompt 161 §C.4 — "ao lado do nome da empresa no perfil/dossiê visível
+  // ao investidor." Deliberately a single-org read here, not threaded
+  // through getPipelineWaves (shared by the whole Pipeline list + the CSV
+  // export, already a heavier computation) — the prompt only asks for the
+  // dossier header, not every row of the list.
+  let pioneerBadge = false;
+  if (await pioneerBadgeAvailable()) {
+    const { data: orgRow } = await admin.from('orgs').select('pioneer_badge').eq('id', params.orgId).maybeSingle();
+    pioneerBadge = !!orgRow?.pioneer_badge;
+  }
 
   // P136 — compute the current level. investor_relationship_decisions'
   // own decision drives level 0/1 and the mandatory pass-collapse; levels
@@ -188,5 +200,5 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   // UI. toInvestorFacingLevelRows keeps only {level, status} — everything
   // the client actually uses (the "Request contact"/"waiting"/"declined"
   // buttons key off status alone).
-  return NextResponse.json({ card, level, levelRows: toInvestorFacingLevelRows(levelRows), dossier });
+  return NextResponse.json({ card, pioneerBadge, level, levelRows: toInvestorFacingLevelRows(levelRows), dossier });
 }
