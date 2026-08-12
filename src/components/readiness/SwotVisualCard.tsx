@@ -14,6 +14,64 @@ import type { SwotData } from '@/lib/types';
 import { ClarificationBullet } from './ClarificationBullet';
 import { clarificationKey, type ReviewClarification } from '@/lib/review-clarifications';
 
+// Prompt 173 §A — the structure (gradient header, white/thin-border
+// quadrant card, dot-list rows) already matched the reference per Prompt
+// 172; what still read as "chat" was the emoji badges (💪⚠️🚀⚡) — the
+// reference uses flat single-stroke outline icons, no skin tone/expression.
+// No icon library in package.json (checked — neither lucide-react nor
+// heroicons is a dependency), so these are hand-built inline outline SVGs
+// (own geometry, not copied from any library's path data, to sidestep any
+// licensing question) rather than a new dependency for 5 icons — same
+// "inline SVG, no new lib" pattern the rest of this app already uses for
+// one-off icons. Every icon shares one stroke contract: fill="none"
+// stroke="currentColor" strokeWidth={2}, round caps/joins, 24x24 viewBox —
+// color comes for free from the badge's own text-white.
+function IconShieldCheck({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M12 3l7 3v5.5c0 4.7-3 8.4-7 9.5-4-1.1-7-4.8-7-9.5V6l7-3z" />
+      <path d="M9 12l2 2 4-4.5" />
+    </svg>
+  );
+}
+function IconLinkOff({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M4 9a3 3 0 0 1 3-3h2" />
+      <path d="M8 15H6a3 3 0 0 1-3-3" />
+      <path d="M16 9h2a3 3 0 0 1 3 3" />
+      <path d="M20 15a3 3 0 0 1-3 3h-2" />
+      <path d="M8 12h1M15 12h1" />
+    </svg>
+  );
+}
+function IconTrendingUp({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M3 17l6-6 4 4 8-8" />
+      <path d="M15 7h6v6" />
+    </svg>
+  );
+}
+function IconTriangleAlert({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M12 3.5l9.5 16.5H2.5L12 3.5z" />
+      <path d="M12 10v4" />
+      <path d="M12 17.2h.01" />
+    </svg>
+  );
+}
+function IconChartTrending({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+      <path d="M7 14l3.5-3.5L13 13l5-5" />
+      <path d="M18 8h4v4" />
+    </svg>
+  );
+}
+
 // Prompt 172 §B — v2 redesign: Prompt 170's tinted-container + filled-item
 // treatment still read as chat bubbles, not a product card. This drops the
 // quadrant's own colored background (now plain white, only a thin colored
@@ -24,26 +82,26 @@ import { clarificationKey, type ReviewClarification } from '@/lib/review-clarifi
 // Threats moves the dark #B00000 -> a brighter red/coral, both to match the
 // reference; Strengths/Opportunities keep their existing hues.
 const QUADRANTS: {
-  key: keyof SwotData; label: string; caption: string; icon: string;
+  key: keyof SwotData; label: string; caption: string; Icon: (p: { className?: string }) => JSX.Element;
   border: string; iconBadge: string; countPill: string; dot: string;
 }[] = [
   {
-    key: 'strengths', label: 'Strengths', caption: 'What gives you a competitive advantage?', icon: '💪',
+    key: 'strengths', label: 'Strengths', caption: 'What gives you a competitive advantage?', Icon: IconShieldCheck,
     border: 'border-emerald-200', iconBadge: 'bg-emerald-600',
     countPill: 'border-emerald-200 bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500',
   },
   {
-    key: 'weaknesses', label: 'Weaknesses', caption: 'What are your main limitations?', icon: '⚠️',
+    key: 'weaknesses', label: 'Weaknesses', caption: 'What are your main limitations?', Icon: IconLinkOff,
     border: 'border-amber-200', iconBadge: 'bg-amber-500',
     countPill: 'border-amber-200 bg-amber-50 text-amber-700', dot: 'bg-amber-500',
   },
   {
-    key: 'opportunities', label: 'Opportunities', caption: 'What external factors could help you?', icon: '🚀',
+    key: 'opportunities', label: 'Opportunities', caption: 'What external factors could help you?', Icon: IconTrendingUp,
     border: 'border-blue-200', iconBadge: 'bg-blue-600',
     countPill: 'border-blue-200 bg-blue-50 text-blue-700', dot: 'bg-blue-500',
   },
   {
-    key: 'threats', label: 'Threats', caption: 'What external risks could impact you?', icon: '⚡',
+    key: 'threats', label: 'Threats', caption: 'What external risks could impact you?', Icon: IconTriangleAlert,
     border: 'border-red-200', iconBadge: 'bg-red-500',
     countPill: 'border-red-200 bg-red-50 text-red-600', dot: 'bg-red-500',
   },
@@ -58,13 +116,15 @@ const QUADRANTS: {
 // 💡 hint is just an ad hoc styled box, not a shared component), so this
 // reuses that same spirit — icon + short line in a light box — rather than
 // inventing an unrelated visual language.
+// Prompt 173 §A — 📊 emoji swapped for the same outline-icon treatment as
+// the quadrants below.
 function SwotHeader() {
   return (
     <div className="relative overflow-hidden rounded-2xl p-5" style={{ background: 'linear-gradient(135deg, #0E7490 0%, #22D3EE 100%)' }}>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <span aria-hidden="true" className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/20 text-2xl">
-            📊
+          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/20 text-white">
+            <IconChartTrending className="h-7 w-7" />
           </span>
           <div>
             <div className="text-xl font-bold text-white">SWOT Analysis</div>
@@ -92,8 +152,9 @@ function SwotHeader() {
 // investor-facing dossier page (Prompt 166 §D) renders SwotQuadrant
 // directly with no `clarify` prop, so it stays exactly the plain read-only
 // grid it's always been — the bubble/editor UI never reaches that surface.
-// Prompt 170/172 — the redesign below applies to BOTH surfaces automatically
-// (same shared component), no extra work needed for the investor side.
+// Prompt 170/172/173 — the redesign below applies to BOTH surfaces
+// automatically (same shared component), no extra work needed for the
+// investor side.
 export function SwotQuadrant({ data, clarify }: {
   data: SwotData;
   clarify?: { orgId: string; reviewRunId: string; clarifications: Map<string, ReviewClarification>; onSaved: (c: ReviewClarification) => void };
@@ -101,19 +162,27 @@ export function SwotQuadrant({ data, clarify }: {
   return (
     <div className="space-y-4">
       <SwotHeader />
-      <div className="grid gap-4 sm:grid-cols-2">
+      {/* Prompt 173 §C — items-stretch (already the default for a CSS grid
+          row, made explicit here) so all 4 quadrants share the row's
+          tallest card's height — a category with 6-7 items grows the card,
+          it never compresses its own line spacing to fit a shorter
+          neighbor's box, and no quadrant scrolls internally on its own. */}
+      <div className="grid items-stretch gap-4 sm:grid-cols-2">
         {QUADRANTS.map((q) => {
           const items = data[q.key] ?? [];
+          const Icon = q.Icon;
           return (
             <div key={q.key} className={`rounded-2xl border bg-white p-4 shadow-sm ${q.border}`}>
               <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2.5">
-                  <span aria-hidden="true" className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg ${q.iconBadge}`}>
-                    {q.icon}
+                <div className="flex items-center gap-3">
+                  {/* Prompt 173 §B — h-10 w-10 -> h-12 w-12, icon itself
+                      h-6 w-6 (was the emoji at text-lg). */}
+                  <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-white ${q.iconBadge}`}>
+                    <Icon className="h-6 w-6" />
                   </span>
                   <div>
-                    <div className="text-sm font-bold text-gray-900">{q.label}</div>
-                    <div className="text-[11px] text-gray-500">{q.caption}</div>
+                    <div className="text-base font-bold text-gray-900">{q.label}</div>
+                    <div className="text-xs text-gray-500">{q.caption}</div>
                   </div>
                 </div>
                 <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${q.countPill}`}>
