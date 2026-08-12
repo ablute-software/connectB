@@ -1,9 +1,17 @@
 'use client';
 // P104 #7 — startup-side sector picker, replacing IdentityCard's free-text
-// comma-separated field. Investor-side (unlimited, category-level
-// selection, "All sectors") is explicitly out of scope for this pass —
-// P104 #7's target was IdentityCard.tsx specifically; the investor
-// profile rebuild is flagged as a separate follow-up.
+// comma-separated field.
+//
+// Prompt 176 §A.2 — the investor side needed the SAME canonical taxonomy
+// (see sector-taxonomy.ts) and Nuno's own instruction was explicit: reuse
+// this component's group structure, don't recreate it
+// (InvestorProfilePanel.tsx now renders this directly). The investor's own
+// shape differs in two ways from the startup's — no per-selection cap
+// (a fund's mandate can legitimately span most of the taxonomy) and no
+// free-text "Other" escape hatch (investor sectors is a flat string[], no
+// sibling "other" column to write to) — both now optional props instead of
+// the startup's own hardcoded STARTUP_SECTOR_MAX/always-on Other, so one
+// component serves both without a fork.
 import { useMemo, useState } from 'react';
 import { SECTOR_TAXONOMY, STARTUP_SECTOR_MAX, SECTOR_OTHER_MAX_CHARS } from '@/lib/sector-taxonomy';
 
@@ -19,14 +27,21 @@ function highlight(text: string, query: string) {
   return <>{text.slice(0, i)}<mark className="bg-amber-200">{text.slice(i, i + query.length)}</mark>{text.slice(i + query.length)}</>;
 }
 
-export function SectorPicker({ value, onChange, disabled }: { value: SectorValue; onChange: (v: SectorValue) => void; disabled?: boolean }) {
+export function SectorPicker({ value, onChange, disabled, max = STARTUP_SECTOR_MAX, allowOther = true }: {
+  value: SectorValue; onChange: (v: SectorValue) => void; disabled?: boolean;
+  /** Startup default: STARTUP_SECTOR_MAX (6). Pass Infinity for "no real cap" (the investor mandate case). */
+  max?: number;
+  /** Startup default: true. The investor caller has no "other" column to write to, so it passes false —
+   *  the checkbox/free-text row simply doesn't render, and `value.other`/`onChange`'s `other` field are unused. */
+  allowOther?: boolean;
+}) {
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [preSearchExpanded, setPreSearchExpanded] = useState<Set<string> | null>(null);
 
-  const otherOn = value.other !== null;
+  const otherOn = allowOther && value.other !== null;
   const count = value.sectors.length + (otherOn ? 1 : 0);
-  const atMax = count >= STARTUP_SECTOR_MAX;
+  const atMax = count >= max;
 
   const q = query.trim().toLowerCase();
   const filtered = useMemo(() => {
@@ -86,7 +101,7 @@ export function SectorPicker({ value, onChange, disabled }: { value: SectorValue
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
-        <span>Selected sectors · {count} of {STARTUP_SECTOR_MAX}</span>
+        <span>Selected sectors{Number.isFinite(max) ? ` · ${count} of ${max}` : count > 0 ? ` · ${count} selected` : ''}</span>
         {value.sectors.map((s) => (
           <span key={s} className="flex items-center gap-1 rounded-full bg-cyan-50 px-2 py-0.5 text-cyan-800">
             {s}
@@ -100,8 +115,8 @@ export function SectorPicker({ value, onChange, disabled }: { value: SectorValue
           </span>
         )}
       </div>
-      {atMax && (
-        <p className="text-[11px] text-amber-700">You can select up to {STARTUP_SECTOR_MAX} sectors. Remove one to add another.</p>
+      {atMax && Number.isFinite(max) && (
+        <p className="text-[11px] text-amber-700">You can select up to {max} sectors. Remove one to add another.</p>
       )}
 
       <div className="max-h-64 space-y-1 overflow-y-auto rounded border border-gray-200 p-2">
@@ -133,6 +148,7 @@ export function SectorPicker({ value, onChange, disabled }: { value: SectorValue
           );
         })}
 
+        {allowOther && (
         <div>
           <label className={`flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 text-xs hover:bg-gray-50 ${disabled || (!otherOn && atMax) ? 'opacity-40' : ''}`}>
             <input type="checkbox" checked={otherOn} disabled={disabled || (!otherOn && atMax)} onChange={toggleOther} />
@@ -147,6 +163,7 @@ export function SectorPicker({ value, onChange, disabled }: { value: SectorValue
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

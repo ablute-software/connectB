@@ -12,6 +12,7 @@ import { TagInput } from './TagInput';
 import { TicketAmountSlider } from '../TicketAmountSlider';
 import { VisibilityToggle } from '../VisibilityToggle';
 import { INSTRUMENT_LABELS } from '@/lib/investor-taxonomy';
+import { SectorPicker } from '@/components/company/SectorPicker';
 
 interface Profile {
   sectors: string[]; geographies: string[]; stages_invested: string[]; instruments: string[];
@@ -393,8 +394,6 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange,
   if (!data.linked) return <LinkEntityFlow onLinked={load} />;
   if (!draft) return <p className="text-sm text-gray-400">Loading…</p>;
 
-  const sectorOptions = data.sectorOptions ?? [];
-
   return (
     <div className="max-w-2xl space-y-4">
       <VisibilityToggle kind="investor" />
@@ -473,7 +472,16 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange,
         <Section title="Sectors & Stages">
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500">Sectors invested in</label>
-            <MultiSelect options={sectorOptions} selected={draft.sectors ?? []} onChange={(v) => setDraft({ ...draft, sectors: v })} />
+            {/* Prompt 176 §A.2 — same grouped picker the startup side uses
+                (SectorPicker.tsx, sector-taxonomy.ts), not the old flat
+                MultiSelect + 22-value investor-only taxonomy. No per-firm
+                cap (max=Infinity — a mandate can legitimately span most of
+                the taxonomy) and no "Other" free-text (allowOther=false —
+                this profile has no sibling column to hold it); `other` is
+                always null here and never written back. */}
+            <SectorPicker value={{ sectors: draft.sectors ?? [], other: null }}
+              onChange={(v) => setDraft({ ...draft, sectors: v.sectors })}
+              max={Infinity} allowOther={false} />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500">Stages</label>

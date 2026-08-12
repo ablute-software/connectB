@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { supportTicketsAvailable } from '@/lib/support-capability';
+import { supportRequesterReadAvailable } from '@/lib/support-requester-read-capability';
 
 const VISIBLE_EVENT_KINDS = ['reply', 'status_change'] as const;
 
@@ -38,6 +39,15 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   if (!ticket) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
   const owns = ticket.user_id === user.id || (ticket.email as string)?.toLowerCase() === email;
   if (!owns) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+
+  // Prompt 176 §B — the actual "mark read" write, same shape as
+  // markThreadRead (deal-messages.ts): a side effect of the owner's own GET,
+  // not a separate endpoint. Best-effort — a failure here (including the
+  // column not existing pre-migration, though the capability check above
+  // should already prevent that) never blocks the thread from loading.
+  if (await supportRequesterReadAvailable()) {
+    await admin.from('support_tickets').update({ requester_last_read_at: new Date().toISOString() }).eq('id', params.id);
+  }
 
   const { data: events, error: eventsErr } = await admin.from('support_ticket_events')
     .select('id, created_at, author, kind, body')

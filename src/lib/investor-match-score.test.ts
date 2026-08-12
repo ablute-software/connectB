@@ -46,4 +46,27 @@ describe('computeMatchScore', () => {
     expect(result.reasons).not.toContain('ticket');
     expect(result.score).toBe(80);
   });
+
+  // Prompt 176 §A — computeMatchScore/overlaps() itself was never the bug
+  // (it's a plain string-array intersection, and this file's own earlier
+  // tests already used consistent sector strings on both sides). The real
+  // bug was the two CALLERS writing incompatible vocabularies:
+  // investor-sector-taxonomy.ts's 22 lowercase tags (the investor thesis)
+  // vs. sector-taxonomy.ts's 51 Title Case names (the startup round, via
+  // SectorPicker.tsx) — zero string overlap, so overlaps() always returned
+  // false for real data. Fixed by pointing the investor side at the same
+  // sector-taxonomy.ts source (investor-profile/route.ts,
+  // InvestorProfilePanel.tsx). This test uses a real value from that shared
+  // taxonomy on both sides, exactly as the prompt's own "Disciplina de
+  // sempre" asks: an investor mandate and a startup round both declaring
+  // 'FinTech & InsurTech' must count the full 35-point sector weight.
+  it('counts the full sector weight when both sides use the same canonical taxonomy value', () => {
+    const round: StartupRound = { ...ROUND, sectors: ['FinTech & InsurTech'] };
+    const thesis: InvestorThesis = {
+      sectors: ['FinTech & InsurTech'], stagesInvested: [], geographies: [], instruments: [], ticketMin: null, ticketMax: null,
+    };
+    const result = computeMatchScore(thesis, round);
+    expect(result.reasons).toContain('sector');
+    expect(result.score).toBeGreaterThanOrEqual(35);
+  });
 });

@@ -5,7 +5,18 @@
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { SECTOR_TAXONOMY } from '@/lib/investor-sector-taxonomy';
+// Prompt 176 §A.1 — was investor-sector-taxonomy.ts's own 22-value flat
+// list (a completely different vocabulary from the startup side's — zero
+// string overlap, e.g. 'fintech' vs 'FinTech & InsurTech'). That mismatch
+// is the root cause investor-match-score.ts's overlaps() always scored
+// sector as 0 for real data (35 of 100 match-score points, silently dead).
+// Now the exact same canonical taxonomy startups use (sector-taxonomy.ts,
+// via SectorPicker.tsx) — see that file's own header for the group
+// structure. `sectorOptions` stays in the response (kept for API-contract
+// stability / any future flat-list consumer) but the client-side picker
+// (InvestorProfilePanel.tsx) no longer reads it — it imports SectorPicker
+// directly, same as the startup side.
+import { ALL_SECTOR_NAMES } from '@/lib/sector-taxonomy';
 import { computeIdentityStatus } from '@/lib/investor-identity';
 import { countDistinctVoucherEntities } from '@/lib/investor-vouching';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
@@ -107,7 +118,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     linked: true, entityName: entity?.name ?? null, profile, completeness: completeness(profile ?? {}),
-    sectorOptions: SECTOR_TAXONOMY, identityStatus,
+    sectorOptions: ALL_SECTOR_NAMES, identityStatus,
     pipelineConfirmedAt: (memberRow?.pipeline_confirmed_at as string | null) ?? null,
   });
 }

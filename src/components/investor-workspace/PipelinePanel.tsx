@@ -297,10 +297,13 @@ export function PipelinePanel({
       berkusTotal: compareEnrichment[c.orgId]?.berkusTotal ?? null,
     }));
   // Prompt 121 §2.3 — option lists built from whatever's actually in the
-  // Pipeline right now (not a fixed taxonomy import): org.sectors is free
-  // text on the founder side (see investor-sector-taxonomy.ts's own
-  // comment), so a filter sourced from a canonical list could easily show
-  // options nothing ever matches. This way every option is guaranteed live.
+  // Pipeline right now (not a fixed taxonomy import), so a filter sourced
+  // from a canonical list could never show an option nothing actually
+  // matches. This way every option is guaranteed live. (Prompt 176 §A fixed
+  // the investor thesis picker's own taxonomy mismatch — this file was
+  // never part of that bug, since it deliberately never imported a fixed
+  // list to begin with; investor-sector-taxonomy.ts, the file this comment
+  // used to point at, no longer exists.)
   const sectorOptions = [...new Set(allCards.flatMap((c) => c.sectors))].sort((a, b) => a.localeCompare(b));
   const countryOptions = [...new Set(allCards.map((c) => c.country).filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b));
   const stageOptions = [...new Set(allCards.map((c) => c.stage).filter((v): v is string => !!v))];

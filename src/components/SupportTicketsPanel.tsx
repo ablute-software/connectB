@@ -26,15 +26,31 @@ const STATUS_COLOR: Record<TicketSummary['status'], string> = {
   waiting_user: 'bg-amber-50 text-amber-800', resolved: 'bg-green-50 text-green-700', closed: 'bg-gray-100 text-gray-500',
 };
 
+// Prompt 176 §B.4 — this hook mounts independently in 3 separate component
+// trees (shell.tsx's sidebar badge, messages/page.tsx's tab badge,
+// InvestorWorkspaceShell.tsx's tab badge), each doing its own one-time
+// fetch on mount — none of them knew when a ticket got read somewhere else
+// in the app, so the badge only ever went stale until the next full page
+// load. TicketThread's own refresh() (below) dispatches this window event
+// every time it successfully loads a ticket (which is also the moment
+// GET /api/support/my-tickets/[id] marks it read server-side — see that
+// route) — every mounted instance of this hook re-fetches in response, no
+// shared state/context needed for 3 independent trees.
+const SUPPORT_TICKET_READ_EVENT = 'sherlock-support-ticket-read';
+
 export function useSupportUnreadCount(): number {
   const [count, setCount] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/support/my-tickets').then((r) => r.json()).then((body) => {
-      if (cancelled || body.ok === false) return;
-      setCount((body.tickets ?? []).filter((t: TicketSummary) => t.unread).length);
-    }).catch(() => {});
-    return () => { cancelled = true; };
+    function load() {
+      fetch('/api/support/my-tickets').then((r) => r.json()).then((body) => {
+        if (cancelled || body.ok === false) return;
+        setCount((body.tickets ?? []).filter((t: TicketSummary) => t.unread).length);
+      }).catch(() => {});
+    }
+    load();
+    window.addEventListener(SUPPORT_TICKET_READ_EVENT, load);
+    return () => { cancelled = true; window.removeEventListener(SUPPORT_TICKET_READ_EVENT, load); };
   }, []);
   return count;
 }
@@ -95,6 +111,11 @@ function TicketThread({ id, onBack }: { id: string; onBack: () => void }) {
     fetch(`/api/support/my-tickets/${id}`).then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
       setTicket(body.ticket); setEvents(body.events);
+      // This GET is also what marks the ticket read server-side (see
+      // /api/support/my-tickets/[id]) — telling every mounted
+      // useSupportUnreadCount() to re-check is what makes the badge drop
+      // immediately instead of only after a full page reload.
+      window.dispatchEvent(new Event(SUPPORT_TICKET_READ_EVENT));
     }).catch(() => setErr('Failed to load.'));
   }
   useEffect(refresh, [id]);

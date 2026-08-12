@@ -9,7 +9,14 @@
 // next batch.
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
-import { SECTOR_TAXONOMY } from '@/lib/investor-sector-taxonomy';
+// Prompt 176 §A.4 — was investor-sector-taxonomy.ts's 22-value list; this
+// filter's own query (`/api/backoffice/metrics/ecosystem`) does
+// `.contains('sectors', [sector])` against `orgs.sectors` directly, which
+// has used the canonical sector-taxonomy.ts vocabulary (via
+// SectorPicker.tsx/IdentityCard.tsx) all along — this dropdown was silently
+// offering options that could never match real org data, same bug class as
+// the investor thesis picker.
+import { ALL_SECTOR_NAMES } from '@/lib/sector-taxonomy';
 
 // orgs.stage's real enum (confirmed via production schema, not guessed) —
 // 7 values, not the 5-value MatchDeal investment_stage_sought domain used
@@ -101,7 +108,7 @@ export function EcosystemTab() {
             Sector
             <select value={sector} onChange={(e) => setSector(e.target.value)} className="mt-0.5 block rounded-lg border border-gray-300 px-2 py-1 text-sm">
               <option value="">All sectors</option>
-              {SECTOR_TAXONOMY.map((s) => <option key={s} value={s}>{s}</option>)}
+              {ALL_SECTOR_NAMES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </label>
           <label className="text-xs text-gray-500">
