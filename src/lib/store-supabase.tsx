@@ -1253,17 +1253,32 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       // Prompt 139 D3 — pack_items/pack.catalog_ids no longer decide what's
       // delivered (kept on disk, inert, for easy rollback); catalog_top_matches
       // does. p_limit is computed here, not inside the function, from a LIVE
-      // read (never the cached client state) of orgs.catalog_quota — an
+      // read (never the cached client state) of the org's quota — an
       // accumulated ceiling that's never lowered (plan-sync.ts), not a
       // "remaining" counter — minus how many catalog entities this org
       // already has, so a second call (once multi-wave exists) still
       // computes correctly instead of assuming today's guard is the only
       // thing preventing a second unlock.
-      const [{ data: orgRow }, { count: deliveredCount }] = await Promise.all([
-        sb.from('orgs').select('catalog_quota').eq('id', o).maybeSingle(),
+      //
+      // Prompt 181 §3 — reads the quota via the catalog_effective_quota()
+      // RPC, not a plain `.from('orgs').select('catalog_quota')`: that RPC
+      // carries the is_ablute_developer() bypass (migration 0166,
+      // effectively unlimited for a confirmed @ablute.pt caller), and a
+      // direct table read would silently keep reading the real, small
+      // stored value regardless of who's calling — the bypass would only
+      // ever affect RLS *visibility* of rows already delivered, never how
+      // many unlockPack is willing to insert in the first place. NOT
+      // plan_catalog_quota() itself — that RPC has no is_org_member check
+      // of its own and had its EXECUTE grant deliberately revoked from
+      // `authenticated` in migration 0134 (a real RLS-bypass data leak,
+      // confirmed exploitable with just the publishable key) —
+      // catalog_effective_quota() is the properly org-scoped, safe-to-call
+      // sibling added alongside it.
+      const [{ data: quotaData }, { count: deliveredCount }] = await Promise.all([
+        sb.rpc('catalog_effective_quota', { check_org: o }),
         sb.from('catalog_deliveries').select('catalog_id', { count: 'exact', head: true }).eq('org_id', o),
       ]);
-      const quota = (orgRow as { catalog_quota: number | null } | null)?.catalog_quota ?? 0;
+      const quota = typeof quotaData === 'number' ? quotaData : 0;
       const pLimit = Math.max(0, quota - (deliveredCount ?? 0));
       if (pLimit === 0) return 0;
 

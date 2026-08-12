@@ -49,17 +49,39 @@ export interface PipelineUnlockInput {
   eligiblePoolSize: number;
 }
 
+// Prompt 181 — month 1's (base + bonuses) is now CAPPED at
+// PLAN_PIPELINE_MONTHLY_ADDITION[tier] (10/25/50), not summed without
+// limit: filling in EVERY bonus (deck+business plan+13 Vault folders+first
+// out/in/manual = 5+5+13+1+1+1 = 26) used to land idea-tier at 31
+// (base 5 + bonus 26) — the prompt's own example of the bug it closes.
+// From month 2 on, the existing monthly term (PLAN_PIPELINE_MONTHLY_ADDITION
+// * months, unchanged) keeps adding on top of that capped month-1 value,
+// uncapped.
+//
+// DEVIATION from the prompt's own literal sub-formula, flagged: it describes
+// "PLAN_PIPELINE_BASE[tier] + min(bónus, PLAN_PIPELINE_MONTHLY_ADDITION[tier])",
+// i.e. capping the BONUS alone. That does not reconcile with the prompt's own
+// stated ceiling (10/25/50) or its own "Disciplina de sempre" test/worked
+// table (month1=10/25/50, month2=20/50/100, month3=30/75/150): base(5)+
+// min(bonus,10)=5+10=15 for idea, not 10. The numbers only reconcile when
+// base+bonus TOGETHER are capped at PLAN_PIPELINE_MONTHLY_ADDITION[tier]:
+// min(5+26,10)=10 (idea), min(10+26,25)=25 (garage), min(25+26,50)=50
+// (motherfunding) — exactly the prompt's own stated 10/25/50, and month2/3
+// (+10 or +25 or +50 per month on top) reproduce its worked table exactly.
+// Implemented against the numbers the prompt actually commits to (the
+// ceiling + the test), not its own inconsistent prose formula.
 export function visiblePipelineSize(input: PipelineUnlockInput): number {
   if (!input.profileGateComplete) return 0;
   const folders = Math.max(0, Math.min(input.presetFoldersWithFile, input.presetFolderCount));
   const months = Math.max(0, Math.floor(input.completeMonthsSinceUnlock));
-  const raw = PLAN_PIPELINE_BASE[input.planTier]
+  const baseAndBonuses = PLAN_PIPELINE_BASE[input.planTier]
     + (input.investorDeckUploaded ? DECK_BONUS : 0)
     + (input.businessPlanUploaded ? BUSINESS_PLAN_BONUS : 0)
     + folders * FOLDER_BONUS
     + (input.firstOutboundLogged ? FIRST_OUTBOUND_BONUS : 0)
     + (input.firstInboundLogged ? FIRST_INBOUND_BONUS : 0)
-    + (input.firstManualAddLogged ? FIRST_MANUAL_ADD_BONUS : 0)
+    + (input.firstManualAddLogged ? FIRST_MANUAL_ADD_BONUS : 0);
+  const raw = Math.min(baseAndBonuses, PLAN_PIPELINE_MONTHLY_ADDITION[input.planTier])
     + PLAN_PIPELINE_MONTHLY_ADDITION[input.planTier] * months;
   return Math.min(raw, Math.max(0, input.eligiblePoolSize));
 }
