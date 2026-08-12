@@ -6,11 +6,16 @@
 // comment on why that fetch is lazy, only-when-comparing).
 //
 // Prompt 169 §A — enrichment rows added: Scorecard (this investor's own
-// weighted average), Berkus estimate (sum of their 5 factors), and a
-// condensed TAM/SAM/SOM line. All three are per-investor private judgment
-// or already-disclosed dossier data — nothing new is computed or inferred
-// here, this just surfaces numbers that already existed elsewhere in the
-// app on one row each.
+// weighted average) and Berkus estimate (sum of their 5 factors). Both are
+// per-investor private judgment, nothing new computed or inferred here —
+// this just surfaces numbers that already existed elsewhere in the app on
+// one row each.
+//
+// Prompt 174 — a TAM/SAM/SOM row briefly existed here too (same commit as
+// the above) but Prompt 169b had already cancelled that before this landed:
+// TAM/SAM/SOM has no reliable source today, Nuno's decision (repeated
+// twice) is not to surface it anywhere in the product, comparison included.
+// Reverted — do not re-add without an explicit new go-ahead.
 interface Card {
   orgId: string; name: string; oneLiner: string | null; sectors: string[]; stage: string | null;
   roundTargetEur: number | null; roundValuationEur: number | null; matchScore: number; matchReasons: string[];
@@ -19,27 +24,12 @@ interface Card {
   /** Sum of this investor's own 5 Berkus factors for this org — undefined/null if never estimated
    *  (never 0, which would be indistinguishable from "estimated at zero"). */
   berkusTotal?: number | null;
-  tamEur?: number | null;
-  samEur?: number | null;
-  somEur?: number | null;
 }
 
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
 
 function fmtEur(n: number | null | undefined) {
   return n == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
-}
-// Local, deliberately not lib/format-money.ts's fmtRoundEur (that one's own
-// header says it's dedicated to Round Progress specifically) — TAM/SAM/SOM
-// are typically 7-8 figure market sizes, so the same "spell out under €1M,
-// abbreviate to m/b above it" shape is wanted here too, just kept local
-// since this is the only place in this file that needs it.
-function fmtEurCompact(n: number | null | undefined) {
-  if (n == null) return null;
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000_000) return `€${Math.round((n / 1_000_000_000) * 10) / 10}b`;
-  if (abs >= 1_000_000) return `€${Math.round((n / 1_000_000) * 10) / 10}m`;
-  return fmtEur(n);
 }
 
 const ROWS: { label: string; render: (c: Card) => string }[] = [
@@ -52,17 +42,6 @@ const ROWS: { label: string; render: (c: Card) => string }[] = [
   { label: 'Match reasons', render: (c) => (c.matchReasons.length ? c.matchReasons.join(', ') : '—') },
   { label: 'Scorecard (yours)', render: (c) => (c.scorecardAvg != null ? `${c.scorecardAvg}/10` : '—') },
   { label: 'Berkus estimate (yours)', render: (c) => (c.berkusTotal != null ? fmtEur(c.berkusTotal) : '—') },
-  {
-    label: 'TAM / SAM / SOM',
-    render: (c) => {
-      const parts = [
-        c.tamEur != null && `TAM ${fmtEurCompact(c.tamEur)}`,
-        c.samEur != null && `SAM ${fmtEurCompact(c.samEur)}`,
-        c.somEur != null && `SOM ${fmtEurCompact(c.somEur)}`,
-      ].filter((v): v is string => !!v);
-      return parts.length ? parts.join(' · ') : '—';
-    },
-  },
 ];
 
 export function ComparisonView({ cards, onClose }: { cards: Card[]; onClose: () => void }) {

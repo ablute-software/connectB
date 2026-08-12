@@ -171,34 +171,30 @@ export function PipelinePanel({
       .catch(() => setScorecardAvgs({}));
   }, []);
 
-  // Prompt 169 §A — Berkus total + TAM/SAM/SOM for the comparison table.
-  // Deliberately lazy (only once the comparator is actually shown, only for
-  // the up-to-3 orgIds being compared) — unlike scorecardAvgs above (one
-  // cheap summary call covering every org at once), Berkus has no batch
-  // endpoint and TAM/SAM/SOM only exists on the full dossier route
-  // (/api/portal/startup/[orgId], the same route Prompt 166/167/168 already
-  // load a lot from) — firing that for every Pipeline card on every page
-  // load would be real, unnecessary load for a table almost nobody opens.
-  const [compareEnrichment, setCompareEnrichment] = useState<Record<string, {
-    berkusTotal: number | null; tamEur: number | null; samEur: number | null; somEur: number | null;
-  }>>({});
+  // Prompt 169 §A — Berkus total for the comparison table. Deliberately
+  // lazy (only once the comparator is actually shown, only for the up-to-3
+  // orgIds being compared) — unlike scorecardAvgs above (one cheap summary
+  // call covering every org at once), Berkus has no batch endpoint, so
+  // firing it for every Pipeline card on every page load would be real,
+  // unnecessary load for a table almost nobody opens.
+  //
+  // Prompt 174 — this used to also fetch TAM/SAM/SOM off the full dossier
+  // route (/api/portal/startup/[orgId]) alongside Berkus; Prompt 169b had
+  // already cancelled surfacing TAM/SAM/SOM anywhere (unreliable source,
+  // Nuno's decision, repeated twice) before that landed. Reverted — Berkus
+  // stays, the dossier fetch and its fields are gone.
+  const [compareEnrichment, setCompareEnrichment] = useState<Record<string, { berkusTotal: number | null }>>({});
   useEffect(() => {
     if (!showComparison || compareIds.length === 0) return;
     const missing = compareIds.filter((id) => !(id in compareEnrichment));
     if (missing.length === 0) return;
     Promise.all(missing.map(async (orgId) => {
-      const [berkusRes, dossierRes] = await Promise.all([
-        fetch(`/api/portal/berkus?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).catch(() => ({ estimate: null })),
-        fetch(`/api/portal/startup/${orgId}`).then((r) => r.json()).catch(() => ({ dossier: {} })),
-      ]);
+      const berkusRes = await fetch(`/api/portal/berkus?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).catch(() => ({ estimate: null }));
       const estimate = berkusRes.estimate as { sound_idea_eur: number; prototype_eur: number; team_eur: number; relationships_eur: number; sales_eur: number } | null;
       const berkusTotal = estimate
         ? estimate.sound_idea_eur + estimate.prototype_eur + estimate.team_eur + estimate.relationships_eur + estimate.sales_eur
         : null;
-      const overview = dossierRes.dossier?.overview as { tam_eur?: number | null; sam_eur?: number | null; som_eur?: number | null } | undefined;
-      return [orgId, {
-        berkusTotal, tamEur: overview?.tam_eur ?? null, samEur: overview?.sam_eur ?? null, somEur: overview?.som_eur ?? null,
-      }] as const;
+      return [orgId, { berkusTotal }] as const;
     })).then((entries) => {
       setCompareEnrichment((prev) => {
         const next = { ...prev };
@@ -292,16 +288,13 @@ export function PipelinePanel({
 
   const allCards = waves.flatMap((w) => w.items);
   // Prompt 169 §A — the enrichment merge itself. scorecardAvgs already
-  // covers every org (cheap summary call, not lazy); berkus/tam/sam/som
-  // come from compareEnrichment, only populated for orgIds actually being
-  // compared (see that state's own comment above).
+  // covers every org (cheap summary call, not lazy); berkus comes from
+  // compareEnrichment, only populated for orgIds actually being compared
+  // (see that state's own comment above).
   const compareCards = compareIds.map((id) => allCards.find((c) => c.orgId === id)).filter((c): c is Card => !!c)
     .map((c) => ({
       ...c, scorecardAvg: scorecardAvgs[c.orgId] ?? null,
       berkusTotal: compareEnrichment[c.orgId]?.berkusTotal ?? null,
-      tamEur: compareEnrichment[c.orgId]?.tamEur ?? null,
-      samEur: compareEnrichment[c.orgId]?.samEur ?? null,
-      somEur: compareEnrichment[c.orgId]?.somEur ?? null,
     }));
   // Prompt 121 §2.3 — option lists built from whatever's actually in the
   // Pipeline right now (not a fixed taxonomy import): org.sectors is free
