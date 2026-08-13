@@ -4,7 +4,21 @@
 // the audit log for a human to reconcile later. Every merged row's name
 // becomes an alias of the keeper so future duplicate detection catches it
 // (and future imports can match it) without re-doing this work.
+//
+// Prompt 187 §A — extended to accept a manualEntityId (an `entities`
+// row, source='manual') as the field source INSTEAD of mergeIds, per the
+// prompt's own explicit instruction to reuse this route rather than build
+// a second one. Deliberately a separate code path, not the same one with
+// entities rows mixed into `losers`: a manual entity is a live CRM row
+// that belongs to some founder's own org — it is never deleted, aliased,
+// or re-pointed the way a losing catalog_entities row is (pack_items/
+// catalog_deliveries/investor_submissions all reference catalog_entities
+// ids specifically; none of that applies to an entities row). Only the
+// keeper's own empty fields get filled in; everything after the merge
+// completes with the manual entity untouched, still living in its own
+// org's pipeline exactly as before.
 import { NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { logAdminAction } from '@/lib/audit';
 
@@ -17,13 +31,57 @@ function isEmpty(v: unknown): boolean {
   return v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
 }
 
+async function mergeFromManualEntity(admin: SupabaseClient, userId: string, keepId: string, manualEntityId: string) {
+  const { data: keeper, error: keeperErr } = await admin.from('catalog_entities').select('*').eq('id', keepId).maybeSingle();
+  if (keeperErr) return NextResponse.json({ ok: false, error: keeperErr.message }, { status: 500 });
+  if (!keeper) return NextResponse.json({ ok: false, error: 'keepId not found.' }, { status: 404 });
+
+  const { data: manual, error: manualErr } = await admin.from('entities')
+    .select('id, org_id, name, hq_city, hq_country, invests_in_geographies, stage_min, stage_max, check_min_eur, check_max_eur, sectors, thesis, website, source')
+    .eq('id', manualEntityId).maybeSingle();
+  if (manualErr) return NextResponse.json({ ok: false, error: manualErr.message }, { status: 500 });
+  if (!manual) return NextResponse.json({ ok: false, error: 'manualEntityId not found.' }, { status: 404 });
+  if (manual.source !== 'manual') return NextResponse.json({ ok: false, error: 'Not a manually-added entity.' }, { status: 400 });
+
+  // `entities.invests_in_geographies` maps onto catalog_entities.geographies
+  // — different column names, same concept — so it's handled explicitly
+  // rather than folded into the field-name-identical MERGEABLE_FIELDS loop.
+  const manualAsCatalogShape: Record<string, unknown> = { ...manual, geographies: manual.invests_in_geographies };
+
+  const patch: Record<string, unknown> = {};
+  const conflicts: Record<string, unknown[]> = {};
+  for (const field of [...MERGEABLE_FIELDS, 'geographies'] as const) {
+    const keeperVal = (keeper as Record<string, unknown>)[field];
+    if (!isEmpty(keeperVal)) continue;
+    const manualVal = manualAsCatalogShape[field];
+    if (isEmpty(manualVal)) continue;
+    patch[field] = manualVal;
+  }
+
+  if (Object.keys(patch).length > 0) {
+    const { error } = await admin.from('catalog_entities').update(patch).eq('id', keepId);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+
+  await logAdminAction(admin, {
+    adminUserId: userId, action: 'catalog_merge_from_manual', subjectType: 'catalog_entity', subjectId: keepId,
+    detail: { fromEntityId: manual.id, fromOrgId: manual.org_id, fieldsFilled: patch, conflicts },
+  });
+
+  return NextResponse.json({ ok: true, keptId: keepId, mergedCount: 1, conflicts });
+}
+
 export async function POST(req: Request) {
   const auth = await requirePlatformAdmin();
   if ('error' in auth) return auth.error;
   const { admin, userId } = auth;
 
-  const { keepId, mergeIds } = await req.json() as { keepId?: string; mergeIds?: string[] };
-  if (!keepId || !mergeIds?.length) return NextResponse.json({ ok: false, error: 'keepId and mergeIds are required.' }, { status: 400 });
+  const { keepId, mergeIds, manualEntityId } = await req.json() as { keepId?: string; mergeIds?: string[]; manualEntityId?: string };
+  if (!keepId) return NextResponse.json({ ok: false, error: 'keepId is required.' }, { status: 400 });
+
+  if (manualEntityId) return mergeFromManualEntity(admin, userId, keepId, manualEntityId);
+
+  if (!mergeIds?.length) return NextResponse.json({ ok: false, error: 'mergeIds or manualEntityId is required.' }, { status: 400 });
   if (mergeIds.includes(keepId)) return NextResponse.json({ ok: false, error: 'keepId cannot also be in mergeIds.' }, { status: 400 });
 
   const { data: rows, error: rowsErr } = await admin.from('catalog_entities').select('*').in('id', [keepId, ...mergeIds]);

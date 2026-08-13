@@ -11,18 +11,40 @@ export async function GET() {
   if ('error' in auth) return auth.error;
   const { admin } = auth;
 
-  const [{ data: catalog, error }, { data: aliases }] = await Promise.all([
+  // Prompt 187 §C — catalog_people (via catalog_person_affiliations, the
+  // real join table — catalog_people.entity_id itself is "convenience
+  // only, NOT source of truth" per its own migration comment) joined in so
+  // the UI can finally show contacts that already exist: 1075 real rows in
+  // production, 335 of 534 catalog entities already have someone attached,
+  // and the old GET here never read this table at all.
+  const [{ data: catalog, error }, { data: aliases }, { data: affiliations }] = await Promise.all([
     admin.from('catalog_entities').select('*').order('created_at', { ascending: false }),
     admin.from('entity_aliases').select('catalog_id, alias'),
+    admin.from('catalog_person_affiliations')
+      .select('entity_id, title, is_primary, catalog_people(id, full_name, linkedin_url, hook_status, do_not_contact)'),
   ]);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   const aliasByEntity = new Map<string, string[]>();
   for (const a of aliases ?? []) aliasByEntity.set(a.catalog_id, [...(aliasByEntity.get(a.catalog_id) ?? []), a.alias]);
 
+  type ContactRow = { id: string; fullName: string; linkedinUrl: string | null; hookStatus: string; doNotContact: boolean; title: string | null; isPrimary: boolean };
+  const contactsByEntity = new Map<string, ContactRow[]>();
+  for (const a of affiliations ?? []) {
+    const person = a.catalog_people as unknown as { id: string; full_name: string; linkedin_url: string | null; hook_status: string; do_not_contact: boolean } | null;
+    if (!person) continue;
+    const entityId = a.entity_id as string;
+    const row: ContactRow = {
+      id: person.id, fullName: person.full_name, linkedinUrl: person.linkedin_url,
+      hookStatus: person.hook_status, doNotContact: person.do_not_contact,
+      title: a.title as string | null, isPrimary: !!a.is_primary,
+    };
+    contactsByEntity.set(entityId, [...(contactsByEntity.get(entityId) ?? []), row]);
+  }
+
   return NextResponse.json({
     ok: true,
-    catalog: (catalog ?? []).map((c) => ({ ...c, aliases: aliasByEntity.get(c.id) ?? [] })),
+    catalog: (catalog ?? []).map((c) => ({ ...c, aliases: aliasByEntity.get(c.id) ?? [], contacts: contactsByEntity.get(c.id) ?? [] })),
   });
 }
 
