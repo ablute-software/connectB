@@ -22,6 +22,16 @@ import type { Db, Entity, TaskItem } from '@/lib/types';
 const fitOrder = { high: 0, medium_high: 1, medium: 2, low: 3 };
 const SORT_STORAGE_KEY = 'ablute-pipeline-sort-v1';
 
+// Prompt 188 §1 — measured in the actual render (demo data, DevTools),
+// not guessed: thead is 32.5px, a single-line row (no relationship line,
+// no reopen-trigger note, no wrapped next-action text) is 57px. Rows with
+// that extra content wrap taller — table cells wrap instead of truncating
+// by design (see the SORT_COLUMNS comment above) — so a wave with a lot of
+// annotated rows will show a little under 15 before the scrollbar kicks
+// in; there's no fixed-height table design that avoids that trade-off
+// without truncating content the app deliberately never truncates.
+const PIPELINE_LIST_MAX_HEIGHT_PX = 888; // 32.5 (thead) + 15 * 57 (row), rounded up
+
 // Column widths sum to 100% — table-fixed (below) then holds the table to
 // the container's width at every "wave" filter setting instead of growing
 // with content and forcing horizontal scroll. Cell text wraps instead of
@@ -455,7 +465,14 @@ export default function PipelinePage() {
         <button data-tour-id="pipeline-import" onClick={() => setAddInvestorOpen(true)} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-[#0E7490] hover:bg-[#E8F4F8]">+ Add investor</button>
       </div>
 
-      <div data-tour-id="pipeline-list" className="overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-sm">
+      {/* Prompt 188 §1 — own vertical scroll capped at ~15 rows so the
+          list doesn't grow the whole page; max-height (not a hard height)
+          so a short pipeline still shrinks to fit instead of leaving dead
+          white space below it — "altura fixa" read literally would do
+          that for every org with fewer than 15 unlocked investors, which
+          is most of them today, so this reads the requirement as "cap at
+          15, don't force it" rather than the literal words. */}
+      <div data-tour-id="pipeline-list" className="overflow-x-auto overflow-y-auto rounded-2xl border border-gray-100 bg-white shadow-sm" style={{ maxHeight: PIPELINE_LIST_MAX_HEIGHT_PX }}>
         {/* table-fixed + explicit column widths (colgroup) so the table
             holds to the container's width at every wave filter setting
             instead of growing with content and forcing horizontal scroll;
@@ -557,53 +574,73 @@ export default function PipelinePage() {
             })}
           </tbody>
         </table>
+
+        {/* Blocked-by-plan panel — Prompt 188 §2: moved inside the same
+            scroll container as a visual continuation of the list (same
+            width, no border/rounded/shadow of its own to read as a
+            separate card), sitting immediately after the last row. Purely
+            a count (blockedCount, from the catalog_blocked_count RPC); the
+            blocked rows themselves are never fetched, so there's nothing
+            here to hide via CSS or draw behind the glass — the "vidro
+            fosco" effect comes from the geometry (same container, flush to
+            the last row), not from simulated ghost rows.
+
+            Prompt 179 §C, updated by 180 and 188 — two distinct messages.
+            Whether an upgrade CTA makes sense depends on whether this org's
+            accumulated catalog_quota has already reached the target the
+            pipeline-unlock formula currently computes for it (unlock.
+            catalogQuotaTarget — same base+bonuses formula as the badge
+            above, uncapped; CATALOG_QUOTA/plans.ts, the old fixed 3/15/40
+            constant this used to compare against, is retired — see
+            plans.ts's own header): below it, catalog_quota just hasn't
+            caught up to its own live target yet (the next poll of
+            /api/pipeline-unlock raises it) — no reason to push an upgrade.
+            At or above it (atTarget), §188 §3 replaces the old exact-count
+            "N blocked" copy with a vaguer one and gates the upgrade CTA on
+            db.org.plan — NOT on getInvestorPlan/INVESTOR_PLANS/
+            legendary_sleuth as the prompt's text names them: that function
+            doesn't exist anywhere in this codebase (confirmed by grep), and
+            INVESTOR_PLANS/pro_scout/ace_spotter/legendary_sleuth is the
+            unrelated taxonomy for what INVESTORS themselves buy (Pro
+            Scout/Ace Spotter/The Legendary Sleuth SaaS seats — see
+            plans.ts's own INVESTOR_PLANS block). This page is the
+            FOUNDER's pipeline, gated by the founder's own org.plan
+            (idea/garage/motherfunding — PLAN_TIERS, same tier the
+            pipeline-unlock formula above already keys off), so
+            'motherfunding' is this page's actual max tier. Flagging this
+            as a deviation from the prompt's literal wording rather than
+            inventing a new lookup or importing an unrelated one. */}
+        {blockedCount > 0 && (() => {
+          const target = unlock?.catalogQuotaTarget ?? 0;
+          const atTarget = (db.org.catalog_quota ?? 0) >= target;
+          const onMaxPlan = db.org.plan === 'motherfunding';
+          return (
+            <div className="bg-white/60 p-6 text-center backdrop-blur-sm">
+              <div className="text-2xl">🔒</div>
+              {atTarget ? (
+                <>
+                  <p className="mt-2 text-sm font-medium text-gray-700">Thousands of investors are waiting in the catalog.</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Your next monthly batch unlocks automatically{onMaxPlan ? '.' : ' — or upgrade your plan to unlock more now.'}
+                  </p>
+                  {!onMaxPlan && (
+                    <Link href="/plans" className="mt-3 inline-block rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#0c637b]">
+                      View plans
+                    </Link>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="mt-2 text-sm font-medium text-gray-700">New matching investors are delivered automatically.</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Next batch arrives {nextMonthlyDeliveryDate(new Date().toISOString()).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}.
+                  </p>
+                </>
+              )}
+            </div>
+          );
+        })()}
       </div>
-
-      {/* Blocked-by-plan panel — appears right after the last unlocked
-          investor. Purely a count (blockedCount, from the catalog_blocked_
-          count RPC); the blocked rows themselves are never fetched, so
-          there's nothing here to hide via CSS — this section has no data
-          about the blocked entities at all, by construction.
-
-          Prompt 179 §C, updated by Prompt 180 — two distinct messages, not
-          one. Whether an upgrade CTA makes sense depends on whether this
-          org's accumulated catalog_quota has already reached the target the
-          pipeline-unlock formula currently computes for it (unlock.
-          catalogQuotaTarget — same base+bonuses formula as the badge above,
-          uncapped; CATALOG_QUOTA/plans.ts, the old fixed 3/15/40 constant
-          this used to compare against, is retired — see plans.ts's own
-          header): below it, catalog_quota just hasn't caught up to its own
-          live target yet (the next poll of /api/pipeline-unlock raises it)
-          — no reason to push an upgrade. At or above it, the founder has
-          already gotten everything the current formula computes for their
-          plan; upgrading is what would raise the formula's own inputs (a
-          higher PLAN_PIPELINE_BASE/MONTHLY_ADDITION tier) going forward, so
-          the CTA is honest here. */}
-      {blockedCount > 0 && (() => {
-        const target = unlock?.catalogQuotaTarget ?? 0;
-        const atTarget = (db.org.catalog_quota ?? 0) >= target;
-        return (
-          <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white/60 p-6 text-center shadow-sm backdrop-blur-sm">
-            <div className="text-2xl">🔒</div>
-            {atTarget ? (
-              <>
-                <p className="mt-2 text-sm font-medium text-gray-700">More catalog investors are blocked on your current plan.</p>
-                <p className="mt-1 text-xs text-gray-500">{blockedCount} additional catalog investor{blockedCount === 1 ? '' : 's'} available with an upgrade.</p>
-                <Link href="/plans" className="mt-3 inline-block rounded-lg bg-[#0E7490] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#0c637b]">
-                  View plans
-                </Link>
-              </>
-            ) : (
-              <>
-                <p className="mt-2 text-sm font-medium text-gray-700">New matching investors are delivered automatically.</p>
-                <p className="mt-1 text-xs text-gray-500">
-                  Next batch arrives {nextMonthlyDeliveryDate(new Date().toISOString()).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}.
-                </p>
-              </>
-            )}
-          </div>
-        );
-      })()}
 
       {addInvestorOpen && <AddInvestorModal onClose={() => setAddInvestorOpen(false)} />}
 

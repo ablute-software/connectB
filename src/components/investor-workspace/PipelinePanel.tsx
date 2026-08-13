@@ -10,6 +10,19 @@ import { InteractionLogDrawer } from './InteractionLogDrawer';
 
 const MAX_COMPARE = 3;
 
+// Prompt 189 — measured in the actual render (a scratch element built from
+// this file's own collapsed-card markup, at the panel's own max-w-2xl
+// width), not guessed: a collapsed card is ~69.6px, not the ~52-60px the
+// P134-A comment above estimates. 15 cards + 14 gaps at the list's own
+// space-y-3 (12px): 15*69.6 + 14*12 = 1212, rounded. This assumes a single
+// flowing wave (the common case) — a wave label (waves.length > 1) or a
+// LockedWave block (7 skeleton rows, ~464px) both count as "one item" in
+// the same scroll per this prompt's own instruction not to special-case
+// them, so the visible count will vary a little around 15 when either
+// shows up, the same trade-off the founder-side table (Prompt 188) has
+// with its own variable row heights.
+const PIPELINE_CARD_LIST_MAX_HEIGHT_PX = 1212;
+
 interface Card {
   orgId: string; name: string; oneLiner: string | null;
   // P134-A — the fuller MatchDeal description, shown only once a row is
@@ -426,7 +439,13 @@ export function PipelinePanel({
         <ComparisonView cards={compareCards} onClose={() => setShowComparison(false)} />
       )}
 
-      <div data-tour-id="investor-pipeline-list" className="space-y-4">
+      {/* Prompt 189 — own vertical scroll capped at ~15 cards so the list
+          doesn't grow the whole page; max-height (not a hard height) so a
+          short pipeline still shrinks to fit rather than leaving dead
+          white space below it, same reasoning as the founder-side table
+          (Prompt 188 §1). Wave-unlock mechanism and LockedWave are
+          untouched — they scroll normally as part of this same list. */}
+      <div data-tour-id="investor-pipeline-list" className="space-y-4 overflow-y-auto" style={{ maxHeight: PIPELINE_CARD_LIST_MAX_HEIGHT_PX }}>
       {waves.map((wave) => (
         <div key={wave.index} id={`wave-${wave.index}`}>
           {waves.length > 1 && (
