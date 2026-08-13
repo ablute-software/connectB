@@ -1,16 +1,16 @@
 'use client';
 // BLOCO 3 — Catálogo: catalog_entities CRUD, the merge-duplicates tool
-// (§9b-3, "ferramenta prioritária"), packs, the quality panel (completeness
-// + enrichment queue + Research AI — moved here from the old single-page
-// back-office), and the cross-org distribution log.
+// (§9b-3, "ferramenta prioritária"), packs, and the cross-org distribution
+// log.
 //
-// Prompt 187 — two tabs now: "Catalog" (search + filters + per-row
-// contacts) and "Added by startups" (every org's manually-added `entities`
-// rows, cross-referenced against the catalog for duplicates, with
-// merge/promote actions; Quality folded in here too since both read the
-// same entities/people tables — see §D, "Recomendo a segunda opção").
+// Prompt 187 added filters + a per-row contacts panel here (both stay).
+// Prompt 187 also added an "Added by startups" tab + the Quality panel
+// folded into it — Prompt 190 moved BOTH out to backoffice/queue (a new
+// "Catalog candidates" tab, alongside Contributions) per Nuno's explicit
+// decision that review work belongs in the Queue, not hidden inside
+// Catalog. This page is back to a single view, same as before 187.
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Card, Tabs } from '@/components/ui';
+import { Card } from '@/components/ui';
 
 type ContactRow = {
   id: string; fullName: string; linkedinUrl: string | null; hookStatus: string;
@@ -448,276 +448,7 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
   );
 }
 
-type EnrichmentRow = {
-  subjectType: 'entity' | 'person'; name: string; orgCount: number; activeCount: number;
-  requestCount: number; minPercent: number; missing: string[]; demand: number;
-};
-type ResearchResult = {
-  status: 'loading' | 'not_configured' | 'error' | 'done';
-  message?: string;
-  proposals?: { field: string; value: string; confidence: number; source_url: string }[];
-  appliedToOrgs?: number;
-};
-
-function EnrichmentQueueTable({ title, subtitle, emptyLabel, queue, research, onResearch }: {
-  title: string; subtitle: string; emptyLabel: string; queue: EnrichmentRow[];
-  research: Record<string, ResearchResult>; onResearch: (subjectType: 'entity' | 'person', name: string) => void;
-}) {
-  return (
-    <Card title={`${title} (${queue.length})`}>
-      <p className="mb-3 text-xs text-gray-500">{subtitle}</p>
-      {queue.length === 0 ? <p className="text-sm text-gray-400">{emptyLabel}</p> : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400"><th className="py-1.5">Subject</th><th>Type</th><th>Demand</th><th>Worst</th><th>Missing</th><th></th></tr>
-          </thead>
-          <tbody>
-            {queue.map((r) => {
-              const key = `${r.subjectType}:${r.name}`;
-              const rr = research[key];
-              return (
-                <tr key={key} className="border-t border-gray-50 align-top">
-                  <td className="py-2 font-medium">{r.name}</td>
-                  <td className="text-gray-500">{r.subjectType}</td>
-                  <td className="text-gray-600" title={`${r.activeCount} active org(s) · ${r.requestCount} explicit request(s)`}>{r.demand}</td>
-                  <td className="text-gray-600">{r.minPercent}%</td>
-                  <td className="text-xs text-gray-500">
-                    {r.missing.join(', ')}
-                    {rr && (
-                      <div className="mt-1">
-                        {rr.status === 'loading' && <span className="text-gray-400">Researching…</span>}
-                        {rr.status === 'not_configured' && <span className="text-amber-700">{rr.message}</span>}
-                        {rr.status === 'error' && <span className="text-[#B00000]">{rr.message}</span>}
-                        {rr.status === 'done' && (rr.proposals && rr.proposals.length > 0
-                          ? <div className="text-cyan-800">{rr.proposals.length} field(s) proposed → queued for {rr.appliedToOrgs} org(s).</div>
-                          : <span className="text-gray-400">{rr.message ?? 'No confident findings.'}</span>)}
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    <button onClick={() => onResearch(r.subjectType, r.name)} disabled={rr?.status === 'loading'}
-                      className="whitespace-nowrap rounded-lg border border-cyan-200 px-2 py-1 text-xs text-cyan-800 hover:bg-cyan-50 disabled:opacity-40">
-                      ✨ Research with AI
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </Card>
-  );
-}
-
-function QualityPanel() {
-  // Two separate queues (DECISIONS.md, follow-up to cc11161): the
-  // original profile queue (people + entities below the firmographic
-  // threshold, unchanged calibration) and a new entity-only contact queue
-  // using the actionable rule (firmographic already >=70%, zero contact
-  // fields) — a raw percent cutoff on the contact score alone would flag
-  // nearly the whole base, which isn't a usable signal.
-  const [profileQueue, setProfileQueue] = useState<EnrichmentRow[] | null>(null);
-  const [contactQueue, setContactQueue] = useState<EnrichmentRow[] | null>(null);
-  const [err, setErr] = useState('');
-  const [research, setResearch] = useState<Record<string, ResearchResult>>({});
-
-  useEffect(() => {
-    fetch('/api/backoffice/enrichment').then((r) => r.json()).then((body) => {
-      if (body.ok === false) { setErr(body.error); return; }
-      setProfileQueue(body.profileQueue);
-      setContactQueue(body.contactQueue);
-    });
-  }, []);
-
-  async function researchRow(subjectType: 'entity' | 'person', name: string) {
-    const key = `${subjectType}:${name}`;
-    setResearch((prev) => ({ ...prev, [key]: { status: 'loading' } }));
-    try {
-      const res = await fetch('/api/backoffice/research', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subjectType, name }) });
-      const body = await res.json();
-      if (body.configured === false) setResearch((prev) => ({ ...prev, [key]: { status: 'not_configured', message: body.message } }));
-      else if (body.ok === false) setResearch((prev) => ({ ...prev, [key]: { status: 'error', message: body.error } }));
-      else setResearch((prev) => ({ ...prev, [key]: { status: 'done', proposals: body.proposals, appliedToOrgs: body.appliedToOrgs, message: body.message } }));
-    } catch (e) {
-      setResearch((prev) => ({ ...prev, [key]: { status: 'error', message: (e as Error).message } }));
-    }
-  }
-
-  if (err) return <Card title="Quality — enrichment queue"><p className="text-sm text-[#B00000]">{err}</p></Card>;
-  if (!profileQueue || !contactQueue) return <Card title="Quality — enrichment queue"><p className="text-sm text-gray-400">Loading…</p></Card>;
-
-  return (
-    <div className="space-y-4">
-      <EnrichmentQueueTable
-        title="Quality — profiles below 70% (firmographic)"
-        subtitle="Ranked by demand. &quot;Research with AI&quot; proposes fields with source + confidence, queued for verification in Queue → Contributions."
-        emptyLabel="Nothing below the firmographic completeness threshold right now."
-        queue={profileQueue} research={research} onResearch={researchRow}
-      />
-      <EnrichmentQueueTable
-        title="Quality — contact gaps"
-        subtitle="Entities already firmographically solid (≥70%) but with zero contact fields on file — the actionable follow-up list for the direct-research program."
-        emptyLabel="No firmographically-qualified entity has zero contact data right now."
-        queue={contactQueue} research={research} onResearch={researchRow}
-      />
-    </div>
-  );
-}
-
-type ManualEntity = {
-  id: string; orgId: string; orgName: string; name: string; website: string | null;
-  hqCity: string | null; hqCountry: string | null; geographies: string[] | null;
-  stageMin: string | null; stageMax: string | null; checkMinEur: number | null; checkMaxEur: number | null;
-  sectors: string[]; thesis: string | null; email: string | null; phone: string | null; createdAt: string;
-  likelyDuplicate: { catalogId: string; reason: 'domain' | 'name' | 'alias'; catalogEntity: { id: string; name: string; website: string | null; verificationStatus: string } } | null;
-};
-
-function CompareTable({ manual, catalogEntity }: { manual: ManualEntity; catalogEntity: CatalogEntity }) {
-  const rows: [string, string, string][] = [
-    ['Website', manual.website ?? '—', catalogEntity.website ?? '—'],
-    ['HQ', [manual.hqCity, manual.hqCountry].filter(Boolean).join(', ') || '—', [catalogEntity.hq_city, catalogEntity.hq_country].filter(Boolean).join(', ') || '—'],
-    ['Geographies', manual.geographies?.join(', ') || '—', catalogEntity.geographies?.join(', ') || '—'],
-    ['Stage', fmtStage(manual.stageMin, manual.stageMax), fmtStage(catalogEntity.stage_min, catalogEntity.stage_max)],
-    ['Check', fmtCheck(manual.checkMinEur, manual.checkMaxEur), fmtCheck(catalogEntity.check_min_eur, catalogEntity.check_max_eur)],
-    ['Sectors', manual.sectors.join(', ') || '—', catalogEntity.sectors.join(', ') || '—'],
-  ];
-  return (
-    <table className="w-full text-xs">
-      <thead>
-        <tr className="text-left text-gray-400">
-          <th className="py-1">Field</th><th>From {manual.orgName}</th><th>Catalog: {catalogEntity.name}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map(([label, a, b]) => (
-          <tr key={label} className="border-t border-gray-100">
-            <td className="py-1 text-gray-500">{label}</td><td>{a}</td><td>{b}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-// Prompt 187 §A — every `entities` row with source='manual', across every
-// org, cross-checked against the catalog with the same criteria
-// MergeDuplicatesTool already uses (see /lib/manual-entity-match.ts).
-// Flagged rows offer "merge into catalog" (fills the catalog row's empty
-// fields, never touches the source row); unflagged rows offer "promote",
-// which is deliberately the ONLY distribution mechanism built here — a
-// promoted row becomes a normal catalog_entities row, so catalog_top_matches
-// picks it up for every org once verified. The prompt's own text raises and
-// then answers this ("o caminho correto e mais simples... evitar inventar
-// um segundo caminho de distribuição direta org-a-org"); no second
-// "add to other startups' pipelines" UI was built on that basis.
-function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[]; onPromoted: () => void }) {
-  const [rows, setRows] = useState<ManualEntity[] | null>(null);
-  const [err, setErr] = useState('');
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [result, setResult] = useState<Record<string, string>>({});
-  const [compareId, setCompareId] = useState<string | null>(null);
-
-  function refresh() {
-    fetch('/api/backoffice/catalog/manual-entities').then((r) => r.json()).then((body) => {
-      if (body.ok === false) { setErr(body.error); return; }
-      setRows(body.manualEntities);
-    });
-  }
-  useEffect(refresh, []);
-
-  async function mergeInto(row: ManualEntity) {
-    if (!row.likelyDuplicate) return;
-    setBusyId(row.id);
-    const res = await fetch('/api/backoffice/catalog/merge', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keepId: row.likelyDuplicate.catalogId, manualEntityId: row.id }),
-    });
-    const body = await res.json();
-    setBusyId(null);
-    setResult((prev) => ({ ...prev, [row.id]: body.ok === false ? body.error : 'Merged missing fields into the catalog entry.' }));
-    if (body.ok !== false) { refresh(); onPromoted(); }
-  }
-
-  async function promote(row: ManualEntity) {
-    setBusyId(row.id);
-    const res = await fetch('/api/backoffice/catalog/promote', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ manualEntityId: row.id }),
-    });
-    const body = await res.json();
-    setBusyId(null);
-    setResult((prev) => ({ ...prev, [row.id]: body.ok === false ? body.error : 'Added to the catalog (pending verification) — visible to every org via top matches once verified.' }));
-    if (body.ok !== false) { refresh(); onPromoted(); }
-  }
-
-  if (err) return <Card title="Added by startups"><p className="text-sm text-[#B00000]">{err}</p></Card>;
-  if (!rows) return <Card title="Added by startups"><p className="text-sm text-gray-400">Loading…</p></Card>;
-
-  return (
-    <Card title={`Added by startups (${rows.length})`}>
-      <p className="mb-3 text-xs text-gray-500">
-        Every investor a founder added manually (any org), cross-checked against the shared catalog by domain, name,
-        and known aliases. Flagged rows already look like an existing catalog entry — merging fills gaps on the
-        catalog row without ever overwriting correct data or touching the founder&apos;s own record. Otherwise,
-        promote it straight into the catalog — that&apos;s also how it becomes visible to other startups&apos; matches.
-      </p>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
-              <th className="py-1.5">Startup org</th><th>Investor</th><th>HQ</th><th>Geographies</th><th>Stage</th><th>Sectors</th><th>Contact</th><th>Match</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const catalogEntity = r.likelyDuplicate ? catalog.find((c) => c.id === r.likelyDuplicate!.catalogId) : undefined;
-              return (
-                <Fragment key={r.id}>
-                  <tr className="border-t border-gray-50 align-top">
-                    <td className="py-2 text-gray-500">{r.orgName}</td>
-                    <td className="font-medium">{r.name}{r.website && <div className="text-xs font-normal text-gray-400">{r.website}</div>}</td>
-                    <td className="text-gray-500">{[r.hqCity, r.hqCountry].filter(Boolean).join(', ') || '—'}</td>
-                    <td className="max-w-[160px] text-xs text-gray-500">{r.geographies?.length ? r.geographies.join(', ') : '—'}</td>
-                    <td className="text-gray-500">{fmtStage(r.stageMin, r.stageMax)}</td>
-                    <td className="max-w-[200px] text-xs text-gray-500">{r.sectors.length ? r.sectors.join(', ') : '—'}</td>
-                    <td className="text-xs text-gray-500">{[r.email, r.phone].filter(Boolean).join(' · ') || '—'}</td>
-                    <td>
-                      {r.likelyDuplicate ? (
-                        <button onClick={() => setCompareId(compareId === r.id ? null : r.id)}
-                          className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
-                          title={`Matched by ${r.likelyDuplicate.reason}`}>
-                          Likely duplicate: {r.likelyDuplicate.catalogEntity.name}
-                        </button>
-                      ) : <span className="text-xs text-gray-300">No match</span>}
-                    </td>
-                    <td className="whitespace-nowrap text-right">
-                      {r.likelyDuplicate ? (
-                        <button disabled={busyId === r.id} onClick={() => mergeInto(r)} className="text-xs text-cyan-700 hover:underline disabled:opacity-40">Merge into catalog</button>
-                      ) : (
-                        <button disabled={busyId === r.id} onClick={() => promote(r)} className="text-xs text-[#0E7490] hover:underline disabled:opacity-40">Promote to catalog</button>
-                      )}
-                    </td>
-                  </tr>
-                  {compareId === r.id && catalogEntity && (
-                    <tr className="border-t border-gray-50"><td colSpan={9} className="py-2"><CompareTable manual={r} catalogEntity={catalogEntity} /></td></tr>
-                  )}
-                  {result[r.id] && (
-                    <tr><td colSpan={9} className="pb-2 text-xs text-gray-500">{result[r.id]}</td></tr>
-                  )}
-                </Fragment>
-              );
-            })}
-            {rows.length === 0 && <tr><td colSpan={9} className="py-4 text-center text-sm text-gray-400">No manually-added investors from startups yet.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-}
-
 export default function BackofficeCatalogPage() {
-  const [tab, setTab] = useState<'catalog' | 'startups'>('catalog');
   const [catalog, setCatalog] = useState<CatalogEntity[] | null>(null);
   const [err, setErr] = useState('');
 
@@ -738,23 +469,9 @@ export default function BackofficeCatalogPage() {
           ⬇ Export CSV
         </a>
       </div>
-      <Tabs
-        items={[{ key: 'catalog', label: 'Catalog' }, { key: 'startups', label: 'Added by startups' }]}
-        active={tab} onChange={(k) => setTab(k as 'catalog' | 'startups')}
-      />
       {err && <p className="text-sm text-[#B00000]">{err}</p>}
-      {tab === 'catalog' && (
-        <>
-          <MergeDuplicatesTool onMerged={refresh} />
-          {catalog && <CatalogTable catalog={catalog} refresh={refresh} />}
-        </>
-      )}
-      {tab === 'startups' && (
-        <div className="space-y-4">
-          {catalog && <AddedByStartupsTab catalog={catalog} onPromoted={refresh} />}
-          <QualityPanel />
-        </div>
-      )}
+      <MergeDuplicatesTool onMerged={refresh} />
+      {catalog && <CatalogTable catalog={catalog} refresh={refresh} />}
     </div>
   );
 }
