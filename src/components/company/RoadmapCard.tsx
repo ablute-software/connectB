@@ -8,38 +8,56 @@
 // `editable={false}` and no callbacks, so the redesign/behavior of one
 // never has to be kept in sync with a second copy of the other.
 //
-// Prompt 175 — two fixes on top of the Prompt 167 build:
-// §A: the founding node's axis circle was h-8 w-8 while every milestone
-// node's was h-6 w-6 — same centering logic, different circle heights, so
-// the horizontal line sat at a different pixel height on the first segment
-// than every other one ("desalinhado"). Both are NODE_SIZE now, no
-// exceptions.
-// §B: a from-scratch visual match against the reference image (not a loose
-// restyle) — pastel theme rotating per card (not tied to past/future, per
-// spec), an in-card status badge echoing the axis signal, themed item
-// dots, a fuller Founded card, and always-visible click-to-scroll arrows
-// alongside the native horizontal scroll.
+// Prompt 175/177 — earlier visual passes; see git history for their own
+// header notes. Prompt 185 (this one) supersedes both in two ways:
 //
-// Prompt 177 — pixel-match pass against a literal reference image (not a
-// text description) in the three zones that still diverged:
-// 1) axis line: the code drew every segment as a SOLID colored bar (just a
-//    lighter color for the future half) — the reference draws the past
-//    half solid and the future half genuinely DASHED (a border style, not
-//    a filled bar). Also a real bug found while comparing: FoundedNode's
-//    own "after" segment was hardcoded to the future color (bg-cyan-200) —
-//    founding has already happened by definition, that segment must always
-//    render as "past", never as "future".
-// 2) card/Founded sizing: FoundedNode's card+container (w-36/w-40) were
-//    narrower than every MilestoneNode's (w-48/w-52) — the reference shows
-//    Founded at the SAME width as the milestone cards, if anything the
-//    widest one measured. Unified onto one shared, slightly larger size
-//    (pill/year/item text sized up to match).
-// 3) nav: the always-visible round ‹/› buttons flanking the whole timeline
-//    don't exist in the reference at all — what's there instead is a slim
-//    scrollbar-style bar BELOW the row of cards (thin track, a thumb
-//    reflecting actual scroll position, small chevrons at each end, no big
-//    buttons). Replaced accordingly; the native browser scrollbar is
-//    hidden so only this one bar shows.
+// §A — a real structural bug, confirmed in code, independent of any image:
+// the scroll container set `overflow-x-auto` with `overflow-y` left
+// implicit. Per the CSS Overflow spec, a `visible`/`auto` MISMATCH between
+// the two axes is not a legal computed state — the browser silently
+// promotes the implicit axis (overflow-y here) to `auto` too. That turns
+// the container into a clipping box on BOTH axes, and the "cards grow
+// upward out of a fixed h-28 box via items-end" trick (used so a shorter
+// card still sits flush against the axis) was relying on overflow-y
+// staying `visible` — it never actually was, so any card taller than 112px
+// got its top sliced off.
+//
+// First fix attempt (flex-1 on each per-node column's card slots, relying
+// on the row's items-stretch) removed the clipping but broke something
+// else, caught live before shipping: the axis line stopped being level.
+// Reason, confirmed by measuring real node centers in a running browser —
+// 426px to 604px across one row, should all match: each per-node column
+// has TWO flex-1 slots (top card, bottom card), and only one of them ever
+// holds a card. Flexbox distributes a stretched column's surplus height
+// 50/50 across BOTH flex-1 siblings regardless of which one actually has
+// content, so a column's own empty slot silently ate half of any extra
+// height meant for its occupied slot — pushing that column's axis row up
+// or down relative to its neighbors, independently, column by column.
+// Flexbox has no way to say "this row's height must match the tallest
+// SAME-ROW cell across every column" — only CSS Grid does. Rebuilt as one
+// grid per timeline (not one flex-col per node): 4 shared rows (top-card,
+// axis, label, bottom-card) spanning every column, each column supplying
+// only the rows it actually uses via explicit grid-row/grid-column
+// placement. A grid row's height is the max of whatever's actually placed
+// in it, shared identically across all columns — verified live afterward:
+// every node's vertical center landed on the exact same pixel.
+//
+// Also added real mouse-wheel-to-horizontal and drag-the-thumb scrolling
+// (ScrollBar) — the click-320px-at-a-time chevrons alone made the trailing
+// "Add milestone" button unreachable in some browsers with more than a
+// couple of milestones.
+//
+// §B — pixel-match pass against an attached reference image (not text):
+// Founded's axis node is a solid amber "target" (inset white ring, no
+// flag — the flag lives on the CARD only, unchanged), the axis line is
+// solid-then-dashed in ONE color family (teal) rather than two colors,
+// each card has a small triangle pointing at its own node, year-kind nodes
+// (2022/2024/2026/2027) are visibly larger than quarter-kind nodes (Q4
+// 2023/Q2 2025/etc — TWO node sizes, not one shared NODE_SIZE), future
+// (hollow) nodes get a thicker border than past (filled) ones, and
+// Founded's own "2022" label — which drifted after Prompt 177 removed the
+// leading line segment before the very first node — is now aligned to the
+// node's actual (flush-left) position instead of the column's center.
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card, TermHint, Toggle } from '@/components/ui';
@@ -47,72 +65,132 @@ import type { RoadmapMilestone, RoadmapPeriodKind } from '@/lib/types';
 import { periodHasPassed, periodLabel, sortRoadmapPeriods, type RoadmapPeriod } from '@/lib/roadmap';
 
 const QUARTERS = [1, 2, 3, 4] as const;
-// Prompt 175 §A — the one size every axis circle (founding node included)
-// now shares, so the connecting line never has to change height.
-const NODE_SIZE = 'h-8 w-8';
-// Prompt 177 §2 — the one size every card+container (founding node
-// included) now shares — see the header note above.
+// Prompt 185 §B.5 — year-kind nodes (Founded included — it's inherently a
+// year) are visibly bigger than quarter-kind nodes; no longer one shared size.
+const NODE_SIZE_YEAR = 'h-8 w-8';
+const NODE_SIZE_QUARTER = 'h-5 w-5';
 const CARD_WIDTH = 'w-56';
 const CONTAINER_WIDTH = 'w-60';
+
+// Prompt 185 §A — the 4 shared grid rows every column places into (1-based,
+// CSS grid convention). Only ROW_AXIS and ROW_LABEL are used by every
+// column; ROW_TOP_CARD/ROW_BOTTOM_CARD are used by whichever half of the
+// milestones sits on that side, and left untouched (not zero-height, just
+// unoccupied — a grid row's size never depends on absent cells) otherwise.
+const ROW_TOP_CARD = 1;
+const ROW_AXIS = 2;
+const ROW_LABEL = 3;
+const ROW_BOTTOM_CARD = 4;
 
 // Prompt 175 §B.1 — "rodar por uma pequena paleta... não necessariamente
 // ligado ao passado/futuro" (Nuno's own words): a milestone's card color
 // is purely its position in the rotation, never its past/future status —
 // that signal lives in the status badge (§B.2) and the axis node instead.
+// Prompt 185 §B.4 — triangleDown/triangleUp added: literal, full Tailwind
+// class strings (not built from a variable color name) so the JIT scanner
+// can actually find them — the same reason every other color in this
+// object was already spelled out per-theme instead of interpolated.
 const CARD_THEMES = [
-  { bg: 'bg-emerald-50', badge: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500', statusOn: 'border-emerald-500 bg-emerald-500', statusOff: 'border-emerald-300 bg-white text-emerald-300' },
-  { bg: 'bg-blue-50', badge: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500', statusOn: 'border-blue-500 bg-blue-500', statusOff: 'border-blue-300 bg-white text-blue-300' },
-  { bg: 'bg-purple-50', badge: 'bg-purple-100 text-purple-700', dot: 'bg-purple-500', statusOn: 'border-purple-500 bg-purple-500', statusOff: 'border-purple-300 bg-white text-purple-300' },
+  {
+    bg: 'bg-emerald-50', badge: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500',
+    statusOn: 'border-emerald-500 bg-emerald-500', statusOff: 'border-emerald-300 bg-white text-emerald-300',
+    triangleDown: 'border-t-8 border-t-emerald-50', triangleUp: 'border-b-8 border-b-emerald-50',
+  },
+  {
+    bg: 'bg-blue-50', badge: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500',
+    statusOn: 'border-blue-500 bg-blue-500', statusOff: 'border-blue-300 bg-white text-blue-300',
+    triangleDown: 'border-t-8 border-t-blue-50', triangleUp: 'border-b-8 border-b-blue-50',
+  },
+  {
+    bg: 'bg-purple-50', badge: 'bg-purple-100 text-purple-700', dot: 'bg-purple-500',
+    statusOn: 'border-purple-500 bg-purple-500', statusOff: 'border-purple-300 bg-white text-purple-300',
+    triangleDown: 'border-t-8 border-t-purple-50', triangleUp: 'border-b-8 border-b-purple-50',
+  },
 ];
+const FOUNDED_TRIANGLE_DOWN = 'border-t-8 border-t-amber-50';
 
-// Prompt 177 §1 — one shared line-segment renderer: `solid` true draws the
-// "already happened" half (a filled 2px bar, the app's own teal), false
-// draws the "still ahead" half (a 2px DASHED border — genuinely dashed,
-// not a lighter fill, matching the reference literally).
+// Prompt 185 §B.4 — a small CSS-border triangle (zero-size box, two
+// transparent side-borders + one colored border) pointing at the node it
+// belongs to: `border-t-*` for a card sitting ABOVE the axis (colored top
+// edge, point hangs down toward the line), `border-b-*` for a card BELOW
+// it (colored bottom edge, point rises up toward the line).
+function CardTriangle({ colorClass }: { colorClass: string }) {
+  return <div aria-hidden="true" className={`mx-auto mb-1 h-0 w-0 border-x-8 border-x-transparent ${colorClass}`} />;
+}
+
+// Prompt 177 §1 / Prompt 185 §B.3 — one shared line-segment renderer:
+// `solid` true draws the "already happened" half (a filled 2px bar); false
+// draws the "still ahead" half as a genuinely DASHED border, in the SAME
+// teal family as the solid half (a lighter tint), not a neutral gray — the
+// reference image is solid-then-dashed within one color, not two colors.
 function AxisLine({ solid }: { solid: boolean }) {
   return solid
     ? <div className="h-0.5 flex-1 bg-[#0E7490]" />
-    : <div className="h-0 flex-1 border-t-2 border-dashed border-gray-300" />;
+    : <div className="h-0 flex-1 border-t-2 border-dashed border-cyan-300" />;
 }
 
-function FoundedNode({ foundedYear }: { foundedYear: number | null }) {
+// Prompt 185 §A — each node contributes explicitly grid-positioned cells
+// (grid-column pins it to its own slot in the timeline; grid-row picks
+// which of the 4 shared rows) instead of a single self-contained flex
+// column — see the file header for why that's what actually keeps every
+// column's axis row level with its neighbors regardless of card height.
+function FoundedNode({ foundedYear, col }: { foundedYear: number | null; col: number }) {
+  const colStyle = { gridColumn: col };
   return (
-    <div className={`flex ${CONTAINER_WIDTH} shrink-0 flex-col items-center`}>
-      <div className="flex h-28 items-end pb-2">
+    <>
+      <div style={{ ...colStyle, gridRow: ROW_TOP_CARD }} className={`flex ${CONTAINER_WIDTH} flex-col items-center justify-end`}>
         {foundedYear == null ? (
           <div className={`${CARD_WIDTH} rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-3 text-center text-xs text-amber-800`}>
             Set your founding year in <a href="#settings-identity" className="font-semibold underline">Identity</a> to start your roadmap.
           </div>
         ) : (
-          <div className={`${CARD_WIDTH} rounded-xl bg-amber-50 p-3.5 shadow-sm`}>
-            <div className="flex items-center justify-between gap-1.5">
-              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">Founded</span>
-              <span aria-hidden="true" className="text-base">🚩</span>
+          <>
+            <div className={`${CARD_WIDTH} rounded-xl bg-amber-50 p-3.5 shadow-sm`}>
+              <div className="flex items-center justify-between gap-1.5">
+                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">Founded</span>
+                {/* §B.2 — the flag lives on the card, never the axis node —
+                    already correct pre-185, unchanged. */}
+                <span aria-hidden="true" className="text-base">🚩</span>
+              </div>
+              <div className="mt-1.5 text-2xl font-bold text-amber-900">{foundedYear}</div>
+              <div className="text-xs text-amber-700/80">Company founded</div>
             </div>
-            <div className="mt-1.5 text-2xl font-bold text-amber-900">{foundedYear}</div>
-            <div className="text-xs text-amber-700/80">Company founded</div>
-          </div>
+            <CardTriangle colorClass={FOUNDED_TRIANGLE_DOWN} />
+          </>
         )}
       </div>
-      <div className="flex w-full items-center">
+      <div style={{ ...colStyle, gridRow: ROW_AXIS }} className={`flex ${CONTAINER_WIDTH} items-center`}>
         {/* Nothing precedes the very first node — no line drawn (not even
             invisible-width flex-1, which would push the dot off-center). */}
-        <div className={`flex ${NODE_SIZE} shrink-0 items-center justify-center rounded-full border-2 text-sm ${foundedYear == null ? 'border-dashed border-amber-300 bg-white text-amber-300' : 'border-amber-500 bg-amber-400 text-white'}`}>
-          🚩
-        </div>
+        {/* §B.1 — a solid amber "target": filled circle with a thin white
+            ring INSET (drawn inside the circle's own edge, not outside it),
+            no flag glyph on the node itself. */}
+        <div className={`${NODE_SIZE_YEAR} shrink-0 rounded-full ${
+          foundedYear == null ? 'border-2 border-dashed border-amber-300 bg-white' : 'bg-amber-500 ring-[3px] ring-inset ring-white'
+        }`} />
         {/* Founding has already happened, by definition — this segment is
             always "past", never the future/dashed style. */}
         <AxisLine solid />
       </div>
-      <div className="mt-1 h-28 text-xs font-medium text-amber-700">{foundedYear ?? '—'}</div>
-    </div>
+      {/* §B.7 — centered on the NODE's own flush-left position (a fixed
+          box exactly NODE_SIZE_YEAR wide, pinned to the column's left edge
+          via justify-start), not the column's full center — that's what
+          left the "2022" label drifting right after §A (Prompt 177)
+          removed the leading line segment that used to keep the node
+          itself centered instead of flush-left. */}
+      <div style={{ ...colStyle, gridRow: ROW_LABEL }} className={`mt-1 flex ${CONTAINER_WIDTH} justify-start`}>
+        <span className={`${NODE_SIZE_YEAR} shrink-0 whitespace-nowrap text-center text-xs font-medium text-amber-700`}>
+          {foundedYear ?? '—'}
+        </span>
+      </div>
+    </>
   );
 }
 
 function MilestoneNode<T extends RoadmapPeriod & { items: string[] }>({
-  m, index, theme, editable, onEdit, onRemove, now, prevPast,
+  m, index, col, theme, editable, onEdit, onRemove, now, prevPast,
 }: {
-  m: T; index: number; theme: typeof CARD_THEMES[number]; editable: boolean; onEdit?: (m: T) => void; onRemove?: (m: T) => void; now: Date;
+  m: T; index: number; col: number; theme: typeof CARD_THEMES[number]; editable: boolean; onEdit?: (m: T) => void; onRemove?: (m: T) => void; now: Date;
   // Prompt 177 §1 — whether the PREVIOUS node on the axis was already past,
   // so this node's own "before" segment agrees with that neighbor's
   // "after" segment (both sides of one physical line draw the same style —
@@ -123,6 +201,8 @@ function MilestoneNode<T extends RoadmapPeriod & { items: string[] }>({
   const label = periodLabel(m.period_kind, m.period_year, m.period_quarter);
   const past = periodHasPassed(m, now);
   const top = index % 2 === 0;
+  const nodeSize = m.period_kind === 'year' ? NODE_SIZE_YEAR : NODE_SIZE_QUARTER;
+  const colStyle = { gridColumn: col };
   const card = (
     <div className={`${CARD_WIDTH} rounded-xl p-3.5 text-sm shadow-sm ${theme.bg}`}>
       <div className="flex items-center justify-between gap-1.5">
@@ -157,30 +237,41 @@ function MilestoneNode<T extends RoadmapPeriod & { items: string[] }>({
   );
 
   return (
-    <div className={`flex ${CONTAINER_WIDTH} shrink-0 flex-col items-center`}>
-      <div className="flex h-28 items-end pb-2">{top && card}</div>
-      <div className="flex w-full items-center">
+    <>
+      <div style={{ ...colStyle, gridRow: ROW_TOP_CARD }} className={`flex ${CONTAINER_WIDTH} flex-col items-center justify-end`}>
+        {top && <>{card}<CardTriangle colorClass={theme.triangleDown} /></>}
+      </div>
+      <div style={{ ...colStyle, gridRow: ROW_AXIS }} className={`flex ${CONTAINER_WIDTH} items-center`}>
         <AxisLine solid={prevPast} />
-        <div className={`flex ${NODE_SIZE} shrink-0 items-center justify-center rounded-full border-2 text-sm text-white ${past ? 'border-[#0E7490] bg-[#0E7490]' : 'border-cyan-300 bg-white'}`}>
-          {past && '✓'}
-        </div>
+        {/* §B.6 — filled + thin border when past, hollow (white fill,
+            thicker border so the "empty" ring reads clearly) when future. */}
+        <div className={`${nodeSize} shrink-0 rounded-full ${
+          past ? 'border-2 border-[#0E7490] bg-[#0E7490]' : 'border-[3px] border-cyan-300 bg-white'
+        }`} />
         <AxisLine solid={past} />
       </div>
-      <div className="mt-1 text-xs text-gray-500">{label}</div>
-      <div className="flex h-28 items-start pt-2">{!top && card}</div>
-    </div>
+      <div style={{ ...colStyle, gridRow: ROW_LABEL }} className={`mt-1 flex ${CONTAINER_WIDTH} justify-center text-xs text-gray-500`}>
+        {label}
+      </div>
+      <div style={{ ...colStyle, gridRow: ROW_BOTTOM_CARD }} className={`flex ${CONTAINER_WIDTH} flex-col items-center justify-start`}>
+        {!top && <><CardTriangle colorClass={theme.triangleUp} />{card}</>}
+      </div>
+    </>
   );
 }
 
-// Prompt 177 §3 — replaces the always-visible round ‹/› buttons that used
-// to flank the whole timeline: the reference has no such buttons, only a
-// slim scrollbar-style bar BELOW the row of cards — a thin track, a thumb
-// sized/positioned from the real scrollLeft/scrollWidth/clientWidth (not
-// decorative), and small chevrons at each end. Polls on the container's
-// own `scroll` event plus a `resize` listener (the row's total width can
-// change if a milestone is added/removed while mounted).
+// Prompt 177 §3 / Prompt 185 §A.2 — a slim scrollbar-style bar below the
+// row of cards: thin track, a thumb sized/positioned from the real
+// scrollLeft/scrollWidth/clientWidth, small chevrons at each end (the
+// reference confirms all of this stays — Prompt 185 §B.8). New in 185: the
+// thumb is actually DRAGGABLE (pointer events, not just clickable
+// chevrons), and clicking anywhere else on the track jumps to that
+// position — the chevrons' fixed 320px-per-click alone could leave
+// "Add milestone" unreachable with several milestones in the row.
 function ScrollBar({ scrollRef }: { scrollRef: React.RefObject<HTMLDivElement> }) {
   const [thumb, setThumb] = useState({ left: 0, width: 100 });
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startClientX: number; startScrollLeft: number } | null>(null);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -203,14 +294,48 @@ function ScrollBar({ scrollRef }: { scrollRef: React.RefObject<HTMLDivElement> }
     scrollRef.current?.scrollBy({ left: dir * 320, behavior: 'smooth' });
   }
 
+  function onThumbPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    const el = scrollRef.current;
+    if (!el) return;
+    dragRef.current = { startClientX: e.clientX, startScrollLeft: el.scrollLeft };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+  function onThumbPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const el = scrollRef.current;
+    const track = trackRef.current;
+    if (!el || !track || !dragRef.current) return;
+    const trackWidth = track.getBoundingClientRect().width;
+    if (trackWidth <= 0) return;
+    const dx = e.clientX - dragRef.current.startClientX;
+    el.scrollLeft = dragRef.current.startScrollLeft + dx * (el.scrollWidth / trackWidth);
+  }
+  function onThumbPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    dragRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  }
+
+  // Click anywhere on the track (not a drag) jumps the viewport so its
+  // center lands under the click.
+  function onTrackClick(e: React.MouseEvent<HTMLDivElement>) {
+    const el = scrollRef.current;
+    const track = trackRef.current;
+    if (!el || !track || e.target !== track) return;
+    const rect = track.getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    el.scrollLeft = ratio * el.scrollWidth - el.clientWidth / 2;
+  }
+
   return (
     <div className="mt-2 flex items-center gap-2 px-1">
       <button type="button" onClick={() => scrollBy(-1)} aria-label="Scroll timeline left"
         className="shrink-0 text-sm text-gray-400 hover:text-[#0E7490]">
         ‹
       </button>
-      <div className="relative h-1.5 flex-1 rounded-full bg-gray-100">
-        <div className="absolute top-0 h-1.5 rounded-full bg-gray-300" style={{ left: `${thumb.left}%`, width: `${thumb.width}%` }} />
+      <div ref={trackRef} onClick={onTrackClick} className="relative h-1.5 flex-1 cursor-pointer rounded-full bg-gray-100">
+        <div
+          onPointerDown={onThumbPointerDown} onPointerMove={onThumbPointerMove} onPointerUp={onThumbPointerUp}
+          className="absolute top-0 h-1.5 cursor-grab touch-none rounded-full bg-gray-300 active:cursor-grabbing"
+          style={{ left: `${thumb.left}%`, width: `${thumb.width}%` }} />
       </div>
       <button type="button" onClick={() => scrollBy(1)} aria-label="Scroll timeline right"
         className="shrink-0 text-sm text-gray-400 hover:text-[#0E7490]">
@@ -234,20 +359,50 @@ export function RoadmapTimeline<T extends RoadmapPeriod & { items: string[] }>({
   const sorted = sortRoadmapPeriods(milestones);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Prompt 185 §A.2 — maps vertical mouse-wheel motion onto horizontal
+  // scroll, the standard pattern for a horizontal-only carousel/timeline
+  // (a plain trackpad/mouse wheel does nothing on an x-only overflow box
+  // by default). Only takes over when the gesture is more vertical than
+  // horizontal, so a trackpad's own native horizontal swipe (already
+  // deltaX-dominant) passes through untouched. Native `addEventListener`
+  // with `{ passive: false }`, not onWheel — React's synthetic wheel
+  // listener is passive by default in recent versions, so
+  // preventDefault() inside an onWheel prop is silently ignored.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    function onWheel(e: WheelEvent) {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      el!.scrollLeft += e.deltaY;
+    }
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // Prompt 185 §A — column 1 is always Founded; milestones take 2..N+1;
+  // the "Add milestone" button (editable only) takes the last column.
+  const addCol = sorted.length + 2;
+
   return (
     <div>
       {/* Native scrollbar hidden — ScrollBar below is the only scroll
-          indicator, matching the reference having exactly one. */}
-      <div ref={scrollRef} className="flex items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <FoundedNode foundedYear={foundedYear} />
+          indicator, matching the reference having exactly one. A CSS grid,
+          not a flex row — see the file header for why: only a shared grid
+          row (not independent per-column flex stretch) keeps the axis line
+          level across columns whose card heights differ. */}
+      <div ref={scrollRef}
+        className="grid grid-flow-col items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        style={{ gridTemplateRows: 'repeat(4, auto)' }}>
+        <FoundedNode foundedYear={foundedYear} col={1} />
         {sorted.map((m, i) => (
           <MilestoneNode key={`${m.period_kind}:${m.period_year}:${m.period_quarter ?? ''}`}
-            m={m} index={i + 1} theme={CARD_THEMES[i % CARD_THEMES.length]}
+            m={m} index={i + 1} col={i + 2} theme={CARD_THEMES[i % CARD_THEMES.length]}
             editable={editable} onEdit={onEditClick} onRemove={onRemoveClick} now={now}
             prevPast={i === 0 ? true : periodHasPassed(sorted[i - 1], now)} />
         ))}
         {editable && (
-          <div className="flex w-28 shrink-0 flex-col items-center justify-center">
+          <div style={{ gridColumn: addCol, gridRow: ROW_AXIS }} className="flex w-28 flex-col items-center justify-center">
             <button onClick={onAddClick}
               className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-dashed border-cyan-300 text-xl font-bold text-[#0E7490] hover:bg-cyan-50">
               +
