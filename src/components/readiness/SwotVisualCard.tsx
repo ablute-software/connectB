@@ -72,6 +72,26 @@ function IconChartTrending({ className }: { className?: string }) {
   );
 }
 
+// Prompt 186 §4 — purely decorative curve + 3 dots, colored by the
+// quadrant's own theme, in the top-right corner opposite the icon badge —
+// matches the reference image exactly, no meaning attached to it (not a
+// control, not a link).
+function CornerFlourish({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 56 56" fill="none" className={className} aria-hidden="true">
+      <path d="M4 30C4 15.6 15.6 4 30 4" stroke="currentColor" strokeWidth={2} strokeLinecap="round" opacity={0.35} />
+      <circle cx="41" cy="8" r="1.8" fill="currentColor" opacity={0.4} />
+      <circle cx="48.5" cy="12.5" r="1.8" fill="currentColor" opacity={0.4} />
+      <circle cx="53" cy="19" r="1.8" fill="currentColor" opacity={0.4} />
+    </svg>
+  );
+}
+
+// Prompt 186 — shared "soft, big-blur" card shadow (item 6): replaces the
+// generic shadow-sm every quadrant card used before, which read as a hard
+// outline rather than elevation.
+const CARD_SHADOW = 'shadow-[0_10px_28px_-10px_rgba(15,23,42,0.16)]';
+
 // Prompt 172 §B — v2 redesign: Prompt 170's tinted-container + filled-item
 // treatment still read as chat bubbles, not a product card. This drops the
 // quadrant's own colored background (now plain white, only a thin colored
@@ -84,26 +104,34 @@ function IconChartTrending({ className }: { className?: string }) {
 const QUADRANTS: {
   key: keyof SwotData; label: string; caption: string; Icon: (p: { className?: string }) => JSX.Element;
   border: string; iconBadge: string; countPill: string; dot: string;
+  // Prompt 186 — cardBg (item 3, subtle top-to-white tint) and flourish
+  // (item 4's CornerFlourish color) are new; iconBadge now carries its own
+  // gradient + dedicated shadow (item 2) instead of a flat fill.
+  cardBg: string; flourish: string;
 }[] = [
   {
     key: 'strengths', label: 'Strengths', caption: 'What gives you a competitive advantage?', Icon: IconShieldCheck,
-    border: 'border-emerald-200', iconBadge: 'bg-emerald-600',
+    border: 'border-emerald-200', iconBadge: 'bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-md shadow-emerald-500/30',
     countPill: 'border-emerald-200 bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500',
+    cardBg: 'bg-gradient-to-b from-emerald-50 via-white to-white', flourish: 'text-emerald-400',
   },
   {
     key: 'weaknesses', label: 'Weaknesses', caption: 'What are your main limitations?', Icon: IconLinkOff,
-    border: 'border-amber-200', iconBadge: 'bg-amber-500',
+    border: 'border-amber-200', iconBadge: 'bg-gradient-to-br from-amber-400 to-amber-600 shadow-md shadow-amber-500/30',
     countPill: 'border-amber-200 bg-amber-50 text-amber-700', dot: 'bg-amber-500',
+    cardBg: 'bg-gradient-to-b from-amber-50 via-white to-white', flourish: 'text-amber-400',
   },
   {
     key: 'opportunities', label: 'Opportunities', caption: 'What external factors could help you?', Icon: IconTrendingUp,
-    border: 'border-blue-200', iconBadge: 'bg-blue-600',
+    border: 'border-blue-200', iconBadge: 'bg-gradient-to-br from-blue-400 to-blue-600 shadow-md shadow-blue-500/30',
     countPill: 'border-blue-200 bg-blue-50 text-blue-700', dot: 'bg-blue-500',
+    cardBg: 'bg-gradient-to-b from-blue-50 via-white to-white', flourish: 'text-blue-400',
   },
   {
     key: 'threats', label: 'Threats', caption: 'What external risks could impact you?', Icon: IconTriangleAlert,
-    border: 'border-red-200', iconBadge: 'bg-red-500',
+    border: 'border-red-200', iconBadge: 'bg-gradient-to-br from-red-400 to-red-600 shadow-md shadow-red-500/30',
     countPill: 'border-red-200 bg-red-50 text-red-600', dot: 'bg-red-500',
+    cardBg: 'bg-gradient-to-b from-red-50 via-white to-white', flourish: 'text-red-400',
   },
 ];
 
@@ -121,7 +149,21 @@ const QUADRANTS: {
 function SwotHeader() {
   return (
     <div className="relative overflow-hidden rounded-2xl p-5" style={{ background: 'linear-gradient(135deg, #0E7490 0%, #22D3EE 100%)' }}>
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      {/* Prompt 186 §1 — subtle glass-reflection shine, top-left corner.
+          Purely decorative (pointer-events-none), painted behind the
+          header's real content below via DOM order + that content's own
+          `relative`. */}
+      <div aria-hidden="true" className="pointer-events-none absolute -left-12 -top-16 h-48 w-48 rounded-full bg-white/25 blur-2xl" />
+      <div aria-hidden="true" className="pointer-events-none absolute -left-2 -top-6 h-20 w-40 rotate-[-18deg] rounded-full bg-white/10 blur-xl" />
+      {/* Three-dot "more options" affordance — decorative only per the
+          prompt's own note ("mesmo que não faça nada ainda"), nothing wired
+          up behind it yet. */}
+      <div aria-hidden="true" className="pointer-events-none absolute right-5 top-4 flex items-center gap-1">
+        <span className="h-1.5 w-1.5 rounded-full bg-white/60" />
+        <span className="h-1.5 w-1.5 rounded-full bg-white/60" />
+        <span className="h-1.5 w-1.5 rounded-full bg-white/60" />
+      </div>
+      <div className="relative flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/20 text-white">
             <IconChartTrending className="h-7 w-7" />
@@ -172,11 +214,17 @@ export function SwotQuadrant({ data, clarify }: {
           const items = data[q.key] ?? [];
           const Icon = q.Icon;
           return (
-            <div key={q.key} className={`rounded-2xl border bg-white p-4 shadow-sm ${q.border}`}>
+            <div key={q.key} className={`relative overflow-hidden rounded-2xl border p-4 ${CARD_SHADOW} ${q.border} ${q.cardBg}`}>
+              {/* Prompt 186 §4 — behind everything else (-z-10) so it never
+                  competes with the count pill it sits near. */}
+              <CornerFlourish className={`pointer-events-none absolute -right-1 -top-1 -z-10 h-12 w-12 ${q.flourish}`} />
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-3">
                   {/* Prompt 173 §B — h-10 w-10 -> h-12 w-12, icon itself
-                      h-6 w-6 (was the emoji at text-lg). */}
+                      h-6 w-6 (was the emoji at text-lg). Prompt 186 §2 —
+                      iconBadge now carries its own from/to gradient +
+                      shadow-{color}/30, replacing the flat fill + the
+                      card-wide shadow-sm this used to lean on. */}
                   <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-white ${q.iconBadge}`}>
                     <Icon className="h-6 w-6" />
                   </span>
@@ -192,8 +240,8 @@ export function SwotQuadrant({ data, clarify }: {
               {items.length > 0 ? (
                 <div className="mt-3 space-y-2">
                   {items.map((item, i) => (
-                    <div key={i} className="flex items-start gap-2.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-800">
-                      <span aria-hidden="true" className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${q.dot}`} />
+                    <div key={i} className="flex items-center gap-3 rounded-full border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-800">
+                      <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${q.dot}`} />
                       <span className="flex-1">{item}</span>
                       {clarify && (
                         <ClarificationBullet
