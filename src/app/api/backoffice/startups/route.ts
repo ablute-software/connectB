@@ -42,6 +42,15 @@ export async function GET() {
   ]);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
+  // Prompt 184 §4 — informative only, never a filter: MatchDeal is an
+  // extra tool, not a requirement to be managed here (the same decision
+  // that drove eligiblePipelineOrgIds off matchdeal_profiles.is_visible —
+  // see portal-access.ts). 'not_started' for an org with zero
+  // matchdeal_profiles rows, read straight from is_complete otherwise.
+  const { data: matchDealProfiles } = await admin.from('matchdeal_profiles')
+    .select('membership_id, is_complete').eq('kind', 'startup');
+  const matchDealCompleteByOrg = new Map((matchDealProfiles ?? []).map((p) => [p.membership_id as string, !!p.is_complete]));
+
   const memberCountByOrg = new Map<string, number>();
   const userIdsByOrg = new Map<string, string[]>();
   for (const m of members ?? []) {
@@ -91,6 +100,8 @@ export async function GET() {
     const people = peopleByOrg.get(org.id) ?? [];
     const { pct: completenessPct } = calcCompanyCompleteness(org as unknown as Org, people);
     const pipeline = pipelineByOrg.get(org.id);
+    const matchDealStatus: 'complete' | 'incomplete' | 'not_started' =
+      !matchDealCompleteByOrg.has(org.id) ? 'not_started' : matchDealCompleteByOrg.get(org.id) ? 'complete' : 'incomplete';
 
     return {
       orgId: org.id, name: org.name, plan: org.plan, createdAt: org.created_at,
@@ -105,6 +116,7 @@ export async function GET() {
       stage: (org.stage as string | null | undefined) ?? null,
       aiDraftsThisMonth: (org.ai_drafts_used_this_month as number | null | undefined) ?? 0,
       aiReviewsThisMonth: aiReviewCountByOrg.get(org.id) ?? 0,
+      matchDealStatus,
       moderationStatus: moderationAvailable ? ((org.moderation_status as string | undefined) ?? 'active') : 'active',
       moderationQuarantineUntil: moderationAvailable ? ((org.moderation_quarantine_until as string | null | undefined) ?? null) : null,
     };

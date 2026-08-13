@@ -37,13 +37,23 @@ interface OrgRow {
   filesInVault: number; visiblePipelineSize: number; eligiblePoolSize: number;
   stage: string | null; aiDraftsThisMonth: number; aiReviewsThisMonth: number;
   moderationStatus: ModerationStatus; moderationQuarantineUntil: string | null;
+  // Prompt 184 §4 — informative only, never used to filter or hide a row.
+  // MatchDeal is an extra tool, not a requirement to be managed here.
+  matchDealStatus: 'complete' | 'incomplete' | 'not_started';
 }
 
 const STATUS_STYLE: Record<OrgRow['status'], string> = {
   active: 'bg-green-50 text-green-700', quiet: 'bg-amber-50 text-amber-700', inactive: 'bg-gray-100 text-gray-500',
 };
 
-type SortKey = 'name' | 'plan' | 'createdAt' | 'members' | 'completenessPct' | 'interactionsThisWeek' | 'lastLogin' | 'status' | 'filesInVault' | 'visiblePipelineSize' | 'stage' | 'aiDraftsThisMonth' | 'aiReviewsThisMonth';
+const MATCHDEAL_STYLE: Record<OrgRow['matchDealStatus'], string> = {
+  complete: 'bg-green-50 text-green-700', incomplete: 'bg-amber-50 text-amber-700', not_started: 'bg-gray-100 text-gray-500',
+};
+const MATCHDEAL_LABEL: Record<OrgRow['matchDealStatus'], string> = {
+  complete: 'Complete', incomplete: 'Incomplete', not_started: 'Not started',
+};
+
+type SortKey = 'name' | 'plan' | 'createdAt' | 'members' | 'completenessPct' | 'interactionsThisWeek' | 'lastLogin' | 'status' | 'filesInVault' | 'visiblePipelineSize' | 'stage' | 'aiDraftsThisMonth' | 'aiReviewsThisMonth' | 'matchDealStatus';
 
 function cmp(a: unknown, b: unknown): number {
   if (a == null && b == null) return 0;
@@ -152,6 +162,7 @@ function StartupsTable() {
     { key: 'lastLogin', label: 'Last login' }, { key: 'status', label: 'Status' }, { key: 'filesInVault', label: 'Files' },
     { key: 'visiblePipelineSize', label: 'Pipeline' }, { key: 'stage', label: 'Stage' },
     { key: 'aiDraftsThisMonth', label: 'AI drafts' }, { key: 'aiReviewsThisMonth', label: 'AI review' },
+    { key: 'matchDealStatus', label: 'MatchDeal' },
   ];
 
   return (
@@ -232,6 +243,11 @@ function StartupsTable() {
                   <td className="pr-3 text-gray-600">{o.stage ?? '—'}</td>
                   <td className="pr-3 text-gray-600">{o.aiDraftsThisMonth}</td>
                   <td className="pr-3 text-gray-600">{o.aiReviewsThisMonth}</td>
+                  <td className="pr-3">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${MATCHDEAL_STYLE[o.matchDealStatus]}`}>
+                      {MATCHDEAL_LABEL[o.matchDealStatus]}
+                    </span>
+                  </td>
                   <td className="pr-3">
                     {moderationAvailable ? (
                       <ModerationControls targetType="org" targetId={o.orgId} status={o.moderationStatus} quarantineUntil={o.moderationQuarantineUntil} onChanged={load} />

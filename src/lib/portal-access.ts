@@ -5,6 +5,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveActiveInvestorMember } from './investor-membership';
 import { pipelineTestFlagAvailable } from './pipeline-test-flag-capability';
+import { isProfileGateComplete, type ProfileGateOrg } from './pipeline-unlock';
 
 export async function resolveInvestorProfile(admin: SupabaseClient, userId: string) {
   const member = await resolveActiveInvestorMember(admin, userId);
@@ -85,18 +86,55 @@ export async function resolveViewerIsTest(admin: SupabaseClient, catalogEntityId
 // every other portal route, which is about DILIGENCE access to documents).
 // Discovery must not be gated behind a grant the founder hasn't decided to
 // give yet — that inverted the funnel (the root cause the prompt names).
-// Eligibility here = published MatchDeal startup profiles, i.e. the same
-// population already visible to investors in the swipe deck. Deliberately
-// NOT matchdeal_eligible_deck(): that RPC carries weekly-quota/rotation
-// state and a replay-reset that clears swipes once everything's been liked —
-// calling it from a second surface would consume deck state meant for the
-// deck itself. is_visible is the right filter (not a raw kind='startup'
-// select): migration 0105 made it computed as is_complete AND not
-// owner/platform-suspended, exactly "published" in the sense this prompt
-// means.
+//
+// Prompt 184 — REPLACES the original rule ("published MatchDeal startup
+// profile", matchdeal_profiles.is_visible=true) with the CRM profile gate
+// alone (isProfileGateComplete, pipeline-unlock.ts — the exact bar the
+// founder's own Pipeline-unlock badge already uses). Decision from Nuno:
+// MatchDeal is an extra tool inside Sherlock, not a requirement to appear
+// in an investor's Pipeline or be managed in the back-office. Confirmed
+// live with "Caramel Biscuit": CRM profile 100% complete, permanently
+// invisible in every investor Pipeline purely because that org never
+// opened the MatchDeal app to take a photo — is_visible is computed
+// (migration 0105) from MatchDeal-exclusive fields (photo_url,
+// investment_stage_sought, company_phase) that have nothing to do with the
+// CRM profile, and an org with zero matchdeal_profiles rows (never touched
+// MatchDeal at all) has no is_visible value to even be true. MatchDeal's
+// OWN swipe deck keeps using is_visible/is_complete exactly as before
+// (MatchDealDeck.tsx, untouched) — this function no longer reads them at
+// all, for either purpose.
+//
+// Suspension ("hide me from the Pipeline") is checked from BOTH sources —
+// orgs.owner_suspended_at/platform_suspended_at (new, §2, the ongoing
+// source of truth for Pipeline eligibility going forward) AND
+// matchdeal_profiles' own copies (old, kept in sync by the toggle route's
+// dual-write — see /api/company/visibility's own header for why this is
+// duplicated rather than moved). An org suspended through EITHER path is
+// excluded, so nothing suspended before migration 0168 lands can silently
+// reappear the moment this code ships ahead of that migration being
+// applied. No capability probe needed for the read side: `select('*')`
+// on orgs simply omits the new columns on a pre-migration environment
+// (undefined reads as "not suspended" below), never errors.
 export async function eligiblePipelineOrgIds(admin: SupabaseClient, viewerIsTest: boolean) {
-  const { data } = await admin.from('matchdeal_profiles').select('membership_id').eq('kind', 'startup').eq('is_visible', true);
-  const ids = [...new Set((data ?? []).map((p) => p.membership_id as string))];
+  const { data: orgs } = await admin.from('orgs').select('*');
+  const complete = ((orgs ?? []) as (ProfileGateOrg & { id: string; owner_suspended_at?: string | null; platform_suspended_at?: string | null })[])
+    .filter((o) => isProfileGateComplete(o));
+  if (complete.length === 0) return [];
+
+  const orgIds = complete.map((o) => o.id);
+  const { data: mdProfiles } = await admin.from('matchdeal_profiles')
+    .select('membership_id, owner_suspended_at, platform_suspended_at')
+    .eq('kind', 'startup').in('membership_id', orgIds);
+  const suspendedViaMatchDeal = new Set(
+    (mdProfiles ?? [])
+      .filter((p) => p.owner_suspended_at || p.platform_suspended_at)
+      .map((p) => p.membership_id as string),
+  );
+
+  const ids = complete
+    .filter((o) => !o.owner_suspended_at && !o.platform_suspended_at && !suspendedViaMatchDeal.has(o.id))
+    .map((o) => o.id);
+
   return excludeTestOrgIds(admin, ids, viewerIsTest);
 }
 

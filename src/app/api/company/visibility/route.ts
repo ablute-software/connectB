@@ -3,11 +3,24 @@
 // value (see migration 0105's matchdeal_recompute_profile_completeness
 // trigger); platform_suspended_at has no UI yet, reserved for a future
 // backoffice action.
+//
+// Prompt 184 §2 — for kind='startup' only, ALSO dual-writes the same
+// owner_suspended_at/platform_suspended_at/suspension_reminded_at onto
+// `orgs` (migration 0168). Decision (confirmed before writing that
+// migration): duplicate, not move — orgs becomes the source of truth
+// eligiblePipelineOrgIds reads (portal-access.ts), but matchdeal_profiles'
+// own copies keep being written too so this ONE toggle still hides the
+// startup from MatchDeal's own swipe deck exactly like it does today
+// (is_visible, migration 0105) — moving instead of duplicating would have
+// silently stopped that. kind='investor' is untouched — investors have no
+// `orgs` row to duplicate onto, and this prompt is entirely about the
+// startup side.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { orgsPipelineSuspensionAvailable } from '@/lib/pipeline-suspension-capability';
 
 type Kind = 'startup' | 'investor';
 
@@ -37,9 +50,16 @@ export async function GET(req: Request) {
     // the exact field set matchdeal_recompute_profile_completeness()
     // checks (migration 0105) so this route can tell the two apart and the
     // client can show an honest reason instead of a wrong green badge.
-    const { data: profile } = await admin.from('matchdeal_profiles')
-      .select('owner_suspended_at, platform_suspended_at, suspension_reminded_at, is_complete, photo_url, website, sectors, description, country, investment_stage_sought, company_phase')
-      .eq('membership_id', member.org_id).eq('kind', 'startup').maybeSingle();
+    const [{ data: profile }, { data: org }] = await Promise.all([
+      admin.from('matchdeal_profiles')
+        .select('owner_suspended_at, platform_suspended_at, suspension_reminded_at, is_complete, photo_url, website, sectors, description, country, investment_stage_sought, company_phase')
+        .eq('membership_id', member.org_id).eq('kind', 'startup').maybeSingle(),
+      // Prompt 184 §2 — orgs is the authoritative suspension source now;
+      // `select('*')` (not an explicit column list) so a pre-migration
+      // environment just returns a row without these keys rather than
+      // erroring — reads fall back to `profile`'s copy in that case.
+      admin.from('orgs').select('*').eq('id', member.org_id).maybeSingle(),
+    ]);
     const missingFields: string[] = [];
     if (profile) {
       if (!profile.photo_url) missingFields.push('Photo');
@@ -50,10 +70,13 @@ export async function GET(req: Request) {
       if (!profile.investment_stage_sought) missingFields.push('Stage sought');
       if (!profile.company_phase) missingFields.push('Company phase');
     }
+    const ownerSuspendedAt = (org as { owner_suspended_at?: string | null } | null)?.owner_suspended_at ?? profile?.owner_suspended_at ?? null;
+    const platformSuspendedAt = (org as { platform_suspended_at?: string | null } | null)?.platform_suspended_at ?? profile?.platform_suspended_at ?? null;
+    const remindedAt = (org as { suspension_reminded_at?: string | null } | null)?.suspension_reminded_at ?? profile?.suspension_reminded_at ?? null;
     return NextResponse.json({
       ok: true, isOwner: member.role === 'owner',
-      suspended: !!profile?.owner_suspended_at, platformSuspended: !!profile?.platform_suspended_at,
-      suspendedAt: profile?.owner_suspended_at ?? null, remindedAt: profile?.suspension_reminded_at ?? null,
+      suspended: !!ownerSuspendedAt, platformSuspended: !!platformSuspendedAt,
+      suspendedAt: ownerSuspendedAt, remindedAt,
       isComplete: !!profile?.is_complete, hasProfile: !!profile, missingFields,
     });
   }
@@ -106,6 +129,15 @@ export async function POST(req: Request) {
     const { error } = await admin.from('matchdeal_profiles')
       .upsert({ membership_id: member.org_id, kind: 'startup', ...patch }, { onConflict: 'membership_id,kind' });
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    // Prompt 184 §2 — dual-write onto orgs (migration 0168), the source
+    // eligiblePipelineOrgIds actually reads. `orgs` always has exactly one
+    // row per org already (unlike matchdeal_profiles), so this is a plain
+    // update, not an upsert. Capability-gated so this route keeps working
+    // (writing only the matchdeal_profiles copy, same as before this
+    // prompt) on an environment where 0168 hasn't been applied yet.
+    if (await orgsPipelineSuspensionAvailable()) {
+      await admin.from('orgs').update(patch).eq('id', member.org_id);
+    }
     return NextResponse.json({ ok: true });
   }
 
