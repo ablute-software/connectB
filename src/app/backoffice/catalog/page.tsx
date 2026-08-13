@@ -37,6 +37,21 @@ function fmtStage(min: string | null, max: string | null) {
   return min ?? max ?? '—';
 }
 
+// Prompt 191 §D — the org name already lives in the free-text `notes`
+// field (promote/route.ts and merge/route.ts's manual branch both now
+// write "Added by startup {name}. (...)" as the first sentence) rather
+// than a new structured column — the prompt's own diagnosis was that this
+// data already existed and just needed surfacing, not a new field to
+// carry it. Falls back to a generic label for rows written before this
+// prompt (old format led with the org's UUID, which this doesn't match).
+function extractProvenanceOrgName(notes: string | null): string | null {
+  // Matches up to the literal ". (" that always precedes the parenthetical
+  // debug trail in promote/route.ts and merge/route.ts's own fixed format
+  // — not just the first period, which would truncate any org name that
+  // itself contains one (e.g. "Foo Inc.").
+  return notes?.match(/^Added by startup (.+)\. \(/)?.[1] ?? null;
+}
+
 function MergeDuplicatesTool({ onMerged }: { onMerged: () => void }) {
   const [clusters, setClusters] = useState<{ reasons: string[]; members: CatalogEntity[] }[] | null>(null);
   const [err, setErr] = useState('');
@@ -400,7 +415,15 @@ function CatalogTable({ catalog, refresh }: { catalog: CatalogEntity[]; refresh:
             {filtered.map((c) => (
               <Fragment key={c.id}>
                 <tr className="border-t border-gray-50 align-top">
-                  <td className="py-2 font-medium">{c.name}{c.website && <div className="text-xs font-normal text-gray-400">{c.website}</div>}</td>
+                  <td className="py-2 font-medium">
+                    {c.name}
+                    {c.source === 'startup_submitted' && (
+                      <span className="ml-1.5 inline-block rounded-full bg-cyan-50 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-700">
+                        Added by {extractProvenanceOrgName(c.notes) ?? 'a startup'}
+                      </span>
+                    )}
+                    {c.website && <div className="text-xs font-normal text-gray-400">{c.website}</div>}
+                  </td>
                   <td className="text-gray-500">{c.type.replace('_', ' ')}</td>
                   <td className="text-gray-500">{[c.hq_city, c.hq_country].filter(Boolean).join(', ') || '—'}</td>
                   <td className="max-w-[160px] text-xs text-gray-500">{c.geographies?.length ? c.geographies.join(', ') : '—'}</td>

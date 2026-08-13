@@ -58,10 +58,29 @@ async function mergeFromManualEntity(admin: SupabaseClient, userId: string, keep
     patch[field] = manualVal;
   }
 
+  // Prompt 191 §D — same "fill only if empty, never overwrite" rule the
+  // loop above already applies to every other field, extended to notes:
+  // a keeper that already has curator notes keeps them untouched; only an
+  // empty notes field gets the readable provenance line. This never flips
+  // catalog_entities.source (a merge only ever patches an existing row),
+  // so the §D badge in CatalogTable — gated on source='startup_submitted'
+  // — won't show for a merged row; that's the prompt's own literal
+  // condition, not an oversight here.
+  if (isEmpty(keeper.notes)) {
+    const { data: org } = await admin.from('orgs').select('name').eq('id', manual.org_id).maybeSingle();
+    patch.notes = `Added by startup ${org?.name ?? '(deleted org)'}. (merged from entities.id=${manual.id})`;
+  }
+
   if (Object.keys(patch).length > 0) {
     const { error } = await admin.from('catalog_entities').update(patch).eq('id', keepId);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
+
+  // Prompt 191 §E — marks the source row treated so it stops reappearing
+  // in "Added by startups"; see migration 0169 (proposed, not yet
+  // applied) for the catalog_review_status column.
+  const { error: statusErr } = await admin.from('entities').update({ catalog_review_status: 'merged' }).eq('id', manual.id);
+  if (statusErr) return NextResponse.json({ ok: false, error: `Merged into the catalog, but couldn't mark the source row as merged: ${statusErr.message}` }, { status: 500 });
 
   await logAdminAction(admin, {
     adminUserId: userId, action: 'catalog_merge_from_manual', subjectType: 'catalog_entity', subjectId: keepId,

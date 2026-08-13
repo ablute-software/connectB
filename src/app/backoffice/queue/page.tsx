@@ -714,11 +714,16 @@ function QualityPanel() {
   );
 }
 
+const STAGE_OPTIONS = ['pre_seed', 'seed', 'series_a', 'later'] as const;
+
+type ManualEntityContact = { id: string; fullName: string; role: string | null; email: string | null; linkedinUrl: string | null; phone: string | null };
+
 type ManualEntity = {
   id: string; orgId: string; orgName: string; name: string; website: string | null;
   hqCity: string | null; hqCountry: string | null; geographies: string[] | null;
   stageMin: string | null; stageMax: string | null; checkMinEur: number | null; checkMaxEur: number | null;
   sectors: string[]; thesis: string | null; email: string | null; phone: string | null; createdAt: string;
+  contacts: ManualEntityContact[];
   likelyDuplicate: { catalogId: string; reason: 'domain' | 'name' | 'alias'; catalogEntity: { id: string; name: string; website: string | null; verificationStatus: string } } | null;
 };
 
@@ -749,55 +754,201 @@ function CompareTable({ manual, catalogEntity }: { manual: ManualEntity; catalog
   );
 }
 
+// Prompt 191 §B — read-only: contacts belong to the startup's own CRM, not
+// something the backoffice edits directly (per the prompt's own note, a
+// future prompt if that's ever needed).
+function ManualEntityContactsPanel({ contacts }: { contacts: ManualEntityContact[] }) {
+  if (contacts.length === 0) return <p className="text-xs text-gray-400">No contacts on file for this entity.</p>;
+  return (
+    <ul className="space-y-1.5 text-xs">
+      {contacts.map((c) => (
+        <li key={c.id} className="flex flex-wrap items-center gap-2">
+          <span className="font-medium text-gray-800">{c.fullName}</span>
+          {c.role && <span className="text-gray-400">{c.role}</span>}
+          {c.email && <span className="text-gray-500">{c.email}</span>}
+          {c.phone && <span className="text-gray-500">{c.phone}</span>}
+          {c.linkedinUrl && <a href={c.linkedinUrl} target="_blank" rel="noreferrer" className="text-cyan-700 hover:underline">LinkedIn</a>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// Prompt 191 §A — the fields most prone to a data-entry error (website,
+// HQ, stage, sectors, check size), editable inline before the row is ever
+// promoted/merged. Writes only to the source entities row via PATCH
+// /manual-entities/[id] — never to catalog_entities directly; the fix only
+// reaches the catalog once the admin runs the bulk action below, which
+// re-reads entities fresh (same as it already did before this prompt).
+function ManualEntityEditForm({ row, onSaved, onCancel }: { row: ManualEntity; onSaved: () => void; onCancel: () => void }) {
+  const [website, setWebsite] = useState(row.website ?? '');
+  const [hqCity, setHqCity] = useState(row.hqCity ?? '');
+  const [hqCountry, setHqCountry] = useState(row.hqCountry ?? '');
+  const [stageMin, setStageMin] = useState(row.stageMin ?? '');
+  const [stageMax, setStageMax] = useState(row.stageMax ?? '');
+  const [sectors, setSectors] = useState(row.sectors.join(', '));
+  const [checkMinEur, setCheckMinEur] = useState(row.checkMinEur != null ? String(row.checkMinEur) : '');
+  const [checkMaxEur, setCheckMaxEur] = useState(row.checkMaxEur != null ? String(row.checkMaxEur) : '');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function save() {
+    setSaving(true); setErr('');
+    const res = await fetch(`/api/backoffice/catalog/manual-entities/${row.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        website, hqCity, hqCountry, stageMin: stageMin || null, stageMax: stageMax || null,
+        sectors: sectors.split(',').map((s) => s.trim()).filter(Boolean),
+        checkMinEur: checkMinEur ? Number(checkMinEur) : null, checkMaxEur: checkMaxEur ? Number(checkMaxEur) : null,
+      }),
+    });
+    const body = await res.json();
+    setSaving(false);
+    if (body.ok === false) { setErr(body.error); return; }
+    onSaved();
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-gray-100 bg-gray-50/50 p-3 text-xs">
+      {err && <p className="text-[#B00000]">{err}</p>}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <label className="flex items-center gap-1">Website
+          <input value={website} onChange={(e) => setWebsite(e.target.value)} className="w-40 rounded border border-gray-300 px-1.5 py-0.5" />
+        </label>
+        <label className="flex items-center gap-1">HQ city
+          <input value={hqCity} onChange={(e) => setHqCity(e.target.value)} className="w-28 rounded border border-gray-300 px-1.5 py-0.5" />
+        </label>
+        <label className="flex items-center gap-1">HQ country
+          <input value={hqCountry} onChange={(e) => setHqCountry(e.target.value)} className="w-20 rounded border border-gray-300 px-1.5 py-0.5" />
+        </label>
+        <label className="flex items-center gap-1">Stage
+          <select value={stageMin} onChange={(e) => setStageMin(e.target.value)} className="rounded border border-gray-300 px-1.5 py-0.5">
+            <option value="">—</option>
+            {STAGE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          –
+          <select value={stageMax} onChange={(e) => setStageMax(e.target.value)} className="rounded border border-gray-300 px-1.5 py-0.5">
+            <option value="">—</option>
+            {STAGE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <label className="flex flex-1 items-center gap-1">Sectors (comma-separated)
+          <input value={sectors} onChange={(e) => setSectors(e.target.value)} className="min-w-[160px] flex-1 rounded border border-gray-300 px-1.5 py-0.5" />
+        </label>
+        <label className="flex items-center gap-1">Check min €
+          <input type="number" value={checkMinEur} onChange={(e) => setCheckMinEur(e.target.value)} className="w-24 rounded border border-gray-300 px-1.5 py-0.5" />
+        </label>
+        <label className="flex items-center gap-1">Check max €
+          <input type="number" value={checkMaxEur} onChange={(e) => setCheckMaxEur(e.target.value)} className="w-24 rounded border border-gray-300 px-1.5 py-0.5" />
+        </label>
+      </div>
+      <div className="flex gap-2">
+        <button disabled={saving} onClick={save} className="rounded bg-cyan-700 px-2.5 py-1 font-semibold text-white hover:bg-cyan-800 disabled:opacity-40">
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button disabled={saving} onClick={onCancel} className="text-gray-400 hover:underline">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 // Prompt 187 §A — every `entities` row with source='manual', across every
 // org, cross-checked against the catalog with the same criteria
 // MergeDuplicatesTool already uses (see /lib/manual-entity-match.ts).
-// Flagged rows offer "merge into catalog" (fills the catalog row's empty
-// fields, never touches the source row); unflagged rows offer "promote",
-// which is deliberately the ONLY distribution mechanism built here — a
-// promoted row becomes a normal catalog_entities row, so catalog_top_matches
-// picks it up for every org once verified. The prompt's own text raises and
-// then answers this ("o caminho correto e mais simples... evitar inventar
-// um segundo caminho de distribuição direta org-a-org"); no second
-// "add to other startups' pipelines" UI was built on that basis.
+//
+// Prompt 191 — reworked selection model: per-row Merge/Promote buttons
+// replaced by a checkbox + single "Add selected to catalog" bulk action
+// (§C) — the system still decides merge-vs-promote per row from its own
+// likelyDuplicate, exactly as the old per-row buttons did, just triggered
+// once for however many rows are checked. Also adds inline editing (§A),
+// a read-only contacts expansion (§B), and Dismiss (§E.3) for a row that's
+// not worth promoting or merging. A row disappears from this list on its
+// own next refresh once treated (§E) — see manual-entities/route.ts's own
+// header for the catalog_review_status mechanism (migration 0169,
+// proposed, not yet applied).
 function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[]; onPromoted: () => void }) {
   const [rows, setRows] = useState<ManualEntity[] | null>(null);
   const [err, setErr] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [result, setResult] = useState<Record<string, string>>({});
   const [compareId, setCompareId] = useState<string | null>(null);
+  const [contactsId, setContactsId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState('');
 
   function refresh() {
     fetch('/api/backoffice/catalog/manual-entities').then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
       setRows(body.manualEntities);
+      // Prompt 191 §E — a row that's gone after refresh (promoted/merged/
+      // dismissed elsewhere, or by a teammate) shouldn't linger selected.
+      setSelectedIds((prev) => new Set([...prev].filter((id) => (body.manualEntities as ManualEntity[]).some((r) => r.id === id))));
     });
   }
   useEffect(refresh, []);
 
-  async function mergeInto(row: ManualEntity) {
-    if (!row.likelyDuplicate) return;
-    setBusyId(row.id);
-    const res = await fetch('/api/backoffice/catalog/merge', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keepId: row.likelyDuplicate.catalogId, manualEntityId: row.id }),
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
     });
-    const body = await res.json();
-    setBusyId(null);
-    setResult((prev) => ({ ...prev, [row.id]: body.ok === false ? body.error : 'Merged missing fields into the catalog entry.' }));
-    if (body.ok !== false) { refresh(); onPromoted(); }
+  }
+  function toggleSelectAll() {
+    if (!rows) return;
+    setSelectedIds((prev) => prev.size === rows.length ? new Set() : new Set(rows.map((r) => r.id)));
   }
 
-  async function promote(row: ManualEntity) {
+  async function dismiss(row: ManualEntity) {
     setBusyId(row.id);
-    const res = await fetch('/api/backoffice/catalog/promote', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ manualEntityId: row.id }),
+    const res = await fetch(`/api/backoffice/catalog/manual-entities/${row.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dismiss: true }),
     });
     const body = await res.json();
     setBusyId(null);
-    setResult((prev) => ({ ...prev, [row.id]: body.ok === false ? body.error : 'Added to the catalog (pending verification) — visible to every org via top matches once verified.' }));
-    if (body.ok !== false) { refresh(); onPromoted(); }
+    if (body.ok === false) { setResult((prev) => ({ ...prev, [row.id]: body.error })); return; }
+    refresh();
+  }
+
+  // Prompt 191 §C — one action, the row's own likelyDuplicate decides
+  // merge vs. promote, exactly what the two old per-row buttons did.
+  async function addSelectedToCatalog() {
+    const ids = [...selectedIds];
+    if (ids.length === 0 || !rows) return;
+    setBulkBusy(true); setBulkResult('');
+    const outcomes = await Promise.all(ids.map(async (id) => {
+      const row = rows.find((r) => r.id === id);
+      if (!row) return { id, ok: true }; // already gone — nothing to do
+      if (row.likelyDuplicate) {
+        const res = await fetch('/api/backoffice/catalog/merge', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keepId: row.likelyDuplicate.catalogId, manualEntityId: row.id }),
+        });
+        const body = await res.json();
+        return { id, ok: body.ok !== false, error: body.ok === false ? body.error : undefined };
+      }
+      const res = await fetch('/api/backoffice/catalog/promote', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ manualEntityId: row.id }),
+      });
+      const body = await res.json();
+      return { id, ok: body.ok !== false, error: body.ok === false ? body.error : undefined };
+    }));
+    setBulkBusy(false);
+    const failed = outcomes.filter((o) => !o.ok);
+    setBulkResult(failed.length === 0
+      ? `Added ${outcomes.length} entit${outcomes.length === 1 ? 'y' : 'ies'} to the catalog.`
+      : `Added ${outcomes.length - failed.length} of ${outcomes.length}; ${failed.length} failed — see the row(s) below.`);
+    setResult((prev) => {
+      const next = { ...prev };
+      for (const o of failed) if (o.error) next[o.id] = o.error;
+      return next;
+    });
+    setSelectedIds(new Set());
+    refresh(); onPromoted();
   }
 
   if (err) return <Card title="Added by startups"><p className="text-sm text-[#B00000]">{err}</p></Card>;
@@ -807,15 +958,24 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
     <Card title={`Added by startups (${rows.length})`}>
       <p className="mb-3 text-xs text-gray-500">
         Every investor a founder added manually (any org), cross-checked against the shared catalog by domain, name,
-        and known aliases. Flagged rows already look like an existing catalog entry — merging fills gaps on the
-        catalog row without ever overwriting correct data or touching the founder&apos;s own record. Otherwise,
-        promote it straight into the catalog — that&apos;s also how it becomes visible to other startups&apos; matches.
+        and known aliases. Fix any field that looks wrong before adding it — the correction is saved on the
+        founder&apos;s own record and carries through to whatever you add next. Select rows and add them to the
+        catalog in one go: a flagged row merges into its likely match (filling gaps only, never overwriting), an
+        unflagged row is promoted as a new entry. Dismiss a row that isn&apos;t worth either.
       </p>
+      <div className="mb-2 flex items-center gap-2">
+        <button disabled={selectedIds.size === 0 || bulkBusy} onClick={addSelectedToCatalog}
+          className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+          {bulkBusy ? 'Adding…' : `Add selected to catalog (${selectedIds.size})`}
+        </button>
+        {bulkResult && <span className="text-xs text-gray-500">{bulkResult}</span>}
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
-              <th className="py-1.5">Startup org</th><th>Investor</th><th>HQ</th><th>Geographies</th><th>Stage</th><th>Sectors</th><th>Contact</th><th>Match</th><th></th>
+              <th className="w-8 py-1.5"><input type="checkbox" checked={rows.length > 0 && selectedIds.size === rows.length} onChange={toggleSelectAll} /></th>
+              <th>Startup org</th><th>Investor</th><th>HQ</th><th>Geographies</th><th>Stage</th><th>Sectors</th><th>Contact</th><th>Match</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -824,7 +984,8 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
               return (
                 <Fragment key={r.id}>
                   <tr className="border-t border-gray-50 align-top">
-                    <td className="py-2 text-gray-500">{r.orgName}</td>
+                    <td className="py-2"><input type="checkbox" checked={selectedIds.has(r.id)} onChange={() => toggleSelected(r.id)} /></td>
+                    <td className="text-gray-500">{r.orgName}</td>
                     <td className="font-medium">{r.name}{r.website && <div className="text-xs font-normal text-gray-400">{r.website}</div>}</td>
                     <td className="text-gray-500">{[r.hqCity, r.hqCountry].filter(Boolean).join(', ') || '—'}</td>
                     <td className="max-w-[160px] text-xs text-gray-500">{r.geographies?.length ? r.geographies.join(', ') : '—'}</td>
@@ -841,23 +1002,35 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
                       ) : <span className="text-xs text-gray-300">No match</span>}
                     </td>
                     <td className="whitespace-nowrap text-right">
-                      {r.likelyDuplicate ? (
-                        <button disabled={busyId === r.id} onClick={() => mergeInto(r)} className="text-xs text-cyan-700 hover:underline disabled:opacity-40">Merge into catalog</button>
-                      ) : (
-                        <button disabled={busyId === r.id} onClick={() => promote(r)} className="text-xs text-[#0E7490] hover:underline disabled:opacity-40">Promote to catalog</button>
-                      )}
+                      <button onClick={() => setEditId(editId === r.id ? null : r.id)} className="mr-2 text-xs text-cyan-700 hover:underline">
+                        {editId === r.id ? 'Close' : 'Edit'}
+                      </button>
+                      <button onClick={() => setContactsId(contactsId === r.id ? null : r.id)} className="mr-2 text-xs text-cyan-700 hover:underline">
+                        {contactsId === r.id ? 'Close' : `Contacts (${r.contacts.length})`}
+                      </button>
+                      <button disabled={busyId === r.id} onClick={() => dismiss(r)} className="text-xs text-gray-400 hover:underline disabled:opacity-40">Dismiss</button>
                     </td>
                   </tr>
+                  {editId === r.id && (
+                    <tr className="border-t border-gray-50">
+                      <td colSpan={10} className="py-2">
+                        <ManualEntityEditForm row={r} onCancel={() => setEditId(null)} onSaved={() => { setEditId(null); refresh(); }} />
+                      </td>
+                    </tr>
+                  )}
+                  {contactsId === r.id && (
+                    <tr className="border-t border-gray-50"><td colSpan={10} className="py-2"><ManualEntityContactsPanel contacts={r.contacts} /></td></tr>
+                  )}
                   {compareId === r.id && catalogEntity && (
-                    <tr className="border-t border-gray-50"><td colSpan={9} className="py-2"><CompareTable manual={r} catalogEntity={catalogEntity} /></td></tr>
+                    <tr className="border-t border-gray-50"><td colSpan={10} className="py-2"><CompareTable manual={r} catalogEntity={catalogEntity} /></td></tr>
                   )}
                   {result[r.id] && (
-                    <tr><td colSpan={9} className="pb-2 text-xs text-gray-500">{result[r.id]}</td></tr>
+                    <tr><td colSpan={10} className="pb-2 text-xs text-gray-500">{result[r.id]}</td></tr>
                   )}
                 </Fragment>
               );
             })}
-            {rows.length === 0 && <tr><td colSpan={9} className="py-4 text-center text-sm text-gray-400">No manually-added investors from startups yet.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={10} className="py-4 text-center text-sm text-gray-400">No manually-added investors from startups yet.</td></tr>}
           </tbody>
         </table>
       </div>

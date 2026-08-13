@@ -18,6 +18,13 @@
 // catalog_entities creation path (POST /api/backoffice/catalog) — a
 // promoted row gets the same manual-verify step as a hand-typed one, not a
 // silent shortcut to 'verified'.
+//
+// Prompt 191 §D/§E — the provenance note now leads with the org's real
+// name (readable in the Catalog table) instead of its UUID, with the
+// technical trail kept as a parenthetical for debugging; and the source
+// entities row is marked catalog_review_status='promoted' after a
+// successful insert so it stops reappearing in "Added by startups" — see
+// migration 0169 (proposed, not yet applied) for that column.
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { logAdminAction } from '@/lib/audit';
@@ -37,6 +44,9 @@ export async function POST(req: Request) {
   if (!manual) return NextResponse.json({ ok: false, error: 'Manual entity not found.' }, { status: 404 });
   if (manual.source !== 'manual') return NextResponse.json({ ok: false, error: 'Not a manually-added entity.' }, { status: 400 });
 
+  const { data: org } = await admin.from('orgs').select('name').eq('id', manual.org_id).maybeSingle();
+  const orgName = org?.name ?? '(deleted org)';
+
   const { data: created, error } = await admin.from('catalog_entities').insert({
     name: manual.name, type: manual.type, hq_city: manual.hq_city, hq_country: manual.hq_country,
     geographies: manual.invests_in_geographies ?? [],
@@ -44,9 +54,12 @@ export async function POST(req: Request) {
     check_min_eur: manual.check_min_eur, check_max_eur: manual.check_max_eur,
     thesis: manual.thesis, website: manual.website,
     verification_status: 'pending', source: 'startup_submitted',
-    notes: `Promoted from a manually-added entity in org ${manual.org_id} (entities.id=${manual.id}).`,
+    notes: `Added by startup ${orgName}. (promoted from entities.id=${manual.id})`,
   }).select().single();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  const { error: statusErr } = await admin.from('entities').update({ catalog_review_status: 'promoted' }).eq('id', manual.id);
+  if (statusErr) return NextResponse.json({ ok: false, error: `Catalog entry created, but couldn't mark the source row as promoted: ${statusErr.message}` }, { status: 500 });
 
   await logAdminAction(admin, {
     adminUserId: userId, action: 'catalog_promote_from_manual', subjectType: 'catalog_entity', subjectId: created.id,
