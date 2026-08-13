@@ -480,12 +480,26 @@ export function PipelinePanel({
                     title="Select to compare" />
                   <button onClick={() => toggleExpanded(c.orgId)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                     <div className="min-w-0 flex-1">
-                      <span className="text-sm font-semibold text-gray-900">
-                        <Link href={`/portal/startup/${c.orgId}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
-                          {c.name}
-                        </Link>
-                      </span>
-                      {c.oneLiner && <span className="ml-2 truncate text-xs text-gray-500">{c.oneLiner}</span>}
+                      {/* Prompt 183 §B — `truncate` on a bare inline <span>
+                          doesn't reliably clip: an inline box has no width
+                          of its own to overflow against, so a long oneLiner
+                          just kept growing and drew over the shrink-0
+                          Invited/score badges to the right (only visible on
+                          cards with a short name + long oneLiner — every
+                          other card's oneLiner was short enough to never
+                          hit it). Wrapping name+oneLiner in their own
+                          min-w-0 flex row, with oneLiner as a min-w-0
+                          flex-1 block span, gives truncate an actual
+                          shrinkable width to clip against while keeping
+                          both on the same line as before. */}
+                      <div className="flex min-w-0 items-baseline gap-2">
+                        <span className="shrink-0 text-sm font-semibold text-gray-900">
+                          <Link href={`/portal/startup/${c.orgId}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
+                            {c.name}
+                          </Link>
+                        </span>
+                        {c.oneLiner && <span className="block min-w-0 flex-1 truncate text-xs text-gray-500">{c.oneLiner}</span>}
+                      </div>
                     </div>
                     <div className="hidden shrink-0 items-center gap-1.5 sm:flex">
                       {c.status === 'passed' ? (

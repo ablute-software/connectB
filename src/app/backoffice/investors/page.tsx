@@ -250,7 +250,11 @@ interface InvestorAccountRow {
   entityId: string; name: string; planTier: string | null;
   planTierRequested: string | null; planTierRequestedAt: string | null;
   registrationDate: string | null; seats: number;
-  complete: boolean; lastLogin: string | null; status: 'active' | 'quiet' | 'inactive';
+  complete: boolean;
+  // Prompt 183 §A — verified/pending/rejected, now shown directly since
+  // Accounts no longer hides non-verified rows that have real seats.
+  verificationStatus: 'verified' | 'pending' | 'rejected';
+  lastLogin: string | null; status: 'active' | 'quiet' | 'inactive';
   accessGrantedLastMonth: number; filesViewedLastMonth: number; startupsInteractedWith: number;
   moderationStatus: ModerationStatus; moderationQuarantineUntil: string | null;
   logsLast7Days: number | null; accessRequestedLastMonth: number | null; visiblePipelineSize: number | null;
@@ -259,6 +263,12 @@ interface InvestorAccountRow {
 
 const INVESTOR_STATUS_STYLE: Record<InvestorAccountRow['status'], string> = {
   active: 'bg-green-50 text-green-700', quiet: 'bg-amber-50 text-amber-700', inactive: 'bg-gray-100 text-gray-500',
+};
+
+// Prompt 183 §A — same verified/pending/rejected palette the catalog table
+// already uses (backoffice/catalog/page.tsx), for consistency.
+const VERIFICATION_STYLE: Record<InvestorAccountRow['verificationStatus'], string> = {
+  verified: 'bg-green-50 text-green-700', pending: 'bg-amber-50 text-amber-700', rejected: 'bg-red-50 text-red-700',
 };
 
 function NotTracked({ tooltip }: { tooltip: string }) {
@@ -349,7 +359,7 @@ function InvestorAccountsTable() {
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
               <th className="whitespace-nowrap py-1.5 pr-3">Org</th><th className="pr-3">Plan</th><th className="pr-3">Registered</th>
-              <th className="pr-3">Seats</th><th className="pr-3">% Complete</th><th className="pr-3">Logs/7d</th>
+              <th className="pr-3">Seats</th><th className="pr-3">Verification</th><th className="pr-3">% Complete</th><th className="pr-3">Logs/7d</th>
               <th className="pr-3">Last login</th><th className="pr-3">Status</th><th className="pr-3">Delete/Suspend</th>
               <th className="pr-3">Access req./mo</th><th className="pr-3">Access granted/mo</th><th className="pr-3">Files viewed/mo</th>
               <th className="pr-3">Pipeline</th><th className="pr-3">Startups</th><th className="pr-3">Comparisons/mo</th><th>AI assist/mo</th>
@@ -374,6 +384,11 @@ function InvestorAccountsTable() {
                 </td>
                 <td className="pr-3 text-xs text-gray-400 whitespace-nowrap">{a.registrationDate ? a.registrationDate.slice(0, 10) : '—'}</td>
                 <td className="pr-3 text-gray-600">{a.seats}</td>
+                <td className="pr-3">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${VERIFICATION_STYLE[a.verificationStatus]}`}>
+                    {a.verificationStatus}
+                  </span>
+                </td>
                 <td className="pr-3 text-gray-600">{a.complete ? 'Complete' : 'Incomplete'}</td>
                 <td className="pr-3">
                   {a.logsLast7Days == null ? <NotTracked tooltip="Tracking starts once an investor activity-log event exists" /> : a.logsLast7Days}

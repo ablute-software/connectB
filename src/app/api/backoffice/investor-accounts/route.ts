@@ -109,6 +109,10 @@ export async function GET() {
       // companyCompleteness.ts's startup-side one. Rendered as-is, not
       // inflated into a fake percentage.
       complete: r.verified,
+      // Prompt 183 §A — the tri-state value for the new Verification badge;
+      // see investorOrgRows()'s own comment for why this route's filter now
+      // includes pending/rejected accounts that have real seats.
+      verificationStatus: r.verificationStatus,
       lastLogin, status,
       accessGrantedLastMonth,
       filesViewedLastMonth,

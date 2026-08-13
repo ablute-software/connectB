@@ -881,7 +881,14 @@ export async function startupOrgRows(admin: SupabaseClient): Promise<StartupOrgR
 }
 
 export interface InvestorOrgRow {
-  entityId: string; name: string; verified: boolean; planTier: string | null;
+  entityId: string; name: string; verified: boolean;
+  // Prompt 183 §A — verified collapses the real tri-state value to a
+  // boolean (kept for existing callers); this carries the actual value so
+  // the Accounts table can show a proper Verification badge now that
+  // pending/rejected rows reach this list too (see the filter change
+  // below).
+  verificationStatus: 'verified' | 'pending' | 'rejected';
+  planTier: string | null;
   // Item 11 — the investor-side mirror of orgs.plan_change_requested: a
   // pending request existed (plan/request/route.ts writes it) but nothing
   // on the backoffice side ever read it back. Picked the same "first
@@ -927,7 +934,21 @@ export async function investorOrgRows(admin: SupabaseClient): Promise<InvestorOr
     : { data: [] };
   const now = Date.now();
 
-  return investors.filter((c) => c.verification_status === 'verified').map((c) => {
+  // Prompt 183 §A — was `investors.filter((c) => c.verification_status ===
+  // 'verified')`, which hid real accounts: a catalog_entities row can have
+  // an actual signed-in seat (matchdeal_investor_members.status='active')
+  // while still sitting at verification_status='pending' or 'rejected' —
+  // confirmed in production ("Invest green" and an individual investor
+  // account, both pending, both with real active seats, neither ever
+  // showing in Accounts). A pending account is exactly the one an admin
+  // most needs to see here — to verify it, manage its plan, or delete it —
+  // so this now filters on the same thing the "registered account"
+  // definition elsewhere already uses (seats, via isRegisteredInvestorAccount),
+  // not on verification. Every other verification_status==='verified'
+  // filter in the codebase (the public catalog, /api/backoffice/investors)
+  // is untouched — this is scoped to investorOrgRows() only, per the
+  // prompt's own instruction.
+  return investors.filter((c) => (memberIdsByEntity.get(c.id) ?? []).length > 0).map((c) => {
     const memberIds = memberIdsByEntity.get(c.id) ?? [];
     const profileIdsForEntity = memberIds.map((id) => profileIdByMember.get(id)).filter((x): x is string => !!x);
     const entitySwipes = (swipes ?? []).filter((s) => profileIdsForEntity.includes(s.actor_profile_id as string));
@@ -937,8 +958,10 @@ export async function investorOrgRows(admin: SupabaseClient): Promise<InvestorOr
     const planTier = memberIds.map((id) => planTierByMember.get(id)).find(Boolean) ?? null;
     const planTierRequested = memberIds.map((id) => planTierRequestedByMember.get(id)).find(Boolean) ?? null;
     const planTierRequestedAt = memberIds.map((id) => planTierRequestedAtByMember.get(id)).find(Boolean) ?? null;
+    const verificationStatus = c.verification_status as 'verified' | 'pending' | 'rejected';
     return {
-      entityId: c.id, name: c.name, verified: true, planTier, planTierRequested, planTierRequestedAt, seatsLinked: memberIds.length,
+      entityId: c.id, name: c.name, verified: verificationStatus === 'verified', verificationStatus,
+      planTier, planTierRequested, planTierRequestedAt, seatsLinked: memberIds.length,
       startupsAnalyzed: new Set(entitySwipes.map((s) => s.target_profile_id)).size, activityState,
     };
   });
