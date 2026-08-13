@@ -19,7 +19,28 @@
 // spec), an in-card status badge echoing the axis signal, themed item
 // dots, a fuller Founded card, and always-visible click-to-scroll arrows
 // alongside the native horizontal scroll.
-import { useRef, useState } from 'react';
+//
+// Prompt 177 — pixel-match pass against a literal reference image (not a
+// text description) in the three zones that still diverged:
+// 1) axis line: the code drew every segment as a SOLID colored bar (just a
+//    lighter color for the future half) — the reference draws the past
+//    half solid and the future half genuinely DASHED (a border style, not
+//    a filled bar). Also a real bug found while comparing: FoundedNode's
+//    own "after" segment was hardcoded to the future color (bg-cyan-200) —
+//    founding has already happened by definition, that segment must always
+//    render as "past", never as "future".
+// 2) card/Founded sizing: FoundedNode's card+container (w-36/w-40) were
+//    narrower than every MilestoneNode's (w-48/w-52) — the reference shows
+//    Founded at the SAME width as the milestone cards, if anything the
+//    widest one measured. Unified onto one shared, slightly larger size
+//    (pill/year/item text sized up to match).
+// 3) nav: the always-visible round ‹/› buttons flanking the whole timeline
+//    don't exist in the reference at all — what's there instead is a slim
+//    scrollbar-style bar BELOW the row of cards (thin track, a thumb
+//    reflecting actual scroll position, small chevrons at each end, no big
+//    buttons). Replaced accordingly; the native browser scrollbar is
+//    hidden so only this one bar shows.
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card, TermHint, Toggle } from '@/components/ui';
 import type { RoadmapMilestone, RoadmapPeriodKind } from '@/lib/types';
@@ -29,6 +50,10 @@ const QUARTERS = [1, 2, 3, 4] as const;
 // Prompt 175 §A — the one size every axis circle (founding node included)
 // now shares, so the connecting line never has to change height.
 const NODE_SIZE = 'h-8 w-8';
+// Prompt 177 §2 — the one size every card+container (founding node
+// included) now shares — see the header note above.
+const CARD_WIDTH = 'w-56';
+const CONTAINER_WIDTH = 'w-60';
 
 // Prompt 175 §B.1 — "rodar por uma pequena paleta... não necessariamente
 // ligado ao passado/futuro" (Nuno's own words): a milestone's card color
@@ -40,31 +65,44 @@ const CARD_THEMES = [
   { bg: 'bg-purple-50', badge: 'bg-purple-100 text-purple-700', dot: 'bg-purple-500', statusOn: 'border-purple-500 bg-purple-500', statusOff: 'border-purple-300 bg-white text-purple-300' },
 ];
 
+// Prompt 177 §1 — one shared line-segment renderer: `solid` true draws the
+// "already happened" half (a filled 2px bar, the app's own teal), false
+// draws the "still ahead" half (a 2px DASHED border — genuinely dashed,
+// not a lighter fill, matching the reference literally).
+function AxisLine({ solid }: { solid: boolean }) {
+  return solid
+    ? <div className="h-0.5 flex-1 bg-[#0E7490]" />
+    : <div className="h-0 flex-1 border-t-2 border-dashed border-gray-300" />;
+}
+
 function FoundedNode({ foundedYear }: { foundedYear: number | null }) {
   return (
-    <div className="flex w-40 shrink-0 flex-col items-center">
+    <div className={`flex ${CONTAINER_WIDTH} shrink-0 flex-col items-center`}>
       <div className="flex h-28 items-end pb-2">
         {foundedYear == null ? (
-          <div className="w-36 rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-2.5 text-center text-[11px] text-amber-800">
+          <div className={`${CARD_WIDTH} rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-3 text-center text-xs text-amber-800`}>
             Set your founding year in <a href="#settings-identity" className="font-semibold underline">Identity</a> to start your roadmap.
           </div>
         ) : (
-          <div className="w-36 rounded-xl bg-amber-50 p-3 shadow-sm">
+          <div className={`${CARD_WIDTH} rounded-xl bg-amber-50 p-3.5 shadow-sm`}>
             <div className="flex items-center justify-between gap-1.5">
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Founded</span>
-              <span aria-hidden="true" className="text-sm">🚩</span>
+              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">Founded</span>
+              <span aria-hidden="true" className="text-base">🚩</span>
             </div>
-            <div className="mt-1.5 text-lg font-bold text-amber-900">{foundedYear}</div>
-            <div className="text-[11px] text-amber-700/80">Company founded</div>
+            <div className="mt-1.5 text-2xl font-bold text-amber-900">{foundedYear}</div>
+            <div className="text-xs text-amber-700/80">Company founded</div>
           </div>
         )}
       </div>
       <div className="flex w-full items-center">
-        <div className="h-0.5 flex-1" />
+        {/* Nothing precedes the very first node — no line drawn (not even
+            invisible-width flex-1, which would push the dot off-center). */}
         <div className={`flex ${NODE_SIZE} shrink-0 items-center justify-center rounded-full border-2 text-sm ${foundedYear == null ? 'border-dashed border-amber-300 bg-white text-amber-300' : 'border-amber-500 bg-amber-400 text-white'}`}>
           🚩
         </div>
-        <div className="h-0.5 flex-1 bg-cyan-200" />
+        {/* Founding has already happened, by definition — this segment is
+            always "past", never the future/dashed style. */}
+        <AxisLine solid />
       </div>
       <div className="mt-1 h-28 text-xs font-medium text-amber-700">{foundedYear ?? '—'}</div>
     </div>
@@ -72,17 +110,23 @@ function FoundedNode({ foundedYear }: { foundedYear: number | null }) {
 }
 
 function MilestoneNode<T extends RoadmapPeriod & { items: string[] }>({
-  m, index, theme, editable, onEdit, onRemove, now,
+  m, index, theme, editable, onEdit, onRemove, now, prevPast,
 }: {
   m: T; index: number; theme: typeof CARD_THEMES[number]; editable: boolean; onEdit?: (m: T) => void; onRemove?: (m: T) => void; now: Date;
+  // Prompt 177 §1 — whether the PREVIOUS node on the axis was already past,
+  // so this node's own "before" segment agrees with that neighbor's
+  // "after" segment (both sides of one physical line draw the same style —
+  // see the header note's algebra) instead of each node guessing from its
+  // own status alone, which would split every transition segment in two.
+  prevPast: boolean;
 }) {
   const label = periodLabel(m.period_kind, m.period_year, m.period_quarter);
   const past = periodHasPassed(m, now);
   const top = index % 2 === 0;
   const card = (
-    <div className={`w-48 rounded-xl p-3 text-xs shadow-sm ${theme.bg}`}>
+    <div className={`${CARD_WIDTH} rounded-xl p-3.5 text-sm shadow-sm ${theme.bg}`}>
       <div className="flex items-center justify-between gap-1.5">
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${theme.badge}`}>{label}</span>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${theme.badge}`}>{label}</span>
         {/* Prompt 175 §B.2 — the axis's own past/future signal, repeated
             inside the card so the state reads without following the line
             down to the node. */}
@@ -92,19 +136,19 @@ function MilestoneNode<T extends RoadmapPeriod & { items: string[] }>({
         </span>
       </div>
       {m.items.length > 0 ? (
-        <ul className="mt-1.5 space-y-1">
+        <ul className="mt-2 space-y-1.5">
           {m.items.map((it, i) => (
             <li key={i} className="flex items-start gap-1.5 text-gray-700">
-              <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${theme.dot}`} aria-hidden="true" />
+              <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${theme.dot}`} aria-hidden="true" />
               <span>{it}</span>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="mt-1.5 text-gray-400">No milestones listed.</p>
+        <p className="mt-2 text-gray-400">No milestones listed.</p>
       )}
       {editable && (
-        <div className="mt-2 flex justify-end gap-2 border-t border-black/5 pt-1.5 text-[11px] text-gray-500">
+        <div className="mt-2.5 flex justify-end gap-2 border-t border-black/5 pt-1.5 text-xs text-gray-500">
           <button onClick={() => onEdit?.(m)} className="hover:text-gray-800">Edit</button>
           <button onClick={() => onRemove?.(m)} className="hover:text-[#B00000]">Remove</button>
         </div>
@@ -113,17 +157,65 @@ function MilestoneNode<T extends RoadmapPeriod & { items: string[] }>({
   );
 
   return (
-    <div className="flex w-52 shrink-0 flex-col items-center">
+    <div className={`flex ${CONTAINER_WIDTH} shrink-0 flex-col items-center`}>
       <div className="flex h-28 items-end pb-2">{top && card}</div>
       <div className="flex w-full items-center">
-        <div className={`h-0.5 flex-1 ${past ? 'bg-[#0E7490]' : 'bg-cyan-200'}`} />
+        <AxisLine solid={prevPast} />
         <div className={`flex ${NODE_SIZE} shrink-0 items-center justify-center rounded-full border-2 text-sm text-white ${past ? 'border-[#0E7490] bg-[#0E7490]' : 'border-cyan-300 bg-white'}`}>
           {past && '✓'}
         </div>
-        <div className={`h-0.5 flex-1 ${past ? 'bg-[#0E7490]' : 'bg-cyan-200'}`} />
+        <AxisLine solid={past} />
       </div>
       <div className="mt-1 text-xs text-gray-500">{label}</div>
       <div className="flex h-28 items-start pt-2">{!top && card}</div>
+    </div>
+  );
+}
+
+// Prompt 177 §3 — replaces the always-visible round ‹/› buttons that used
+// to flank the whole timeline: the reference has no such buttons, only a
+// slim scrollbar-style bar BELOW the row of cards — a thin track, a thumb
+// sized/positioned from the real scrollLeft/scrollWidth/clientWidth (not
+// decorative), and small chevrons at each end. Polls on the container's
+// own `scroll` event plus a `resize` listener (the row's total width can
+// change if a milestone is added/removed while mounted).
+function ScrollBar({ scrollRef }: { scrollRef: React.RefObject<HTMLDivElement> }) {
+  const [thumb, setThumb] = useState({ left: 0, width: 100 });
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    function update() {
+      const { scrollLeft, scrollWidth, clientWidth } = el!;
+      if (scrollWidth <= 0) return;
+      setThumb({
+        left: (scrollLeft / scrollWidth) * 100,
+        width: Math.max(8, (clientWidth / scrollWidth) * 100),
+      });
+    }
+    update();
+    el.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
+    return () => { el.removeEventListener('scroll', update); window.removeEventListener('resize', update); };
+  }, [scrollRef]);
+
+  function scrollBy(dir: -1 | 1) {
+    scrollRef.current?.scrollBy({ left: dir * 320, behavior: 'smooth' });
+  }
+
+  return (
+    <div className="mt-2 flex items-center gap-2 px-1">
+      <button type="button" onClick={() => scrollBy(-1)} aria-label="Scroll timeline left"
+        className="shrink-0 text-sm text-gray-400 hover:text-[#0E7490]">
+        ‹
+      </button>
+      <div className="relative h-1.5 flex-1 rounded-full bg-gray-100">
+        <div className="absolute top-0 h-1.5 rounded-full bg-gray-300" style={{ left: `${thumb.left}%`, width: `${thumb.width}%` }} />
+      </div>
+      <button type="button" onClick={() => scrollBy(1)} aria-label="Scroll timeline right"
+        className="shrink-0 text-sm text-gray-400 hover:text-[#0E7490]">
+        ›
+      </button>
     </div>
   );
 }
@@ -141,24 +233,18 @@ export function RoadmapTimeline<T extends RoadmapPeriod & { items: string[] }>({
 }) {
   const sorted = sortRoadmapPeriods(milestones);
   const scrollRef = useRef<HTMLDivElement>(null);
-  function scrollBy(dir: -1 | 1) {
-    scrollRef.current?.scrollBy({ left: dir * 320, behavior: 'smooth' });
-  }
 
   return (
-    <div className="flex items-center gap-1">
-      {/* Prompt 175 §B.5 — always visible (not hover-only), alongside the
-          native horizontal scroll the container already had. */}
-      <button type="button" onClick={() => scrollBy(-1)} aria-label="Scroll timeline left"
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-gray-200 text-gray-500 hover:border-[#0E7490] hover:text-[#0E7490]">
-        ‹
-      </button>
-      <div ref={scrollRef} className="flex flex-1 items-stretch overflow-x-auto pb-1">
+    <div>
+      {/* Native scrollbar hidden — ScrollBar below is the only scroll
+          indicator, matching the reference having exactly one. */}
+      <div ref={scrollRef} className="flex items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <FoundedNode foundedYear={foundedYear} />
         {sorted.map((m, i) => (
           <MilestoneNode key={`${m.period_kind}:${m.period_year}:${m.period_quarter ?? ''}`}
             m={m} index={i + 1} theme={CARD_THEMES[i % CARD_THEMES.length]}
-            editable={editable} onEdit={onEditClick} onRemove={onRemoveClick} now={now} />
+            editable={editable} onEdit={onEditClick} onRemove={onRemoveClick} now={now}
+            prevPast={i === 0 ? true : periodHasPassed(sorted[i - 1], now)} />
         ))}
         {editable && (
           <div className="flex w-28 shrink-0 flex-col items-center justify-center">
@@ -170,10 +256,7 @@ export function RoadmapTimeline<T extends RoadmapPeriod & { items: string[] }>({
           </div>
         )}
       </div>
-      <button type="button" onClick={() => scrollBy(1)} aria-label="Scroll timeline right"
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-gray-200 text-gray-500 hover:border-[#0E7490] hover:text-[#0E7490]">
-        ›
-      </button>
+      <ScrollBar scrollRef={scrollRef} />
     </div>
   );
 }
