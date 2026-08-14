@@ -472,7 +472,16 @@ export default function PipelinePage() {
           that for every org with fewer than 15 unlocked investors, which
           is most of them today, so this reads the requirement as "cap at
           15, don't force it" rather than the literal words. */}
-      <div data-tour-id="pipeline-list" className="overflow-x-auto overflow-y-auto rounded-2xl border border-gray-100 bg-white shadow-sm" style={{ maxHeight: PIPELINE_LIST_MAX_HEIGHT_PX }}>
+      {/* Prompt 192 — corrects 188 §2: the blocked-panel used to live
+          inside THIS scroll container, after </table>, so it only became
+          visible once the user scrolled the 15-row list all the way down.
+          Split back into two sibling divs (blockedCount > 0 below) — this
+          one keeps its own scroll and, when a panel follows, only rounds
+          its TOP corners and drops its bottom border so the two read as
+          one continuous shape with no seam. */}
+      <div data-tour-id="pipeline-list"
+        className={`overflow-x-auto overflow-y-auto border border-gray-100 bg-white shadow-sm ${blockedCount > 0 ? 'rounded-t-2xl border-b-0' : 'rounded-2xl'}`}
+        style={{ maxHeight: PIPELINE_LIST_MAX_HEIGHT_PX }}>
         {/* table-fixed + explicit column widths (colgroup) so the table
             holds to the container's width at every wave filter setting
             instead of growing with content and forcing horizontal scroll;
@@ -574,52 +583,77 @@ export default function PipelinePage() {
             })}
           </tbody>
         </table>
+      </div>
 
-        {/* Blocked-by-plan panel — Prompt 188 §2: moved inside the same
-            scroll container as a visual continuation of the list (same
-            width, no border/rounded/shadow of its own to read as a
-            separate card), sitting immediately after the last row. Purely
-            a count (blockedCount, from the catalog_blocked_count RPC); the
-            blocked rows themselves are never fetched, so there's nothing
-            here to hide via CSS or draw behind the glass — the "vidro
-            fosco" effect comes from the geometry (same container, flush to
-            the last row), not from simulated ghost rows.
+      {/* Blocked-by-plan panel — Prompt 192 (corrects 188 §2, which put
+          this inside the scroll container above, so it only appeared after
+          scrolling to the end of the list). Now a sibling div, flush
+          against the table container (no margin-top, no border-t, only
+          bottom corners rounded) so it reads as one continuous block that's
+          ALWAYS visible below the 15 rows regardless of the table's own
+          scroll position.
 
-            Prompt 179 §C, updated by 180 and 188 — two distinct messages.
-            Whether an upgrade CTA makes sense depends on whether this org's
-            accumulated catalog_quota has already reached the target the
-            pipeline-unlock formula currently computes for it (unlock.
-            catalogQuotaTarget — same base+bonuses formula as the badge
-            above, uncapped; CATALOG_QUOTA/plans.ts, the old fixed 3/15/40
-            constant this used to compare against, is retired — see
-            plans.ts's own header): below it, catalog_quota just hasn't
-            caught up to its own live target yet (the next poll of
-            /api/pipeline-unlock raises it) — no reason to push an upgrade.
-            At or above it (atTarget), §188 §3 replaces the old exact-count
-            "N blocked" copy with a vaguer one and gates the upgrade CTA on
-            db.org.plan — NOT on getInvestorPlan/INVESTOR_PLANS/
-            legendary_sleuth as the prompt's text names them: that function
-            doesn't exist anywhere in this codebase (confirmed by grep), and
-            INVESTOR_PLANS/pro_scout/ace_spotter/legendary_sleuth is the
-            unrelated taxonomy for what INVESTORS themselves buy (Pro
-            Scout/Ace Spotter/The Legendary Sleuth SaaS seats — see
-            plans.ts's own INVESTOR_PLANS block). This page is the
-            FOUNDER's pipeline, gated by the founder's own org.plan
-            (idea/garage/motherfunding — PLAN_TIERS, same tier the
-            pipeline-unlock formula above already keys off), so
-            'motherfunding' is this page's actual max tier. Flagging this
-            as a deviation from the prompt's literal wording rather than
-            inventing a new lookup or importing an unrelated one. */}
-        {blockedCount > 0 && (() => {
-          const target = unlock?.catalogQuotaTarget ?? 0;
-          const atTarget = (db.org.catalog_quota ?? 0) >= target;
-          const onMaxPlan = db.org.plan === 'motherfunding';
-          return (
-            <div className="bg-white/60 p-6 text-center backdrop-blur-sm">
+          Real frosted glass, per 192 §2: LockedWave's pattern
+          (investor-workspace/PipelinePanel.tsx) copied over — aria-hidden
+          skeleton rows sitting behind an absolute inset-0 bg-white/55
+          backdrop-blur-sm overlay, instead of just a translucent box with
+          text (which produced no actual blur before, since there was
+          nothing behind it to blur). The skeleton rows are pure shape —
+          bars imitating this table's own columns — never real data: the
+          blocked entities themselves are never fetched (still just
+          blockedCount, the catalog_blocked_count RPC), so there's nothing
+          real to draw and nothing real to hide.
+
+          Prompt 179 §C, updated by 180 and 188 — two distinct messages.
+          Whether an upgrade CTA makes sense depends on whether this org's
+          accumulated catalog_quota has already reached the target the
+          pipeline-unlock formula currently computes for it (unlock.
+          catalogQuotaTarget — same base+bonuses formula as the badge
+          above, uncapped; CATALOG_QUOTA/plans.ts, the old fixed 3/15/40
+          constant this used to compare against, is retired — see
+          plans.ts's own header): below it, catalog_quota just hasn't
+          caught up to its own live target yet (the next poll of
+          /api/pipeline-unlock raises it) — no reason to push an upgrade.
+          At or above it (atTarget), §188 §3 replaces the old exact-count
+          "N blocked" copy with a vaguer one and gates the upgrade CTA on
+          db.org.plan — NOT on getInvestorPlan/INVESTOR_PLANS/
+          legendary_sleuth as the prompt's text names them: that function
+          doesn't exist anywhere in this codebase (confirmed by grep), and
+          INVESTOR_PLANS/pro_scout/ace_spotter/legendary_sleuth is the
+          unrelated taxonomy for what INVESTORS themselves buy (Pro
+          Scout/Ace Spotter/The Legendary Sleuth SaaS seats — see
+          plans.ts's own INVESTOR_PLANS block). This page is the
+          FOUNDER's pipeline, gated by the founder's own org.plan
+          (idea/garage/motherfunding — PLAN_TIERS, same tier the
+          pipeline-unlock formula above already keys off), so
+          'motherfunding' is this page's actual max tier. Flagging this
+          as a deviation from the prompt's literal wording rather than
+          inventing a new lookup or importing an unrelated one. */}
+      {blockedCount > 0 && (() => {
+        const target = unlock?.catalogQuotaTarget ?? 0;
+        const atTarget = (db.org.catalog_quota ?? 0) >= target;
+        const onMaxPlan = db.org.plan === 'motherfunding';
+        return (
+          <div className="relative overflow-hidden rounded-b-2xl border border-t-0 border-gray-100 bg-white shadow-sm">
+            <div aria-hidden className="divide-y divide-gray-100">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 px-3 py-3">
+                  <div className="h-3 w-[22%] rounded bg-gray-100" />
+                  <div className="h-3 w-[8%] rounded bg-gray-100" />
+                  <div className="h-3 w-[10%] rounded bg-gray-100" />
+                  <div className="h-3 w-[10%] rounded bg-gray-100" />
+                  <div className="h-3 w-[14%] rounded bg-gray-100" />
+                  <div className="h-3 w-[7%] rounded bg-gray-100" />
+                  <div className="h-3 w-[6%] rounded bg-gray-100" />
+                  <div className="h-3 w-[10%] rounded bg-gray-100" />
+                </div>
+              ))}
+            </div>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-white/55 px-6 text-center backdrop-blur-sm">
               <div className="text-2xl">🔒</div>
               {atTarget ? (
                 <>
-                  <p className="mt-2 text-sm font-medium text-gray-700">Thousands of investors are waiting in the catalog.</p>
+                  <p className="mt-1 text-sm font-medium text-gray-700">Thousands of investors are waiting in the catalog.</p>
                   <p className="mt-1 text-xs text-gray-500">
                     Your next monthly batch unlocks automatically{onMaxPlan ? '.' : ' — or upgrade your plan to unlock more now.'}
                   </p>
@@ -631,16 +665,16 @@ export default function PipelinePage() {
                 </>
               ) : (
                 <>
-                  <p className="mt-2 text-sm font-medium text-gray-700">New matching investors are delivered automatically.</p>
+                  <p className="mt-1 text-sm font-medium text-gray-700">New matching investors are delivered automatically.</p>
                   <p className="mt-1 text-xs text-gray-500">
                     Next batch arrives {nextMonthlyDeliveryDate(new Date().toISOString()).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}.
                   </p>
                 </>
               )}
             </div>
-          );
-        })()}
-      </div>
+          </div>
+        );
+      })()}
 
       {addInvestorOpen && <AddInvestorModal onClose={() => setAddInvestorOpen(false)} />}
 
