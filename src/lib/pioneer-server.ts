@@ -47,6 +47,13 @@ export async function grantPioneerBadgeAndReferrals(
  * expired and doesn't have the badge yet, grants it. Never touches
  * orgs.plan — see migration 0167's own header for why no downgrade write
  * is needed here at all.
+ *
+ * The `.not('benefit_ends_at', 'is', null)` filter below deliberately
+ * excludes permanent Pioneer redemptions — those are granted immediately at
+ * redemption time (promo/redeem/route.ts), not by this sweep, so a
+ * permanent code's org isn't left waiting up to 24h for its badge (Prompt
+ * 195). This job stays scoped to its original use case: codes with a real
+ * expiry date.
  */
 export async function runPioneerExpiryJob(admin: SupabaseClient, nowIso: string): Promise<{ orgsGranted: number }> {
   const { data: redemptions } = await admin

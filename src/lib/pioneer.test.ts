@@ -7,8 +7,8 @@ describe('isPioneerBadgeDue', () => {
   it('is false when the promo is not a pioneer code', () => {
     expect(isPioneerBadgeDue(false, '2026-08-01T00:00:00Z', now)).toBe(false);
   });
-  it('is false when the benefit has no expiry (permanent redemption)', () => {
-    expect(isPioneerBadgeDue(true, null, now)).toBe(false);
+  it('is true when the benefit has no expiry (permanent redemption) — Prompt 195, the TEST-code bug', () => {
+    expect(isPioneerBadgeDue(true, null, now)).toBe(true);
   });
   it('is false while the benefit is still in the future', () => {
     expect(isPioneerBadgeDue(true, '2026-09-01T00:00:00Z', now)).toBe(false);

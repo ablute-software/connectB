@@ -9,6 +9,9 @@ import { serverClient } from '@/lib/supabase-server';
 import { can, type OrgRole } from '@/lib/permissions';
 import { promoEligibility, computeBenefitEndsAt, normalizePromoCodeInput, type PromoKind } from '@/lib/promo';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
+import { grantPioneerBadgeAndReferrals } from '@/lib/pioneer-server';
+import type { PlanTier } from '@/lib/types';
 
 const REASON_MESSAGE: Record<string, string> = {
   not_found: 'That code doesn’t exist. Check for typos and try again.',
@@ -71,6 +74,16 @@ export async function POST(req: Request) {
   if (insertErr) {
     if (insertErr.code === '23505') return NextResponse.json({ ok: false, error: 'You’ve already redeemed this code.' }, { status: 400 });
     return NextResponse.json({ ok: false, error: insertErr.message }, { status: 500 });
+  }
+
+  // Prompt 195 — a permanent Pioneer redemption (benefit_ends_at=null) has
+  // no future expiry moment for the daily sweep (pioneer-server.ts) to
+  // notice; grant right here instead of leaving the org waiting up to 24h
+  // (or, per the bug this fixes, forever — isPioneerBadgeDue used to treat
+  // "permanent" as "never due"). Codes WITH a real expiry keep going
+  // through the daily sweep unchanged, same as before.
+  if (promo!.is_pioneer && benefitEndsAt == null && (await pioneerBadgeAvailable())) {
+    await grantPioneerBadgeAndReferrals(admin, member.org_id, (promo!.applicable_plans as PlanTier[]) ?? []);
   }
 
   return NextResponse.json({

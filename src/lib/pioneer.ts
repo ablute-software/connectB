@@ -22,17 +22,23 @@ export const PIONEER_STRIPE_COUPON_ID = 'pioneer-badge-lifetime-20';
 
 /**
  * Whether a promo_redemptions row (whose promo_codes.is_pioneer is true)
- * has reached the point where the org should permanently receive
- * pioneer_badge — i.e. its benefit has actually expired. A permanent
- * (benefit_ends_at = null) Pioneer redemption never triggers this — nothing
- * to "expire into" a badge for; the org's entitlement was never time-boxed
- * in the first place, so there's no expiry moment to capture (this can't
- * currently happen for a campaign code, which always sets
- * benefit_duration_months, but the function stays correct regardless of
- * how a future code might be configured).
+ * has reached the point where the org should receive pioneer_badge.
+ *
+ * BUG (Prompt 195, live in production 2026-08-13 — the `TEST` code, a
+ * permanent Pioneer redemption): the doc here used to claim a pioneer code
+ * always sets benefit_duration_months, so benefit_ends_at=null "can't
+ * currently happen". False — TEST is exactly that case, and this function
+ * returned false for it forever, so its org's badge was never granted.
+ * A permanent (benefit_ends_at = null) redemption means the entitlement
+ * itself never expires, not that the badge should never appear — read as
+ * "already due, permanently" rather than "nothing to expire into". See
+ * promo/redeem/route.ts, which now also grants this the moment a permanent
+ * Pioneer code is redeemed rather than waiting for the caller of this
+ * function (the daily sweep, pioneer-server.ts) to notice.
  */
 export function isPioneerBadgeDue(promoIsPioneer: boolean, benefitEndsAt: string | null, now: Date): boolean {
-  if (!promoIsPioneer || benefitEndsAt == null) return false;
+  if (!promoIsPioneer) return false;
+  if (benefitEndsAt == null) return true;
   return new Date(benefitEndsAt) <= now;
 }
 
