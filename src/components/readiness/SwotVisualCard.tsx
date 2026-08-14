@@ -148,7 +148,7 @@ const QUADRANTS: {
 // the quadrants below.
 function SwotHeader() {
   return (
-    <div className="relative overflow-hidden rounded-2xl p-5" style={{ background: 'linear-gradient(135deg, #0E7490 0%, #22D3EE 100%)' }}>
+    <div className="relative overflow-hidden rounded-2xl p-4" style={{ background: 'linear-gradient(135deg, #0E7490 0%, #22D3EE 100%)' }}>
       {/* Prompt 186 §1 — subtle glass-reflection shine, top-left corner.
           Purely decorative (pointer-events-none), painted behind the
           header's real content below via DOM order + that content's own
@@ -209,27 +209,25 @@ export function SwotQuadrant({ data, clarify }: {
           tallest card's height — a category with 6-7 items grows the card,
           it never compresses its own line spacing to fit a shorter
           neighbor's box, and no quadrant scrolls internally on its own. */}
-      <div className="grid items-stretch gap-4 sm:grid-cols-2">
+      <div className="grid items-stretch gap-3 sm:grid-cols-2">
         {QUADRANTS.map((q) => {
           const items = data[q.key] ?? [];
           const Icon = q.Icon;
           return (
-            <div key={q.key} className={`relative overflow-hidden rounded-2xl border p-4 ${CARD_SHADOW} ${q.border} ${q.cardBg}`}>
+            <div key={q.key} className={`relative overflow-hidden rounded-2xl border p-3 ${CARD_SHADOW} ${q.border} ${q.cardBg}`}>
               {/* Prompt 186 §4 — behind everything else (-z-10) so it never
                   competes with the count pill it sits near. */}
               <CornerFlourish className={`pointer-events-none absolute -right-1 -top-1 -z-10 h-12 w-12 ${q.flourish}`} />
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-3">
-                  {/* Prompt 173 §B — h-10 w-10 -> h-12 w-12, icon itself
-                      h-6 w-6 (was the emoji at text-lg). Prompt 186 §2 —
-                      iconBadge now carries its own from/to gradient +
-                      shadow-{color}/30, replacing the flat fill + the
-                      card-wide shadow-sm this used to lean on. */}
-                  <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-white ${q.iconBadge}`}>
-                    <Icon className="h-6 w-6" />
+                  {/* Prompt 173 §B had bumped h-10 w-10 -> h-12 w-12 (icon
+                      h-5 w-5 -> h-6 w-6); Prompt 193 brings both back down
+                      for density — gradient/shadow from 186 untouched. */}
+                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white ${q.iconBadge}`}>
+                    <Icon className="h-5 w-5" />
                   </span>
                   <div>
-                    <div className="text-base font-bold text-gray-900">{q.label}</div>
+                    <div className="text-sm font-bold text-gray-900">{q.label}</div>
                     <div className="text-xs text-gray-500">{q.caption}</div>
                   </div>
                 </div>
@@ -240,8 +238,8 @@ export function SwotQuadrant({ data, clarify }: {
               {items.length > 0 ? (
                 <div className="mt-3 space-y-2">
                   {items.map((item, i) => (
-                    <div key={i} className="flex items-center gap-3 rounded-full border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-800">
-                      <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${q.dot}`} />
+                    <div key={i} className="flex items-center gap-3 rounded-full border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-800">
+                      <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${q.dot}`} />
                       <span className="flex-1">{item}</span>
                       {clarify && (
                         <ClarificationBullet
@@ -254,7 +252,7 @@ export function SwotQuadrant({ data, clarify }: {
                   ))}
                 </div>
               ) : (
-                <p className="mt-3 rounded-lg border border-dashed border-gray-200 px-3 py-2.5 text-sm text-gray-400">Nothing flagged.</p>
+                <p className="mt-3 rounded-lg border border-dashed border-gray-200 px-3 py-2 text-xs text-gray-400">Nothing flagged.</p>
               )}
             </div>
           );
