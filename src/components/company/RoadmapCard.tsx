@@ -90,24 +90,42 @@ const ROW_BOTTOM_CARD = 4;
 // class strings (not built from a variable color name) so the JIT scanner
 // can actually find them — the same reason every other color in this
 // object was already spelled out per-theme instead of interpolated.
+// Prompt 194 — nodeColor is new: a real hex (not a Tailwind class) for the
+// axis node's own fill/border AND as a gradient stop for its adjacent line
+// segments (AxisLine, below) — a CSS gradient needs an actual color value,
+// not a class name, so this can't reuse bg/dot/etc the way everything else
+// here does. One color per theme, used for BOTH the filled (past) and
+// hollow (future) states of a node — §194's own correction to 185's
+// reading was that the axis follows each card's rotation color, not a
+// separate fixed past/future palette; fill-vs-hollow stays a state (solid
+// bg vs white+border), never a second color. Values are Tailwind's own
+// emerald-500/blue-500/purple-500 hex, so a themed node matches its card's
+// -500 tones exactly.
 const CARD_THEMES = [
   {
     bg: 'bg-emerald-50', badge: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500',
     statusOn: 'border-emerald-500 bg-emerald-500', statusOff: 'border-emerald-300 bg-white text-emerald-300',
     triangleDown: 'border-t-8 border-t-emerald-50', triangleUp: 'border-b-8 border-b-emerald-50',
+    nodeColor: '#10b981',
   },
   {
     bg: 'bg-blue-50', badge: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500',
     statusOn: 'border-blue-500 bg-blue-500', statusOff: 'border-blue-300 bg-white text-blue-300',
     triangleDown: 'border-t-8 border-t-blue-50', triangleUp: 'border-b-8 border-b-blue-50',
+    nodeColor: '#3b82f6',
   },
   {
     bg: 'bg-purple-50', badge: 'bg-purple-100 text-purple-700', dot: 'bg-purple-500',
     statusOn: 'border-purple-500 bg-purple-500', statusOff: 'border-purple-300 bg-white text-purple-300',
     triangleDown: 'border-t-8 border-t-purple-50', triangleUp: 'border-b-8 border-b-purple-50',
+    nodeColor: '#a855f7',
   },
 ];
 const FOUNDED_TRIANGLE_DOWN = 'border-t-8 border-t-amber-50';
+// Tailwind's amber-500 — Founded's own node is already amber (§194 point
+// 1, "já está certo, não mexer"); this is only the hex twin of that same
+// color, needed as a gradient stop for the line leaving Founded.
+const FOUNDED_NODE_COLOR = '#f59e0b';
 
 // Prompt 185 §B.4 — a small CSS-border triangle (zero-size box, two
 // transparent side-borders + one colored border) pointing at the node it
@@ -118,15 +136,27 @@ function CardTriangle({ colorClass }: { colorClass: string }) {
   return <div aria-hidden="true" className={`mx-auto mb-1 h-0 w-0 border-x-8 border-x-transparent ${colorClass}`} />;
 }
 
-// Prompt 177 §1 / Prompt 185 §B.3 — one shared line-segment renderer:
-// `solid` true draws the "already happened" half (a filled 2px bar); false
-// draws the "still ahead" half as a genuinely DASHED border, in the SAME
-// teal family as the solid half (a lighter tint), not a neutral gray — the
-// reference image is solid-then-dashed within one color, not two colors.
-function AxisLine({ solid }: { solid: boolean }) {
-  return solid
-    ? <div className="h-0.5 flex-1 bg-[#0E7490]" />
-    : <div className="h-0 flex-1 border-t-2 border-dashed border-cyan-300" />;
+// Prompt 177 §1 / Prompt 185 §B.3 — one shared line-segment renderer.
+// Prompt 194 rewrites the "one fixed color" reading: the reference image's
+// axis is a genuine, continuous color gradient that follows each node's own
+// theme (green -> teal/blue -> purple), not two flat tones. A CSS border
+// can't carry a gradient AND a dash pattern at once, so both `solid` and
+// dashed segments render as the SAME `background: linear-gradient(...)` bar
+// (a real 2-stop interpolation between this segment's two node colors);
+// `solid=false` (the "still ahead" half) additionally applies a repeating
+// mask over that bar to punch it into dashes — the gradient underneath is
+// untouched, so the dashes themselves carry the same color transition
+// instead of falling back to a flat tint. This is the "mask over a
+// gradient bar" option named in the prompt itself, chosen over an SVG
+// <line>/<linearGradient> because the rest of this component is plain
+// JSX/Tailwind, not SVG.
+const DASH_MASK = 'repeating-linear-gradient(to right, #000 0, #000 4px, transparent 4px, transparent 8px)';
+function AxisLine({ fromColor, toColor, solid }: { fromColor: string; toColor: string; solid: boolean }) {
+  const background = `linear-gradient(to right, ${fromColor}, ${toColor})`;
+  return (
+    <div className="h-0.5 flex-1"
+      style={solid ? { background } : { background, WebkitMaskImage: DASH_MASK, maskImage: DASH_MASK }} />
+  );
 }
 
 // Prompt 185 §A — each node contributes explicitly grid-positioned cells
@@ -134,7 +164,7 @@ function AxisLine({ solid }: { solid: boolean }) {
 // which of the 4 shared rows) instead of a single self-contained flex
 // column — see the file header for why that's what actually keeps every
 // column's axis row level with its neighbors regardless of card height.
-function FoundedNode({ foundedYear, col }: { foundedYear: number | null; col: number }) {
+function FoundedNode({ foundedYear, col, nextColor }: { foundedYear: number | null; col: number; nextColor: string }) {
   const colStyle = { gridColumn: col };
   return (
     <>
@@ -170,7 +200,7 @@ function FoundedNode({ foundedYear, col }: { foundedYear: number | null; col: nu
         }`} />
         {/* Founding has already happened, by definition — this segment is
             always "past", never the future/dashed style. */}
-        <AxisLine solid />
+        <AxisLine fromColor={FOUNDED_NODE_COLOR} toColor={nextColor} solid />
       </div>
       {/* §B.7 — centered on the NODE's own flush-left position (a fixed
           box exactly NODE_SIZE_YEAR wide, pinned to the column's left edge
@@ -188,7 +218,7 @@ function FoundedNode({ foundedYear, col }: { foundedYear: number | null; col: nu
 }
 
 function MilestoneNode<T extends RoadmapPeriod & { items: string[] }>({
-  m, index, col, theme, editable, onEdit, onRemove, now, prevPast,
+  m, index, col, theme, editable, onEdit, onRemove, now, prevPast, prevColor, nextColor,
 }: {
   m: T; index: number; col: number; theme: typeof CARD_THEMES[number]; editable: boolean; onEdit?: (m: T) => void; onRemove?: (m: T) => void; now: Date;
   // Prompt 177 §1 — whether the PREVIOUS node on the axis was already past,
@@ -197,6 +227,11 @@ function MilestoneNode<T extends RoadmapPeriod & { items: string[] }>({
   // see the header note's algebra) instead of each node guessing from its
   // own status alone, which would split every transition segment in two.
   prevPast: boolean;
+  // Prompt 194 — the two neighboring nodes' colors (Founded's amber, or a
+  // CARD_THEMES hex), so this node's own two AxisLine halves can gradient
+  // toward them. nextColor falls back to this node's OWN color when it's
+  // the last milestone — nothing further to blend toward.
+  prevColor: string; nextColor: string;
 }) {
   const label = periodLabel(m.period_kind, m.period_year, m.period_quarter);
   const past = periodHasPassed(m, now);
@@ -242,13 +277,15 @@ function MilestoneNode<T extends RoadmapPeriod & { items: string[] }>({
         {top && <>{card}<CardTriangle colorClass={theme.triangleDown} /></>}
       </div>
       <div style={{ ...colStyle, gridRow: ROW_AXIS }} className={`flex ${CONTAINER_WIDTH} items-center`}>
-        <AxisLine solid={prevPast} />
+        <AxisLine fromColor={prevColor} toColor={theme.nodeColor} solid={prevPast} />
         {/* §B.6 — filled + thin border when past, hollow (white fill,
-            thicker border so the "empty" ring reads clearly) when future. */}
-        <div className={`${nodeSize} shrink-0 rounded-full ${
-          past ? 'border-2 border-[#0E7490] bg-[#0E7490]' : 'border-[3px] border-cyan-300 bg-white'
-        }`} />
-        <AxisLine solid={past} />
+            thicker border so the "empty" ring reads clearly) when future.
+            Prompt 194 — the color itself is now this node's own theme hex
+            (was a fixed #0E7490/cyan-300 pair), same value either way; only
+            fill-vs-outline still tracks past/future. */}
+        <div className={`${nodeSize} shrink-0 rounded-full ${past ? 'border-2' : 'border-[3px] bg-white'}`}
+          style={{ borderColor: theme.nodeColor, backgroundColor: past ? theme.nodeColor : undefined }} />
+        <AxisLine fromColor={theme.nodeColor} toColor={nextColor} solid={past} />
       </div>
       <div style={{ ...colStyle, gridRow: ROW_LABEL }} className={`mt-1 flex ${CONTAINER_WIDTH} justify-center text-xs text-gray-500`}>
         {label}
@@ -394,12 +431,15 @@ export function RoadmapTimeline<T extends RoadmapPeriod & { items: string[] }>({
       <div ref={scrollRef}
         className="grid grid-flow-col items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         style={{ gridTemplateRows: 'repeat(4, auto)' }}>
-        <FoundedNode foundedYear={foundedYear} col={1} />
+        <FoundedNode foundedYear={foundedYear} col={1}
+          nextColor={sorted.length > 0 ? CARD_THEMES[0 % CARD_THEMES.length].nodeColor : FOUNDED_NODE_COLOR} />
         {sorted.map((m, i) => (
           <MilestoneNode key={`${m.period_kind}:${m.period_year}:${m.period_quarter ?? ''}`}
             m={m} index={i + 1} col={i + 2} theme={CARD_THEMES[i % CARD_THEMES.length]}
             editable={editable} onEdit={onEditClick} onRemove={onRemoveClick} now={now}
-            prevPast={i === 0 ? true : periodHasPassed(sorted[i - 1], now)} />
+            prevPast={i === 0 ? true : periodHasPassed(sorted[i - 1], now)}
+            prevColor={i === 0 ? FOUNDED_NODE_COLOR : CARD_THEMES[(i - 1) % CARD_THEMES.length].nodeColor}
+            nextColor={i === sorted.length - 1 ? CARD_THEMES[i % CARD_THEMES.length].nodeColor : CARD_THEMES[(i + 1) % CARD_THEMES.length].nodeColor} />
         ))}
         {editable && (
           <div style={{ gridColumn: addCol, gridRow: ROW_AXIS }} className="flex w-28 flex-col items-center justify-center">
