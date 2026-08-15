@@ -10,6 +10,7 @@ import {
 } from '@/lib/relationship';
 import { LOCK_DAYS } from '@/lib/rules';
 import { planPark, planPass, advanceConfirmation, type ExitPlan } from '@/lib/exit-effects';
+import { derivedStage } from '@/lib/derived-stage';
 import { TermHint } from '@/components/ui';
 
 // Prompt 49 §4 — jargon inside nextBestAction()'s free-text copy gets a
@@ -125,7 +126,6 @@ export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouch
   }
   const s = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
   const action = nextBestAction(db, entity.id, new Date(), dealMessageTouches);
-  const currentIdx = STAGE_ORDER.indexOf(s.stage);
   // Prompt 197 C.2 — continua a ser uma sugestão, nunca uma promoção
   // automática: o founder é que decide qual das saídas usa.
   // Prompt 202 §A.2 + §E — a decisão de que saídas mostrar vive em
@@ -138,6 +138,11 @@ export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouch
   // ninguém enquanto isto estiver parado.
   const mode = entityMode(entity);
   const parkedOrClosed = mode !== 'active';
+  // Prompt 206-A — o stepper passa a desenhar o estágio EFECTIVO (factos, com
+  // o manual a ganhar quando está à frente e não é contradito), em vez do
+  // que alguém clicou uma vez e nunca mais reviu.
+  const ds = derivedStage(db, entity.id);
+  const stepIdx = STAGE_ORDER.indexOf(ds.effective);
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
@@ -151,8 +156,8 @@ export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouch
           <div key={stg} className="flex items-center gap-1">
             <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium ${
               parkedOrClosed ? 'bg-gray-100 text-gray-400'
-                : i === currentIdx ? 'bg-[#0E7490] text-white'
-                : i < currentIdx ? 'bg-[#E8F4F8] text-cyan-900'
+                : i === stepIdx ? (ds.effective === 'decision' && entity.status === 'passed' ? 'bg-[#B00000] text-white' : 'bg-[#0E7490] text-white')
+                : i < stepIdx ? 'bg-[#E8F4F8] text-cyan-900'
                 : 'bg-gray-100 text-gray-400'}`}>
               {STAGE_LABEL[stg]}
             </span>
@@ -160,6 +165,38 @@ export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouch
           </div>
         ))}
       </div>
+
+      {(ds.contradicted || ds.manualAhead || ds.unclassifiedReplies > 0 || parkedOrClosed) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+          {/* O caso Adara: os factos dizem que acabou e o stepper mostrava
+              uma fase activa. Aqui o aviso é o ponto, não um detalhe. */}
+          {ds.contradicted && (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 font-semibold text-[#B00000]" title={ds.reason}>
+              ✕ {ds.reason} — stage was set to {STAGE_LABEL[ds.manual!]} manually
+            </span>
+          )}
+          {/* Manual à frente sem contradição é legítimo: 'diligence' não tem
+              facto nenhum que a produza. Nota discreta, não aviso. */}
+          {ds.manualAhead && (
+            <button onClick={() => setRelationshipStage(entity.id, ds.derived)}
+              className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-500 hover:bg-gray-200"
+              title={`The facts only support ${STAGE_LABEL[ds.derived]} (${ds.reason}). Click to go back to that.`}>
+              set manually · facts say {STAGE_LABEL[ds.derived]}
+            </button>
+          )}
+          {ds.unclassifiedReplies > 0 && (
+            <Link href={`/log?entity=${entity.id}`}
+              className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 hover:bg-amber-200">
+              {ds.unclassifiedReplies} {ds.unclassifiedReplies === 1 ? 'reply' : 'replies'} to classify
+            </Link>
+          )}
+          {mode === 'parked' && (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-500">
+              {nextBestAction(db, entity.id, new Date(), dealMessageTouches)}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-600">
         <HealthDot entityId={entity.id} dealMessageTouches={dealMessageTouches} />
