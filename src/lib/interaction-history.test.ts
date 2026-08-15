@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstLine, recentInteractions, resolveSharedVersion } from './interaction-history';
+import { firstLine, formatAsk, recentInteractions, resolveSharedVersion } from './interaction-history';
 import type { Interaction } from './types';
 
 function i(over: Partial<Interaction>): Interaction {
@@ -96,5 +96,32 @@ describe('resolveSharedVersion (202 §F — que versao e que eles viram)', () =>
 
   it('nao mistura versoes de outros documentos', () => {
     expect(resolveSharedVersion(V, 'deck', '2026-02-01T00:00:00.000Z')).toEqual({ kind: 'at_time', version: 1 });
+  });
+});
+
+describe('formatAsk (202 §D)', () => {
+  it('milhoes com e sem casa decimal', () => {
+    expect(formatAsk(1_300_000)).toBe('€1.3M');
+    expect(formatAsk(2_000_000)).toBe('€2M');
+  });
+
+  it('milhares', () => {
+    expect(formatAsk(300_000)).toBe('€300k');
+    expect(formatAsk(1_500)).toBe('€2k');
+  });
+
+  it('valores pequenos ficam literais', () => {
+    expect(formatAsk(500)).toBe('€500');
+  });
+
+  // O ponto todo: "nao registado" nao pode aparecer como "€0".
+  it('ausente devolve undefined, nunca "€0"', () => {
+    expect(formatAsk(undefined)).toBeUndefined();
+    expect(formatAsk(null)).toBeUndefined();
+    expect(formatAsk(NaN)).toBeUndefined();
+  });
+
+  it('zero registado a serio continua a ser zero', () => {
+    expect(formatAsk(0)).toBe('€0');
   });
 });

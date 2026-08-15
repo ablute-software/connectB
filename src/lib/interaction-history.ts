@@ -61,3 +61,16 @@ export function resolveSharedVersion(
   // marcada como "não é a da altura".
   return { kind: 'current_only', version: mine[0].version };
 }
+
+// Prompt 202 §D — o valor pedido, curto o suficiente para caber numa linha
+// de histórico. Null/undefined NÃO é zero: devolve undefined para o ecrã
+// simplesmente não mostrar nada, em vez de afirmar "€0".
+export function formatAsk(amountEur: number | undefined | null): string | undefined {
+  if (amountEur == null || !Number.isFinite(amountEur)) return undefined;
+  if (amountEur >= 1_000_000) {
+    const m = amountEur / 1_000_000;
+    return `€${m % 1 === 0 ? m.toFixed(0) : m.toFixed(1)}M`;
+  }
+  if (amountEur >= 1_000) return `€${Math.round(amountEur / 1_000)}k`;
+  return `€${amountEur}`;
+}

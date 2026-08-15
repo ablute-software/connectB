@@ -23,6 +23,9 @@ export type LogInput = {
   occurred_at?: string;
   sent_from?: string;
   document_id?: string;
+  // Prompt 202 §D — valor pedido neste contacto. Opcional; ausente significa
+  // "nao registado", que e diferente de zero.
+  ask_amount_eur?: number;
   classification?: Classification;
   pass_reason_category?: PassReasonCategory;
   pass_reason?: string;

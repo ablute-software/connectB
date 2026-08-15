@@ -6,7 +6,7 @@
 // completo a um clique.
 import type { Entity } from '@/lib/types';
 import { useStore } from '@/lib/store';
-import { firstLine, recentInteractions, DIRECTION_LABEL } from '@/lib/interaction-history';
+import { firstLine, recentInteractions, formatAsk, DIRECTION_LABEL } from '@/lib/interaction-history';
 import { SharedDocChip } from '@/components/SharedDocChip';
 
 export function RecentInteractions({ entity, onOpenFull, limit = 3 }: {
@@ -43,6 +43,11 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3 }: {
             </span>
             <span className="text-gray-400">· {i.channel.replace(/_/g, ' ')}</span>
             <span className="min-w-0 flex-1 truncate text-gray-700">{firstLine(i.content)}</span>
+            {formatAsk(i.ask_amount_eur) && (
+              <span className="whitespace-nowrap rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-700">
+                asked {formatAsk(i.ask_amount_eur)}
+              </span>
+            )}
             <SharedDocChip documentId={i.document_id} occurredAt={i.occurred_at} />
           </li>
         ))}

@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { SharedDocChip } from '@/components/SharedDocChip';
+import { formatAsk } from '@/lib/interaction-history';
 import type { Entity, RelationshipStage } from '@/lib/types';
 import { PersonLink } from '@/components/ui';
 import { outboundCounts, LOCK_DAYS } from '@/lib/rules';
@@ -158,6 +159,9 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [] }:
                     {i.person_id && <PersonLink id={i.person_id}>{db.people.find((p) => p.id === i.person_id)?.full_name}</PersonLink>}
                     {i.classification && <span className="rounded bg-gray-200 px-1.5 py-0.5">{i.classification.replace('_', ' ')}</span>}
                     {i.ai_generated && <span className="rounded bg-cyan-100 px-1.5 py-0.5 text-cyan-800">✨ AI-drafted</span>}
+                    {formatAsk(i.ask_amount_eur) && (
+                      <span className="rounded bg-gray-200 px-1.5 py-0.5 font-medium">asked {formatAsk(i.ask_amount_eur)}</span>
+                    )}
                     {/* Prompt 202 §F — document_id ja existia e nunca era mostrado. */}
                     <SharedDocChip documentId={i.document_id} occurredAt={i.occurred_at} />
                   </div>

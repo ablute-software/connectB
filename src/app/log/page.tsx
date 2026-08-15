@@ -60,6 +60,9 @@ function LogForm() {
   const [actionTypeTouched, setActionTypeTouched] = useState(false);
   const [reopenAck, setReopenAck] = useState(false);
   const [docId, setDocId] = useState('');
+  // Prompt 202 §D — quanto foi pedido NESTE contacto. Só faz sentido num
+  // outbound: é o que nós pedimos, não o que eles disseram.
+  const [askAmount, setAskAmount] = useState('');
   const [justification, setJustification] = useState('');
   const [showOverride, setShowOverride] = useState(false);
   const [toast, setToast] = useState('');
@@ -265,6 +268,7 @@ function LogForm() {
       // classification só é '' se direction==='out' (o guarda formReady
       // impede gravar um inbound por classificar), daí o cast ser seguro.
       classification: direction === 'in' ? (classification as Classification) : direction === 'out' ? 'awaiting' : undefined,
+      ask_amount_eur: direction === 'out' && askAmount.trim() !== '' ? Number(askAmount) : undefined,
       pass_reason_category: classification === 'pass' ? passCat : undefined,
       pass_reason: classification === 'pass' ? passReason : undefined,
       next_action: nextAction || undefined, next_action_due: nextDue || undefined,
@@ -548,6 +552,23 @@ function LogForm() {
                 </li>
               ))}
             </ul>
+          )}
+          {direction === 'out' && (
+            <div className="mt-3">
+              {/* Prompt 202 §D — o outbound de 2025-11-27 a Adara ficou sem
+                  valor nenhum: hoje nao sabemos se lhes pedimos 1.3M ou 300k.
+                  Opcional: em branco fica "nao registado", nunca zero. */}
+              <label className="text-xs text-gray-500">Amount asked in this message (optional)</label>
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className="text-sm text-gray-400">€</span>
+                <input type="number" min="0" step="1000" value={askAmount}
+                  onChange={(e) => setAskAmount(e.target.value)} placeholder="e.g. 1300000"
+                  className="w-48 rounded border border-gray-300 px-2 py-1.5 text-sm" />
+              </div>
+              <p className="mt-1 text-xs text-gray-400">
+                What you asked <em>them</em> for, in this contact. When they reply months from now, this is how you&apos;ll know which pitch they saw.
+              </p>
+            </div>
           )}
           <div className="mt-3">
             <label className="text-xs text-gray-500">Material shared (view-only enforced)</label>

@@ -414,6 +414,11 @@ export interface Interaction {
   pass_reason?: string;
   next_action?: string;
   next_action_due?: string;
+  // Prompt 202 §D — quanto foi pedido NESTE contacto. Por interação e não
+  // por entidade de propósito: o valor muda ao longo de uma ronda, e o que
+  // interessa quando eles respondem meses depois é o que lhes foi pedido na
+  // altura. Opcional — não se inventa um número que o founder não registou.
+  ask_amount_eur?: number;
   automation_run_id?: string;
   ai_generated?: boolean;
   // Real DB column since migration 0018 (interactions_needs_review), only
