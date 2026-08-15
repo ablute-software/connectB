@@ -63,9 +63,21 @@ export async function deliverMonthlyForOrg(
   if (updateErr) return { orgId: org.id, ran: false, reason: updateErr.message };
   if (!updated) return { orgId: org.id, ran: false, reason: 'already ran for this org this month (race)' };
 
-  // Same p_limit derivation as unlockPack: quota minus however many catalog
-  // entities this org already has, never inside the scoring function
-  // itself.
+  // p_limit = quota menos o que já foi entregue, nunca dentro da função de
+  // scoring. NÃO é já a mesma contagem do unlockPack: desde a migração 0170,
+  // unlockPack (e o trigger na BD) contam só `via_pack IS NOT NULL`, e esta
+  // via insere com via_pack = null (linha ~110). Não replicar aqui o mesmo
+  // `.not('via_pack','is',null)` — como estas entregas passariam a não contar
+  // contra nada, a quota subiria todos os meses com o incremento enquanto o
+  // consumido ficaria em ~0 e cada corrida entregaria a quota inteira em vez
+  // do incremento. Manter o count total mantém o p_limit ≈ incremento, mas
+  // herda o mesmo sintoma que 0170 corrigiu do outro lado: linhas que não são
+  // consumo de quota (bulk-seed, notificações de interesse) ocupam quota —
+  // ablute_ tem 525 linhas contra quota=40, portanto p_limit = 0 e esta via
+  // não entregaria nada. Fechar isto a sério exige decidir se a entrega
+  // mensal consome quota (e então marcá-la como tal, em vez de via_pack null)
+  // ou se a quota É o orçamento mensal; nenhuma org tem
+  // catalog_last_monthly_delivery preenchido, por isso ainda nunca correu.
   const { count: deliveredCount } = await admin
     .from('catalog_deliveries').select('catalog_id', { count: 'exact', head: true }).eq('org_id', org.id);
   const pLimit = Math.max(0, newQuota - (deliveredCount ?? 0));
