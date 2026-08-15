@@ -92,8 +92,12 @@ export function RelationshipCompactLine({ entityId }: { entityId: string }) {
 }
 
 // Full version for the entity page header.
-export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouches = [] }: {
+export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyRequest, dealMessageTouches = [] }: {
   entity: Entity; onOpenThread?: () => void;
+  // Prompt 208 §D — pedido de "leva-me a resposta por classificar". O cartao
+  // nao sabe desenhar o historico; quem sabe e o RecentInteractions, logo
+  // isto sobe a pagina da entidade e desce por focusClassifyNonce.
+  onClassifyRequest?: () => void;
   // Prompt 197 C.1 — the caller (entities/[id]/page.tsx) already has this
   // entity's Sherlock thread loaded (from resolving its "Message investor"
   // eligibility, Prompt 197 A), so it's threaded straight through here
@@ -185,10 +189,16 @@ export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouch
             </button>
           )}
           {ds.unclassifiedReplies > 0 && (
-            <Link href={`/log?entity=${entity.id}`}
-              className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 hover:bg-amber-200">
+            // Prompt 208 §D — ISTO era um Link para /log?entity=..., ou seja
+            // um formulario de interacao NOVA em branco, quando o inbound ja
+            // estava registado: convidava a duplicar em vez de resolver.
+            // Agora leva ao historico, com a resposta em destaque e o
+            // controlo de classificacao na propria linha.
+            <button onClick={onClassifyRequest}
+              disabled={!onClassifyRequest}
+              className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 hover:bg-amber-200 disabled:cursor-default">
               {ds.unclassifiedReplies} {ds.unclassifiedReplies === 1 ? 'reply' : 'replies'} to classify
-            </Link>
+            </button>
           )}
           {mode === 'parked' && (
             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-500">
@@ -290,7 +300,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouch
           // Prompt 206-B — contagem no proprio botao, e teal preenchido quando
           // ha respostas por classificar: a razao para ir ao historico e
           // precisamente essa.
-          <button onClick={onOpenThread}
+          <button onClick={ds.unclassifiedReplies > 0 && onClassifyRequest ? onClassifyRequest : onOpenThread}
             className={`rounded-lg px-3 py-1.5 text-sm ${
               ds.unclassifiedReplies > 0
                 ? 'bg-[#0E7490] font-medium text-white hover:bg-[#0c637b]'

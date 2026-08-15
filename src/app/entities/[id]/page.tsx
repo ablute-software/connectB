@@ -25,6 +25,9 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const entity = db.entities.find((e) => e.id === id);
   const [interest, setInterestLocal] = useState<string>('');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Prompt 208 §D — contador, nao booleano: o founder pode pedir "leva-me la"
+  // duas vezes seguidas e a segunda tem de voltar a fazer scroll.
+  const [classifyNonce, setClassifyNonce] = useState(0);
   const [contactAvailable, setContactAvailable] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
   const [contactDraft, setContactDraft] = useState({ website: '', email: '', phone: '', address: '' });
@@ -175,9 +178,10 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)} dealMessageTouches={dealMessageTouches} />
+      <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)}
+        onClassifyRequest={() => setClassifyNonce((n) => n + 1)} dealMessageTouches={dealMessageTouches} />
       {/* Prompt 202 §C — o histórico deixa de viver só atrás do botão. */}
-      <RecentInteractions entity={entity} onOpenFull={() => setDrawerOpen(true)} />
+      <RecentInteractions entity={entity} onOpenFull={() => setDrawerOpen(true)} focusClassifyNonce={classifyNonce} />
 
       {db.ndas.filter((n) => n.entity_id === entity.id).length > 0 && (
         <Card title="NDAs on file">

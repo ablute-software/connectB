@@ -5,6 +5,8 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { SharedDocChip } from '@/components/SharedDocChip';
+import { InlineClassify } from '@/components/InlineClassify';
+import { unclassifiedInbound } from '@/lib/interaction-history';
 import { formatAsk } from '@/lib/interaction-history';
 import type { Entity, RelationshipStage } from '@/lib/types';
 import { PersonLink } from '@/components/ui';
@@ -24,11 +26,16 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [] }:
   const [personFilter, setPersonFilter] = useState<string>('all');
   const [order, setOrder] = useState<'newest' | 'oldest'>('newest');
   const [copied, setCopied] = useState(false);
+  // Prompt 208 §D — qual e a resposta por classificar, e o controlo para o
+  // fazer aqui mesmo. Antes o drawer nao assinalava nenhuma nem oferecia
+  // nada: o founder via a resposta e nao tinha o que fazer com ela.
+  const [classifying, setClassifying] = useState<string | null>(null);
 
   const people = db.people.filter((p) => p.entity_id === entity.id);
   const all = entityInteractions(db, entity.id);
   const filtered = personFilter === 'all' ? all : all.filter((i) => i.person_id === personFilter);
   const sorted = order === 'newest' ? [...filtered].reverse() : filtered;
+  const pending = unclassifiedInbound(db.interactions, entity.id);
   const summary = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
   const caps = outboundCounts(db);
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > new Date();
@@ -145,11 +152,17 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [] }:
           ) : (
             <ul className="space-y-2 pt-1">
               {sorted.map((i) => i.channel === 'stage_change' ? (
-                <li key={i.id} className="flex items-center gap-2 py-1 text-xs font-semibold text-gray-500">
-                  <span className="text-[#0E7490]">●</span> {i.content} <span className="font-normal text-gray-400">· {i.occurred_at.slice(0, 10)}</span>
+                // Prompt 208 §D.3 — stage_change passa a linha fina e apagada:
+                // e contexto, nao conteudo, e estava a competir com o que
+                // interessa (a ultima entrada visivel era uma destas).
+                <li key={i.id} className="flex items-center gap-1.5 py-0.5 text-[11px] text-gray-400">
+                  <span className="text-gray-300">●</span> {i.content} <span>· {i.occurred_at.slice(0, 10)}</span>
                 </li>
               ) : (
-                <li key={i.id} className="rounded border border-gray-100 bg-gray-50 p-3 text-sm">
+                <li key={i.id} className={`rounded border p-3 text-sm ${
+                  pending.some((p) => p.id === i.id)
+                    ? 'border-amber-300 bg-amber-50/60'
+                    : 'border-gray-100 bg-gray-50'}`}>
                   <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                     <span className={i.direction === 'out' ? 'font-bold text-[#0E7490]' : 'font-bold text-green-700'}>
                       {i.direction === 'out' ? '→ OUT' : '← IN'}
@@ -168,6 +181,16 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [] }:
                   <blockquote className="whitespace-pre-wrap border-l-2 border-gray-300 pl-2 text-gray-700">{i.content}</blockquote>
                   {i.pass_reason && <div className="mt-1 text-xs text-[#B00000]">Pass reason ({i.pass_reason_category}): {i.pass_reason}</div>}
                   {i.next_action && <div className="mt-1 text-xs text-gray-500">Next: {i.next_action} {i.next_action_due && `· ${i.next_action_due}`}</div>}
+                  {pending.some((p) => p.id === i.id) && (
+                    classifying === i.id
+                      ? <InlineClassify interactionId={i.id} onDone={() => setClassifying(null)} />
+                      : (
+                        <button onClick={() => setClassifying(i.id)}
+                          className="mt-1.5 rounded-full bg-amber-200 px-2.5 py-0.5 text-[11px] font-semibold text-amber-900 hover:bg-amber-300">
+                          to classify
+                        </button>
+                      )
+                  )}
                 </li>
               ))}
             </ul>

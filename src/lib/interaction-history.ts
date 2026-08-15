@@ -127,3 +127,17 @@ export function formatAsk(amountEur: number | undefined | null): string | undefi
   if (amountEur >= 1_000) return `€${Math.round(amountEur / 1_000)}k`;
   return `€${amountEur}`;
 }
+
+// Prompt 208 §D — quais das respostas recebidas estao por classificar, da
+// mais antiga para a mais recente. Mais antiga primeiro de proposito: e a
+// que esta ha mais tempo a enganar o resto da app (o caso Adara ficou dez
+// dias a mostrar "Engaged" por causa disto).
+//
+// Mesmo criterio do derivedStage: 'awaiting' ou sem classificacao nenhuma.
+// Nao inclui outbound -- um outbound nao tem nada para classificar.
+export function unclassifiedInbound(interactions: Interaction[], entityId: string): Interaction[] {
+  return interactions
+    .filter((i) => i.entity_id === entityId && i.direction === 'in'
+      && (!i.classification || i.classification === 'awaiting'))
+    .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
+}

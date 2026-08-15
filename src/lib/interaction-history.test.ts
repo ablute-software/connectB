@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstLine, formatAsk, recentInteractions, resolveSharedVersion } from './interaction-history';
+import { firstLine, formatAsk, recentInteractions, resolveSharedVersion, unclassifiedInbound } from './interaction-history';
 import type { Interaction } from './types';
 
 function i(over: Partial<Interaction>): Interaction {
@@ -169,5 +169,30 @@ describe('formatAsk (202 §D)', () => {
 
   it('zero registado a serio continua a ser zero', () => {
     expect(formatAsk(0)).toBe('€0');
+  });
+});
+
+describe('unclassifiedInbound (208 §D)', () => {
+  const todas = [
+    i({ id: 'out', direction: 'out', classification: 'awaiting', occurred_at: '2025-11-27T10:00:00.000Z' }),
+    i({ id: 'nova', classification: 'awaiting', occurred_at: '2026-08-05T10:00:00.000Z' }),
+    i({ id: 'velha', classification: undefined, occurred_at: '2026-01-05T10:00:00.000Z' }),
+    i({ id: 'feita', classification: 'pass', occurred_at: '2026-02-05T10:00:00.000Z' }),
+    i({ id: 'outra-ent', entity_id: 'outra', classification: 'awaiting', occurred_at: '2026-03-05T10:00:00.000Z' }),
+  ];
+
+  it('mais antiga primeiro -- e a que esta ha mais tempo a enganar o resto da app', () => {
+    expect(unclassifiedInbound(todas, 'e1').map((x) => x.id)).toEqual(['velha', 'nova']);
+  });
+
+  it('ignora outbound, ja classificadas e outras entidades', () => {
+    const ids = unclassifiedInbound(todas, 'e1').map((x) => x.id);
+    expect(ids).not.toContain('out');
+    expect(ids).not.toContain('feita');
+    expect(ids).not.toContain('outra-ent');
+  });
+
+  it('sem nada por classificar devolve vazio', () => {
+    expect(unclassifiedInbound([todas[3]], 'e1')).toEqual([]);
   });
 });
