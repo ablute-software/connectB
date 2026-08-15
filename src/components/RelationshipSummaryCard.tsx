@@ -6,7 +6,7 @@ import Link from 'next/link';
 import type { Entity } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import {
-  STAGE_ORDER, STAGE_LABEL, relationshipSummary, nextBestAction, stageExits, type WhoseTurn, type Health, type DealMessageTouch,
+  STAGE_ORDER, STAGE_LABEL, relationshipSummary, nextBestAction, stageExits, entityMode, type WhoseTurn, type Health, type DealMessageTouch,
 } from '@/lib/relationship';
 import { LOCK_DAYS } from '@/lib/rules';
 import { TermHint } from '@/components/ui';
@@ -110,14 +110,26 @@ export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouch
   // relationship.ts (stageExits), que é pura e testada. Aqui só se desenha.
   const exits = stageExits(db, entity, new Date(), dealMessageTouches);
   const { lastInboundWasPass, nextStage } = exits;
+  // Prompt 205 §E — uma entidade parqueada/fechada não pode continuar a
+  // desenhar um funil activo ao lado do pill que diz "dormant". O stepper
+  // fica neutro e o chip de "de quem é a vez" desaparece: não é vez de
+  // ninguém enquanto isto estiver parado.
+  const mode = entityMode(entity);
+  const parkedOrClosed = mode !== 'active';
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
       <div className="flex items-center gap-1 overflow-x-auto pb-1">
+        {parkedOrClosed && (
+          <span className="mr-1 whitespace-nowrap rounded-full bg-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600">
+            {mode === 'parked' ? '❄ parked' : '✕ closed'}
+          </span>
+        )}
         {STAGE_ORDER.map((stg, i) => (
           <div key={stg} className="flex items-center gap-1">
             <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium ${
-              i === currentIdx ? 'bg-[#0E7490] text-white'
+              parkedOrClosed ? 'bg-gray-100 text-gray-400'
+                : i === currentIdx ? 'bg-[#0E7490] text-white'
                 : i < currentIdx ? 'bg-[#E8F4F8] text-cyan-900'
                 : 'bg-gray-100 text-gray-400'}`}>
               {STAGE_LABEL[stg]}
@@ -129,7 +141,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouch
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-600">
         <HealthDot entityId={entity.id} dealMessageTouches={dealMessageTouches} />
-        <WhoseTurnChip entityId={entity.id} dealMessageTouches={dealMessageTouches} />
+        {!parkedOrClosed && <WhoseTurnChip entityId={entity.id} dealMessageTouches={dealMessageTouches} />}
         <span>
           {s.firstContactAt ? `First contact ${s.firstContactAt.slice(0, 10)}` : 'No contact yet'}
           {s.lastTouchAt && s.lastTouchAt !== s.firstContactAt && ` · Last touch ${s.lastTouchAt.slice(0, 10)} (${s.daysSinceLastTouch}d ago)`}

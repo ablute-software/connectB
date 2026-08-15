@@ -168,6 +168,30 @@ export function relationshipSummary(
 export function nextBestAction(db: Db, entityId: string, now = new Date(), dealMessageTouches: DealMessageTouch[] = []): string | undefined {
   const entity = db.entities.find((e) => e.id === entityId);
   if (!entity) return undefined;
+
+  // Prompt 205 §E — parqueado e fechado vêm ANTES de tudo o resto.
+  //
+  // Confirmado por screenshot em "Test idividual": depois de escolher
+  // Frozen, o pill dizia "dormant" e ao lado a mesma página dizia "We owe a
+  // reply" e "Ready for first contact — run pre-flight". Três conselhos
+  // contraditórios, e o pior deles a mandar contactar quem o founder tinha
+  // acabado de parquear.
+  //
+  // A causa são duas funções, não uma: getStage() devolve 'not_contacted'
+  // para dormant ("no stage implied") e esta nunca olhava para o status.
+  // Corrige-se aqui porque o conselho é o que o founder lê — e um conselho
+  // errado é pior do que nenhum.
+  const mode = entityMode(entity);
+  if (mode === 'parked') {
+    const revisit = nextPendingTaskDue(db, entityId);
+    return revisit ? `Parked — revisit on ${revisit.slice(0, 10)}.` : 'Parked — no revisit scheduled.';
+  }
+  if (mode === 'closed') {
+    return entity.status === 'passed'
+      ? 'Passed — closed. Reopen only if something material changed.'
+      : 'Closed.';
+  }
+
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > now;
   if (locked) return `Locked until ${entity.contact_lock_until!.slice(0, 10)} — prep the next contact meanwhile.`;
 
@@ -367,4 +391,27 @@ export function stageExits(
     nextStage,
     parkLabel: s.stage === 'contacted' ? 'cold' : 'frozen',
   };
+}
+
+// Prompt 205 §E — em que "modo" está esta relação, para o ecrã inteiro poder
+// concordar consigo próprio. Não é um estado novo: lê o entities.status que
+// já existe. Existe porque três sítios diferentes precisavam da mesma
+// resposta e cada um a inferia à sua maneira (o stepper pelo stage, o chip
+// pelo whoseTurn, o conselho por nenhum dos dois).
+export type EntityMode = 'active' | 'parked' | 'closed';
+
+export function entityMode(entity: Pick<Entity, 'status'>): EntityMode {
+  if (entity.status === 'dormant') return 'parked';
+  if (entity.status === 'passed' || entity.status === 'invested') return 'closed';
+  return 'active';
+}
+
+// A data da próxima tarefa pendente da entidade — depois de parquear é a
+// task de revisit, mas não se assume isso pelo título: se o founder criou
+// outra coisa mais cedo, é essa que interessa.
+export function nextPendingTaskDue(db: Db, entityId: string): string | undefined {
+  return db.tasks
+    .filter((t) => t.entity_id === entityId && !t.done && !!t.due_at)
+    .map((t) => t.due_at as string)
+    .sort((a, b) => a.localeCompare(b))[0];
 }
