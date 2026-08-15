@@ -309,3 +309,54 @@ export function relatedContacts(db: Db, entityId: string, personId?: string): Re
   }
   return results;
 }
+
+// Prompt 202 §A.2 + §E — que saídas o stepper oferece num dado momento.
+//
+// Vive aqui, e não dentro do RelationshipSummaryCard, por duas razões: é
+// decisão de negócio (que saídas existem e quando), e é a única forma de a
+// testar — o projecto não tem testes de componentes, tem testes de funções
+// puras. O componente passa a desenhar o que esta função decide.
+//
+// O caso que motivou isto: pass da Adara Ventures (2026-08-05). O banner
+// antigo só olhava para whoseTurn/stage, ignorava o que a pessoa disse, e a
+// única saída que oferecia era "Mark as Engaged?" — a app sugeriu avançar
+// com um investidor que tinha dito que não, e o founder clicou.
+export interface StageExits {
+  show: boolean;
+  // true quando a última interação RECEBIDA está classificada como pass.
+  // Nesse caso a saída "avançar" desaparece de todo: é o bug do caso Adara.
+  lastInboundWasPass: boolean;
+  canAdvance: boolean;
+  nextStage: RelationshipStage;
+  // 'contacted' nunca teve resposta nenhuma, portanto "frozen" leria mal —
+  // o que aconteceu foi ficar frio. Mesmo mecanismo (entities.status
+  // 'dormant'), rótulo honesto.
+  parkLabel: 'cold' | 'frozen';
+}
+
+export function stageExits(
+  db: Db, entity: Entity, now: Date = new Date(), dealMessageTouches: DealMessageTouch[] = [],
+): StageExits {
+  const s = relationshipSummary(db, entity.id, now, dealMessageTouches);
+  const lastInbound = db.interactions
+    .filter((i) => i.entity_id === entity.id && i.direction === 'in')
+    .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at))
+    .at(-1);
+  const lastInboundWasPass = lastInbound?.classification === 'pass';
+  const idx = STAGE_ORDER.indexOf(s.stage);
+  const nextStage = STAGE_ORDER[Math.min(idx + 1, STAGE_ORDER.length - 1)];
+
+  // Já decidido (stage 'decision', ou status passed/dormant) não tem saídas:
+  // não há nada a sugerir a quem já saiu do funil.
+  const stageIsActive = s.stage !== 'decision' && entity.status !== 'passed' && entity.status !== 'dormant';
+  // 'not_contacted' fica de fora: não há contacto nenhum de que sair.
+  const show = stageIsActive && s.stage !== 'not_contacted' && (s.whoseTurn === 'us' || lastInboundWasPass);
+
+  return {
+    show,
+    lastInboundWasPass,
+    canAdvance: show && !lastInboundWasPass,
+    nextStage,
+    parkLabel: s.stage === 'contacted' ? 'cold' : 'frozen',
+  };
+}

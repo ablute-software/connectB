@@ -39,7 +39,14 @@ function LogForm() {
   const [direction, setDirection] = useState<'out' | 'in'>('out');
   const [channel, setChannel] = useState<Channel>('linkedin_dm');
   const [content, setContent] = useState('');
-  const [classification, setClassification] = useState<Classification>('awaiting');
+  // Prompt 202 §A.1 — arranca VAZIA, não em 'awaiting'. O default silencioso
+  // é a primeira metade do bug real: o pass da Adara Ventures (2026-08-05)
+  // ficou gravado como "awaiting" porque o founder não mexeu no campo, e sem
+  // `pass` o status nunca vira `passed`, o stage fica em `contacted` e o
+  // banner acaba a sugerir avançar — para um investidor que tinha dito que
+  // não. 'awaiting' continua a ser uma escolha legítima ("responderam, ainda
+  // não é decisão"), só deixa de ser o que acontece por omissão.
+  const [classification, setClassification] = useState<Classification | ''>('');
   const [passCat, setPassCat] = useState<PassReasonCategory>('other');
   const [passReason, setPassReason] = useState('');
   // Prompt 49 §5 — when the interaction itself happened. Optional, blank =
@@ -122,10 +129,12 @@ function LogForm() {
     [content, person, entity, channel, direction]);
   const lintErrors = lint.filter((f) => f.severity === 'error');
   const passMissing = direction === 'in' && classification === 'pass' && passReason.trim().length === 0;
+  // Prompt 202 §A.1 — inbound sem classificação escolhida não grava.
+  const classificationMissing = direction === 'in' && classification === '';
   const hookNotResearched = !!person && person.hook_status !== 'researched';
   const reopenTrigger = entity?.status === 'dormant' ? entity.reopen_trigger : undefined;
   const reopenBlocked = direction === 'out' && !!reopenTrigger && !reopenAck;
-  const formReady = entityId && content.trim().length > 0 && (direction === 'in' || !!person || noSpecificPerson) && !passMissing && !reopenBlocked;
+  const formReady = entityId && content.trim().length > 0 && (direction === 'in' || !!person || noSpecificPerson) && !passMissing && !classificationMissing && !reopenBlocked;
   // Prompt 65 Bloco 3 — the disabled Save button gave no indication of
   // WHICH condition was blocking it (this was the actual cause behind the
   // "Next action required" confusion — the real blocker was always the
@@ -135,6 +144,7 @@ function LogForm() {
   const disabledReason = !entityId ? 'Select an entity.'
     : content.trim().length === 0 ? 'Write the message content.'
     : direction === 'out' && !person && !noSpecificPerson ? 'Select a person, or choose "No specific person" if this was sent to a general channel.'
+    : classificationMissing ? 'Choose what they said in "3 · Classification" — it decides the stage.'
     : passMissing ? 'A pass reason is required.'
     : reopenBlocked ? 'Confirm the reopening checkbox above.'
     : null;
@@ -237,7 +247,9 @@ function LogForm() {
       occurred_at: whatDate ? new Date(whatDate).toISOString() : undefined,
       sent_from: direction === 'out' && channel === 'email' ? (sentFrom ?? db.org.sender_email) : undefined,
       document_id: docId || undefined,
-      classification: direction === 'in' ? classification : direction === 'out' ? 'awaiting' : undefined,
+      // classification só é '' se direction==='out' (o guarda formReady
+      // impede gravar um inbound por classificar), daí o cast ser seguro.
+      classification: direction === 'in' ? (classification as Classification) : direction === 'out' ? 'awaiting' : undefined,
       pass_reason_category: classification === 'pass' ? passCat : undefined,
       pass_reason: classification === 'pass' ? passReason : undefined,
       next_action: nextAction || undefined, next_action_due: nextDue || undefined,
@@ -256,7 +268,7 @@ function LogForm() {
     // already handled by logInteraction) also naturally yields no
     // suggestion, since suggestNextAction returns null for it.
     if (!nextAction) {
-      const suggestion = suggestNextAction(direction, channel, direction === 'in' ? classification : undefined, interaction.occurred_at);
+      const suggestion = suggestNextAction(direction, channel, direction === 'in' ? (classification as Classification) : undefined, interaction.occurred_at);
       if (suggestion) {
         setPendingSuggestion(suggestion);
         setPendingSuggestionTarget({ entityId, personId: personId || undefined });
@@ -525,9 +537,16 @@ function LogForm() {
         {direction === 'in' && (
           <Card title="3 · Classification">
             <select value={classification} onChange={(e) => setClassification(e.target.value as Classification)}
-              className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+              className={`rounded border px-2 py-1.5 text-sm ${classification === '' ? 'border-amber-400 bg-amber-50' : 'border-gray-300'}`}>
+              <option value="" disabled>Choose what they said…</option>
               {CLASSIFICATIONS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
             </select>
+            {classification === '' && (
+              <p className="mt-1.5 text-xs text-amber-700">
+                Required. What they said decides the stage — an unclassified reply reads as &quot;still waiting&quot;
+                and the app will keep suggesting you move forward.
+              </p>
+            )}
             {classification === 'pass' && (
               <div className="mt-2 space-y-2 rounded border border-red-100 bg-red-50 p-2">
                 <select value={passCat} onChange={(e) => setPassCat(e.target.value as PassReasonCategory)}

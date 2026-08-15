@@ -1,12 +1,12 @@
 'use client';
 // IRM_SPEC §4b — Relationship summary card. Compact chip for the pipeline row;
 // full stage stepper + one-liner + CTAs for the entity page header.
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import type { Entity } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import {
-  STAGE_ORDER, STAGE_LABEL, relationshipSummary, nextBestAction, type WhoseTurn, type Health, type DealMessageTouch,
+  STAGE_ORDER, STAGE_LABEL, relationshipSummary, nextBestAction, stageExits, type WhoseTurn, type Health, type DealMessageTouch,
 } from '@/lib/relationship';
 import { LOCK_DAYS } from '@/lib/rules';
 import { TermHint } from '@/components/ui';
@@ -98,20 +98,18 @@ export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouch
   // instead of this card re-fetching it independently.
   dealMessageTouches?: DealMessageTouch[];
 }) {
-  const { db, setRelationshipStage } = useStore();
+  const { db, setRelationshipStage, setEntityStatus } = useStore();
+  const [exitMode, setExitMode] = useState<'none' | 'pass'>('none');
+  const [passReason, setPassReason] = useState('');
   const s = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
   const action = nextBestAction(db, entity.id, new Date(), dealMessageTouches);
   const currentIdx = STAGE_ORDER.indexOf(s.stage);
-  // Prompt 197 C.2 — a one-click suggestion, not an automatic promotion:
-  // the founder still decides. Surfaces only when it's genuinely
-  // actionable — the investor (or a Sherlock message from them, now that
-  // C.1 merges both sources) made the last move, AND the stage hasn't
-  // caught up to that yet. Once past 'contacted' the founder has presumably
-  // already made this call themselves; not shown for a 'them'/'overdue'
-  // turn (waiting on OUR reply, unrelated to a stage-advance decision) or a
-  // stage of 'none' (no contact at all yet — there's nothing to mark
-  // engaged from).
-  const suggestEngaged = s.whoseTurn === 'us' && (s.stage === 'not_contacted' || s.stage === 'contacted');
+  // Prompt 197 C.2 — continua a ser uma sugestão, nunca uma promoção
+  // automática: o founder é que decide qual das saídas usa.
+  // Prompt 202 §A.2 + §E — a decisão de que saídas mostrar vive em
+  // relationship.ts (stageExits), que é pura e testada. Aqui só se desenha.
+  const exits = stageExits(db, entity, new Date(), dealMessageTouches);
+  const { lastInboundWasPass, nextStage } = exits;
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
@@ -139,13 +137,65 @@ export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouch
         </span>
       </div>
       {action && <div className="mt-1.5 text-xs font-medium text-[#0E7490]">Next: {annotateNextStep(action)}</div>}
-      {suggestEngaged && (
-        <div className="mt-2 flex items-center gap-2 rounded-lg border border-cyan-200 bg-[#E8F4F8] px-3 py-1.5 text-xs text-cyan-900">
-          <span>They&apos;ve replied — this still shows as {STAGE_LABEL[s.stage]}.</span>
-          <button onClick={() => setRelationshipStage(entity.id, 'engaged')}
-            className="ml-auto rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c637b]">
-            Mark as Engaged?
-          </button>
+      {exits.show && (
+        <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
+          lastInboundWasPass ? 'border-red-200 bg-red-50 text-[#B00000]' : 'border-cyan-200 bg-[#E8F4F8] text-cyan-900'}`}>
+          <span>
+            {lastInboundWasPass
+              ? `They passed — this still shows as ${STAGE_LABEL[s.stage]}.`
+              : `They've replied — this still shows as ${STAGE_LABEL[s.stage]}.`}
+          </span>
+
+          {exitMode === 'none' && (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {/* Saída 1 — avançar. Escondida num pass: oferecer "avançar" a
+                  quem disse que não é exactamente o bug do caso Adara. */}
+              {exits.canAdvance && (
+                <button onClick={() => setRelationshipStage(entity.id, nextStage)}
+                  className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c637b]">
+                  Move to {STAGE_LABEL[nextStage]}
+                </button>
+              )}
+              {/* Saída 2 — o "não". Pede a razão, que é obrigatória. */}
+              <button onClick={() => setExitMode('pass')}
+                className="rounded-full border border-red-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#B00000] hover:bg-red-50">
+                No interest / over — marks as passed
+              </button>
+              {/* Saída 3 — parquear. Em 'contacted' lê-se "cold", que é o que
+                  de facto aconteceu: nunca responderam. Mesmo mecanismo. */}
+              <button onClick={() => setEntityStatus(entity.id, 'dormant', s.stage === 'contacted' ? 'Cold — no reply' : 'Parked — no continuity')}
+                className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50">
+                {exits.parkLabel === 'cold' ? 'Cold / no reply' : 'Frozen / no continuity'} — parks this investor
+              </button>
+            </div>
+          )}
+
+          {exitMode === 'pass' && (
+            <div className="mt-1.5 space-y-1.5">
+              <textarea value={passReason} onChange={(e) => setPassReason(e.target.value)} rows={2}
+                placeholder="Why did they pass? Verbatim if possible — REQUIRED. Ten of these rewrite the pitch."
+                className="w-full rounded border border-red-200 p-2 text-xs text-gray-900" />
+              <div className="flex gap-1.5">
+                <button
+                  disabled={passReason.trim().length === 0}
+                  onClick={() => {
+                    setEntityStatus(entity.id, 'passed', passReason.trim());
+                    setRelationshipStage(entity.id, 'decision');
+                    setExitMode('none'); setPassReason('');
+                  }}
+                  className="rounded-full bg-[#B00000] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
+                  Save as passed
+                </button>
+                <button onClick={() => { setExitMode('none'); setPassReason(''); }}
+                  className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-600">
+                  Cancel
+                </button>
+              </div>
+              {passReason.trim().length === 0 && (
+                <p className="text-[11px] text-gray-500">A pass reason is required — it&apos;s what makes the next pitch better.</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
