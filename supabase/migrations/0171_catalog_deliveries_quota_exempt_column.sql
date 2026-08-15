@@ -107,6 +107,8 @@ begin
       'unknown', 'not_applicable', 'not_contacted', 'match_deal'
     ) returning id into v_entity_id;
 
+    -- quota_exempt=true — organic, investor-initiated, never the founder's
+    -- own quota spend. See this migration's own header.
     insert into catalog_deliveries (org_id, catalog_id, entity_id, via_pack, quota_exempt)
     values (p_org_id, p_catalog_id, v_entity_id, null, true);
   end if;
