@@ -9,23 +9,69 @@ function i(over: Partial<Interaction>): Interaction {
   } as Interaction;
 }
 
+// Prompt 208 §A — o email LITERAL da Adara Ventures, copiado da interacao
+// d91c5d42 em producao (2026-08-05). A linha mostrada era "Dear Nuno,".
+const ADARA = [
+  'Dear Nuno,',
+  'Thank you for getting in touch with us through our website. After reviewing and debating internally the information you uploaded, we have decided not to pursue a potential investment. We thank you for thinking of Adara as a possible investor and wish you the best for your fundraising process.',
+  '',
+  'Sincerely,',
+  '',
+  'Alexei Perley',
+  'www.adara.vc | GDPR',
+].join('\n');
+
+describe('firstLine — o caso Adara', () => {
+  it('NAO mostra a saudacao', () => {
+    expect(firstLine(ADARA)).not.toBe('Dear Nuno,');
+    expect(firstLine(ADARA).startsWith('Dear')).toBe(false);
+  });
+
+  it('mostra a frase que carrega a decisao', () => {
+    expect(firstLine(ADARA)).toContain('not to pursue');
+  });
+
+  it('respeita o limite de comprimento', () => {
+    expect(firstLine(ADARA).length).toBeLessThanOrEqual(90);
+    expect(firstLine(ADARA, 60).length).toBeLessThanOrEqual(60);
+  });
+});
+
 describe('firstLine', () => {
-  it('devolve a primeira linha nao vazia', () => {
-    expect(firstLine('\n\n  Olá Nuno,\nobrigado pelo deck.')).toBe('Olá Nuno,');
+  // MUDANCA DE CONTRATO (208 §A): antes era "a primeira linha nao vazia",
+  // agora e "a primeira linha SUBSTANTIVA". Este teste asseverava o
+  // comportamento antigo e foi reescrito de proposito, nao adaptado.
+  it('salta a saudacao e vai a linha com conteudo', () => {
+    expect(firstLine('\n\n  Ola Nuno,\nobrigado pelo deck que enviaste.')).toBe('obrigado pelo deck que enviaste.');
   });
 
-  it('colapsa espacos', () => {
-    expect(firstLine('Olá    Nuno,\t\tobrigado')).toBe('Olá Nuno, obrigado');
+  it('linhas curtas de mais nao contam como substantivas', () => {
+    expect(firstLine('Hi,\nJoao\nPodemos falar na proxima semana sobre a ronda?'))
+      .toBe('Podemos falar na proxima semana sobre a ronda?');
   });
 
-  it('corta com reticencias acima do maximo', () => {
+  it('sem palavra inteira nao e saudacao: "Hint" nao e "Hi"', () => {
+    expect(firstLine('Hint: os numeros do Q3 estao no anexo em baixo.'))
+      .toBe('Hint: os numeros do Q3 estao no anexo em baixo.');
+  });
+
+  it('so saudacao: mostra a saudacao, nao vazio', () => {
+    expect(firstLine('Dear Nuno,')).toBe('Dear Nuno,');
+  });
+
+  it('prefere a frase com sinal mesmo no meio do paragrafo', () => {
+    const txt = 'Obrigado pelo envio dos materiais todos. Unfortunately this is too early for us. Bom trabalho.';
+    expect(firstLine(txt)).toContain('Unfortunately');
+  });
+
+  it('sem sinal nenhum: primeira frase substantiva, truncada se preciso', () => {
     const r = firstLine('a'.repeat(200), 20);
     expect(r).toHaveLength(20);
     expect(r.endsWith('…')).toBe(true);
   });
 
-  it('nao corta o que cabe exactamente', () => {
-    expect(firstLine('12345', 5)).toBe('12345');
+  it('colapsa espacos', () => {
+    expect(firstLine('Reuniao    marcada\t\tpara terca de manha')).toBe('Reuniao marcada para terca de manha');
   });
 
   it('aguenta conteudo vazio ou ausente', () => {
