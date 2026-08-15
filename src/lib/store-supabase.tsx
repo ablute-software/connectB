@@ -1274,18 +1274,22 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       // confirmed exploitable with just the publishable key) —
       // catalog_effective_quota() is the properly org-scoped, safe-to-call
       // sibling added alongside it.
-      // Only `via_pack IS NOT NULL` rows count against quota, and this must
-      // stay in lockstep with the DB-side guard: migration 0170 exempted
-      // `via_pack IS NULL` inserts from trg_catalog_deliveries_enforce_quota
-      // and narrowed its own "delivered" count the same way. Those rows are
-      // never founder quota consumption — they come from
-      // matchdeal_record_interest_notification() (an investor expressing
-      // interest) and from bulk seeds. Counting them here would show "no
-      // quota left" to an org that has consumed none: ablute_ had 525 rows
-      // against quota=40, 521 of them from a single 2026-07-27 seed.
+      // Only non-exempt rows count against quota, and this must stay in
+      // lockstep with the DB-side guard: trg_catalog_deliveries_enforce_quota
+      // filters on `not quota_exempt` since migration 0171. Quota is the
+      // budget of investors *introduced to the founder* — unlockPack and the
+      // monthly delivery both spend it; only an investor's own organic
+      // interest (matchdeal_record_interest_notification, which inserts
+      // quota_exempt=true) doesn't, since the founder never chose to spend
+      // there. Counting exempt rows here would show "no quota left" to an org
+      // that has consumed none: ablute_ has 525 rows against quota=40, 524 of
+      // them exempt (a 2026-07-27 bulk seed plus interest notifications).
+      // Do NOT go back to filtering on via_pack — 0170 tried that and 0171
+      // undid it; via_pack means "which pack did this come from", nothing
+      // about quota, and the monthly delivery has no pack.
       const [{ data: quotaData }, { count: deliveredCount }] = await Promise.all([
         sb.rpc('catalog_effective_quota', { check_org: o }),
-        sb.from('catalog_deliveries').select('catalog_id', { count: 'exact', head: true }).eq('org_id', o).not('via_pack', 'is', null),
+        sb.from('catalog_deliveries').select('catalog_id', { count: 'exact', head: true }).eq('org_id', o).eq('quota_exempt', false),
       ]);
       const quota = typeof quotaData === 'number' ? quotaData : 0;
       const pLimit = Math.max(0, quota - (deliveredCount ?? 0));
