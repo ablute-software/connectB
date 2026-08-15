@@ -8,10 +8,16 @@ import type { Entity, RelationshipStage } from '@/lib/types';
 import { PersonLink } from '@/components/ui';
 import { outboundCounts, LOCK_DAYS } from '@/lib/rules';
 import {
-  STAGE_ORDER, STAGE_LABEL, entityInteractions, relationshipSummary, relatedContacts,
+  STAGE_ORDER, STAGE_LABEL, entityInteractions, relationshipSummary, relatedContacts, type DealMessageTouch,
 } from '@/lib/relationship';
 
-export function ThreadDrawer({ entity, open, onClose }: { entity: Entity; open: boolean; onClose: () => void }) {
+export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [] }: {
+  entity: Entity; open: boolean; onClose: () => void;
+  // Prompt 197 C.1 — see RelationshipSummaryCard's own comment on the same
+  // param; this drawer's "Awaiting reply"/"No reply for Xd" banners below
+  // are driven by the same relationshipSummary, so they need the same merge.
+  dealMessageTouches?: DealMessageTouch[];
+}) {
   const { db, setRelationshipStage } = useStore();
   const [personFilter, setPersonFilter] = useState<string>('all');
   const [order, setOrder] = useState<'newest' | 'oldest'>('newest');
@@ -21,7 +27,7 @@ export function ThreadDrawer({ entity, open, onClose }: { entity: Entity; open: 
   const all = entityInteractions(db, entity.id);
   const filtered = personFilter === 'all' ? all : all.filter((i) => i.person_id === personFilter);
   const sorted = order === 'newest' ? [...filtered].reverse() : filtered;
-  const summary = relationshipSummary(db, entity.id);
+  const summary = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
   const caps = outboundCounts(db);
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > new Date();
   const related = useMemo(

@@ -1,8 +1,13 @@
 // P134 addenda (2026-08-05, Nuno's R2 decisions #1/#3) — "existe match
-// MatchDeal feito" is one predicate, shared everywhere it's needed: the
-// dossier's "Conversation on MatchDeal" link-out (§3, was already status='active'
-// only) AND the founder's messaging-initiate gate (§1, new). Both must use
-// the exact same definition or they'd silently drift apart.
+// MatchDeal feito", for the dossier's "Conversation on MatchDeal" link-out
+// (§3, investor-interaction-log.ts) — was already status='active' only, now
+// this one shared definition. Used to ALSO gate the founder's
+// messaging-initiate flow (§1); Prompt 197 A moved that gate to
+// canInvestorMessage's own symmetric criterion instead (a MatchDeal match
+// was more restrictive than "investor expressed interest," and the two had
+// desynced) — hasActiveMatchDealMatch, the boolean wrapper that gate used,
+// is gone; findActiveMatchDealMatch below is still the one this file exists
+// for.
 //
 // Qualifying matchdeal_matches row: status = 'active' (excludes
 // pending_consent — not yet mutually confirmed; declined_by_startup,
@@ -30,8 +35,4 @@ export async function findActiveMatchDealMatch(admin: SupabaseClient, startupPro
     .order('created_at', { ascending: false }).limit(1).maybeSingle();
   if (!data || !matchQualifies({ status: data.status as string, cooldown_until: data.cooldown_until as string | null })) return null;
   return { id: data.id as string, createdAt: data.created_at as string };
-}
-
-export async function hasActiveMatchDealMatch(admin: SupabaseClient, startupProfileId: string, investorCatalogEntityId: string): Promise<boolean> {
-  return !!(await findActiveMatchDealMatch(admin, startupProfileId, investorCatalogEntityId));
 }

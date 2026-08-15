@@ -1,11 +1,12 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, FitTag, HardFilterBanner, PersonLink, StatusPill, VerBadge, WaveTag, fmtEur } from '@/components/ui';
 import { preflight, preflightSummary } from '@/lib/rules';
 import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
 import { ThreadDrawer } from '@/components/ThreadDrawer';
+import { MessageInvestorDrawer } from '@/components/MessageInvestorDrawer';
 import { ContributionBox } from '@/components/ContributionBox';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
 import { EntityPeoplePanel } from '@/components/EntityPeoplePanel';
@@ -28,10 +29,44 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const [contactDraft, setContactDraft] = useState({ website: '', email: '', phone: '', address: '' });
   const [contributionsRefreshKey, setContributionsRefreshKey] = useState(0);
   const [showFormAssist, setShowFormAssist] = useState(false);
+  // Prompt 197 A §2 — "Message investor" button visibility. canMessage
+  // mirrors canInvestorMessage's own symmetric criterion, computed
+  // server-side (deal-messages.ts's founderMessageEligibleFirms +
+  // resolveFounderEntityToEligibleFirm) since it needs a DB round-trip this
+  // client-side entity object can't answer on its own. `messages` (raw
+  // Sherlock thread, if any) is kept here too — Prompt 197 C.1 turns it
+  // into dealMessageTouches below, fed to RelationshipSummaryCard/
+  // ThreadDrawer so a Sherlock reply counts toward whoseTurn/health the
+  // same way a manually-logged interaction already does.
+  const [messaging, setMessaging] = useState<{
+    canMessage: boolean; investorCatalogEntityId: string | null; investorName: string | null;
+    messages: { senderSide: 'investor' | 'founder'; createdAt: string }[];
+  }>({ canMessage: false, investorCatalogEntityId: null, investorName: null, messages: [] });
+  const [messagingOpen, setMessagingOpen] = useState(false);
 
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then((me) => setContactAvailable(!!me.capabilities?.entityContactFields)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!entity) return;
+    fetch(`/api/founder/messages?entityId=${entity.id}`).then((r) => r.json())
+      .then((d) => setMessaging({
+        canMessage: !!d.canMessage, investorCatalogEntityId: d.investorCatalogEntityId ?? null,
+        investorName: d.investorName ?? null, messages: d.messages ?? [],
+      }))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity?.id]);
+
+  // Prompt 197 C.1 — deal_messages -> the same {occurredAt, direction} shape
+  // relationshipSummary already understands. senderSide==='investor' is the
+  // 'in' direction (they wrote, founder's turn), mirroring
+  // Interaction.direction's own convention exactly.
+  const dealMessageTouches = useMemo(
+    () => messaging.messages.map((m) => ({ occurredAt: m.createdAt, direction: (m.senderSide === 'investor' ? 'in' : 'out') as 'in' | 'out' })),
+    [messaging.messages],
+  );
 
   if (!entity) return <div className="text-gray-500">Entity not found.</div>;
 
@@ -85,6 +120,12 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
         <div className="flex gap-2">
           <Link href={`/log?entity=${entity.id}`} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">Log interaction</Link>
+          {messaging.canMessage && messaging.investorCatalogEntityId && (
+            <button onClick={() => setMessagingOpen(true)}
+              className="rounded-lg border border-[#0E7490] px-3 py-1.5 text-sm font-medium text-[#0E7490] hover:bg-[#E8F4F8]">
+              Message investor
+            </button>
+          )}
           {entity.status !== 'dormant' && (
             <button onClick={() => setEntityStatus(entity.id, 'dormant', 'Manually parked')}
               className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600">Mark dormant</button>
@@ -133,7 +174,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)} />
+      <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)} dealMessageTouches={dealMessageTouches} />
 
       {db.ndas.filter((n) => n.entity_id === entity.id).length > 0 && (
         <Card title="NDAs on file">
@@ -341,7 +382,13 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      <ThreadDrawer entity={entity} open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <ThreadDrawer entity={entity} open={drawerOpen} onClose={() => setDrawerOpen(false)} dealMessageTouches={dealMessageTouches} />
+      {messaging.investorCatalogEntityId && (
+        <MessageInvestorDrawer
+          entityId={entity.id} investorCatalogEntityId={messaging.investorCatalogEntityId}
+          investorName={messaging.investorName ?? entity.name} open={messagingOpen} onClose={() => setMessagingOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -100,8 +100,32 @@ export function entityInteractions(db: Db, entityId: string): Interaction[] {
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
 }
 
-export function relationshipSummary(db: Db, entityId: string, now = new Date()): RelationshipSummary {
-  const touches = entityInteractions(db, entityId).filter((i) => i.channel !== 'stage_change');
+// Prompt 197 C.1 — deal_messages (Sherlock in-app messaging, deal-messages.ts)
+// are also "touches" for whoseTurn/health/lastTouchAt purposes, same as a
+// manually-logged interactions row. Before this, the two had zero
+// connection: a founder replying entirely through Sherlock messaging still
+// read as "no reply, overdue" here, because this function only ever looked
+// at `interactions` — exactly the gap reported.
+//
+// Optional and additive on purpose, not a new required param everywhere:
+// relationshipSummary is called in BULK, once per row, for every entity in
+// the Pipeline table (RelationshipCompactLine) — making it fetch
+// deal_messages itself would mean one extra DB round-trip per row. Only
+// callers that already have a specific entity's thread loaded (the entity
+// detail page, via /api/founder/messages?entityId=) pass dealMessageTouches
+// in; every other caller omits it and behaves exactly as before this
+// change — direction:'in' means the INVESTOR sent it (founder's turn to
+// reply), mirroring Interaction.direction's own convention.
+export interface DealMessageTouch { occurredAt: string; direction: Direction }
+
+export function relationshipSummary(
+  db: Db, entityId: string, now = new Date(), dealMessageTouches: DealMessageTouch[] = [],
+): RelationshipSummary {
+  const touches = [
+    ...entityInteractions(db, entityId).filter((i) => i.channel !== 'stage_change')
+      .map((i) => ({ occurred_at: i.occurred_at, direction: i.direction })),
+    ...dealMessageTouches.map((m) => ({ occurred_at: m.occurredAt, direction: m.direction })),
+  ].sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
   const first = touches[0];
   const last = touches[touches.length - 1];
 
@@ -141,13 +165,13 @@ export function relationshipSummary(db: Db, entityId: string, now = new Date()):
   };
 }
 
-export function nextBestAction(db: Db, entityId: string, now = new Date()): string | undefined {
+export function nextBestAction(db: Db, entityId: string, now = new Date(), dealMessageTouches: DealMessageTouch[] = []): string | undefined {
   const entity = db.entities.find((e) => e.id === entityId);
   if (!entity) return undefined;
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > now;
   if (locked) return `Locked until ${entity.contact_lock_until!.slice(0, 10)} — prep the next contact meanwhile.`;
 
-  const summary = relationshipSummary(db, entityId, now);
+  const summary = relationshipSummary(db, entityId, now, dealMessageTouches);
   if (summary.whoseTurn === 'overdue') return `Follow up — no reply for ${summary.daysSinceLastTouch}d.`;
   if (summary.whoseTurn === 'them') return `Awaiting reply (${summary.daysSinceLastTouch}d) — give it time before following up.`;
   if (summary.stage === 'not_contacted') return 'Ready for first contact — run pre-flight.';

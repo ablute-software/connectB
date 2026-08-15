@@ -3,23 +3,34 @@
 // for the sidebar badge. Same service-role-only pattern as the investor
 // side (deal_threads/deal_messages have zero RLS policies) — founder
 // identity is resolved via org_members here, not RLS.
-// Addenda 2026-08-05 §1 — POST is the founder-initiate path: Nuno's own
-// decision, more restrictive than this feature's original R2 recommendation
-// ("founder can message any Pipeline relationship"). A founder may only
-// START a new thread with an investor firm that has an active MatchDeal
-// match against this startup — see matchdeal-active-match.ts's own header
-// for the exact status/cooldown definition this shares with the dossier's
-// own "Conversation on MatchDeal" link-out (§3, same predicate, one place).
-// Replying to a thread an INVESTOR already started has no such gate — that
-// route is /api/founder/messages/[threadId], unchanged.
+// Prompt 197 A — POST is the founder-initiate path. Addenda 2026-08-05 §1
+// had gated it on an active MatchDeal match (see matchdeal-active-match.ts)
+// — more restrictive than canInvestorMessage's own symmetric criterion
+// (status==='interested' || hasDataRoomAccess) and desynced from what the
+// founder's own Pipeline already treats as a real relationship. Now checks
+// founderMessageEligibleFirms (deal-messages.ts) instead — one rule, not
+// duplicated between this route and eligible/route.ts. Replying to a thread
+// an INVESTOR already started has no such gate — that route is
+// /api/founder/messages/[threadId], unchanged.
+//
+// GET also takes an optional ?entityId= (Prompt 197 A §2, entities/[id]
+// page's own "Message investor" button): resolves that founder-CRM entity
+// to the matching eligible firm (resolveFounderEntityToEligibleFirm — no
+// stored link between entities and catalog_entities in this schema, most
+// entities rows are 'manual' with no platform identity at all) and returns
+// canMessage + that thread's existing messages (never creates one — same
+// read-only findThread the investor side's GET already uses). Omitting
+// entityId keeps the original thread-list behavior unchanged.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { dealMessagesAvailable } from '@/lib/deal-messages-capability';
-import { hasActiveMatchDealMatch } from '@/lib/matchdeal-active-match';
-import { getOrCreateThread, postMessage } from '@/lib/deal-messages';
+import {
+  findThread, getOrCreateThread, getThreadMessages, markThreadRead, postMessage,
+  founderMessageEligibleFirms, resolveFounderEntityToEligibleFirm,
+} from '@/lib/deal-messages';
 
-export async function GET() {
+export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ threads: [] }, { status: 200 });
@@ -35,6 +46,23 @@ export async function GET() {
   const orgId = member.org_id as string;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+
+  const entityId = new URL(req.url).searchParams.get('entityId');
+  if (entityId) {
+    const { data: entity } = await admin.from('entities').select('id, name, website').eq('id', entityId).eq('org_id', orgId).maybeSingle();
+    if (!entity) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
+
+    const eligible = await founderMessageEligibleFirms(admin, orgId);
+    const firm = resolveFounderEntityToEligibleFirm(entity as { name: string; website: string | null }, eligible);
+    if (!firm) return NextResponse.json({ canMessage: false, investorCatalogEntityId: null, messages: [] });
+
+    const thread = await findThread(admin, orgId, firm.investorCatalogEntityId);
+    if (!thread) return NextResponse.json({ canMessage: true, investorCatalogEntityId: firm.investorCatalogEntityId, investorName: firm.name, messages: [] });
+    const messages = await getThreadMessages(admin, thread.id as string);
+    await markThreadRead(admin, thread.id as string, 'founder');
+    return NextResponse.json({ canMessage: true, investorCatalogEntityId: firm.investorCatalogEntityId, investorName: firm.name, messages });
+  }
+
   const { data: threads } = await admin.from('deal_threads')
     .select('id, investor_catalog_entity_id, last_message_at, founder_last_read_at')
     .eq('startup_org_id', orgId).not('last_message_at', 'is', null)
@@ -74,9 +102,9 @@ export async function POST(req: Request) {
   if (!body.body?.trim()) return NextResponse.json({ ok: false, error: "Message can't be empty." }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data: startupProfile } = await admin.from('matchdeal_profiles').select('id').eq('kind', 'startup').eq('membership_id', orgId).maybeSingle();
-  const qualifies = startupProfile ? await hasActiveMatchDealMatch(admin, startupProfile.id as string, body.investorCatalogEntityId) : false;
-  if (!qualifies) return NextResponse.json({ ok: false, error: 'No active MatchDeal match with this firm yet.' }, { status: 403 });
+  const eligible = await founderMessageEligibleFirms(admin, orgId);
+  const qualifies = eligible.some((f) => f.investorCatalogEntityId === body.investorCatalogEntityId);
+  if (!qualifies) return NextResponse.json({ ok: false, error: 'No relationship with this investor firm yet.' }, { status: 403 });
 
   const thread = await getOrCreateThread(admin, orgId, body.investorCatalogEntityId);
   const { error } = await postMessage(admin, {

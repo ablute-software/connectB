@@ -2,6 +2,8 @@
 // investor firm) pair; shared by both the investor-side and founder-side
 // routes so the relationship/document-grant validation only lives once.
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { normalizeDomain, normalizeName } from './catalog-dedupe';
+import { domainMatchesEntity } from './investor-domain-match';
 
 export interface DealMessage {
   id: string; senderSide: 'investor' | 'founder'; senderUserId: string;
@@ -89,4 +91,61 @@ export async function postMessage(
 export async function markThreadRead(admin: SupabaseClient, threadId: string, side: 'investor' | 'founder') {
   const field = side === 'investor' ? 'investor_last_read_at' : 'founder_last_read_at';
   await admin.from('deal_threads').update({ [field]: new Date().toISOString() }).eq('id', threadId);
+}
+
+// Prompt 197 A — the founder-initiate side of canInvestorMessage's own
+// symmetric criterion. canInvestorMessage(card) is status==='interested' ||
+// hasDataRoomAccess, computed for the INVESTOR from their own already-known
+// email/team; the reverse (given a startup org, which investor firms
+// currently qualify) is genuinely harder for the grant half specifically:
+// access_grants stores grantee_email/invited_email (plain text), and
+// there's no cheap email->catalog_entity_id path in this schema (no email
+// column on matchdeal_investor_members, no getUserByEmail on the Supabase
+// admin API — only getUserById/listUsers). Reversing it would mean an
+// unbounded listUsers() scan or a new indexed mapping — a real schema
+// change, out of scope here. So this only covers the 'interested' half.
+// Flagged, not silently narrowed: in practice a firm with data-room access
+// but no recorded 'interested' decision is the rare case, not the common
+// path (P132-A's eligibility union already treats a grant as a strong
+// enough signal that a decision usually gets recorded through the normal
+// Pipeline flow anyway) — but it IS a real gap if it ever isn't.
+export interface FounderMessageEligibleFirm { investorCatalogEntityId: string; name: string; website: string | null }
+
+export async function founderMessageEligibleFirms(admin: SupabaseClient, orgId: string): Promise<FounderMessageEligibleFirm[]> {
+  const { data: decisions } = await admin.from('investor_relationship_decisions')
+    .select('investor_catalog_entity_id').eq('org_id', orgId).eq('decision', 'interested');
+  const ids = [...new Set((decisions ?? []).map((d) => d.investor_catalog_entity_id as string))];
+  if (ids.length === 0) return [];
+  const { data: catalogEntities } = await admin.from('catalog_entities').select('id, name, website').in('id', ids);
+  return (catalogEntities ?? []).map((c) => ({
+    investorCatalogEntityId: c.id as string, name: c.name as string, website: (c.website as string | null) ?? null,
+  }));
+}
+
+// Resolves a founder's own CRM entity (entities.id, entirely disconnected
+// from catalog_entities in the schema — most rows are 'manual', typed in by
+// the founder with no platform identity attached) to the investor firm it
+// most likely refers to, among the ones this startup may actually message.
+// Domain match first — this app's dominant identity key elsewhere
+// (investor-domain-match.ts) — name match (exact, after normalization) as
+// the fallback for an entity with no website on file. No match means
+// exactly that: this app can't tell who, on the platform, this tracked
+// investor even is, so there's genuinely nothing to open a Sherlock thread
+// with — the caller should treat that as "don't show the button," not an
+// error.
+export function resolveFounderEntityToEligibleFirm(
+  entity: { name: string; website?: string | null },
+  eligible: FounderMessageEligibleFirm[],
+): FounderMessageEligibleFirm | null {
+  const entityDomain = normalizeDomain(entity.website ?? null);
+  if (entityDomain) {
+    const byDomain = eligible.find((f) => {
+      const firmDomain = normalizeDomain(f.website);
+      return !!firmDomain && domainMatchesEntity(entityDomain, firmDomain);
+    });
+    if (byDomain) return byDomain;
+  }
+  const entityName = normalizeName(entity.name);
+  if (!entityName) return null;
+  return eligible.find((f) => normalizeName(f.name) === entityName) ?? null;
 }

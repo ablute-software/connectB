@@ -5,7 +5,9 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import type { Entity } from '@/lib/types';
 import { useStore } from '@/lib/store';
-import { STAGE_ORDER, STAGE_LABEL, relationshipSummary, nextBestAction, type WhoseTurn, type Health } from '@/lib/relationship';
+import {
+  STAGE_ORDER, STAGE_LABEL, relationshipSummary, nextBestAction, type WhoseTurn, type Health, type DealMessageTouch,
+} from '@/lib/relationship';
 import { LOCK_DAYS } from '@/lib/rules';
 import { TermHint } from '@/components/ui';
 
@@ -48,16 +50,22 @@ const HEALTH_LABEL: Record<Health, string> = {
   hot: 'Hot — meeting or diligence', warm: 'Warm — recent activity', stalled: 'Stalled — no movement in a while', none: '',
 };
 
-export function HealthDot({ entityId }: { entityId: string }) {
+// Prompt 197 C.1 — dealMessageTouches is optional and defaults to none, so
+// every existing caller that doesn't have an entity's Sherlock thread
+// loaded (RelationshipCompactLine's bulk per-row usage in the Pipeline
+// table, in particular) keeps behaving exactly as before. See
+// relationship.ts's own header comment on relationshipSummary for why this
+// stays additive rather than a required param.
+export function HealthDot({ entityId, dealMessageTouches = [] }: { entityId: string; dealMessageTouches?: DealMessageTouch[] }) {
   const { db } = useStore();
-  const s = relationshipSummary(db, entityId);
+  const s = relationshipSummary(db, entityId, new Date(), dealMessageTouches);
   if (s.health === 'none') return null;
   return <span title={HEALTH_LABEL[s.health]} className={`inline-block h-2 w-2 rounded-full ${HEALTH_DOT[s.health]}`} />;
 }
 
-export function WhoseTurnChip({ entityId }: { entityId: string }) {
+export function WhoseTurnChip({ entityId, dealMessageTouches = [] }: { entityId: string; dealMessageTouches?: DealMessageTouch[] }) {
   const { db } = useStore();
-  const s = relationshipSummary(db, entityId);
+  const s = relationshipSummary(db, entityId, new Date(), dealMessageTouches);
   return (
     <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ${WHOSE_TURN_STYLE[s.whoseTurn]}`}>
       {WHOSE_TURN_LABEL[s.whoseTurn]}
@@ -82,11 +90,28 @@ export function RelationshipCompactLine({ entityId }: { entityId: string }) {
 }
 
 // Full version for the entity page header.
-export function RelationshipSummaryCard({ entity, onOpenThread }: { entity: Entity; onOpenThread?: () => void }) {
-  const { db } = useStore();
-  const s = relationshipSummary(db, entity.id);
-  const action = nextBestAction(db, entity.id);
+export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouches = [] }: {
+  entity: Entity; onOpenThread?: () => void;
+  // Prompt 197 C.1 — the caller (entities/[id]/page.tsx) already has this
+  // entity's Sherlock thread loaded (from resolving its "Message investor"
+  // eligibility, Prompt 197 A), so it's threaded straight through here
+  // instead of this card re-fetching it independently.
+  dealMessageTouches?: DealMessageTouch[];
+}) {
+  const { db, setRelationshipStage } = useStore();
+  const s = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
+  const action = nextBestAction(db, entity.id, new Date(), dealMessageTouches);
   const currentIdx = STAGE_ORDER.indexOf(s.stage);
+  // Prompt 197 C.2 — a one-click suggestion, not an automatic promotion:
+  // the founder still decides. Surfaces only when it's genuinely
+  // actionable — the investor (or a Sherlock message from them, now that
+  // C.1 merges both sources) made the last move, AND the stage hasn't
+  // caught up to that yet. Once past 'contacted' the founder has presumably
+  // already made this call themselves; not shown for a 'them'/'overdue'
+  // turn (waiting on OUR reply, unrelated to a stage-advance decision) or a
+  // stage of 'none' (no contact at all yet — there's nothing to mark
+  // engaged from).
+  const suggestEngaged = s.whoseTurn === 'us' && (s.stage === 'not_contacted' || s.stage === 'contacted');
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
@@ -105,8 +130,8 @@ export function RelationshipSummaryCard({ entity, onOpenThread }: { entity: Enti
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-600">
-        <HealthDot entityId={entity.id} />
-        <WhoseTurnChip entityId={entity.id} />
+        <HealthDot entityId={entity.id} dealMessageTouches={dealMessageTouches} />
+        <WhoseTurnChip entityId={entity.id} dealMessageTouches={dealMessageTouches} />
         <span>
           {s.firstContactAt ? `First contact ${s.firstContactAt.slice(0, 10)}` : 'No contact yet'}
           {s.lastTouchAt && s.lastTouchAt !== s.firstContactAt && ` · Last touch ${s.lastTouchAt.slice(0, 10)} (${s.daysSinceLastTouch}d ago)`}
@@ -114,6 +139,15 @@ export function RelationshipSummaryCard({ entity, onOpenThread }: { entity: Enti
         </span>
       </div>
       {action && <div className="mt-1.5 text-xs font-medium text-[#0E7490]">Next: {annotateNextStep(action)}</div>}
+      {suggestEngaged && (
+        <div className="mt-2 flex items-center gap-2 rounded-lg border border-cyan-200 bg-[#E8F4F8] px-3 py-1.5 text-xs text-cyan-900">
+          <span>They&apos;ve replied — this still shows as {STAGE_LABEL[s.stage]}.</span>
+          <button onClick={() => setRelationshipStage(entity.id, 'engaged')}
+            className="ml-auto rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c637b]">
+            Mark as Engaged?
+          </button>
+        </div>
+      )}
 
       <div className="mt-3 flex gap-2">
         {onOpenThread && (
