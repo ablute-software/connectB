@@ -19,6 +19,7 @@ import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval } from './reawakening';
 import { STAGE_LABEL, getStage } from './relationship';
 import { fitBucketFromScore } from './catalog-fit-bucket';
+import { revisitTasksToClose } from './exit-effects';
 
 type SB = ReturnType<typeof browserClient>;
 
@@ -508,7 +509,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (o) persist(sb.from('tasks').insert({ ...row, org_id: o }), 'addTask');
     },
 
-    updateTask(id: string, patch: { reminder_at?: string | null; snoozed_until?: string | null }) {
+    updateTask(id: string, patch: { reminder_at?: string | null; snoozed_until?: string | null; due_at?: string }) {
       const prev = dbRef.current;
       const tasks = prev.tasks.map((t) => t.id === id ? { ...t, ...patch } : t);
       commit({ ...prev, tasks });
@@ -615,8 +616,14 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
 
     setEntityStatus(id: string, status: EntityStatus, reason?: string) {
       const prev = dbRef.current;
+      // Prompt 205 §B (reversao) — sair de dormant fecha a task de revisita,
+      // que deixou de ter sentido: a revisita aconteceu. Feito aqui e nao no
+      // componente porque a saida de dormant tem mais do que um caminho.
+      const wasParked = prev.entities.find((e) => e.id === id)?.status === 'dormant';
+      const closeIds = wasParked && status !== 'dormant' ? revisitTasksToClose(prev.tasks, id) : [];
       commit({
         ...prev,
+        tasks: closeIds.length ? prev.tasks.map((t) => closeIds.includes(t.id) ? { ...t, done: true } : t) : prev.tasks,
         entities: prev.entities.map((e) => e.id === id
           ? {
               ...e, status,
@@ -632,6 +639,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
           if (reason !== undefined) patch.dormant_reason = reason;
         }
         persist(sb.from('entities').update(patch).eq('id', id), 'setEntityStatus');
+        for (const tid of closeIds) persist(sb.from('tasks').update({ done: true }).eq('id', tid), 'setEntityStatus:closeRevisit');
       }
     },
 

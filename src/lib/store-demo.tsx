@@ -8,6 +8,7 @@ import type {
   AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation,
 } from './types';
 import { seed } from './data/seed';
+import { revisitTasksToClose } from './exit-effects';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval } from './reawakening';
@@ -272,8 +273,15 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     },
 
     setEntityStatus(id, status, reason) {
-      setDb((prev) => ({
+      setDb((prev) => {
+      // Prompt 205 §B (reversao) — sair de dormant fecha a task de revisita,
+      // que deixou de ter sentido: a revisita aconteceu. Feito aqui e nao no
+      // componente porque a saida de dormant tem mais do que um caminho.
+      const wasParked = prev.entities.find((e) => e.id === id)?.status === 'dormant';
+      const closeIds = wasParked && status !== 'dormant' ? revisitTasksToClose(prev.tasks, id) : [];
+      return ({
         ...prev,
+        tasks: closeIds.length ? prev.tasks.map((t) => closeIds.includes(t.id) ? { ...t, done: true } : t) : prev.tasks,
         entities: prev.entities.map((e) => e.id === id
           ? {
               ...e, status,
@@ -281,7 +289,8 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
               dormant_reason: status === 'dormant' ? reason ?? e.dormant_reason : e.dormant_reason,
             }
           : e),
-      }));
+      });
+      });
     },
 
     setInterest(id, eur) {
