@@ -10,7 +10,10 @@ import { isProfileGateComplete, type ProfileGateOrg } from './pipeline-unlock';
 export async function resolveInvestorProfile(admin: SupabaseClient, userId: string) {
   const member = await resolveActiveInvestorMember(admin, userId);
   if (!member) return null;
-  const { data: profile } = await admin.from('matchdeal_profiles').select('id, sectors, stages_invested, geographies, instruments, ticket_min, ticket_max, usual_co_investors')
+  // exclusions_sectors/exclusions_notes entram aqui porque os três sítios que
+  // constroem uma InvestorThesis (today/route.ts, investor-pipeline.ts,
+  // investor-archive.ts) passam todos por esta função — Prompt 200 §C.
+  const { data: profile } = await admin.from('matchdeal_profiles').select('id, sectors, stages_invested, geographies, instruments, ticket_min, ticket_max, usual_co_investors, exclusions_sectors, exclusions_notes')
     .eq('membership_id', member.id).eq('kind', 'investor').maybeSingle();
   return profile ?? null;
 }

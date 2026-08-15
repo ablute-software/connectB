@@ -52,6 +52,7 @@ export async function GET() {
       sectors: investorProfile.sectors ?? [], stagesInvested: investorProfile.stages_invested ?? [],
       geographies: investorProfile.geographies ?? [], instruments: investorProfile.instruments ?? [],
       ticketMin: investorProfile.ticket_min, ticketMax: investorProfile.ticket_max,
+      exclusionsSectors: investorProfile.exclusions_sectors, exclusionsNotes: investorProfile.exclusions_notes,
     };
     const scored = (orgs ?? []).map((org) => {
       const round: StartupRound = {

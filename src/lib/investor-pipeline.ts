@@ -201,6 +201,7 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     sectors: investorProfile.sectors ?? [], stagesInvested: investorProfile.stages_invested ?? [],
     geographies: investorProfile.geographies ?? [], instruments: investorProfile.instruments ?? [],
     ticketMin: investorProfile.ticket_min, ticketMax: investorProfile.ticket_max,
+    exclusionsSectors: investorProfile.exclusions_sectors, exclusionsNotes: investorProfile.exclusions_notes,
   };
 
   const startupProfileIds = [...profileByOrg.values()];

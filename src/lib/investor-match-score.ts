@@ -12,6 +12,15 @@
 //   instrument match    10 — investor.instruments ∩ startup.round_instruments non-empty
 // An investor field left blank is treated as "no constraint" (full credit,
 // not a penalty) — an incomplete profile shouldn't zero out every startup.
+//
+// Prompt 200 §C — exclusões são a única excepção a essa regra de "em branco =
+// sem restrição": não somam nem tiram pontos, curto-circuitam a 0. Decisão do
+// Nuno (2026-08-15): hard filter, porque "does not invest in foodtech" é uma
+// declaração, não uma preferência. Ficam opcionais na interface para não
+// obrigar cada chamador/teste a preenchê-las — ausente significa "sem
+// exclusões", nunca "excluir tudo".
+
+import { isSectorExcluded } from './sector-exclusions';
 
 export interface InvestorThesis {
   sectors: string[];
@@ -20,6 +29,8 @@ export interface InvestorThesis {
   instruments: string[];
   ticketMin: number | null;
   ticketMax: number | null;
+  exclusionsSectors?: string[] | null;
+  exclusionsNotes?: string | null;
 }
 
 export interface StartupRound {
@@ -54,6 +65,13 @@ function ticketPlausible(thesis: InvestorThesis, round: StartupRound): boolean {
 }
 
 export function computeMatchScore(thesis: InvestorThesis, round: StartupRound): MatchResult {
+  // Antes de qualquer peso: uma exclusão elimina, não penaliza. reasons fica
+  // com 'excluded' sozinho para quem quiser distinguir "0 porque não bate em
+  // nada" de "0 porque o investidor disse explicitamente que não".
+  if (isSectorExcluded(round.sectors, thesis.exclusionsSectors, thesis.exclusionsNotes)) {
+    return { score: 0, reasons: ['excluded'] };
+  }
+
   let score = 0;
   const reasons: string[] = [];
 

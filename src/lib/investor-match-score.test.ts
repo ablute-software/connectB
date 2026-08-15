@@ -69,4 +69,31 @@ describe('computeMatchScore', () => {
     expect(result.reasons).toContain('sector');
     expect(result.score).toBeGreaterThanOrEqual(35);
   });
+
+  // Prompt 200 §C — exclusões são hard filter: curto-circuitam antes de
+  // qualquer peso, mesmo quando tudo o resto bate a 100.
+  describe('exclusoes de sector', () => {
+    const PERFECT: InvestorThesis = {
+      sectors: ['health'], stagesInvested: ['pre_seed'], geographies: ['Portugal'],
+      instruments: ['equity'], ticketMin: 25000, ticketMax: 100000,
+    };
+
+    it('zera um match que seria 100', () => {
+      const result = computeMatchScore({ ...PERFECT, exclusionsNotes: 'health' }, ROUND);
+      expect(result.score).toBe(0);
+      expect(result.reasons).toEqual(['excluded']);
+    });
+
+    it('apanha o caso real "food tech" vs "AgriTech & FoodTech"', () => {
+      const round: StartupRound = { ...ROUND, sectors: ['AgriTech & FoodTech'] };
+      expect(computeMatchScore({ ...PERFECT, exclusionsNotes: 'food tech' }, round).score).toBe(0);
+      expect(computeMatchScore({ ...PERFECT, exclusionsNotes: 'foodtech; agritech' }, round).score).toBe(0);
+    });
+
+    it('exclusoes ausentes ou irrelevantes nao mexem no score', () => {
+      expect(computeMatchScore(PERFECT, ROUND).score).toBe(100);
+      expect(computeMatchScore({ ...PERFECT, exclusionsSectors: null, exclusionsNotes: null }, ROUND).score).toBe(100);
+      expect(computeMatchScore({ ...PERFECT, exclusionsNotes: 'foodtech' }, ROUND).score).toBe(100);
+    });
+  });
 });

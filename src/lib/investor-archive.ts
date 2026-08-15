@@ -106,6 +106,7 @@ export async function getArchiveEntries(admin: SupabaseClient, userId: string, e
     sectors: investorProfile.sectors ?? [], stagesInvested: investorProfile.stages_invested ?? [],
     geographies: investorProfile.geographies ?? [], instruments: investorProfile.instruments ?? [],
     ticketMin: investorProfile.ticket_min, ticketMax: investorProfile.ticket_max,
+    exclusionsSectors: investorProfile.exclusions_sectors, exclusionsNotes: investorProfile.exclusions_notes,
   } : null;
 
   // AP-10 — once the ORG has passed (investor_relationship_decisions,
