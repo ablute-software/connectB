@@ -469,8 +469,6 @@ function CatalogStatsTab() {
         <Stat label="From backfill" value={totals.backfilled} hint="with provenance" />
       </div>
 
-      <AccessRequestsQueue />
-
       <PipelineDecisionsPanel />
 
       <p className="text-sm text-gray-500">
@@ -618,7 +616,16 @@ export default function InvestorsPage() {
       <Tabs active={tab} onChange={(v) => setTab(v as 'accounts' | 'claims' | 'catalog' | 'history')}
         items={[{ key: 'accounts', label: 'Accounts' }, { key: 'claims', label: 'Profile claims' }, { key: 'catalog', label: 'Catalog stats' }, { key: 'history', label: 'History' }]} />
       {tab === 'accounts' && <InvestorAccountsTable />}
-      {tab === 'claims' && <ClaimsQueue />}
+      {/* AccessRequestsQueue vive aqui, não em "Catalog stats": os dados são
+          só sobre investidores (investor_access_requests), nada de catálogo.
+          Estava montado dentro de CatalogStatsTab, portanto só aparecia no
+          separador errado. */}
+      {tab === 'claims' && (
+        <div className="space-y-6">
+          <ClaimsQueue />
+          <AccessRequestsQueue />
+        </div>
+      )}
       {tab === 'catalog' && <CatalogStatsTab />}
       {tab === 'history' && <ModerationHistoryCard targetType="investor" nameById={nameById} />}
     </div>
