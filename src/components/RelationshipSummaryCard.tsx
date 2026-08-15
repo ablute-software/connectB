@@ -208,7 +208,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouch
       <div className="mt-3 flex gap-2">
         {onOpenThread && (
           <button onClick={onOpenThread} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50">
-            Open thread
+            History
           </button>
         )}
         <Link href={`/log?entity=${entity.id}`} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">

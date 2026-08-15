@@ -5,6 +5,7 @@ import { useStore } from '@/lib/store';
 import { Card, FitTag, HardFilterBanner, PersonLink, StatusPill, VerBadge, WaveTag, fmtEur } from '@/components/ui';
 import { preflight, preflightSummary } from '@/lib/rules';
 import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
+import { RecentInteractions } from '@/components/RecentInteractions';
 import { ThreadDrawer } from '@/components/ThreadDrawer';
 import { MessageInvestorDrawer } from '@/components/MessageInvestorDrawer';
 import { ContributionBox } from '@/components/ContributionBox';
@@ -175,6 +176,8 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       )}
 
       <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)} dealMessageTouches={dealMessageTouches} />
+      {/* Prompt 202 §C — o histórico deixa de viver só atrás do botão. */}
+      <RecentInteractions entity={entity} onOpenFull={() => setDrawerOpen(true)} />
 
       {db.ndas.filter((n) => n.entity_id === entity.id).length > 0 && (
         <Card title="NDAs on file">
