@@ -608,9 +608,16 @@ export function MatchDealDeck({ viewerProfileId, viewerKind, deckLimit }: { view
 
   useEffect(() => {
     if (!current) return;
+    // Prompt 203 §B — não é só telemetria: as exposures alimentam o `order
+    // by` do deck ("não mostrado nos últimos 7 dias", reconfirmado na 0172).
+    // Falhar em silêncio degrada a rotação sem ninguém dar por isso. É
+    // client-side, portanto o console do browser chega — não escalar mais.
     browserClient()
       .rpc('matchdeal_record_exposure', { p_viewer_profile_id: viewerProfileId, p_shown_profile_id: current.id })
-      .then(() => {}, () => {});
+      .then(
+        ({ error }) => { if (error) console.error('[matchdeal] record_exposure falhou', error.message); },
+        (err) => { console.error('[matchdeal] record_exposure falhou', err); },
+      );
   }, [current, viewerProfileId]);
 
   // Addenda 2026-08-02 — the deck coming back empty could mean "hit the

@@ -6,6 +6,7 @@ import { lintMessage } from '@/lib/rules';
 import { serverClient, resolveRole, authEnabled } from '@/lib/supabase-server';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, AI_COMPOSER_LOCKED_COPY, WATSON_DRAFT_QUOTA } from '@/lib/plans';
+import { recordWatsonDraft } from '@/lib/watson-draft-record';
 import type { ComposerContext, ComposerIntent } from '@/lib/composer';
 import type { Channel, Entity, Person } from '@/lib/types';
 
@@ -233,16 +234,20 @@ export async function POST(req: NextRequest) {
     // Prompt 106 §B — "incremented whenever a draft is generated successfully"
     // — only reached here, after callClaude actually returned a draft. A
     // Regenerate is a fresh POST to this same route, so it's counted too, per
-    // spec ("um Regenerate conta como um novo pedido"). Best-effort: a
-    // failure here shouldn't fail the whole request, since the founder
-    // already has their draft.
+    // spec ("um Regenerate conta como um novo pedido"). Continua a não falhar
+    // o pedido — o founder já tem o draft, e deitá-lo fora por uma falha de
+    // contabilidade seria pior — mas a falha deixou de ser muda (Prompt 203
+    // §A): fica em log com contexto e sai na resposta.
+    //
+    // quotaRecorded arranca a true e só desce numa falha real do RPC: quando
+    // não há watsonOrgId/watsonSb não há consumo nenhum a registar (developer,
+    // ou plano sem gate), portanto não há nada em dívida.
+    let quotaRecorded = true;
     if (watsonOrgId && watsonSb) {
-      await watsonSb.rpc('watson_record_draft', { p_org_id: watsonOrgId, p_quota: watsonQuota }).then(
-        () => {}, () => {},
-      );
+      quotaRecorded = await recordWatsonDraft(watsonSb, watsonOrgId, watsonQuota);
     }
 
-    return NextResponse.json({ configured: true, draft, lint: findings });
+    return NextResponse.json({ configured: true, draft, lint: findings, quotaRecorded });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 502 });
   }
