@@ -27,7 +27,7 @@ function makeDb(entities: Entity[], people: Person[], interactions: Interaction[
     entities, people, personAffiliations: [], interactions,
     tasks: [], relationshipState: [], overrides: [], folders: [], documents: [],
     grants: [], views: [], templates: [], automations: [], runs: [], aiReviews: [], companyFacts: [], ndas: [], documentVersions: [], reawakeningProposals: [],
-    companyPeople: [], tractionMetrics: [],
+    companyPeople: [], tractionMetrics: [], roadmapMilestones: [],
   };
 }
 

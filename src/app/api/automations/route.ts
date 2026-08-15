@@ -26,6 +26,9 @@ import { deliverMonthlyForOrg, type MonthlyDeliveryOrgRow, type MonthlyDeliveryR
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { runPioneerExpiryJob } from '@/lib/pioneer-server';
 
+// Prompt 201 §3 — limiar de sinal, não de aborto.
+const MONTHLY_DELIVERY_ALERT_THRESHOLD = 100;
+
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -39,10 +42,14 @@ export async function GET() {
   const admin = createClient(url, service, { auth: { persistSession: false } });
   const now = new Date().toISOString();
 
-  let monthlyDelivery: { ranFor: number; results: MonthlyDeliveryResult[] } | null = null;
+  let monthlyDelivery: { ranFor: number; results: MonthlyDeliveryResult[]; totalDelivered: number } | null = null;
   if (await catalogMonthlyDeliveryAvailable()) {
-    const { data: orgs } = await admin.from('orgs').select('id, plan, catalog_quota, catalog_last_monthly_delivery');
+    const { data: orgs } = await admin.from('orgs').select('id, plan, catalog_quota, catalog_last_monthly_delivery, is_test');
+    // is_test filtrado já aqui para nem sequer iterar sobre contas de teste —
+    // deliverMonthlyForOrg tem o mesmo guarda, que é o autoritativo (Prompt
+    // 201 §2). Este é só para o log de baixo contar o que interessa.
     const due = ((orgs ?? []) as MonthlyDeliveryOrgRow[])
+      .filter((o) => !o.is_test)
       .filter((o) => monthlyDeliveryDue(o.catalog_last_monthly_delivery, now));
     const results: MonthlyDeliveryResult[] = [];
     for (const org of due) {
@@ -53,7 +60,17 @@ export async function GET() {
       // never leave one half-applied.
       results.push(await deliverMonthlyForOrg(admin, org, now));
     }
-    monthlyDelivery = { ranFor: results.length, results };
+    // Prompt 201 §3 — defesa a mais, não substitui o tecto por org. Não
+    // aborta nada: só dá sinal se o pressuposto "cada org entrega no máximo
+    // o incremento do plano" alguma vez deixar de bater certo. Com os
+    // travões §1+§2 a primeira corrida (1 de Setembro) deve ficar nas ~20
+    // entidades; passar de 100 significa que algo mudou e ninguém reparou.
+    const totalDelivered = results.reduce((sum, r) => sum + (r.delivered ?? 0), 0);
+    console.log(`[automations] entrega mensal: ${results.length} orgs, ${totalDelivered} entidades`);
+    if (totalDelivered > MONTHLY_DELIVERY_ALERT_THRESHOLD) {
+      console.error(`[automations] ALERTA: entrega mensal devolveu ${totalDelivered} entidades (limiar ${MONTHLY_DELIVERY_ALERT_THRESHOLD}) — verificar o tecto por org`);
+    }
+    monthlyDelivery = { ranFor: results.length, results, totalDelivered };
   }
 
   let pioneerBadges: { orgsGranted: number } | null = null;

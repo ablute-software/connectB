@@ -27,6 +27,7 @@ export interface MonthlyDeliveryOrgRow {
   plan: string | null;
   catalog_quota: number | null;
   catalog_last_monthly_delivery: string | null;
+  is_test?: boolean | null;
 }
 
 export interface MonthlyDeliveryResult {
@@ -40,6 +41,17 @@ export interface MonthlyDeliveryResult {
 export async function deliverMonthlyForOrg(
   admin: SupabaseClient, org: MonthlyDeliveryOrgRow, nowIso: string,
 ): Promise<MonthlyDeliveryResult> {
+  // Prompt 201 §2 — orgs de teste saem aqui, antes de tudo: sem crescer
+  // quota, sem entregar, sem enfileirar enriquecimento. O guarda vive na
+  // função e não só no filtro do route.ts de propósito — nenhum chamador
+  // futuro pode contorná-lo por esquecimento. A 2026-08-15 isto exclui 8 das
+  // 11 orgs em produção (as 5 "(demo)", Sherlock Deal_ test, Test & trial e
+  // Caramel Biscuit, todas já com is_test=true), ou seja 234 das 260
+  // entidades que a primeira corrida entregaria — e o custo de AI todo que
+  // vinha atrás delas, já que as 265 entidades elegíveis do catálogo estão
+  // em enrichment_status='pending' e cada entrega enfileira mesmo um job.
+  if (org.is_test) return { orgId: org.id, ran: false, reason: 'org de teste (is_test)' };
+
   const tier = normalizePlan(org.plan);
   const increment = PLAN_PIPELINE_MONTHLY_ADDITION[tier];
   const currentQuota = org.catalog_quota ?? 0;
@@ -76,7 +88,14 @@ export async function deliverMonthlyForOrg(
   // davam p_limit = 0 e esta via nunca entregava nada.
   const { count: deliveredCount } = await admin
     .from('catalog_deliveries').select('catalog_id', { count: 'exact', head: true }).eq('org_id', org.id).eq('quota_exempt', false);
-  const pLimit = Math.max(0, newQuota - (deliveredCount ?? 0));
+  // Prompt 201 §1 — o tecto é o incremento do plano, nunca o buraco todo
+  // entre a quota e o consumido. `newQuota - deliveredCount` só seria uma
+  // "entrega mensal" se a quota tivesse andado sempre colada ao consumo; na
+  // prática foi inflacionada por testes e backfills durante semanas, portanto
+  // a primeira corrida virava um despejo de atraso acumulado em vez de um
+  // mês. A quota continua a crescer na mesma (newQuota não muda) — o que
+  // fica preso é quanto sai por corrida.
+  const pLimit = Math.max(0, Math.min(increment, newQuota - (deliveredCount ?? 0)));
   if (pLimit === 0) return { orgId: org.id, ran: true, newQuota, delivered: 0 };
 
   const { data: matches, error: matchErr } = await admin.rpc('catalog_top_matches', { p_org_id: org.id, p_limit: pLimit });
