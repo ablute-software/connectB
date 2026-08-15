@@ -9,6 +9,7 @@ import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
 import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
 import { ACTION_TYPE_LABEL, ACTION_TYPES, recommendedActionType, relationshipSummary, suggestNextAction, type NextActionSuggestion } from '@/lib/relationship';
 import { evaluateProvenanceGate, type ComposerClaim } from '@/lib/company-canon-logic';
+import { parsePersonHint } from '@/lib/needs-review-logic';
 import { AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 import type { ActionType, Channel, Classification, OverrideRule, PassReasonCategory } from '@/lib/types';
@@ -128,6 +129,20 @@ function LogForm() {
     person && direction === 'out' && content ? lintMessage(content, person, entity, channel) : [],
     [content, person, entity, channel, direction]);
   const lintErrors = lint.filter((f) => f.severity === 'error');
+  // Prompt 202 §B — quem respondeu vira Person imediatamente. O quick-create
+  // ja existia, mas escondido como ultima opcao do dropdown, e num inbound a
+  // pessoa nem sequer e obrigatoria — ou seja, ninguem o usava e o
+  // enriquecimento perdia-se. Foi o que aconteceu com o email do Alexei
+  // Perley (Adara): pessoa inexistente na entidade, ficou por criar.
+  // parsePersonHint ja existe (needs-review-logic.ts) e faz exactamente isto
+  // — email do texto, nome derivado do local part — portanto reutiliza-se em
+  // vez de escrever um segundo parser.
+  const personHint = useMemo(
+    () => (direction === 'in' && content.trim() ? parsePersonHint(content) : {}),
+    [direction, content],
+  );
+  const offerPersonCapture = direction === 'in' && !personId && !noSpecificPerson && !showQuickCreate && !!entityId;
+
   const passMissing = direction === 'in' && classification === 'pass' && passReason.trim().length === 0;
   // Prompt 202 §A.1 — inbound sem classificação escolhida não grava.
   const classificationMissing = direction === 'in' && classification === '';
@@ -370,8 +385,21 @@ function LogForm() {
               Logged against {entity?.name ?? 'this entity'} only — the channel below tells the story (web form, info@ inbox, company page).
             </p>
           )}
+          {offerPersonCapture && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-cyan-200 bg-[#E8F4F8] px-3 py-2 text-xs text-cyan-900">
+              <span>
+                Who replied?{personHint.name ? ` Looks like ${personHint.name}.` : personHint.email ? ` Looks like ${personHint.email}.` : ''}
+                {' '}Adding them now is the cheapest enrichment there is — next time you&apos;ll know who to write to.
+              </span>
+              <button onClick={() => setShowQuickCreate(true)}
+                className="ml-auto whitespace-nowrap rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c637b]">
+                Add {personHint.name ?? 'this person'}
+              </button>
+            </div>
+          )}
           {showQuickCreate && entityId && (
             <QuickCreatePerson entityId={entityId}
+              initialName={personHint.name} initialEmail={personHint.email}
               onCreated={(newId) => { setPersonId(newId); setShowQuickCreate(false); }}
               onCancel={() => setShowQuickCreate(false)} />
           )}
