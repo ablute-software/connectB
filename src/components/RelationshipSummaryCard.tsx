@@ -139,11 +139,17 @@ export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouch
       {action && <div className="mt-1.5 text-xs font-medium text-[#0E7490]">Next: {annotateNextStep(action)}</div>}
       {exits.show && (
         <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
-          lastInboundWasPass ? 'border-red-200 bg-red-50 text-[#B00000]' : 'border-cyan-200 bg-[#E8F4F8] text-cyan-900'}`}>
+          lastInboundWasPass ? 'border-red-200 bg-red-50 text-[#B00000]'
+            : s.whoseTurn === 'overdue' ? 'border-amber-200 bg-amber-50 text-amber-900'
+            : 'border-cyan-200 bg-[#E8F4F8] text-cyan-900'}`}>
           <span>
             {lastInboundWasPass
               ? `They passed — this still shows as ${STAGE_LABEL[s.stage]}.`
-              : `They've replied — this still shows as ${STAGE_LABEL[s.stage]}.`}
+              : s.whoseTurn === 'overdue'
+                // Nunca responderam: dizer "They've replied" aqui seria mentira,
+                // e é o caso em que o founder mais precisa de uma saída.
+                ? `No reply in ${s.daysSinceLastTouch ?? 0} days — this still shows as ${STAGE_LABEL[s.stage]}.`
+                : `They've replied — this still shows as ${STAGE_LABEL[s.stage]}.`}
           </span>
 
           {exitMode === 'none' && (

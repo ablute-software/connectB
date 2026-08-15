@@ -62,6 +62,32 @@ describe('stageExits — o caso Adara', () => {
   });
 });
 
+// Ajuste do Nuno (2026-08-15) — quem nunca respondeu tambem precisa de saida.
+describe('stageExits — overdue (nunca responderam)', () => {
+  // Um outbound antigo o suficiente para a relacao ficar 'overdue' e sem
+  // qualquer inbound: e o caso "cold" literal.
+  const ANTIGO = interaction({
+    id: 'i-old', direction: 'out', classification: 'awaiting', occurred_at: '2026-01-05T10:00:00.000Z',
+  });
+  const AGORA = new Date('2026-08-15T10:00:00.000Z');
+
+  it('abre o banner mesmo sem resposta nenhuma', () => {
+    const e = stageExits(db([ANTIGO]), ENTITY, AGORA);
+    expect(e.show).toBe(true);
+  });
+
+  it('mas NAO oferece avancar -- so as saidas 2 e 3', () => {
+    const e = stageExits(db([ANTIGO]), ENTITY, AGORA);
+    expect(e.canAdvance).toBe(false);
+    expect(e.lastInboundWasPass).toBe(false);
+  });
+
+  it('e a saida 3 le-se "cold", nao "frozen"', () => {
+    const e = stageExits(db([ANTIGO]), ENTITY, AGORA);
+    expect(e.parkLabel).toBe('cold');
+  });
+});
+
 describe('stageExits — quando aparece de todo', () => {
   it('nao aparece para quem ja saiu do funil (passed)', () => {
     const passed = { ...ENTITY, status: 'passed' } as Entity;

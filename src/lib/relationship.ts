@@ -350,12 +350,20 @@ export function stageExits(
   // não há nada a sugerir a quem já saiu do funil.
   const stageIsActive = s.stage !== 'decision' && entity.status !== 'passed' && entity.status !== 'dormant';
   // 'not_contacted' fica de fora: não há contacto nenhum de que sair.
-  const show = stageIsActive && s.stage !== 'not_contacted' && (s.whoseTurn === 'us' || lastInboundWasPass);
+  //
+  // Ajuste do Nuno (2026-08-15): 'overdue' também abre o banner. É o caso de
+  // quem nunca respondeu — precisamente aquele em que o founder precisa de
+  // uma saída e não tinha nenhuma, porque só se mostrava o banner quando a
+  // vez era nossa. Aí só fazem sentido as saídas 2 e 3 (passed / cold): não
+  // há resposta nenhuma que justifique "avançar de estágio", e avançar às
+  // cegas era a versão anterior deste mesmo bug.
+  const show = stageIsActive && s.stage !== 'not_contacted'
+    && (s.whoseTurn === 'us' || s.whoseTurn === 'overdue' || lastInboundWasPass);
 
   return {
     show,
     lastInboundWasPass,
-    canAdvance: show && !lastInboundWasPass,
+    canAdvance: show && !lastInboundWasPass && s.whoseTurn === 'us',
     nextStage,
     parkLabel: s.stage === 'contacted' ? 'cold' : 'frozen',
   };
