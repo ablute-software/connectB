@@ -26,3 +26,38 @@ export function recentInteractions(interactions: Interaction[], entityId: string
     .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
     .slice(0, limit);
 }
+
+// Prompt 202 §F — que documento foi partilhado nesta interação, e em que
+// VERSÃO na altura. Interaction.document_id já existia (o dropdown "Material
+// shared" do log) e documentVersions também (E7), mas nada no histórico os
+// mostrava — a pergunta "que deck é que eles viram?" não tinha resposta no
+// ecrã mesmo estando tudo gravado.
+//
+// A precisão aqui é honesta ou não é nada: se a versão da altura não for
+// determinável, dizemos isso em vez de mostrar a actual como se fosse a que
+// eles viram. É a diferença entre um histórico e uma reconstituição.
+export type SharedDocResolution =
+  | { kind: 'none' }
+  | { kind: 'unversioned' }                                    // documento sem versões registadas
+  | { kind: 'at_time'; version: number }                       // sabemos qual era à data
+  | { kind: 'current_only'; version: number };                 // só sabemos a actual — dizê-lo
+
+export interface VersionLike { document_id: string; version: number; uploaded_at: string }
+
+export function resolveSharedVersion(
+  versions: VersionLike[], documentId: string | undefined, occurredAt: string,
+): SharedDocResolution {
+  if (!documentId) return { kind: 'none' };
+  const mine = versions.filter((v) => v.document_id === documentId)
+    .sort((a, b) => a.uploaded_at.localeCompare(b.uploaded_at));
+  if (mine.length === 0) return { kind: 'unversioned' };
+
+  // A versão em vigor à data é a última carregada ATÉ a interação acontecer.
+  const atTime = mine.filter((v) => v.uploaded_at <= occurredAt).at(-1);
+  if (atTime) return { kind: 'at_time', version: atTime.version };
+
+  // Todas as versões são posteriores à interação: o ficheiro que eles viram
+  // não ficou registado. Não inventamos — devolvemos a mais antiga conhecida
+  // marcada como "não é a da altura".
+  return { kind: 'current_only', version: mine[0].version };
+}

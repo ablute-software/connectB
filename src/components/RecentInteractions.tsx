@@ -7,6 +7,7 @@
 import type { Entity } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import { firstLine, recentInteractions, DIRECTION_LABEL } from '@/lib/interaction-history';
+import { SharedDocChip } from '@/components/SharedDocChip';
 
 export function RecentInteractions({ entity, onOpenFull, limit = 3 }: {
   entity: Entity; onOpenFull?: () => void; limit?: number;
@@ -42,6 +43,7 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3 }: {
             </span>
             <span className="text-gray-400">· {i.channel.replace(/_/g, ' ')}</span>
             <span className="min-w-0 flex-1 truncate text-gray-700">{firstLine(i.content)}</span>
+            <SharedDocChip documentId={i.document_id} occurredAt={i.occurred_at} />
           </li>
         ))}
       </ul>

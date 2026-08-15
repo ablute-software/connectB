@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstLine, recentInteractions } from './interaction-history';
+import { firstLine, recentInteractions, resolveSharedVersion } from './interaction-history';
 import type { Interaction } from './types';
 
 function i(over: Partial<Interaction>): Interaction {
@@ -57,5 +57,44 @@ describe('recentInteractions', () => {
 
   it('entidade sem nada devolve vazio', () => {
     expect(recentInteractions(todas, 'nenhuma')).toEqual([]);
+  });
+});
+
+describe('resolveSharedVersion (202 §F — que versao e que eles viram)', () => {
+  const V = [
+    { document_id: 'deck', version: 1, uploaded_at: '2026-01-01T00:00:00.000Z' },
+    { document_id: 'deck', version: 2, uploaded_at: '2026-06-01T00:00:00.000Z' },
+    { document_id: 'deck', version: 3, uploaded_at: '2026-08-10T00:00:00.000Z' },
+    { document_id: 'outro', version: 9, uploaded_at: '2026-01-01T00:00:00.000Z' },
+  ];
+
+  it('sem documento nao ha nada a resolver', () => {
+    expect(resolveSharedVersion(V, undefined, '2026-07-01T00:00:00.000Z')).toEqual({ kind: 'none' });
+  });
+
+  it('documento sem versoes registadas', () => {
+    expect(resolveSharedVersion(V, 'one-pager', '2026-07-01T00:00:00.000Z')).toEqual({ kind: 'unversioned' });
+  });
+
+  it('devolve a versao em vigor A DATA, nao a mais recente', () => {
+    expect(resolveSharedVersion(V, 'deck', '2026-07-01T00:00:00.000Z')).toEqual({ kind: 'at_time', version: 2 });
+  });
+
+  it('no proprio instante do upload ja conta essa versao', () => {
+    expect(resolveSharedVersion(V, 'deck', '2026-06-01T00:00:00.000Z')).toEqual({ kind: 'at_time', version: 2 });
+  });
+
+  it('depois da ultima versao devolve a ultima', () => {
+    expect(resolveSharedVersion(V, 'deck', '2026-08-15T00:00:00.000Z')).toEqual({ kind: 'at_time', version: 3 });
+  });
+
+  // O caso honesto: interacao anterior a qualquer versao registada. Nao
+  // fingimos que sabemos qual era -- marcamos como "actual, nao a da altura".
+  it('interacao anterior a todas as versoes NAO finge precisao', () => {
+    expect(resolveSharedVersion(V, 'deck', '2025-11-27T00:00:00.000Z')).toEqual({ kind: 'current_only', version: 1 });
+  });
+
+  it('nao mistura versoes de outros documentos', () => {
+    expect(resolveSharedVersion(V, 'deck', '2026-02-01T00:00:00.000Z')).toEqual({ kind: 'at_time', version: 1 });
   });
 });
