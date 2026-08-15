@@ -128,9 +128,22 @@ export async function POST(req: Request) {
   const orgIds = await pipelineEligibleOrgIds(admin, user.id, email, person?.id ?? null);
   if (!orgIds.includes(orgId)) return NextResponse.json({ ok: false, error: 'This startup is not on the matching graph yet.' }, { status: 403 });
 
+  // Prompt 196 A — this used to be a hard requirement (409 if absent), which
+  // desynced from the eligibility check just above: pipelineEligibleOrgIds
+  // (P132-A) already lets a startup onto the Pipeline without a published
+  // MatchDeal profile (published ∪ active grant ∪ already-decided), so a
+  // startup could be visible here but undecidable. The real source of truth
+  // for the decision, investor_relationship_decisions (via
+  // decide_investor_relationship() below), keys on org_id/
+  // investor_catalog_entity_id only — confirmed in migration 0078, no
+  // MatchDeal identifier anywhere in that function. The ONLY thing this
+  // profile is still needed for is target_profile_id on the legacy
+  // matchdeal_swipes write further down (kept only for the existing
+  // Archive/ticket-signal UI, which still reads that table directly) — so
+  // it's now optional, read once, and that one write skips itself when it's
+  // absent instead of blocking the whole decision.
   const { data: startupProfile } = await admin.from('matchdeal_profiles').select('id')
     .eq('kind', 'startup').eq('membership_id', orgId).maybeSingle();
-  if (!startupProfile) return NextResponse.json({ ok: false, error: 'This startup is not on the matching graph yet.' }, { status: 409 });
 
   // AP-14 — the decision belongs to the ORGANIZATION, not this one user.
   // matchdeal_investor_members is per team member; catalog_entity_id is
@@ -143,12 +156,18 @@ export async function POST(req: Request) {
   // which still reads matchdeal_swipes directly. pass_reason stays a fixed
   // category here (the old check constraint) — the REAL free-text reason
   // lives on investor_relationship_decisions.reason_detail below, which is
-  // the new source of truth for the decision itself.
-  await admin.from('matchdeal_swipes').upsert({
-    actor_profile_id: investorProfile.id, target_profile_id: startupProfile.id,
-    direction: action === 'pass' ? 'pass' : 'like',
-    pass_reason: action === 'pass' ? 'other' : null,
-  }, { onConflict: 'actor_profile_id,target_profile_id' });
+  // the new source of truth for the decision itself. Prompt 196 A —
+  // target_profile_id is a matchdeal_profiles id, so this write only makes
+  // sense (and is now only attempted) when startupProfile exists; a
+  // startup with no published MatchDeal profile just has no swipe row,
+  // exactly like it already has no swipe deck card to have produced one.
+  if (startupProfile) {
+    await admin.from('matchdeal_swipes').upsert({
+      actor_profile_id: investorProfile.id, target_profile_id: startupProfile.id,
+      direction: action === 'pass' ? 'pass' : 'like',
+      pass_reason: action === 'pass' ? 'other' : null,
+    }, { onConflict: 'actor_profile_id,target_profile_id' });
+  }
 
   if (action === 'interest') {
     const { ticket_min, ticket_max } = investorProfile as { ticket_min: number | null; ticket_max: number | null };
