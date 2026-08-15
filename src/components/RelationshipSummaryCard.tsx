@@ -287,8 +287,16 @@ export function RelationshipSummaryCard({ entity, onOpenThread, dealMessageTouch
 
       <div className="mt-3 flex gap-2">
         {onOpenThread && (
-          <button onClick={onOpenThread} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50">
-            History
+          // Prompt 206-B — contagem no proprio botao, e teal preenchido quando
+          // ha respostas por classificar: a razao para ir ao historico e
+          // precisamente essa.
+          <button onClick={onOpenThread}
+            className={`rounded-lg px-3 py-1.5 text-sm ${
+              ds.unclassifiedReplies > 0
+                ? 'bg-[#0E7490] font-medium text-white hover:bg-[#0c637b]'
+                : 'border border-gray-300 hover:bg-gray-50'}`}>
+            History ({db.interactions.filter((i) => i.entity_id === entity.id).length})
+            {ds.unclassifiedReplies > 0 && ` · ${ds.unclassifiedReplies} to classify`}
           </button>
         )}
         <Link href={`/log?entity=${entity.id}`} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">

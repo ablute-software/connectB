@@ -4,17 +4,29 @@
 // contactos", e o histórico é a função central da app: uma linha por
 // interação (data · direcção · canal · primeira linha), com o histórico
 // completo a um clique.
+import { useState } from 'react';
 import type { Entity } from '@/lib/types';
 import { useStore } from '@/lib/store';
+import { derivedStage } from '@/lib/derived-stage';
 import { firstLine, recentInteractions, formatAsk, DIRECTION_LABEL } from '@/lib/interaction-history';
 import { SharedDocChip } from '@/components/SharedDocChip';
 
 export function RecentInteractions({ entity, onOpenFull, limit = 3 }: {
-  entity: Entity; onOpenFull?: () => void; limit?: number;
+  entity: Entity;
+  // Prompt 206-B — continua a existir para quem vem da Pipeline (abrir o
+  // drawer em vez de navegar para fora), mas deixou de ser a ÚNICA porta: na
+  // página da entidade o histórico expande no próprio sítio.
+  onOpenFull?: () => void;
+  limit?: number;
 }) {
   const { db } = useStore();
-  const recent = recentInteractions(db.interactions, entity.id, limit);
-  const total = db.interactions.filter((i) => i.entity_id === entity.id).length;
+  const [expanded, setExpanded] = useState(false);
+  const all = recentInteractions(db.interactions, entity.id, Number.MAX_SAFE_INTEGER);
+  const recent = expanded ? all : all.slice(0, limit);
+  const total = all.length;
+  // Reutiliza a contagem do 206-A em vez de a recalcular: uma resposta por
+  // classificar é a razão para o histórico chamar a atenção.
+  const { unclassifiedReplies } = derivedStage(db, entity.id);
 
   if (total === 0) {
     return (
@@ -26,13 +38,38 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3 }: {
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-gray-900">Contact history</h2>
-        {onOpenFull && (
-          <button onClick={onOpenFull} className="text-xs font-medium text-[#0E7490] hover:underline">
-            View full history{total > recent.length ? ` (${total})` : ''}
-          </button>
-        )}
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+          Contact history
+          <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">{total}</span>
+          {unclassifiedReplies > 0 && (
+            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900">
+              {unclassifiedReplies} to classify
+            </span>
+          )}
+        </h2>
+        <div className="flex items-center gap-1.5">
+          {total > limit && (
+            // Expande AQUI, empurrando o resto — o comportamento que o Nuno
+            // descreveu. O drawer continua a existir, mas já não é a única
+            // forma de ver o histórico completo.
+            <button onClick={() => setExpanded((v) => !v)}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                unclassifiedReplies > 0
+                  ? 'bg-[#0E7490] text-white hover:bg-[#0c637b]'
+                  : 'border border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}>
+              {expanded ? 'Show less' : `Show all ${total}`}
+            </button>
+          )}
+          {onOpenFull && (
+            // "Thread view" e nao "Open thread": o drawer ja nao e a porta
+            // para o historico (isso e o botao acima), e sim a vista com
+            // filtro por pessoa e export que a lista compacta nao tem.
+            <button onClick={onOpenFull} className="text-xs font-medium text-[#0E7490] hover:underline">
+              Thread view
+            </button>
+          )}
+        </div>
       </div>
       <ul className="mt-2 space-y-1.5">
         {recent.map((i) => (
