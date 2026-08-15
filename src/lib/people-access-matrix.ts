@@ -8,6 +8,7 @@
 // into a single pendingCount, AND the actual grant object for its dates,
 // which resolveDocumentAccess never returns).
 import { grantStatus, type GrantStatusInput } from './access-grants';
+import type { TreeFolder } from './data-room';
 
 export type CellEffect = 'shared' | 'shared_pending_nda' | 'shared_pending_confirmation' | 'not_shared' | 'no_effect_private';
 
@@ -23,13 +24,32 @@ export interface MatrixGrant extends GrantStatusInput {
 // The grant that actually decides this cell, before turning it into an
 // effect — exposed separately so the UI can show its dates (granted_at,
 // expires_at) even when the effect itself is a simple badge.
+// Prompt 204 §A — a mesma extensao que resolveDocumentAccess levou: um grant
+// de pasta cobre a subarvore, e o ancestral MAIS PROXIMO ganha. Sem isto a
+// matriz do founder dizia "not shared" para tudo o que estivesse numa
+// subpasta de uma pasta concedida — que e literalmente a queixa do §B ("o
+// founder nao ve o que foi concedido"), com a mesma raiz do §A.
+//
+// `folders` fica obrigatorio pela mesma razao: e uma regra de acesso, e um
+// chamador que se esqueca reintroduz o bug em silencio.
 export function findEffectiveGrant(
-  grants: MatrixGrant[], documentId: string | undefined, folderId: string | undefined, personIds: Set<string>,
+  grants: MatrixGrant[], documentId: string | undefined, folderId: string | undefined,
+  personIds: Set<string>, folders: TreeFolder[],
 ): MatrixGrant | undefined {
   const relevant = grants.filter((g) => g.person_id && personIds.has(g.person_id));
   const docGrant = documentId ? relevant.find((g) => g.document_id === documentId) : undefined;
-  const folderGrant = folderId ? relevant.find((g) => g.folder_id === folderId && !g.document_id) : undefined;
-  return docGrant ?? folderGrant;
+  if (docGrant) return docGrant;
+
+  const parentOf = new Map(folders.map((f) => [f.id, f.parent_id]));
+  const seen = new Set<string>();
+  let cur = folderId;
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const g = relevant.find((x) => x.folder_id === cur && !x.document_id);
+    if (g) return g;
+    cur = parentOf.get(cur);
+  }
+  return undefined;
 }
 
 // documentVisibility is only meaningful for a document-level cell (folders

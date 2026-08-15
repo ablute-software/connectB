@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   collectFolderSelectionKeys, cycleGrantState, diffGrantSelection, isEditableLink,
-  normalizeDocumentUrl, reorderByDrag, resolveDocumentAccess, sanitizeStorageKey, unlockedGrants,
+  descendantFolderIds, normalizeDocumentUrl, reorderByDrag, resolveDocumentAccess, sanitizeStorageKey, unlockedGrants,
 } from './data-room';
 
 describe('sanitizeStorageKey', () => {
@@ -103,7 +103,7 @@ describe('resolveDocumentAccess (F4 per-doc override vs its folder grant)', () =
   it('a document with only a folder-level grant is visible when that grant is unlocked', () => {
     const grants = [{ folder_id: 'f1', nda_required: false }];
     const docs = [{ id: 'd1', folder_id: 'f1' }];
-    expect(resolveDocumentAccess(grants, docs)).toEqual({ visibleIds: ['d1'], pendingCount: 0 });
+    expect(resolveDocumentAccess(grants, docs, [{ id: 'f1' }])).toEqual({ visibleIds: ['d1'], pendingCount: 0 });
   });
 
   it('a document-level override to require an NDA wins even though its folder is shared without one', () => {
@@ -112,7 +112,7 @@ describe('resolveDocumentAccess (F4 per-doc override vs its folder grant)', () =
       { document_id: 'd1', nda_required: true },
     ];
     const docs = [{ id: 'd1', folder_id: 'f1' }, { id: 'd2', folder_id: 'f1' }];
-    const result = resolveDocumentAccess(grants, docs);
+    const result = resolveDocumentAccess(grants, docs, [{ id: 'f1' }]);
     expect(result.visibleIds).toEqual(['d2']);
     expect(result.pendingCount).toBe(1);
   });
@@ -123,7 +123,7 @@ describe('resolveDocumentAccess (F4 per-doc override vs its folder grant)', () =
       { document_id: 'd1', nda_required: false },
     ];
     const docs = [{ id: 'd1', folder_id: 'f1' }, { id: 'd2', folder_id: 'f1' }];
-    const result = resolveDocumentAccess(grants, docs);
+    const result = resolveDocumentAccess(grants, docs, [{ id: 'f1' }]);
     expect(result.visibleIds).toEqual(['d1']);
     expect(result.pendingCount).toBe(1);
   });
@@ -131,13 +131,133 @@ describe('resolveDocumentAccess (F4 per-doc override vs its folder grant)', () =
   it('a document with no applicable grant at all is neither visible nor pending', () => {
     const grants: { folder_id?: string; document_id?: string; nda_required: boolean }[] = [];
     const docs = [{ id: 'd1', folder_id: 'f1' }];
-    expect(resolveDocumentAccess(grants, docs)).toEqual({ visibleIds: [], pendingCount: 0 });
+    expect(resolveDocumentAccess(grants, docs, [{ id: 'f1' }])).toEqual({ visibleIds: [], pendingCount: 0 });
   });
 
   it('an accepted document-level NDA makes it visible', () => {
     const grants = [{ document_id: 'd1', nda_required: true, nda_accepted_at: '2026-01-01T00:00:00Z' }];
     const docs = [{ id: 'd1', folder_id: 'f1' }];
-    expect(resolveDocumentAccess(grants, docs)).toEqual({ visibleIds: ['d1'], pendingCount: 0 });
+    expect(resolveDocumentAccess(grants, docs, [{ id: 'f1' }])).toEqual({ visibleIds: ['d1'], pendingCount: 0 });
+  });
+});
+
+// Prompt 204 §A — o bug real da ablute_: os dois grants activos estavam na
+// pasta RAIZ "Vault Data Room" (0 documentos directos) e os 40+ documentos
+// vivem nas subpastas. Antes disto, um grant na raiz nao mostrava nada.
+describe('resolveDocumentAccess (204 §A: grant de pasta cobre a subarvore)', () => {
+  // raiz -> 01 Summary -> doc
+  const ARVORE = [{ id: 'raiz' }, { id: 'sum', parent_id: 'raiz' }, { id: 'corp', parent_id: 'raiz' }];
+
+  it('grant na raiz torna visiveis os documentos das subpastas (o caso ablute_)', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: false }];
+    const docs = [{ id: 'd-sum', folder_id: 'sum' }, { id: 'd-corp', folder_id: 'corp' }];
+
+    expect(resolveDocumentAccess(grants, docs, ARVORE))
+      .toEqual({ visibleIds: ['d-sum', 'd-corp'], pendingCount: 0 });
+  });
+
+  it('desce mais do que um nivel', () => {
+    const fundo = [...ARVORE, { id: 'anexos', parent_id: 'sum' }, { id: 'velhos', parent_id: 'anexos' }];
+    const grants = [{ folder_id: 'raiz', nda_required: false }];
+
+    expect(resolveDocumentAccess(grants, [{ id: 'd', folder_id: 'velhos' }], fundo).visibleIds).toEqual(['d']);
+  });
+
+  it('grant na subpasta GANHA ao da raiz -- ancestral mais proximo, nao qualquer um', () => {
+    const grants = [
+      { folder_id: 'raiz', nda_required: false },
+      { folder_id: 'corp', nda_required: true },   // pasta sensivel, com NDA
+    ];
+    const docs = [{ id: 'd-sum', folder_id: 'sum' }, { id: 'd-corp', folder_id: 'corp' }];
+
+    const r = resolveDocumentAccess(grants, docs, ARVORE);
+    expect(r.visibleIds).toEqual(['d-sum']);
+    expect(r.pendingCount).toBe(1);
+  });
+
+  it('e ao contrario: subpasta partilhada sem NDA dentro de uma raiz com NDA', () => {
+    const grants = [
+      { folder_id: 'raiz', nda_required: true },
+      { folder_id: 'sum', nda_required: false },
+    ];
+    const docs = [{ id: 'd-sum', folder_id: 'sum' }, { id: 'd-corp', folder_id: 'corp' }];
+
+    const r = resolveDocumentAccess(grants, docs, ARVORE);
+    expect(r.visibleIds).toEqual(['d-sum']);
+    expect(r.pendingCount).toBe(1);
+  });
+
+  it('o override por documento continua a ganhar a tudo, incluindo a ancestrais', () => {
+    const grants = [
+      { folder_id: 'raiz', nda_required: false },
+      { document_id: 'd-corp', nda_required: true },
+    ];
+    const docs = [{ id: 'd-sum', folder_id: 'sum' }, { id: 'd-corp', folder_id: 'corp' }];
+
+    const r = resolveDocumentAccess(grants, docs, ARVORE);
+    expect(r.visibleIds).toEqual(['d-sum']);
+    expect(r.pendingCount).toBe(1);
+  });
+
+  it('NDA pendente na pasta ancestral conta como pendente, nao como visivel', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: true }];
+    const docs = [{ id: 'd-sum', folder_id: 'sum' }];
+
+    expect(resolveDocumentAccess(grants, docs, ARVORE)).toEqual({ visibleIds: [], pendingCount: 1 });
+  });
+
+  it('NDA aceite na pasta ancestral torna a subarvore visivel', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: true, nda_accepted_at: '2026-01-01T00:00:00Z' }];
+    const docs = [{ id: 'd-sum', folder_id: 'sum' }];
+
+    expect(resolveDocumentAccess(grants, docs, ARVORE).visibleIds).toEqual(['d-sum']);
+  });
+
+  it('uma arvore vazia nao inventa acessos -- so o match directo', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: false }];
+    expect(resolveDocumentAccess(grants, [{ id: 'd', folder_id: 'sum' }], []).visibleIds).toEqual([]);
+  });
+
+  it('um ciclo em parent_id nao pendura nem concede', () => {
+    const ciclo = [{ id: 'a', parent_id: 'b' }, { id: 'b', parent_id: 'a' }];
+    const grants = [{ folder_id: 'outra', nda_required: false }];
+    expect(resolveDocumentAccess(grants, [{ id: 'd', folder_id: 'a' }], ciclo).visibleIds).toEqual([]);
+  });
+
+  it('documento sem pasta nenhuma so e visivel por grant directo', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: false }];
+    expect(resolveDocumentAccess(grants, [{ id: 'd' }], ARVORE).visibleIds).toEqual([]);
+  });
+});
+
+describe('descendantFolderIds (204 §A: fecho descendente para a query)', () => {
+  const ARVORE = [
+    { id: 'raiz' }, { id: 'sum', parent_id: 'raiz' }, { id: 'corp', parent_id: 'raiz' },
+    { id: 'anexos', parent_id: 'sum' }, { id: 'outra-raiz' },
+  ];
+
+  it('inclui a propria raiz e todos os descendentes', () => {
+    expect(descendantFolderIds(ARVORE, ['raiz']).sort()).toEqual(['anexos', 'corp', 'raiz', 'sum']);
+  });
+
+  it('nao sai da subarvore pedida', () => {
+    expect(descendantFolderIds(ARVORE, ['sum']).sort()).toEqual(['anexos', 'sum']);
+  });
+
+  it('aceita varias raizes sem repetir', () => {
+    expect(descendantFolderIds(ARVORE, ['sum', 'anexos']).sort()).toEqual(['anexos', 'sum']);
+  });
+
+  it('uma folha devolve-se a si propria', () => {
+    expect(descendantFolderIds(ARVORE, ['corp'])).toEqual(['corp']);
+  });
+
+  it('sem raizes devolve vazio', () => {
+    expect(descendantFolderIds(ARVORE, [])).toEqual([]);
+  });
+
+  it('um ciclo nao pendura', () => {
+    expect(descendantFolderIds([{ id: 'a', parent_id: 'b' }, { id: 'b', parent_id: 'a' }], ['a']).sort()).toEqual(['a', 'b']);
   });
 });
 

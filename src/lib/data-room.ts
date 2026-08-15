@@ -69,17 +69,86 @@ export interface ResolvedDocumentAccess { visibleIds: string[]; pendingCount: nu
 // require an NDA did nothing, because the folder's own (unlocked) grant
 // still covered it — the naive "any applicable grant unlocks it" check a
 // portal route would otherwise write.
-export function resolveDocumentAccess<T extends GrantLike>(grants: T[], documents: DocMeta[]): ResolvedDocumentAccess {
+// Prompt 204 §A, segunda metade — a que não estava no relatório e sem a qual
+// o fix não produz nada.
+//
+// Os chamadores constroem a lista de documentos candidatos com
+// `documents.folder_id IN (pastas concedidas)`. Mesmo depois de
+// resolveDocumentAccess passar a descer a árvore, um documento numa subpasta
+// nunca chegava a ser candidato — a query nem o trazia. Portanto o conjunto
+// de pastas usado na query tem de ser o FECHO descendente das concedidas,
+// não as concedidas em si.
+//
+// Devolve as raízes mais todos os descendentes. Tolerante a ciclos pela
+// mesma razão defensiva de nearestFolderGrant.
+export function descendantFolderIds(folders: TreeFolder[], rootIds: string[]): string[] {
+  const childrenOf = new Map<string, string[]>();
+  for (const f of folders) {
+    if (!f.parent_id) continue;
+    const list = childrenOf.get(f.parent_id) ?? [];
+    list.push(f.id);
+    childrenOf.set(f.parent_id, list);
+  }
+  const out = new Set<string>();
+  const stack = [...rootIds];
+  while (stack.length) {
+    const id = stack.pop() as string;
+    if (out.has(id)) continue;
+    out.add(id);
+    for (const child of childrenOf.get(id) ?? []) stack.push(child);
+  }
+  return [...out];
+}
+
+// Prompt 204 §A — um grant de PASTA cobre a subárvore inteira, não só os
+// documentos directamente lá dentro.
+//
+// Bug confirmado em produção: os dois grants activos da ablute_ estavam na
+// pasta raiz "Vault Data Room", que tem zero documentos directos — os 40+
+// vivem nas subpastas (00 Index, 01 Summary, 02 Corporate…). O match directo
+// `byFolder.get(doc.folder_id)` nunca subia a árvore, portanto o investidor
+// via um data room vazio e o founder não percebia porquê.
+//
+// A precedência é por ESPECIFICIDADE, que é a extensão natural da regra F4
+// que já existia (grant por documento ganha ao da pasta):
+//   documento > subpasta > ... > raiz
+// O ancestral MAIS PRÓXIMO ganha — um grant numa subpasta com NDA continua a
+// impor NDA mesmo que a raiz esteja partilhada sem ele, que é o que torna
+// "partilhar tudo excepto esta pasta com NDA" exprimível.
+//
+// `folders` é obrigatório de propósito, não opcional com default []: esta
+// função decide AUTORIZAÇÃO, e um chamador novo que se esquecesse do
+// argumento reintroduzia o bug em silêncio. Obrigatório = o compilador
+// obriga a pensar. (São seis chamadores hoje, não dois.)
+export function resolveDocumentAccess<T extends GrantLike>(
+  grants: T[], documents: DocMeta[], folders: TreeFolder[],
+): ResolvedDocumentAccess {
   const byDoc = new Map<string, T>();
   const byFolder = new Map<string, T>();
   for (const g of grants) {
     if (g.document_id) byDoc.set(g.document_id, g);
     else if (g.folder_id) byFolder.set(g.folder_id, g);
   }
+  const parentOf = new Map(folders.map((f) => [f.id, f.parent_id]));
+
+  // Sobe até encontrar o primeiro ancestral com grant. O `seen` é defensivo:
+  // uma cadeia de parent_id corrompida (ciclo) não pode pendurar o portal.
+  function nearestFolderGrant(folderId?: string): T | undefined {
+    const seen = new Set<string>();
+    let cur = folderId;
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const g = byFolder.get(cur);
+      if (g) return g;
+      cur = parentOf.get(cur);
+    }
+    return undefined;
+  }
+
   const visibleIds: string[] = [];
   let pendingCount = 0;
   for (const doc of documents) {
-    const effective = byDoc.get(doc.id) ?? (doc.folder_id ? byFolder.get(doc.folder_id) : undefined);
+    const effective = byDoc.get(doc.id) ?? nearestFolderGrant(doc.folder_id);
     if (!effective) continue;
     if (!effective.nda_required || effective.nda_accepted_at) visibleIds.push(doc.id);
     else pendingCount++;

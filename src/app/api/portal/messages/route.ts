@@ -12,7 +12,7 @@ import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
 import { dealMessagesAvailable } from '@/lib/deal-messages-capability';
 import { findThread, getOrCreateThread, getThreadMessages, postMessage, markThreadRead, canInvestorMessage } from '@/lib/deal-messages';
-import { resolveDocumentAccess, type GrantLike } from '@/lib/data-room';
+import { descendantFolderIds, resolveDocumentAccess, type GrantLike } from '@/lib/data-room';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 
@@ -95,7 +95,12 @@ export async function POST(req: Request) {
     const activeGrants = ((grants ?? []) as unknown as (GrantLike & { expires_at?: string | null; invited_email?: string | null; confirmed_at?: string | null })[])
       .filter((g) => (!g.expires_at || new Date(g.expires_at) > now) && (!g.invited_email || g.confirmed_at));
     const { data: candidateDocs } = await admin.from('documents').select('id, folder_id').in('id', requestedDocIds).eq('org_id', body.orgId);
-    const { visibleIds } = resolveDocumentAccess(activeGrants, (candidateDocs ?? []).map((d) => ({ id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined })));
+    // Prompt 204 §A — aqui os candidatos vem por id explicito (o cliente pede
+    // documentos concretos), portanto nao ha query por pasta a expandir; falta
+    // so a arvore para o grant de pasta poder cobrir subpastas.
+    const { data: orgFolders } = await admin.from('folders').select('id, parent_id').eq('org_id', body.orgId);
+    const folderTree = (orgFolders ?? []).map((f) => ({ id: f.id as string, parent_id: (f.parent_id as string | undefined) ?? undefined }));
+    const { visibleIds } = resolveDocumentAccess(activeGrants, (candidateDocs ?? []).map((d) => ({ id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined })), folderTree);
     allowedDocIds = requestedDocIds.filter((id) => visibleIds.includes(id));
   }
 

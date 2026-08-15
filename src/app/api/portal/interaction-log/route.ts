@@ -10,7 +10,7 @@ import { pipelineEligibleOrgIds } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
 import { interactionLogAvailable, interactionLogPersonDocumentAvailable } from '@/lib/investor-interaction-log-capability';
 import { getInteractionTimeline, createManualInteractionEntry, getStartupPeople } from '@/lib/investor-interaction-log';
-import { resolveDocumentAccess, type GrantLike } from '@/lib/data-room';
+import { descendantFolderIds, resolveDocumentAccess, type GrantLike } from '@/lib/data-room';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
 const CHANNELS = ['matchdeal', 'email', 'call', 'meeting', 'message', 'other'] as const;
@@ -31,7 +31,10 @@ async function attachableDocuments(admin: SupabaseClient, orgId: string, email: 
     .filter((g) => (!g.expires_at || new Date(g.expires_at) > now) && (!g.invited_email || g.confirmed_at));
   if (activeGrants.length === 0) return [];
 
-  const folderIds = activeGrants.filter((g) => g.folder_id).map((g) => g.folder_id as string);
+  // Prompt 204 §A — grant de pasta cobre a subarvore inteira.
+  const { data: orgFolders } = await admin.from('folders').select('id, parent_id').eq('org_id', orgId);
+  const folderTree = (orgFolders ?? []).map((f) => ({ id: f.id as string, parent_id: (f.parent_id as string | undefined) ?? undefined }));
+  const folderIds = descendantFolderIds(folderTree, activeGrants.filter((g) => g.folder_id).map((g) => g.folder_id as string));
   const directDocIds = activeGrants.filter((g) => g.document_id).map((g) => g.document_id as string);
   const [{ data: docsInFolders }, { data: directDocs }] = await Promise.all([
     folderIds.length ? admin.from('documents').select('id, name, folder_id').in('folder_id', folderIds).eq('org_id', orgId) : Promise.resolve({ data: [] }),
@@ -41,7 +44,7 @@ async function attachableDocuments(admin: SupabaseClient, orgId: string, email: 
   for (const d of [...(docsInFolders ?? []), ...(directDocs ?? [])]) docMap.set(d.id as string, d as { id: string; name: string; folder_id: string | null });
   const candidateDocs = [...docMap.values()];
 
-  const { visibleIds } = resolveDocumentAccess(activeGrants, candidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id ?? undefined })));
+  const { visibleIds } = resolveDocumentAccess(activeGrants, candidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id ?? undefined })), folderTree);
   return candidateDocs.filter((d) => visibleIds.includes(d.id)).map((d) => ({ id: d.id, name: d.name }));
 }
 

@@ -64,6 +64,9 @@ function fmtDate(iso?: string) {
 
 export function PeopleAccessPanel() {
   const { db, addGrant, revokeGrant } = useStore();
+  // Prompt 204 §A — a arvore que findEffectiveGrant precisa para saber que um
+  // grant numa pasta-mae cobre as subpastas.
+  const folderTree = db.folders.map((f) => ({ id: f.id, parent_id: f.parent_id }));
   const [query, setQuery] = useState('');
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [grantTarget, setGrantTarget] = useState<GrantTarget | null>(null);
@@ -277,7 +280,7 @@ export function PeopleAccessPanel() {
                     <div className="space-y-2">
                       {folders.map((f) => {
                         const docs = docsIn(f.id);
-                        const folderGrant = findEffectiveGrant(db.grants, undefined, f.id, selectedPersonIds);
+                        const folderGrant = findEffectiveGrant(db.grants, undefined, f.id, selectedPersonIds, folderTree);
                         const folderEffect = computeCellEffect(folderGrant, now);
                         return (
                           <div key={f.id} className="rounded-lg border border-gray-100 p-2">
@@ -298,7 +301,7 @@ export function PeopleAccessPanel() {
                             {docs.length > 0 && (
                               <ul className="mt-1.5 space-y-1 border-t border-gray-50 pt-1.5">
                                 {docs.map((d) => {
-                                  const docGrant = findEffectiveGrant(db.grants, d.id, f.id, selectedPersonIds);
+                                  const docGrant = findEffectiveGrant(db.grants, d.id, f.id, selectedPersonIds, folderTree);
                                   const effect = computeCellEffect(docGrant, now, d.visibility);
                                   return (
                                     <li key={d.id} className="flex items-start justify-between gap-2 pl-4 text-xs">

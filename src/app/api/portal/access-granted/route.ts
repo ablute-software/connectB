@@ -19,7 +19,7 @@ import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { grantStatus, grantIsActive, type GrantStatusInput } from '@/lib/access-grants';
-import { resolveDocumentAccess } from '@/lib/data-room';
+import { descendantFolderIds, resolveDocumentAccess } from '@/lib/data-room';
 
 interface RawGrant extends GrantStatusInput {
   id: string; org_id: string; folder_id?: string; document_id?: string;
@@ -74,7 +74,10 @@ export async function GET() {
       // document (granted folders' contents + directly-granted documents),
       // then let resolveDocumentAccess apply the "document-level grant
       // overrides its folder's grant" + NDA-gating rules.
-      const folderIds = activeGrants.filter((g) => g.folder_id).map((g) => g.folder_id as string);
+      // Prompt 204 §A — fecho descendente: um grant de pasta cobre a subarvore.
+      const { data: orgFolders } = await admin.from('folders').select('id, parent_id').eq('org_id', orgId);
+      const folderTree = (orgFolders ?? []).map((f) => ({ id: f.id as string, parent_id: (f.parent_id as string | undefined) ?? undefined }));
+      const folderIds = descendantFolderIds(folderTree, activeGrants.filter((g) => g.folder_id).map((g) => g.folder_id as string));
       const directDocIds = activeGrants.filter((g) => g.document_id).map((g) => g.document_id as string);
       const [{ data: docsInFolders }, { data: directDocs }] = await Promise.all([
         folderIds.length ? admin.from('documents').select('*').in('folder_id', folderIds) : Promise.resolve({ data: [] }),
@@ -87,6 +90,7 @@ export async function GET() {
       const { visibleIds } = resolveDocumentAccess(
         activeGrants,
         candidateDocs.map((d) => ({ id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined })),
+        folderTree,
       );
       const visibleDocs = candidateDocs.filter((d) => visibleIds.includes(d.id as string));
 

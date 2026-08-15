@@ -35,7 +35,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
+import { descendantFolderIds, resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { grantIsActive, grantStatus } from '@/lib/access-grants';
 import { PORTAL_SECTIONS } from '@/lib/dataroom-sections';
 import { roundValuationBasisAvailable } from '@/lib/round-valuation-basis-capability';
@@ -233,7 +233,15 @@ export async function GET(req: Request) {
   // the full candidate set to correctly apply "the document's own grant
   // overrides its folder's grant," in either direction (a doc can be
   // unlocked inside a locked folder, or locked inside an unlocked one).
-  const allFolderIds = orgGrants.filter((g) => g.folder_id).map((g) => g.folder_id as string);
+  // Prompt 204 §A — um grant de pasta cobre a subárvore, portanto as pastas
+  // que interessam à query são o fecho descendente das concedidas, não as
+  // concedidas em si. Era esta metade que fazia a ablute_ ver "0 documentos":
+  // os grants estão na raiz "Vault Data Room", que tem zero documentos
+  // directos, e os 40+ vivem nas subpastas.
+  const { data: orgFolders } = await admin.from('folders').select('id, parent_id').eq('org_id', orgId);
+  const folderTree = (orgFolders ?? []).map((f) => ({ id: f.id as string, parent_id: (f.parent_id as string | undefined) ?? undefined }));
+  const grantedFolderIds = orgGrants.filter((g) => g.folder_id).map((g) => g.folder_id as string);
+  const allFolderIds = descendantFolderIds(folderTree, grantedFolderIds);
   const allDirectDocIds = orgGrants.filter((g) => g.document_id).map((g) => g.document_id as string);
 
   const [{ data: docsInFolders }, { data: directDocs }] = await Promise.all([
@@ -248,6 +256,7 @@ export async function GET(req: Request) {
   const { visibleIds, pendingCount: docPendingCount } = resolveDocumentAccess(
     orgGrants,
     candidateDocs.map((d) => ({ id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined })),
+    folderTree,
   );
 
   // Folders themselves (the "Folder access" summary cards) have no

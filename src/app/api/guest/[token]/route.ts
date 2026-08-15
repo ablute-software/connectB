@@ -15,7 +15,7 @@
 // for why grantStatus's expiry check is reused here and not grantIsActive.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { resolveDocumentAccess } from '@/lib/data-room';
+import { descendantFolderIds, resolveDocumentAccess } from '@/lib/data-room';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { grantStatus } from '@/lib/access-grants';
 
@@ -81,7 +81,10 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   // missing, so that's what's reused here — not a full status enum.
   const now = new Date();
   const grants = (pendingGrants ?? []).filter((g) => grantStatus(g, now) !== 'expired');
-  const folderIds = grants.filter((g) => g.folder_id).map((g) => g.folder_id as string);
+  // Prompt 204 §A — grant de pasta cobre a subarvore inteira.
+  const { data: orgFolders } = await admin.from('folders').select('id, parent_id').eq('org_id', orgId);
+  const folderTree = (orgFolders ?? []).map((f) => ({ id: f.id as string, parent_id: (f.parent_id as string | undefined) ?? undefined }));
+  const folderIds = descendantFolderIds(folderTree, grants.filter((g) => g.folder_id).map((g) => g.folder_id as string));
   const directDocIds = grants.filter((g) => g.document_id).map((g) => g.document_id as string);
   const [{ data: docsInFolders }, { data: directDocs }] = await Promise.all([
     folderIds.length ? admin.from('documents').select('id, name, folder_id').in('folder_id', folderIds) : Promise.resolve({ data: [] }),
@@ -98,7 +101,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   // accepted) rides along so the client can tell "nothing shared" apart
   // from "shared, but all pending NDA" (§ Nota — partilha com NDA) instead
   // of rendering an unexplained empty folder either way.
-  const { visibleIds, pendingCount } = resolveDocumentAccess(grants, candidateDocs);
+  const { visibleIds, pendingCount } = resolveDocumentAccess(grants, candidateDocs, folderTree);
   const visibleDocs = candidateDocs.filter((d) => visibleIds.includes(d.id));
 
   // Prompt 154 gap 2 — the real folder/document tree, not just a flat

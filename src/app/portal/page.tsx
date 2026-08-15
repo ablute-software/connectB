@@ -22,7 +22,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
-import { resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
+import { descendantFolderIds, resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
 import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
 import { InvestorWorkspaceShell, type Tab } from '@/components/investor-workspace/InvestorWorkspaceShell';
@@ -363,9 +363,16 @@ export default function PortalPage() {
   // grant overrides the folder it lives in, in either direction — a naive
   // "any unlocked grant covers it" check would let a looser folder-level
   // grant silently bypass a stricter per-document override (caught live).
+  // Prompt 204 §A — o candidato deixa de ser "esta exactamente na pasta
+  // concedida" e passa a ser "esta na subarvore da pasta concedida", igual ao
+  // que a rota real faz.
+  const demoFolderTree = db.folders.map((f) => ({ id: f.id, parent_id: f.parent_id }));
+  const demoGrantedSubtree = new Set(descendantFolderIds(
+    demoFolderTree, demoAllGrants.filter((g) => g.folder_id).map((g) => g.folder_id as string),
+  ));
   const demoCandidateDocs = db.documents.filter((d) =>
-    demoAllGrants.some((g) => g.document_id === d.id || (g.folder_id && g.folder_id === d.folder_id)));
-  const demoDocAccess = resolveDocumentAccess(demoAllGrants, demoCandidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id })));
+    demoAllGrants.some((g) => g.document_id === d.id) || (d.folder_id ? demoGrantedSubtree.has(d.folder_id) : false));
+  const demoDocAccess = resolveDocumentAccess(demoAllGrants, demoCandidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id })), demoFolderTree);
   const demoDocs = demoCandidateDocs.filter((d) => demoDocAccess.visibleIds.includes(d.id));
   const demoFolderGrants = demoAllGrants.filter((g) => g.folder_id);
   const demoUnlockedFolderGrants = unlockedGrants(demoFolderGrants);
