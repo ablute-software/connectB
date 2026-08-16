@@ -249,3 +249,19 @@ export function diffGrantSelection(
   }
   return out;
 }
+
+// Prompt 204(b) — que documentos due_diligence ficam de fora de um grant de
+// pasta. Depois do 204(a) eles ja nao saem por acidente: o gate impede-o.
+// Isto existe para o founder perceber PORQUE e que o investidor nao os ve,
+// nao para o proteger de si proprio -- por isso o aviso e informativo e nao
+// bloqueante. Um aviso que obriga a confirmar quando nao ha risco nenhum
+// treina as pessoas a clicar sem ler.
+export interface VisibilityDoc { id: string; name: string; folder_id?: string; visibility?: string }
+
+export function dueDiligenceUnderFolders(
+  folders: TreeFolder[], documents: VisibilityDoc[], selectedFolderIds: string[],
+): VisibilityDoc[] {
+  if (selectedFolderIds.length === 0) return [];
+  const subtree = new Set(descendantFolderIds(folders, selectedFolderIds));
+  return documents.filter((d) => d.visibility === 'due_diligence' && d.folder_id && subtree.has(d.folder_id));
+}

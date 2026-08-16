@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   collectFolderSelectionKeys, cycleGrantState, diffGrantSelection, isEditableLink,
-  descendantFolderIds, normalizeDocumentUrl, reorderByDrag, resolveDocumentAccess, sanitizeStorageKey, unlockedGrants,
+  descendantFolderIds, dueDiligenceUnderFolders, normalizeDocumentUrl, reorderByDrag, resolveDocumentAccess, sanitizeStorageKey, unlockedGrants,
 } from './data-room';
 
 describe('sanitizeStorageKey', () => {
@@ -411,5 +411,33 @@ describe('resolveDocumentAccess (204a: due_diligence so com grant ao proprio doc
       { id: 'c', folder_id: 'grants' },
     ];
     expect(resolveDocumentAccess(grants, docs, ARVORE).visibleIds).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('dueDiligenceUnderFolders (204b: o aviso na criacao do grant)', () => {
+  const ARVORE = [{ id: 'raiz' }, { id: 'grants', parent_id: 'raiz' }, { id: 'fora' }];
+  const DOCS = [
+    { id: 'prr', name: 'PRR.pdf', folder_id: 'grants', visibility: 'due_diligence' },
+    { id: 'norte', name: 'NORTE2030.pdf', folder_id: 'grants', visibility: 'due_diligence' },
+    { id: 'normal', name: 'Deck.pdf', folder_id: 'grants', visibility: 'on_grant' },
+    { id: 'outro', name: 'Fora.pdf', folder_id: 'fora', visibility: 'due_diligence' },
+  ];
+
+  it('encontra os due_diligence na subarvore, incluindo os netos', () => {
+    expect(dueDiligenceUnderFolders(ARVORE, DOCS, ['raiz']).map((d) => d.name))
+      .toEqual(['PRR.pdf', 'NORTE2030.pdf']);
+  });
+
+  it('nao inclui os que nao sao due_diligence', () => {
+    expect(dueDiligenceUnderFolders(ARVORE, DOCS, ['raiz']).some((d) => d.id === 'normal')).toBe(false);
+  });
+
+  it('nao sai da subarvore seleccionada', () => {
+    expect(dueDiligenceUnderFolders(ARVORE, DOCS, ['grants']).map((d) => d.id)).toEqual(['prr', 'norte']);
+    expect(dueDiligenceUnderFolders(ARVORE, DOCS, ['fora']).map((d) => d.id)).toEqual(['outro']);
+  });
+
+  it('sem pastas seleccionadas nao ha aviso nenhum', () => {
+    expect(dueDiligenceUnderFolders(ARVORE, DOCS, [])).toEqual([]);
   });
 });

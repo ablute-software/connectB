@@ -7,7 +7,7 @@ import { Card, PersonLink } from '@/components/ui';
 import type { DocVisibility, Folder, FolderKind } from '@/lib/types';
 import {
   collectFolderSelectionKeys, cycleGrantState,
-  normalizeDocumentUrl, reorderByDrag, sanitizeStorageKey, type GrantState,
+  dueDiligenceUnderFolders, normalizeDocumentUrl, reorderByDrag, sanitizeStorageKey, type GrantState,
 } from '@/lib/data-room';
 import { grantStatus } from '@/lib/access-grants';
 import { PeopleAccessPanel } from '@/components/documents/PeopleAccessPanel';
@@ -1085,6 +1085,36 @@ function DocumentsPageInner() {
                   </div>
                   <input type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
                     className="mt-2 rounded border border-gray-300 px-2 py-1.5 text-sm" title="Expiry (optional)" />
+                  {(() => {
+                    // Prompt 204(b) — aviso INFORMATIVO, nao bloqueante.
+                    // Depois do 204(a) estes documentos ja nao saem por
+                    // acidente (o gate impede-o); isto existe para o founder
+                    // perceber porque e que o investidor nao os vai ver.
+                    // Obrigar a confirmar quando nao ha risco nenhum treina
+                    // as pessoas a clicar sem ler.
+                    const selectedFolderIds = Object.entries(selection)
+                      .filter(([k, st]) => st !== 'none' && k.startsWith('folder:'))
+                      .map(([k]) => k.split(':')[1]);
+                    const blocked = dueDiligenceUnderFolders(
+                      db.folders.map((f) => ({ id: f.id, parent_id: f.parent_id })),
+                      db.documents.map((d) => ({ id: d.id, name: d.name, folder_id: d.folder_id, visibility: d.visibility })),
+                      selectedFolderIds,
+                    );
+                    if (blocked.length === 0) return null;
+                    return (
+                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                        <span className="font-semibold">
+                          {blocked.length} due-diligence {blocked.length === 1 ? 'document' : 'documents'} in here will NOT be shared by this grant:
+                        </span>
+                        <ul className="mt-1 list-disc pl-4">
+                          {blocked.map((d) => <li key={d.id}>{d.name}</li>)}
+                        </ul>
+                        <p className="mt-1">
+                          To share one of them, grant it on the document itself — a folder grant never opens a due-diligence document.
+                        </p>
+                      </div>
+                    );
+                  })()}
                   <div>
                     <button onClick={submitGrantTree} className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">
                       4. Confirm — grant access
