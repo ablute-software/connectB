@@ -57,7 +57,11 @@ export function unlockedGrants<T extends GrantLike>(grants: T[]): T[] {
   return grants.filter((g) => !g.nda_required || !!g.nda_accepted_at);
 }
 
-export interface DocMeta { id: string; folder_id?: string }
+// Prompt 204(a) — `visibility` entra aqui porque passou a decidir acesso.
+// Opcional para nao partir chamadores que ainda nao a passem, mas ver o
+// comentario do gate: ausente significa "sem restricao", que e o
+// comportamento anterior.
+export interface DocMeta { id: string; folder_id?: string; visibility?: string }
 export interface ResolvedDocumentAccess { visibleIds: string[]; pendingCount: number }
 
 // F4's per-doc override only means anything if it actually takes priority
@@ -148,7 +152,23 @@ export function resolveDocumentAccess<T extends GrantLike>(
   const visibleIds: string[] = [];
   let pendingCount = 0;
   for (const doc of documents) {
-    const effective = byDoc.get(doc.id) ?? nearestFolderGrant(doc.folder_id);
+    // Prompt 204(a) — 'due_diligence' so abre com grant ao PROPRIO documento.
+    //
+    // Ate aqui o campo era so um rotulo: a migracao 0100 di-lo por escrito
+    // ("today this is a label only"). Mas nao era inerte — o
+    // computeCellEffect da matriz People & Access do founder ja tratava
+    // due_diligence como "nenhum grant pode ter efeito aqui". Ou seja, a
+    // matriz prometia uma proteccao que o portal nao cumpria: um cadeado
+    // decorativo, no ecra onde a decisao de partilhar se toma.
+    //
+    // Um grant de pasta (incluindo o da raiz, desde o 204 §A) deixa de
+    // chegar. O grant por documento continua a chegar, porque e a forma
+    // explicita de dizer "este, sim, e para esta pessoa" — e mantem a
+    // coerencia com a regra de especificidade do F4.
+    const docGrant = byDoc.get(doc.id);
+    const effective = doc.visibility === 'due_diligence'
+      ? docGrant
+      : docGrant ?? nearestFolderGrant(doc.folder_id);
     if (!effective) continue;
     if (!effective.nda_required || effective.nda_accepted_at) visibleIds.push(doc.id);
     else pendingCount++;

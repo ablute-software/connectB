@@ -255,7 +255,10 @@ export async function GET(req: Request) {
 
   const { visibleIds, pendingCount: docPendingCount } = resolveDocumentAccess(
     orgGrants,
-    candidateDocs.map((d) => ({ id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined })),
+    candidateDocs.map((d) => ({
+      id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined,
+      visibility: d.visibility as string | undefined,
+    })),
     folderTree,
   );
 

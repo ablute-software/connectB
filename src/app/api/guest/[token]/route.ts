@@ -87,11 +87,11 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   const folderIds = descendantFolderIds(folderTree, grants.filter((g) => g.folder_id).map((g) => g.folder_id as string));
   const directDocIds = grants.filter((g) => g.document_id).map((g) => g.document_id as string);
   const [{ data: docsInFolders }, { data: directDocs }] = await Promise.all([
-    folderIds.length ? admin.from('documents').select('id, name, folder_id').in('folder_id', folderIds) : Promise.resolve({ data: [] }),
-    directDocIds.length ? admin.from('documents').select('id, name, folder_id').in('id', directDocIds) : Promise.resolve({ data: [] }),
+    folderIds.length ? admin.from('documents').select('id, name, folder_id, visibility').in('folder_id', folderIds) : Promise.resolve({ data: [] }),
+    directDocIds.length ? admin.from('documents').select('id, name, folder_id, visibility').in('id', directDocIds) : Promise.resolve({ data: [] }),
   ]);
-  const docMap = new Map<string, { id: string; name: string; folder_id?: string }>();
-  for (const d of [...(docsInFolders ?? []), ...(directDocs ?? [])]) docMap.set(d.id as string, d as { id: string; name: string; folder_id?: string });
+  const docMap = new Map<string, { id: string; name: string; folder_id?: string; visibility?: string }>();
+  for (const d of [...(docsInFolders ?? []), ...(directDocs ?? [])]) docMap.set(d.id as string, d as { id: string; name: string; folder_id?: string; visibility?: string });
   const candidateDocs = [...docMap.values()];
 
   // Same visibility rule /api/portal/access-granted uses (document-level

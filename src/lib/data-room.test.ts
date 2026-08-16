@@ -359,3 +359,57 @@ describe('diffGrantSelection (F4 tri-state scoping)', () => {
     expect(diff).toEqual([]);
   });
 });
+
+// Prompt 204(a) — o cadeado deixa de ser decorativo. Ate aqui um documento
+// marcado 'due_diligence' era servido na mesma por um grant de pasta,
+// enquanto a matriz People & Access do founder dizia "nenhum grant pode ter
+// efeito aqui" (computeCellEffect). Os dois PDFs em "Grant Agreements" da
+// ablute_ sao o caso real.
+describe('resolveDocumentAccess (204a: due_diligence so com grant ao proprio documento)', () => {
+  const ARVORE = [{ id: 'raiz' }, { id: 'grants', parent_id: 'raiz' }];
+
+  it('grant de pasta NAO chega a um documento due_diligence', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: false }];
+    const docs = [
+      { id: 'normal', folder_id: 'grants' },
+      { id: 'prr', folder_id: 'grants', visibility: 'due_diligence' },
+    ];
+    expect(resolveDocumentAccess(grants, docs, ARVORE).visibleIds).toEqual(['normal']);
+  });
+
+  it('nem o grant da propria pasta onde ele esta', () => {
+    const grants = [{ folder_id: 'grants', nda_required: false }];
+    const docs = [{ id: 'prr', folder_id: 'grants', visibility: 'due_diligence' }];
+    expect(resolveDocumentAccess(grants, docs, ARVORE).visibleIds).toEqual([]);
+  });
+
+  it('grant ao PROPRIO documento chega -- e a forma explicita de o partilhar', () => {
+    const grants = [{ document_id: 'prr', nda_required: false }];
+    const docs = [{ id: 'prr', folder_id: 'grants', visibility: 'due_diligence' }];
+    expect(resolveDocumentAccess(grants, docs, ARVORE).visibleIds).toEqual(['prr']);
+  });
+
+  it('e o NDA continua a valer por cima disso', () => {
+    const grants = [{ document_id: 'prr', nda_required: true }];
+    const docs = [{ id: 'prr', folder_id: 'grants', visibility: 'due_diligence' }];
+    const r = resolveDocumentAccess(grants, docs, ARVORE);
+    expect(r.visibleIds).toEqual([]);
+    expect(r.pendingCount).toBe(1);
+  });
+
+  it('bloqueado NAO conta como pendente de NDA -- sao coisas diferentes', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: false }];
+    const docs = [{ id: 'prr', folder_id: 'grants', visibility: 'due_diligence' }];
+    expect(resolveDocumentAccess(grants, docs, ARVORE)).toEqual({ visibleIds: [], pendingCount: 0 });
+  });
+
+  it('as outras visibilidades nao mudam nada', () => {
+    const grants = [{ folder_id: 'raiz', nda_required: false }];
+    const docs = [
+      { id: 'a', folder_id: 'grants', visibility: 'on_grant' },
+      { id: 'b', folder_id: 'grants', visibility: 'open' },
+      { id: 'c', folder_id: 'grants' },
+    ];
+    expect(resolveDocumentAccess(grants, docs, ARVORE).visibleIds).toEqual(['a', 'b', 'c']);
+  });
+});

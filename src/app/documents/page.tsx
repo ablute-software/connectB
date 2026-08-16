@@ -30,7 +30,7 @@ function fmtBytes(n?: number): string | undefined {
 const VISIBILITY_META: Record<DocVisibility, { icon: string; label: string; title: string }> = {
   due_diligence: { icon: '🔴🔒', label: 'Due diligence only', title: 'Due diligence only — fully closed, requires an access request' },
   on_grant: { icon: '🟡🔓', label: 'On request', title: 'On request — simple access grant needed' },
-  open: { icon: '🟢🔓✕', label: 'Open', title: 'Open — no access request needed' },
+  open: { icon: '🟢🔓✕', label: 'Open', title: 'Openly shareable — still only reaches whoever you grant access to' },
 };
 const VISIBILITY_OPTIONS: DocVisibility[] = ['open', 'on_grant', 'due_diligence'];
 

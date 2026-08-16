@@ -89,7 +89,10 @@ export async function GET() {
 
       const { visibleIds } = resolveDocumentAccess(
         activeGrants,
-        candidateDocs.map((d) => ({ id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined })),
+        candidateDocs.map((d) => ({
+          id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined,
+          visibility: d.visibility as string | undefined,
+        })),
         folderTree,
       );
       const visibleDocs = candidateDocs.filter((d) => visibleIds.includes(d.id as string));

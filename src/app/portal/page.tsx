@@ -372,7 +372,7 @@ export default function PortalPage() {
   ));
   const demoCandidateDocs = db.documents.filter((d) =>
     demoAllGrants.some((g) => g.document_id === d.id) || (d.folder_id ? demoGrantedSubtree.has(d.folder_id) : false));
-  const demoDocAccess = resolveDocumentAccess(demoAllGrants, demoCandidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id })), demoFolderTree);
+  const demoDocAccess = resolveDocumentAccess(demoAllGrants, demoCandidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id, visibility: d.visibility })), demoFolderTree);
   const demoDocs = demoCandidateDocs.filter((d) => demoDocAccess.visibleIds.includes(d.id));
   const demoFolderGrants = demoAllGrants.filter((g) => g.folder_id);
   const demoUnlockedFolderGrants = unlockedGrants(demoFolderGrants);

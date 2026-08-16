@@ -37,14 +37,14 @@ async function attachableDocuments(admin: SupabaseClient, orgId: string, email: 
   const folderIds = descendantFolderIds(folderTree, activeGrants.filter((g) => g.folder_id).map((g) => g.folder_id as string));
   const directDocIds = activeGrants.filter((g) => g.document_id).map((g) => g.document_id as string);
   const [{ data: docsInFolders }, { data: directDocs }] = await Promise.all([
-    folderIds.length ? admin.from('documents').select('id, name, folder_id').in('folder_id', folderIds).eq('org_id', orgId) : Promise.resolve({ data: [] }),
-    directDocIds.length ? admin.from('documents').select('id, name, folder_id').in('id', directDocIds).eq('org_id', orgId) : Promise.resolve({ data: [] }),
+    folderIds.length ? admin.from('documents').select('id, name, folder_id, visibility').in('folder_id', folderIds).eq('org_id', orgId) : Promise.resolve({ data: [] }),
+    directDocIds.length ? admin.from('documents').select('id, name, folder_id, visibility').in('id', directDocIds).eq('org_id', orgId) : Promise.resolve({ data: [] }),
   ]);
-  const docMap = new Map<string, { id: string; name: string; folder_id: string | null }>();
-  for (const d of [...(docsInFolders ?? []), ...(directDocs ?? [])]) docMap.set(d.id as string, d as { id: string; name: string; folder_id: string | null });
+  const docMap = new Map<string, { id: string; name: string; folder_id: string | null; visibility?: string }>();
+  for (const d of [...(docsInFolders ?? []), ...(directDocs ?? [])]) docMap.set(d.id as string, d as { id: string; name: string; folder_id: string | null; visibility?: string });
   const candidateDocs = [...docMap.values()];
 
-  const { visibleIds } = resolveDocumentAccess(activeGrants, candidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id ?? undefined })), folderTree);
+  const { visibleIds } = resolveDocumentAccess(activeGrants, candidateDocs.map((d) => ({ id: d.id, folder_id: d.folder_id ?? undefined, visibility: d.visibility })), folderTree);
   return candidateDocs.filter((d) => visibleIds.includes(d.id)).map((d) => ({ id: d.id, name: d.name }));
 }
 
