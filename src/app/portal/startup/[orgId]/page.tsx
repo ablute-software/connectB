@@ -8,6 +8,7 @@
 // that isn't in this investor's Pipeline gets a flat 404, same as if the
 // org didn't exist at all.
 import { useEffect, useState } from 'react';
+import { SectionNav } from '@/components/SectionNav';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { authEnabled, browserClient } from '@/lib/supabase';
@@ -339,7 +340,10 @@ export default function StartupDossierPage() {
         </div>
       </div>
 
-      <main className={tab === 'messages' ? 'mx-auto max-w-4xl p-4 md:p-8' : 'mx-auto max-w-2xl p-4 md:p-8'}>
+      {/* Prompt 213 §A — o dossier vivia numa coluna de ~640px com laterais
+          vazias enormes. Passa a largo; a restricao de leitura e do
+          PARAGRAFO (max-w dentro do cartao do About), nao da pagina. */}
+      <main className={tab === 'messages' ? 'mx-auto max-w-4xl p-4 md:p-8' : 'mx-auto max-w-6xl p-4 md:p-8'}>
         {tab === 'overview' && <OverviewTab card={card} level={level} dossier={dossier} onRequestLevel={requestLevel} levelBusy={levelBusy} />}
         {tab === 'documents' && <DocumentsTab hasAccess={card.hasDataRoomAccess} docs={docs} sharedInMessages={messagesInfo?.messages ?? []} />}
         {tab === 'messages' && (
@@ -384,14 +388,18 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
   const hasTeam = team.length > 0 || (overview && (overview.team_summary || overview.representative_name));
   const traction = dossier.tractionDetailed && Object.keys(dossier.tractionDetailed).length > 0
     ? Object.entries(dossier.tractionDetailed) : [];
-  const documentTitles = dossier.documentTitles ?? [];
-  const contactHistory = dossier.contactHistory ?? [];
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
+    <div id="dossier-overview" className="space-y-4">
+      {/* Prompt 213 §B — le-se como abas, comporta-se como ancoras: clicar
+          salta a seccao, o scroll destaca a activa, e o dossier continua a
+          poder ser percorrido (ou impresso) de uma ponta a outra. */}
+      <SectionNav containerId="dossier-overview" />
+      <div id="about" data-section="About" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
         <h2 className="text-sm font-semibold text-gray-900">About</h2>
-        <p className="mt-1 text-sm text-gray-700">{overview?.description || card.oneLiner || 'Not shared yet.'}</p>
+        {/* §A — a pagina e larga, o paragrafo nao: texto corrido acima de
+            ~75 caracteres por linha perde-se a mudar de linha. */}
+        <p className="mt-1 max-w-prose text-sm text-gray-700">{overview?.description || card.oneLiner || 'Not shared yet.'}</p>
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400">
           {card.sectors.length > 0 && <span>{card.sectors.join(', ')}</span>}
           {overview?.founded_year && <span>Founded {overview.founded_year}</span>}
@@ -405,7 +413,7 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
           level and the founder's toggle allow it) — no "hidden" message
           when it's off, consistent with every other gated section here. */}
       {dossier.swot && (
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div id="swot" data-section="SWOT" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-[#0E7490]">SWOT snapshot</h2>
           <div className="mt-2"><SwotQuadrant data={dossier.swot} /></div>
         </div>
@@ -419,7 +427,7 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
           same as it does founder-side in RoadmapCard.tsx. editable={false}
           and no callbacks: no "+", no edit/remove hover-actions here. */}
       {dossier.roadmap && (
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div id="roadmap" data-section="Roadmap" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-gray-900">Roadmap</h2>
           <div className="mt-2">
             <RoadmapTimeline foundedYear={overview?.founded_year ?? null} milestones={dossier.roadmap} editable={false} />
@@ -432,7 +440,7 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
           clarifications" state to render here — the section simply isn't
           there, same as the rest of this page's disclosure-ladder sections. */}
       {dossier.founderClarifications && dossier.founderClarifications.length > 0 && (
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div id="clarifications" data-section="Clarifications" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-gray-900">Founder clarifications</h2>
           <p className="mt-1 text-xs text-gray-500">
             The founder added {dossier.founderClarifications.length} clarification{dossier.founderClarifications.length === 1 ? '' : 's'} to their review.
@@ -449,7 +457,7 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
       )}
 
       {(card.roundTargetEur != null || card.roundValuationEur != null || card.roundMinTicketEur != null || card.roundInstruments.length > 0) && (
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div id="round" data-section="Round" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-gray-900">Round</h2>
           <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
             {fmtEur(card.roundTargetEur) && <div><dt className="text-xs text-gray-400">Target</dt><dd>{fmtEur(card.roundTargetEur)}</dd></div>}
@@ -466,7 +474,7 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
       )}
 
       {hasMarket && (
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div id="market" data-section="Market" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-gray-900">Market</h2>
           <dl className="mt-2 grid grid-cols-3 gap-x-4 gap-y-2 text-sm">
             {overview!.tam_eur != null && <div><dt className="text-xs text-gray-400">TAM</dt><dd>{fmtEur(overview!.tam_eur)}</dd></div>}
@@ -481,7 +489,7 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
       {level >= 2 ? (
         <>
           {hasTeam && (
-            <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div id="team" data-section="Team" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
               <h2 className="text-sm font-semibold text-gray-900">Team</h2>
               {overview?.team_summary && <p className="mt-1 text-sm text-gray-700">{overview.team_summary}</p>}
               {team.length > 0 ? (
@@ -524,7 +532,7 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
           )}
 
           {traction.length > 0 && (
-            <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div id="traction" data-section="Traction" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
               <h2 className="text-sm font-semibold text-gray-900">Traction</h2>
               <div className="mt-2 flex flex-wrap gap-4">
                 {traction.map(([label, value]) => (
@@ -534,29 +542,7 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
             </div>
           )}
 
-          {documentTitles.length > 0 && (
-            <div className="rounded-lg border border-gray-200 bg-white p-4">
-              <h2 className="text-sm font-semibold text-gray-900">Documents on file</h2>
-              <p className="mt-0.5 text-xs text-gray-400">Titles only — request access to view contents.</p>
-              <ul className="mt-2 space-y-1 text-xs text-gray-600">
-                {documentTitles.map((d) => <li key={d.id}>▤ {d.name}</li>)}
-              </ul>
-            </div>
-          )}
 
-          {contactHistory.length > 0 && (
-            <div className="rounded-lg border border-gray-200 bg-white p-4">
-              <h2 className="text-sm font-semibold text-gray-900">Recent activity</h2>
-              <ul className="mt-2 space-y-1.5 text-xs">
-                {contactHistory.slice(0, 5).map((e) => (
-                  <li key={e.id} className="text-gray-600">
-                    <span className="text-gray-400">{new Date(e.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
-                    {' — '}{e.content.length > 100 ? `${e.content.slice(0, 100)}…` : e.content}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </>
       ) : level === 1 ? (
         <div className="rounded-lg border border-dashed border-gray-200 bg-white p-4 text-center">
