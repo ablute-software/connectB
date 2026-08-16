@@ -26,7 +26,7 @@
 // ganham, porque é literalmente o caso Adara.
 // ---------------------------------------------------------------------------
 import type { Db, Interaction, RelationshipStage } from './types';
-import { STAGE_ORDER, entityMode, type EntityMode } from './relationship';
+import { STAGE_ORDER, effectiveMode, type EntityMode } from './relationship';
 
 export interface DerivedStageResult {
   // O que os factos suportam, sozinhos.
@@ -90,7 +90,9 @@ export function derivedStage(db: Db, entityId: string): DerivedStageResult {
   const entity = db.entities.find((e) => e.id === entityId);
   const { stage: derived, reason } = derivedStageFromFacts(db, entityId);
   const manual = db.relationshipState.find((r) => r.entity_id === entityId)?.stage;
-  const mode = entity ? entityMode(entity) : 'active';
+  // Prompt 209 (resto) — a mesma precedencia em toda a pagina: um pass
+  // classificado fecha, mesmo com dormant herdado.
+  const mode: EntityMode = entity ? effectiveMode(db, entityId) : 'active';
 
   // 'awaiting' é o único valor que pode significar "ninguém disse o que isto
   // era". Desde o 202 §A.1 também pode ser uma escolha deliberada

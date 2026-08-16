@@ -181,15 +181,18 @@ export function nextBestAction(db: Db, entityId: string, now = new Date(), dealM
   // para dormant ("no stage implied") e esta nunca olhava para o status.
   // Corrige-se aqui porque o conselho é o que o founder lê — e um conselho
   // errado é pior do que nenhum.
-  const mode = entityMode(entity);
+  const mode = effectiveMode(db, entityId);
   if (mode === 'parked') {
     const revisit = nextPendingTaskDue(db, entityId);
     return revisit ? `Parked — revisit on ${revisit.slice(0, 10)}.` : 'Parked — no revisit scheduled.';
   }
   if (mode === 'closed') {
-    return entity.status === 'passed'
-      ? 'Passed — closed. Reopen only if something material changed.'
-      : 'Closed.';
+    // Lido do FACTO e nao do status: com a precedencia acima, uma entidade
+    // pode estar 'dormant' na coluna e fechada na realidade. Perguntar ao
+    // status aqui trazia de volta a incoerencia que isto veio resolver.
+    return entity.status === 'invested'
+      ? 'Invested — closed.'
+      : 'Passed — closed. Reopen only if something material changed.';
   }
 
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > now;
@@ -404,6 +407,30 @@ export function entityMode(entity: Pick<Entity, 'status'>): EntityMode {
   if (entity.status === 'dormant') return 'parked';
   if (entity.status === 'passed' || entity.status === 'invested') return 'closed';
   return 'active';
+}
+
+// Prompt 209 (resto) — a MESMA precedencia do journeySteps, agora disponivel
+// para a pagina inteira: um pass classificado e desfecho, e desfecho ganha a
+// um parque herdado de antes.
+//
+// O caso real: a Adara foi classificada como pass e SO DEPOIS parqueada com
+// o botao "Mark dormant" (dormant_since 2026-08-16 12:16, razao "Manually
+// parked"). Parquear depois de fechar e uma accao legitima -- o que nao pode
+// e a pagina dizer "Declined" no stepper e "Parked" duas linhas abaixo.
+//
+// entityMode() continua a existir e a ser o mapeamento puro do status. Esta
+// e a leitura com os FACTOS por cima, e e a que as superficies devem usar.
+export function effectiveMode(db: Db, entityId: string): EntityMode {
+  const entity = db.entities.find((e) => e.id === entityId);
+  if (!entity) return 'active';
+  const base = entityMode(entity);
+  if (base === 'closed') return 'closed';
+
+  const lastInbound = db.interactions
+    .filter((i) => i.entity_id === entityId && i.direction === 'in')
+    .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at))
+    .at(-1);
+  return lastInbound?.classification === 'pass' ? 'closed' : base;
 }
 
 // A data da próxima tarefa pendente da entidade — depois de parquear é a

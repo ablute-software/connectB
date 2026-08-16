@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { entityMode, nextBestAction, nextPendingTaskDue } from './relationship';
-import type { Db, Entity, TaskItem } from './types';
+import { entityMode, effectiveMode, nextBestAction, nextPendingTaskDue } from './relationship';
+import type { Db, Entity, Interaction, TaskItem } from './types';
 
 // Prompt 205 §E — o caso confirmado por screenshot em "Test idividual":
 // depois de escolher Frozen, o pill dizia "dormant" e a mesma página dizia
@@ -20,8 +20,8 @@ function task(over: Partial<TaskItem> = {}): TaskItem {
   } as TaskItem;
 }
 
-function db(e: Entity, tasks: TaskItem[] = []): Db {
-  return { entities: [e], interactions: [], people: [], tasks, relationshipState: [] } as unknown as Db;
+function db(e: Entity, tasks: TaskItem[] = [], interactions: Interaction[] = []): Db {
+  return { entities: [e], interactions, people: [], tasks, relationshipState: [] } as unknown as Db;
 }
 
 describe('entityMode', () => {
@@ -79,5 +79,54 @@ describe('nextPendingTaskDue', () => {
   it('nao mistura outras entidades', () => {
     const outra = task({ id: 'a', entity_id: 'outra', due_at: '2026-09-01T00:00:00.000Z' });
     expect(nextPendingTaskDue(db(entity(), [outra]), 'e1')).toBeUndefined();
+  });
+});
+
+// Prompt 209 (resto) — a precedencia tem de valer na pagina inteira, nao so
+// no stepper. Caso real da Adara: classificada como pass e SO DEPOIS
+// parqueada ("Manually parked", dormant_since 2026-08-16 12:16).
+describe('effectiveMode — fechado ganha a parqueado', () => {
+  function withInbound(over: Partial<Interaction>) {
+    return {
+      id: 'i', entity_id: 'e1', direction: 'in', channel: 'email', content: '...',
+      occurred_at: '2026-08-05T10:00:00.000Z', ...over,
+    } as Interaction;
+  }
+
+  it('dormant + ultimo inbound pass = closed', () => {
+    const e = entity({ status: 'dormant' });
+    expect(effectiveMode(db(e, [], [withInbound({ classification: 'pass' })]), 'e1')).toBe('closed');
+  });
+
+  it('dormant sem pass continua parked', () => {
+    const e = entity({ status: 'dormant' });
+    expect(effectiveMode(db(e, [], [withInbound({ classification: 'interested' })]), 'e1')).toBe('parked');
+  });
+
+  it('conta o ULTIMO inbound: um pass antigo seguido de resposta nova nao fecha', () => {
+    const e = entity({ status: 'dormant' });
+    const antigo = withInbound({ id: 'a', classification: 'pass', occurred_at: '2026-01-01T00:00:00.000Z' });
+    const novo = withInbound({ id: 'b', classification: 'interested', occurred_at: '2026-08-05T10:00:00.000Z' });
+    expect(effectiveMode(db(e, [], [antigo, novo]), 'e1')).toBe('parked');
+  });
+
+  it('status passed e closed mesmo sem interacoes', () => {
+    expect(effectiveMode(db(entity({ status: 'passed' }), [], []), 'e1')).toBe('closed');
+  });
+
+  it('activo sem pass continua activo', () => {
+    expect(effectiveMode(db(entity({ status: 'contacted' }), [], [withInbound({ classification: 'question' })]), 'e1')).toBe('active');
+  });
+});
+
+describe('nextBestAction — a pagina inteira concorda', () => {
+  it('dormant + pass NAO diz "Parked", diz que esta fechado', () => {
+    const e = entity({ status: 'dormant' });
+    const d = db(e, [], [{ id: 'p', entity_id: 'e1', direction: 'in', channel: 'email', content: '...',
+      classification: 'pass', occurred_at: '2026-08-05T10:00:00.000Z' } as Interaction]) as Db;
+
+    const acao = nextBestAction(d, 'e1', NOW);
+    expect(acao).toBe('Passed — closed. Reopen only if something material changed.');
+    expect(acao).not.toContain('Parked');
   });
 });

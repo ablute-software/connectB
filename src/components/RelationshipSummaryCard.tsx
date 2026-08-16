@@ -6,7 +6,7 @@ import Link from 'next/link';
 import type { Entity } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import {
-  STAGE_LABEL, relationshipSummary, nextBestAction, stageExits, entityMode, type WhoseTurn, type Health, type DealMessageTouch,
+  STAGE_LABEL, relationshipSummary, nextBestAction, stageExits, type WhoseTurn, type Health, type DealMessageTouch,
 } from '@/lib/relationship';
 import { LOCK_DAYS } from '@/lib/rules';
 import { planPark, planPass, advanceConfirmation, type ExitPlan } from '@/lib/exit-effects';
@@ -144,12 +144,21 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // desenhar um funil activo ao lado do pill que diz "dormant". O stepper
   // fica neutro e o chip de "de quem é a vez" desaparece: não é vez de
   // ninguém enquanto isto estiver parado.
-  const mode = entityMode(entity);
-  const parkedOrClosed = mode !== 'active';
+  // Prompt 209 (resto) — a mesma leitura do stepper e do "Next:": vem toda do
+  // derivedStage, que ja aplica a precedencia (pass classificado fecha, mesmo
+  // com dormant herdado). Antes isto chamava entityMode(entity) directamente
+  // e a pagina podia dizer "Declined" no stepper e "parked" no chip.
   // Prompt 206-A — o stepper passa a desenhar o estágio EFECTIVO (factos, com
   // o manual a ganhar quando está à frente e não é contradito), em vez do
   // que alguém clicou uma vez e nunca mais reviu.
   const ds = derivedStage(db, entity.id);
+  const mode = ds.mode;
+  // A razao ja existe na interacao classificada -- reutiliza-se em vez de
+  // inventar texto novo para o dormant_reason.
+  const lastPassReason = db.interactions
+    .filter((i) => i.entity_id === entity.id && i.direction === 'in' && i.classification === 'pass')
+    .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)).at(-1)?.pass_reason;
+  const parkedOrClosed = mode !== 'active';
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
@@ -169,7 +178,17 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
             // vermelho comprido competia com o proprio stepper, que agora ja
             // mostra o desfecho: repetir a mesma noticia mais alto nao a
             // torna mais legivel.
-            <button onClick={() => setRelationshipStage(entity.id, ds.derived)}
+            <button
+              onClick={() => {
+                setRelationshipStage(entity.id, ds.derived);
+                // Prompt 209 (resto) — UMA accao, estado coerente em todo o
+                // lado. So mexer no stage deixava o status 'dormant' herdado
+                // por baixo, e a pagina voltava a discordar de si propria
+                // assim que alguem olhasse para o pill.
+                if (ds.derived === 'decision' && entity.status !== 'passed') {
+                  setEntityStatus(entity.id, 'passed', lastPassReason ?? 'Accepted from the classified reply');
+                }
+              }}
               className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-500 hover:bg-gray-200" title={ds.reason}>
               stage set manually: {STAGE_LABEL[ds.manual]} · accept the facts ({STAGE_LABEL[ds.derived]})
             </button>
