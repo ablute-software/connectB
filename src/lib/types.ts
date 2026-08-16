@@ -144,6 +144,9 @@ export interface Org {
   // (migration 0159, not yet applied) — undefined pre-migration, in which
   // case every reader treats it as the DB default (true), never as false.
   swot_visible_to_investors?: boolean;
+  // Prompt 212 §A — a barra de progresso da ronda no portal do investidor.
+  // Ausente = true (o comportamento de sempre), igual ao swot.
+  round_progress_visible_to_investors?: boolean;
   // Prompt 167 §C — same toggle shape, for the Roadmap (below). Additive,
   // propose-only (migration 0161).
   roadmap_visible_to_investors?: boolean;

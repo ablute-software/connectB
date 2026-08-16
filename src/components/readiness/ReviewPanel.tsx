@@ -272,6 +272,13 @@ export function ReviewPanel() {
           <Toggle checked={db.org.swot_visible_to_investors ?? true}
             onChange={(v) => updateOrg({ swot_visible_to_investors: v })}
             label={<span className="text-xs text-gray-500">Let investors you&apos;re in contact with see this SWOT</span>} />
+          {/* Prompt 212 §A — progresso DECLARADO pelo founder (o valor que
+              ele escreveu + os soft commits que confirmou) e dele para dar,
+              ao contrario da performance derivada da plataforma, que nao tem
+              toggle nenhum porque nunca sai. */}
+          <Toggle checked={db.org.round_progress_visible_to_investors ?? true}
+            onChange={(v) => updateOrg({ round_progress_visible_to_investors: v })}
+            label={<span className="text-xs text-gray-500">Show round progress (amount committed vs target) to investors</span>} />
         </div>
       )}
 

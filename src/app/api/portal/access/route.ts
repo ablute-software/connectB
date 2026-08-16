@@ -76,12 +76,14 @@ async function buildSnapshot(admin: SupabaseClient, orgId: string) {
       ? admin.from('orgs').select(
           'name, one_liner, description, stage, stage_other, sectors, hq_city, country, '
           + 'round_raising, round_target_eur, round_secured_eur, round_min_ticket_eur, round_instruments, '
+          + 'round_progress_visible_to_investors, '
           + 'round_instrument_other, round_valuation_eur, round_valuation_basis, round_runway_months, round_runway_post_months, '
           + 'round_target_close_date, round_use_of_funds, round_flexible',
         ).eq('id', orgId).single()
       : admin.from('orgs').select(
           'name, one_liner, description, stage, stage_other, sectors, hq_city, country, '
           + 'round_raising, round_target_eur, round_secured_eur, round_min_ticket_eur, round_instruments, '
+          + 'round_progress_visible_to_investors, '
           + 'round_instrument_other, round_valuation_eur, round_runway_months, round_runway_post_months, '
           + 'round_target_close_date, round_use_of_funds, round_flexible',
         ).eq('id', orgId).single(),
@@ -95,6 +97,20 @@ async function buildSnapshot(admin: SupabaseClient, orgId: string) {
   ]);
   if (!org) return null;
   const orgRecord = org as unknown as Record<string, unknown>;
+
+  // Prompt 212 §A — o founder decide se o progresso da ronda sai para o
+  // investidor. Desligado, os campos NAO VAO na resposta: nao e
+  // buscar-e-esconder, e nao mandar. Esconder no cliente deixava o numero na
+  // rede, e "o investidor nao ve" tem de ser verdade no payload.
+  //
+  // O round_target_eur fica -- e a pergunta ("estamos a levantar X"), nao a
+  // resposta. O que este toggle protege e o progresso CONTRA esse alvo.
+  const progressVisible = (orgRecord.round_progress_visible_to_investors as boolean | null | undefined) ?? true;
+  if (!progressVisible) {
+    delete orgRecord.round_secured_eur;
+    return { ...orgRecord, tractionMetrics: metrics ?? [] };
+  }
+
   const softCommittedEur = (confirmedCommits ?? []).reduce((sum, c) => sum + Number(c.amount_eur), 0);
   const securedShown = ((orgRecord.round_secured_eur as number | null) ?? 0) + softCommittedEur;
   return { ...orgRecord, tractionMetrics: metrics ?? [], softCommittedEur, securedShown };
