@@ -103,8 +103,13 @@ function LockedWave({ hiddenCount, onReview }: { hiddenCount: number; onReview: 
 }
 
 export function PipelinePanel({
-  onOpenStartup, onGoToArchive, compareIds, setCompareIds, showComparison, setShowComparison,
+  onOpenStartup, onGoToArchive, compareIds, setCompareIds, showComparison, setShowComparison, qaAccess,
 }: {
+  // Prompt 214 §B (remate) — conhecido a entrada, vindo do /api/portal/access.
+  // Continua a ligar-se sozinho se uma accao voltar marcada `qa`, para o caso
+  // de a flag faltar por alguma razao: os dois caminhos convergem no mesmo
+  // estado, e o segundo e a rede do primeiro.
+  qaAccess?: boolean;
   onOpenStartup: (orgId: string) => void;
   // Item 8 — the archive success toast's "Go to Archive" link.
   onGoToArchive: () => void;
@@ -151,7 +156,7 @@ export function PipelinePanel({
   //
   // Fica true assim que UMA accao volte marcada como qa: a partir dai
   // sabe-se com certeza, sem inventar uma segunda deteccao de sessao.
-  const [qaSession, setQaSession] = useState(false);
+  const [qaSession, setQaSession] = useState(!!qaAccess);
   // Item 8 — archiving worked (the entry landed in the Archive tab fine)
   // but gave zero feedback where the click happened: same card, same
   // buttons, nothing. The persistent "Archived" badge (isArchived, from the

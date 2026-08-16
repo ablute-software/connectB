@@ -495,6 +495,7 @@ export default function PortalPage() {
         entityName={real?.snapshot?.name ?? orgName ?? null} startupCard={startupCard} sessionLabel={sessionLabel}
         openStartup={openOrgId != null} onOpenStartup={openStartupOrg} onBackToPipeline={backToPipeline}
         initialTab={initialTab} initialEvaluationOrgId={initialEvaluationOrgId}
+        qaAccess={real?.qaAccess}
       />
     );
   }

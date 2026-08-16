@@ -39,10 +39,27 @@ const TOUR_KEY_BY_TAB: Partial<Record<Tab, string>> = {
   pipeline: 'guide_investor_pipeline', about: 'guide_investor_about', access: 'guide_investor_access', plans: 'guide_investor_plans',
 };
 
+// Prompt 214 §B (remate) — o banner vive no SHELL e nao so no PipelinePanel:
+// uma sessao QA continua a ser QA na aba Archive, no Profile ou nas
+// mensagens. Poe-lo so na Pipeline deixava metade do workspace por avisar.
+function QaSessionBanner() {
+  return (
+    <div className="sticky top-0 z-30 border-b border-amber-300 bg-amber-100 px-4 py-2 text-center text-xs font-semibold text-amber-900">
+      QA session — actions are simulated and nothing is recorded.
+    </div>
+  );
+}
+
 export function InvestorWorkspaceShell({
   entityName, startupCard, sessionLabel, openStartup, onOpenStartup, onBackToPipeline,
-  initialTab, initialEvaluationOrgId,
+  initialTab, initialEvaluationOrgId, qaAccess,
 }: {
+  // Prompt 214 §B (remate) — a sessao QA e conhecida a ENTRADA: o
+  // /api/portal/access ja devolvia `qaAccess: true` no ramo QA desde o
+  // Prompt 48, e so o TicketSelector a usava. Passar por aqui e o que faz o
+  // banner existir desde o primeiro ecra, em vez de so depois da primeira
+  // accao voltar marcada.
+  qaAccess?: boolean;
   // The startup shown in the Pipeline tab (ablute_ today) — NOT the
   // investor's own firm. Kept as a separate concept from the About tab's
   // label, which comes from the investor's own linked catalog entity
@@ -181,6 +198,9 @@ export function InvestorWorkspaceShell({
 
   return (
     <OnboardingProvider>
+    {/* Prompt 214 §B (remate) — antes da sidebar e do conteudo: o aviso e a
+        primeira coisa que se le, e vale para o workspace inteiro. */}
+    {qaAccess && <QaSessionBanner />}
     <div className="flex min-h-screen bg-[#F7F9FA] text-[#1A1A1A]">
       {tourKey && <PageTour pageKey={tourKey} />}
       <WorkspaceSidebar
@@ -279,7 +299,7 @@ export function InvestorWorkspaceShell({
                 </div>
               </div>
             ) : (
-              <PipelinePanel onOpenStartup={onOpenStartup} onGoToArchive={() => setTab('archive')}
+              <PipelinePanel qaAccess={qaAccess} onOpenStartup={onOpenStartup} onGoToArchive={() => setTab('archive')}
                 compareIds={compareIds} setCompareIds={setCompareIds} showComparison={showComparison} setShowComparison={setShowComparison} />
             )
           )}
