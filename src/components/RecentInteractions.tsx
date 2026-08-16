@@ -117,7 +117,7 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
                 </button>
               )}
               {classifying === i.id && (
-                <InlineClassify interactionId={i.id} onDone={() => setClassifying(null)} />
+                <InlineClassify interactionId={i.id} content={i.content} onDone={() => setClassifying(null)} />
               )}
             </li>
           );

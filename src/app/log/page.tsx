@@ -48,6 +48,10 @@ function LogForm() {
   // não. 'awaiting' continua a ser uma escolha legítima ("responderam, ainda
   // não é decisão"), só deixa de ser o que acontece por omissão.
   const [classification, setClassification] = useState<Classification | ''>('');
+  // Prompt 208 §D.2 — a AI classifica ao colar, e o founder confirma ao
+  // gravar. Nao grava nada sozinha: pre-selecciona e marca-se com o badge.
+  const [classifyFromAi, setClassifyFromAi] = useState(false);
+  const [classifying, setClassifying] = useState(false);
   const [passCat, setPassCat] = useState<PassReasonCategory>('other');
   const [passReason, setPassReason] = useState('');
   // Prompt 49 §5 — when the interaction itself happened. Optional, blank =
@@ -145,6 +149,31 @@ function LogForm() {
     [direction, content],
   );
   const offerPersonCapture = direction === 'in' && !personId && !noSpecificPerson && !showQuickCreate && !!entityId;
+
+  // Debounce curto: colar um email dispara varios eventos, e cada chamada
+  // custa dinheiro. So corre com o campo ainda por escolher -- se o founder
+  // ja decidiu, a app nao lhe passa por cima.
+  useEffect(() => {
+    if (direction !== 'in' || classification !== '' || content.trim().length < 20) return;
+    let alive = true;
+    const t = window.setTimeout(async () => {
+      setClassifying(true);
+      try {
+        const r = await fetch('/api/classify-interaction', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content }),
+        });
+        const body = await r.json() as { configured?: boolean; suggestion?: { classification: Classification; passReasonCategory?: PassReasonCategory; passReason?: string } | null };
+        if (!alive || !body.configured || !body.suggestion) return;
+        setClassification(body.suggestion.classification);
+        if (body.suggestion.passReasonCategory) setPassCat(body.suggestion.passReasonCategory);
+        if (body.suggestion.passReason) setPassReason(body.suggestion.passReason);
+        setClassifyFromAi(true);
+      } catch { /* sem chave ou falha: fica o caminho manual, que e o normal */ }
+      finally { if (alive) setClassifying(false); }
+    }, 900);
+    return () => { alive = false; window.clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [direction, content]);
 
   const passMissing = direction === 'in' && classification === 'pass' && passReason.trim().length === 0;
   // Prompt 202 §A.1 — inbound sem classificação escolhida não grava.
@@ -269,6 +298,11 @@ function LogForm() {
       // impede gravar um inbound por classificar), daí o cast ser seguro.
       classification: direction === 'in' ? (classification as Classification) : direction === 'out' ? 'awaiting' : undefined,
       ask_amount_eur: direction === 'out' && askAmount.trim() !== '' ? Number(askAmount) : undefined,
+      // Um pass sugerido pela AI fica por rever: muda o status da entidade
+      // para 'passed', que e decisao a mais para ficar so com a palavra do
+      // modelo. A infra needs_review ja existia para exactamente isto.
+      classified_by: direction === 'in' && classifyFromAi ? 'ai' as const : undefined,
+      needs_review: direction === 'in' && classifyFromAi && classification === 'pass' ? true : undefined,
       pass_reason_category: classification === 'pass' ? passCat : undefined,
       pass_reason: classification === 'pass' ? passReason : undefined,
       next_action: nextAction || undefined, next_action_due: nextDue || undefined,
@@ -590,6 +624,12 @@ function LogForm() {
               <option value="" disabled>Choose what they said…</option>
               {CLASSIFICATIONS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
             </select>
+            {classifying && <span className="ml-2 text-[11px] text-gray-400">✨ reading the reply…</span>}
+            {classifyFromAi && (
+              <span className="ml-2 rounded-full bg-cyan-100 px-1.5 py-0.5 text-[11px] font-semibold text-cyan-900">
+                ✨ AI — check before saving
+              </span>
+            )}
             {classification === '' && (
               <p className="mt-1.5 text-xs text-amber-700">
                 Required. What they said decides the stage — an unclassified reply reads as &quot;still waiting&quot;

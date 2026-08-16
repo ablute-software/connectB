@@ -183,7 +183,7 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [] }:
                   {i.next_action && <div className="mt-1 text-xs text-gray-500">Next: {i.next_action} {i.next_action_due && `· ${i.next_action_due}`}</div>}
                   {pending.some((p) => p.id === i.id) && (
                     classifying === i.id
-                      ? <InlineClassify interactionId={i.id} onDone={() => setClassifying(null)} />
+                      ? <InlineClassify interactionId={i.id} content={i.content} onDone={() => setClassifying(null)} />
                       : (
                         <button onClick={() => setClassifying(i.id)}
                           className="mt-1.5 rounded-full bg-amber-200 px-2.5 py-0.5 text-[11px] font-semibold text-amber-900 hover:bg-amber-300">

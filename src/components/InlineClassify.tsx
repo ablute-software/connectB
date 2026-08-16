@@ -11,8 +11,9 @@
 // resposta ser a mesma onde quer que o founder chegue primeiro. Chama o
 // classifyInteraction que já existe — que já trata de pôr a entidade em
 // 'passed' num pass e em 'in_conversation' numa resposta de interesse.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
+import { aiNeedsReview, type ClassifySuggestion } from '@/lib/classify-ai';
 import type { Classification, PassReasonCategory } from '@/lib/types';
 
 const CLASSIFICATIONS: Classification[] = [
@@ -22,11 +23,53 @@ const PASS_CATS: PassReasonCategory[] = [
   'valuation', 'check_size', 'geography', 'stage_too_early', 'thesis_mismatch', 'team', 'traction', 'other',
 ];
 
-export function InlineClassify({ interactionId, onDone }: { interactionId: string; onDone?: () => void }) {
+export function InlineClassify({ interactionId, content, onDone }: {
+  interactionId: string;
+  // Prompt 208 §D.2 — o texto da propria resposta, para a AI poder ler. Sem
+  // ele o botao de AI nao aparece (nao ha nada para classificar).
+  content?: string;
+  onDone?: () => void;
+}) {
   const { classifyInteraction } = useStore();
+  const [aiState, setAiState] = useState<'idle' | 'running' | 'done' | 'unavailable'>('idle');
+  const [fromAi, setFromAi] = useState(false);
   const [choice, setChoice] = useState<Classification | ''>('');
   const [cat, setCat] = useState<PassReasonCategory>('other');
   const [reason, setReason] = useState('');
+
+  // Descobre uma so vez se a chave esta configurada, para nao mostrar um
+  // botao que so falha. Sem chave, o caminho manual e o unico -- e e o
+  // comportamento normal, nao uma avaria.
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/classify-interaction', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: '' }) })
+      .then((r) => r.json())
+      .then((b) => { if (alive && !b.configured) setAiState('unavailable'); })
+      .catch(() => { if (alive) setAiState('unavailable'); });
+    return () => { alive = false; };
+  }, []);
+
+  async function classifyWithAi() {
+    if (!content) return;
+    setAiState('running');
+    try {
+      const r = await fetch('/api/classify-interaction', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content }),
+      });
+      const body = await r.json() as { configured?: boolean; suggestion?: ClassifySuggestion | null };
+      if (!body.configured) { setAiState('unavailable'); return; }
+      if (!body.suggestion) { setAiState('done'); return; }
+      // Pre-selecciona; nao grava. O founder confirma no mesmo Save de
+      // sempre -- a AI sugere, quem decide continua a ser ele.
+      setChoice(body.suggestion.classification);
+      if (body.suggestion.passReasonCategory) setCat(body.suggestion.passReasonCategory);
+      if (body.suggestion.passReason) setReason(body.suggestion.passReason);
+      setFromAi(true);
+      setAiState('done');
+    } catch {
+      setAiState('done');
+    }
+  }
 
   // A mesma regra do /log e da base de dados (pass_requires_reason): um pass
   // sem razão não se grava. Aqui é ainda mais importante que no formulário —
@@ -43,12 +86,25 @@ export function InlineClassify({ interactionId, onDone }: { interactionId: strin
           <option value="" disabled>Choose…</option>
           {CLASSIFICATIONS.map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
         </select>
+        {content && aiState !== 'unavailable' && (
+          <button onClick={classifyWithAi} disabled={aiState === 'running'}
+            className="rounded-full border border-cyan-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-[#0E7490] hover:bg-cyan-50 disabled:opacity-50">
+            {aiState === 'running' ? 'Reading…' : '✨ Classify with AI'}
+          </button>
+        )}
+        {fromAi && <span className="rounded-full bg-cyan-100 px-1.5 py-0.5 text-[11px] font-semibold text-cyan-900">✨ AI</span>}
         <button
           disabled={!canSave}
           onClick={() => {
+            // Um pass sugerido pela AI grava com needs_review: muda o
+            // status da entidade para 'passed', que e decisao a mais para
+            // ficar so com a palavra do modelo, mesmo confirmada a correr.
+            const suggestion = { classification: choice as Classification };
             classifyInteraction(interactionId, choice as Classification,
               choice === 'pass' ? cat : undefined,
-              choice === 'pass' ? reason.trim() : undefined);
+              choice === 'pass' ? reason.trim() : undefined,
+              fromAi ? 'ai' : undefined,
+              fromAi && aiNeedsReview(suggestion) ? true : undefined);
             onDone?.();
           }}
           className="rounded-full bg-[#0E7490] px-2.5 py-0.5 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">

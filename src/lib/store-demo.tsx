@@ -103,11 +103,11 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       return interaction;
     },
 
-    classifyInteraction(id, c, cat, reason, classifiedBy) {
+    classifyInteraction(id, c, cat, reason, classifiedBy, needsReview) {
       setDb((prev) => ({
         ...prev,
         interactions: prev.interactions.map((i) =>
-          i.id === id ? { ...i, classification: c, pass_reason_category: cat, pass_reason: reason, classified_by: classifiedBy } : i),
+          i.id === id ? { ...i, classification: c, pass_reason_category: cat, pass_reason: reason, classified_by: classifiedBy, needs_review: needsReview ?? i.needs_review } : i),
         entities: (() => {
           const it = prev.interactions.find((i) => i.id === id);
           if (!it) return prev.entities;

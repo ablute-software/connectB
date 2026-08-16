@@ -367,7 +367,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       return interaction;
     },
 
-    classifyInteraction(id: string, c: Classification, cat?: PassReasonCategory, reason?: string, classifiedBy?: 'ai' | 'mechanical') {
+    classifyInteraction(id: string, c: Classification, cat?: PassReasonCategory, reason?: string, classifiedBy?: 'ai' | 'mechanical', needsReview?: boolean) {
       const prev = dbRef.current;
       const it = prev.interactions.find((i) => i.id === id);
       let entityPatch: Partial<Entity> | null = null;
@@ -397,12 +397,12 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
 
       commit({
         ...prev, entities, people,
-        interactions: prev.interactions.map((i) => i.id === id ? { ...i, classification: c, pass_reason_category: cat, pass_reason: reason, classified_by: classifiedBy } : i),
+        interactions: prev.interactions.map((i) => i.id === id ? { ...i, classification: c, pass_reason_category: cat, pass_reason: reason, classified_by: classifiedBy, needs_review: needsReview ?? i.needs_review } : i),
       });
 
       const o = orgIdRef.current;
       if (o) {
-        persist(sb.from('interactions').update({ classification: c, pass_reason_category: cat ?? null, pass_reason: reason ?? null, classified_by: classifiedBy ?? null }).eq('id', id), 'classifyInteraction:interaction');
+        persist(sb.from('interactions').update({ classification: c, pass_reason_category: cat ?? null, pass_reason: reason ?? null, classified_by: classifiedBy ?? null, ...(needsReview === undefined ? {} : { needs_review: needsReview }) }).eq('id', id), 'classifyInteraction:interaction');
         if (entityPatch && it) persist(sb.from('entities').update(entityPatch).eq('id', it.entity_id), 'classifyInteraction:entity');
         if (newBounceCount !== null && it?.person_id) persist(sb.from('people').update({ bounce_count: newBounceCount }).eq('id', it.person_id), 'classifyInteraction:person');
       }

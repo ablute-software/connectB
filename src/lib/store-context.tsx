@@ -26,6 +26,11 @@ export type LogInput = {
   // Prompt 202 §D — valor pedido neste contacto. Opcional; ausente significa
   // "nao registado", que e diferente de zero.
   ask_amount_eur?: number;
+  // Prompt 208 §D.2 — quem classificou, e se fica por rever. Um pass
+  // sugerido pela AI muda o status da entidade para 'passed', portanto grava
+  // needs_review para o founder validar.
+  classified_by?: 'ai' | 'mechanical';
+  needs_review?: boolean;
   classification?: Classification;
   pass_reason_category?: PassReasonCategory;
   pass_reason?: string;
@@ -54,7 +59,11 @@ export interface StoreApi {
   // shape, no 5th arg) automatically clears a prior 'ai'/'mechanical' tag
   // back to undefined. The entity/person side effects below are unchanged
   // by who or what is calling this.
-  classifyInteraction: (id: string, c: Classification, cat?: PassReasonCategory, reason?: string, classifiedBy?: 'ai' | 'mechanical') => void;
+  // Prompt 208 §D.2 — needsReview entra aqui porque um pass classificado
+  // por AI muda o status da entidade para 'passed': e decisao a mais para
+  // ficar sem olho humano. revertToNeedsReview nao servia -- limpa o
+  // classified_by, e queremos saber que foi a AI.
+  classifyInteraction: (id: string, c: Classification, cat?: PassReasonCategory, reason?: string, classifiedBy?: 'ai' | 'mechanical', needsReview?: boolean) => void;
   // Overnight block Task B2 — needs_review triage. Deliberately separate
   // from classifyInteraction (not a new parameter on it) so reviewing the
   // flag never changes that function's existing entity-status side
