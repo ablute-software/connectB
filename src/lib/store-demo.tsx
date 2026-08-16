@@ -5,8 +5,7 @@
 // StoreApi contract (locks, follow-up tasks, overrides, runs semantics).
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation,
-} from './types';
+  AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation, FundingRound } from './types';
 import { seed } from './data/seed';
 import { revisitTasksToClose } from './exit-effects';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
@@ -256,6 +255,17 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     // Prompt 167 — demo-mode roadmap milestones: local state only, same
     // add/update/remove shape as traction metrics above, no rejection path
     // (roadmap has no equivalent of the dealdigger-limit trigger).
+    async addFundingRound(r) {
+      setDb((prev) => ({
+        ...prev,
+        fundingRounds: [...prev.fundingRounds, { ...r, id: uid('fr'), org_id: prev.org.id, created_at: new Date().toISOString() } as FundingRound],
+      }));
+      return {};
+    },
+    async removeFundingRound(id) {
+      setDb((prev) => ({ ...prev, fundingRounds: prev.fundingRounds.filter((f) => f.id !== id) }));
+      return {};
+    },
     async addRoadmapMilestone(m) {
       setDb((prev) => {
         const sortOrder = prev.roadmapMilestones.length ? Math.max(...prev.roadmapMilestones.map((x) => x.sort_order)) + 1 : 0;

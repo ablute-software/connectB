@@ -17,6 +17,7 @@ import { RoadmapCard } from './RoadmapCard';
 import { IdentityCard } from './IdentityCard';
 import { StartupTeamCard } from './StartupTeamCard';
 import { RoundCard } from './RoundCard';
+import { PreviousFundingCard } from '@/components/PreviousFundingCard';
 import { TractionCard } from './TractionCard';
 import { OutreachSettingsCard } from './OutreachSettingsCard';
 import { DataroomChecklistCard } from './DataroomChecklistCard';
@@ -82,6 +83,11 @@ export function CompanyPanel() {
       <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
       <div id="settings-round" data-tour-id="settings-round">
         <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
+        {/* Prompt 212 §B.3 — logo a seguir a ronda actual, porque a pergunta
+            que o founder faz e "quanto ja levantei" vs "quanto estou a
+            levantar", e as duas tem de estar lado a lado para nao voltarem a
+            confundir-se. */}
+        {canEdit && <PreviousFundingCard />}
       </div>
       <div data-tour-id="settings-traction">
         <TractionCard canEdit={canEdit} />

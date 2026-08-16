@@ -1,4 +1,4 @@
--- Prompt 212 §B.1 — PROPOSTO, NÃO APLICADO (aplica o revisor).
+-- Prompt 212 §B.1 — APLICADO EM PRODUÇÃO 2026-08-16 pelo revisor.
 --
 -- Rondas passadas: capital JÁ levantado, separado da ronda actual.
 --

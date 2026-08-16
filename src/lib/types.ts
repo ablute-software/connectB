@@ -467,6 +467,21 @@ export interface TaskItem {
   snoozed_until?: string | null;
 }
 
+// Prompt 212 §B.1 — capital JÁ levantado, separado da ronda actual
+// (orgs.round_secured_eur). Existe porque não existia: os €100k de uma ronda
+// antiga da ablute_ estavam guardados como `interest_eur` de uma entrada do
+// pipeline, por não haver outro sítio, e o review somava-os como
+// soft-circled DESTA ronda.
+export interface FundingRound {
+  id: string;
+  org_id?: string;
+  label: string;
+  amount_eur: number;
+  closed_year?: number;
+  note?: string;
+  created_at?: string;
+}
+
 export interface RelationshipState {
   entity_id: string;
   stage: RelationshipStage;
@@ -772,4 +787,5 @@ export interface Db {
   documentVersions: DocumentVersion[];
   reawakeningProposals: ReawakeningProposal[];
   roadmapMilestones: RoadmapMilestone[];
+  fundingRounds: FundingRound[];
 }

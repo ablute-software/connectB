@@ -12,8 +12,7 @@ import type {
   AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, CompanyFact, CompanyPerson, Db, DocumentItem,
   DocumentVersion, DocumentView, Entity, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
-  RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone,
-} from './types';
+  RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval } from './reawakening';
@@ -28,7 +27,7 @@ const EMPTY_DB: Db = {
   org: EMPTY_ORG, entities: [], people: [], personAffiliations: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
-  documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [],
+  documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -75,6 +74,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
     documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes, roadmapMilestonesRes,
+    fundingRoundsRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -123,6 +123,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // that year's quarters) is computed in RoadmapCard.tsx, not here — it
     // depends on period_kind too, not just a column order.
     sb.from('company_roadmap_milestones').select('*').eq('org_id', orgId).order('period_year', { ascending: true }),
+    sb.from('funding_rounds').select('*').eq('org_id', orgId).order('closed_year', { ascending: true }),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -185,6 +186,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     reawakeningProposals: ((reawakeningProposalsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<ReawakeningProposal>(r)),
     tractionMetrics: ((tractionMetricsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<TractionMetric>(r)),
     roadmapMilestones: ((roadmapMilestonesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RoadmapMilestone>(r)),
+    fundingRounds: ((fundingRoundsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<FundingRound>(r)),
   };
 }
 
@@ -587,6 +589,26 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     // minus the dealdigger-limit rejection path (roadmap has no such
     // constraint, so these stay simple fire-and-forget-with-error-surfaced
     // rather than needing an awaited-before-commit round trip).
+    async addFundingRound(r) {
+      const prev = dbRef.current;
+      const row: FundingRound = { ...r, id: uuid(), org_id: prev.org.id, created_at: new Date().toISOString() };
+      const o = orgIdRef.current;
+      if (o) {
+        const { error } = await sb.from('funding_rounds').insert({ ...row, org_id: o });
+        if (error) return { error: error.message };
+      }
+      commit({ ...prev, fundingRounds: [...prev.fundingRounds, row] });
+      return {};
+    },
+    async removeFundingRound(id) {
+      const prev = dbRef.current;
+      if (orgIdRef.current) {
+        const { error } = await sb.from('funding_rounds').delete().eq('id', id);
+        if (error) return { error: error.message };
+      }
+      commit({ ...prev, fundingRounds: prev.fundingRounds.filter((f) => f.id !== id) });
+      return {};
+    },
     async addRoadmapMilestone(m) {
       const prev = dbRef.current;
       const sortOrder = prev.roadmapMilestones.length

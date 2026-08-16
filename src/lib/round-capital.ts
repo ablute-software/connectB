@@ -50,3 +50,38 @@ export function capitalExcluded(
     .filter((e) => (e.interest_eur ?? 0) > 0 && !isLiveForCapital(e.status))
     .map((e) => ({ name: e.name, status: e.status, amountEur: e.interest_eur as number }));
 }
+
+// Prompt 212 §B.3 — o que sugerir ao founder sobre um `interest_eur` que
+// deixou de contar. O número mudou; a app tem de dizer porquê e oferecer a
+// correcção certa — e a correcção NÃO é a mesma nos dois casos reais:
+//
+//   "Nuno Marujo" (not_contacted, €100k) — capital de uma ronda anterior,
+//   posto ali por não haver outro sítio. Vai para funding_rounds.
+//
+//   "Adara Ventures" (dormant, €300k) — recusaram. Não é ronda anterior
+//   nenhuma: é um interesse obsoleto que ficou para trás. Só se limpa.
+//
+// A distinção é: houve conversa que acabou (passed/dormant) -> obsoleto;
+// nunca houve conversa (not_contacted) -> provavelmente não era interesse
+// de investidor nenhum, era capital sem sítio.
+export type CapitalSuggestion = 'move_to_previous_funding' | 'clear_stale_interest';
+
+export interface CapitalFix {
+  entityId: string; name: string; status: EntityStatus; amountEur: number;
+  suggestion: CapitalSuggestion;
+}
+
+export function suggestCapitalFixes(
+  entities: Pick<Entity, 'id' | 'name' | 'status' | 'interest_eur'>[],
+): CapitalFix[] {
+  return entities
+    .filter((e) => (e.interest_eur ?? 0) > 0 && !isLiveForCapital(e.status))
+    .map((e) => ({
+      entityId: e.id, name: e.name, status: e.status, amountEur: e.interest_eur as number,
+      // 'invested' fica de fora das duas: não é obsoleto nem ronda passada,
+      // é a ronda actual fechada. Mexer nele seria apagar um facto bom.
+      suggestion: (e.status === 'passed' || e.status === 'dormant'
+        ? 'clear_stale_interest' : 'move_to_previous_funding') as CapitalSuggestion,
+    }))
+    .filter((f) => f.status !== 'invested');
+}

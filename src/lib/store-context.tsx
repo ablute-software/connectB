@@ -7,8 +7,7 @@ import { createContext, useContext } from 'react';
 import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, CompanyPerson, Db,
   Direction, DocumentItem, DocVisibility, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
-  PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone,
-} from './types';
+  PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone, FundingRound } from './types';
 
 export type LogInput = {
   entity_id: string;
@@ -212,6 +211,10 @@ export interface StoreApi {
   reviewSubmission: (id: string, decision: 'approved' | 'rejected', notes?: string) => void;
   // IRM_SPEC §4e: relationship roadmap overlay
   setRelationshipStage: (entityId: string, stage: RelationshipStage) => void;
+  // Prompt 212 §B.3 — rondas anteriores. Fonte única: quem mostra capital
+  // já levantado lê daqui, nunca de uma cópia.
+  addFundingRound: (r: Omit<FundingRound, 'id' | 'org_id' | 'created_at'>) => Promise<{ error?: string }>;
+  removeFundingRound: (id: string) => Promise<{ error?: string }>;
   setNextStepTask: (entityId: string, taskId: string | undefined) => void;
   // IRM_SPEC §1c: multi-affiliation people
   addAffiliation: (a: Omit<PersonAffiliation, 'id' | 'current'>) => void;

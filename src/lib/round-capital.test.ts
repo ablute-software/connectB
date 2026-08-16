@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { softCircledThisRound, capitalExcluded, isLiveForCapital, LIVE_STATUSES } from './round-capital';
+import { softCircledThisRound, capitalExcluded, isLiveForCapital, suggestCapitalFixes, LIVE_STATUSES } from './round-capital';
 import type { Entity, EntityStatus } from './types';
 
 // Prompt 212 §B.2 — os dados REAIS da ablute_ a 2026-08-16.
@@ -69,5 +69,48 @@ describe('capitalExcluded — o numero nao muda sem explicacao', () => {
       { name: 'Sem valor', status: 'dormant', interest_eur: 0 },
       { name: 'Sem campo', status: 'passed' },
     ] as Pick<Entity, 'name' | 'status' | 'interest_eur'>[])).toEqual([]);
+  });
+});
+
+describe('suggestCapitalFixes — a correccao certa para cada caso', () => {
+  it('not_contacted -> mover para rondas anteriores (o caso Nuno Marujo)', () => {
+    const [f] = suggestCapitalFixes([
+      { id: 'e1', name: 'Nuno Marujo', status: 'not_contacted', interest_eur: 100_000 },
+    ] as Entity[]);
+    expect(f).toEqual({
+      entityId: 'e1', name: 'Nuno Marujo', status: 'not_contacted',
+      amountEur: 100_000, suggestion: 'move_to_previous_funding',
+    });
+  });
+
+  it('dormant depois de recusar -> limpar (o caso Adara)', () => {
+    const [f] = suggestCapitalFixes([
+      { id: 'e2', name: 'Adara Ventures', status: 'dormant', interest_eur: 300_000 },
+    ] as Entity[]);
+    expect(f.suggestion).toBe('clear_stale_interest');
+  });
+
+  it('passed tambem e limpar, nao ronda anterior', () => {
+    const [f] = suggestCapitalFixes([{ id: 'e3', name: 'X', status: 'passed', interest_eur: 5_000 }] as Entity[]);
+    expect(f.suggestion).toBe('clear_stale_interest');
+  });
+
+  it('invested NAO gera sugestao -- mexer nisso apagava um facto bom', () => {
+    expect(suggestCapitalFixes([{ id: 'e4', name: 'X', status: 'invested', interest_eur: 200_000 }] as Entity[])).toEqual([]);
+  });
+
+  it('relacoes vivas nao geram sugestao nenhuma', () => {
+    expect(suggestCapitalFixes([
+      { id: 'a', name: 'A', status: 'in_conversation', interest_eur: 50_000 },
+      { id: 'b', name: 'B', status: 'diligence', interest_eur: 10_000 },
+    ] as Entity[])).toEqual([]);
+  });
+
+  it('os dois casos reais de uma vez', () => {
+    const fixes = suggestCapitalFixes([
+      { id: 'e1', name: 'Nuno Marujo', status: 'not_contacted', interest_eur: 100_000 },
+      { id: 'e2', name: 'Adara Ventures', status: 'dormant', interest_eur: 300_000 },
+    ] as Entity[]);
+    expect(fixes.map((f) => f.suggestion)).toEqual(['move_to_previous_funding', 'clear_stale_interest']);
   });
 });
