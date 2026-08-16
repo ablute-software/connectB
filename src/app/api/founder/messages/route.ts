@@ -23,6 +23,7 @@
 // entityId keeps the original thread-list behavior unchanged.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { resolveFounderMessageDocs } from '@/lib/deal-messages-resolve';
 import { serverClient } from '@/lib/supabase-server';
 import { dealMessagesAvailable } from '@/lib/deal-messages-capability';
 import {
@@ -58,7 +59,10 @@ export async function GET(req: Request) {
 
     const thread = await findThread(admin, orgId, firm.investorCatalogEntityId);
     if (!thread) return NextResponse.json({ canMessage: true, investorCatalogEntityId: firm.investorCatalogEntityId, investorName: firm.name, messages: [] });
-    const messages = await getThreadMessages(admin, thread.id as string);
+    const raw = await getThreadMessages(admin, thread.id as string);
+    // Prompt 210 §A.4 — anexos resolvidos na leitura: nome + acesso, em vez
+    // de um id nu que o cliente nao sabe desenhar.
+    const messages = await resolveFounderMessageDocs(admin, orgId, raw);
     await markThreadRead(admin, thread.id as string, 'founder');
     return NextResponse.json({ canMessage: true, investorCatalogEntityId: firm.investorCatalogEntityId, investorName: firm.name, messages });
   }

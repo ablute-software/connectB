@@ -12,6 +12,7 @@ import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
 import { dealMessagesAvailable } from '@/lib/deal-messages-capability';
 import { findThread, getOrCreateThread, getThreadMessages, postMessage, markThreadRead, canInvestorMessage } from '@/lib/deal-messages';
+import { resolveInvestorMessageDocs } from '@/lib/deal-messages-resolve';
 import { descendantFolderIds, resolveDocumentAccess, type GrantLike } from '@/lib/data-room';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
@@ -48,7 +49,10 @@ export async function GET(req: Request) {
   const thread = await findThread(admin, orgId, investorCatalogEntityId);
   if (!thread) return NextResponse.json({ messages: [], canMessage: true, founderLastReadAt: null });
 
-  const messages = await getThreadMessages(admin, thread.id as string);
+  const raw = await getThreadMessages(admin, thread.id as string);
+  // Prompt 210 §A.4 — recomputado AGORA, nao herdado da escrita: os grants
+  // podem ter sido revogados ou expirado depois de a mensagem ser enviada.
+  const messages = await resolveInvestorMessageDocs(admin, orgId, email, raw);
   await markThreadRead(admin, thread.id as string, 'investor');
   return NextResponse.json({ messages, canMessage: true, founderLastReadAt: thread.founder_last_read_at });
 }

@@ -5,9 +5,49 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeDomain, normalizeName } from './catalog-dedupe';
 import { domainMatchesEntity } from './investor-domain-match';
 
+// Prompt 210 §A.4 — um anexo resolvido na LEITURA, e nao um id nu.
+//
+// Ate aqui as mensagens devolviam `documentIds` cru e o thread desenhava
+// "📎 2 documents attached": sem nome (nao da para saber o que e) e sem
+// verificacao de acesso (o anexo nao cria acesso, mas nada dizia isso). A
+// validacao so existia na ESCRITA, dos dois lados.
+//
+// `accessible` e calculado por quem chama, porque a pergunta e diferente
+// conforme o lado: para o founder e "este documento e da minha org?"; para o
+// investidor e o resolveDocumentAccess completo (grants, NDA, subpastas,
+// due_diligence). O que nao muda e a forma: perguntar sempre a base de
+// dados, nunca aceitar o que vem no cliente.
+export interface MessageDoc { id: string; name: string; accessible: boolean }
+
 export interface DealMessage {
   id: string; senderSide: 'investor' | 'founder'; senderUserId: string;
-  body: string; links: { label: string; url: string }[]; documentIds: string[]; createdAt: string;
+  body: string; links: { label: string; url: string }[]; documentIds: string[];
+  documents: MessageDoc[]; createdAt: string;
+}
+
+// Junta nome e acesso aos ids que a mensagem carrega. Pura, para o
+// comportamento nos casos chatos (documento apagado, id que nao pertence a
+// org nenhuma) ficar preso em teste e nao depender de uma rota.
+//
+// DECISAO, e reversivel se discordares: um documento inacessivel MOSTRA o
+// nome. O founder anexou aquele documento aquele investidor de propria
+// vontade -- o nome faz parte da intencao da mensagem, e sem ele o
+// investidor ve "pede acesso" sem saber a quê. Se preferires esconder o
+// nome, e uma linha aqui.
+export function withDocumentInfo(
+  messages: DealMessage[], names: Map<string, string>, accessibleIds: Set<string>,
+): DealMessage[] {
+  return messages.map((m) => ({
+    ...m,
+    documents: m.documentIds.map((id) => ({
+      id,
+      // Um id sem nome e um documento que ja nao existe (apagado depois de
+      // enviado). Continua a aparecer, para a mensagem nao mentir sobre o
+      // que foi enviado, mas nunca como acessivel.
+      name: names.get(id) ?? 'Document no longer available',
+      accessible: names.has(id) && accessibleIds.has(id),
+    })),
+  }));
 }
 
 const MAX_LINKS = 20;
@@ -64,7 +104,10 @@ export async function getThreadMessages(admin: SupabaseClient, threadId: string)
     .eq('thread_id', threadId).order('created_at', { ascending: true });
   return (data ?? []).map((m) => ({
     id: m.id as string, senderSide: m.sender_side as 'investor' | 'founder', senderUserId: m.sender_user_id as string,
-    body: m.body as string, links: sanitizeLinks(m.links), documentIds: (m.document_ids as string[]) ?? [], createdAt: m.created_at as string,
+    body: m.body as string, links: sanitizeLinks(m.links), documentIds: (m.document_ids as string[]) ?? [],
+    // Vazio ate o chamador resolver com withDocumentInfo(): esta funcao nao
+    // sabe (nem deve saber) que acesso o leitor tem.
+    documents: [], createdAt: m.created_at as string,
   }));
 }
 

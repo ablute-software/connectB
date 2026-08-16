@@ -5,9 +5,14 @@
 // the chronological list, composer, and "Seen" logic are identical.
 import { useEffect, useRef, useState } from 'react';
 
+export interface MessageDoc { id: string; name: string; accessible: boolean }
 export interface DealMessage {
   id: string; senderSide: 'investor' | 'founder'; senderUserId: string;
-  body: string; links: { label: string; url: string }[]; documentIds: string[]; createdAt: string;
+  body: string; links: { label: string; url: string }[]; documentIds: string[];
+  // Prompt 210 §A.4 — resolvido pelo servidor (nome + acesso). Opcional para
+  // nao partir um cliente antigo em cache a meio de um deploy; nesse caso
+  // cai-se na contagem de sempre.
+  documents?: MessageDoc[]; createdAt: string;
 }
 export interface AttachableDoc { id: string; name: string }
 
@@ -162,9 +167,25 @@ export function DealThreadView({
                       ))}
                     </ul>
                   )}
-                  {m.documentIds.length > 0 && (
+                  {/* Prompt 210 §A.4 — anexar NAO cria acesso: um documento a
+                      que este leitor nao tenha direito mostra "request
+                      access" em vez de um link que ia falhar. */}
+                  {m.documents && m.documents.length > 0 ? (
+                    <ul className="mt-1 space-y-0.5">
+                      {m.documents.map((d) => (
+                        <li key={d.id} className={`text-xs ${mine ? 'text-cyan-100' : 'text-gray-600'}`}>
+                          📎{' '}
+                          {d.accessible ? (
+                            <a href={`/documents?doc=${d.id}`} className={`hover:underline ${mine ? 'text-white' : 'text-[#0E7490]'}`}>{d.name}</a>
+                          ) : (
+                            <span>{d.name} <span className={mine ? 'text-cyan-200' : 'text-amber-700'}>— request access</span></span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : m.documentIds.length > 0 ? (
                     <p className={`mt-1 text-xs ${mine ? 'text-cyan-100' : 'text-gray-500'}`}>📎 {m.documentIds.length} document{m.documentIds.length === 1 ? '' : 's'} attached</p>
-                  )}
+                  ) : null}
                   <div className={`mt-1 text-[10px] ${mine ? 'text-cyan-100' : 'text-gray-400'}`}>
                     {fmtDateTime(m.createdAt)}{isLast && seen && ' · Seen'}
                   </div>

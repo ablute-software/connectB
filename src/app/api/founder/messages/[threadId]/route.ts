@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { dealMessagesAvailable } from '@/lib/deal-messages-capability';
 import { getThreadMessages, postMessage, markThreadRead } from '@/lib/deal-messages';
+import { resolveFounderMessageDocs } from '@/lib/deal-messages-resolve';
 
 async function resolveFounderOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
   const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
@@ -30,7 +31,8 @@ export async function GET(_req: Request, { params }: { params: { threadId: strin
   const { data: thread } = await admin.from('deal_threads').select('id, startup_org_id').eq('id', params.threadId).maybeSingle();
   if (!thread || thread.startup_org_id !== orgId) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
-  const messages = await getThreadMessages(admin, params.threadId);
+  const raw = await getThreadMessages(admin, params.threadId);
+  const messages = await resolveFounderMessageDocs(admin, orgId, raw);
   await markThreadRead(admin, params.threadId, 'founder');
   return NextResponse.json({ messages });
 }
