@@ -12,7 +12,7 @@ import { firstLine, recentInteractions, unclassifiedInbound, formatAsk, DIRECTIO
 import { SharedDocChip } from '@/components/SharedDocChip';
 import { InlineClassify } from '@/components/InlineClassify';
 
-export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassifyNonce = 0 }: {
+export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassifyNonce = 0, focusInteraction }: {
   entity: Entity;
   // Prompt 206-B — continua a existir para quem vem da Pipeline (abrir o
   // drawer em vez de navegar para fora), mas deixou de ser a ÚNICA porta: na
@@ -24,10 +24,14 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
   // mais antiga. Um contador e não um booleano para o mesmo pedido poder ser
   // feito duas vezes seguidas.
   focusClassifyNonce?: number;
+  // Prompt 209 — ancora vinda do badge de documentos do stepper: expande o
+  // historico, faz scroll ate essa interacao e destaca-a por uns segundos.
+  focusInteraction?: { id: string; nonce: number };
 }) {
   const { db } = useStore();
   const [expanded, setExpanded] = useState(false);
   const [classifying, setClassifying] = useState<string | null>(null);
+  const [highlighted, setHighlighted] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLLIElement | null>>({});
 
   const all = recentInteractions(db.interactions, entity.id, Number.MAX_SAFE_INTEGER);
@@ -48,6 +52,20 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
     }, 0);
     return () => window.clearTimeout(id);
   }, [focusClassifyNonce, oldestPending?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!focusInteraction?.nonce || !focusInteraction.id) return;
+    setExpanded(true);
+    setHighlighted(focusInteraction.id);
+    const t = window.setTimeout(() => {
+      rowRefs.current[focusInteraction.id]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+    // O destaque apaga-se sozinho: serve para o olho encontrar a linha, nao
+    // para ficar la a marca-la.
+    const clear = window.setTimeout(() => setHighlighted(null), 4000);
+    return () => { window.clearTimeout(t); window.clearTimeout(clear); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusInteraction?.nonce]);
 
   const recent = expanded ? all : all.slice(0, limit);
 
@@ -97,7 +115,8 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
           return (
             <li key={i.id} ref={(el) => { rowRefs.current[i.id] = el; }}
               className={`flex flex-wrap items-baseline gap-x-1.5 text-xs text-gray-600 ${
-                needsClassifying ? 'rounded border border-amber-300 bg-amber-50/50 p-1.5' : ''}`}>
+                needsClassifying ? 'rounded border border-amber-300 bg-amber-50/50 p-1.5'
+                  : highlighted === i.id ? 'rounded border border-cyan-300 bg-cyan-50/60 p-1.5' : ''}`}>
               <span className="tabular-nums text-gray-400">{i.occurred_at.slice(0, 10)}</span>
               <span className={i.direction === 'in' ? 'font-medium text-blue-800' : 'font-medium text-cyan-900'}>
                 {DIRECTION_LABEL[i.direction]}

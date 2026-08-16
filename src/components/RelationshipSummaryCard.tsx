@@ -6,11 +6,12 @@ import Link from 'next/link';
 import type { Entity } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import {
-  STAGE_ORDER, STAGE_LABEL, relationshipSummary, nextBestAction, stageExits, entityMode, type WhoseTurn, type Health, type DealMessageTouch,
+  STAGE_LABEL, relationshipSummary, nextBestAction, stageExits, entityMode, type WhoseTurn, type Health, type DealMessageTouch,
 } from '@/lib/relationship';
 import { LOCK_DAYS } from '@/lib/rules';
 import { planPark, planPass, advanceConfirmation, type ExitPlan } from '@/lib/exit-effects';
 import { derivedStage } from '@/lib/derived-stage';
+import { JourneyStepper } from '@/components/JourneyStepper';
 import { TermHint } from '@/components/ui';
 
 // Prompt 49 §4 — jargon inside nextBestAction()'s free-text copy gets a
@@ -92,12 +93,15 @@ export function RelationshipCompactLine({ entityId }: { entityId: string }) {
 }
 
 // Full version for the entity page header.
-export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyRequest, dealMessageTouches = [] }: {
+export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyRequest, onViewInHistory, dealMessageTouches = [] }: {
   entity: Entity; onOpenThread?: () => void;
   // Prompt 208 §D — pedido de "leva-me a resposta por classificar". O cartao
   // nao sabe desenhar o historico; quem sabe e o RecentInteractions, logo
   // isto sobe a pagina da entidade e desce por focusClassifyNonce.
   onClassifyRequest?: () => void;
+  // Prompt 209 — "ver no historico" a partir do badge de documentos do
+  // stepper. Mesmo padrao: o cartao pede, a pagina liga ao historico.
+  onViewInHistory?: (interactionId: string) => void;
   // Prompt 197 C.1 — the caller (entities/[id]/page.tsx) already has this
   // entity's Sherlock thread loaded (from resolving its "Message investor"
   // eligibility, Prompt 197 A), so it's threaded straight through here
@@ -146,38 +150,29 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // o manual a ganhar quando está à frente e não é contradito), em vez do
   // que alguém clicou uma vez e nunca mais reviu.
   const ds = derivedStage(db, entity.id);
-  const stepIdx = STAGE_ORDER.indexOf(ds.effective);
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-      <div className="flex items-center gap-1 overflow-x-auto pb-1">
-        {parkedOrClosed && (
-          <span className="mr-1 whitespace-nowrap rounded-full bg-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600">
-            {mode === 'parked' ? '❄ parked' : '✕ closed'}
-          </span>
-        )}
-        {STAGE_ORDER.map((stg, i) => (
-          <div key={stg} className="flex items-center gap-1">
-            <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium ${
-              parkedOrClosed ? 'bg-gray-100 text-gray-400'
-                : i === stepIdx ? (ds.effective === 'decision' && entity.status === 'passed' ? 'bg-[#B00000] text-white' : 'bg-[#0E7490] text-white')
-                : i < stepIdx ? 'bg-[#E8F4F8] text-cyan-900'
-                : 'bg-gray-100 text-gray-400'}`}>
-              {STAGE_LABEL[stg]}
-            </span>
-            {i < STAGE_ORDER.length - 1 && <span className="text-gray-300">→</span>}
-          </div>
-        ))}
+      {/* Prompt 209 — o stepper e agora o JourneyStepper: desenha o que o
+          journeySteps() decide (percorridos com ✓, desfecho como ultimo chip,
+          sem estagios cinzentos depois de terminada) e leva o badge 📄. */}
+      <div className="overflow-x-auto">
+        <JourneyStepper entity={entity} onViewInHistory={onViewInHistory} />
       </div>
 
       {(ds.contradicted || ds.manualAhead || ds.unclassifiedReplies > 0 || parkedOrClosed) && (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
           {/* O caso Adara: os factos dizem que acabou e o stepper mostrava
               uma fase activa. Aqui o aviso é o ponto, não um detalhe. */}
-          {ds.contradicted && (
-            <span className="rounded-full bg-red-100 px-2 py-0.5 font-semibold text-[#B00000]" title={ds.reason}>
-              ✕ {ds.reason} — stage was set to {STAGE_LABEL[ds.manual!]} manually
-            </span>
+          {ds.contradicted && ds.manual && (
+            // Prompt 209 — UMA linha discreta com a accao clicavel. O alerta
+            // vermelho comprido competia com o proprio stepper, que agora ja
+            // mostra o desfecho: repetir a mesma noticia mais alto nao a
+            // torna mais legivel.
+            <button onClick={() => setRelationshipStage(entity.id, ds.derived)}
+              className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-500 hover:bg-gray-200" title={ds.reason}>
+              stage set manually: {STAGE_LABEL[ds.manual]} · accept the facts ({STAGE_LABEL[ds.derived]})
+            </button>
           )}
           {/* Manual à frente sem contradição é legítimo: 'diligence' não tem
               facto nenhum que a produza. Nota discreta, não aviso. */}
@@ -199,11 +194,6 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
               className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 hover:bg-amber-200 disabled:cursor-default">
               {ds.unclassifiedReplies} {ds.unclassifiedReplies === 1 ? 'reply' : 'replies'} to classify
             </button>
-          )}
-          {mode === 'parked' && (
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-500">
-              {nextBestAction(db, entity.id, new Date(), dealMessageTouches)}
-            </span>
           )}
         </div>
       )}
