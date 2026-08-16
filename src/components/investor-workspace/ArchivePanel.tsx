@@ -80,7 +80,14 @@ export function ArchivePanel() {
               <div>
                 <div className="text-sm font-semibold text-gray-900">{e.orgName}</div>
                 <div className="text-xs text-gray-400">
-                  {e.source === 'pass' ? 'Passed' : e.source === 'round_closed' ? 'Round closed' : 'Archived'}
+                  {/* Prompt 214 §A.3 — "Archived by you" e nao so "Archived".
+                      A ablute_ estava arquivada desde 5 Ago pelo proprio
+                      investidor, mas ao ver "Archived" ao lado de um pass
+                      feito noutra startup no mesmo dia, pareceu efeito
+                      colateral. A origem tem de estar no cartao. */}
+                  {e.source === 'pass' ? 'Passed'
+                    : e.source === 'round_closed' ? 'Round closed'
+                    : 'Archived by you'}
                   {e.reasonDetail && ` — ${REASON_LABELS[e.reasonDetail] ?? e.reasonDetail}`}
                   {' · '}{new Date(e.archivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </div>

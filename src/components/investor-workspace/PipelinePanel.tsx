@@ -143,6 +143,15 @@ export function PipelinePanel({
   // to prevent. The server already returns { qa: true } for this case; this
   // just surfaces it instead of silently doing nothing differently.
   const [qaToast, setQaToast] = useState<string | null>(null);
+  // Prompt 214 §B — uma sessao QA tem de ser inconfundivel DURANTE toda a
+  // sessao, nao so depois do clique. Ontem houve 5 "express interest" na
+  // ablute_ e ZERO chegaram ao founder: todas curto-circuitadas no gate QA,
+  // e o unico sinal era um toast amarelo que desaparecia. O gate estava
+  // certo; a comunicacao e que faltou.
+  //
+  // Fica true assim que UMA accao volte marcada como qa: a partir dai
+  // sabe-se com certeza, sem inventar uma segunda deteccao de sessao.
+  const [qaSession, setQaSession] = useState(false);
   // Item 8 — archiving worked (the entry landed in the Archive tab fine)
   // but gave zero feedback where the click happened: same card, same
   // buttons, nothing. The persistent "Archived" badge (isArchived, from the
@@ -254,7 +263,7 @@ export function PipelinePanel({
       } else {
         setConfirming(null);
         setReasonDraft('');
-        if (body.qa) setQaToast('QA session — action simulated, nothing recorded.');
+        if (body.qa) { setQaToast('QA session — action simulated, nothing recorded.'); setQaSession(true); }
       }
       load();
     } finally { setBusyOrgId(null); }
@@ -412,6 +421,14 @@ export function PipelinePanel({
       </div>
       {data.usualCoInvestors && <p className="text-xs text-gray-400">Usually co-invests with: {data.usualCoInvestors}</p>}
       {actionError && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
+      {/* Prompt 214 §B.1 — persistente, nao um toast: fica enquanto a sessao
+          durar. O toast em baixo continua como reforco imediato (§B.3), mas
+          deixou de ser o UNICO sinal. */}
+      {qaSession && (
+        <div className="sticky top-0 z-20 -mx-1 mb-2 rounded-lg border border-amber-300 bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900">
+          QA session — actions are simulated and nothing is recorded.
+        </div>
+      )}
       {qaToast && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{qaToast}</p>}
 
       {/* Prompt 127 §3 — before this, the only hint that comparison existed
@@ -602,8 +619,9 @@ export function PipelinePanel({
                         <button onClick={() => setInteractionLogOrgId(c.orgId)} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
                           🗂 Interaction log
                         </button>
-                        <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId} className="text-xs text-gray-400 hover:underline disabled:opacity-40">
-                          Archive
+                        <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId}
+                          className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
+                          Archive{qaSession ? ' (QA)' : ''}
                         </button>
                       </div>
                     ) : wave.unlocked && confirming?.orgId === c.orgId ? (
@@ -615,11 +633,19 @@ export function PipelinePanel({
                           <p className="text-xs text-gray-700">Confirm you&apos;re interested in {c.name}? The founder will be notified.</p>
                         ) : (
                           <>
+                            {/* Prompt 214 §A.2 — a caixa de razao ja existia;
+                                o que faltava era o titulo dizer o que isto e.
+                                Uma decisao final merece ser anunciada antes
+                                de ser explicada. */}
+                            <p className="mb-1 text-sm font-bold text-[#B00000]">Pass on {c.name} — this is final</p>
                             <label className="mb-1 block text-xs font-medium text-gray-700">Reason for passing (required)</label>
                             <textarea value={reasonDraft} onChange={(e) => setReasonDraft(e.target.value.slice(0, REASON_MAX_LEN))}
                               rows={3} placeholder="Why isn't this a fit right now?"
                               className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs" />
-                            <p className="mt-0.5 text-[10px] text-gray-400">{reasonDraft.length}/{REASON_MAX_LEN} · This decision is final — the data room will be revoked and it can&apos;t be undone.</p>
+                            <p className="mt-0.5 text-[11px] font-medium text-[#B00000]">
+                              The data room will be revoked and this can&apos;t be undone.
+                            </p>
+                            <p className="text-[10px] text-gray-400">{reasonDraft.length}/{REASON_MAX_LEN}</p>
                           </>
                         )}
                         <div className="mt-2 flex items-center gap-2">
@@ -653,7 +679,7 @@ export function PipelinePanel({
                         )}
                         <button onClick={() => startConfirm(c.orgId, 'interest')} disabled={busyOrgId === c.orgId}
                           className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-                          Express interest
+                          Express interest{qaSession ? ' (QA)' : ''}
                         </button>
                         {remindedOrgId === c.orgId ? (
                           <span className="text-xs text-gray-400">Reminder set for 2 weeks</span>
@@ -662,12 +688,21 @@ export function PipelinePanel({
                             Remind me in 2 weeks
                           </button>
                         )}
-                        <button onClick={() => startConfirm(c.orgId, 'pass')} className="text-xs text-gray-400 hover:underline">Pass</button>
+                        {/* Prompt 214 §A.1 — Pass e uma accao FINAL que revoga
+                            o data room. Era texto cinzento solto ao lado do
+                            botao de interesse; passa a botao com moldura, na
+                            mesma hierarquia da linha. O peso visual tem de
+                            corresponder ao peso da consequencia. */}
+                        <button onClick={() => startConfirm(c.orgId, 'pass')}
+                          className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-[#B00000] hover:border-[#B00000] hover:bg-red-50">
+                          Pass{qaSession ? ' (QA)' : ''}
+                        </button>
                         <button onClick={() => setInteractionLogOrgId(c.orgId)} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
                           🗂 Interaction log
                         </button>
-                        <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId} className="text-xs text-gray-400 hover:underline disabled:opacity-40">
-                          Archive
+                        <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId}
+                          className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
+                          Archive{qaSession ? ' (QA)' : ''}
                         </button>
                       </div>
                     ) : (
