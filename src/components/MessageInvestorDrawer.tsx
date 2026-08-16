@@ -6,7 +6,9 @@
 // thread UI. Only the chrome (header, close button) is new here, mirrored
 // off ThreadDrawer.tsx's own structure so the two drawers on this page read
 // as one family, not two unrelated patterns.
+import Link from 'next/link';
 import { DealThreadView } from '@/components/deal-messages/DealThreadView';
+import { useStore } from '@/lib/store';
 
 export function MessageInvestorDrawer({
   investorName, entityId, investorCatalogEntityId, open, onClose,
@@ -17,6 +19,18 @@ export function MessageInvestorDrawer({
   open: boolean;
   onClose: () => void;
 }) {
+  // Prompt 210 §A.1 — o DealThreadView ja sabia anexar (attachableDocuments,
+  // usado no lado do investidor); o que faltava era o drawer do founder
+  // passar-lhe a Vault dele. Ordenado por pasta para escolher depressa.
+  const { db } = useStore();
+  const attachable = db.documents
+    .map((d) => ({
+      id: d.id, name: d.name,
+      folder: db.folders.find((f) => f.id === d.folder_id)?.name ?? '',
+    }))
+    .sort((a, b) => (a.folder.localeCompare(b.folder) || a.name.localeCompare(b.name)))
+    .map((d) => ({ id: d.id, name: d.folder ? `${d.folder} · ${d.name}` : d.name }));
+
   if (!open) return null;
 
   return (
@@ -38,7 +52,16 @@ export function MessageInvestorDrawer({
             fetchUrl={`/api/founder/messages?entityId=${entityId}`}
             postUrl="/api/founder/messages"
             extraPostBody={{ investorCatalogEntityId }}
+            attachableDocuments={attachable}
           />
+          {/* Prompt 210 §A.3 — nao ha anexo directo do PC, de proposito: tudo
+              o que circula tem de estar na Vault (view-only, versionado, com
+              registo de quem viu). Um ficheiro anexado por fora escapava a
+              isso tudo, que e a promessa central do produto. */}
+          <p className="mt-2 text-[11px] text-gray-400">
+            Only Vault documents can be attached — that&apos;s what keeps them view-only, versioned and tracked.{' '}
+            <Link href="/documents" className="font-medium text-[#0E7490] hover:underline">Upload to the Vault first</Link>.
+          </p>
         </div>
       </div>
     </div>

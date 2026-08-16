@@ -97,7 +97,7 @@ export async function POST(req: Request) {
   if (!member) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 403 });
   const orgId = member.org_id as string;
 
-  const body = await req.json().catch(() => ({})) as { investorCatalogEntityId?: string; body?: string; links?: unknown };
+  const body = await req.json().catch(() => ({})) as { investorCatalogEntityId?: string; body?: string; links?: unknown; documentIds?: string[] };
   if (!body.investorCatalogEntityId) return NextResponse.json({ ok: false, error: 'investorCatalogEntityId is required.' }, { status: 400 });
   if (!body.body?.trim()) return NextResponse.json({ ok: false, error: "Message can't be empty." }, { status: 400 });
 
@@ -106,10 +106,23 @@ export async function POST(req: Request) {
   const qualifies = eligible.some((f) => f.investorCatalogEntityId === body.investorCatalogEntityId);
   if (!qualifies) return NextResponse.json({ ok: false, error: 'No relationship with this investor firm yet.' }, { status: 403 });
 
+  // Prompt 210 §A.2 — validado no SERVIDOR, nunca confiando na lista do
+  // cliente: mesmo padrao do lado do investidor (que recomputa o
+  // resolveDocumentAccess em vez de aceitar o que lhe mandam). Aqui a regra e
+  // mais simples porque o founder e dono da Vault -- basta o documento ser da
+  // org dele -- mas a forma e a mesma: pedir a base de dados, nao ao browser.
+  const requestedDocIds = [...new Set(body.documentIds ?? [])];
+  let allowedDocIds: string[] = [];
+  if (requestedDocIds.length > 0) {
+    const { data: ownDocs } = await admin.from('documents').select('id').in('id', requestedDocIds).eq('org_id', orgId);
+    const owned = new Set((ownDocs ?? []).map((d) => d.id as string));
+    allowedDocIds = requestedDocIds.filter((id) => owned.has(id));
+  }
+
   const thread = await getOrCreateThread(admin, orgId, body.investorCatalogEntityId);
   const { error } = await postMessage(admin, {
     threadId: thread.id as string, senderSide: 'founder', senderUserId: user.id,
-    body: body.body, links: body.links, documentIds: [],
+    body: body.body, links: body.links, documentIds: allowedDocIds,
   });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
