@@ -1,4 +1,5 @@
--- Prompt 212 §A — PROPOSTO, NÃO APLICADO (aplica o revisor).
+-- Prompt 212 §A — APLICADO EM PRODUÇÃO 2026-08-16 pelo revisor.
+-- Verificado: boolean NOT NULL default true, com o comment intacto.
 --
 -- Checkbox do founder para a barra de progresso da ronda no portal do
 -- investidor, no mesmo espírito do swot_visible_to_investors (0159).

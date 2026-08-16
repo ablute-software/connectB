@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card, Toggle } from '@/components/ui';
+import { softCircledThisRound } from '@/lib/round-capital';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import type { Contradiction } from '@/lib/action-plan';
 import { ReportView, type StructuredReport } from './ReportView';
@@ -138,12 +139,23 @@ export function ReviewPanel() {
     round_target_eur: db.org.round_target_eur, country: db.org.country, one_liner: db.org.one_liner,
   };
 
+  // Prompt 212 §B.2 — o nome importa tanto como o numero. Isto ia para o
+  // modelo como `soft_circled_eur`, sem qualificar, e o modelo tratava-o
+  // como progresso DESTA ronda -- que foi como os €100k de uma ronda antiga
+  // (registados como interest_eur de uma entrada not_contacted, por nao
+  // haver outro sitio) viraram "so €100k de €300k fechados" no SWOT.
+  //
+  // A soma agora e so de relacoes vivas (round-capital.ts, whitelist). Nos
+  // dados reais da ablute_ a soma cega dava €400k contra um alvo de €300k,
+  // incluindo €300k da Adara -- que tinha recusado.
   function pipelineStats() {
     const byStatus: Record<string, number> = {};
     for (const e of db.entities) byStatus[e.status] = (byStatus[e.status] ?? 0) + 1;
     const passes = db.interactions.filter((i) => i.classification === 'pass').length;
-    const interest = db.entities.reduce((s, e) => s + (e.interest_eur ?? 0), 0);
-    return { total_investors: db.entities.length, by_status: byStatus, passes, soft_circled_eur: interest };
+    return {
+      total_investors: db.entities.length, by_status: byStatus, passes,
+      soft_circled_this_round_eur: softCircledThisRound(db.entities),
+    };
   }
 
   async function reviewMessage() {
