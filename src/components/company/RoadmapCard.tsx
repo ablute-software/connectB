@@ -60,6 +60,7 @@
 // node's actual (flush-left) position instead of the column's center.
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
+import { detectPastRound, type PastRoundHint } from '@/lib/round-propagation';
 import { Card, TermHint, Toggle } from '@/components/ui';
 import type { RoadmapMilestone, RoadmapPeriodKind } from '@/lib/types';
 import { periodHasPassed, periodLabel, sortRoadmapPeriods, type RoadmapPeriod } from '@/lib/roadmap';
@@ -506,7 +507,7 @@ function MilestoneForm({ draft, setDraft, onSave, onCancel, saving, err }: {
 }
 
 export function RoadmapCard({ canEdit, available }: { canEdit: boolean; available: boolean }) {
-  const { db, updateOrg, addRoadmapMilestone, updateRoadmapMilestone, removeRoadmapMilestone } = useStore();
+  const { db, updateOrg, addRoadmapMilestone, updateRoadmapMilestone, removeRoadmapMilestone, addFundingRound } = useStore();
 
   const [adding, setAdding] = useState(false);
   const [addDraft, setAddDraft] = useState<MilestoneDraft>(BLANK_DRAFT);
@@ -517,8 +518,17 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
   const [editDraft, setEditDraft] = useState<MilestoneDraft>(BLANK_DRAFT);
   const [editErr, setEditErr] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  // Prompt 212 §B.4 — uma ronda passada escrita como milestone. Nunca
+  // automatico: guarda-se a sugestao e o founder confirma.
+  const [pastRound, setPastRound] = useState<(PastRoundHint & { line: string }) | null>(null);
 
   if (!available) return null;
+
+  async function acceptPastRound() {
+    if (!pastRound) return;
+    await addFundingRound({ label: pastRound.suggestedLabel, amount_eur: pastRound.amountEur });
+    setPastRound(null);
+  }
 
   function itemsFromText(text: string): string[] {
     return text.split('\n').map((s) => s.trim()).filter(Boolean);
@@ -534,6 +544,16 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
         items,
       });
       if (error) { setAddErr(error); return; }
+
+      // §B.4 — le as linhas gravadas a procura de "isto ja aconteceu".
+      // Exige montante + termo de ronda + prova de passado (ver
+      // round-propagation.ts): "Raise €300k seed" e o PLANO e nao dispara.
+      const year = Number(addDraft.period_year);
+      for (const line of items) {
+        const hint = detectPastRound(line, { periodYear: year, currentYear: new Date().getFullYear() });
+        if (hint) { setPastRound({ ...hint, line }); break; }
+      }
+
       setAdding(false); setAddDraft(BLANK_DRAFT);
     } finally { setAddSaving(false); }
   }
@@ -559,6 +579,21 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
   }
 
   return (
+    <>
+      {pastRound && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <span className="min-w-0 flex-1">
+            &ldquo;{pastRound.line}&rdquo; looks like a round you already closed. Record{' '}
+            <strong>€{pastRound.amountEur.toLocaleString('en-US')}</strong> under Previous funding? It will show on your
+            profile, the investor dossier and your next review.
+          </span>
+          <button onClick={acceptPastRound}
+            className="whitespace-nowrap rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">
+            Add to Previous funding
+          </button>
+          <button onClick={() => setPastRound(null)} className="text-[11px] text-gray-500 hover:underline">No thanks</button>
+        </div>
+      )}
     <Card title={<span className="inline-flex items-center gap-1">Roadmap <TermHint text="Key milestones and goals for the journey ahead." /></span>}>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-gray-400">Key milestones and goals for the journey ahead.</p>
@@ -594,5 +629,6 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
           saving={editSaving} err={editErr} />
       )}
     </Card>
+    </>
   );
 }

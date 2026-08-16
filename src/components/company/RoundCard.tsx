@@ -5,6 +5,8 @@
 // those reads; this card is the one place that writes them).
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
+import { PropagationConfirm } from '@/components/PropagationConfirm';
+import type { RoundField } from '@/lib/round-propagation';
 import { Card } from '@/components/ui';
 import { CompletenessField } from './CompletenessField';
 import type { CompletenessField as Field } from '@/lib/companyCompleteness';
@@ -67,6 +69,33 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
     setDraft({ ...draft, instruments: draft.instruments.includes(v) ? draft.instruments.filter((x) => x !== v) : [...draft.instruments, v] });
   }
 
+  // Prompt 212 §B.5 — os valores de dinheiro da ronda aparecem em mais do
+  // que um sitio. Antes de gravar, mostrar onde. So pergunta quando um
+  // deles MUDA de facto: confirmar uma edicao de runway por causa de um
+  // campo que ninguem tocou era ruido, e ruido treina a fechar sem ler.
+  const [pendingSave, setPendingSave] = useState<{ field: RoundField; summary: string } | null>(null);
+
+  function moneyChanged(): { field: RoundField; summary: string } | null {
+    if (!draft) return null;
+    const eurOrDash = (n: number | null | undefined) => (n == null ? '—' : `€${n.toLocaleString('en-US')}`);
+
+    const nextTarget = draft.target ? Number(draft.target) : undefined;
+    if ((org.round_target_eur ?? undefined) !== nextTarget) {
+      return { field: 'round_target_eur', summary: `Round target: ${eurOrDash(org.round_target_eur)} → ${eurOrDash(nextTarget)}` };
+    }
+    const nextSecured = draft.secured ? Number(draft.secured) : undefined;
+    if ((org.round_secured_eur ?? undefined) !== nextSecured) {
+      return { field: 'round_secured_eur', summary: `Amount secured: ${eurOrDash(org.round_secured_eur)} → ${eurOrDash(nextSecured)}` };
+    }
+    return null;
+  }
+
+  function requestSave() {
+    const change = moneyChanged();
+    if (change) { setPendingSave(change); return; }
+    save();
+  }
+
   function save() {
     if (!draft) return;
     updateOrg({
@@ -87,6 +116,7 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
       round_flexible: draft.flexible,
       round_flexible_note: draft.flexible ? draft.flexible_note.trim() || undefined : undefined,
     });
+    setPendingSave(null);
     setEditing(false);
   }
 
@@ -94,6 +124,7 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
   const eur = (n?: number) => (n != null ? `€${n.toLocaleString('en-US')}` : '—');
 
   return (
+    <>
     <Card title="Round" right={canEdit && !editing ? <button onClick={startEdit} className="text-xs text-cyan-700 hover:underline">Edit</button> : undefined}>
       {editing && draft ? (
         <div className="space-y-3">
@@ -192,7 +223,7 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
           )}
 
           <div className="flex gap-2">
-            <button onClick={save} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">Save</button>
+            <button onClick={requestSave} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">Save</button>
             <button onClick={() => setEditing(false)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">Cancel</button>
           </div>
         </div>
@@ -257,5 +288,14 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
         </div>
       )}
     </Card>
+      {pendingSave && (
+        <PropagationConfirm
+          field={pendingSave.field}
+          progressVisibleToInvestors={org.round_progress_visible_to_investors ?? true}
+          summary={pendingSave.summary}
+          onConfirm={save}
+          onCancel={() => setPendingSave(null)} />
+      )}
+    </>
   );
 }
