@@ -64,22 +64,11 @@ export function journeySteps(db: Db, entityId: string): JourneyStep[] {
   const entity = db.entities.find((e) => e.id === entityId);
   const ds = derivedStage(db, entityId);
 
-  // PARQUEADO — não é desfecho, é pausa. Mantém o desenho do 206-A
-  // (esmaecido) e acrescenta o chip com a data da revisita (205 §B).
-  if (ds.mode === 'parked') {
-    const idx = STAGE_ORDER.indexOf(ds.effective);
-    return [
-      ...STAGE_ORDER.map((stage, i): JourneyStep => ({
-        kind: 'stage', stage, state: i < idx ? 'done' : i === idx ? 'current' : 'future',
-      })),
-      { kind: 'parked', revisitAt: nextPendingTaskDue(db, entityId) },
-    ];
-  }
-
-  // FECHADO — só os passos percorridos, com ✓, e o desfecho como último
-  // chip. Sem Meeting/Diligence cinzentos a seguir: ninguém vai ter reunião
-  // com quem já disse que não, e mostrá-los é ruído sobre uma relação que
-  // terminou.
+  // FECHADO vem ANTES de parqueado, e a ordem e a correccao do 209: um pass
+  // classificado e DESFECHO, e desfecho e terminal. A Adara estava dormant de
+  // um teste anterior ao pass, e a versao anterior mostrava-lhe "Parked" --
+  // o parque era o facto mais ANTIGO. Entre um estado que alguem deixou para
+  // tras e o que o investidor disse, ganha o que o investidor disse.
   const closed = ds.mode === 'closed' || ds.derived === 'decision';
   if (closed) {
     const lastPass = db.interactions
@@ -89,6 +78,17 @@ export function journeySteps(db: Db, entityId: string): JourneyStep[] {
     return [
       ...traversed(db, entityId).map((t): JourneyStep => ({ kind: 'stage', stage: t.stage, state: 'done', at: t.at })),
       { kind: 'outcome', outcome, at: lastPass?.occurred_at, passCategory: lastPass?.pass_reason_category },
+    ];
+  }
+
+  // PARQUEADO — pausa, nao desfecho. Mostra SO os passos percorridos (com ✓,
+  // esmaecidos no render) e o chip da revisita, nunca os seis estagios: uma
+  // relacao parada nao tem futuro a mostrar, so tem historia e uma data de
+  // regresso. Reutiliza o mesmo traversed() do caso fechado.
+  if (ds.mode === 'parked') {
+    return [
+      ...traversed(db, entityId).map((t): JourneyStep => ({ kind: 'stage', stage: t.stage, state: 'done', at: t.at })),
+      { kind: 'parked', revisitAt: nextPendingTaskDue(db, entityId) },
     ];
   }
 

@@ -93,17 +93,36 @@ describe('journeySteps — fechado (o caso Adara)', () => {
   });
 });
 
-describe('journeySteps — parqueado nao e desfecho', () => {
-  it('mantem o stepper todo e acrescenta o chip de parked', () => {
-    const parked = entity({ id: 'test', name: 'Test idividual', status: 'dormant' });
-    const steps = journeySteps(
-      { entities: [parked], interactions: [inter({ entity_id: 'test', id: 'x', classification: 'interested' })],
-        relationshipState: [], people: [],
-        tasks: [{ id: 't', title: 'Revisit', entity_id: 'test', done: false, due_at: '2026-09-14T00:00:00.000Z' }] } as unknown as Db,
-      'test');
+// Correccao do 209 contra a imagem aprovada: o caso 3 mostra SO os passos
+// percorridos, e o caso 2 (pass) ganha ao parque.
+describe('journeySteps — parqueado e fechado, e quem ganha', () => {
+  function parkedDb(interactions: Interaction[], status: 'dormant' = 'dormant') {
+    const e = entity({ id: 'test', name: 'Test idividual', status });
+    return { entities: [e], interactions: interactions.map((i) => ({ ...i, entity_id: 'test' })),
+      relationshipState: [], people: [],
+      tasks: [{ id: 't', title: 'Revisit', entity_id: 'test', done: false, due_at: '2026-09-14T00:00:00.000Z' }] } as unknown as Db;
+  }
 
+  it('dormant SEM pass: so os percorridos com ✓, e o chip de parked', () => {
+    const steps = journeySteps(parkedDb([OUT, inter({ id: 'x', classification: 'interested' })]), 'test');
+
+    expect(steps.map((s) => s.kind)).toEqual(['stage', 'stage', 'parked']);
+    expect(steps.filter((s) => s.kind === 'stage').every((s) => s.kind === 'stage' && s.state === 'done')).toBe(true);
     expect(steps.at(-1)).toEqual({ kind: 'parked', revisitAt: '2026-09-14T00:00:00.000Z' });
-    expect(steps.filter((s) => s.kind === 'stage')).toHaveLength(6);
+  });
+
+  it('NUNCA os seis estagios num parqueado', () => {
+    const steps = journeySteps(parkedDb([OUT, inter({ id: 'x', classification: 'interested' })]), 'test');
+    expect(steps.filter((s) => s.kind === 'stage').length).toBeLessThan(6);
+  });
+
+  // O caso Adara literal: dormant de um teste anterior, e um pass depois.
+  it('dormant COM pass classificado le-se Declined, nao Parked', () => {
+    const steps = journeySteps(parkedDb([OUT, inter({ id: 'p', classification: 'pass', occurred_at: '2026-08-05T10:00:00.000Z' })]), 'test');
+
+    expect(steps.map((s) => s.kind)).toEqual(['stage', 'stage', 'outcome']);
+    expect(steps.at(-1)).toMatchObject({ kind: 'outcome', outcome: 'declined' });
+    expect(steps.some((s) => s.kind === 'parked')).toBe(false);
   });
 });
 

@@ -72,7 +72,7 @@ export function JourneyStepper({ entity, onViewInHistory }: {
           <span key={step.stage} className="relative flex items-center gap-1">
             <span title={step.at ? `${STAGE_LABEL[step.stage]} · ${step.at.slice(0, 10)}` : undefined}
               className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium ${style}`}>
-              {step.state === 'done' && !parked ? '✓ ' : ''}{STAGE_LABEL[step.stage]}
+              {step.state === 'done' ? '✓ ' : ''}{STAGE_LABEL[step.stage]}
             </span>
 
             {list.length > 0 && (
