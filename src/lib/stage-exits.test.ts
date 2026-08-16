@@ -122,3 +122,32 @@ describe('stageExits — rotulo do parque', () => {
     expect(['cold', 'frozen']).toContain(e.parkLabel);
   });
 });
+
+// Prompt 214 §C.3 — a nudge de hoje ("Move to Decision" so porque houve
+// reply) e fraca: reply != decisao. Chegar a Decision faz-se pelas saidas
+// explicitas, nunca por uma sugestao de avancar.
+describe('stageExits — nunca sugere avancar para Decision', () => {
+  const EM_DILIGENCE = [{ entity_id: 'ent-adara', stage: 'diligence', updated_at: '2026-08-01T00:00:00.000Z' }];
+
+  it('em diligence, com resposta nao-pass, NAO oferece avancar', () => {
+    const d = db([OUTBOUND, interaction({ id: 'r', classification: 'question' })]);
+    (d as unknown as { relationshipState: unknown[] }).relationshipState = EM_DILIGENCE;
+
+    const e = stageExits(d, ENTITY);
+    expect(e.nextStage).toBe('decision');
+    expect(e.canAdvance).toBe(false);
+  });
+
+  it('mas as saidas 2 e 3 continuam la -- ha sempre como sair', () => {
+    const d = db([OUTBOUND, interaction({ id: 'r', classification: 'question' })]);
+    (d as unknown as { relationshipState: unknown[] }).relationshipState = EM_DILIGENCE;
+
+    expect(stageExits(d, ENTITY).show).toBe(true);
+  });
+
+  it('avancar continua a funcionar nos estagios anteriores', () => {
+    const e = stageExits(db([OUTBOUND, interaction({ id: 'r', classification: 'question' })]), ENTITY);
+    expect(e.nextStage).toBe('engaged');
+    expect(e.canAdvance).toBe(true);
+  });
+});

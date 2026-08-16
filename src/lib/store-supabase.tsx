@@ -1458,6 +1458,32 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       }
     },
 
+    undoStageChange(entityId: string, previousStage: RelationshipStage | undefined, milestoneId: string) {
+      const prev = dbRef.current;
+      const relationshipState = previousStage
+        ? prev.relationshipState.map((r) => r.entity_id === entityId ? { ...r, stage: previousStage } : r)
+        : prev.relationshipState.filter((r) => r.entity_id !== entityId);
+      commit({
+        ...prev,
+        relationshipState,
+        interactions: prev.interactions.filter((i) => i.id !== milestoneId),
+      });
+      const o = orgIdRef.current;
+      if (o) {
+        // So esta linha, por id. Nunca "a ultima stage_change da entidade".
+        persist(sb.from('interactions').delete().eq('id', milestoneId), 'undoStageChange:milestone');
+        if (previousStage) {
+          persist(sb.from('relationship_state').upsert(
+            { org_id: o, entity_id: entityId, stage: previousStage, updated_at: new Date().toISOString() },
+            { onConflict: 'org_id,entity_id' },
+          ), 'undoStageChange:state');
+        } else {
+          // Nao havia linha antes: desfazer e voltar a nao haver.
+          persist(sb.from('relationship_state').delete().eq('org_id', o).eq('entity_id', entityId), 'undoStageChange:state');
+        }
+      }
+    },
+
     setRelationshipStage(entityId: string, stage: RelationshipStage) {
       const prev = dbRef.current;
       const now = new Date().toISOString();
@@ -1477,6 +1503,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         ), 'setRelationshipStage:state');
         persist(sb.from('interactions').insert({ ...milestone, org_id: o }), 'setRelationshipStage:milestone');
       }
+      return milestone.id;
     },
 
     setNextStepTask(entityId: string, taskId: string | undefined) {

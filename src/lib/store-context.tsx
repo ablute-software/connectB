@@ -210,7 +210,15 @@ export interface StoreApi {
   submitInvestor: (payload: InvestorSubmission['payload']) => void;
   reviewSubmission: (id: string, decision: 'approved' | 'rejected', notes?: string) => void;
   // IRM_SPEC §4e: relationship roadmap overlay
-  setRelationshipStage: (entityId: string, stage: RelationshipStage) => void;
+  // Prompt 214 §C.2 — devolve o id do marco stage_change criado, para o undo
+  // poder apagar EXACTAMENTE esse e nunca outro. Sem isto, "apagar a ultima
+  // stage_change desta entidade" apanhava a errada se duas mudancas
+  // acontecessem no mesmo segundo.
+  setRelationshipStage: (entityId: string, stage: RelationshipStage) => string;
+  // Repoe o estagio anterior e remove o marco criado pela mudanca que se
+  // esta a desfazer. Nao cria marco novo: um engano corrigido em segundos
+  // nao e historia, e deixa-lo no historico era mentir sobre a jornada.
+  undoStageChange: (entityId: string, previousStage: RelationshipStage | undefined, milestoneId: string) => void;
   // Prompt 212 §B.3 — rondas anteriores. Fonte única: quem mostra capital
   // já levantado lê daqui, nunca de uma cópia.
   addFundingRound: (r: Omit<FundingRound, 'id' | 'org_id' | 'created_at'>) => Promise<{ error?: string }>;

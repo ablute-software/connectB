@@ -387,10 +387,21 @@ export function stageExits(
   const show = stageIsActive && s.stage !== 'not_contacted'
     && (s.whoseTurn === 'us' || s.whoseTurn === 'overdue' || lastInboundWasPass);
 
+  // Prompt 214 §C.3 — a nudge deixa de empurrar para 'decision'. "Responderam"
+  // NAO e "decidiram": a unica coisa que os factos suportam com uma resposta
+  // e que ha conversa. Chegar a Decision faz-se pelas saidas explicitas (o
+  // pass, com razao obrigatoria) ou por um invested -- nunca por uma
+  // sugestao de avancar so porque houve reply.
+  //
+  // Caso real: o founder moveu Meeting->Diligence por engano e a app
+  // respondeu com "Move to Decision", ou seja empurrou-o mais para a frente
+  // em vez de o deixar recuar.
+  const nextIsDecision = nextStage === 'decision';
+
   return {
     show,
     lastInboundWasPass,
-    canAdvance: show && !lastInboundWasPass && s.whoseTurn === 'us',
+    canAdvance: show && !lastInboundWasPass && s.whoseTurn === 'us' && !nextIsDecision,
     nextStage,
     parkLabel: s.stage === 'contacted' ? 'cold' : 'frozen',
   };

@@ -108,13 +108,28 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // instead of this card re-fetching it independently.
   dealMessageTouches?: DealMessageTouch[];
 }) {
-  const { db, setRelationshipStage, setEntityStatus, addTask, toggleTask, updateTask } = useStore();
+  const { db, setRelationshipStage, undoStageChange, setEntityStatus, addTask, toggleTask, updateTask } = useStore();
   const [exitMode, setExitMode] = useState<'none' | 'pass'>('none');
   const [passReason, setPassReason] = useState('');
   // Prompt 205 §A — o que se mostra no lugar do banner depois de decidir. O
   // Nuno escolheu "Frozen" e nada de visivel aconteceu; o clique tem de ter
   // eco imediato, nao so uma mudanca de pill algures no topo.
   const [confirmation, setConfirmation] = useState<string | null>(null);
+  // Prompt 214 §C.2 — janela de arrependimento. O founder mudou
+  // Meeting->Diligence com um clique e nao tinha como recuar; a app so lhe
+  // oferecia empurrar mais para a frente.
+  const [undoable, setUndoable] = useState<{ milestoneId: string; previous?: typeof ds.manual; label: string } | null>(null);
+  // §C.3 — dispensar a sugestao sem a seguir. Vive no componente e nao na
+  // base de dados de proposito: e "agora nao", nao "nunca mais".
+  const [dismissed, setDismissed] = useState(false);
+
+  function changeStage(next: Parameters<typeof setRelationshipStage>[1], label: string) {
+    const previous = db.relationshipState.find((r) => r.entity_id === entity.id)?.stage;
+    const milestoneId = setRelationshipStage(entity.id, next);
+    setUndoable({ milestoneId, previous, label });
+    // 10s: tempo de ler o toast e reagir, sem ficar pendurado no ecra.
+    window.setTimeout(() => setUndoable((u) => (u?.milestoneId === milestoneId ? null : u)), 10_000);
+  }
 
   // Executa um plano de exit-effects.ts: cria a task de revisita e resolve
   // as pendentes. A task de revisita vem primeiro para o "Next:" ja a
@@ -227,12 +242,25 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
         </span>
       </div>
       {action && <div className="mt-1.5 text-xs font-medium text-[#0E7490]">Next: {annotateNextStep(action)}</div>}
+      {undoable && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+          <span>Stage changed to {undoable.label}.</span>
+          <button
+            onClick={() => {
+              undoStageChange(entity.id, undoable.previous, undoable.milestoneId);
+              setUndoable(null); setConfirmation(null);
+            }}
+            className="font-semibold text-[#0E7490] hover:underline">
+            Undo
+          </button>
+        </div>
+      )}
       {confirmation && (
         <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700">
           {confirmation}
         </div>
       )}
-      {!confirmation && exits.show && (
+      {!confirmation && !dismissed && exits.show && (
         <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
           lastInboundWasPass ? 'border-red-200 bg-red-50 text-[#B00000]'
             : s.whoseTurn === 'overdue' ? 'border-amber-200 bg-amber-50 text-amber-900'
@@ -252,12 +280,18 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
               {/* Saída 1 — avançar. Escondida num pass: oferecer "avançar" a
                   quem disse que não é exactamente o bug do caso Adara. */}
               {exits.canAdvance && (
-                <button onClick={() => { setRelationshipStage(entity.id, nextStage); setConfirmation(advanceConfirmation(STAGE_LABEL[nextStage])); }}
+                <button onClick={() => { changeStage(nextStage, STAGE_LABEL[nextStage]); setConfirmation(advanceConfirmation(STAGE_LABEL[nextStage])); }}
                   className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c637b]">
                   Move to {STAGE_LABEL[nextStage]}
                 </button>
               )}
               {/* Saída 2 — o "não". Pede a razão, que é obrigatória. */}
+              {/* Prompt 214 §C.3 — ha sempre a saida de nao fazer nada. Uma
+                  sugestao sem "dispensar" nao e sugestao, e insistencia. */}
+              <button onClick={() => setDismissed(true)}
+                className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-500 hover:bg-gray-50">
+                Dismiss — keep as is
+              </button>
               <button onClick={() => setExitMode('pass')}
                 className="rounded-full border border-red-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#B00000] hover:bg-red-50">
                 No interest / over — marks as passed

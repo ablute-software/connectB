@@ -836,6 +836,9 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     },
 
     setRelationshipStage(entityId, stage) {
+      // Prompt 214 §C.2 — o id nasce FORA do setDb para poder ser devolvido
+      // ao chamador (o undo precisa dele).
+      const milestoneId = uid('int');
       setDb((prev) => {
         const now = new Date().toISOString();
         const existing = prev.relationshipState.find((r) => r.entity_id === entityId);
@@ -843,11 +846,21 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
           ? prev.relationshipState.map((r) => r.entity_id === entityId ? { ...r, stage, updated_at: now } : r)
           : [...prev.relationshipState, { entity_id: entityId, stage, updated_at: now }];
         const milestone: Interaction = {
-          id: uid('int'), entity_id: entityId, occurred_at: now, direction: 'out',
+          id: milestoneId, entity_id: entityId, occurred_at: now, direction: 'out',
           channel: 'stage_change', content: `Stage changed to ${STAGE_LABEL[stage]}.`,
         };
         return { ...prev, relationshipState, interactions: [...prev.interactions, milestone] };
       });
+      return milestoneId;
+    },
+    undoStageChange(entityId, previousStage, milestoneId) {
+      setDb((prev) => ({
+        ...prev,
+        relationshipState: previousStage
+          ? prev.relationshipState.map((r) => r.entity_id === entityId ? { ...r, stage: previousStage } : r)
+          : prev.relationshipState.filter((r) => r.entity_id !== entityId),
+        interactions: prev.interactions.filter((i) => i.id !== milestoneId),
+      }));
     },
 
     setNextStepTask(entityId, taskId) {
