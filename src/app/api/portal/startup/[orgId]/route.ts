@@ -26,6 +26,7 @@
 // level >= 1 AND orgs.roadmap_visible_to_investors, projected to only
 // period_kind/period_year/period_quarter/items (migration 0161).
 import { NextResponse } from 'next/server';
+import { sanitizeInvestorSwot } from '@/lib/investor-safe-swot';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
@@ -134,15 +135,19 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
     if (visible) {
       const { data: latestRun } = await admin.from('review_runs').select('report')
         .eq('org_id', params.orgId).order('created_at', { ascending: false }).limit(1).maybeSingle();
-      const report = latestRun?.report as Partial<SwotData> | null | undefined;
-      if (report) {
-        swot = {
-          visible: true,
-          data: {
-            strengths: report.strengths ?? [], weaknesses: report.weaknesses ?? [],
-            opportunities: report.opportunities ?? [], threats: report.threats ?? [],
-          },
-        };
+      // Prompt 211 §B — SO `report.investor_safe`, gerado por um prompt que
+      // nunca viu o pipeline. Sem esse campo (runs anteriores a 211), o
+      // SWOT e null: NUNCA cair para o report completo, que e o do founder
+      // e carrega passes, contactos e progresso do round.
+      //
+      // Fail-closed, ao contrario do resto da app: aqui a ausencia e um
+      // inconveniente e a fuga e uma traicao a startup.
+      const report = latestRun?.report as { investor_safe?: Partial<SwotData> } | null | undefined;
+      if (report?.investor_safe) {
+        // Sanitizado outra vez na leitura: barato, e cobre um run gravado
+        // por uma versao anterior deste guarda.
+        const { data: safe } = sanitizeInvestorSwot(report.investor_safe);
+        swot = { visible: true, data: safe };
       }
     }
   }

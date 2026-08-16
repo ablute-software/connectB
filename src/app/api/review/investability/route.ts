@@ -18,17 +18,29 @@
 // description is a strong steer but not a hard constraint, so the prompt
 // says it too). Applies only to new runs; old rows are never rewritten.
 //
+// Prompt 211 — REGRA RAIZ (CLAUDE.md, "Startup-performance privacy"): o
+// output deste gerador tem DUAS audiencias e por isso sao DOIS artefactos.
+// `report` (completo, com pipeline stats) e SO para o founder -- e o valor
+// do produto: "42 passes sugere problema de pitch" e exactamente o que ele
+// deve ouvir. `report.investor_safe` e gerado numa segunda chamada cujo
+// prompt NAO recebe pipeline nem nada derivado do CRM, e e o unico que a
+// rota do portal pode projectar.
+//
+// Este comentario ja PRESCREVEU a frase que fugiu para investidores como
+// exemplo de bom output. Nao voltar a citar exemplos com numeros de funil
+// aqui: o proximo dev le o comentario, nao o CLAUDE.md.
+//
 // Prompt 178 — ~20 words still wasn't short enough: the real cards
-// (screenshot) kept rendering 3-4 line bullets because dense content
-// (a number stacked with its consequence, e.g. "42 total passes (21
-// explicit + dormant/contacted likely stalled) suggests pitch or readiness
-// issues") fills the line visually even within the word budget. Lowered to
+// (screenshot) kept rendering 3-4 line bullets because dense content (a
+// number stacked with its consequence) fills the line visually even within
+// the word budget. Lowered to
 // ~12 words / one clause, and the split-into-two-bullets instruction is now
 // stated as the DEFAULT whenever a point has more than one relevant fact,
 // not a fallback for an edge case. Structure (icons/colors/header,
 // SwotVisualCard.tsx) is untouched — Prompt 173 already got that right;
 // this prompt is purely about bullet density.
 import { NextResponse } from 'next/server';
+import { sanitizeInvestorSwot, INVESTOR_SAFE_INSTRUCTION } from '@/lib/investor-safe-swot';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, resolveRole } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
@@ -190,15 +202,90 @@ export async function POST(req: Request) {
     const report = toolUse?.input as Report | undefined;
     if (!report) return NextResponse.json({ ok: false, error: 'AI review failed — try again in a moment.' }, { status: 502 });
 
+    // Prompt 211 §B — segunda chamada, para a audiencia do investidor. O
+    // prompt NAO leva `pipeline` nem os clarifications do founder: nao e
+    // filtrado no fim, e gerado de outra coisa. Se falhar, investor_safe
+    // fica ausente e o portal nao mostra SWOT nenhum (fail-closed) -- a
+    // ausencia e melhor do que a fuga.
+    const investorSafe = await generateInvestorSafeSwot(apiKey, company, facts);
+
     const admin = createClient(url, service, { auth: { persistSession: false } });
     const { data: row, error } = await admin.from('review_runs').insert({
       org_id: orgId, score: Math.round(report.score), summary: report.summary,
-      report, created_by: user.id,
+      report: { ...report, investor_safe: investorSafe }, created_by: user.id,
     }).select().single();
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
     return NextResponse.json({ ok: true, run: row });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
+  }
+}
+
+// Prompt 211 §B — o SWOT que o investidor pode ver. Outro prompt, outros
+// dados de entrada: so COMPANY e CONFIRMED FACTS, nada de pipeline.
+//
+// Devolve undefined em qualquer falha, e isso e deliberado: o portal e
+// fail-closed, portanto "nao consegui gerar" mostra nada em vez de cair no
+// report completo. Um SWOT em falta e um inconveniente; o outro e a fuga.
+async function generateInvestorSafeSwot(
+  apiKey: string, company: Record<string, unknown> | undefined, facts: string[] | undefined,
+): Promise<{ strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] } | undefined> {
+  const prompt = 'You are writing a SWOT about a startup, for investors evaluating it.\n\n'
+    + `COMPANY:\n${JSON.stringify(company ?? {}, null, 2)}\n\n`
+    + `CONFIRMED FACTS:\n${(facts ?? []).map((f) => `- ${f}`).join('\n') || '(none confirmed yet)'}\n\n`
+    + `${INVESTOR_SAFE_INSTRUCTION}\n\n`
+    + `Every bullet: ${BULLET_LENGTH_RULE}\n\n`
+    + 'Always finish by calling report_investor_swot.';
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
+        max_tokens: 1000,
+        system: 'You write investor-facing company assessments. You are never given fundraising or outreach data, '
+          + 'and you never speculate about it. Only the company, market and product.',
+        messages: [{ role: 'user', content: prompt }],
+        tools: [{
+          name: 'report_investor_swot',
+          description: 'Return the investor-facing SWOT.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              strengths: { type: 'array', items: { type: 'string' } },
+              weaknesses: { type: 'array', items: { type: 'string' } },
+              opportunities: { type: 'array', items: { type: 'string' } },
+              threats: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['strengths', 'weaknesses', 'opportunities', 'threats'],
+          },
+        }],
+        tool_choice: { type: 'tool', name: 'report_investor_swot' },
+      }),
+    });
+    if (!res.ok) {
+      console.error('[investability] investor_safe provider error:', (await res.text()).slice(0, 300));
+      return undefined;
+    }
+    const data = await res.json();
+    const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
+    if (!toolUse?.input) return undefined;
+
+    // Rede por baixo do prompt: mesmo instruido, o modelo pode inferir de
+    // outra frase. O que cair vai para o log do SERVIDOR e nunca para a
+    // resposta -- diagnosticar a fuga nao pode ser outra fuga.
+    const { data: clean, dropped } = sanitizeInvestorSwot(
+      toolUse.input as Partial<{ strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] }>,
+    );
+    if (dropped.length > 0) {
+      console.error(`[investability] investor_safe: ${dropped.length} bullet(s) dropped for founder-private content`,
+        dropped.map((d) => d.term));
+    }
+    return clean;
+  } catch (e) {
+    console.error('[investability] investor_safe failed:', (e as Error).message);
+    return undefined;
   }
 }
