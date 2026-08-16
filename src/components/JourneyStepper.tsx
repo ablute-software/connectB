@@ -13,6 +13,7 @@ import { useStore } from '@/lib/store';
 import { STAGE_LABEL } from '@/lib/relationship';
 import { journeySteps, docsByStage, type StageDoc } from '@/lib/journey';
 import { DocPreviewModal } from '@/components/DocPreviewModal';
+import { DocBadgePopover } from '@/components/DocBadgePopover';
 
 export function JourneyStepper({ entity, onViewInHistory }: {
   entity: Entity;
@@ -22,7 +23,10 @@ export function JourneyStepper({ entity, onViewInHistory }: {
   onViewInHistory?: (interactionId: string) => void;
 }) {
   const { db } = useStore();
-  const [openAt, setOpenAt] = useState<RelationshipStage | null>(null);
+  // Prompt 215 — guarda o rectangulo do badge no momento do clique. O
+  // popover deixou de viver dentro do cartao (onde era clipado pelo
+  // overflow) e passa a flutuar ancorado a estas coordenadas.
+  const [openAt, setOpenAt] = useState<{ stage: RelationshipStage; rect: DOMRect } | null>(null);
   const [preview, setPreview] = useState<{ docId: string; at: string } | null>(null);
 
   const steps = journeySteps(db, entity.id);
@@ -78,27 +82,28 @@ export function JourneyStepper({ entity, onViewInHistory }: {
             {list.length > 0 && (
               <>
                 <button title={hoverTitle(list)}
-                  onClick={() => setOpenAt(openAt === step.stage ? null : step.stage)}
+                  onClick={(e) => setOpenAt(openAt?.stage === step.stage
+                    ? null
+                    : { stage: step.stage, rect: e.currentTarget.getBoundingClientRect() })}
                   className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-[#0E7490] bg-white text-[9px] leading-none">
                   {list.length > 1 ? list.length : '📄'}
                 </button>
-                {openAt === step.stage && (
-                  <div className="absolute left-0 top-7 z-30 w-64 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
-                    {list.map((d) => (
-                      <div key={`${d.interactionId}-${d.documentId}`} className="border-b border-gray-100 py-1 last:border-0">
-                        <p className="truncate text-[11px] font-medium text-gray-900">{docName(d.documentId)}</p>
-                        <p className="text-[10px] text-gray-400">{d.at.slice(0, 10)}</p>
-                        <div className="mt-0.5 flex gap-2">
-                          <button onClick={() => { setPreview({ docId: d.documentId, at: d.at }); setOpenAt(null); }}
-                            className="text-[11px] font-medium text-[#0E7490] hover:underline">open</button>
-                          {onViewInHistory && (
-                            <button onClick={() => { onViewInHistory(d.interactionId); setOpenAt(null); }}
-                              className="text-[11px] font-medium text-[#0E7490] hover:underline">see in history</button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                {openAt?.stage === step.stage && (
+                  <DocBadgePopover
+                    anchor={openAt.rect}
+                    docs={list.map((d) => ({
+                      key: `${d.interactionId}:${d.documentId}`,
+                      name: docName(d.documentId), at: d.at,
+                    }))}
+                    onOpen={(key) => {
+                      const d = list.find((x) => `${x.interactionId}:${x.documentId}` === key);
+                      if (d) setPreview({ docId: d.documentId, at: d.at });
+                    }}
+                    onSeeInHistory={onViewInHistory && ((key) => {
+                      const d = list.find((x) => `${x.interactionId}:${x.documentId}` === key);
+                      if (d) onViewInHistory(d.interactionId);
+                    })}
+                    onClose={() => setOpenAt(null)} />
                 )}
               </>
             )}
