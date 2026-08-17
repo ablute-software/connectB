@@ -4,11 +4,13 @@
 // logic unchanged, only the export changed from a page default to a named
 // panel.
 import Link from 'next/link';
+import { useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink, PersonLink, WaveTag, fmtRoundEur } from '@/components/ui';
 import { outboundCounts, preflight, preflightSummary } from '@/lib/rules';
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, recommendedActionType } from '@/lib/relationship';
 import { PageTour } from '@/components/onboarding/PageTour';
+import { useInterestRequests, decideInterestRequest } from '@/lib/interest-requests-client';
 import type { ActionType } from '@/lib/types';
 
 function ActionTypePill({ type }: { type: ActionType }) {
@@ -17,6 +19,25 @@ function ActionTypePill({ type }: { type: ActionType }) {
 
 export function TodayPanel() {
   const { db, toggleTask } = useStore();
+  // Prompt 220 §B — a task 'interest_level_request' existia mas o único
+  // botão era o checkbox "done", que a marcava resolvida SEM decidir o
+  // pedido: ficava pending para sempre, invisível em qualquer outro sítio.
+  // Aqui liga-se a task ao pedido pendente (match por entity_id — a mesma
+  // resolução catalog_deliveries que a criou) e o botão passa a ser
+  // Approve/Deny no próprio endpoint POST. O servidor fecha a task ao
+  // decidir (decideInterestLevel3); o toggleTask local é só para o UI
+  // refletir já, sem esperar reload (persistir done=true é idempotente).
+  const interestRequests = useInterestRequests();
+  const pendingInterestByEntity = new Map(
+    interestRequests.filter((r) => r.status === 'pending' && r.entityId).map((r) => [r.entityId as string, r]));
+  const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
+  async function decideInterest(taskId: string, requestId: string, decision: 'granted' | 'denied') {
+    setBusyTaskId(taskId);
+    try {
+      await decideInterestRequest(requestId, decision);
+      toggleTask(taskId);
+    } finally { setBusyTaskId(null); }
+  }
   const now = new Date();
   const caps = outboundCounts(db);
   const capReached = caps.today >= caps.dailyCap || caps.week >= caps.weeklyCap;
@@ -69,16 +90,32 @@ export function TodayPanel() {
         <Card title={<span className="text-[#B00000]">Overdue ({overdue.length})</span>}>
           {overdue.length === 0 ? <p className="text-sm text-gray-400">Nothing overdue.</p> : (
             <ul className="divide-y divide-gray-100">
-              {overdue.map((t) => (
+              {overdue.map((t) => {
+                // §B — sem pedido pendente correspondente (já decidido
+                // noutro sítio, ou task órfã), cai no checkbox normal para
+                // continuar fechável à mão.
+                const interestReq = t.source === 'interest_level_request' && t.entity_id
+                  ? pendingInterestByEntity.get(t.entity_id) : undefined;
+                return (
                 <li key={t.id} className="flex items-center gap-3 py-2 text-sm">
-                  <input type="checkbox" checked={false} onChange={() => toggleTask(t.id)} />
+                  {!interestReq && <input type="checkbox" checked={false} onChange={() => toggleTask(t.id)} />}
                   <ActionTypePill type={t.action_type} />
                   <span className="flex-1">{t.title}
                     {t.entity_id && <> — <EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink></>}
                   </span>
-                  <span className="font-semibold text-[#B00000]">{t.due_at?.slice(0, 10)}</span>
+                  {interestReq ? (
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      <button onClick={() => decideInterest(t.id, interestReq.id, 'granted')} disabled={busyTaskId === t.id}
+                        className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">Approve</button>
+                      <button onClick={() => decideInterest(t.id, interestReq.id, 'denied')} disabled={busyTaskId === t.id}
+                        className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">Deny</button>
+                    </span>
+                  ) : (
+                    <span className="font-semibold text-[#B00000]">{t.due_at?.slice(0, 10)}</span>
+                  )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </Card>

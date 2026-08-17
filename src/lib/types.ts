@@ -454,8 +454,12 @@ export interface TaskItem {
   // Prompt 65 Bloco 4 — 'suggested' when accepted as-is (or edited before
   // accepting) from the relationship engine's next-action suggestion,
   // 'manual' when the founder typed it themselves from scratch. Undefined
-  // for every task created before this shipped.
-  source?: 'suggested' | 'manual';
+  // for every task created before this shipped. Prompt 220 §B widens the
+  // type to the two server-created values migration 0132 already allows
+  // ('investor_interest', 'interest_level_request') — they always existed
+  // in the rows the store loads (select '*'); the type just didn't admit
+  // them, so TodayPanel couldn't branch on them.
+  source?: 'suggested' | 'manual' | 'investor_interest' | 'interest_level_request';
   // Prompt 126 D — free-text detail from the "create appointment" modal
   // (migration 0123, propose-only). `reminder_at` is when the in-workspace
   // popup should next fire for this task; cleared by Dismiss (explicit
