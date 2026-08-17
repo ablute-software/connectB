@@ -7,7 +7,7 @@ import { createContext, useContext } from 'react';
 import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, CompanyPerson, Db,
   Direction, DocumentItem, DocVisibility, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
-  PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone, FundingRound } from './types';
+  PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory } from './types';
 
 export type LogInput = {
   entity_id: string;
@@ -221,6 +221,9 @@ export interface StoreApi {
   undoStageChange: (entityId: string, previousStage: RelationshipStage | undefined, milestoneId: string) => void;
   // Prompt 212 §B.3 — rondas anteriores. Fonte única: quem mostra capital
   // já levantado lê daqui, nunca de uma cópia.
+  // Prompt 213 §D — categorias de eventos do roadmap.
+  addRoadmapCategory: (c: Omit<RoadmapCategory, 'id' | 'org_id' | 'created_at'>) => Promise<{ error?: string }>;
+  removeRoadmapCategory: (id: string) => Promise<{ error?: string }>;
   addFundingRound: (r: Omit<FundingRound, 'id' | 'org_id' | 'created_at'>) => Promise<{ error?: string }>;
   removeFundingRound: (id: string) => Promise<{ error?: string }>;
   setNextStepTask: (entityId: string, taskId: string | undefined) => void;

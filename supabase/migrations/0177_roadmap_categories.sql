@@ -1,4 +1,5 @@
--- Prompt 213 §D — PROPOSTO, NÃO APLICADO (aplica o revisor).
+-- Prompt 213 §D — APLICADO EM PRODUÇÃO 2026-08-17 pelo revisor.
+-- Verificado: tabela + items_v2 + RLS (1 policy) + os dois checks.
 --
 -- Categorias de eventos no roadmap: o founder define (nome livre, cor e
 -- forma de um conjunto fechado), o investidor filtra por checkbox.

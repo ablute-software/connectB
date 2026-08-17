@@ -61,6 +61,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { detectPastRound, type PastRoundHint } from '@/lib/round-propagation';
+import { readItems, itemCategoryLabel, CATEGORY_COLORS, CATEGORY_SHAPES, COLOR_STYLES, SHAPE_STYLES, GENERAL_LABEL, type CategoryColor, type CategoryShape } from '@/lib/roadmap-categories';
+import type { RoadmapItemV2, RoadmapCategory } from '@/lib/types';
 import { Card, TermHint, Toggle } from '@/components/ui';
 import type { RoadmapMilestone, RoadmapPeriodKind } from '@/lib/types';
 import { periodHasPassed, periodLabel, sortRoadmapPeriods, type RoadmapPeriod } from '@/lib/roadmap';
@@ -218,10 +220,14 @@ function FoundedNode({ foundedYear, col, nextColor }: { foundedYear: number | nu
   );
 }
 
-function MilestoneNode<T extends RoadmapPeriod & { items: string[] }>({
-  m, index, col, theme, editable, onEdit, onRemove, now, prevPast, prevColor, nextColor,
+function MilestoneNode<T extends RoadmapPeriod & { items: string[]; items_v2?: RoadmapItemV2[] | null }>({
+  m, index, col, theme, editable, onEdit, onRemove, now, prevPast, prevColor, nextColor, categories = [],
 }: {
   m: T; index: number; col: number; theme: typeof CARD_THEMES[number]; editable: boolean; onEdit?: (m: T) => void; onRemove?: (m: T) => void; now: Date;
+  // Prompt 213 §D — para a cor do ponto de cada item. Opcional: sem
+  // categorias (ou num item General/lookup-miss) o ponto fica na cor do
+  // tema, exactamente o comportamento anterior.
+  categories?: RoadmapCategory[];
   // Prompt 177 §1 — whether the PREVIOUS node on the axis was already past,
   // so this node's own "before" segment agrees with that neighbor's
   // "after" segment (both sides of one physical line draw the same style —
@@ -251,14 +257,21 @@ function MilestoneNode<T extends RoadmapPeriod & { items: string[] }>({
           {past ? '✓' : ''}
         </span>
       </div>
-      {m.items.length > 0 ? (
+      {readItems(m).length > 0 ? (
         <ul className="mt-2 space-y-1.5">
-          {m.items.map((it, i) => (
-            <li key={i} className="flex items-start gap-1.5 text-gray-700">
-              <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${theme.dot}`} aria-hidden="true" />
-              <span>{it}</span>
-            </li>
-          ))}
+          {readItems(m).map((it, i) => {
+            const label = itemCategoryLabel(it, categories);
+            const cat = categories.find((c) => c.label === label);
+            const dot = cat ? (COLOR_STYLES[cat.color as CategoryColor]?.dot ?? theme.dot) : theme.dot;
+            const shape = cat ? (SHAPE_STYLES[cat.shape as CategoryShape] ?? 'rounded-full') : 'rounded-full';
+            return (
+              <li key={i} className="flex items-start gap-1.5 text-gray-700">
+                <span title={cat ? label : undefined}
+                  className={`mt-1.5 h-1.5 w-1.5 shrink-0 ${shape} ${dot}`} aria-hidden="true" />
+                <span>{it.text}</span>
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="mt-2 text-gray-400">No milestones listed.</p>
@@ -383,12 +396,13 @@ function ScrollBar({ scrollRef }: { scrollRef: React.RefObject<HTMLDivElement> }
   );
 }
 
-export function RoadmapTimeline<T extends RoadmapPeriod & { items: string[] }>({
-  foundedYear, milestones, editable, onAddClick, onEditClick, onRemoveClick, now = new Date(),
+export function RoadmapTimeline<T extends RoadmapPeriod & { items: string[]; items_v2?: RoadmapItemV2[] | null }>({
+  foundedYear, milestones, editable, onAddClick, onEditClick, onRemoveClick, now = new Date(), categories = [],
 }: {
   foundedYear: number | null;
   milestones: T[];
   editable: boolean;
+  categories?: RoadmapCategory[];
   onAddClick?: () => void;
   onEditClick?: (m: T) => void;
   onRemoveClick?: (m: T) => void;
@@ -437,7 +451,7 @@ export function RoadmapTimeline<T extends RoadmapPeriod & { items: string[] }>({
         {sorted.map((m, i) => (
           <MilestoneNode key={`${m.period_kind}:${m.period_year}:${m.period_quarter ?? ''}`}
             m={m} index={i + 1} col={i + 2} theme={CARD_THEMES[i % CARD_THEMES.length]}
-            editable={editable} onEdit={onEditClick} onRemove={onRemoveClick} now={now}
+            editable={editable} onEdit={onEditClick} onRemove={onRemoveClick} now={now} categories={categories}
             prevPast={i === 0 ? true : periodHasPassed(sorted[i - 1], now)}
             prevColor={i === 0 ? FOUNDED_NODE_COLOR : CARD_THEMES[(i - 1) % CARD_THEMES.length].nodeColor}
             nextColor={i === sorted.length - 1 ? CARD_THEMES[i % CARD_THEMES.length].nodeColor : CARD_THEMES[(i + 1) % CARD_THEMES.length].nodeColor} />
@@ -457,19 +471,35 @@ export function RoadmapTimeline<T extends RoadmapPeriod & { items: string[] }>({
   );
 }
 
-interface MilestoneDraft { period_kind: RoadmapPeriodKind; period_year: string; period_quarter: string; itemsText: string }
-const BLANK_DRAFT: MilestoneDraft = { period_kind: 'quarter', period_year: '', period_quarter: '1', itemsText: '' };
+// Prompt 213 §D — itemCats alinha por INDICE DE LINHA com o itemsText: a
+// linha N do textarea tem a categoria N. Frágil se as linhas forem
+// reordenadas dentro do textarea, e aceite: o editor re-alinha a cada
+// tecla (linhas a mais ganham null=General, a menos são cortadas), e a
+// alternativa — um editor por-item com drag — era outra UI inteira.
+interface MilestoneDraft { period_kind: RoadmapPeriodKind; period_year: string; period_quarter: string; itemsText: string; itemCats: (string | null)[] }
+const BLANK_DRAFT: MilestoneDraft = { period_kind: 'quarter', period_year: '', period_quarter: '1', itemsText: '', itemCats: [] };
 
 function draftFromMilestone(m: RoadmapMilestone): MilestoneDraft {
+  // readItems: items_v2 quando existe, senão o legacy como General — a
+  // conversão lazy da 0177 do lado do editor.
+  const structured = readItems(m);
   return {
     period_kind: m.period_kind, period_year: String(m.period_year),
-    period_quarter: String(m.period_quarter ?? 1), itemsText: m.items.join('\n'),
+    period_quarter: String(m.period_quarter ?? 1),
+    itemsText: structured.map((i) => i.text).join('\n'),
+    itemCats: structured.map((i) => i.category_id),
   };
 }
 
-function MilestoneForm({ draft, setDraft, onSave, onCancel, saving, err }: {
+function itemsV2FromDraft(d: MilestoneDraft): RoadmapItemV2[] {
+  return d.itemsText.split('\n').map((t) => t.trim()).filter(Boolean)
+    .map((text, i) => ({ text, category_id: d.itemCats[i] ?? null }));
+}
+
+function MilestoneForm({ draft, setDraft, onSave, onCancel, saving, err, categories }: {
   draft: MilestoneDraft; setDraft: (d: MilestoneDraft) => void;
   onSave: () => void; onCancel: () => void; saving: boolean; err: string;
+  categories: RoadmapCategory[];
 }) {
   const yearNum = Number(draft.period_year);
   const yearValid = draft.period_year.trim() !== '' && Number.isInteger(yearNum) && yearNum >= 2000 && yearNum <= 2100;
@@ -493,6 +523,28 @@ function MilestoneForm({ draft, setDraft, onSave, onCancel, saving, err }: {
       <textarea value={draft.itemsText} onChange={(e) => setDraft({ ...draft, itemsText: e.target.value })} rows={3}
         placeholder={'One milestone per line, e.g.\nScale to 50 customers\nOpen UK market'}
         className="w-full rounded border border-gray-300 p-2 text-sm" />
+      {/* Prompt 213 §D — categoria por linha. Só aparece quando há
+          categorias criadas: sem elas, tudo é General e o select era
+          mobiliário. */}
+      {categories.length > 0 && draft.itemsText.trim() !== '' && (
+        <div className="space-y-1">
+          {draft.itemsText.split('\n').map((t) => t.trim()).filter(Boolean).map((line, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs">
+              <span className="min-w-0 flex-1 truncate text-gray-600">{line}</span>
+              <select value={draft.itemCats[i] ?? ''}
+                onChange={(e) => {
+                  const next = [...draft.itemCats];
+                  next[i] = e.target.value || null;
+                  setDraft({ ...draft, itemCats: next });
+                }}
+                className="rounded border border-gray-300 px-1.5 py-0.5 text-xs">
+                <option value="">{GENERAL_LABEL}</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
       {!yearValid && draft.period_year.trim() !== '' && <p className="text-xs text-[#B00000]">Year must be between 2000 and 2100.</p>}
       {err && <p className="text-xs text-[#B00000]">{err}</p>}
       <div className="flex gap-2">
@@ -538,10 +590,12 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
     const items = itemsFromText(addDraft.itemsText);
     setAddSaving(true); setAddErr('');
     try {
+      // items E items_v2, sempre os dois: o texto plano continua a servir
+      // qualquer leitor antigo, e o estruturado é a fonte das categorias.
       const { error } = await addRoadmapMilestone({
         period_kind: addDraft.period_kind, period_year: Number(addDraft.period_year),
         period_quarter: addDraft.period_kind === 'quarter' ? Number(addDraft.period_quarter) : undefined,
-        items,
+        items, items_v2: itemsV2FromDraft(addDraft),
       });
       if (error) { setAddErr(error); return; }
 
@@ -571,7 +625,7 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
       const { error } = await updateRoadmapMilestone(editingId, {
         period_kind: editDraft.period_kind, period_year: Number(editDraft.period_year),
         period_quarter: editDraft.period_kind === 'quarter' ? Number(editDraft.period_quarter) : undefined,
-        items,
+        items, items_v2: itemsV2FromDraft(editDraft),
       });
       if (error) { setEditErr(error); return; }
       setEditingId(null);
@@ -616,19 +670,79 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
         onAddClick={() => { setAdding(true); setEditingId(null); }}
         onEditClick={startEdit}
         onRemoveClick={(m) => { if (window.confirm('Remove this milestone?')) removeRoadmapMilestone(m.id); }}
+        categories={db.roadmapCategories}
       />
 
       {adding && (
         <MilestoneForm draft={addDraft} setDraft={setAddDraft} onSave={submitAdd}
           onCancel={() => { setAdding(false); setAddDraft(BLANK_DRAFT); setAddErr(''); }}
-          saving={addSaving} err={addErr} />
+          saving={addSaving} err={addErr} categories={db.roadmapCategories} />
       )}
       {editingId && (
         <MilestoneForm draft={editDraft} setDraft={setEditDraft} onSave={submitEdit}
           onCancel={() => { setEditingId(null); setEditErr(''); }}
-          saving={editSaving} err={editErr} />
+          saving={editSaving} err={editErr} categories={db.roadmapCategories} />
       )}
+
+      {/* Prompt 213 §D — o gestor de categorias do founder. Nome livre
+          (é onde a liberdade vale alguma coisa); cor e forma de conjuntos
+          fechados, porque cor livre acabava em roadmaps arco-íris. */}
+      {canEdit && <CategoryManager />}
     </Card>
     </>
+  );
+}
+
+function CategoryManager() {
+  const { db, addRoadmapCategory, removeRoadmapCategory } = useStore();
+  const [label, setLabel] = useState('');
+  const [color, setColor] = useState<CategoryColor>('teal');
+  const [shape, setShape] = useState<CategoryShape>('rounded');
+
+  return (
+    <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50/60 p-3">
+      <p className="text-xs font-medium text-gray-600">Event categories</p>
+      <p className="mt-0.5 text-[11px] text-gray-400">
+        Tag milestones so investors can filter your roadmap — rounds, prototype, GTM, whatever fits.
+        Untagged items read as {GENERAL_LABEL}.
+      </p>
+
+      {db.roadmapCategories.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {db.roadmapCategories.map((c) => (
+            <li key={c.id} className="flex items-center gap-2 text-xs">
+              <span aria-hidden
+                className={`h-3 w-3 shrink-0 ${COLOR_STYLES[c.color as CategoryColor]?.dot ?? 'bg-gray-400'} ${SHAPE_STYLES[c.shape as CategoryShape] ?? 'rounded-lg'}`} />
+              <span className="text-gray-700">{c.label}</span>
+              {/* Apagar é seguro sem confirmação pesada: os itens que
+                  apontavam para cá passam a ler-se General — nada se perde
+                  além da etiqueta (contrato da 0177). */}
+              <button onClick={() => removeRoadmapCategory(c.id)}
+                className="ml-auto text-[11px] text-gray-400 hover:text-[#B00000]">remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Investment rounds"
+          className="w-44 rounded border border-gray-300 px-2 py-1 text-xs" />
+        <select value={color} onChange={(e) => setColor(e.target.value as CategoryColor)}
+          className="rounded border border-gray-300 px-1.5 py-1 text-xs">
+          {CATEGORY_COLORS.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={shape} onChange={(e) => setShape(e.target.value as CategoryShape)}
+          className="rounded border border-gray-300 px-1.5 py-1 text-xs">
+          {CATEGORY_SHAPES.map((sh) => <option key={sh} value={sh}>{sh}</option>)}
+        </select>
+        <span aria-hidden className={`h-3.5 w-3.5 ${COLOR_STYLES[color].dot} ${SHAPE_STYLES[shape]}`} />
+        <button
+          disabled={!label.trim()}
+          onClick={async () => { await addRoadmapCategory({ label: label.trim(), color, shape }); setLabel(''); }}
+          className="rounded bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
+          Add
+        </button>
+      </div>
+    </div>
   );
 }

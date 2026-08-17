@@ -5,7 +5,7 @@
 // StoreApi contract (locks, follow-up tasks, overrides, runs semantics).
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation, FundingRound } from './types';
+  AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory } from './types';
 import { seed } from './data/seed';
 import { revisitTasksToClose } from './exit-effects';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
@@ -255,6 +255,17 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     // Prompt 167 — demo-mode roadmap milestones: local state only, same
     // add/update/remove shape as traction metrics above, no rejection path
     // (roadmap has no equivalent of the dealdigger-limit trigger).
+    async addRoadmapCategory(c) {
+      setDb((prev) => ({
+        ...prev,
+        roadmapCategories: [...prev.roadmapCategories, { ...c, id: uid('rc'), org_id: prev.org.id, created_at: new Date().toISOString() } as RoadmapCategory],
+      }));
+      return {};
+    },
+    async removeRoadmapCategory(id) {
+      setDb((prev) => ({ ...prev, roadmapCategories: prev.roadmapCategories.filter((c) => c.id !== id) }));
+      return {};
+    },
     async addFundingRound(r) {
       setDb((prev) => ({
         ...prev,

@@ -175,6 +175,9 @@ export interface RoadmapMilestone {
   // constraint (migration 0161), not re-validated independently here.
   period_quarter?: number;
   items: string[];
+  // Prompt 213 §D — itens estruturados (0177). Quando presente ganha a
+  // `items`; a conversao e lazy ao guardar. Ver roadmap-categories.ts.
+  items_v2?: RoadmapItemV2[] | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -816,4 +819,5 @@ export interface Db {
   reawakeningProposals: ReawakeningProposal[];
   roadmapMilestones: RoadmapMilestone[];
   fundingRounds: FundingRound[];
+  roadmapCategories: RoadmapCategory[];
 }

@@ -12,7 +12,7 @@ import type {
   AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, CompanyFact, CompanyPerson, Db, DocumentItem,
   DocumentVersion, DocumentView, Entity, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
-  RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound } from './types';
+  RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval } from './reawakening';
@@ -27,7 +27,7 @@ const EMPTY_DB: Db = {
   org: EMPTY_ORG, entities: [], people: [], personAffiliations: [], interactions: [], tasks: [], relationshipState: [], overrides: [],
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
-  documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [],
+  documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -74,7 +74,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
     documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes, roadmapMilestonesRes,
-    fundingRoundsRes,
+    fundingRoundsRes, roadmapCategoriesRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -124,6 +124,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // depends on period_kind too, not just a column order.
     sb.from('company_roadmap_milestones').select('*').eq('org_id', orgId).order('period_year', { ascending: true }),
     sb.from('funding_rounds').select('*').eq('org_id', orgId).order('closed_year', { ascending: true }),
+    sb.from('roadmap_categories').select('*').eq('org_id', orgId).order('created_at', { ascending: true }),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -187,6 +188,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     tractionMetrics: ((tractionMetricsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<TractionMetric>(r)),
     roadmapMilestones: ((roadmapMilestonesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RoadmapMilestone>(r)),
     fundingRounds: ((fundingRoundsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<FundingRound>(r)),
+    roadmapCategories: ((roadmapCategoriesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RoadmapCategory>(r)),
   };
 }
 
@@ -589,6 +591,29 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     // minus the dealdigger-limit rejection path (roadmap has no such
     // constraint, so these stay simple fire-and-forget-with-error-surfaced
     // rather than needing an awaited-before-commit round trip).
+    async addRoadmapCategory(c) {
+      const prev = dbRef.current;
+      const row: RoadmapCategory = { ...c, id: uuid(), org_id: prev.org.id, created_at: new Date().toISOString() };
+      const o = orgIdRef.current;
+      if (o) {
+        const { error } = await sb.from('roadmap_categories').insert({ ...row, org_id: o });
+        if (error) return { error: error.message };
+      }
+      commit({ ...prev, roadmapCategories: [...prev.roadmapCategories, row] });
+      return {};
+    },
+    async removeRoadmapCategory(id) {
+      const prev = dbRef.current;
+      if (orgIdRef.current) {
+        const { error } = await sb.from('roadmap_categories').delete().eq('id', id);
+        if (error) return { error: error.message };
+      }
+      // Os itens que apontavam para ela NAO se tocam: o leitor resolve o
+      // lookup-miss como General (roadmap-categories.ts) — o contrato que
+      // faz apagar ser seguro sem triggers.
+      commit({ ...prev, roadmapCategories: prev.roadmapCategories.filter((c) => c.id !== id) });
+      return {};
+    },
     async addFundingRound(r) {
       const prev = dbRef.current;
       const row: FundingRound = { ...r, id: uuid(), org_id: prev.org.id, created_at: new Date().toISOString() };
