@@ -16,7 +16,7 @@ import { InteractionLogTimeline } from '@/components/investor-workspace/Interact
 import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
 import { DealThreadView, type DealMessage } from '@/components/deal-messages/DealThreadView';
 import { SwotQuadrant } from '@/components/readiness/SwotVisualCard';
-import { RoadmapTimeline } from '@/components/company/RoadmapCard';
+import { ResponsiveRoadmap } from '@/components/company/ResponsiveRoadmap';
 import type { SwotData, RoadmapPeriodKind } from '@/lib/types';
 import type { ReviewCategory } from '@/lib/review-clarifications';
 
@@ -430,7 +430,9 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
         <div id="roadmap" data-section="Roadmap" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-gray-900">Roadmap</h2>
           <div className="mt-2">
-            <RoadmapTimeline foundedYear={overview?.founded_year ?? null} milestones={dossier.roadmap} editable={false} />
+            {/* Prompt 213 §C — ajusta a largura (piso 11px); acima disso a
+                lupa por ano. O slider deixou de ser o mecanismo primario. */}
+            <ResponsiveRoadmap foundedYear={overview?.founded_year ?? null} milestones={dossier.roadmap} />
           </div>
         </div>
       )}
