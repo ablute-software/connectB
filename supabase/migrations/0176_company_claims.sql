@@ -1,15 +1,14 @@
--- Prompt 219 bloco 1 — PROPOSTO, NÃO APLICADO (aplica o revisor).
+-- APLICADO EM PRODUÇÃO 2026-08-17 (verificado por SQL: tabela presente com
+-- 12 colunas, RLS ligada, 1 policy company_claims_org_members (ALL,
+-- is_org_member em using E with check), 3 índices, os 5 CHECKs de
+-- categoria/classe/especificidade/fonte/status e a FK org_id->orgs
+-- ON DELETE CASCADE. 0 linhas — a ingestão é do bloco 3.)
+-- Texto abaixo é o do revisor, verbatim.
 --
--- A base de conhecimento do motor de narrativa: cada linha é um CLAIM —
--- uma afirmação sobre a empresa com categoria, classe de evidência (1 =
--- compromisso pago … 5 = decoração), especificidade e FONTE. É daqui que
--- todas as superfícies viradas a investidores passarão a beber, e é por
--- cada frase ter fonte que a fuga do 211 se torna estruturalmente
--- impossível: performance de plataforma nem categoria tem neste modelo.
---
--- NADA entra em superfície nenhuma sem status='accepted' — o founder
--- aceita/edita/rejeita cada claim proposto. Mesmo padrão dos canon facts:
--- confirmado é a moeda.
+-- Prompt 219 bloco 1 — a base de conhecimento do motor de narrativa: cada
+-- linha é um CLAIM — uma afirmação sobre a empresa com categoria, classe de
+-- evidência (1 = compromisso pago … 5 = decoração), especificidade e FONTE.
+-- NADA entra em superfície nenhuma sem status='accepted'.
 create table if not exists company_claims (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references orgs(id) on delete cascade,
@@ -23,9 +22,6 @@ create table if not exists company_claims (
     'fact','vault_doc','roadmap','profile','funding_round','founder_answer')),
   source_ref text,
   status text not null default 'proposed' check (status in ('proposed','accepted','rejected')),
-  -- A análise que o propôs (blueprint_analyses, migração futura do bloco 3).
-  -- uuid solto por agora — a FK entra quando a tabela existir, para as duas
-  -- migrações não ficarem acopladas.
   analysis_id uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
