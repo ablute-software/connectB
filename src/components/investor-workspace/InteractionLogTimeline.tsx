@@ -12,6 +12,21 @@
 // registered anywhere yet), and a document picker limited to files this
 // firm already has data-room access to (never a new upload path).
 import { useEffect, useState } from 'react';
+import { investorJourneySteps } from '@/lib/investor-journey';
+import { InvestorJourneyStrip } from './InvestorJourneyStrip';
+
+// Prompt 216 §B — contexto para a faixa "ponto da situação". Opcional: o
+// drawer da Pipeline (InteractionLogDrawer) não o passa e fica exatamente
+// como estava; só o separador de atividade do dossier o fornece. Tudo aqui
+// é investor-visível por construção (mensagens da thread DELE, docs com
+// gate já resolvido, decisão DELE) — ver §A do prompt e investor-journey.ts.
+export interface JourneyContext {
+  messages: { createdAt: string }[];
+  accessibleDocs: { id: string; name: string }[];
+  status: 'open' | 'passed' | 'interested';
+  decidedAt: string | null;
+  onOpenDoc: (documentId: string) => void;
+}
 
 interface TimelineEntry {
   id: string;
@@ -50,7 +65,7 @@ function toLocalInputValue(d: Date) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function InteractionLogTimeline({ orgId }: { orgId: string }) {
+export function InteractionLogTimeline({ orgId, journey }: { orgId: string; journey?: JourneyContext }) {
   const [entries, setEntries] = useState<TimelineEntry[] | null>(null);
   const [people, setPeople] = useState<PersonOption[]>([]);
   const [documents, setDocuments] = useState<DocOption[]>([]);
@@ -114,8 +129,27 @@ export function InteractionLogTimeline({ orgId }: { orgId: string }) {
     } finally { setSaving(false); }
   }
 
+  // §B — a âncora do "see in history": rola até à entrada e realça-a por
+  // um instante. O id vem da própria entrada do log (ver o li abaixo).
+  function scrollToEntry(entryId: string) {
+    const el = document.getElementById(`log-entry-${entryId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('ring-2', 'ring-[#0E7490]');
+    setTimeout(() => el.classList.remove('ring-2', 'ring-[#0E7490]'), 1600);
+  }
+
+  const journeyStrip = journey && entries != null ? investorJourneySteps({
+    entries: entries.map((e) => ({ id: e.id, kind: e.kind, at: e.at, document: e.document })),
+    messages: journey.messages, accessibleDocs: journey.accessibleDocs,
+    status: journey.status, decidedAt: journey.decidedAt,
+  }) : null;
+
   return (
     <div>
+      {journeyStrip && (
+        <InvestorJourneyStrip steps={journeyStrip} onOpenDoc={journey!.onOpenDoc} onSeeInHistory={scrollToEntry} />
+      )}
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
         <div className="mb-1 flex items-center justify-between">
           <label className="block text-xs font-medium text-gray-700">Log interaction</label>
@@ -190,7 +224,7 @@ export function InteractionLogTimeline({ orgId }: { orgId: string }) {
         ) : (
           <ul className="space-y-2">
             {entries.map((e) => (
-              <li key={e.id} className="rounded border border-gray-100 bg-gray-50 p-3 text-sm">
+              <li key={e.id} id={`log-entry-${e.id}`} className="rounded border border-gray-100 bg-gray-50 p-3 text-sm transition-shadow">
                 <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                   <span>{fmtDateTime(e.at)}</span>
                   {e.kind === 'manual' && e.channel && (

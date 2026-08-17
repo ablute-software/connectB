@@ -179,6 +179,18 @@ export default function StartupDossierPage() {
     } finally { setLevelBusy(false); }
   }
 
+  // Prompt 216 §B — abrir um documento a partir da faixa da jornada: o
+  // MESMO caminho com gate do separador Documents (a lista `docs` já vem de
+  // /api/portal/access via resolveDocumentAccess; o POST /view regista a
+  // visualização como sempre). Um id que não esteja na lista com gate não
+  // abre nada — nunca se constrói um URL fora dela.
+  async function openDocById(documentId: string) {
+    const doc = docs?.sections.flatMap((s) => s.documents).find((d) => d.id === documentId);
+    if (!doc) return;
+    await fetch('/api/portal/view', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentId }) });
+    window.open(doc.url ?? '#', '_blank');
+  }
+
   async function archiveManually() {
     setBusy(true);
     try {
@@ -368,7 +380,14 @@ export default function StartupDossierPage() {
             </div>
           </div>
         )}
-        {tab === 'activity' && <InteractionLogTimeline orgId={orgId} />}
+        {tab === 'activity' && (
+          <InteractionLogTimeline orgId={orgId} journey={{
+            messages: messagesInfo?.messages ?? [],
+            accessibleDocs: docs ? docs.sections.flatMap((s) => s.documents.map((d) => ({ id: d.id, name: d.name }))) : [],
+            status: data.card.status, decidedAt: data.card.decidedAt,
+            onOpenDoc: openDocById,
+          }} />
+        )}
       </main>
     </div>
   );

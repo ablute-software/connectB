@@ -13,7 +13,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-export interface BadgeDoc { key: string; name: string; at: string }
+// `openable` (Prompt 216 §B) — false esconde o "open" mantendo nome+data e
+// o "see in history": um documento que apareceu no log mas cujo grant já
+// não existe é história, não é acesso. Omitido = true (todas as superfícies
+// anteriores só listam documentos abríveis).
+export interface BadgeDoc { key: string; name: string; at: string; openable?: boolean }
 
 // Largura fixa para o cálculo de posição poder ser exacto — medir depois de
 // montar dava um salto visível no primeiro frame.
@@ -67,8 +71,10 @@ export function DocBadgePopover({ anchor, docs, onOpen, onSeeInHistory, onClose 
           <p className="truncate text-[11px] font-medium text-gray-900" title={d.name}>{d.name}</p>
           <p className="text-[10px] text-gray-400">{d.at.slice(0, 10)}</p>
           <div className="mt-0.5 flex gap-2">
-            <button onClick={() => { onOpen(d.key); onClose(); }}
-              className="text-[11px] font-medium text-[#0E7490] hover:underline">open</button>
+            {d.openable !== false && (
+              <button onClick={() => { onOpen(d.key); onClose(); }}
+                className="text-[11px] font-medium text-[#0E7490] hover:underline">open</button>
+            )}
             {onSeeInHistory && (
               <button onClick={() => { onSeeInHistory(d.key); onClose(); }}
                 className="text-[11px] font-medium text-[#0E7490] hover:underline">see in history</button>
