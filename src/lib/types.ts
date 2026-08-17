@@ -490,6 +490,24 @@ export type ClaimSpecificity = 'high' | 'medium' | 'low';
 export type ClaimSourceKind =
   | 'fact' | 'vault_doc' | 'roadmap' | 'profile' | 'funding_round' | 'founder_answer';
 
+// Prompt 219 bloco 2 — o claim PERSISTIDO (espelho client-side da linha de
+// company_claims, migração 0176): o que as regras de deteção de lacunas
+// recebem. Difere do NormalizedClaim do bloco 1 (o átomo acabado de
+// classificar) por ter identidade, status e datas — o ciclo de vida.
+export type ClaimStatus = 'proposed' | 'accepted' | 'rejected';
+
+export interface CompanyClaim {
+  id: string;
+  category: ClaimCategory;
+  statement: string;
+  evidenceClass: EvidenceClass;
+  specificity: ClaimSpecificity;
+  sourceKind: ClaimSourceKind;
+  sourceRef?: string | null;
+  status: ClaimStatus;
+  updatedAt?: string;
+}
+
 // Prompt 213 §D — item estruturado do roadmap (items_v2 na 0177).
 // category_id null = "General"; um id que nao resolve le-se como General
 // (e o que torna apagar categorias seguro sem triggers).

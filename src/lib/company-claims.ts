@@ -128,7 +128,9 @@ export function normalizeAtom(atom: RawAtom): NormalizedClaim {
 // O delta que o 219 §1.3 chama G2 e que é "a lacuna mais valiosa de
 // resolver": uma classe forte desperdiçada por falta de detalhe. O facto já
 // existe — falta só o founder dizer o nome e o desfecho.
-export function isWastedStrongClaim(claim: NormalizedClaim): boolean {
+// (Bloco 2 alargou o parâmetro a Pick<> para a MESMA função servir o claim
+// persistido de company-gaps.ts — reutilizar, não reimplementar.)
+export function isWastedStrongClaim(claim: Pick<NormalizedClaim, 'evidenceClass' | 'specificity'>): boolean {
   return claim.evidenceClass <= 2 && claim.specificity === 'low';
 }
 
