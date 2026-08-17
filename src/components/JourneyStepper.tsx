@@ -7,7 +7,7 @@
 // Fechado: só os passos dados, terminando no desfecho — sem Meeting/Diligence
 // cinzentos a seguir, que era o ruído a seguir a uma relação terminada.
 // Parqueado: percorrido esmaecido mas legível, chip ❄ no fim.
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import type { Entity, RelationshipStage } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import { STAGE_LABEL } from '@/lib/relationship';
@@ -43,25 +43,44 @@ export function JourneyStepper({ entity, onViewInHistory }: {
   const previewDoc = preview ? db.documents.find((d) => d.id === preview.docId) : undefined;
 
   return (
-    <div className="flex flex-wrap items-center gap-1 pb-1">
+    <div className="flex flex-wrap items-center gap-2 pb-1">
       {steps.map((step, idx) => {
+        // Prompt 224 §3 — o conector substitui a seta de texto: um traço que
+        // ESTICA (flex-1), para o trilho deixar de se agarrar à esquerda e
+        // passar a ocupar a largura do cartão. Fica irmão dos pills no flex
+        // exterior (não dentro de cada passo, como a seta estava), que é o
+        // que lhe permite crescer. O troço a seguir a um passo percorrido
+        // fica teal — reforça "até aqui, concluído" sem inventar fonte de
+        // verdade nenhuma: é o `state` que o journeySteps() já devolve.
+        const connector = idx < steps.length - 1 ? (
+          <span aria-hidden
+            className={`mx-1 h-px min-w-[12px] flex-1 ${
+              step.kind === 'stage' && step.state === 'done' && !parked ? 'bg-[#0E7490]/30' : 'bg-gray-200'}`} />
+        ) : null;
+
         if (step.kind === 'parked') {
           return (
-            <span key="parked" className="whitespace-nowrap rounded-full border border-gray-300 bg-gray-50 px-2.5 py-1 text-[11px] font-semibold text-gray-600">
-              ❄ Parked{step.revisitAt ? ` — revisit ${step.revisitAt.slice(0, 10)}` : ''}
-            </span>
+            <Fragment key="parked">
+              <span className="whitespace-nowrap rounded-full border border-gray-300 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600">
+                ❄ Parked{step.revisitAt ? ` — revisit ${step.revisitAt.slice(0, 10)}` : ''}
+              </span>
+              {connector}
+            </Fragment>
           );
         }
 
         if (step.kind === 'outcome') {
           const declined = step.outcome === 'declined';
           return (
-            <span key="outcome"
-              title={step.at ? `${declined ? 'passed' : 'invested'} ${step.at.slice(0, 10)}${step.passCategory ? ` — ${step.passCategory.replace(/_/g, ' ')}` : ''}` : undefined}
-              className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold text-white ${
-                declined ? 'bg-[#B00000]' : 'bg-green-700'}`}>
-              {declined ? '✕ Declined' : 'Invested'}
-            </span>
+            <Fragment key="outcome">
+              <span
+                title={step.at ? `${declined ? 'passed' : 'invested'} ${step.at.slice(0, 10)}${step.passCategory ? ` — ${step.passCategory.replace(/_/g, ' ')}` : ''}` : undefined}
+                className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold text-white ${
+                  declined ? 'bg-[#B00000]' : 'bg-green-700'}`}>
+                {declined ? '✕ Declined' : 'Invested'}
+              </span>
+              {connector}
+            </Fragment>
           );
         }
 
@@ -73,43 +92,45 @@ export function JourneyStepper({ entity, onViewInHistory }: {
           : 'bg-gray-100 text-gray-400';
 
         return (
-          <span key={step.stage} className="relative flex items-center gap-1">
+          <Fragment key={step.stage}>
+            {/* §1 — o badge 📄 passa a ser filho INLINE do pill, como no
+                InvestorJourneyStrip. Estava `absolute -right-1 -top-1` e
+                caía por cima da seta/pill seguinte, meio escondido. O
+                onClick/title/popover ficam iguais — o anchor continua a ser
+                o rectângulo do próprio botão. */}
             <span title={step.at ? `${STAGE_LABEL[step.stage]} · ${step.at.slice(0, 10)}` : undefined}
-              className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium ${style}`}>
+              className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium ${style}`}>
               {step.state === 'done' ? '✓ ' : ''}{STAGE_LABEL[step.stage]}
-            </span>
-
-            {list.length > 0 && (
-              <>
+              {list.length > 0 && (
                 <button title={hoverTitle(list)}
                   onClick={(e) => setOpenAt(openAt?.stage === step.stage
                     ? null
                     : { stage: step.stage, rect: e.currentTarget.getBoundingClientRect() })}
-                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-[#0E7490] bg-white text-[9px] leading-none">
-                  {list.length > 1 ? list.length : '📄'}
+                  aria-label={`${list.length} document(s) shared at this stage`}
+                  className="rounded leading-none hover:opacity-80">
+                  📄{list.length > 1 && <span className="ml-0.5 text-[10px]">{list.length}</span>}
                 </button>
-                {openAt?.stage === step.stage && (
-                  <DocBadgePopover
-                    anchor={openAt.rect}
-                    docs={list.map((d) => ({
-                      key: `${d.interactionId}:${d.documentId}`,
-                      name: docName(d.documentId), at: d.at,
-                    }))}
-                    onOpen={(key) => {
-                      const d = list.find((x) => `${x.interactionId}:${x.documentId}` === key);
-                      if (d) setPreview({ docId: d.documentId, at: d.at });
-                    }}
-                    onSeeInHistory={onViewInHistory && ((key) => {
-                      const d = list.find((x) => `${x.interactionId}:${x.documentId}` === key);
-                      if (d) onViewInHistory(d.interactionId);
-                    })}
-                    onClose={() => setOpenAt(null)} />
-                )}
-              </>
+              )}
+            </span>
+            {openAt?.stage === step.stage && list.length > 0 && (
+              <DocBadgePopover
+                anchor={openAt.rect}
+                docs={list.map((d) => ({
+                  key: `${d.interactionId}:${d.documentId}`,
+                  name: docName(d.documentId), at: d.at,
+                }))}
+                onOpen={(key) => {
+                  const d = list.find((x) => `${x.interactionId}:${x.documentId}` === key);
+                  if (d) setPreview({ docId: d.documentId, at: d.at });
+                }}
+                onSeeInHistory={onViewInHistory && ((key) => {
+                  const d = list.find((x) => `${x.interactionId}:${x.documentId}` === key);
+                  if (d) onViewInHistory(d.interactionId);
+                })}
+                onClose={() => setOpenAt(null)} />
             )}
-
-            {idx < steps.length - 1 && <span className="text-gray-300">→</span>}
-          </span>
+            {connector}
+          </Fragment>
         );
       })}
 

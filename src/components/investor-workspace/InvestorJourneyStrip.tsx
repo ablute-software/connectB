@@ -7,7 +7,7 @@
 // O badge 📄 segue o padrão do stepper do founder (209/215): hover dá
 // nome+data via title, o clique abre o DocBadgePopover — flutuante por
 // createPortal, nunca inline (regra do CLAUDE.md sobre overlays).
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { DocBadgePopover, type BadgeDoc } from '@/components/DocBadgePopover';
 import type { InvestorJourneyStep } from '@/lib/investor-journey';
 
@@ -31,13 +31,22 @@ export function InvestorJourneyStrip({ steps, onOpenDoc, onSeeInHistory }: {
 
   return (
     <div className="mb-4 rounded-lg border border-gray-200 bg-white p-3">
+      {/* Prompt 224 §2/§3 — o mesmo trilho do JourneyStepper do founder: os
+          dois passam a ler-se como a mesma peça de UI. A seta de texto dá
+          lugar ao conector que estica (flex-1), e o pill ganha o mesmo
+          padding/tamanho. O 📄 inline já era daqui — foi este componente
+          que serviu de padrão para corrigir o lado do founder. */}
       <div className="flex flex-wrap items-center gap-y-2">
         {steps.map((s, i) => (
-          <span key={s.key} className="flex items-center">
-            {i > 0 && <span aria-hidden className="mx-1.5 text-gray-300">→</span>}
+          <Fragment key={s.key}>
+            {i > 0 && (
+              <span aria-hidden
+                className={`mx-1 h-px min-w-[12px] flex-1 ${
+                  steps[i - 1].state === 'done' ? 'bg-[#0E7490]/30' : 'bg-gray-200'}`} />
+            )}
             <span
               title={s.at ? `${s.label} — ${fmtDate(s.at)}` : s.label}
-              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+              className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${
                 s.state === 'done'
                   ? 'border-[#0E7490]/30 bg-[#E8F4F8] text-[#0E7490]'
                   : 'border-dashed border-gray-300 text-gray-400'
@@ -54,7 +63,7 @@ export function InvestorJourneyStrip({ steps, onOpenDoc, onSeeInHistory }: {
                 </button>
               )}
             </span>
-          </span>
+          </Fragment>
         ))}
       </div>
       {popover && badgeDocs.length > 0 && (
