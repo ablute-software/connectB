@@ -10,6 +10,7 @@ import {
   dueDiligenceUnderFolders, normalizeDocumentUrl, reorderByDrag, sanitizeStorageKey, type GrantState,
 } from '@/lib/data-room';
 import { grantStatus } from '@/lib/access-grants';
+import { entityStatusChip, passedNote, everyoneDncWarning } from '@/lib/grantee-warnings';
 import { PeopleAccessPanel } from '@/components/documents/PeopleAccessPanel';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { VaultPinGate } from '@/components/documents/VaultPinGate';
@@ -978,10 +979,23 @@ function DocumentsPageInner() {
                     <ul className="mt-1 max-h-56 space-y-0.5 overflow-y-auto rounded border border-gray-100 bg-gray-50 p-1">
                       {filteredGrantEntities.slice(0, 200).map((e) => (
                         <li key={e.id}>
+                          {/* Prompt 222 §2 — chip de estado: passed/dormant/
+                              invested continuam a ser sugeridos (avisar,
+                              nunca esconder), mas deixam de o ser em
+                              silêncio. Estados normais não geram chip. */}
                           <button type="button"
                             onClick={() => { setGrantEntityId(e.id); setGrantEntityQuery(''); setGrantScope(''); setGrantSpecificIds([]); setGrantShowInvite(false); setSelection({}); }}
-                            className="block w-full rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-white">
-                            {e.name}
+                            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-white">
+                            <span className="flex-1">{e.name}</span>
+                            {(() => {
+                              const chip = entityStatusChip(e.status);
+                              return chip ? (
+                                <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                                  chip.tone === 'warn' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-500'}`}>
+                                  {chip.label}
+                                </span>
+                              ) : null;
+                            })()}
                           </button>
                         </li>
                       ))}
@@ -1008,6 +1022,20 @@ function DocumentsPageInner() {
                 )}
               </div>
 
+              {/* Prompt 222 §2 — a nota só para 'passed' (dormant fica pelo
+                  chip, por decisão do revisor: menos grave). A data vem da
+                  última interação classificada como pass; sem nenhuma, a
+                  frase cai na versão sem data em vez de desaparecer. */}
+              {grantEntityId && grantEntity?.status === 'passed' && (() => {
+                const lastPassAt = db.interactions
+                  .filter((i) => i.entity_id === grantEntityId && i.classification === 'pass')
+                  .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)).at(-1)?.occurred_at;
+                const note = passedNote(grantEntity.name, lastPassAt);
+                return note ? (
+                  <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">{note}</p>
+                ) : null;
+              })()}
+
               {grantEntityId && (
                 <div className="mt-3">
                   <label className="mb-1 block text-[11px] font-medium text-gray-400">2. Who gets access?</label>
@@ -1029,6 +1057,17 @@ function DocumentsPageInner() {
                       Resolved live at grant time: {entityAffiliatedPeople.map((p) => p.full_name).join(', ')}. Re-run this if the team changes — it isn&apos;t re-checked automatically after granting.
                     </p>
                   )}
+                  {/* Prompt 222 §2 — o caso que o 217 apanhou: "Everyone"
+                      resolvia do_not_contact para dentro do grant sem o
+                      founder ver o nome. Avisa e nomeia; não bloqueia (um
+                      grant é dar acesso a quem já está em diálogo, não
+                      abordar a frio — o hard stop do rules.ts é sobre
+                      CONTACTAR). */}
+                  {grantScope === 'everyone' && everyoneDncWarning(entityAffiliatedPeople) && (
+                    <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">
+                      {everyoneDncWarning(entityAffiliatedPeople)}
+                    </p>
+                  )}
 
                   {grantScope === 'specific' && (
                     <div className="mt-2 space-y-2">
@@ -1039,6 +1078,14 @@ function DocumentsPageInner() {
                             <input type="checkbox" checked={grantSpecificIds.includes(p.id)}
                               onChange={(e) => setGrantSpecificIds((prev) => e.target.checked ? [...prev, p.id] : prev.filter((id) => id !== p.id))} />
                             {p.full_name}
+                            {/* §2 — cor de aviso, não neutro: continua
+                                selecionável, mas nunca em silêncio. */}
+                            {p.do_not_contact && (
+                              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                                title="Marked do-not-contact for outreach. Granting access isn't outreach — but they will get in.">
+                                do-not-contact
+                              </span>
+                            )}
                           </label>
                         ))}
                       </div>
