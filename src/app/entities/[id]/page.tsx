@@ -18,11 +18,17 @@ import { browserClient } from '@/lib/supabase';
 import { EntityClassificationEditor } from '@/components/EntityClassificationEditor';
 import { TicketSignalCard } from '@/components/TicketSignalCard';
 import { FormAssistModal } from '@/components/FormAssistModal';
+import { useInterestRequests } from '@/lib/interest-requests-client';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const { db, setInterest, setEntityStatus, markEntityVerified, updateEntity } = useStore();
   const entity = db.entities.find((e) => e.id === id);
+  // Prompt 220 §C — o pedido de nível 3 deste investidor, se pendente. O
+  // match é por entityId (a resolução catalog_deliveries devolvida pelo
+  // endpoint founder), a mesma que liga a task do Today ao pedido.
+  const interestRequests = useInterestRequests();
+  const pendingInterest = interestRequests.find((r) => r.status === 'pending' && r.entityId === id);
   const [interest, setInterestLocal] = useState<string>('');
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Prompt 208 §D — contador, nao booleano: o founder pode pedir "leva-me la"
@@ -342,6 +348,15 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
 
         <div className="space-y-4">
+          {pendingInterest && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Pending</span>
+              <span className="ml-1.5 text-xs text-amber-900">
+                This investor requested direct contact (level 3) on {new Date(pendingInterest.requestedAt).toLocaleDateString()}.
+              </span>
+              <Link href="/today" className="ml-1.5 text-xs font-medium text-[#0E7490] hover:underline">Decide in Today →</Link>
+            </div>
+          )}
           <Card title="Approach" tint="blue">
             <dl className="space-y-2 text-sm">
               <div><dt className="text-xs text-gray-500">Our angle</dt><dd>{entity.our_angle ?? '—'}</dd></div>
