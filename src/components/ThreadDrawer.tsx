@@ -29,7 +29,10 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [] }:
   // Prompt 208 §D — qual e a resposta por classificar, e o controlo para o
   // fazer aqui mesmo. Antes o drawer nao assinalava nenhuma nem oferecia
   // nada: o founder via a resposta e nao tinha o que fazer com ela.
-  const [classifying, setClassifying] = useState<string | null>(null);
+  // Prompt 231 §C — deixou de ser um portao para revelar o InlineClassify de
+  // um pendente (isso monta directamente agora). Fica so para o "Edit" de
+  // uma interacao ja classificada.
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const people = db.people.filter((p) => p.entity_id === entity.id);
   const all = entityInteractions(db, entity.id);
@@ -181,13 +184,24 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [] }:
                   <blockquote className="whitespace-pre-wrap border-l-2 border-gray-300 pl-2 text-gray-700">{i.content}</blockquote>
                   {i.pass_reason && <div className="mt-1 text-xs text-[#B00000]">Pass reason ({i.pass_reason_category}): {i.pass_reason}</div>}
                   {i.next_action && <div className="mt-1 text-xs text-gray-500">Next: {i.next_action} {i.next_action_due && `· ${i.next_action_due}`}</div>}
+                  {/* Prompt 231 §C — monta directamente para o pendente, sem
+                      esperar clique. §B — classificada ganha "Edit", que
+                      reabre o mesmo componente pré-preenchido. 'awaiting'
+                      fica de fora do Edit (continua em `pending`). */}
                   {pending.some((p) => p.id === i.id) && (
-                    classifying === i.id
-                      ? <InlineClassify interactionId={i.id} content={i.content} onDone={() => setClassifying(null)} />
+                    <InlineClassify interactionId={i.id} content={i.content} />
+                  )}
+                  {i.classification && !pending.some((p) => p.id === i.id) && (
+                    editingId === i.id
+                      ? <InlineClassify interactionId={i.id} content={i.content} onDone={() => setEditingId(null)}
+                          existing={{
+                            classification: i.classification, passReasonCategory: i.pass_reason_category,
+                            passReason: i.pass_reason, classifiedBy: i.classified_by,
+                          }} />
                       : (
-                        <button onClick={() => setClassifying(i.id)}
-                          className="mt-1.5 rounded-full bg-amber-200 px-2.5 py-0.5 text-[11px] font-semibold text-amber-900 hover:bg-amber-300">
-                          to classify
+                        <button onClick={() => setEditingId(i.id)}
+                          className="mt-1.5 text-[11px] font-medium text-gray-400 hover:text-[#0E7490] hover:underline">
+                          Edit
                         </button>
                       )
                   )}

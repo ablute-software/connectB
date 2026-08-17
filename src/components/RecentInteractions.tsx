@@ -30,7 +30,11 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
 }) {
   const { db } = useStore();
   const [expanded, setExpanded] = useState(false);
-  const [classifying, setClassifying] = useState<string | null>(null);
+  // Prompt 231 §C — deixou de ser um portão para revelar o InlineClassify de
+  // um item pendente (isso monta directamente agora, sem clique). Fica só
+  // para o "Edit" de uma interação JÁ classificada — reabrir o formulário
+  // pré-preenchido é a única vez que alguém escolhe entrar aqui.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLLIElement | null>>({});
 
@@ -45,7 +49,6 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
   useEffect(() => {
     if (focusClassifyNonce === 0 || !oldestPending) return;
     setExpanded(true);
-    setClassifying(oldestPending.id);
     // Depois do expand, o elemento existe no DOM no frame seguinte.
     const id = window.setTimeout(() => {
       rowRefs.current[oldestPending.id]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -137,11 +140,16 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
       </div>
       <ul className="mt-2 space-y-1.5">
         {recent.map((i) => {
-          const needsClassifying = pending.some((p) => p.id === i.id);
+          const isPending = pending.some((p) => p.id === i.id);
+          // Prompt 231 §B — "já classificada" exclui 'awaiting': esse valor
+          // fica em `pending` de propósito (é "responderam mas não é
+          // decisão ainda"), e mostrar Edit ao lado do formulário pendente
+          // seria dois controlos para a mesma linha.
+          const isClassified = !!i.classification && !isPending;
           return (
             <li key={i.id} ref={(el) => { rowRefs.current[i.id] = el; }}
               className={`flex flex-wrap items-baseline gap-x-1.5 text-xs text-gray-600 ${
-                needsClassifying ? 'rounded border border-amber-300 bg-amber-50/50 p-1.5'
+                isPending ? 'rounded border border-amber-300 bg-amber-50/50 p-1.5'
                   : highlighted === i.id ? 'rounded border border-cyan-300 bg-cyan-50/60 p-1.5' : ''}`}>
               <span className="tabular-nums text-gray-400">{i.occurred_at.slice(0, 10)}</span>
               <span className={i.direction === 'in' ? 'font-medium text-blue-800' : 'font-medium text-cyan-900'}>
@@ -155,14 +163,26 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
                 </span>
               )}
               <SharedDocChip documentId={i.document_id} occurredAt={i.occurred_at} />
-              {needsClassifying && classifying !== i.id && (
-                <button onClick={() => setClassifying(i.id)}
-                  className="whitespace-nowrap rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-900 hover:bg-amber-300">
-                  to classify
+              {/* Prompt 231 §C — o item pendente monta o InlineClassify
+                  DIRETAMENTE: a AI corre e grava sozinha assim que há texto,
+                  sem esperar por um clique que só existia para o revelar. */}
+              {isPending && <InlineClassify interactionId={i.id} content={i.content} />}
+              {/* §B — uma vez classificada (incluindo pela AI sozinha), a
+                  linha ganha "Edit" em vez de ficar muda. Reabre o MESMO
+                  InlineClassify, pré-preenchido, para corrigir sem procurar
+                  outro sítio. */}
+              {isClassified && editingId !== i.id && (
+                <button onClick={() => setEditingId(i.id)}
+                  className="whitespace-nowrap text-[10px] font-medium text-gray-400 hover:text-[#0E7490] hover:underline">
+                  Edit
                 </button>
               )}
-              {classifying === i.id && (
-                <InlineClassify interactionId={i.id} content={i.content} onDone={() => setClassifying(null)} />
+              {editingId === i.id && (
+                <InlineClassify interactionId={i.id} content={i.content} onDone={() => setEditingId(null)}
+                  existing={{
+                    classification: i.classification!, passReasonCategory: i.pass_reason_category,
+                    passReason: i.pass_reason, classifiedBy: i.classified_by,
+                  }} />
               )}
             </li>
           );
