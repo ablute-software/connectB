@@ -101,12 +101,8 @@ export function RelationshipCompactLine({ entityId }: { entityId: string }) {
 }
 
 // Full version for the entity page header.
-export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyRequest, onViewInHistory, onShowAllHistory, dealMessageTouches = [] }: {
+export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyRequest, onViewInHistory, dealMessageTouches = [] }: {
   entity: Entity; onOpenThread?: () => void;
-  // Prompt 226 §2 — "Show all N" no cartao de historico. Mesmo padrao das
-  // outras: o cartao pede, a pagina liga ao RecentInteractions (que e quem
-  // tem o estado `expanded`). Reaproveitar a accao, nao reimplementa-la.
-  onShowAllHistory?: () => void;
   // Prompt 208 §D — pedido de "leva-me a resposta por classificar". O cartao
   // nao sabe desenhar o historico; quem sabe e o RecentInteractions, logo
   // isto sobe a pagina da entidade e desce por focusClassifyNonce.
@@ -498,8 +494,12 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
             <span className="flex items-center gap-2">
               {/* Mesmas acções do cabeçalho do RecentInteractions —
                   reaproveitadas por callback, não reimplementadas aqui. */}
-              {onShowAllHistory && historyTotal > 3 && (
-                <button onClick={onShowAllHistory} className="text-[11px] font-semibold text-[#0E7490] hover:underline">
+              {/* Prompt 229 §B — abre o drawer, o mesmo que o "Thread view".
+                  Os dois botoes fazem a mesma coisa de proposito: a etiqueta
+                  com a contagem e o que ajuda a decidir se vale a pena
+                  abrir. */}
+              {onOpenThread && historyTotal > 3 && (
+                <button onClick={onOpenThread} className="text-[11px] font-semibold text-[#0E7490] hover:underline">
                   Show all {historyTotal}
                 </button>
               )}

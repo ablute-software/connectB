@@ -34,10 +34,6 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   // Prompt 208 §D — contador, nao booleano: o founder pode pedir "leva-me la"
   // duas vezes seguidas e a segunda tem de voltar a fazer scroll.
   const [classifyNonce, setClassifyNonce] = useState(0);
-  // Prompt 226 §2 — "Show all N" saiu do cabecalho do RecentInteractions para
-  // o cartao do RelationshipSummaryCard; o estado `expanded` continua a ser
-  // do RecentInteractions, e este contador e a ponte.
-  const [historyExpandNonce, setHistoryExpandNonce] = useState(0);
   // Prompt 209 — ancora do badge de documentos. Contador pela mesma razao do
   // classifyNonce: pedir duas vezes a mesma tem de voltar a fazer scroll.
   const [focusInteraction, setFocusInteraction] = useState<{ id: string; nonce: number }>({ id: '', nonce: 0 });
@@ -194,11 +190,10 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)}
         onClassifyRequest={() => setClassifyNonce((n) => n + 1)}
         onViewInHistory={(id) => setFocusInteraction((p) => ({ id, nonce: p.nonce + 1 }))}
-        onShowAllHistory={() => setHistoryExpandNonce((n) => n + 1)}
         dealMessageTouches={dealMessageTouches} />
       {/* Prompt 202 §C — o histórico deixa de viver só atrás do botão. */}
       <RecentInteractions entity={entity} onOpenFull={() => setDrawerOpen(true)} focusClassifyNonce={classifyNonce}
-        focusInteraction={focusInteraction} expandNonce={historyExpandNonce} />
+        focusInteraction={focusInteraction} />
 
       {db.ndas.filter((n) => n.entity_id === entity.id).length > 0 && (
         <Card title="NDAs on file">

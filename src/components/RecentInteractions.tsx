@@ -12,7 +12,7 @@ import { firstLine, recentInteractions, unclassifiedInbound, formatAsk, DIRECTIO
 import { SharedDocChip } from '@/components/SharedDocChip';
 import { InlineClassify } from '@/components/InlineClassify';
 
-export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassifyNonce = 0, focusInteraction, expandNonce = 0 }: {
+export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassifyNonce = 0, focusInteraction }: {
   entity: Entity;
   // Prompt 206-B — continua a existir para quem vem da Pipeline (abrir o
   // drawer em vez de navegar para fora), mas deixou de ser a ÚNICA porta: na
@@ -27,15 +27,12 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
   // Prompt 209 — ancora vinda do badge de documentos do stepper: expande o
   // historico, faz scroll ate essa interacao e destaca-a por uns segundos.
   focusInteraction?: { id: string; nonce: number };
-  // Prompt 226 §2 — "Show all N" a partir do cartao de historico.
-  expandNonce?: number;
 }) {
   const { db } = useStore();
   const [expanded, setExpanded] = useState(false);
   const [classifying, setClassifying] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLLIElement | null>>({});
-  const listRef = useRef<HTMLDivElement>(null);
 
   const all = recentInteractions(db.interactions, entity.id, Number.MAX_SAFE_INTEGER);
   const total = all.length;
@@ -44,19 +41,6 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
   // Reutiliza a contagem do 206-A em vez de a recalcular: uma resposta por
   // classificar é a razão para o histórico chamar a atenção.
   const { unclassifiedReplies } = derivedStage(db, entity.id);
-
-  // Prompt 226 §2 — o "Show all N" migrou para o cartao do
-  // RelationshipSummaryCard, mas o estado `expanded` e daqui; um contador
-  // (nao um booleano) pela mesma razao dos outros: pedir duas vezes tem de
-  // funcionar duas vezes.
-  useEffect(() => {
-    if (expandNonce === 0) return;
-    setExpanded(true);
-    const id = window.setTimeout(() => {
-      listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, 0);
-    return () => window.clearTimeout(id);
-  }, [expandNonce]);
 
   useEffect(() => {
     if (focusClassifyNonce === 0 || !oldestPending) return;
@@ -94,7 +78,7 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
   }
 
   return (
-    <div ref={listRef} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between gap-2">
         {/* Prompt 228 §A — o titulo saiu daqui POR COMPLETO. O 226 tinha-o
             trocado de "Contact history" para "All contact", mas continuava a
@@ -111,13 +95,22 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
           )}
         </h2>
         <div className="flex items-center gap-1.5">
-          {total > limit && (
-            <button onClick={() => setExpanded((v) => !v)}
+          {/* Prompt 229 §A — "Show all N" deixa de expandir esta lista no
+              proprio sitio e passa a abrir o MESMO drawer que o "Thread
+              view". Esta seccao e o historico COMPACTO (3 mais recentes) e
+              deve continuar a se-lo; ver tudo e trabalho do drawer, que tem
+              filtro por pessoa e export.
+              `expanded` continua a existir, mas so para o que ja fazia
+              noutro sitio: saltar/realcar uma interacao especifica vinda do
+              "to classify" ou do badge de documento — isso e diferente de
+              "mostrar tudo" e nao muda. */}
+          {total > limit && onOpenFull && (
+            <button onClick={onOpenFull}
               className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
                 unclassifiedReplies > 0
                   ? 'bg-[#0E7490] text-white hover:bg-[#0c637b]'
                   : 'border border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}>
-              {expanded ? 'Show less' : `Show all ${total}`}
+              {`Show all ${total}`}
             </button>
           )}
           {onOpenFull && (
