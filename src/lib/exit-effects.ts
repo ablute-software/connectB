@@ -82,8 +82,14 @@ export function advanceConfirmation(stageLabel: string): string {
   return `→ Moved to ${stageLabel}.`;
 }
 
+// O critério partilhado de "isto é uma task de revisita" — usado aqui e no
+// Actions required (216 §C): uma função, nunca duas regexes que divergem.
+export function isRevisitTitle(title: string): boolean {
+  return /^Revisit /.test(title);
+}
+
 // §B, reversão — reactivar uma entidade parqueada fecha a task de revisit,
 // que deixou de ter sentido. Devolve os ids a marcar como feitos.
 export function revisitTasksToClose(tasks: TaskItem[], entityId: string): string[] {
-  return pending(tasks, entityId).filter((t) => /^Revisit /.test(t.title)).map((t) => t.id);
+  return pending(tasks, entityId).filter((t) => isRevisitTitle(t.title)).map((t) => t.id);
 }
