@@ -111,8 +111,15 @@ export function JourneyStepper({ entity, onViewInHistory }: {
                     ? null
                     : { stage: step.stage, rect: e.currentTarget.getBoundingClientRect() })}
                   aria-label={`${list.length} document(s) shared at this stage`}
-                  className="rounded leading-none hover:opacity-80">
-                  📄{list.length > 1 && <span className="ml-0.5 text-[10px]">{list.length}</span>}
+                  // Prompt 230 — o 224 deixou o emoji solto no pill, sem
+                  // fundo proprio: contra o #E8F4F8 de um "done" (quase
+                  // branco) ou o teal cheio de um "current", lia-se como
+                  // ruido e nao como algo em que se clica. Agora tem chip
+                  // proprio — branco quase opaco, sombra e anel — que
+                  // contrasta com os tres estados do pill sem depender de
+                  // qual deles esta por baixo.
+                  className="ml-0.5 inline-flex items-center gap-0.5 rounded-full bg-white/95 px-1.5 py-0.5 leading-none shadow-sm ring-1 ring-black/10 hover:bg-white">
+                  📄{list.length > 1 && <span className="text-[10px] font-semibold text-gray-700">{list.length}</span>}
                 </button>
               )}
             </span>
