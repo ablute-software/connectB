@@ -93,7 +93,15 @@ export default function StartupDossierPage() {
 
   const [sessionEmail, setSessionEmail] = useState<string | null | undefined>(undefined);
   const [data, setData] = useState<{ card: Card; pioneerBadge?: boolean; level: 0 | 1 | 2 | 3; levelRows: LevelRow[]; dossier: Dossier } | null | 'not-found'>(null);
-  const [tab, setTab] = useState<'overview' | 'documents' | 'messages' | 'activity'>('overview');
+  // Prompt 216 §C — os itens do "Actions required" apontam para
+  // /portal/startup/{orgId}?tab=messages|documents; o inicializador lê o
+  // query param diretamente (window, client-only) em vez de useSearchParams
+  // para não obrigar a página inteira a um boundary de Suspense.
+  const [tab, setTab] = useState<'overview' | 'documents' | 'messages' | 'activity'>(() => {
+    if (typeof window === 'undefined') return 'overview';
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return t === 'documents' || t === 'messages' || t === 'activity' ? t : 'overview';
+  });
   const [levelBusy, setLevelBusy] = useState(false);
   const [levelError, setLevelError] = useState<string | null>(null);
   const [docs, setDocs] = useState<{ sections: DocSection[]; pendingNdaCount: number } | null>(null);

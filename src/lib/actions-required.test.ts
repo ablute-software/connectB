@@ -1,7 +1,7 @@
 // Prompt 216 §C — a montagem pura do "Actions required" do founder: uma
 // fonte para o badge e para a lista, para nunca discordarem.
 import { describe, expect, it } from 'vitest';
-import { founderActionsRequired, overdueRevisitTasks, type FounderActionsInput } from './actions-required';
+import { founderActionsRequired, investorActionsRequired, overdueRevisitTasks, type FounderActionsInput, type InvestorActionsInput } from './actions-required';
 import type { TaskItem } from './types';
 
 const NOW = new Date('2026-08-17T12:00:00Z');
@@ -72,5 +72,38 @@ describe('founderActionsRequired', () => {
       pendingInterest: [{ id: 'r1', investorName: 'Adara', requestedAt: '2026-08-16T17:02:00Z', entityId: null }],
     }));
     expect(items[0].kind).toBe('interest_request');
+  });
+});
+
+describe('investorActionsRequired', () => {
+  function invBase(over: Partial<InvestorActionsInput> = {}): InvestorActionsInput {
+    return { unreadThreads: [], ndaPending: [], respondedAccessRequests: [], newDocs: [], pendingDecisions: [], ...over };
+  }
+
+  it('empty inputs -> zero items, zero count', () => {
+    expect(investorActionsRequired(invBase())).toEqual({ items: [], count: 0 });
+  });
+
+  it('every item carries an href into the acting startup page (rule 1)', () => {
+    const { items, count } = investorActionsRequired(invBase({
+      unreadThreads: [{ orgId: 'o1', orgName: 'ablute_', lastMessageAt: '2026-08-15T10:00:00Z' }],
+      ndaPending: [{ orgId: 'o1', orgName: 'ablute_', count: 2 }],
+      respondedAccessRequests: [{ id: 'ar1', orgId: 'o1', orgName: 'ablute_', status: 'granted', respondedAt: '2026-08-14T10:00:00Z' }],
+      newDocs: [{ orgId: 'o1', orgName: 'ablute_', count: 3 }],
+      pendingDecisions: [{ orgId: 'o2', orgName: 'OtherCo' }],
+    }));
+    expect(count).toBe(5);
+    for (const item of items) expect(item.href).toMatch(/^\/portal\/startup\//);
+    expect(items.find((i) => i.kind === 'unread_message')?.href).toBe('/portal/startup/o1?tab=messages');
+    expect(items.find((i) => i.kind === 'nda_pending')?.href).toBe('/portal/startup/o1?tab=documents');
+    expect(items.find((i) => i.kind === 'pending_decision')?.href).toBe('/portal/startup/o2');
+  });
+
+  it('zero-count NDA/doc groups are dropped, not rendered as empty noise', () => {
+    const { count } = investorActionsRequired(invBase({
+      ndaPending: [{ orgId: 'o1', orgName: 'ablute_', count: 0 }],
+      newDocs: [{ orgId: 'o1', orgName: 'ablute_', count: 0 }],
+    }));
+    expect(count).toBe(0);
   });
 });

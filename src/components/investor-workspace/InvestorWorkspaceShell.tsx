@@ -24,8 +24,9 @@ import { EmptyState } from '@/components/workspace-shell/EmptyState';
 import type { WorkspaceNavItem } from '@/components/workspace-shell/types';
 import { BRAND_NAME } from '@/lib/brand';
 import { SupportTicketsPanel, useSupportUnreadCount } from '@/components/SupportTicketsPanel';
+import { InvestorActionsPanel, useInvestorActions } from '@/components/investor-workspace/InvestorActionsPanel';
 
-export type Tab = 'pipeline' | 'about' | 'access' | 'agenda' | 'archive' | 'plans' | 'evaluation' | 'support';
+export type Tab = 'pipeline' | 'actions' | 'about' | 'access' | 'agenda' | 'archive' | 'plans' | 'evaluation' | 'support';
 
 const COMPLETENESS_GATE = 50;
 
@@ -169,8 +170,14 @@ export function InvestorWorkspaceShell({
   // Support tab uses.
   const unreadSupport = useSupportUnreadCount();
 
+  // Prompt 216 §C — badge e lista da MESMA chamada (o mecanismo que matou
+  // o bug 182: uma fonte, não duas): o shell monta o hook uma vez, o badge
+  // lê count, e o painel recebe o resultado inteiro como prop.
+  const investorActions = useInvestorActions();
+
   const NAV: { key: Tab; label: string; icon: string }[] = [
     { key: 'pipeline', label: 'Pipeline', icon: '▤' },
+    { key: 'actions', label: 'Actions required', icon: '⚑' },
     { key: 'about', label: aboutLabel, icon: '⋯' },
     // Prompt 121 §2.5 — new entry; access to documents used to live only
     // inside the Pipeline tab's startup card, with no page of its own.
@@ -192,7 +199,8 @@ export function InvestorWorkspaceShell({
   const navItems: WorkspaceNavItem[] = NAV.map((n) => ({
     key: n.key, icon: n.icon, label: n.label,
     active: tab === n.key, emphasize: n.key === 'about',
-    badge: n.key === 'support' && unreadSupport > 0 ? unreadSupport : undefined,
+    badge: n.key === 'support' && unreadSupport > 0 ? unreadSupport
+      : n.key === 'actions' && investorActions.count > 0 ? investorActions.count : undefined,
     onSelect: () => setTab(n.key),
   }));
 
@@ -303,6 +311,7 @@ export function InvestorWorkspaceShell({
                 compareIds={compareIds} setCompareIds={setCompareIds} showComparison={showComparison} setShowComparison={setShowComparison} />
             )
           )}
+          {tab === 'actions' && <InvestorActionsPanel actions={investorActions} />}
           {tab === 'about' && <InvestorProfilePanel onCompletenessChange={setPct} onEntityNameChange={setInvestorFirmName} onIdentityStatusChange={setIdentityStatus} />}
           {tab === 'access' && <AccessGrantedPanel />}
           {tab === 'evaluation' && <EvaluationToolsPanel initialOrgId={evaluationTargetOrgId} onGoToPipelineComparison={goToPipelineComparison} />}

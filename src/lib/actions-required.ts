@@ -91,3 +91,65 @@ export function founderActionsRequired(input: FounderActionsInput): { items: Act
   // de investidor à cabeça, exatamente o caso que motivou o prompt.
   return { items, count: items.length };
 }
+
+// ---------------------------------------------------------------------------
+// Lado do INVESTIDOR (§C) — audiência separada, tipos separados: o input só
+// admite dados do próprio investidor (threads dele, grants dele, pedidos
+// dele, decisões dele). Nada do CRM do founder tem forma de entrar (§A).
+export interface InvestorActionItem {
+  key: string;
+  kind: 'unread_message' | 'nda_pending' | 'access_response' | 'new_documents' | 'pending_decision';
+  label: string;
+  href: string; // regra 1: TODOS os itens do investidor levam a um sítio
+  at?: string;
+}
+
+export interface InvestorActionsInput {
+  unreadThreads: { orgId: string; orgName: string; lastMessageAt: string }[];
+  ndaPending: { orgId: string; orgName: string; count: number }[];
+  respondedAccessRequests: { id: string; orgId: string; orgName: string; status: 'granted' | 'declined'; respondedAt: string }[];
+  newDocs: { orgId: string; orgName: string; count: number }[];
+  pendingDecisions: { orgId: string; orgName: string }[];
+}
+
+export function investorActionsRequired(input: InvestorActionsInput): { items: InvestorActionItem[]; count: number } {
+  const items: InvestorActionItem[] = [];
+
+  for (const t of input.unreadThreads) {
+    items.push({
+      key: `thread:${t.orgId}`, kind: 'unread_message',
+      label: `Unread message from ${t.orgName}`,
+      at: t.lastMessageAt, href: `/portal/startup/${t.orgId}?tab=messages`,
+    });
+  }
+  for (const n of input.ndaPending.filter((n) => n.count > 0)) {
+    items.push({
+      key: `nda:${n.orgId}`, kind: 'nda_pending',
+      label: `NDA to sign for ${n.orgName} (${n.count} grant${n.count === 1 ? '' : 's'} waiting)`,
+      href: `/portal/startup/${n.orgId}?tab=documents`,
+    });
+  }
+  for (const r of input.respondedAccessRequests) {
+    items.push({
+      key: `access-response:${r.id}`, kind: 'access_response',
+      label: `${r.orgName} ${r.status === 'granted' ? 'granted' : 'declined'} your access request`,
+      at: r.respondedAt, href: `/portal/startup/${r.orgId}?tab=documents`,
+    });
+  }
+  for (const d of input.newDocs.filter((d) => d.count > 0)) {
+    items.push({
+      key: `new-docs:${d.orgId}`, kind: 'new_documents',
+      label: `${d.count} document${d.count === 1 ? '' : 's'} you haven't opened yet — ${d.orgName}`,
+      href: `/portal/startup/${d.orgId}?tab=documents`,
+    });
+  }
+  for (const p of input.pendingDecisions) {
+    items.push({
+      key: `decision:${p.orgId}`, kind: 'pending_decision',
+      label: `Decision pending on ${p.orgName}`,
+      href: `/portal/startup/${p.orgId}`,
+    });
+  }
+
+  return { items, count: items.length };
+}
