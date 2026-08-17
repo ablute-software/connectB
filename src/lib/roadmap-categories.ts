@@ -83,3 +83,16 @@ export function legendLabels(
   if (used.has(GENERAL_LABEL) && !ordered.includes(GENERAL_LABEL)) ordered.push(GENERAL_LABEL);
   return ordered;
 }
+
+// (3/3) — o filtro ao nível do MARCO, para o timeline do investidor. Um
+// marco cujos itens ficaram todos filtrados desaparece por inteiro: uma
+// coluna vazia não é informação, é um buraco — e ao desaparecer, o
+// fitRoadmap (213 §C) ganha largura de volta, portanto filtrar também
+// des-zooma. Os dois §§ compõem sozinhos.
+export function filterMilestonesByCategories<T extends { items: string[]; items_v2?: RoadmapItemV2[] | null }>(
+  milestones: T[], categories: CategoryLike[], enabled: Set<string>,
+): (T & { items_v2: RoadmapItemV2[] })[] {
+  return milestones
+    .map((m) => ({ ...m, items_v2: filterItemsByCategories(readItems(m), categories, enabled) }))
+    .filter((m) => m.items_v2.length > 0);
+}

@@ -17,18 +17,28 @@
 import { useEffect, useRef, useState } from 'react';
 import { RoadmapTimeline } from '@/components/company/RoadmapCard';
 import { fitRoadmap, lensYears, filterToYear, type PeriodLike } from '@/lib/roadmap-fit';
+import { legendLabels, filterMilestonesByCategories, COLOR_STYLES, SHAPE_STYLES, type CategoryLike, type CategoryColor, type CategoryShape } from '@/lib/roadmap-categories';
+import type { RoadmapItemV2 } from '@/lib/types';
 
-export function ResponsiveRoadmap<T extends PeriodLike & { items: string[] }>({
-  foundedYear, milestones,
+export function ResponsiveRoadmap<T extends PeriodLike & { items: string[]; items_v2?: RoadmapItemV2[] | null }>({
+  foundedYear, milestones, categories = [],
 }: {
   foundedYear: number | null;
   milestones: T[];
+  // Prompt 213 §D (3/3) — as categorias da startup, para a legenda de
+  // checkboxes. As cores/formas que o investidor ve sao as que o founder
+  // definiu; a legenda E a lista de checkboxes.
+  categories?: (CategoryLike & { color?: string; shape?: string })[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   // null = vista completa. A lupa é estado local: escolher um ano é uma
   // leitura, não uma preferência a persistir.
   const [lensYear, setLensYear] = useState<number | null>(null);
+  // null = todas ligadas (o default do §D). So vira Set quando o investidor
+  // mexe — assim categorias novas que cheguem entretanto nascem LIGADAS,
+  // em vez de ficarem de fora por nao estarem num Set gravado antes.
+  const [disabled, setDisabled] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const el = ref.current;
@@ -40,7 +50,12 @@ export function ResponsiveRoadmap<T extends PeriodLike & { items: string[] }>({
     return () => ro.disconnect();
   }, []);
 
-  const visible = filterToYear(milestones, lensYear);
+  const legend = legendLabels(milestones, categories);
+  const enabled = new Set(legend.filter((l) => !disabled.has(l)));
+  // Categoria primeiro, lupa depois: um marco que fique vazio pelo filtro
+  // desaparece e devolve largura ao fitRoadmap — filtrar tambem des-zooma.
+  const byCategory = legend.length > 1 ? filterMilestonesByCategories(milestones, categories, enabled) : milestones;
+  const visible = filterToYear(byCategory, lensYear);
   // +1: o nó Founded ocupa a primeira coluna do timeline.
   const fit = width > 0 ? fitRoadmap(width, visible.length + 1) : { mode: 'fit' as const, scale: 1 };
   const years = lensYears(milestones);
@@ -50,6 +65,28 @@ export function ResponsiveRoadmap<T extends PeriodLike & { items: string[] }>({
 
   return (
     <div ref={ref}>
+      {legend.length > 1 && (
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+          {legend.map((label) => {
+            const cat = categories.find((c) => c.label === label);
+            const dot = cat?.color ? (COLOR_STYLES[cat.color as CategoryColor]?.dot ?? 'bg-gray-400') : 'bg-gray-400';
+            const shape = cat?.shape ? (SHAPE_STYLES[cat.shape as CategoryShape] ?? 'rounded-full') : 'rounded-full';
+            return (
+              <label key={label} className="flex cursor-pointer items-center gap-1.5 text-[11px] text-gray-600">
+                <input type="checkbox" checked={!disabled.has(label)}
+                  onChange={() => setDisabled((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(label)) next.delete(label); else next.add(label);
+                    return next;
+                  })}
+                  className="h-3 w-3 accent-[#0E7490]" />
+                <span aria-hidden className={`h-2.5 w-2.5 ${shape} ${dot}`} />
+                {label}
+              </label>
+            );
+          })}
+        </div>
+      )}
       {showChips && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px]">
           {lensYear != null && (
@@ -72,7 +109,7 @@ export function ResponsiveRoadmap<T extends PeriodLike & { items: string[] }>({
           onde faltar, o pior caso é o timeline renderizar a tamanho natural
           com o scroll de sempre — degradação honesta, não quebra. */}
       <div style={fit.scale < 1 ? ({ zoom: fit.scale } as React.CSSProperties) : undefined}>
-        <RoadmapTimeline foundedYear={foundedYear} milestones={visible} editable={false} />
+        <RoadmapTimeline foundedYear={foundedYear} milestones={visible} editable={false} categories={categories.map((c) => ({ id: c.id, label: c.label, color: c.color ?? 'gray', shape: c.shape ?? 'rounded' }))} />
       </div>
     </div>
   );

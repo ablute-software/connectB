@@ -19,6 +19,18 @@ export interface RoadmapMilestoneFull {
   period_year: number;
   period_quarter?: number;
   items: string[];
+  // Prompt 213 §D (3/3) — itens estruturados, para o filtro por categoria.
+  items_v2?: { text: string; category_id: string | null }[];
+}
+
+// Conteudo escrito pelo founder PARA mostrar (nome, cor, forma) — nada
+// derivado pela plataforma, portanto a regra raiz nao e tocada. Segue o
+// mesmo gate do roadmap (roadmap_visible_to_investors).
+export interface RoadmapCategoryFull {
+  id: string;
+  label: string;
+  color: string;
+  shape: string;
 }
 
 // Prompt 168 §D — the narrow shape that ever reaches an investor: category
@@ -121,7 +133,7 @@ export function projectDossier(
   // there's no "hide if empty" rule here: a roadmap with zero milestones
   // yet still shows the (always-present) founding node, so an empty array
   // is a legitimate, real state to project, not a signal to omit the key.
-  roadmap?: { visible: boolean; milestones: RoadmapMilestoneFull[] } | null,
+  roadmap?: { visible: boolean; milestones: RoadmapMilestoneFull[]; categories?: RoadmapCategoryFull[] } | null,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { level };
   if (level >= 1) out.overview = full.overview;
@@ -130,7 +142,12 @@ export function projectDossier(
   // call site" discipline as the shareEmail gate below.
   if (level >= 1 && swot?.visible && swot.data) out.swot = swot.data;
   if (level >= 1 && founderClarifications && founderClarifications.length > 0) out.founderClarifications = founderClarifications;
-  if (level >= 1 && roadmap?.visible) out.roadmap = roadmap.milestones;
+  if (level >= 1 && roadmap?.visible) {
+    out.roadmap = roadmap.milestones;
+    // So viaja com o roadmap visivel — uma categoria sem marcos que a usem
+    // nao revela nada, mas tambem nao serve de nada.
+    if (roadmap.categories && roadmap.categories.length > 0) out.roadmapCategories = roadmap.categories;
+  }
   if (level >= 2) {
     out.tractionDetailed = full.tractionDetailed;
     out.team = full.team.map((p) => (shareEmail && level >= 3

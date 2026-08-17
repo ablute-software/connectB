@@ -31,7 +31,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
-import { currentInterestLevel, projectDossier, type FullDossierData, type FounderClarificationFull, type RoadmapMilestoneFull } from '@/lib/investor-interest-level';
+import { currentInterestLevel, projectDossier, type FullDossierData, type FounderClarificationFull, type RoadmapMilestoneFull, type RoadmapCategoryFull } from '@/lib/investor-interest-level';
 import { getInterestLevelRows, toInvestorFacingLevelRows } from '@/lib/investor-interest-level-db';
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
 import { getInteractionTimeline } from '@/lib/investor-interaction-log';
@@ -158,18 +158,29 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   // period_quarter/items (§C.5 — never created_at/updated_at/sort_order),
   // ordered by year so the client doesn't have to — RoadmapTimeline still
   // re-sorts defensively (sortRoadmapPeriods), same as every other reader.
-  let roadmap: { visible: boolean; milestones: RoadmapMilestoneFull[] } | null = null;
+  let roadmap: { visible: boolean; milestones: RoadmapMilestoneFull[]; categories?: RoadmapCategoryFull[] } | null = null;
   if (level >= 1) {
     const { data: orgRow } = await admin.from('orgs').select('roadmap_visible_to_investors').eq('id', params.orgId).maybeSingle();
     const visible = (orgRow?.roadmap_visible_to_investors as boolean | null | undefined) ?? true;
     if (visible) {
-      const { data: milestoneRows } = await admin.from('company_roadmap_milestones')
-        .select('period_kind, period_year, period_quarter, items').eq('org_id', params.orgId).order('period_year', { ascending: true });
+      // Prompt 213 §D (3/3) — items_v2 e as categorias viajam juntos, sob o
+      // mesmo gate. Conteudo escrito pelo founder para mostrar; nada aqui e
+      // derivado pela plataforma.
+      const [{ data: milestoneRows }, { data: categoryRows }] = await Promise.all([
+        admin.from('company_roadmap_milestones')
+          .select('period_kind, period_year, period_quarter, items, items_v2').eq('org_id', params.orgId).order('period_year', { ascending: true }),
+        admin.from('roadmap_categories')
+          .select('id, label, color, shape').eq('org_id', params.orgId).order('created_at', { ascending: true }),
+      ]);
       roadmap = {
         visible: true,
         milestones: (milestoneRows ?? []).map((r) => ({
           period_kind: r.period_kind as RoadmapMilestoneFull['period_kind'], period_year: r.period_year as number,
           period_quarter: (r.period_quarter as number | null) ?? undefined, items: (r.items as string[] | null) ?? [],
+          items_v2: (r.items_v2 as { text: string; category_id: string | null }[] | null) ?? undefined,
+        })),
+        categories: (categoryRows ?? []).map((c) => ({
+          id: c.id as string, label: c.label as string, color: c.color as string, shape: c.shape as string,
         })),
       };
     }

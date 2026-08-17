@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  readItems, itemCategoryLabel, filterItemsByCategories, legendLabels,
+  readItems, itemCategoryLabel, filterItemsByCategories, filterMilestonesByCategories, legendLabels,
   CATEGORY_COLORS, CATEGORY_SHAPES, COLOR_STYLES, SHAPE_STYLES, GENERAL_LABEL,
 } from './roadmap-categories';
 
@@ -100,5 +100,38 @@ describe('paleta e formas — conjuntos fechados, espelho da 0177', () => {
   it('8 cores e 4 formas — os mesmos numeros do check constraint', () => {
     expect(CATEGORY_COLORS).toHaveLength(8);
     expect(CATEGORY_SHAPES).toHaveLength(4);
+  });
+});
+
+describe('filterMilestonesByCategories — (3/3), o filtro do timeline', () => {
+  const MS = [
+    { items: [], items_v2: [{ text: 'Raised pre-seed', category_id: 'c-rounds' }] },
+    { items: [], items_v2: [
+      { text: 'Prototype v2', category_id: 'c-proto' },
+      { text: 'Team offsite', category_id: null },
+    ] },
+    { items: ['legacy item'] },
+  ];
+
+  it('um marco sem itens visiveis desaparece por inteiro', () => {
+    const out = filterMilestonesByCategories(MS, CATS, new Set(['Prototype']));
+    expect(out).toHaveLength(1);
+    expect(out[0].items_v2.map((i) => i.text)).toEqual(['Prototype v2']);
+  });
+
+  it('um marco misto fica so com os itens ligados', () => {
+    const out = filterMilestonesByCategories(MS, CATS, new Set(['Prototype', GENERAL_LABEL]));
+    expect(out).toHaveLength(2);
+    expect(out[0].items_v2.map((i) => i.text)).toEqual(['Prototype v2', 'Team offsite']);
+  });
+
+  it('legacy filtra-se como General', () => {
+    const out = filterMilestonesByCategories(MS, CATS, new Set([GENERAL_LABEL]));
+    expect(out.flatMap((m) => m.items_v2.map((i) => i.text))).toEqual(['Team offsite', 'legacy item']);
+  });
+
+  it('tudo ligado mostra tudo, na mesma ordem', () => {
+    const all = new Set(['Investment rounds', 'Prototype', GENERAL_LABEL]);
+    expect(filterMilestonesByCategories(MS, CATS, all)).toHaveLength(3);
   });
 });

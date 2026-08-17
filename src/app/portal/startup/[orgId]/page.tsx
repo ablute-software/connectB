@@ -62,7 +62,8 @@ interface Dossier {
   // roadmap_visible_to_investors toggle is on. Present as an empty array
   // when the org just hasn't added any milestones yet (still shows the
   // founding node) — only truly ABSENT when the gate itself fails.
-  roadmap?: { period_kind: RoadmapPeriodKind; period_year: number; period_quarter?: number; items: string[] }[];
+  roadmap?: { period_kind: RoadmapPeriodKind; period_year: number; period_quarter?: number; items: string[]; items_v2?: { text: string; category_id: string | null }[] }[];
+  roadmapCategories?: { id: string; label: string; color: string; shape: string }[];
 }
 
 const CLARIFICATION_CAPTION: Record<ReviewCategory, string> = {
@@ -432,7 +433,7 @@ function OverviewTab({ card, level, dossier, onRequestLevel, levelBusy }: {
           <div className="mt-2">
             {/* Prompt 213 §C — ajusta a largura (piso 11px); acima disso a
                 lupa por ano. O slider deixou de ser o mecanismo primario. */}
-            <ResponsiveRoadmap foundedYear={overview?.founded_year ?? null} milestones={dossier.roadmap} />
+            <ResponsiveRoadmap foundedYear={overview?.founded_year ?? null} milestones={dossier.roadmap} categories={dossier.roadmapCategories ?? []} />
           </div>
         </div>
       )}
