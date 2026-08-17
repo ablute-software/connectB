@@ -1,12 +1,12 @@
 'use client';
 // IRM_SPEC §4b — Relationship summary card. Compact chip for the pipeline row;
 // full stage stepper + one-liner + CTAs for the entity page header.
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import type { Entity } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import {
-  STAGE_LABEL, relationshipSummary, nextBestAction, stageExits, type WhoseTurn, type Health, type DealMessageTouch,
+  STAGE_LABEL, STAGE_ORDER, relationshipSummary, nextBestAction, stageExits, type WhoseTurn, type Health, type DealMessageTouch,
 } from '@/lib/relationship';
 import { LOCK_DAYS } from '@/lib/rules';
 import { planPark, planPass, advanceConfirmation, type ExitPlan } from '@/lib/exit-effects';
@@ -122,6 +122,28 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // §C.3 — dispensar a sugestao sem a seguir. Vive no componente e nao na
   // base de dados de proposito: e "agora nao", nao "nunca mais".
   const [dismissed, setDismissed] = useState(false);
+  // Prompt 225 §3 — o menu "Something else". Dropdown local, sem dependência
+  // nova: `absolute` dentro do banner (não `fixed`, portanto a regra do
+  // CLAUDE.md sobre overlays em portal não se aplica aqui). Fecha ao
+  // escolher, ao clicar fora e com Escape.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDown(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setMenuOpen(false); }
+    // `mousedown` e não `click`, pela mesma razão do DocBadgePopover: o
+    // clique que abriu ainda se está a propagar e fechá-lo-ia no mesmo gesto.
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
 
   function changeStage(next: Parameters<typeof setRelationshipStage>[1], label: string) {
     const previous = db.relationshipState.find((r) => r.entity_id === entity.id)?.stage;
@@ -155,6 +177,13 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // relationship.ts (stageExits), que é pura e testada. Aqui só se desenha.
   const exits = stageExits(db, entity, new Date(), dealMessageTouches);
   const { lastInboundWasPass, nextStage } = exits;
+  // Prompt 225 §3 — o estágio anterior REAL, para o "Move back". Índice > 1
+  // e não > 0 de propósito: 'contacted' é o primeiro estágio com histórico,
+  // e voltar dali seria voltar a 'not_contacted' — apagar o facto de já se
+  // ter contactado, que não é o que "corrigir um avanço por engano" quer
+  // dizer. Em 'contacted' o item simplesmente não aparece.
+  const stageIndex = STAGE_ORDER.indexOf(s.stage);
+  const previousStage = stageIndex > 1 ? STAGE_ORDER[stageIndex - 1] : null;
   // Prompt 205 §E — uma entidade parqueada/fechada não pode continuar a
   // desenhar um funil activo ao lado do pill que diz "dormant". O stepper
   // fica neutro e o chip de "de quem é a vez" desaparece: não é vez de
@@ -179,9 +208,67 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
       {/* Prompt 209 — o stepper e agora o JourneyStepper: desenha o que o
           journeySteps() decide (percorridos com ✓, desfecho como ultimo chip,
-          sem estagios cinzentos depois de terminada) e leva o badge 📄. */}
-      <div className="overflow-x-auto">
-        <JourneyStepper entity={entity} onViewInHistory={onViewInHistory} />
+          sem estagios cinzentos depois de terminada) e leva o badge 📄.
+          Prompt 225 §1/§2 — passa a partilhar a linha com a coluna de
+          cartoes a direita. `min-w-0` na coluna do stepper e o que mantem o
+          overflow-x-auto a funcionar dentro de um flex item. */}
+      <div className="flex flex-wrap items-start gap-4 sm:flex-nowrap">
+        <div className="min-w-0 flex-1 overflow-x-auto">
+          <JourneyStepper entity={entity} onViewInHistory={onViewInHistory} />
+        </div>
+
+        <div className="flex w-full shrink-0 flex-col gap-2.5 sm:w-[200px]">
+          {/* §1 — as datas saem da frase corrida por baixo do stepper e
+              passam a este cartao. Profundidade discreta: gradiente
+              quase-branco, sombra em duas camadas e um brilho `inset` no
+              topo — os valores vieram do .card-3d do mockup, nao de um
+              palpite. Sem cor saturada. */}
+          <div className="rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3.5 text-center shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
+            <div className="text-[11.5px] text-gray-500">
+              {s.firstContactAt ? `First contact ${s.firstContactAt.slice(0, 10)}` : 'No contact yet'}
+            </div>
+            <div className="mt-1 text-2xl font-bold leading-tight text-[#0E7490]">{s.touchCount}</div>
+            <div className="text-[10px] uppercase tracking-[0.05em] text-gray-500">
+              {s.touchCount === 1 ? 'touch' : 'touches'}
+            </div>
+            {s.lastTouchAt && s.lastTouchAt !== s.firstContactAt && (
+              <div className="mt-1 text-[11.5px] text-gray-500">
+                Last touch {s.lastTouchAt.slice(0, 10)}
+                {s.daysSinceLastTouch != null && (
+                  <> · <span className="font-semibold text-[#0E7490]">{s.daysSinceLastTouch}d ago</span></>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* §2 — o botao "History (N)" deixa de ser um pill no fundo do
+              cartao e passa a este cartao, mais estreito que o de cima e
+              centrado. O onClick e IDENTICO ao de antes (thread, ou focar a
+              resposta por classificar quando ha alguma) — so a casca muda.
+              O destaque teal preenchido quando ha por classificar tambem se
+              mantem: e essa a razao para ir ao historico. */}
+          {onOpenThread && (
+            <button onClick={ds.unclassifiedReplies > 0 && onClassifyRequest ? onClassifyRequest : onOpenThread}
+              className={`flex w-[70%] cursor-pointer items-center justify-between gap-2 self-center rounded-2xl border px-3.5 py-2.5 text-left shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)] ${
+                ds.unclassifiedReplies > 0
+                  ? 'border-[#0E7490] bg-[#0E7490] text-white'
+                  : 'border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)]'}`}>
+              <span className="flex items-center gap-1.5 text-xs font-semibold">
+                Contact history
+                <span className={`rounded-full px-1.5 py-px text-[10.5px] font-medium ${
+                  ds.unclassifiedReplies > 0 ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                  {db.interactions.filter((i) => i.entity_id === entity.id).length}
+                </span>
+              </span>
+              <span aria-hidden className={`text-sm ${ds.unclassifiedReplies > 0 ? 'text-white' : 'text-[#0E7490]'}`}>›</span>
+            </button>
+          )}
+          {ds.unclassifiedReplies > 0 && (
+            <p className="-mt-1 text-center text-[10.5px] font-medium text-amber-800">
+              {ds.unclassifiedReplies} to classify
+            </p>
+          )}
+        </div>
       </div>
 
       {(ds.contradicted || ds.manualAhead || ds.unclassifiedReplies > 0 || parkedOrClosed) && (
@@ -232,14 +319,11 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
         </div>
       )}
 
+      {/* Prompt 225 §1 — a frase de datas/touches migrou para o cartao da
+          coluna direita; HealthDot/WhoseTurnChip ficam onde sempre estiveram. */}
       <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-600">
         <HealthDot entityId={entity.id} dealMessageTouches={dealMessageTouches} />
         {!parkedOrClosed && <WhoseTurnChip entityId={entity.id} dealMessageTouches={dealMessageTouches} />}
-        <span>
-          {s.firstContactAt ? `First contact ${s.firstContactAt.slice(0, 10)}` : 'No contact yet'}
-          {s.lastTouchAt && s.lastTouchAt !== s.firstContactAt && ` · Last touch ${s.lastTouchAt.slice(0, 10)} (${s.daysSinceLastTouch}d ago)`}
-          {s.touchCount > 0 && ` · ${s.touchCount} touch${s.touchCount === 1 ? '' : 'es'}`}
-        </span>
       </div>
       {action && <div className="mt-1.5 text-xs font-medium text-[#0E7490]">Next: {annotateNextStep(action)}</div>}
       {undoable && (
@@ -275,8 +359,13 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
                 : `They've replied — this still shows as ${STAGE_LABEL[s.stage]}.`}
           </span>
 
+          {/* Prompt 225 §3 (opção A do mockup) — as quatro saídas em fila
+              quebravam linha e davam todas o mesmo peso visual. Agora: a
+              acção principal fica sozinha, o resto entra num menu. As
+              acções e os seus efeitos são exactamente os mesmos — só a
+              apresentação muda. */}
           {exitMode === 'none' && (
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               {/* Saída 1 — avançar. Escondida num pass: oferecer "avançar" a
                   quem disse que não é exactamente o bug do caso Adara. */}
               {exits.canAdvance && (
@@ -285,26 +374,55 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
                   Move to {STAGE_LABEL[nextStage]}
                 </button>
               )}
-              {/* Saída 2 — o "não". Pede a razão, que é obrigatória. */}
-              {/* Prompt 214 §C.3 — ha sempre a saida de nao fazer nada. Uma
-                  sugestao sem "dispensar" nao e sugestao, e insistencia. */}
-              <button onClick={() => setDismissed(true)}
-                className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-500 hover:bg-gray-50">
-                Dismiss — keep as is
-              </button>
-              <button onClick={() => setExitMode('pass')}
-                className="rounded-full border border-red-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#B00000] hover:bg-red-50">
-                No interest / over — marks as passed
-              </button>
-              {/* Saída 3 — parquear. Em 'contacted' lê-se "cold", que é o que
-                  de facto aconteceu: nunca responderam. Mesmo mecanismo. */}
-              <button onClick={() => {
-                  setEntityStatus(entity.id, 'dormant', exits.parkLabel === 'cold' ? 'Cold — no reply' : 'Parked — no continuity');
-                  applyPlan(planPark(entity, db.tasks, new Date()));
-                }}
-                className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50">
-                {exits.parkLabel === 'cold' ? 'Cold / no reply' : 'Frozen / no continuity'} — parks this investor
-              </button>
+              <div className="relative" ref={menuRef}>
+                <button onClick={() => setMenuOpen((o) => !o)}
+                  aria-haspopup="menu" aria-expanded={menuOpen}
+                  className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-500 hover:bg-gray-50">
+                  Something else ▾
+                </button>
+                {menuOpen && (
+                  <div role="menu"
+                    className="absolute left-0 top-[calc(100%+6px)] z-10 min-w-[230px] rounded-[10px] border border-gray-200 bg-white p-1 shadow-[0_8px_24px_-8px_rgba(0,0,0,.18)]">
+                    {/* Ajuste pedido pelo Nuno — corrigir um avanço por engano
+                        sem re-desenhar a barra. Só aparece havendo estágio
+                        anterior REAL: em 'contacted' (o primeiro com
+                        histórico) não há para onde voltar. Reutiliza o
+                        changeStage de sempre, com o undo que ele já traz. */}
+                    {previousStage && (
+                      <>
+                        <button role="menuitem"
+                          onClick={() => { setMenuOpen(false); changeStage(previousStage, STAGE_LABEL[previousStage]); setConfirmation(`→ Moved back to ${STAGE_LABEL[previousStage]}.`); }}
+                          className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-100">
+                          ↩ Move back to {STAGE_LABEL[previousStage]}
+                        </button>
+                        <div className="mx-0.5 my-1 h-px bg-gray-200" />
+                      </>
+                    )}
+                    {/* Prompt 214 §C.3 — ha sempre a saida de nao fazer nada.
+                        Uma sugestao sem "dispensar" nao e sugestao, e
+                        insistencia. */}
+                    <button role="menuitem" onClick={() => { setMenuOpen(false); setDismissed(true); }}
+                      className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-100">
+                      Dismiss — keep as is
+                    </button>
+                    {/* Saída 2 — o "não". Pede a razão, que é obrigatória. */}
+                    <button role="menuitem" onClick={() => { setMenuOpen(false); setExitMode('pass'); }}
+                      className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-[#B00000] hover:bg-gray-100">
+                      No interest / over — marks as passed
+                    </button>
+                    {/* Saída 3 — parquear. Em 'contacted' lê-se "cold", que é
+                        o que de facto aconteceu: nunca responderam. */}
+                    <button role="menuitem" onClick={() => {
+                        setMenuOpen(false);
+                        setEntityStatus(entity.id, 'dormant', exits.parkLabel === 'cold' ? 'Cold — no reply' : 'Parked — no continuity');
+                        applyPlan(planPark(entity, db.tasks, new Date()));
+                      }}
+                      className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-100">
+                      {exits.parkLabel === 'cold' ? 'Cold / no reply' : 'Frozen / no continuity'} — parks this investor
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -338,20 +456,9 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
         </div>
       )}
 
+      {/* Prompt 225 §2 — "History (N)" subiu para o cartao da coluna direita
+          (mesmo onClick); aqui fica so o "Log interaction". */}
       <div className="mt-3 flex gap-2">
-        {onOpenThread && (
-          // Prompt 206-B — contagem no proprio botao, e teal preenchido quando
-          // ha respostas por classificar: a razao para ir ao historico e
-          // precisamente essa.
-          <button onClick={ds.unclassifiedReplies > 0 && onClassifyRequest ? onClassifyRequest : onOpenThread}
-            className={`rounded-lg px-3 py-1.5 text-sm ${
-              ds.unclassifiedReplies > 0
-                ? 'bg-[#0E7490] font-medium text-white hover:bg-[#0c637b]'
-                : 'border border-gray-300 hover:bg-gray-50'}`}>
-            History ({db.interactions.filter((i) => i.entity_id === entity.id).length})
-            {ds.unclassifiedReplies > 0 && ` · ${ds.unclassifiedReplies} to classify`}
-          </button>
-        )}
         <Link href={`/log?entity=${entity.id}`} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">
           Log interaction
         </Link>
