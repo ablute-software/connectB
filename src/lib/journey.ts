@@ -110,6 +110,30 @@ export function journeySteps(db: Db, entityId: string): JourneyStep[] {
 // existia ainda.
 export interface StageDoc { documentId: string; at: string; interactionId: string }
 
+// Prompt 216 §B — o miolo de docsByStage, extraído genérico: dado um
+// conjunto de fronteiras temporais com chave, cada documento cai no
+// intervalo em vigor à data em que foi partilhado. docsByStage (founder,
+// fronteiras = stage_change) e investorJourneySteps (investidor, fronteiras
+// = os passos da relação vista por ele) usam a MESMA função — outra fonte
+// de eventos, nunca uma cópia.
+export function anchorDocsToBoundaries<K>(
+  boundaries: { at: string; key: K }[],
+  firstKey: K,
+  docs: StageDoc[],
+): Map<K, StageDoc[]> {
+  const sorted = [...boundaries].sort((a, b) => a.at.localeCompare(b.at));
+  const out = new Map<K, StageDoc[]>();
+  for (const d of docs) {
+    // A fronteira em vigor à data: a última ATÉ esta partilha.
+    const key = sorted.filter((b) => b.at <= d.at).at(-1)?.key ?? firstKey;
+    const list = out.get(key) ?? [];
+    list.push(d);
+    out.set(key, list);
+  }
+  for (const list of out.values()) list.sort((a, b) => a.at.localeCompare(b.at));
+  return out;
+}
+
 export function docsByStage(db: Db, entityId: string): Map<RelationshipStage, StageDoc[]> {
   const changes = db.interactions
     .filter((i) => i.entity_id === entityId && i.channel === 'stage_change')
@@ -126,17 +150,10 @@ export function docsByStage(db: Db, entityId: string): Map<RelationshipStage, St
   const first: RelationshipStage = changes.length > 0
     ? 'contacted'
     : traversed(db, entityId)[0]?.stage ?? 'contacted';
-  const out = new Map<RelationshipStage, StageDoc[]>();
 
-  for (const i of db.interactions) {
-    if (i.entity_id !== entityId || !i.document_id) continue;
-    // O estágio em vigor à data: a última mudança ATÉ esta partilha.
-    const stage = changes.filter((c) => c.at <= i.occurred_at).at(-1)?.stage ?? first;
-    const list = out.get(stage) ?? [];
-    list.push({ documentId: i.document_id, at: i.occurred_at, interactionId: i.id });
-    out.set(stage, list);
-  }
+  const docs: StageDoc[] = db.interactions
+    .filter((i) => i.entity_id === entityId && i.document_id)
+    .map((i) => ({ documentId: i.document_id as string, at: i.occurred_at, interactionId: i.id }));
 
-  for (const list of out.values()) list.sort((a, b) => a.at.localeCompare(b.at));
-  return out;
+  return anchorDocsToBoundaries(changes.map((c) => ({ at: c.at, key: c.stage })), first, docs);
 }
