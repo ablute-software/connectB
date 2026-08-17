@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { firstLine, formatAsk, recentInteractions, resolveSharedVersion, unclassifiedInbound } from './interaction-history';
+import {
+  firstLine, formatAsk, recentInteractions, resolveSharedVersion, unclassifiedInbound,
+  mergeTimeline, timelineContent, type DealMessageLike,
+} from './interaction-history';
 import type { Interaction } from './types';
 
 function i(over: Partial<Interaction>): Interaction {
@@ -194,5 +197,56 @@ describe('unclassifiedInbound (208 §D)', () => {
 
   it('sem nada por classificar devolve vazio', () => {
     expect(unclassifiedInbound([todas[3]], 'e1')).toEqual([]);
+  });
+});
+
+// Prompt 238 — o caso real: nunomarujo@gmail.com trocou 3 mensagens Sherlock
+// (deal_messages) com a ablute_, entre as 2 interactions logadas à mão. O
+// cartão mostrava "5 touches · Last touch 2026-08-16" ao lado de uma lista
+// com só 2 linhas — mergeTimeline é o que faz a lista bater com o número.
+function m(over: Partial<DealMessageLike>): DealMessageLike {
+  return { id: 'm1', senderSide: 'investor', body: 'oi', createdAt: '2026-08-16T17:00:00.000Z', ...over };
+}
+
+describe('mergeTimeline', () => {
+  const interactions: Interaction[] = [
+    i({ id: 'interesse', direction: 'in', content: 'Investor expressed interest via Pipeline.', occurred_at: '2026-08-05T23:22:28.000Z' }),
+    i({ id: 'intro', direction: 'out', content: 'Thanks for reaching out...', occurred_at: '2026-08-06T00:00:00.000Z' }),
+  ];
+  const dealMessages: DealMessageLike[] = [
+    m({ id: 'sherlock-1', senderSide: 'founder', body: 'Any questions so far?', createdAt: '2026-08-16T13:38:43.000Z' }),
+    m({ id: 'sherlock-2', senderSide: 'investor', body: 'Yes, a couple.', createdAt: '2026-08-16T17:04:23.000Z' }),
+    m({ id: 'sherlock-3', senderSide: 'investor', body: 'Sent them over.', createdAt: '2026-08-16T17:04:46.000Z' }),
+  ];
+
+  it('funde as duas fontes num só cronológico ascendente — o caso real dá 5 linhas', () => {
+    const rows = mergeTimeline(interactions, 'e1', dealMessages);
+    expect(rows.map((r) => r.key)).toEqual([
+      'i:interesse', 'i:intro', 'm:sherlock-1', 'm:sherlock-2', 'm:sherlock-3',
+    ]);
+  });
+
+  it('a direcção de uma mensagem Sherlock vem do senderSide — investor = in, founder = out', () => {
+    const rows = mergeTimeline([], 'e1', dealMessages);
+    expect(rows.map((r) => r.direction)).toEqual(['out', 'in', 'in']);
+  });
+
+  it('sem mensagens Sherlock comporta-se como só as interactions, filtradas por entidade', () => {
+    const rows = mergeTimeline([...interactions, i({ id: 'outra-ent', entity_id: 'outra' })], 'e1');
+    expect(rows.map((r) => r.key)).toEqual(['i:interesse', 'i:intro']);
+  });
+
+  it('sem nada de nenhuma fonte devolve vazio', () => {
+    expect(mergeTimeline([], 'e1', [])).toEqual([]);
+  });
+});
+
+describe('timelineContent', () => {
+  it('lê content de uma interaction e body de uma mensagem Sherlock, sem quem chama saber a diferença', () => {
+    const rows = mergeTimeline(
+      [i({ id: 'a', content: 'conteudo da interaction' })], 'e1',
+      [m({ id: 'b', body: 'corpo da mensagem sherlock' })],
+    );
+    expect(rows.map(timelineContent)).toEqual(['conteudo da interaction', 'corpo da mensagem sherlock']);
   });
 });

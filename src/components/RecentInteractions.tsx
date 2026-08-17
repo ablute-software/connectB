@@ -8,11 +8,14 @@ import { useEffect, useRef, useState } from 'react';
 import type { Entity } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import { derivedStage } from '@/lib/derived-stage';
-import { firstLine, recentInteractions, unclassifiedInbound, formatAsk, DIRECTION_LABEL } from '@/lib/interaction-history';
+import {
+  firstLine, unclassifiedInbound, formatAsk, DIRECTION_LABEL,
+  mergeTimeline, timelineContent, type DealMessageLike, type TimelineRow,
+} from '@/lib/interaction-history';
 import { SharedDocChip } from '@/components/SharedDocChip';
 import { InlineClassify } from '@/components/InlineClassify';
 
-export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassifyNonce = 0, focusInteraction }: {
+export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassifyNonce = 0, focusInteraction, dealMessages = [] }: {
   entity: Entity;
   // Prompt 206-B — continua a existir para quem vem da Pipeline (abrir o
   // drawer em vez de navegar para fora), mas deixou de ser a ÚNICA porta: na
@@ -27,6 +30,12 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
   // Prompt 209 — ancora vinda do badge de documentos do stepper: expande o
   // historico, faz scroll ate essa interacao e destaca-a por uns segundos.
   focusInteraction?: { id: string; nonce: number };
+  // Prompt 238 — as mensagens Sherlock desta entidade (deal_messages),
+  // fundidas com as interactions no mesmo histórico. Até aqui só contavam
+  // para touchCount/lastTouchAt (RelationshipSummaryCard), nunca apareciam
+  // aqui — um investidor real trocou 3 mensagens pela app e a lista
+  // mostrava só 2 linhas ao lado de "5 touches", sem explicar a diferença.
+  dealMessages?: DealMessageLike[];
 }) {
   const { db } = useStore();
   const [expanded, setExpanded] = useState(false);
@@ -38,7 +47,8 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLLIElement | null>>({});
 
-  const all = recentInteractions(db.interactions, entity.id, Number.MAX_SAFE_INTEGER);
+  const merged = mergeTimeline(db.interactions, entity.id, dealMessages);
+  const all = [...merged].sort((a, b) => b.at.localeCompare(a.at));
   const total = all.length;
   const pending = unclassifiedInbound(db.interactions, entity.id);
   const oldestPending = pending[0];
@@ -132,55 +142,108 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
         </div>
       </div>
       <ul className="mt-2 space-y-1.5">
-        {recent.map((i) => {
-          const isPending = pending.some((p) => p.id === i.id);
-          // Prompt 231 §B — "já classificada" exclui 'awaiting': esse valor
-          // fica em `pending` de propósito (é "responderam mas não é
-          // decisão ainda"), e mostrar Edit ao lado do formulário pendente
-          // seria dois controlos para a mesma linha.
-          const isClassified = !!i.classification && !isPending;
-          return (
-            <li key={i.id} ref={(el) => { rowRefs.current[i.id] = el; }}
-              className={`flex flex-wrap items-baseline gap-x-1.5 text-xs text-gray-600 ${
-                isPending ? 'rounded border border-amber-300 bg-amber-50/50 p-1.5'
-                  : highlighted === i.id ? 'rounded border border-cyan-300 bg-cyan-50/60 p-1.5' : ''}`}>
-              <span className="tabular-nums text-gray-400">{i.occurred_at.slice(0, 10)}</span>
-              <span className={i.direction === 'in' ? 'font-medium text-blue-800' : 'font-medium text-cyan-900'}>
-                {DIRECTION_LABEL[i.direction]}
-              </span>
-              <span className="text-gray-400">· {i.channel.replace(/_/g, ' ')}</span>
-              <span className="min-w-0 flex-1 truncate text-gray-700">{firstLine(i.content)}</span>
-              {formatAsk(i.ask_amount_eur) && (
-                <span className="whitespace-nowrap rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-700">
-                  asked {formatAsk(i.ask_amount_eur)}
-                </span>
-              )}
-              <SharedDocChip documentId={i.document_id} occurredAt={i.occurred_at} />
-              {/* Prompt 231 §C — o item pendente monta o InlineClassify
-                  DIRETAMENTE: a AI corre e grava sozinha assim que há texto,
-                  sem esperar por um clique que só existia para o revelar. */}
-              {isPending && <InlineClassify interactionId={i.id} content={i.content} />}
-              {/* §B — uma vez classificada (incluindo pela AI sozinha), a
-                  linha ganha "Edit" em vez de ficar muda. Reabre o MESMO
-                  InlineClassify, pré-preenchido, para corrigir sem procurar
-                  outro sítio. */}
-              {isClassified && editingId !== i.id && (
-                <button onClick={() => setEditingId(i.id)}
-                  className="whitespace-nowrap text-[10px] font-medium text-gray-400 hover:text-[#0E7490] hover:underline">
-                  Edit
-                </button>
-              )}
-              {editingId === i.id && (
-                <InlineClassify interactionId={i.id} content={i.content} onDone={() => setEditingId(null)}
-                  existing={{
-                    classification: i.classification!, passReasonCategory: i.pass_reason_category,
-                    passReason: i.pass_reason, classifiedBy: i.classified_by,
-                  }} />
-              )}
-            </li>
-          );
-        })}
+        {recent.map((row) => (
+          row.kind === 'deal_message'
+            ? <DealMessageRow key={row.key} row={row} rowRefs={rowRefs} highlighted={highlighted === row.key} />
+            : (
+              // highlighted/focusInteraction usam o id CRU da interaction
+              // (ver o ref em InteractionRow), não o row.key namespaced.
+              <InteractionRow key={row.key} row={row} rowRefs={rowRefs}
+                pending={pending} highlighted={highlighted === row.interaction.id}
+                editingId={editingId} setEditingId={setEditingId} />
+            )
+        ))}
       </ul>
     </div>
+  );
+}
+
+// Prompt 238 — uma mensagem Sherlock: sem canal, sem "ask", sem documento
+// partilhado por Interaction.document_id (as suas próprias `documents` são
+// outra forma), e sobretudo SEM controlos de classificação — uma mensagem
+// da app não é uma "resposta por classificar" no sentido do 208 §D, é
+// conversa já estruturada.
+function DealMessageRow({ row, rowRefs, highlighted }: {
+  row: Extract<TimelineRow, { kind: 'deal_message' }>;
+  rowRefs: React.MutableRefObject<Record<string, HTMLLIElement | null>>;
+  highlighted: boolean;
+}) {
+  const m = row.message;
+  return (
+    <li ref={(el) => { rowRefs.current[row.key] = el; }}
+      className={`flex flex-wrap items-baseline gap-x-1.5 text-xs text-gray-600 ${
+        highlighted ? 'rounded border border-cyan-300 bg-cyan-50/60 p-1.5' : ''}`}>
+      <span className="tabular-nums text-gray-400">{row.at.slice(0, 10)}</span>
+      <span className={row.direction === 'in' ? 'font-medium text-blue-800' : 'font-medium text-cyan-900'}>
+        {DIRECTION_LABEL[row.direction]}
+      </span>
+      <span className="text-gray-400">· Sherlock message</span>
+      <span className="min-w-0 flex-1 truncate text-gray-700">{firstLine(timelineContent(row))}</span>
+      {!!m.documents?.length && (
+        <span className="whitespace-nowrap rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-700">
+          📄 {m.documents.length}
+        </span>
+      )}
+    </li>
+  );
+}
+
+function InteractionRow({ row, rowRefs, pending, highlighted, editingId, setEditingId }: {
+  row: Extract<TimelineRow, { kind: 'interaction' }>;
+  rowRefs: React.MutableRefObject<Record<string, HTMLLIElement | null>>;
+  pending: ReturnType<typeof unclassifiedInbound>;
+  highlighted: boolean;
+  editingId: string | null;
+  setEditingId: (id: string | null) => void;
+}) {
+  const i = row.interaction;
+  const isPending = pending.some((p) => p.id === i.id);
+  // Prompt 231 §B — "já classificada" exclui 'awaiting': esse valor
+  // fica em `pending` de propósito (é "responderam mas não é
+  // decisão ainda"), e mostrar Edit ao lado do formulário pendente
+  // seria dois controlos para a mesma linha.
+  const isClassified = !!i.classification && !isPending;
+  return (
+    // Prompt 238 — ref pelo id CRU da interaction (não o `row.key`
+    // namespaced): é esse id que oldestPending/focusInteraction (vindos de
+    // unclassifiedInbound/db.interactions directamente) sabem procurar.
+    <li ref={(el) => { rowRefs.current[i.id] = el; }}
+      className={`flex flex-wrap items-baseline gap-x-1.5 text-xs text-gray-600 ${
+        isPending ? 'rounded border border-amber-300 bg-amber-50/50 p-1.5'
+          : highlighted ? 'rounded border border-cyan-300 bg-cyan-50/60 p-1.5' : ''}`}>
+      <span className="tabular-nums text-gray-400">{i.occurred_at.slice(0, 10)}</span>
+      <span className={i.direction === 'in' ? 'font-medium text-blue-800' : 'font-medium text-cyan-900'}>
+        {DIRECTION_LABEL[i.direction]}
+      </span>
+      <span className="text-gray-400">· {i.channel.replace(/_/g, ' ')}</span>
+      <span className="min-w-0 flex-1 truncate text-gray-700">{firstLine(i.content)}</span>
+      {formatAsk(i.ask_amount_eur) && (
+        <span className="whitespace-nowrap rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-700">
+          asked {formatAsk(i.ask_amount_eur)}
+        </span>
+      )}
+      <SharedDocChip documentId={i.document_id} occurredAt={i.occurred_at} />
+      {/* Prompt 231 §C — o item pendente monta o InlineClassify
+          DIRETAMENTE: a AI corre e grava sozinha assim que há texto,
+          sem esperar por um clique que só existia para o revelar. */}
+      {isPending && <InlineClassify interactionId={i.id} content={i.content} />}
+      {/* §B — uma vez classificada (incluindo pela AI sozinha), a
+          linha ganha "Edit" em vez de ficar muda. Reabre o MESMO
+          InlineClassify, pré-preenchido, para corrigir sem procurar
+          outro sítio. */}
+      {isClassified && editingId !== i.id && (
+        <button onClick={() => setEditingId(i.id)}
+          className="whitespace-nowrap text-[10px] font-medium text-gray-400 hover:text-[#0E7490] hover:underline">
+          Edit
+        </button>
+      )}
+      {editingId === i.id && (
+        <InlineClassify interactionId={i.id} content={i.content} onDone={() => setEditingId(null)}
+          existing={{
+            classification: i.classification!, passReasonCategory: i.pass_reason_category,
+            passReason: i.pass_reason, classifiedBy: i.classified_by,
+          }} />
+      )}
+    </li>
   );
 }

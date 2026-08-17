@@ -19,6 +19,7 @@ import { EntityClassificationEditor } from '@/components/EntityClassificationEdi
 import { TicketSignalCard } from '@/components/TicketSignalCard';
 import { FormAssistModal } from '@/components/FormAssistModal';
 import { useInterestRequests } from '@/lib/interest-requests-client';
+import type { DealMessage } from '@/components/deal-messages/DealThreadView';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -51,9 +52,15 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   // into dealMessageTouches below, fed to RelationshipSummaryCard/
   // ThreadDrawer so a Sherlock reply counts toward whoseTurn/health the
   // same way a manually-logged interaction already does.
+  // Prompt 238 — `messages` alargado ao DealMessage completo (o servidor já
+  // devolvia isto sempre; o tipo aqui é que estava reduzido a
+  // {senderSide, createdAt}, porque até agora só serviam dealMessageTouches
+  // — as mensagens nunca eram DESENHADAS, só contadas). Agora servem as
+  // duas coisas: a contagem (como sempre) e o conteúdo, fundido no
+  // histórico via mergeTimeline.
   const [messaging, setMessaging] = useState<{
     canMessage: boolean; investorCatalogEntityId: string | null; investorName: string | null;
-    messages: { senderSide: 'investor' | 'founder'; createdAt: string }[];
+    messages: DealMessage[];
   }>({ canMessage: false, investorCatalogEntityId: null, investorName: null, messages: [] });
   const [messagingOpen, setMessagingOpen] = useState(false);
 
@@ -193,10 +200,10 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)}
         onClassifyRequest={() => setClassifyNonce((n) => n + 1)}
         onViewInHistory={(id) => setFocusInteraction((p) => ({ id, nonce: p.nonce + 1 }))}
-        dealMessageTouches={dealMessageTouches} />
+        dealMessageTouches={dealMessageTouches} dealMessages={messaging.messages} />
       {/* Prompt 202 §C — o histórico deixa de viver só atrás do botão. */}
       <RecentInteractions entity={entity} onOpenFull={() => setDrawerOpen(true)} focusClassifyNonce={classifyNonce}
-        focusInteraction={focusInteraction} />
+        focusInteraction={focusInteraction} dealMessages={messaging.messages} />
 
       {db.ndas.filter((n) => n.entity_id === entity.id).length > 0 && (
         <Card title="NDAs on file">
@@ -413,7 +420,8 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      <ThreadDrawer entity={entity} open={drawerOpen} onClose={() => setDrawerOpen(false)} dealMessageTouches={dealMessageTouches} />
+      <ThreadDrawer entity={entity} open={drawerOpen} onClose={() => setDrawerOpen(false)}
+        dealMessageTouches={dealMessageTouches} dealMessages={messaging.messages} />
       {messaging.investorCatalogEntityId && (
         <MessageInvestorDrawer
           entityId={entity.id} investorCatalogEntityId={messaging.investorCatalogEntityId}

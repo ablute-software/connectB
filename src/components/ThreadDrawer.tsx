@@ -6,21 +6,24 @@ import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { SharedDocChip } from '@/components/SharedDocChip';
 import { InlineClassify } from '@/components/InlineClassify';
-import { unclassifiedInbound } from '@/lib/interaction-history';
+import { unclassifiedInbound, mergeTimeline, timelineContent, type DealMessageLike, type TimelineRow } from '@/lib/interaction-history';
 import { formatAsk } from '@/lib/interaction-history';
 import type { Entity, RelationshipStage } from '@/lib/types';
 import { PersonLink } from '@/components/ui';
 import { outboundCounts, LOCK_DAYS } from '@/lib/rules';
 import {
-  STAGE_ORDER, STAGE_LABEL, entityInteractions, relationshipSummary, relatedContacts, type DealMessageTouch,
+  STAGE_ORDER, STAGE_LABEL, relationshipSummary, relatedContacts, type DealMessageTouch,
 } from '@/lib/relationship';
 
-export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [] }: {
+export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [], dealMessages = [] }: {
   entity: Entity; open: boolean; onClose: () => void;
   // Prompt 197 C.1 — see RelationshipSummaryCard's own comment on the same
   // param; this drawer's "Awaiting reply"/"No reply for Xd" banners below
   // are driven by the same relationshipSummary, so they need the same merge.
   dealMessageTouches?: DealMessageTouch[];
+  // Prompt 238 — as mesmas mensagens, agora desenhadas na lista (não só
+  // contadas). Ver o comentário do mesmo prop em RecentInteractions.tsx.
+  dealMessages?: DealMessageLike[];
 }) {
   const { db, setRelationshipStage } = useStore();
   const [personFilter, setPersonFilter] = useState<string>('all');
@@ -35,8 +38,14 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [] }:
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const people = db.people.filter((p) => p.entity_id === entity.id);
-  const all = entityInteractions(db, entity.id);
-  const filtered = personFilter === 'all' ? all : all.filter((i) => i.person_id === personFilter);
+  // Prompt 238 — fundido com as mensagens Sherlock (deal_messages): já
+  // contavam para summary.lastTouchAt/touchCount via dealMessageTouches,
+  // mas nunca apareciam nesta lista — daí o "5 touches" no cabeçalho ao
+  // lado de um histórico sem as entradas de 08-16.
+  const all: TimelineRow[] = mergeTimeline(db.interactions, entity.id, dealMessages);
+  // Uma mensagem Sherlock não tem person_id — filtrar por pessoa é filtrar
+  // dentro do log manual, que é o que TEM pessoas associadas.
+  const filtered = personFilter === 'all' ? all : all.filter((r) => r.kind === 'interaction' && r.interaction.person_id === personFilter);
   const sorted = order === 'newest' ? [...filtered].reverse() : filtered;
   const pending = unclassifiedInbound(db.interactions, entity.id);
   const summary = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
@@ -56,11 +65,17 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [] }:
       `${entity.name} — relationship thread`,
       summary.firstContactAt ? `First contact ${summary.firstContactAt.slice(0, 10)}` : 'No contact yet',
       '',
-      ...all.map((i) => i.channel === 'stage_change'
-        ? `[${i.occurred_at.slice(0, 10)}] ${i.content}`
-        : `[${i.occurred_at.slice(0, 10)}] ${i.direction === 'out' ? 'OUT' : 'IN'} · ${i.channel}${
-            i.person_id ? ` · ${db.people.find((p) => p.id === i.person_id)?.full_name ?? ''}` : ''
-          }\n  ${i.content}`),
+      ...all.map((row) => {
+        if (row.kind === 'deal_message') {
+          return `[${row.at.slice(0, 10)}] ${row.direction === 'out' ? 'OUT' : 'IN'} · Sherlock message\n  ${row.message.body}`;
+        }
+        const i = row.interaction;
+        return i.channel === 'stage_change'
+          ? `[${i.occurred_at.slice(0, 10)}] ${i.content}`
+          : `[${i.occurred_at.slice(0, 10)}] ${i.direction === 'out' ? 'OUT' : 'IN'} · ${i.channel}${
+              i.person_id ? ` · ${db.people.find((p) => p.id === i.person_id)?.full_name ?? ''}` : ''
+            }\n  ${i.content}`;
+      }),
     ];
     navigator.clipboard.writeText(lines.join('\n')).then(() => {
       setCopied(true);
@@ -154,15 +169,43 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [] }:
             <p className="pt-2 text-sm text-gray-400">No interactions yet.</p>
           ) : (
             <ul className="space-y-2 pt-1">
-              {sorted.map((i) => i.channel === 'stage_change' ? (
+              {sorted.map((row) => row.kind === 'deal_message' ? (
+                // Prompt 238 — mensagem Sherlock: cartão simples, sem canal/
+                // classificação/ai_generated (não se aplicam) mas COM os
+                // seus próprios links/documentos, quando existirem.
+                <li key={row.key} className="rounded border border-gray-100 bg-gray-50 p-3 text-sm">
+                  <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                    <span className={row.direction === 'out' ? 'font-bold text-[#0E7490]' : 'font-bold text-green-700'}>
+                      {row.direction === 'out' ? '→ OUT' : '← IN'}
+                    </span>
+                    <span className="rounded bg-white border border-gray-200 px-1.5 py-0.5">Sherlock message</span>
+                    <span>{row.at.slice(0, 10)}</span>
+                  </div>
+                  <blockquote className="whitespace-pre-wrap border-l-2 border-gray-300 pl-2 text-gray-700">{row.message.body}</blockquote>
+                  {!!row.message.links?.length && (
+                    <ul className="mt-1.5 space-y-0.5">
+                      {row.message.links.map((l, idx) => (
+                        <li key={idx}><a href={l.url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">{l.label} →</a></li>
+                      ))}
+                    </ul>
+                  )}
+                  {!!row.message.documents?.length && (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {row.message.documents.map((d) => (
+                        <span key={d.id} className="rounded bg-white border border-gray-200 px-1.5 py-0.5 text-[11px] text-gray-600">📄 {d.name}</span>
+                      ))}
+                    </div>
+                  )}
+                </li>
+              ) : row.interaction.channel === 'stage_change' ? (
                 // Prompt 208 §D.3 — stage_change passa a linha fina e apagada:
                 // e contexto, nao conteudo, e estava a competir com o que
                 // interessa (a ultima entrada visivel era uma destas).
-                <li key={i.id} className="flex items-center gap-1.5 py-0.5 text-[11px] text-gray-400">
-                  <span className="text-gray-300">●</span> {i.content} <span>· {i.occurred_at.slice(0, 10)}</span>
+                <li key={row.key} className="flex items-center gap-1.5 py-0.5 text-[11px] text-gray-400">
+                  <span className="text-gray-300">●</span> {row.interaction.content} <span>· {row.interaction.occurred_at.slice(0, 10)}</span>
                 </li>
-              ) : (
-                <li key={i.id} className={`rounded border p-3 text-sm ${
+              ) : (() => { const i = row.interaction; return (
+                <li key={row.key} className={`rounded border p-3 text-sm ${
                   pending.some((p) => p.id === i.id)
                     ? 'border-amber-300 bg-amber-50/60'
                     : 'border-gray-100 bg-gray-50'}`}>
@@ -206,7 +249,7 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [] }:
                       )
                   )}
                 </li>
-              ))}
+              ); })())}
             </ul>
           )}
         </div>

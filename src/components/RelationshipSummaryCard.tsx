@@ -21,6 +21,7 @@ const SNOOZE_OPTIONS = [
 import { derivedStage } from '@/lib/derived-stage';
 import { JourneyStepper } from '@/components/JourneyStepper';
 import { TermHint } from '@/components/ui';
+import { mergeTimeline, timelineContent, DIRECTION_LABEL, type DealMessageLike } from '@/lib/interaction-history';
 
 // Prompt 49 §4 — jargon inside nextBestAction()'s free-text copy gets a
 // clickable (i) the first time it appears in the string. First-match-only
@@ -101,7 +102,7 @@ export function RelationshipCompactLine({ entityId }: { entityId: string }) {
 }
 
 // Full version for the entity page header.
-export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyRequest, onViewInHistory, dealMessageTouches = [] }: {
+export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyRequest, onViewInHistory, dealMessageTouches = [], dealMessages = [] }: {
   entity: Entity; onOpenThread?: () => void;
   // Prompt 208 §D — pedido de "leva-me a resposta por classificar". O cartao
   // nao sabe desenhar o historico; quem sabe e o RecentInteractions, logo
@@ -115,6 +116,12 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // eligibility, Prompt 197 A), so it's threaded straight through here
   // instead of this card re-fetching it independently.
   dealMessageTouches?: DealMessageTouch[];
+  // Prompt 238 — as mesmas mensagens Sherlock, agora com conteúdo (não só
+  // {senderSide, createdAt}), para o cartão de histórico as poder LISTAR —
+  // até aqui só contavam para touchCount/lastTouchAt (dealMessageTouches,
+  // acima), nunca apareciam na lista. Era esse o desencontro: "5 touches"
+  // ao lado de uma lista com 2 linhas, nenhuma delas explicando a diferença.
+  dealMessages?: DealMessageLike[];
 }) {
   const { db, setRelationshipStage, undoStageChange, setEntityStatus, addTask, toggleTask, updateTask } = useStore();
   const [exitMode, setExitMode] = useState<'none' | 'pass'>('none');
@@ -196,12 +203,14 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // dizer. Em 'contacted' o item simplesmente não aparece.
   const stageIndex = STAGE_ORDER.indexOf(s.stage);
   const previousStage = stageIndex > 1 ? STAGE_ORDER[stageIndex - 1] : null;
-  // Prompt 226 §2 — o conteúdo do cartão de histórico. Mesma leitura que o
-  // RecentInteractions faz (mais recentes primeiro), só sem os controlos.
-  const entityInteractions = db.interactions.filter((i) => i.entity_id === entity.id);
-  const historyTotal = entityInteractions.length;
-  const recentThree = [...entityInteractions]
-    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)).slice(0, 3);
+  // Prompt 226 §2 / 238 — o conteúdo do cartão de histórico. Mesma leitura
+  // que o RecentInteractions faz (mais recentes primeiro), só sem os
+  // controlos. Fundido com as mensagens Sherlock (238): antes só contavam
+  // para touchCount via dealMessageTouches, sem aparecer aqui — daí "5
+  // touches" ao lado de uma lista de 2 linhas.
+  const timelineRows = mergeTimeline(db.interactions, entity.id, dealMessages);
+  const historyTotal = timelineRows.length;
+  const recentThree = [...timelineRows].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 3);
   // Prompt 205 §E — uma entidade parqueada/fechada não pode continuar a
   // desenhar um funil activo ao lado do pill que diz "dormant". O stepper
   // fica neutro e o chip de "de quem é a vez" desaparece: não é vez de
@@ -528,13 +537,13 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           <ul className="mt-2 space-y-1">
             {recentThree.length === 0 ? (
               <li className="text-xs text-gray-400">No contact logged yet.</li>
-            ) : recentThree.map((i) => (
-              <li key={i.id} className="flex gap-2 truncate border-t border-dashed border-gray-100 pt-1 text-[11.5px] text-gray-500 first:border-0 first:pt-0">
-                <span className="shrink-0 tabular-nums">{i.occurred_at.slice(0, 10)}</span>
-                <span className={`shrink-0 font-semibold ${i.direction === 'in' ? 'text-[#0E7490]' : 'text-gray-600'}`}>
-                  {i.direction === 'in' ? 'Received' : 'Sent'}
+            ) : recentThree.map((row) => (
+              <li key={row.key} className="flex gap-2 truncate border-t border-dashed border-gray-100 pt-1 text-[11.5px] text-gray-500 first:border-0 first:pt-0">
+                <span className="shrink-0 tabular-nums">{row.at.slice(0, 10)}</span>
+                <span className={`shrink-0 font-semibold ${row.direction === 'in' ? 'text-[#0E7490]' : 'text-gray-600'}`}>
+                  {DIRECTION_LABEL[row.direction]}{row.kind === 'deal_message' ? ' · Sherlock' : ''}
                 </span>
-                <span className="truncate text-gray-600">{i.content}</span>
+                <span className="truncate text-gray-600">{timelineContent(row)}</span>
               </li>
             ))}
           </ul>

@@ -141,3 +141,51 @@ export function unclassifiedInbound(interactions: Interaction[], entityId: strin
       && (!i.classification || i.classification === 'awaiting'))
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
 }
+
+// Prompt 238 — "Contact history" só listava interactions; as mensagens
+// Sherlock (deal_messages) já contavam para touchCount/lastTouchAt via
+// dealMessageTouches (Prompt 197 C.1), mas nunca apareciam na lista. Um
+// investidor real trocou 3 mensagens pela app (não pelo log manual) e o
+// cartão mostrava "5 touches · Last touch 2026-08-16" ao lado de uma lista
+// com 2 linhas, nenhuma de 08-16 — os dois números estavam certos, só a
+// lista não mostrava de onde vinha a diferença.
+//
+// Um TimelineRow neutro, para os três sítios que hoje desenham este
+// histórico (RelationshipSummaryCard, RecentInteractions, ThreadDrawer)
+// fundirem sem cada um reimplementar o merge+sort.
+export interface DealMessageLike {
+  id: string;
+  senderSide: 'investor' | 'founder';
+  body: string;
+  createdAt: string;
+  links?: { label: string; url: string }[];
+  documents?: { id: string; name: string; accessible?: boolean }[];
+}
+
+export type TimelineRow =
+  | { kind: 'interaction'; key: string; at: string; direction: Direction; interaction: Interaction }
+  | { kind: 'deal_message'; key: string; at: string; direction: Direction; message: DealMessageLike };
+
+// Cronológico ascendente, TODOS os itens — espelha entityInteractions()
+// (relationship.ts), que continua a ser a única fonte para o que NÃO
+// precisa de mensagens Sherlock (ex. relationshipSummary já as recebe à
+// parte, via dealMessageTouches).
+export function mergeTimeline(
+  interactions: Interaction[], entityId: string, dealMessages: DealMessageLike[] = [],
+): TimelineRow[] {
+  const fromInteractions: TimelineRow[] = interactions
+    .filter((i) => i.entity_id === entityId)
+    .map((i) => ({ kind: 'interaction' as const, key: `i:${i.id}`, at: i.occurred_at, direction: i.direction, interaction: i }));
+  const fromMessages: TimelineRow[] = dealMessages
+    .map((m) => ({
+      kind: 'deal_message' as const, key: `m:${m.id}`, at: m.createdAt,
+      direction: m.senderSide === 'investor' ? 'in' as const : 'out' as const, message: m,
+    }));
+  return [...fromInteractions, ...fromMessages].sort((a, b) => a.at.localeCompare(b.at));
+}
+
+// O texto de uma linha, para firstLine()/export de texto — quem desenha não
+// precisa de saber a diferença entre as duas variantes para o mostrar.
+export function timelineContent(row: TimelineRow): string {
+  return row.kind === 'interaction' ? row.interaction.content : row.message.body;
+}
