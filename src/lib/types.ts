@@ -472,6 +472,17 @@ export interface TaskItem {
 // antiga da ablute_ estavam guardados como `interest_eur` de uma entrada do
 // pipeline, por não haver outro sítio, e o review somava-os como
 // soft-circled DESTA ronda.
+// Prompt 219 — o vocabulário do motor de narrativa. Classe 1 é a MAIS forte
+// (compromisso pago); a ordem numérica é a da hierarquia acordada, não uma
+// escala "maior = melhor".
+export type EvidenceClass = 1 | 2 | 3 | 4 | 5;
+export type ClaimCategory =
+  | 'problema' | 'solucao' | 'prova_tecnica' | 'validacao_externa'
+  | 'tracao_gtm' | 'equipa' | 'mercado_timing' | 'funding' | 'ask';
+export type ClaimSpecificity = 'high' | 'medium' | 'low';
+export type ClaimSourceKind =
+  | 'fact' | 'vault_doc' | 'roadmap' | 'profile' | 'funding_round' | 'founder_answer';
+
 export interface FundingRound {
   id: string;
   org_id?: string;
