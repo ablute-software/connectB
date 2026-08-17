@@ -226,9 +226,14 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   const mode = ds.mode;
   // A razao ja existe na interacao classificada -- reutiliza-se em vez de
   // inventar texto novo para o dormant_reason.
-  const lastPassReason = db.interactions
+  // Prompt 240 — passa a guardar-se a INTERACAO toda, nao so a razao: o
+  // cartao de pass reason precisa tambem da categoria e da data do pass (e
+  // essa data, nao entity.updated_at, e que data o "Closed" no cartao de
+  // datas — updated_at muda com qualquer edicao sem relacao com o fecho).
+  const lastPassInteraction = db.interactions
     .filter((i) => i.entity_id === entity.id && i.direction === 'in' && i.classification === 'pass')
-    .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)).at(-1)?.pass_reason;
+    .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)).at(-1);
+  const lastPassReason = lastPassInteraction?.pass_reason;
   const parkedOrClosed = mode !== 'active';
 
   return (
@@ -294,28 +299,65 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
         </div>
       )}
 
-      {/* Prompt 225 §1 — a frase de datas/touches migrou para o cartao da
-          coluna direita; HealthDot/WhoseTurnChip ficam onde sempre estiveram.
-          Prompt 233 §B — "Something else ▾" sobe para aqui, SEMPRE visível
-          enquanto a relação está activa (!parkedOrClosed) — não só dentro
-          do banner de saída (exits.show). Era o único caminho que faltava:
-          sem sugestão activa, "Mark dormant" no topo (§A) era a ÚNICA forma
-          de parquear, e fazia-o incompleto (só setEntityStatus, sem tocar
-          nas tarefas). Agora esse caminho é sempre este menu, que já faz o
-          applyPlan(planPark(...)) certo. */}
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-600">
-        <HealthDot entityId={entity.id} dealMessageTouches={dealMessageTouches} />
-        {!parkedOrClosed && <WhoseTurnChip entityId={entity.id} dealMessageTouches={dealMessageTouches} />}
-        {!parkedOrClosed && exitMode === 'none' && (
+      {/* Prompt 240 — a linha de ACÇÕES sobe para aqui, alinhada à direita e
+          sozinha: antes "Move to X"/"Snooze" viviam dentro do banner, a
+          disputar a mesma linha do texto de estado, e o "Something else"
+          vivia na linha do HealthDot. Três sítios para o mesmo tipo de
+          decisão. Botões mais pequenos que os do banner anterior — são
+          acções secundárias ao lado do stepper, não o assunto da página.
+          As CONDIÇÕES de cada um não mudam: "Move to"/"Snooze" continuam a
+          depender de haver sugestão activa (exits.show); "Something else"
+          continua disponível sempre que a relação está activa (233 §B), que
+          era o caminho que faltava quando não há sugestão nenhuma. */}
+      {!parkedOrClosed && exitMode === 'none' && (
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5">
+        {!confirmation && !dismissed && exits.show && exits.canAdvance && (
+          <button onClick={() => { changeStage(nextStage, STAGE_LABEL[nextStage]); setConfirmation(advanceConfirmation(STAGE_LABEL[nextStage])); }}
+            className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[10.5px] font-semibold text-white hover:bg-[#0c637b]">
+            Move to {STAGE_LABEL[nextStage]}
+          </button>
+        )}
+        {/* Prompt 226 §4 — Snooze. "Nao agora" nao e "desisti": a entidade
+            fica ACTIVA e so as tarefas pendentes mudam de data (planSnooze,
+            irmao do planPark sem o setEntityStatus). */}
+        {!confirmation && !dismissed && exits.show && (
+          <div className="relative" ref={snoozeRef}>
+            <button onClick={() => { setSnoozeOpen((o) => !o); setMenuOpen(false); }}
+              aria-haspopup="menu" aria-expanded={snoozeOpen}
+              className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[10.5px] font-semibold text-gray-600 hover:bg-gray-50">
+              Snooze ▾
+            </button>
+            {snoozeOpen && (
+              <div role="menu"
+                className="absolute right-0 top-[calc(100%+6px)] z-10 min-w-[150px] rounded-[10px] border border-gray-200 bg-white p-1 shadow-[0_8px_24px_-8px_rgba(0,0,0,.18)]">
+                {SNOOZE_OPTIONS.map((o) => (
+                  <button key={o.days} role="menuitem"
+                    onClick={() => {
+                      setSnoozeOpen(false);
+                      const plan = planSnooze(entity, db.tasks, new Date(), o.days);
+                      applyPlan(plan);
+                      setConfirmation(plan.confirmation);
+                    }}
+                    className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-100">
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {(
           <div className="relative" ref={menuRef}>
             <button onClick={() => { setMenuOpen((o) => !o); setSnoozeOpen(false); }}
               aria-haspopup="menu" aria-expanded={menuOpen}
-              className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-500 hover:bg-gray-50">
+              className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[10.5px] text-gray-500 hover:bg-gray-50">
               Something else ▾
             </button>
             {menuOpen && (
+              // right-0: o menu passou para a direita da linha, portanto
+              // ancora à direita ou saía fora do cartão.
               <div role="menu"
-                className="absolute left-0 top-[calc(100%+6px)] z-10 min-w-[230px] rounded-[10px] border border-gray-200 bg-white p-1 shadow-[0_8px_24px_-8px_rgba(0,0,0,.18)]">
+                className="absolute right-0 top-[calc(100%+6px)] z-10 min-w-[230px] rounded-[10px] border border-gray-200 bg-white p-1 shadow-[0_8px_24px_-8px_rgba(0,0,0,.18)]">
                 {/* Ajuste pedido pelo Nuno — corrigir um avanço por engano
                     sem re-desenhar a barra. Só aparece havendo estágio
                     anterior REAL: em 'contacted' (o primeiro com
@@ -366,6 +408,35 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           </div>
         )}
       </div>
+      )}
+
+      {/* Prompt 240 — a linha de ESTADO fica sozinha: chip + frase, sem
+          botões a disputar-lhe espaço. A frase é só o texto das saídas; o
+          `action` (o conselho) mudou-se para o cartão "Sherlock Tip" na
+          coluna da esquerda, que é onde tem espaço para se ler. */}
+      <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[13px] text-gray-700">
+        <HealthDot entityId={entity.id} dealMessageTouches={dealMessageTouches} />
+        {!parkedOrClosed && <WhoseTurnChip entityId={entity.id} dealMessageTouches={dealMessageTouches} />}
+        {!confirmation && !dismissed && exits.show && (
+          <span className={
+            lastInboundWasPass ? 'font-semibold text-[#B00000]'
+              : s.whoseTurn === 'overdue' ? 'font-semibold text-amber-800'
+              : 'text-gray-700'}>
+            {lastInboundWasPass
+              ? `They passed — this still shows as ${STAGE_LABEL[s.stage]}.`
+              : s.whoseTurn === 'overdue'
+                // Nunca responderam: dizer "They've replied" aqui seria mentira,
+                // e é o caso em que o founder mais precisa de uma saída.
+                ? `No reply in ${s.daysSinceLastTouch ?? 0} days — this still shows as ${STAGE_LABEL[s.stage]}.`
+                : `They've replied — this still shows as ${STAGE_LABEL[s.stage]}.`}
+          </span>
+        )}
+        {/* Prompt 240 (mockup declined) — uma relação fechada não tem acções
+            de avanço; dizer isso é mais honesto do que uma linha vazia. */}
+        {parkedOrClosed && (
+          <span className="italic text-gray-400">Closed relationship — no advance actions.</span>
+        )}
+      </div>
       {/* O textarea da razão do pass ocupa a linha toda; vive fora do banner
           de saída (exits.show) porque "No interest / over" agora dispara
           daqui mesmo sem sugestão nenhuma activa. */}
@@ -414,99 +485,99 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           {confirmation}
         </div>
       )}
-      {/* Prompt 227 §4 — o aviso do "Next:" e o texto das saidas eram dois
-          blocos empilhados, um deles um bloco teal pesado, a dizer coisas da
-          MESMA conversa. Passam a uma linha compacta e neutra: texto a
-          esquerda (as duas frases juntas por "·"), accoes a direita.
-          O fundo deixa de ser colorido; a distincao de gravidade fica no
-          TEXTO (vermelho num pass, ambar num overdue), que e sinal
-          suficiente sem um bloco de cor a competir com o resto do cartao. */}
-      {(action || (!confirmation && !dismissed && exits.show)) && (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#e6eef0] bg-[#fafcfc] px-3.5 py-2.5">
-          <div className="min-w-[200px] flex-1 text-xs leading-relaxed text-gray-700">
-            {action && <span>{annotateNextStep(action)}</span>}
-            {action && !confirmation && !dismissed && exits.show && <span className="mx-1.5 text-gray-300">·</span>}
-            {!confirmation && !dismissed && exits.show && (
-              <span className={
-                lastInboundWasPass ? 'font-semibold text-[#B00000]'
-                  : s.whoseTurn === 'overdue' ? 'font-semibold text-amber-800'
-                  : 'font-semibold text-[#0c637b]'}>
-                {lastInboundWasPass
-                  ? `They passed — this still shows as ${STAGE_LABEL[s.stage]}.`
-                  : s.whoseTurn === 'overdue'
-                    // Nunca responderam: dizer "They've replied" aqui seria mentira,
-                    // e é o caso em que o founder mais precisa de uma saída.
-                    ? `No reply in ${s.daysSinceLastTouch ?? 0} days — this still shows as ${STAGE_LABEL[s.stage]}.`
-                    : `They've replied — this still shows as ${STAGE_LABEL[s.stage]}.`}
-              </span>
-            )}
-          </div>
-          {!confirmation && !dismissed && exits.show && (
-          <>
 
-          {/* Prompt 233 §B — o banner (gated por exits.show) fica só com o
-              essencial de quando HÁ sugestão activa: avançar ou adiar. As
-              restantes saídas ("Something else ▾", com Move back/Dismiss/
-              Passed/Frozen) subiram para a linha do HealthDot, sempre
-              acessíveis — ver aí porquê. */}
-          {exitMode === 'none' && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {/* Saída 1 — avançar. Escondida num pass: oferecer "avançar" a
-                  quem disse que não é exactamente o bug do caso Adara. */}
-              {exits.canAdvance && (
-                <button onClick={() => { changeStage(nextStage, STAGE_LABEL[nextStage]); setConfirmation(advanceConfirmation(STAGE_LABEL[nextStage])); }}
-                  className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c637b]">
-                  Move to {STAGE_LABEL[nextStage]}
-                </button>
-              )}
-              {/* Prompt 226 §4 — Snooze. "Nao agora" nao e "desisti": a
-                  entidade fica ACTIVA e so as tarefas pendentes mudam de
-                  data (planSnooze, irmao do planPark sem o
-                  setEntityStatus). E a saida que faltava para o caso mais
-                  comum de todos — o founder sabe que tem de responder, mas
-                  nao esta semana. */}
-              <div className="relative" ref={snoozeRef}>
-                <button onClick={() => { setSnoozeOpen((o) => !o); setMenuOpen(false); }}
-                  aria-haspopup="menu" aria-expanded={snoozeOpen}
-                  className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50">
-                  Snooze ▾
-                </button>
-                {snoozeOpen && (
-                  <div role="menu"
-                    className="absolute left-0 top-[calc(100%+6px)] z-10 min-w-[150px] rounded-[10px] border border-gray-200 bg-white p-1 shadow-[0_8px_24px_-8px_rgba(0,0,0,.18)]">
-                    {SNOOZE_OPTIONS.map((o) => (
-                      <button key={o.days} role="menuitem"
-                        onClick={() => {
-                          setSnoozeOpen(false);
-                          const plan = planSnooze(entity, db.tasks, new Date(), o.days);
-                          applyPlan(plan);
-                          setConfirmation(plan.confirmation);
-                        }}
-                        className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-100">
-                        {o.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
+      {/* Prompt 240 — duas COLUNAS, seguindo o mockup: à esquerda os cartões
+          de datas + o conselho (Tip) ou o desfecho (Pass reason); à direita
+          o histórico, que passa a ser o bloco maior (`flex-[1.3]` contra
+          `flex-1`) — invertendo o 228 §B, onde ele era o mais estreito.
+          Em ecrã estreito o flex-wrap empilha as duas colunas. */}
+      <div className="mt-4 flex flex-wrap items-start gap-4">
+        <div className="flex min-w-[300px] flex-1 flex-col gap-3">
+          {/* Dois cartões de datas lado a lado, como no mockup: cada facto
+              com o seu rótulo, em vez de quatro linhas empilhadas num só. */}
+          <div className="flex gap-3">
+            <div className="min-w-0 flex-1 rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
+              <div className="text-[11.5px] text-gray-500">First contact</div>
+              <div className="mt-0.5 truncate text-sm font-bold text-[#0E7490]">
+                {s.firstContactAt ? s.firstContactAt.slice(0, 10) : '—'}
+              </div>
+              <div className="mt-0.5 text-[11.5px] text-gray-500">
+                {s.touchCount} {s.touchCount === 1 ? 'touch' : 'touches'}
               </div>
             </div>
+            {/* Prompt 240 — quando a relação fechou COM pass, "Last touch"
+                passa a "Closed", com a data da própria interação de pass.
+                Nunca entity.updated_at: esse muda com qualquer edição sem
+                relação nenhuma com o fecho. Sem pass classificado (ex.
+                parked), mantém-se "Last touch" — não se inventa um desfecho
+                que não foi registado. */}
+            <div className="min-w-0 flex-1 rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
+              {parkedOrClosed && lastPassInteraction ? (
+                <>
+                  <div className="text-[11.5px] text-gray-500">Closed</div>
+                  <div className="mt-0.5 truncate text-sm font-bold text-gray-600">{lastPassInteraction.occurred_at.slice(0, 10)}</div>
+                  <div className="mt-0.5 text-[11.5px] text-gray-500">
+                    {Math.floor((Date.now() - new Date(lastPassInteraction.occurred_at).getTime()) / 86_400_000)}d ago
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-[11.5px] text-gray-500">Last touch</div>
+                  <div className="mt-0.5 truncate text-sm font-bold text-[#0E7490]">
+                    {s.lastTouchAt ? s.lastTouchAt.slice(0, 10) : '—'}
+                  </div>
+                  <div className="mt-0.5 text-[11.5px] font-semibold text-[#0E7490]">
+                    {s.daysSinceLastTouch != null ? `${s.daysSinceLastTouch}d ago` : ' '}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Prompt 240 — "Sherlock Tip": o conselho do nextBestAction em
+              cartão próprio, em vez de diluído numa linha neutra de estado.
+              É a frase que o founder vai aprender a confiar, e merece o
+              destaque. Verde-teal pálido, nunca saturado — a paleta do
+              resto do produto. Só aparece havendo conselho E estando a
+              relação activa: a uma relação fechada não há follow-up que
+              aconselhar. */}
+          {!parkedOrClosed && action && (
+            <div className="rounded-2xl border border-[#cdeadb] bg-[#F4FBF7] px-4 py-3.5">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.03em] text-[#0f5132]">
+                <span aria-hidden className="inline-flex h-4 w-4 items-center justify-center rounded-[5px] bg-[#0f5132] text-[10px] font-extrabold text-white">S</span>
+                Sherlock Tip
+              </div>
+              <div className="mt-1.5 text-[13px] leading-relaxed text-gray-800">{annotateNextStep(action)}</div>
+            </div>
           )}
-          </>
+
+          {/* Prompt 240 — no lugar do Tip, quando a relação fechou com um
+              pass: a razão VERBATIM e a categoria. É o dado com mais valor
+              que sobra de um "não" — dez destes reescrevem o pitch — e até
+              aqui só aparecia como uma linha pequena dentro do drawer.
+              Fechada por outro motivo (parked sem pass), não aparece nada:
+              não se inventa texto. */}
+          {parkedOrClosed && lastPassReason && (
+            <div className="rounded-2xl border border-[#f0d5d5] bg-[#FCF4F4] px-4 py-3.5">
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.03em] text-[#7a1f1f]">
+                Pass reason
+                {lastPassInteraction?.pass_reason_category && (
+                  <span className="font-normal normal-case tracking-normal text-gray-500">
+                    · {lastPassInteraction.pass_reason_category.replace(/_/g, ' ')}
+                  </span>
+                )}
+              </div>
+              <div className="mt-1.5 text-[13px] italic leading-relaxed text-gray-800">&ldquo;{lastPassReason}&rdquo;</div>
+              {lastPassInteraction && (
+                <div className="mt-2 text-[11px] text-gray-500">
+                  Recorded {lastPassInteraction.occurred_at.slice(0, 10)}, from the classified reply.
+                </div>
+              )}
+            </div>
           )}
         </div>
-      )}
 
-      {/* Prompt 226 §2 — os dois cartoes, agora numa linha propria abaixo do
-          banner e da MESMA largura (o 70% do 225 e que fazia o de historico
-          ler-se como cortado). "Log interaction" saiu daqui de vez: existe
-          sempre no topo da pagina, e repeti-lo era redundante (§4). */}
-      {/* Prompt 228 §B — deixam de ser 50/50. O de historico tem conteudo a
-          serio (3 entradas + 2 accoes) e fica com a maior parte do espaco;
-          o de datas tem quatro linhas curtas e nao ganha nada em esticar,
-          por isso passa a largura fixa. Em ecra estreito o flex-wrap
-          empilha-os, ambos a 100%. */}
-      <div className="mt-4 flex flex-wrap gap-3.5">
-        <div className="min-w-[240px] flex-1 rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
+        <div className="min-w-[320px] flex-[1.3] rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
           <div className="flex items-center justify-between gap-2">
             <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
               Contact history
@@ -549,25 +620,6 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           </ul>
         </div>
 
-        {/* §2 — o numero deixa de ser um text-2xl gigante e passa a inline
-            com a palavra; "Last touch" e o "Nd ago" separam-se em duas
-            linhas, que era o que quebrava feio a meio da palavra. */}
-        <div className="w-full rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)] sm:w-[190px] sm:flex-none">
-          <div className="text-xs text-gray-500">
-            {s.firstContactAt ? `First contact ${s.firstContactAt.slice(0, 10)}` : 'No contact yet'}
-          </div>
-          <div className="mt-0.5 text-sm font-bold text-[#0E7490]">
-            {s.touchCount} {s.touchCount === 1 ? 'touch' : 'touches'}
-          </div>
-          {s.lastTouchAt && s.lastTouchAt !== s.firstContactAt && (
-            <>
-              <div className="mt-0.5 text-xs text-gray-500">Last touch {s.lastTouchAt.slice(0, 10)}</div>
-              {s.daysSinceLastTouch != null && (
-                <div className="text-xs font-semibold text-[#0E7490]">· {s.daysSinceLastTouch}d ago</div>
-              )}
-            </>
-          )}
-        </div>
       </div>
     </div>
   );
