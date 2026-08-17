@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planPark, planPass, advanceConfirmation, revisitTasksToClose, REVISIT_DAYS_DEFAULT } from './exit-effects';
+import { planPark, planPass, planSnooze, advanceConfirmation, revisitTasksToClose, REVISIT_DAYS_DEFAULT } from './exit-effects';
 import type { Entity, TaskItem } from './types';
 
 // Prompt 205 — o caso real: "Test idividual", parqueada, e o Today a
@@ -14,6 +14,37 @@ function task(over: Partial<TaskItem> = {}): TaskItem {
     action_type: 'other', done: false, due_at: '2026-08-01T00:00:00.000Z', ...over,
   } as TaskItem;
 }
+
+// Prompt 226 §4 — o Snooze. O que os testes fixam é a DIFERENÇA face ao
+// parque: snooze é "não agora", não "desisti".
+describe('planSnooze', () => {
+  it('reagenda todas as pendentes para agora+N, sem fechar nenhuma', () => {
+    const p = planSnooze(ENTITY, [task({ id: 'a' }), task({ id: 'b', action_type: 'follow_up_thread' })], NOW, 7);
+    expect(p.dispositions).toHaveLength(2);
+    expect(p.dispositions.every((d) => d.action === 'reschedule')).toBe(true);
+    // O planPark fecharia a de follow_up_thread ("parquear É a resposta");
+    // adiar não é responder, portanto aqui nenhuma fica feita.
+    expect(p.dispositions.some((d) => d.action === 'done')).toBe(false);
+    expect(p.dispositions[0]).toMatchObject({ dueAt: '2026-08-22T10:00:00.000Z' });
+  });
+
+  it('NUNCA cria task de revisita — a que já existe é que mudou de data', () => {
+    expect(planSnooze(ENTITY, [task()], NOW, 3).revisitTask).toBeUndefined();
+  });
+
+  it('a confirmação diz a data de volta, não o número de dias', () => {
+    expect(planSnooze(ENTITY, [task()], NOW, 30).confirmation).toContain('2026-09-14');
+  });
+
+  it('sem pendentes, não inventa disposições', () => {
+    expect(planSnooze(ENTITY, [], NOW, 7).dispositions).toEqual([]);
+  });
+
+  it('só toca nas tarefas DESTA entidade', () => {
+    const p = planSnooze(ENTITY, [task({ id: 'mine' }), task({ id: 'other', entity_id: 'e2' })], NOW, 7);
+    expect(p.dispositions.map((d) => d.taskId)).toEqual(['mine']);
+  });
+});
 
 describe('planPark', () => {
   it('agenda a revisita a 30 dias por omissao', () => {

@@ -196,7 +196,13 @@ export function nextBestAction(db: Db, entityId: string, now = new Date(), dealM
   }
 
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > now;
-  if (locked) return `Locked until ${entity.contact_lock_until!.slice(0, 10)} — prep the next contact meanwhile.`;
+  // Prompt 226 §3 — dizia "Locked until {data}" e não bloqueia nada nesta
+  // página: confirmado que `formReady`/`disabledReason` no /log nunca olham
+  // para contact_lock. O único efeito real é o preflight pedir "Override &
+  // save" com justificação num NOVO outbound dentro dos 14 dias — friction
+  // deliberada, não bloqueio. A copy antiga descrevia uma parede que não
+  // existe; esta descreve o que de facto se passa.
+  if (locked) return `Recently contacted — give it until ${entity.contact_lock_until!.slice(0, 10)} before following up.`;
 
   const summary = relationshipSummary(db, entityId, now, dealMessageTouches);
   if (summary.whoseTurn === 'overdue') return `Follow up — no reply for ${summary.daysSinceLastTouch}d.`;

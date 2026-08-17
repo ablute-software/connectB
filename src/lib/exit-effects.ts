@@ -65,6 +65,27 @@ export function planPark(
   };
 }
 
+// Prompt 226 §4 — o irmão do planPark, para o Snooze. A diferença é o que
+// NÃO faz: não parqueia a entidade (o status fica como está — snooze é "não
+// agora", não "desisti") e não cria task de revisita, porque a task que já
+// existe é que muda de data. Também não fecha nenhuma: um follow-up adiado
+// continua a ser um follow-up, e marcá-lo feito seria mentir sobre trabalho
+// que não foi feito.
+//
+// Extraído em vez de duplicado, como o prompt pede: a parte comum é o
+// pending() + addDays(), e o que difere é a disposição.
+export function planSnooze(
+  entity: Pick<Entity, 'id' | 'name'>, tasks: TaskItem[], now: Date, days: number,
+): ExitPlan {
+  const dueAt = addDays(now, days);
+  return {
+    dispositions: pending(tasks, entity.id).map((t) => ({
+      taskId: t.id, action: 'reschedule' as const, dueAt, reason: `snoozed for ${days} day${days === 1 ? '' : 's'}`,
+    })),
+    confirmation: `⏳ Snoozed — back on your list ${dueAt.slice(0, 10)}.`,
+  };
+}
+
 export function planPass(entity: Pick<Entity, 'id' | 'name'>, tasks: TaskItem[]): ExitPlan {
   // §C — no pass é sempre done, sem excepção de tipo. A agenda não pode
   // continuar a mandar fazer follow-up a quem disse que não.

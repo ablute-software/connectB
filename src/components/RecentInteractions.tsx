@@ -12,7 +12,7 @@ import { firstLine, recentInteractions, unclassifiedInbound, formatAsk, DIRECTIO
 import { SharedDocChip } from '@/components/SharedDocChip';
 import { InlineClassify } from '@/components/InlineClassify';
 
-export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassifyNonce = 0, focusInteraction }: {
+export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassifyNonce = 0, focusInteraction, expandNonce = 0 }: {
   entity: Entity;
   // Prompt 206-B — continua a existir para quem vem da Pipeline (abrir o
   // drawer em vez de navegar para fora), mas deixou de ser a ÚNICA porta: na
@@ -27,12 +27,15 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
   // Prompt 209 — ancora vinda do badge de documentos do stepper: expande o
   // historico, faz scroll ate essa interacao e destaca-a por uns segundos.
   focusInteraction?: { id: string; nonce: number };
+  // Prompt 226 §2 — "Show all N" a partir do cartao de historico.
+  expandNonce?: number;
 }) {
   const { db } = useStore();
   const [expanded, setExpanded] = useState(false);
   const [classifying, setClassifying] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLLIElement | null>>({});
+  const listRef = useRef<HTMLDivElement>(null);
 
   const all = recentInteractions(db.interactions, entity.id, Number.MAX_SAFE_INTEGER);
   const total = all.length;
@@ -41,6 +44,19 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
   // Reutiliza a contagem do 206-A em vez de a recalcular: uma resposta por
   // classificar é a razão para o histórico chamar a atenção.
   const { unclassifiedReplies } = derivedStage(db, entity.id);
+
+  // Prompt 226 §2 — o "Show all N" migrou para o cartao do
+  // RelationshipSummaryCard, mas o estado `expanded` e daqui; um contador
+  // (nao um booleano) pela mesma razao dos outros: pedir duas vezes tem de
+  // funcionar duas vezes.
+  useEffect(() => {
+    if (expandNonce === 0) return;
+    setExpanded(true);
+    const id = window.setTimeout(() => {
+      listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [expandNonce]);
 
   useEffect(() => {
     if (focusClassifyNonce === 0 || !oldestPending) return;
@@ -78,10 +94,14 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
   }
 
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+    <div ref={listRef} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between gap-2">
+        {/* Prompt 226 §2 — o titulo "Contact history" saiu daqui: o cartao
+            acima ja o traz, e dois titulos iguais na mesma pagina liam-se
+            como duplicado. A contagem e o chip de "to classify" ficam,
+            porque sao o estado desta lista. */}
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
-          Contact history
+          <span className="text-gray-500">All contact</span>
           <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">{total}</span>
           {unclassifiedReplies > 0 && (
             <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900">

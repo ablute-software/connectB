@@ -43,7 +43,11 @@ export function JourneyStepper({ entity, onViewInHistory }: {
   const previewDoc = preview ? db.documents.find((d) => d.id === preview.docId) : undefined;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 pb-1">
+    // Prompt 226 §1 — `flex-wrap` deixava o "Decision" cair sozinho para uma
+    // 2ª linha quando a coluna de cartões do 225 disputava a largura. Com
+    // `flex-nowrap` o trilho é uma linha e ponto; quem trata do caso de não
+    // caber é o `overflow-x-auto` do contentor, em RelationshipSummaryCard.
+    <div className="flex flex-nowrap items-center gap-2 pb-1">
       {steps.map((step, idx) => {
         // Prompt 224 §3 — o conector substitui a seta de texto: um traço que
         // ESTICA (flex-1), para o trilho deixar de se agarrar à esquerda e
