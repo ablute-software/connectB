@@ -113,6 +113,18 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
               {`Show all ${total}`}
             </button>
           )}
+          {/* Prompt 232 — consequencia do 229 §A: um salto por "to classify"
+              ou pelo badge de documento poe `expanded=true` para trazer o
+              alvo a vista, mas sem este botao nao havia como voltar aos 3
+              sem sair da pagina. So aparece nesse caso — nunca ao lado de
+              "Show all N" com a lista fechada, porque "Show all N" ja nao
+              mexe em `expanded`. */}
+          {expanded && (
+            <button onClick={() => setExpanded(false)}
+              className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50">
+              Show less
+            </button>
+          )}
           {onOpenFull && (
             // "Thread view" e nao "Open thread": o drawer ja nao e a porta
             // para o historico (isso e o botao acima), e sim a vista com
