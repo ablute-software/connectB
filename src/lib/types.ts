@@ -483,6 +483,23 @@ export type ClaimSpecificity = 'high' | 'medium' | 'low';
 export type ClaimSourceKind =
   | 'fact' | 'vault_doc' | 'roadmap' | 'profile' | 'funding_round' | 'founder_answer';
 
+// Prompt 213 §D — item estruturado do roadmap (items_v2 na 0177).
+// category_id null = "General"; um id que nao resolve le-se como General
+// (e o que torna apagar categorias seguro sem triggers).
+export interface RoadmapItemV2 {
+  text: string;
+  category_id: string | null;
+}
+
+export interface RoadmapCategory {
+  id: string;
+  org_id?: string;
+  label: string;
+  color: string;
+  shape: string;
+  created_at?: string;
+}
+
 export interface FundingRound {
   id: string;
   org_id?: string;
