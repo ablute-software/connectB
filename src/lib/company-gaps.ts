@@ -211,6 +211,21 @@ export function detectGaps(claims: CompanyClaim[], context: GapContext): Gap[] {
 }
 
 // ---------------------------------------------------------------------------
+// Prompt 223 §3 — a identidade de uma lacuna, estável entre execuções. É o
+// que liga a resposta do founder à pergunta que a provocou, e o que faz
+// "não voltes a perguntar isto" funcionar sem tabela de perguntas.
+//
+// A regra sozinha não chega: G3b dá uma lacuna POR FOUNDER e G3c uma POR
+// FUNÇÃO, portanto a chave leva o discriminante quando existe. Para as
+// regras ligadas a um claim concreto (G2, G4, G5) o discriminante é o id
+// do claim — se o claim mudar, é outra lacuna e volta a perguntar-se, que
+// é o comportamento certo.
+export function gapKey(gap: Gap): string {
+  const discriminator = gap.meta?.founderName ?? gap.meta?.functionKey ?? gap.relatedClaimIds[0] ?? '';
+  return `${gap.rule}:${discriminator}`;
+}
+
+// ---------------------------------------------------------------------------
 // Templates de pergunta (219 §1.4 + 219-B §1) — DADOS, não strings soltas:
 // um array de config com placeholders {chave} preenchidos a partir de
 // gap.meta. O bloco 3 liga isto ao fluxo interativo real; aqui só a

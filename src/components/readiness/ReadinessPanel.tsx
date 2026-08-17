@@ -17,12 +17,16 @@ import { Tabs } from '@/components/ui';
 import { useTabParam } from '@/lib/use-tab';
 import { REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
 import { ReviewPanel } from './ReviewPanel';
+import { BlueprintPanel } from './BlueprintPanel';
 import { ActionPlanPanel } from './ActionPlanPanel';
 import { TrainPanel } from './TrainPanel';
 import { HistoryPanel } from './HistoryPanel';
 
 const TABS = [
   { key: 'review', label: 'Review' },
+  // Prompt 219 bloco 3 — o motor de narrativa. Fica a seguir a Review por
+  // ser a leitura que alimenta tudo o resto; o gating por tier é o bloco 6.
+  { key: 'blueprint', label: 'Pitch Blueprint' },
   { key: 'plan', label: 'Action plan' },
   { key: 'train', label: 'Train' },
   { key: 'history', label: 'History' },
@@ -73,6 +77,7 @@ function ReadinessInner() {
         )}
         <div className={locked ? 'pointer-events-none select-none space-y-4 blur-[2px]' : 'space-y-4'} aria-hidden={locked}>
           {activeTab === 'review' && <ReviewPanel />}
+          {activeTab === 'blueprint' && <BlueprintPanel />}
           {activeTab === 'plan' && <ActionPlanPanel />}
           {activeTab === 'train' && <TrainPanel />}
           {activeTab === 'history' && <HistoryPanel />}
