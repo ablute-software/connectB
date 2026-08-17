@@ -20,6 +20,7 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import { ReviewResultBody } from './ReviewResultBody';
 import { ClarificationBullet } from './ClarificationBullet';
 import { clarificationsByKey, clarificationKey, upsertClarification, type ReviewCategory, type ReviewClarification } from '@/lib/review-clarifications';
+import { splitFundraisingExecution } from '@/lib/founder-report-split';
 
 interface AiReviewRow {
   id: string; kind: string; title: string | null; created_at: string;
@@ -84,18 +85,32 @@ function reviewRunToItem(
         <span className="text-xs text-gray-400">/ 100</span>
       </div>
       {row.summary && <p className="mt-1 text-gray-700">{row.summary}</p>}
-      {r && (['strengths', 'weaknesses', 'opportunities', 'threats', 'risks', 'recommendations'] as const).map((k) => (
-        r[k]?.length ? (
-          <div key={k} className="mt-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{k}</div>
+      {r && (['strengths', 'weaknesses', 'opportunities', 'threats', 'risks', 'recommendations'] as const).flatMap((k) => {
+        // Prompt 220 §D — o mesmo split do ReviewPanel, aplicado ao arquivo:
+        // bullets de execução de angariação saem das weaknesses para uma
+        // secção própria. Índices ORIGINAIS preservados — as clarifications
+        // são keyed por item_index no array completo, e a chave não muda
+        // por o bullet mudar de secção.
+        if (k === 'weaknesses') {
+          const { business, execution } = splitFundraisingExecution(r.weaknesses ?? []);
+          return [
+            { key: 'weaknesses', label: 'weaknesses', category: 'weaknesses' as ReviewCategory, items: business },
+            { key: 'fundraising-execution', label: 'fundraising execution (internal)', category: 'weaknesses' as ReviewCategory, items: execution },
+          ];
+        }
+        return [{ key: k, label: k, category: k as ReviewCategory, items: (r[k] ?? []).map((text, index) => ({ text, index })) }];
+      }).map((sec) => (
+        sec.items.length ? (
+          <div key={sec.key} className="mt-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{sec.label}</div>
             <ul className="ml-4 list-disc text-xs text-gray-700">
-              {(r[k] ?? []).map((x, i) => (
-                <li key={i}>
-                  {x}
+              {sec.items.map((b) => (
+                <li key={b.index}>
+                  {b.text}
                   {clarifications && (
                     <ClarificationBullet
-                      orgId={orgId} reviewRunId={row.id} category={k as ReviewCategory} itemIndex={i} itemText={x}
-                      existing={clarifications.get(clarificationKey(row.id, k as ReviewCategory, i)) ?? null}
+                      orgId={orgId} reviewRunId={row.id} category={sec.category} itemIndex={b.index} itemText={b.text}
+                      existing={clarifications.get(clarificationKey(row.id, sec.category, b.index)) ?? null}
                       onSaved={onSaved}
                     />
                   )}

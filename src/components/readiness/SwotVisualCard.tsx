@@ -197,9 +197,15 @@ function SwotHeader() {
 // Prompt 170/172/173 — the redesign below applies to BOTH surfaces
 // automatically (same shared component), no extra work needed for the
 // investor side.
-export function SwotQuadrant({ data, clarify }: {
+export function SwotQuadrant({ data, clarify, weaknessIndices }: {
   data: SwotData;
   clarify?: { orgId: string; reviewRunId: string; clarifications: Map<string, ReviewClarification>; onSaved: (c: ReviewClarification) => void };
+  // Prompt 220 §D — quando o caller já retirou bullets de execução de
+  // angariação das weaknesses, isto traz o índice ORIGINAL de cada posição
+  // renderizada: as clarifications persistidas são keyed por item_index no
+  // array completo, e filtrar sem isto ligava-as ao bullet errado. Omitido
+  // (lado investidor, ou weaknesses intactas) = identidade.
+  weaknessIndices?: number[];
 }) {
   return (
     <div className="space-y-4">
@@ -241,13 +247,16 @@ export function SwotQuadrant({ data, clarify }: {
                     <div key={i} className="flex items-center gap-3 rounded-full border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-800">
                       <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${q.dot}`} />
                       <span className="flex-1">{item}</span>
-                      {clarify && (
-                        <ClarificationBullet
-                          orgId={clarify.orgId} reviewRunId={clarify.reviewRunId} category={q.key} itemIndex={i} itemText={item}
-                          existing={clarify.clarifications.get(clarificationKey(clarify.reviewRunId, q.key, i)) ?? null}
-                          onSaved={clarify.onSaved}
-                        />
-                      )}
+                      {clarify && (() => {
+                        const originalIndex = q.key === 'weaknesses' ? (weaknessIndices?.[i] ?? i) : i;
+                        return (
+                          <ClarificationBullet
+                            orgId={clarify.orgId} reviewRunId={clarify.reviewRunId} category={q.key} itemIndex={originalIndex} itemText={item}
+                            existing={clarify.clarifications.get(clarificationKey(clarify.reviewRunId, q.key, originalIndex)) ?? null}
+                            onSaved={clarify.onSaved}
+                          />
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>
@@ -262,8 +271,10 @@ export function SwotQuadrant({ data, clarify }: {
   );
 }
 
-export function SwotVisualCard({ data, canRun, lockedReason, running, onRun, clarify }: {
+export function SwotVisualCard({ data, canRun, lockedReason, running, onRun, clarify, weaknessIndices }: {
   data: SwotData | null;
+  /** Prompt 220 §D — see SwotQuadrant. */
+  weaknessIndices?: number[];
   /** Whether a NEW review can be started right now (feature on + quota left). */
   canRun: boolean;
   /** Set (non-empty) when there's no `data` yet AND a new review can't be started either
@@ -279,7 +290,7 @@ export function SwotVisualCard({ data, canRun, lockedReason, running, onRun, cla
   return (
     <Card title={data ? undefined : <span className="text-[#0E7490]">SWOT snapshot</span>}>
       {data ? (
-        <SwotQuadrant data={data} clarify={clarify} />
+        <SwotQuadrant data={data} clarify={clarify} weaknessIndices={weaknessIndices} />
       ) : lockedReason ? (
         <div className="relative overflow-hidden rounded-lg border border-dashed border-gray-200 bg-white/60 px-4 py-6 text-center backdrop-blur-[2px]">
           <span className="rounded-full border border-cyan-200 bg-white/90 px-3 py-1 text-xs font-semibold text-[#0E7490] shadow-sm">

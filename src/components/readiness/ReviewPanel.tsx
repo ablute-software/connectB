@@ -26,6 +26,7 @@ import { SwotVisualCard } from './SwotVisualCard';
 import { ClarificationBullet } from './ClarificationBullet';
 import type { SwotData } from '@/lib/types';
 import { clarificationsByKey, clarificationKey, upsertClarification, type ReviewClarification } from '@/lib/review-clarifications';
+import { splitFundraisingExecution } from '@/lib/founder-report-split';
 
 interface ReviewRun { id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string }
 interface InvestabilityReport extends SwotData { score: number; summary: string; risks: string[]; recommendations: string[] }
@@ -259,18 +260,58 @@ export function ReviewPanel() {
     setClarifications((prev) => upsertClarification(prev, c));
   }
 
+  // Prompt 220 §D — o SWOT é do PROJETO; métricas de pipeline/outreach são
+  // diagnóstico de execução da angariação, não fraqueza do negócio. O split
+  // é só framing dentro do relatório founder-only (a regra raiz continua a
+  // aplicar-se por inteiro: nada disto sai do servidor para investidores —
+  // o dossier deles usa investor_safe, gerado sem estes dados de todo).
+  // Índices originais preservados: clarifications são keyed por item_index
+  // no array completo de weaknesses.
+  const weaknessSplit = splitFundraisingExecution(latest?.report?.weaknesses ?? []);
+
   return (
     <>
       <SwotVisualCard
         data={latest?.report ? {
-          strengths: latest.report.strengths ?? [], weaknesses: latest.report.weaknesses ?? [],
+          strengths: latest.report.strengths ?? [], weaknesses: weaknessSplit.business.map((b) => b.text),
           opportunities: latest.report.opportunities ?? [], threats: latest.report.threats ?? [],
         } : null}
+        weaknessIndices={weaknessSplit.business.map((b) => b.index)}
         canRun={canRunReview} lockedReason={swotLockedReason} running={runLoading} onRun={runInvestability}
         clarify={caps?.reviewClarifications && latest ? {
           orgId: db.org.id, reviewRunId: latest.id, clarifications: clarificationMap, onSaved: handleClarificationSaved,
         } : undefined}
       />
+
+      {/* Prompt 220 §D — a secção própria para onde os bullets de execução
+          se mudam. Visualmente separada do SWOT e com a natureza escrita no
+          próprio card: interno, sobre a angariação, nunca dos investidores.
+          As clarifications continuam a funcionar aqui com a MESMA chave
+          (category 'weaknesses' + índice original) — mover o bullet de
+          secção não muda onde ele vive nos dados. */}
+      {latest && weaknessSplit.execution.length > 0 && (
+        <Card title={<span className="text-gray-700">Fundraising execution</span>}>
+          <p className="mb-2 text-xs text-gray-500">
+            How the raise itself is going — outreach and pipeline diagnostics from your CRM activity.
+            Internal only, never shown to investors. These are not weaknesses of the business.
+          </p>
+          <ul className="space-y-2">
+            {weaknessSplit.execution.map((b) => (
+              <li key={b.index} className="flex items-center gap-3 rounded-full border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-800">
+                <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-600" />
+                <span className="flex-1">{b.text}</span>
+                {caps?.reviewClarifications && (
+                  <ClarificationBullet
+                    orgId={db.org.id} reviewRunId={latest.id} category="weaknesses" itemIndex={b.index} itemText={b.text}
+                    existing={clarificationMap.get(clarificationKey(latest.id, 'weaknesses', b.index)) ?? null}
+                    onSaved={handleClarificationSaved}
+                  />
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {/* Prompt 166 §D.2 — owner/admin only, mirroring manage_org_settings'
           gate elsewhere (promo code redemption, org settings). Non-owner/
