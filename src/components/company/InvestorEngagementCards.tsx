@@ -5,6 +5,7 @@
 // same home as the data room checklist (Prompt 55).
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
+import { decideInterestRequest } from '@/lib/interest-requests-client';
 
 interface Question { id: string; question: string; answer: string | null; is_faq: boolean; asked_by_email: string; created_at: string }
 interface Update { id: string; title: string; body: string; created_at: string }
@@ -199,10 +200,9 @@ export function InterestLevelRequestsCard() {
   async function decide(id: string, decision: 'granted' | 'denied') {
     setBusyId(id);
     try {
-      await fetch('/api/founder/interest-level-requests', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id, decision, note: noteDraft[id]?.trim() || undefined, shareDirectEmail: !!shareEmailDraft[id] }),
-      });
+      // Prompt 220 §A — via o helper partilhado, que dispara o evento que
+      // faz o badge da Pipeline (shell.tsx) e o Today re-verificar.
+      await decideInterestRequest(id, decision, { note: noteDraft[id]?.trim() || undefined, shareDirectEmail: !!shareEmailDraft[id] });
       load();
     } finally { setBusyId(null); }
   }

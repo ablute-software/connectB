@@ -8,6 +8,7 @@ import { Tooltip } from '@/components/ui';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
 import { useSupportUnreadCount } from '@/components/SupportTicketsPanel';
 import { useUnreadMessagesCount } from '@/components/deal-messages/DealThreadView';
+import { usePendingInterestCount } from '@/lib/interest-requests-client';
 import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
 import { W1Badge } from '@/components/onboarding/W1Badge';
@@ -113,6 +114,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // the same page's Support tab, so it counts toward the same badge.
   const unreadSupport = useSupportUnreadCount();
 
+  // Prompt 220 §A — pedidos de nível 3 pendentes. Até aqui só eram visíveis
+  // no card de /settings, onde o founder nunca passava: um investidor a
+  // pedir contacto direto ficava pending para sempre. O badge vive na
+  // Pipeline (é lá que o founder pensa em investidores), e o hook re-verifica
+  // quando qualquer superfície decide (evento INTEREST_REQUEST_DECIDED_EVENT).
+  const pendingInterest = usePendingInterestCount();
+
   // Dual-role (e.g. Nuno: founder of ablute_ AND platform admin) gets a
   // switcher into the fully separate back-office console (own layout/chrome
   // — see src/app/backoffice/layout.tsx). Founders without platform_admin
@@ -180,6 +188,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const navItem = (n: typeof visibleNav[number], active: boolean): WorkspaceNavItem => {
     const isAbout = n.href === '/settings';
     const badge = n.href === '/tasks' && pendingRuns > 0 ? pendingRuns
+      : n.href === '/pipeline' && pendingInterest > 0 ? pendingInterest
       : n.href === '/messages' && (unreadMessages + unreadSupport) > 0 ? unreadMessages + unreadSupport
       : isAbout && needsReviewCount > 0 ? needsReviewCount
       : undefined;

@@ -30,13 +30,23 @@ export async function GET() {
   if (!rows || rows.length === 0) return NextResponse.json({ requests: [] });
 
   const catalogIds = [...new Set(rows.map((r) => r.investor_catalog_entity_id as string))];
-  const { data: catalogEntities } = await admin.from('catalog_entities').select('id, name').in('id', catalogIds);
+  // Prompt 220 §A-§C — entityId (the org's own CRM entity for this investor,
+  // via catalog_deliveries — the same resolution the Today task uses at
+  // creation and decision time) lets Today and the entity page match a
+  // request to their task/entity. Founder's own org data, nothing crosses
+  // the tenant boundary.
+  const [{ data: catalogEntities }, { data: deliveries }] = await Promise.all([
+    admin.from('catalog_entities').select('id, name').in('id', catalogIds),
+    admin.from('catalog_deliveries').select('catalog_id, entity_id').eq('org_id', orgId).in('catalog_id', catalogIds),
+  ]);
   const nameById = new Map((catalogEntities ?? []).map((c) => [c.id as string, c.name as string]));
+  const entityByCatalogId = new Map((deliveries ?? []).map((d) => [d.catalog_id as string, d.entity_id as string | null]));
 
   return NextResponse.json({
     requests: rows.map((r) => ({
       id: r.id, investorName: nameById.get(r.investor_catalog_entity_id as string) ?? 'Unknown investor',
       status: r.status, requestedAt: r.requested_at, decidedAt: r.decided_at, note: r.note, shareDirectEmail: r.share_direct_email,
+      entityId: entityByCatalogId.get(r.investor_catalog_entity_id as string) ?? null,
     })),
   });
 }
