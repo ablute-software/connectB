@@ -295,7 +295,6 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
         <HealthDot entityId={entity.id} dealMessageTouches={dealMessageTouches} />
         {!parkedOrClosed && <WhoseTurnChip entityId={entity.id} dealMessageTouches={dealMessageTouches} />}
       </div>
-      {action && <div className="mt-1.5 text-xs font-medium text-[#0E7490]">Next: {annotateNextStep(action)}</div>}
       {undoable && (
         <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
           <span>Stage changed to {undoable.label}.</span>
@@ -314,20 +313,35 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           {confirmation}
         </div>
       )}
-      {!confirmation && !dismissed && exits.show && (
-        <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
-          lastInboundWasPass ? 'border-red-200 bg-red-50 text-[#B00000]'
-            : s.whoseTurn === 'overdue' ? 'border-amber-200 bg-amber-50 text-amber-900'
-            : 'border-cyan-200 bg-[#E8F4F8] text-cyan-900'}`}>
-          <span>
-            {lastInboundWasPass
-              ? `They passed — this still shows as ${STAGE_LABEL[s.stage]}.`
-              : s.whoseTurn === 'overdue'
-                // Nunca responderam: dizer "They've replied" aqui seria mentira,
-                // e é o caso em que o founder mais precisa de uma saída.
-                ? `No reply in ${s.daysSinceLastTouch ?? 0} days — this still shows as ${STAGE_LABEL[s.stage]}.`
-                : `They've replied — this still shows as ${STAGE_LABEL[s.stage]}.`}
-          </span>
+      {/* Prompt 227 §4 — o aviso do "Next:" e o texto das saidas eram dois
+          blocos empilhados, um deles um bloco teal pesado, a dizer coisas da
+          MESMA conversa. Passam a uma linha compacta e neutra: texto a
+          esquerda (as duas frases juntas por "·"), accoes a direita.
+          O fundo deixa de ser colorido; a distincao de gravidade fica no
+          TEXTO (vermelho num pass, ambar num overdue), que e sinal
+          suficiente sem um bloco de cor a competir com o resto do cartao. */}
+      {(action || (!confirmation && !dismissed && exits.show)) && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#e6eef0] bg-[#fafcfc] px-3.5 py-2.5">
+          <div className="min-w-[200px] flex-1 text-xs leading-relaxed text-gray-700">
+            {action && <span>{annotateNextStep(action)}</span>}
+            {action && !confirmation && !dismissed && exits.show && <span className="mx-1.5 text-gray-300">·</span>}
+            {!confirmation && !dismissed && exits.show && (
+              <span className={
+                lastInboundWasPass ? 'font-semibold text-[#B00000]'
+                  : s.whoseTurn === 'overdue' ? 'font-semibold text-amber-800'
+                  : 'font-semibold text-[#0c637b]'}>
+                {lastInboundWasPass
+                  ? `They passed — this still shows as ${STAGE_LABEL[s.stage]}.`
+                  : s.whoseTurn === 'overdue'
+                    // Nunca responderam: dizer "They've replied" aqui seria mentira,
+                    // e é o caso em que o founder mais precisa de uma saída.
+                    ? `No reply in ${s.daysSinceLastTouch ?? 0} days — this still shows as ${STAGE_LABEL[s.stage]}.`
+                    : `They've replied — this still shows as ${STAGE_LABEL[s.stage]}.`}
+              </span>
+            )}
+          </div>
+          {!confirmation && !dismissed && exits.show && (
+          <>
 
           {/* Prompt 225 §3 (opção A do mockup) — as quatro saídas em fila
               quebravam linha e davam todas o mesmo peso visual. Agora: a
@@ -335,7 +349,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
               acções e os seus efeitos são exactamente os mesmos — só a
               apresentação muda. */}
           {exitMode === 'none' && (
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               {/* Saída 1 — avançar. Escondida num pass: oferecer "avançar" a
                   quem disse que não é exactamente o bug do caso Adara. */}
               {exits.canAdvance && (
@@ -426,8 +440,10 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
             </div>
           )}
 
+          {/* O textarea da razão do pass ocupa a linha toda (w-full a forçar
+              a quebra do flex): é escrita, não um botão. */}
           {exitMode === 'pass' && (
-            <div className="mt-1.5 space-y-1.5">
+            <div className="w-full space-y-1.5">
               <textarea value={passReason} onChange={(e) => setPassReason(e.target.value)} rows={2}
                 placeholder="Why did they pass? Verbatim if possible — REQUIRED. Ten of these rewrite the pitch."
                 className="w-full rounded border border-red-200 p-2 text-xs text-gray-900" />
@@ -453,6 +469,8 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
               )}
             </div>
           )}
+          </>
+          )}
         </div>
       )}
 
@@ -460,8 +478,11 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           banner e da MESMA largura (o 70% do 225 e que fazia o de historico
           ler-se como cortado). "Log interaction" saiu daqui de vez: existe
           sempre no topo da pagina, e repeti-lo era redundante (§4). */}
-      <div className="mt-3 flex flex-col gap-3 sm:flex-row">
-        <div className="flex-1 rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
+      {/* Prompt 227 §2 — `flex-1` + `basis-[260px]` + `min-w-[240px]` nos
+          dois: dividem o espaco a meio, encolhem juntos, e empilham quando
+          nem 240px cabem (o flex-wrap trata disso, sem breakpoint a mao). */}
+      <div className="mt-4 flex flex-wrap gap-3.5">
+        <div className="min-w-[240px] flex-1 basis-[260px] rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
           <div className="flex items-center justify-between gap-2">
             <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
               Contact history
@@ -508,20 +529,20 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
         {/* §2 — o numero deixa de ser um text-2xl gigante e passa a inline
             com a palavra; "Last touch" e o "Nd ago" separam-se em duas
             linhas, que era o que quebrava feio a meio da palavra. */}
-        <div className="flex-1 rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 text-center shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)] sm:max-w-[220px]">
-          <div className="text-[11.5px] text-gray-500">
+        <div className="min-w-[240px] flex-1 basis-[260px] rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
+          <div className="text-xs text-gray-500">
             {s.firstContactAt ? `First contact ${s.firstContactAt.slice(0, 10)}` : 'No contact yet'}
           </div>
-          <div className="mt-1 text-[15px] font-bold text-[#0E7490]">
+          <div className="mt-0.5 text-sm font-bold text-[#0E7490]">
             {s.touchCount} {s.touchCount === 1 ? 'touch' : 'touches'}
           </div>
           {s.lastTouchAt && s.lastTouchAt !== s.firstContactAt && (
-            <div className="mt-1 text-[11.5px] text-gray-500">
-              <div>Last touch {s.lastTouchAt.slice(0, 10)}</div>
+            <>
+              <div className="mt-0.5 text-xs text-gray-500">Last touch {s.lastTouchAt.slice(0, 10)}</div>
               {s.daysSinceLastTouch != null && (
-                <div className="font-semibold text-[#0E7490]">{s.daysSinceLastTouch}d ago</div>
+                <div className="text-xs font-semibold text-[#0E7490]">· {s.daysSinceLastTouch}d ago</div>
               )}
-            </div>
+            </>
           )}
         </div>
       </div>
