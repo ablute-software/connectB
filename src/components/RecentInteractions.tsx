@@ -96,12 +96,13 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
   return (
     <div ref={listRef} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between gap-2">
-        {/* Prompt 226 §2 — o titulo "Contact history" saiu daqui: o cartao
-            acima ja o traz, e dois titulos iguais na mesma pagina liam-se
-            como duplicado. A contagem e o chip de "to classify" ficam,
-            porque sao o estado desta lista. */}
+        {/* Prompt 228 §A — o titulo saiu daqui POR COMPLETO. O 226 tinha-o
+            trocado de "Contact history" para "All contact", mas continuava a
+            ler-se como repeticao: e a mesma ideia com outra palavra, logo
+            debaixo do cartao que ja diz "Contact history". Ficam a contagem
+            e o chip de "to classify", que sao o ESTADO desta lista e nao um
+            titulo. */}
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
-          <span className="text-gray-500">All contact</span>
           <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">{total}</span>
           {unclassifiedReplies > 0 && (
             <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900">

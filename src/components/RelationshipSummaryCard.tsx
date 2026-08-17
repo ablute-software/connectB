@@ -478,11 +478,13 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           banner e da MESMA largura (o 70% do 225 e que fazia o de historico
           ler-se como cortado). "Log interaction" saiu daqui de vez: existe
           sempre no topo da pagina, e repeti-lo era redundante (§4). */}
-      {/* Prompt 227 §2 — `flex-1` + `basis-[260px]` + `min-w-[240px]` nos
-          dois: dividem o espaco a meio, encolhem juntos, e empilham quando
-          nem 240px cabem (o flex-wrap trata disso, sem breakpoint a mao). */}
+      {/* Prompt 228 §B — deixam de ser 50/50. O de historico tem conteudo a
+          serio (3 entradas + 2 accoes) e fica com a maior parte do espaco;
+          o de datas tem quatro linhas curtas e nao ganha nada em esticar,
+          por isso passa a largura fixa. Em ecra estreito o flex-wrap
+          empilha-os, ambos a 100%. */}
       <div className="mt-4 flex flex-wrap gap-3.5">
-        <div className="min-w-[240px] flex-1 basis-[260px] rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
+        <div className="min-w-[240px] flex-1 rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
           <div className="flex items-center justify-between gap-2">
             <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
               Contact history
@@ -529,7 +531,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
         {/* §2 — o numero deixa de ser um text-2xl gigante e passa a inline
             com a palavra; "Last touch" e o "Nd ago" separam-se em duas
             linhas, que era o que quebrava feio a meio da palavra. */}
-        <div className="min-w-[240px] flex-1 basis-[260px] rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
+        <div className="w-full rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)] sm:w-[190px] sm:flex-none">
           <div className="text-xs text-gray-500">
             {s.firstContactAt ? `First contact ${s.firstContactAt.slice(0, 10)}` : 'No contact yet'}
           </div>
