@@ -107,33 +107,26 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
               noutro sitio: saltar/realcar uma interacao especifica vinda do
               "to classify" ou do badge de documento — isso e diferente de
               "mostrar tudo" e nao muda. */}
-          {total > limit && onOpenFull && (
+          {/* Prompt 236 — "Show all N" e "Thread view" chamavam o MESMO
+              handler (onOpenFull) desde o 229: dois botões para uma acção
+              só. Fundidos num, com a contagem no label — é o que ajuda a
+              decidir se vale a pena abrir. Já não depende de `total >
+              limit`: abrir a vista completa faz sentido mesmo com poucas
+              interações. */}
+          {onOpenFull && (
             <button onClick={onOpenFull}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                unclassifiedReplies > 0
-                  ? 'bg-[#0E7490] text-white hover:bg-[#0c637b]'
-                  : 'border border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}>
-              {`Show all ${total}`}
+              className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50">
+              {`Thread view (${total})`}
             </button>
           )}
           {/* Prompt 232 — consequencia do 229 §A: um salto por "to classify"
               ou pelo badge de documento poe `expanded=true` para trazer o
               alvo a vista, mas sem este botao nao havia como voltar aos 3
-              sem sair da pagina. So aparece nesse caso — nunca ao lado de
-              "Show all N" com a lista fechada, porque "Show all N" ja nao
-              mexe em `expanded`. */}
+              sem sair da pagina. So aparece nesse caso. */}
           {expanded && (
             <button onClick={() => setExpanded(false)}
               className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50">
               Show less
-            </button>
-          )}
-          {onOpenFull && (
-            // "Thread view" e nao "Open thread": o drawer ja nao e a porta
-            // para o historico (isso e o botao acima), e sim a vista com
-            // filtro por pessoa e export que a lista compacta nao tem.
-            <button onClick={onOpenFull} className="text-xs font-medium text-[#0E7490] hover:underline">
-              Thread view
             </button>
           )}
         </div>

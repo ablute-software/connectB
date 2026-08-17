@@ -509,20 +509,15 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
               )}
             </span>
             <span className="flex items-center gap-2">
-              {/* Mesmas acções do cabeçalho do RecentInteractions —
-                  reaproveitadas por callback, não reimplementadas aqui. */}
-              {/* Prompt 229 §B — abre o drawer, o mesmo que o "Thread view".
-                  Os dois botoes fazem a mesma coisa de proposito: a etiqueta
-                  com a contagem e o que ajuda a decidir se vale a pena
-                  abrir. */}
-              {onOpenThread && historyTotal > 3 && (
-                <button onClick={onOpenThread} className="text-[11px] font-semibold text-[#0E7490] hover:underline">
-                  Show all {historyTotal}
-                </button>
-              )}
+              {/* Prompt 236 — "Show all N" e "Thread view" chamavam o MESMO
+                  onOpenThread desde o 229: dois botões para uma acção só.
+                  Fundidos num, mesmo estilo pill do RecentInteractions, já
+                  sem o `historyTotal > 3` (abrir a vista completa faz
+                  sentido mesmo com poucas interações). */}
               {onOpenThread && (
-                <button onClick={onOpenThread} className="text-[11px] font-medium text-[#0E7490] hover:underline">
-                  Thread view
+                <button onClick={onOpenThread}
+                  className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50">
+                  {`Thread view (${historyTotal})`}
                 </button>
               )}
             </span>
