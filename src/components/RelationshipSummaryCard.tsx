@@ -286,11 +286,107 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
       )}
 
       {/* Prompt 225 §1 — a frase de datas/touches migrou para o cartao da
-          coluna direita; HealthDot/WhoseTurnChip ficam onde sempre estiveram. */}
+          coluna direita; HealthDot/WhoseTurnChip ficam onde sempre estiveram.
+          Prompt 233 §B — "Something else ▾" sobe para aqui, SEMPRE visível
+          enquanto a relação está activa (!parkedOrClosed) — não só dentro
+          do banner de saída (exits.show). Era o único caminho que faltava:
+          sem sugestão activa, "Mark dormant" no topo (§A) era a ÚNICA forma
+          de parquear, e fazia-o incompleto (só setEntityStatus, sem tocar
+          nas tarefas). Agora esse caminho é sempre este menu, que já faz o
+          applyPlan(planPark(...)) certo. */}
       <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-600">
         <HealthDot entityId={entity.id} dealMessageTouches={dealMessageTouches} />
         {!parkedOrClosed && <WhoseTurnChip entityId={entity.id} dealMessageTouches={dealMessageTouches} />}
+        {!parkedOrClosed && exitMode === 'none' && (
+          <div className="relative" ref={menuRef}>
+            <button onClick={() => { setMenuOpen((o) => !o); setSnoozeOpen(false); }}
+              aria-haspopup="menu" aria-expanded={menuOpen}
+              className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-500 hover:bg-gray-50">
+              Something else ▾
+            </button>
+            {menuOpen && (
+              <div role="menu"
+                className="absolute left-0 top-[calc(100%+6px)] z-10 min-w-[230px] rounded-[10px] border border-gray-200 bg-white p-1 shadow-[0_8px_24px_-8px_rgba(0,0,0,.18)]">
+                {/* Ajuste pedido pelo Nuno — corrigir um avanço por engano
+                    sem re-desenhar a barra. Só aparece havendo estágio
+                    anterior REAL: em 'contacted' (o primeiro com
+                    histórico) não há para onde voltar. Reutiliza o
+                    changeStage de sempre, com o undo que ele já traz. */}
+                {previousStage && (
+                  <>
+                    <button role="menuitem"
+                      onClick={() => { setMenuOpen(false); changeStage(previousStage, STAGE_LABEL[previousStage]); setConfirmation(`→ Moved back to ${STAGE_LABEL[previousStage]}.`); }}
+                      className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-100">
+                      ↩ Move back to {STAGE_LABEL[previousStage]}
+                    </button>
+                    <div className="mx-0.5 my-1 h-px bg-gray-200" />
+                  </>
+                )}
+                {/* Prompt 214 §C.3 — ha sempre a saida de nao fazer nada. Uma
+                    sugestao sem "dispensar" nao e sugestao, e insistencia.
+                    Prompt 233 §B — só faz sentido havendo sugestão activa
+                    para dispensar: continua condicionado a exits.show. */}
+                {exits.show && (
+                  <button role="menuitem" onClick={() => { setMenuOpen(false); setDismissed(true); }}
+                    className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-100">
+                    Dismiss — keep as is
+                  </button>
+                )}
+                {/* Saída 2 — o "não". Pede a razão, que é obrigatória.
+                    Prompt 233 §B — SEMPRE disponível: passar não depende de
+                    ter havido sugestão nenhuma, é uma decisão válida em
+                    qualquer momento. */}
+                <button role="menuitem" onClick={() => { setMenuOpen(false); setExitMode('pass'); }}
+                  className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-[#B00000] hover:bg-gray-100">
+                  No interest / over — marks as passed
+                </button>
+                {/* Saída 3 — parquear. Em 'contacted' lê-se "cold", que é o
+                    que de facto aconteceu: nunca responderam. Prompt 233
+                    §B — SEMPRE disponível, pela mesma razão do pass: é
+                    exactamente o caso que faltava sem "Mark dormant". */}
+                <button role="menuitem" onClick={() => {
+                    setMenuOpen(false);
+                    setEntityStatus(entity.id, 'dormant', exits.parkLabel === 'cold' ? 'Cold — no reply' : 'Parked — no continuity');
+                    applyPlan(planPark(entity, db.tasks, new Date()));
+                  }}
+                  className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-100">
+                  {exits.parkLabel === 'cold' ? 'Cold / no reply' : 'Frozen / no continuity'} — parks this investor
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
+      {/* O textarea da razão do pass ocupa a linha toda; vive fora do banner
+          de saída (exits.show) porque "No interest / over" agora dispara
+          daqui mesmo sem sugestão nenhuma activa. */}
+      {!parkedOrClosed && exitMode === 'pass' && (
+        <div className="mt-2 space-y-1.5 rounded-lg border border-red-200 bg-red-50/40 p-2.5">
+          <textarea value={passReason} onChange={(e) => setPassReason(e.target.value)} rows={2}
+            placeholder="Why did they pass? Verbatim if possible — REQUIRED. Ten of these rewrite the pitch."
+            className="w-full rounded border border-red-200 p-2 text-xs text-gray-900" />
+          <div className="flex gap-1.5">
+            <button
+              disabled={passReason.trim().length === 0}
+              onClick={() => {
+                setEntityStatus(entity.id, 'passed', passReason.trim());
+                setRelationshipStage(entity.id, 'decision');
+                applyPlan(planPass(entity, db.tasks));
+                setExitMode('none'); setPassReason('');
+              }}
+              className="rounded-full bg-[#B00000] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
+              Save as passed
+            </button>
+            <button onClick={() => { setExitMode('none'); setPassReason(''); }}
+              className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-600">
+              Cancel
+            </button>
+          </div>
+          {passReason.trim().length === 0 && (
+            <p className="text-[11px] text-gray-500">A pass reason is required — it&apos;s what makes the next pitch better.</p>
+          )}
+        </div>
+      )}
       {undoable && (
         <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
           <span>Stage changed to {undoable.label}.</span>
@@ -339,11 +435,11 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           {!confirmation && !dismissed && exits.show && (
           <>
 
-          {/* Prompt 225 §3 (opção A do mockup) — as quatro saídas em fila
-              quebravam linha e davam todas o mesmo peso visual. Agora: a
-              acção principal fica sozinha, o resto entra num menu. As
-              acções e os seus efeitos são exactamente os mesmos — só a
-              apresentação muda. */}
+          {/* Prompt 233 §B — o banner (gated por exits.show) fica só com o
+              essencial de quando HÁ sugestão activa: avançar ou adiar. As
+              restantes saídas ("Something else ▾", com Move back/Dismiss/
+              Passed/Frozen) subiram para a linha do HealthDot, sempre
+              acessíveis — ver aí porquê. */}
           {exitMode === 'none' && (
             <div className="flex flex-wrap items-center gap-1.5">
               {/* Saída 1 — avançar. Escondida num pass: oferecer "avançar" a
@@ -384,85 +480,6 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
                   </div>
                 )}
               </div>
-              <div className="relative" ref={menuRef}>
-                <button onClick={() => { setMenuOpen((o) => !o); setSnoozeOpen(false); }}
-                  aria-haspopup="menu" aria-expanded={menuOpen}
-                  className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-500 hover:bg-gray-50">
-                  Something else ▾
-                </button>
-                {menuOpen && (
-                  <div role="menu"
-                    className="absolute left-0 top-[calc(100%+6px)] z-10 min-w-[230px] rounded-[10px] border border-gray-200 bg-white p-1 shadow-[0_8px_24px_-8px_rgba(0,0,0,.18)]">
-                    {/* Ajuste pedido pelo Nuno — corrigir um avanço por engano
-                        sem re-desenhar a barra. Só aparece havendo estágio
-                        anterior REAL: em 'contacted' (o primeiro com
-                        histórico) não há para onde voltar. Reutiliza o
-                        changeStage de sempre, com o undo que ele já traz. */}
-                    {previousStage && (
-                      <>
-                        <button role="menuitem"
-                          onClick={() => { setMenuOpen(false); changeStage(previousStage, STAGE_LABEL[previousStage]); setConfirmation(`→ Moved back to ${STAGE_LABEL[previousStage]}.`); }}
-                          className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-100">
-                          ↩ Move back to {STAGE_LABEL[previousStage]}
-                        </button>
-                        <div className="mx-0.5 my-1 h-px bg-gray-200" />
-                      </>
-                    )}
-                    {/* Prompt 214 §C.3 — ha sempre a saida de nao fazer nada.
-                        Uma sugestao sem "dispensar" nao e sugestao, e
-                        insistencia. */}
-                    <button role="menuitem" onClick={() => { setMenuOpen(false); setDismissed(true); }}
-                      className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-100">
-                      Dismiss — keep as is
-                    </button>
-                    {/* Saída 2 — o "não". Pede a razão, que é obrigatória. */}
-                    <button role="menuitem" onClick={() => { setMenuOpen(false); setExitMode('pass'); }}
-                      className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-[#B00000] hover:bg-gray-100">
-                      No interest / over — marks as passed
-                    </button>
-                    {/* Saída 3 — parquear. Em 'contacted' lê-se "cold", que é
-                        o que de facto aconteceu: nunca responderam. */}
-                    <button role="menuitem" onClick={() => {
-                        setMenuOpen(false);
-                        setEntityStatus(entity.id, 'dormant', exits.parkLabel === 'cold' ? 'Cold — no reply' : 'Parked — no continuity');
-                        applyPlan(planPark(entity, db.tasks, new Date()));
-                      }}
-                      className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-100">
-                      {exits.parkLabel === 'cold' ? 'Cold / no reply' : 'Frozen / no continuity'} — parks this investor
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* O textarea da razão do pass ocupa a linha toda (w-full a forçar
-              a quebra do flex): é escrita, não um botão. */}
-          {exitMode === 'pass' && (
-            <div className="w-full space-y-1.5">
-              <textarea value={passReason} onChange={(e) => setPassReason(e.target.value)} rows={2}
-                placeholder="Why did they pass? Verbatim if possible — REQUIRED. Ten of these rewrite the pitch."
-                className="w-full rounded border border-red-200 p-2 text-xs text-gray-900" />
-              <div className="flex gap-1.5">
-                <button
-                  disabled={passReason.trim().length === 0}
-                  onClick={() => {
-                    setEntityStatus(entity.id, 'passed', passReason.trim());
-                    setRelationshipStage(entity.id, 'decision');
-                    applyPlan(planPass(entity, db.tasks));
-                    setExitMode('none'); setPassReason('');
-                  }}
-                  className="rounded-full bg-[#B00000] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
-                  Save as passed
-                </button>
-                <button onClick={() => { setExitMode('none'); setPassReason(''); }}
-                  className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-600">
-                  Cancel
-                </button>
-              </div>
-              {passReason.trim().length === 0 && (
-                <p className="text-[11px] text-gray-500">A pass reason is required — it&apos;s what makes the next pitch better.</p>
-              )}
             </div>
           )}
           </>

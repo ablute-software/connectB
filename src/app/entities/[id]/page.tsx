@@ -22,7 +22,7 @@ import { useInterestRequests } from '@/lib/interest-requests-client';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
-  const { db, setInterest, setEntityStatus, markEntityVerified, updateEntity } = useStore();
+  const { db, setInterest, markEntityVerified, updateEntity } = useStore();
   const entity = db.entities.find((e) => e.id === id);
   // Prompt 220 §C — o pedido de nível 3 deste investidor, se pendente. O
   // match é por entityId (a resolução catalog_deliveries devolvida pelo
@@ -139,10 +139,13 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               Message investor
             </button>
           )}
-          {entity.status !== 'dormant' && (
-            <button onClick={() => setEntityStatus(entity.id, 'dormant', 'Manually parked')}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600">Mark dormant</button>
-          )}
+          {/* Prompt 233 §A — "Mark dormant" saiu. Era o caminho INCOMPLETO
+              dos dois que gravam status:'dormant' — so setEntityStatus, sem
+              tocar nas tarefas pendentes — e duplicava uma decisao que ja
+              vive em "Something else ▾" > "Frozen / no continuity", que faz
+              o mesmo MAIS applyPlan(planPark(...)). Esse trigger sobe para
+              fora do banner de saida no cartao (§B), por isso este botao
+              deixa de ser o unico caminho para parquear sem sugestao activa. */}
         </div>
       </div>
 
