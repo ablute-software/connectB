@@ -1,8 +1,15 @@
 // IRM_SPEC §4 — interaction roadmap derivations. Pure functions, sibling to
 // rules.ts (kept separate so rules.ts stays scoped to its documented set).
-import type { ActionType, Channel, Classification, Db, Direction, Entity, Interaction, Person, RelationshipStage, TaskItem } from './types';
+import type { ActionType, Channel, Classification, Db, Direction, Entity, Interaction, Person, PassReasonCategory, RelationshipStage, TaskItem } from './types';
 import { LOCK_DAYS } from './rules';
 import { looksLikePersonName } from './structured-import';
+
+// Prompt 251/253 Bloco A — shared with /log's own pass-category select
+// (was duplicated there before this) so there's one list, not two that
+// could drift.
+export const PASS_REASON_CATEGORIES: PassReasonCategory[] = [
+  'valuation', 'check_size', 'geography', 'stage_too_early', 'thesis_mismatch', 'team', 'traction', 'other',
+];
 
 // §1c data-quality guard — flags a live entity that is very likely an
 // individual person mistyped as an organization (e.g. a solo angel

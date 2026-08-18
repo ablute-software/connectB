@@ -199,6 +199,14 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, tasks: [...prev.tasks, { ...t, id: uid('t'), done: false }] }));
     },
 
+    addRejectionCode(rc) {
+      setDb((prev) => ({
+        ...prev,
+        // 'rej' prefix, not 'rc' -- roadmapCategories already claims that one.
+        rejectionCodes: [...prev.rejectionCodes, { ...rc, id: uid('rej'), created_at: new Date().toISOString() }],
+      }));
+    },
+
     updateTask(id, patch) {
       setDb((prev) => ({ ...prev, tasks: prev.tasks.map((t) => t.id === id ? { ...t, ...patch } : t) }));
     },

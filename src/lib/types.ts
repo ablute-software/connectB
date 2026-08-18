@@ -712,6 +712,20 @@ export type CompanyFactCategory =
 export type CompanyFactStatus = 'confirmed' | 'unconfirmed' | 'deprecated';
 export type CompanyFactSource = 'user' | 'import' | 'ai_extracted';
 
+// Prompt 251/253 Bloco A — the structured, comparable layer of the reopen
+// doctrine (migration 0184). axis_code is free text on purpose: the
+// taxonomy grows from real use, no fixed enum. Coexists with
+// interactions.pass_reason_category, never replaces it.
+export interface RejectionCode {
+  id: string;
+  entity_id: string;
+  axis_code: string;
+  required_level: number;
+  level_label: string;
+  source_interaction_id?: string;
+  created_at: string;
+}
+
 export interface CompanyFact {
   id: string;
   category: CompanyFactCategory;
@@ -842,4 +856,5 @@ export interface Db {
   roadmapMilestones: RoadmapMilestone[];
   fundingRounds: FundingRound[];
   roadmapCategories: RoadmapCategory[];
+  rejectionCodes: RejectionCode[];
 }

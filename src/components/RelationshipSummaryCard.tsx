@@ -3,10 +3,11 @@
 // full stage stepper + one-liner + CTAs for the entity page header.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import type { Entity } from '@/lib/types';
+import type { Entity, PassReasonCategory } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import {
-  STAGE_LABEL, STAGE_ORDER, relationshipSummary, nextBestAction, needsReopenTrigger, stageExits, type WhoseTurn, type Health, type DealMessageTouch,
+  STAGE_LABEL, STAGE_ORDER, relationshipSummary, nextBestAction, needsReopenTrigger, stageExits, PASS_REASON_CATEGORIES,
+  type WhoseTurn, type Health, type DealMessageTouch,
 } from '@/lib/relationship';
 import { LOCK_DAYS } from '@/lib/rules';
 import { planPark, planPass, planInvested, planSnooze, advanceConfirmation, type ExitPlan } from '@/lib/exit-effects';
@@ -121,7 +122,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // duplicação que o 240 criou) sem trazer para aqui a máquina toda.
   historySlot?: ReactNode;
 }) {
-  const { db, setRelationshipStage, undoStageChange, setEntityStatus, addTask, toggleTask, updateTask, updateEntity } = useStore();
+  const { db, setRelationshipStage, undoStageChange, setEntityStatus, addTask, toggleTask, updateTask, updateEntity, logInteraction, addRejectionCode } = useStore();
   // Prompt 251-B "Fase 0" — inline shortcut to fill entities.reopen_trigger
   // straight from the Sherlock Tip, for the one case (needsReopenTrigger)
   // where nothing is registered yet. null = not editing.
@@ -134,6 +135,20 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // immediately from the chooser itself.
   const [exitMode, setExitMode] = useState<'none' | 'pass' | 'decision-choose'>('none');
   const [passReason, setPassReason] = useState('');
+  // Prompt 251/253 Bloco A — the quick-pass flow used to discard passReason
+  // entirely (setEntityStatus's `reason` param is only ever used for
+  // status==='dormant', never 'passed' — confirmed by reading both store
+  // providers). 42 of 43 real passes in production have no
+  // pass_reason_category, and this silent drop is a real part of why.
+  // passCat restores the category select /log already had; the "Save as
+  // passed" button below now creates a real interaction (classification
+  // 'pass', pass_reason, pass_reason_category) via logInteraction instead
+  // of just flipping entity status.
+  const [passCat, setPassCat] = useState<PassReasonCategory>('other');
+  // Optional per-axis codification of this pass (rejection_codes, 0184) --
+  // always optional (251-B §1), so it starts empty and stays empty unless
+  // the founder adds a row. One row = { axisCode, levelLabel, requiredLevel }.
+  const [axisCodeRows, setAxisCodeRows] = useState<{ axisCode: string; levelLabel: string; requiredLevel: string }[]>([]);
   // Prompt 205 §A — o que se mostra no lugar do banner depois de decidir. O
   // Nuno escolheu "Frozen" e nada de visivel aconteceu; o clique tem de ter
   // eco imediato, nao so uma mudanca de pill algures no topo.
@@ -478,22 +493,62 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           "Passed" (249 §A) reusa este mesmo passo em vez de duplicar. */}
       {!parkedOrClosed && exitMode === 'pass' && (
         <div className="mt-2 space-y-1.5 rounded-lg border border-red-200 bg-red-50/40 p-2.5">
+          <select value={passCat} onChange={(e) => setPassCat(e.target.value as PassReasonCategory)}
+            className="rounded border border-red-200 bg-white px-2 py-1.5 text-xs">
+            {PASS_REASON_CATEGORIES.map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+          </select>
           <textarea value={passReason} onChange={(e) => setPassReason(e.target.value)} rows={2}
             placeholder="Why did they pass? Verbatim if possible — REQUIRED. Ten of these rewrite the pitch."
             className="w-full rounded border border-red-200 p-2 text-xs text-gray-900" />
+          {/* Prompt 251/253 Bloco A — optional, per-axis codification of
+              this pass (rejection_codes). Always optional: an empty row is
+              just dropped on save, never blocks it. */}
+          <div className="space-y-1">
+            {axisCodeRows.map((row, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-1">
+                <input value={row.axisCode} placeholder="axis (e.g. market_maturity)"
+                  onChange={(e) => setAxisCodeRows((rows) => rows.map((r, j) => j === i ? { ...r, axisCode: e.target.value } : r))}
+                  className="w-40 rounded border border-red-200 px-1.5 py-1 text-[11px]" />
+                <input value={row.requiredLevel} placeholder="level (e.g. 3)" inputMode="numeric"
+                  onChange={(e) => setAxisCodeRows((rows) => rows.map((r, j) => j === i ? { ...r, requiredLevel: e.target.value } : r))}
+                  className="w-16 rounded border border-red-200 px-1.5 py-1 text-[11px]" />
+                <input value={row.levelLabel} placeholder="what that level means"
+                  onChange={(e) => setAxisCodeRows((rows) => rows.map((r, j) => j === i ? { ...r, levelLabel: e.target.value } : r))}
+                  className="flex-1 min-w-[140px] rounded border border-red-200 px-1.5 py-1 text-[11px]" />
+                <button onClick={() => setAxisCodeRows((rows) => rows.filter((_, j) => j !== i))}
+                  className="text-[11px] text-gray-400 hover:text-[#B00000]">✕</button>
+              </div>
+            ))}
+            <button onClick={() => setAxisCodeRows((rows) => [...rows, { axisCode: '', levelLabel: '', requiredLevel: '' }])}
+              className="text-[11px] font-medium text-gray-500 hover:underline">
+              + Code this rejection by axis (optional)
+            </button>
+          </div>
           <div className="flex gap-1.5">
             <button
               disabled={passReason.trim().length === 0}
               onClick={() => {
-                setEntityStatus(entity.id, 'passed', passReason.trim());
+                const interaction = logInteraction({
+                  entity_id: entity.id, direction: 'in', channel: 'email', content: passReason.trim(),
+                  classification: 'pass', pass_reason: passReason.trim(), pass_reason_category: passCat,
+                });
+                setEntityStatus(entity.id, 'passed');
                 setRelationshipStage(entity.id, 'decision');
                 applyPlan(planPass(entity, db.tasks));
-                setExitMode('none'); setPassReason('');
+                for (const row of axisCodeRows) {
+                  const level = Number(row.requiredLevel);
+                  if (!row.axisCode.trim() || !row.levelLabel.trim() || !Number.isFinite(level)) continue;
+                  addRejectionCode({
+                    entity_id: entity.id, axis_code: row.axisCode.trim(), required_level: level,
+                    level_label: row.levelLabel.trim(), source_interaction_id: interaction.id,
+                  });
+                }
+                setExitMode('none'); setPassReason(''); setPassCat('other'); setAxisCodeRows([]);
               }}
               className="rounded-full bg-[#B00000] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
               Save as passed
             </button>
-            <button onClick={() => { setExitMode('none'); setPassReason(''); }}
+            <button onClick={() => { setExitMode('none'); setPassReason(''); setPassCat('other'); setAxisCodeRows([]); }}
               className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-600">
               Cancel
             </button>

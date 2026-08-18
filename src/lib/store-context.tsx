@@ -7,7 +7,8 @@ import { createContext, useContext } from 'react';
 import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, CompanyPerson, Db,
   Direction, DocumentItem, DocVisibility, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
-  PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory } from './types';
+  PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory,
+  RejectionCode } from './types';
 
 export type LogInput = {
   entity_id: string;
@@ -109,6 +110,10 @@ export interface StoreApi {
   ) => void;
   toggleTask: (id: string) => void;
   addTask: (t: Omit<TaskItem, 'id' | 'done'>) => void;
+  // Prompt 251/253 Bloco A — optional, per-axis codification of a pass
+  // (rejection_codes, migration 0184). Void: the quick-pass flow doesn't
+  // need the row back, unlike logInteraction.
+  addRejectionCode: (rc: Omit<RejectionCode, 'id' | 'created_at'>) => void;
   // Prompt 126 D — reminder popup Dismiss/Snooze. Deliberately scoped to
   // just these two fields (not a general patch) — nothing else about a
   // task is ever edited through this path. `null` (not `undefined`) is how

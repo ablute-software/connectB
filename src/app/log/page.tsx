@@ -7,7 +7,7 @@ import { Card, PREFLIGHT_EXPLAIN, Tooltip } from '@/components/ui';
 import { QuickCreatePerson } from '@/components/QuickCreatePerson';
 import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
 import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
-import { ACTION_TYPE_LABEL, ACTION_TYPES, recommendedActionType, relationshipSummary, suggestNextAction, type NextActionSuggestion } from '@/lib/relationship';
+import { ACTION_TYPE_LABEL, ACTION_TYPES, PASS_REASON_CATEGORIES, recommendedActionType, relationshipSummary, suggestNextAction, type NextActionSuggestion } from '@/lib/relationship';
 import { evaluateProvenanceGate, type ComposerClaim } from '@/lib/company-canon-logic';
 import { parsePersonHint } from '@/lib/needs-review-logic';
 import { AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
@@ -20,7 +20,6 @@ const CHANNELS: { v: Channel; l: string }[] = [
   { v: 'meeting', l: 'Meeting' }, { v: 'event', l: 'Event' }, { v: 'intro', l: 'Intro' },
 ];
 const CLASSIFICATIONS: Classification[] = ['awaiting', 'interested', 'meeting_request', 'question', 'pass', 'out_of_office', 'bounce', 'unclear'];
-const PASS_CATS: PassReasonCategory[] = ['valuation', 'check_size', 'geography', 'stage_too_early', 'thesis_mismatch', 'team', 'traction', 'other'];
 
 function LogForm() {
   useTrackPageView('/log');
@@ -640,7 +639,7 @@ function LogForm() {
               <div className="mt-2 space-y-2 rounded border border-red-100 bg-red-50 p-2">
                 <select value={passCat} onChange={(e) => setPassCat(e.target.value as PassReasonCategory)}
                   className="rounded border border-gray-300 px-2 py-1.5 text-sm">
-                  {PASS_CATS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
+                  {PASS_REASON_CATEGORIES.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
                 </select>
                 <textarea value={passReason} onChange={(e) => setPassReason(e.target.value)} rows={2}
                   placeholder="Pass reason — REQUIRED. Verbatim if possible. Ten of these rewrite the pitch."

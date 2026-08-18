@@ -12,7 +12,8 @@ import type {
   AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, CompanyFact, CompanyPerson, Db, DocumentItem,
   DocumentVersion, DocumentView, Entity, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
-  RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory } from './types';
+  RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory,
+  RejectionCode } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval } from './reawakening';
@@ -28,6 +29,7 @@ const EMPTY_DB: Db = {
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
   documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [],
+  rejectionCodes: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -74,7 +76,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
     documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes, roadmapMilestonesRes,
-    fundingRoundsRes, roadmapCategoriesRes,
+    fundingRoundsRes, roadmapCategoriesRes, rejectionCodesRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -125,6 +127,9 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     sb.from('company_roadmap_milestones').select('*').eq('org_id', orgId).order('period_year', { ascending: true }),
     sb.from('funding_rounds').select('*').eq('org_id', orgId).order('closed_year', { ascending: true }),
     sb.from('roadmap_categories').select('*').eq('org_id', orgId).order('created_at', { ascending: true }),
+    // Prompt 251/253 Bloco A — rejection_codes (0184). Same missing-table-
+    // safe pattern as company_facts/ndas above.
+    sb.from('rejection_codes').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -189,6 +194,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     roadmapMilestones: ((roadmapMilestonesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RoadmapMilestone>(r)),
     fundingRounds: ((fundingRoundsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<FundingRound>(r)),
     roadmapCategories: ((roadmapCategoriesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RoadmapCategory>(r)),
+    rejectionCodes: ((rejectionCodesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RejectionCode>(r)),
   };
 }
 
@@ -511,6 +517,14 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       commit({ ...prev, tasks: [...prev.tasks, row] });
       const o = orgIdRef.current;
       if (o) persist(sb.from('tasks').insert({ ...row, org_id: o }), 'addTask');
+    },
+
+    addRejectionCode(rc: Omit<RejectionCode, 'id' | 'created_at'>) {
+      const prev = dbRef.current;
+      const row: RejectionCode = { ...rc, id: uuid(), created_at: new Date().toISOString() };
+      commit({ ...prev, rejectionCodes: [...prev.rejectionCodes, row] });
+      const o = orgIdRef.current;
+      if (o) persist(sb.from('rejection_codes').insert({ ...row, org_id: o }), 'addRejectionCode');
     },
 
     updateTask(id: string, patch: { reminder_at?: string | null; snoozed_until?: string | null; due_at?: string }) {
