@@ -40,6 +40,9 @@ function tourKeysForPath(path: string | null): string[] {
   if (path === '/settings') return ['guide_settings'];
   if (path === '/plans') return ['guide_plans'];
   if (path === '/agenda') return ['guide_agenda'];
+  // Prompt 255 — dynamic route (/entities/ent-xxx), so a prefix match
+  // rather than the exact-path checks above.
+  if (path?.startsWith('/entities/')) return ['guide_entity'];
   return [];
 }
 

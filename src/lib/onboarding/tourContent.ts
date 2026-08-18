@@ -201,6 +201,49 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
     },
   ],
 
+  // Prompt 255 — the entity dossier page had no tour at all (LampButton
+  // showed "No page guide here yet"). Seven steps, one per anchor placed on
+  // this page: header, journey stepper, actions, contact history, Sherlock
+  // Tip, entity summary (covers Approach + Round too, kept as one step to
+  // match the length of other tours), and the People panel.
+  guide_entity: [
+    {
+      selector: 'entity-header',
+      title: 'Two ways to reach out from here',
+      body: 'Log interaction records something that already happened. Message investor sends through the platform — both keep the pre-flight checks in the loop.',
+    },
+    {
+      selector: 'entity-journey',
+      title: 'Where this relationship stands',
+      body: 'Each stage lights up as you pass it, with a badge when a document was involved. A greyed-out Declined chip is clickable — it opens the evidence behind that pass.',
+    },
+    {
+      selector: 'entity-actions',
+      title: 'Moving the relationship forward',
+      body: 'Advancing a stage needs a fact behind it — a reply, a meeting. Decision needs an outcome and a reason. Something else covers passing or parking, and asks why.',
+    },
+    {
+      selector: 'entity-history',
+      title: 'Everything sent and received',
+      body: 'Every logged interaction, in order. Open Thread view to read a message exchange the way it actually happened, not as a flat list.',
+    },
+    {
+      selector: 'entity-tip',
+      title: 'One suggestion, not a queue',
+      body: 'Sherlock Tip tells you the single next thing worth doing here — and when it can check its own advice for you, like pre-flight, it runs the check and shows the result instead of just telling you to.',
+    },
+    {
+      selector: 'entity-summary',
+      title: 'What this card actually stores',
+      body: 'Entity summary is who they are. Approach is why you\'re contacting them. Round is what they\'d be putting in — all editable, all feeding into pre-flight and matching.',
+    },
+    {
+      selector: 'entity-people',
+      title: 'The order isn\'t optional',
+      body: 'Numbered by seniority — you approach rank 1 first, and rank 2 only unlocks once rank 1 replies or goes dormant. The badges show email/LinkedIn verification and hook research status; the dot is that person\'s own pre-flight status.',
+    },
+  ],
+
   guide_plans: [
     {
       selector: 'plans-current',

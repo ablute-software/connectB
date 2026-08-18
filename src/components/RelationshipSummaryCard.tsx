@@ -270,7 +270,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           deixavam um vazio vertical enorme ao lado de um stepper de 40px.
           O trilho volta a ter a largura toda; o overflow-x-auto e a rede
           para quando mesmo assim nao couber. */}
-      <div className="overflow-x-auto">
+      <div data-tour-id="entity-journey" className="overflow-x-auto">
         <JourneyStepper entity={entity} onViewInHistory={onViewInHistory} />
       </div>
 
@@ -333,7 +333,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           continua disponível sempre que a relação está activa (233 §B), que
           era o caminho que faltava quando não há sugestão nenhuma. */}
       {!parkedOrClosed && exitMode === 'none' && (
-      <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5">
+      <div data-tour-id="entity-actions" className="mt-3 flex flex-wrap items-center justify-end gap-1.5">
         {!confirmation && !dismissed && exits.show && exits.canAdvance && (
           <button onClick={() => {
               // Prompt 249 §A — Decision is no longer hidden from this
@@ -644,7 +644,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
               já devolve texto para closed/parked (derivado da doutrina de
               reopen, migração 0016) em vez do antigo silêncio total. */}
           {action && (
-            <div className="rounded-2xl border border-[#cdeadb] bg-[#F4FBF7] px-4 py-3.5">
+            <div data-tour-id="entity-tip" className="rounded-2xl border border-[#cdeadb] bg-[#F4FBF7] px-4 py-3.5">
               <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.03em] text-[#0f5132]">
                 <span aria-hidden className="inline-flex h-4 w-4 items-center justify-center rounded-[5px] bg-[#0f5132] text-[10px] font-extrabold text-white">S</span>
                 Sherlock Tip

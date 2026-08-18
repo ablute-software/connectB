@@ -20,6 +20,7 @@ import { TicketSignalCard } from '@/components/TicketSignalCard';
 import { FormAssistModal } from '@/components/FormAssistModal';
 import { useInterestRequests } from '@/lib/interest-requests-client';
 import type { DealMessage } from '@/components/deal-messages/DealThreadView';
+import { PageTour } from '@/components/onboarding/PageTour';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -122,7 +123,8 @@ export default function EntityPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <PageTour pageKey="guide_entity" />
+      <div data-tour-id="entity-header" className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-gray-900">
             {entity.name}
@@ -244,7 +246,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </Card>
       )}
 
-      <Card title="Entity summary" right={
+      <Card title={<span data-tour-id="entity-summary">Entity summary</span>} right={
         <div className="flex flex-col items-end gap-1">
           <EnrichmentBadge label="Firmographic" result={completeness.firmographic} subjectType="entity" subjectId={entity.id} orgId={db.org.id} onEnriched={() => setContributionsRefreshKey((k) => k + 1)} />
           <EnrichmentBadge label="Contact" result={completeness.contact} low={qualifiesForContactEnrichment(completeness)} subjectType="entity" subjectId={entity.id} orgId={db.org.id} onEnriched={() => setContributionsRefreshKey((k) => k + 1)} />
@@ -322,7 +324,16 @@ export default function EntityPage({ params }: { params: { id: string } }) {
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-4 md:col-span-2">
-          <Card title="People (contact order enforced)">
+          {/* Prompt 255 — "People (contact order enforced)" didn't explain
+              itself even to the person who wrote the rule. The doctrine
+              (one person at a time, most senior first — preflight's own
+              seniority check enforces this, see rules.ts §5) is now in the
+              title AND spelled out below it, not just implied by jargon. */}
+          <Card title={<span data-tour-id="entity-people">People — one at a time, senior first</span>}>
+            <p className="mb-2 text-xs text-gray-500">
+              Approach one person per firm at a time, starting with the most senior. Parallel approaches to the
+              same fund read as spraying.
+            </p>
             <ul className="divide-y divide-gray-100">
               {people.map((p) => {
                 const s = preflightSummary(preflight(db, p, null));

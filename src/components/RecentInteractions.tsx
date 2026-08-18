@@ -96,14 +96,14 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
 
   if (total === 0) {
     return (
-      <div className={`${CARD} text-sm text-gray-400`}>
+      <div data-tour-id="entity-history" className={`${CARD} text-sm text-gray-400`}>
         No contact history yet — nothing logged for {entity.name}.
       </div>
     );
   }
 
   return (
-    <div className={CARD}>
+    <div data-tour-id="entity-history" className={CARD}>
       <div className="flex items-center justify-between gap-2">
         {/* Prompt 228 §A tinha tirado o titulo daqui porque o cartao de cima
             ja dizia "Contact history" e liam-se como repeticao. O 241

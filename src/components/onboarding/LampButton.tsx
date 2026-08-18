@@ -25,6 +25,7 @@ const TOUR_LABEL: Record<string, string> = {
   guide_pipeline: 'Pipeline', guide_settings: 'About your company', guide_documents: 'Vault Data Room',
   guide_people_access: 'People & Access', guide_today: 'Today', guide_warrants: 'Outbox',
   guide_dashboard: 'Dashboard', guide_plans: 'Plans & billing', guide_agenda: 'Agenda',
+  guide_entity: 'Investor dossier',
 };
 
 export function LampButton({ tourKeys, supportSource }: { tourKeys: string[]; supportSource: SupportSource }) {
