@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { entityMode, effectiveMode, nextBestAction, nextPendingTaskDue } from './relationship';
+import { entityMode, effectiveMode, nextBestAction, nextPendingTaskDue, needsReopenTrigger } from './relationship';
 import type { Db, Entity, Interaction, TaskItem } from './types';
 
 // Prompt 205 §E — o caso confirmado por screenshot em "Test idividual":
@@ -37,13 +37,13 @@ describe('entityMode', () => {
 describe('nextBestAction — parqueado nao pode gritar "ready for first contact"', () => {
   it('dormant sem tarefa: diz que esta parqueado, e mais nada', () => {
     const e = entity({ status: 'dormant' });
-    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Parked — no revisit scheduled.');
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Parked — no revisit scheduled. No reopen trigger recorded — set one, or leave it dormant.');
   });
 
   it('dormant com revisit agendado: diz quando volta', () => {
     const e = entity({ status: 'dormant' });
     const t = task({ id: 't-rev', title: 'Revisit Test idividual', due_at: '2026-09-14T00:00:00.000Z' });
-    expect(nextBestAction(db(e, [t]), 'e1', NOW)).toBe('Parked — revisit on 2026-09-14.');
+    expect(nextBestAction(db(e, [t]), 'e1', NOW)).toBe('Parked — revisit on 2026-09-14. No reopen trigger recorded — set one, or leave it dormant.');
   });
 
   it('o conselho antigo ("Ready for first contact") desaparece de todo', () => {
@@ -52,14 +52,98 @@ describe('nextBestAction — parqueado nao pode gritar "ready for first contact"
     expect(nextBestAction(db(e), 'e1', NOW)).not.toContain('first contact');
   });
 
-  it('passed le-se fechado, com a porta de reabertura nomeada', () => {
+  it('passed le-se fechado, sem gatilho nenhum registado -- pede para se definir um', () => {
     const e = entity({ status: 'passed' });
-    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Passed — closed. Reopen only if something material changed.');
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Passed. No reopen trigger recorded — set one, or leave it closed.');
   });
 
   it('uma entidade activa continua exactamente como estava', () => {
     const e = entity({ status: 'not_contacted' });
     expect(nextBestAction(db(e), 'e1', NOW)).toBe('Ready for first contact — run pre-flight.');
+  });
+});
+
+// Prompt 251-B "Fase 0" — o BlueCrow case: um dossier fechado nao dizia NADA
+// sobre reabrir. As quatro variantes que o prompt pediu, cada uma derivada
+// so de dados que ja existem (reopen doctrine, migracao 0016) -- zero AI.
+describe('nextBestAction — Fase 0: o Tip de reabertura num dossier fechado', () => {
+  it('passed com pass classificado: cita a categoria e ha quanto tempo', () => {
+    const e = entity({ status: 'passed' });
+    const pass = { id: 'p', entity_id: 'e1', direction: 'in', channel: 'email', content: '...',
+      classification: 'pass', pass_reason_category: 'stage_too_early', occurred_at: '2026-06-01T10:00:00.000Z' } as Interaction;
+    expect(nextBestAction(db(e, [], [pass]), 'e1', NOW)).toBe('Passed 3 months ago, over stage too early. No reopen trigger recorded — set one, or leave it closed.');
+  });
+
+  it('reopen_trigger preenchido, sem eligible_after: cita-o verbatim', () => {
+    const e = entity({ status: 'passed', reopen_trigger: 'ablute_ ships an actual paying customer' });
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Reopens if: ablute_ ships an actual paying customer. Hasn\'t happened yet? Stays closed.');
+  });
+
+  it('reopen_eligible_after ja passou: diz elegivel, cita a categoria e o trigger', () => {
+    const e = entity({
+      status: 'passed', reopen_trigger: 'product live in market',
+      reopen_eligible_after: '2026-08-01',
+    });
+    const pass = { id: 'p', entity_id: 'e1', direction: 'in', channel: 'email', content: '...',
+      classification: 'pass', pass_reason_category: 'traction', occurred_at: '2026-06-01T10:00:00.000Z' } as Interaction;
+    expect(nextBestAction(db(e, [], [pass]), 'e1', NOW))
+      .toBe('Eligible for re-approach since 2026-08-01 — the earlier no was about traction; check whether "product live in market" has changed.');
+  });
+
+  it('reopen_eligible_after no FUTURO: ainda nao elegivel, cai para o trigger', () => {
+    const e = entity({ status: 'passed', reopen_trigger: 'DACH expansion', reopen_eligible_after: '2027-01-01' });
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Reopens if: DACH expansion. Hasn\'t happened yet? Stays closed.');
+  });
+
+  it('reopen_trigger que ja termina em pontuacao nao ganha ponto a mais', () => {
+    const e = entity({ status: 'passed', reopen_trigger: 'They raise a Series A.' });
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Reopens if: They raise a Series A. Hasn\'t happened yet? Stays closed.');
+  });
+
+  it('dormant com reopen_trigger: mesma logica, "stays dormant"', () => {
+    const e = entity({ status: 'dormant', reopen_trigger: 'they raise a new fund' });
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Reopens if: they raise a new fund. Hasn\'t happened yet? Stays dormant.');
+  });
+
+  it('dormant com reopen_eligible_after ja passado: elegivel, sem categoria (nao houve pass)', () => {
+    const e = entity({ status: 'dormant', reopen_eligible_after: '2026-08-10' });
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Eligible for re-approach since 2026-08-10.');
+  });
+
+  it('invested continua "Invested — closed." -- nao e uma recusa, nao precisa de reabertura', () => {
+    const e = entity({ status: 'invested' });
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Invested — closed.');
+  });
+
+  it('humanizeAge: menos de 60 dias fica em dias', () => {
+    const e = entity({ status: 'passed' });
+    const pass = { id: 'p', entity_id: 'e1', direction: 'in', channel: 'email', content: '...',
+      classification: 'pass', occurred_at: '2026-08-01T10:00:00.000Z' } as Interaction;
+    expect(nextBestAction(db(e, [], [pass]), 'e1', NOW)).toContain('14 days ago');
+  });
+
+  it('humanizeAge: mais de 2 anos fica em anos', () => {
+    const e = entity({ status: 'passed' });
+    const pass = { id: 'p', entity_id: 'e1', direction: 'in', channel: 'email', content: '...',
+      classification: 'pass', occurred_at: '2023-08-15T10:00:00.000Z' } as Interaction;
+    expect(nextBestAction(db(e, [], [pass]), 'e1', NOW)).toContain('3 years ago');
+  });
+});
+
+describe('needsReopenTrigger', () => {
+  it('true quando passed/dormant sem nada registado', () => {
+    expect(needsReopenTrigger({ status: 'passed', reopen_trigger: undefined, reopen_eligible_after: undefined })).toBe(true);
+    expect(needsReopenTrigger({ status: 'dormant', reopen_trigger: undefined, reopen_eligible_after: undefined })).toBe(true);
+  });
+
+  it('false com reopen_trigger OU reopen_eligible_after preenchido', () => {
+    expect(needsReopenTrigger({ status: 'passed', reopen_trigger: 'x', reopen_eligible_after: undefined })).toBe(false);
+    expect(needsReopenTrigger({ status: 'passed', reopen_trigger: undefined, reopen_eligible_after: '2026-08-01' })).toBe(false);
+  });
+
+  it('false para estados activos ou invested -- nao e uma recusa por resolver', () => {
+    expect(needsReopenTrigger({ status: 'contacted', reopen_trigger: undefined, reopen_eligible_after: undefined })).toBe(false);
+    expect(needsReopenTrigger({ status: 'invested', reopen_trigger: undefined, reopen_eligible_after: undefined })).toBe(false);
   });
 });
 
@@ -126,7 +210,7 @@ describe('nextBestAction — a pagina inteira concorda', () => {
       classification: 'pass', occurred_at: '2026-08-05T10:00:00.000Z' } as Interaction]) as Db;
 
     const acao = nextBestAction(d, 'e1', NOW);
-    expect(acao).toBe('Passed — closed. Reopen only if something material changed.');
+    expect(acao).toBe('Passed 10 days ago. No reopen trigger recorded — set one, or leave it closed.');
     expect(acao).not.toContain('Parked');
   });
 });

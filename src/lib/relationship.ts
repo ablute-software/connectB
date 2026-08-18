@@ -165,6 +165,48 @@ export function relationshipSummary(
   };
 }
 
+// Prompt 251-B "Fase 0" — the closed/parked branches used to return one
+// static line each ('Passed — closed...', 'Parked — no revisit scheduled.')
+// and the Sherlock Tip card that shows it was hidden ENTIRELY for closed/
+// parked relationships (RelationshipSummaryCard.tsx's old `!parkedOrClosed
+// && action` gate) — the BlueCrow case: a closed dossier said nothing at
+// all about whether to leave it alone or reconsider, and the founder had no
+// way to tell "intentional silence" from "nothing to say". This derives a
+// real answer from data that already exists (the reopen doctrine, migration
+// 0016) — zero AI, zero new cron, same "copy computed at render" shape as
+// every other branch here. It's the small, immediate fix ahead of Prompt
+// 251's much bigger deterministic code-matching matrix, which structures
+// `reopen_trigger` instead of just reading it verbatim.
+// The founder's own free-text reopen_trigger routinely already ends in a
+// period — avoids "...re-approaching.." when this appends its own.
+function withPeriod(text: string): string {
+  return /[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`;
+}
+
+function isReopenEligible(entity: Entity, now: Date): boolean {
+  return !!entity.reopen_eligible_after && entity.reopen_eligible_after <= now.toISOString().slice(0, 10);
+}
+
+// Coarse on purpose: the prompt's own example only asked for days-vs-years
+// granularity. Months as a middle step avoids "92 days" or "0.3 years" for
+// the common case of a pass a season ago.
+function humanizeAge(sinceIso: string, now: Date): string {
+  const days = Math.max(0, Math.floor((now.getTime() - new Date(sinceIso).getTime()) / 86_400_000));
+  if (days < 60) return `${days} day${days === 1 ? '' : 's'}`;
+  const months = Math.round(days / 30);
+  if (months < 24) return `${months} month${months === 1 ? '' : 's'}`;
+  const years = Math.round(days / 365);
+  return `${years} year${years === 1 ? '' : 's'}`;
+}
+
+// Exported so the "+ Set reopen trigger" shortcut in RelationshipSummaryCard
+// knows exactly when to offer itself: the one case (§B point 3) where
+// NOTHING is registered — the founder gets asked to fix that, not just told.
+export function needsReopenTrigger(entity: Pick<Entity, 'status' | 'reopen_trigger' | 'reopen_eligible_after'>): boolean {
+  return (entity.status === 'passed' || entity.status === 'dormant')
+    && !entity.reopen_trigger && !entity.reopen_eligible_after;
+}
+
 export function nextBestAction(db: Db, entityId: string, now = new Date(), dealMessageTouches: DealMessageTouch[] = []): string | undefined {
   const entity = db.entities.find((e) => e.id === entityId);
   if (!entity) return undefined;
@@ -184,15 +226,34 @@ export function nextBestAction(db: Db, entityId: string, now = new Date(), dealM
   const mode = effectiveMode(db, entityId);
   if (mode === 'parked') {
     const revisit = nextPendingTaskDue(db, entityId);
-    return revisit ? `Parked — revisit on ${revisit.slice(0, 10)}.` : 'Parked — no revisit scheduled.';
+    if (isReopenEligible(entity, now)) {
+      const trigger = entity.reopen_trigger ? ` Check whether "${entity.reopen_trigger}" has changed.` : '';
+      return `Eligible for re-approach since ${entity.reopen_eligible_after}.${trigger}`;
+    }
+    if (entity.reopen_trigger) return `Reopens if: ${withPeriod(entity.reopen_trigger)} Hasn't happened yet? Stays dormant.`;
+    return revisit
+      ? `Parked — revisit on ${revisit.slice(0, 10)}. No reopen trigger recorded — set one, or leave it dormant.`
+      : 'Parked — no revisit scheduled. No reopen trigger recorded — set one, or leave it dormant.';
   }
   if (mode === 'closed') {
     // Lido do FACTO e nao do status: com a precedencia acima, uma entidade
     // pode estar 'dormant' na coluna e fechada na realidade. Perguntar ao
     // status aqui trazia de volta a incoerencia que isto veio resolver.
-    return entity.status === 'invested'
-      ? 'Invested — closed.'
-      : 'Passed — closed. Reopen only if something material changed.';
+    if (entity.status === 'invested') return 'Invested — closed.';
+
+    const lastPass = db.interactions
+      .filter((i) => i.entity_id === entityId && i.direction === 'in' && i.classification === 'pass')
+      .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)).at(-1);
+    const category = lastPass?.pass_reason_category?.replace(/_/g, ' ');
+
+    if (isReopenEligible(entity, now)) {
+      const why = category ? ` — the earlier no was about ${category}` : '';
+      const trigger = entity.reopen_trigger ? `; check whether "${entity.reopen_trigger}" has changed` : '';
+      return `Eligible for re-approach since ${entity.reopen_eligible_after}${why}${trigger}.`;
+    }
+    if (entity.reopen_trigger) return `Reopens if: ${withPeriod(entity.reopen_trigger)} Hasn't happened yet? Stays closed.`;
+    const age = lastPass ? humanizeAge(lastPass.occurred_at, now) : undefined;
+    return `Passed${age ? ` ${age} ago` : ''}${category ? `, over ${category}` : ''}. No reopen trigger recorded — set one, or leave it closed.`;
   }
 
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > now;

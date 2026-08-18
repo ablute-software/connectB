@@ -6,7 +6,7 @@ import Link from 'next/link';
 import type { Entity } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import {
-  STAGE_LABEL, STAGE_ORDER, relationshipSummary, nextBestAction, stageExits, type WhoseTurn, type Health, type DealMessageTouch,
+  STAGE_LABEL, STAGE_ORDER, relationshipSummary, nextBestAction, needsReopenTrigger, stageExits, type WhoseTurn, type Health, type DealMessageTouch,
 } from '@/lib/relationship';
 import { LOCK_DAYS } from '@/lib/rules';
 import { planPark, planPass, planInvested, planSnooze, advanceConfirmation, type ExitPlan } from '@/lib/exit-effects';
@@ -121,7 +121,11 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // duplicação que o 240 criou) sem trazer para aqui a máquina toda.
   historySlot?: ReactNode;
 }) {
-  const { db, setRelationshipStage, undoStageChange, setEntityStatus, addTask, toggleTask, updateTask } = useStore();
+  const { db, setRelationshipStage, undoStageChange, setEntityStatus, addTask, toggleTask, updateTask, updateEntity } = useStore();
+  // Prompt 251-B "Fase 0" — inline shortcut to fill entities.reopen_trigger
+  // straight from the Sherlock Tip, for the one case (needsReopenTrigger)
+  // where nothing is registered yet. null = not editing.
+  const [reopenTriggerDraft, setReopenTriggerDraft] = useState<string | null>(null);
   // Prompt 249 §A — 'decision-choose' is the new step: "Move to Decision"
   // no longer advances on click, it asks for the outcome first. Choosing
   // "Passed" here just switches into the EXISTING 'pass' mode below (same
@@ -570,16 +574,47 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
               cartão próprio, em vez de diluído numa linha neutra de estado.
               É a frase que o founder vai aprender a confiar, e merece o
               destaque. Verde-teal pálido, nunca saturado — a paleta do
-              resto do produto. Só aparece havendo conselho E estando a
-              relação activa: a uma relação fechada não há follow-up que
-              aconselhar. */}
-          {!parkedOrClosed && action && (
+              resto do produto.
+              Prompt 251-B "Fase 0" — deixa de exigir relação activa: o Tip
+              "devia sempre existir" (nota do Nuno) — numa relação fechada
+              É a oportunidade de reabertura, quando existe. nextBestAction
+              já devolve texto para closed/parked (derivado da doutrina de
+              reopen, migração 0016) em vez do antigo silêncio total. */}
+          {action && (
             <div className="rounded-2xl border border-[#cdeadb] bg-[#F4FBF7] px-4 py-3.5">
               <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.03em] text-[#0f5132]">
                 <span aria-hidden className="inline-flex h-4 w-4 items-center justify-center rounded-[5px] bg-[#0f5132] text-[10px] font-extrabold text-white">S</span>
                 Sherlock Tip
               </div>
               <div className="mt-1.5 text-[13px] leading-relaxed text-gray-800">{annotateNextStep(action)}</div>
+              {/* Prompt 251-B point 3 — the "nothing registered" case also
+                  asks the founder to fix that, not just names the gap. */}
+              {parkedOrClosed && needsReopenTrigger(entity) && (
+                reopenTriggerDraft === null ? (
+                  <button onClick={() => setReopenTriggerDraft('')}
+                    className="mt-1.5 text-[11px] font-semibold text-[#0f5132] hover:underline">
+                    + Set reopen trigger
+                  </button>
+                ) : (
+                  <div className="mt-1.5 space-y-1.5">
+                    <textarea value={reopenTriggerDraft} onChange={(e) => setReopenTriggerDraft(e.target.value)} rows={2} autoFocus
+                      placeholder="What would have to change for a re-approach to be legitimate?"
+                      className="w-full rounded border border-[#cdeadb] bg-white p-2 text-xs text-gray-900" />
+                    <div className="flex gap-1.5">
+                      <button
+                        disabled={reopenTriggerDraft.trim().length === 0}
+                        onClick={() => { updateEntity(entity.id, { reopen_trigger: reopenTriggerDraft.trim() }); setReopenTriggerDraft(null); }}
+                        className="rounded-full bg-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
+                        Save
+                      </button>
+                      <button onClick={() => setReopenTriggerDraft(null)}
+                        className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-600">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )
+              )}
             </div>
           )}
 
