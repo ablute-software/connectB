@@ -4,6 +4,7 @@
 // page; Submissions/Claims are new tabs consolidating what used to be a
 // separate founder-store-scoped "Review queue" section.
 import { Fragment, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Card, Tooltip } from '@/components/ui';
 import { classifyConflict, type ConflictClass } from '@/lib/contribution-diff';
 import { SuspiciousAccountsTab } from '@/components/backoffice/SuspiciousAccountsTab';
@@ -1074,6 +1075,19 @@ export default function BackofficeQueuePage() {
   return (
     <div className="space-y-5">
       <h1 className="text-lg font-bold">Queue</h1>
+      {/* Prompt 256 §A — this Fila is the cross-org admin queue (contributions,
+          candidates, submissions, …); interaction date/data-quality review is
+          a different, org-scoped queue that stays in Settings (see
+          NeedsReviewPanel.tsx's own header for why it can't just move here).
+          This is a signpost so it isn't lost between the two, not a new
+          feature — no live count to avoid a second cross-org fetch for a
+          single link. */}
+      <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+        Looking for interactions with an unconfirmed date? That queue is per-startup, in{' '}
+        <Link href="/settings?tab=needs-review" className="font-medium text-[#0E7490] hover:underline">
+          Settings → Import history → Needs review
+        </Link>.
+      </p>
       <div className="flex gap-1 border-b border-gray-200">
         {TABS.map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)}
