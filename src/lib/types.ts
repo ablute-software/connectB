@@ -726,6 +726,20 @@ export interface RejectionCode {
   created_at: string;
 }
 
+// Prompt 252 — audit trail for manual interaction edits (occurred_at/
+// channel/content), one row per field changed. edited_by is 'demo' in
+// demo mode (no auth.users row exists there — never a fabricated
+// identity), a real auth.users id otherwise.
+export interface InteractionEdit {
+  id: string;
+  interaction_id: string;
+  field: 'occurred_at' | 'channel' | 'content';
+  old_value: string | null;
+  new_value: string | null;
+  edited_by: string | null;
+  edited_at: string;
+}
+
 export interface CompanyFact {
   id: string;
   category: CompanyFactCategory;
@@ -857,4 +871,5 @@ export interface Db {
   fundingRounds: FundingRound[];
   roadmapCategories: RoadmapCategory[];
   rejectionCodes: RejectionCode[];
+  interactionEdits: InteractionEdit[];
 }

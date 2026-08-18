@@ -162,14 +162,21 @@ export function NeedsReviewPanel() {
   }
 
   // ---- triage actions (all undoable) ----
+  // Prompt 252 — resolving classification used to ALWAYS clear needs_review,
+  // even when the row still carried the import's placeholder date
+  // (2018-01-01). The APEX Ventures case: a mechanical 'awaiting' apply
+  // did exactly this, and the row silently and permanently left the one
+  // queue built to catch that date — nothing ever offered the fix again.
+  // classification and date-correctness are two separate concerns; only
+  // clear needs_review when BOTH are settled.
   function classify(item: Interaction, classification: Classification) {
     const prev = { classification: item.classification, needs_review: item.needs_review };
-    updateInteraction(item.id, { classification, needs_review: false });
+    updateInteraction(item.id, { classification, needs_review: isPlaceholderDate(item.occurred_at) });
     pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, `Classified: ${classification}`);
   }
   function confirmNoSignal(item: Interaction) {
     const prev = { needs_review: item.needs_review };
-    updateInteraction(item.id, { needs_review: false });
+    updateInteraction(item.id, { needs_review: isPlaceholderDate(item.occurred_at) });
     pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, 'No signal — resolved');
   }
 
@@ -191,6 +198,15 @@ export function NeedsReviewPanel() {
     if (editDraft.direction !== item.direction) { patch.direction = editDraft.direction; prev.direction = item.direction; }
     const newClass = editDraft.classification || undefined;
     if (newClass !== item.classification) { patch.classification = newClass; prev.classification = item.classification; }
+    // Prompt 252 — same "both concerns settled" rule as classify()/
+    // confirmNoSignal() above: this row only leaves the queue once its
+    // date is no longer a placeholder AND it has a classification (the
+    // one from this save, or one already applied earlier).
+    const finalOccurredAt = (patch.occurred_at as string | undefined) ?? item.occurred_at;
+    const finalClassification = 'classification' in patch ? patch.classification : item.classification;
+    if (!isPlaceholderDate(finalOccurredAt) && finalClassification) {
+      patch.needs_review = false; prev.needs_review = item.needs_review;
+    }
     if (Object.keys(patch).length) {
       updateInteraction(item.id, patch);
       pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, 'Item edited');
@@ -198,8 +214,14 @@ export function NeedsReviewPanel() {
     setPanel(null);
   }
   function acceptDateSuggestion(item: Interaction, isoDate: string) {
-    const prev = { occurred_at: item.occurred_at };
-    updateInteraction(item.id, { occurred_at: `${isoDate}T12:00:00.000Z` });
+    // Prompt 252 — mirrors saveEdit()'s "both concerns settled" rule: the
+    // date is fixed here, so this clears needs_review too, but only if a
+    // classification was already applied earlier (classify() left
+    // needs_review true specifically for this moment).
+    const patch: Partial<Interaction> = { occurred_at: `${isoDate}T12:00:00.000Z` };
+    const prev: Partial<Interaction> = { occurred_at: item.occurred_at };
+    if (item.classification) { patch.needs_review = false; prev.needs_review = item.needs_review; }
+    updateInteraction(item.id, patch);
     pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, `Date corrected: ${isoDate}`);
   }
 

@@ -5,7 +5,7 @@
 // interação (data · direcção · canal · primeira linha), com o histórico
 // completo a um clique.
 import { useEffect, useRef, useState } from 'react';
-import type { Entity } from '@/lib/types';
+import type { Entity, InteractionEdit } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import { derivedStage } from '@/lib/derived-stage';
 import {
@@ -14,6 +14,7 @@ import {
 } from '@/lib/interaction-history';
 import { SharedDocChip } from '@/components/SharedDocChip';
 import { InlineClassify } from '@/components/InlineClassify';
+import { EditInteractionDetails, InteractionEditHint } from '@/components/EditInteractionDetails';
 
 export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassifyNonce = 0, focusInteraction, dealMessages = [] }: {
   entity: Entity;
@@ -44,6 +45,10 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
   // para o "Edit" de uma interação JÁ classificada — reabrir o formulário
   // pré-preenchido é a única vez que alguém escolhe entrar aqui.
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Prompt 252 — separate from editingId (classification edit): fixing
+  // occurred_at/channel/content is a different action, on a different
+  // affordance, so it needs its own toggle instead of sharing one.
+  const [editingDetailsId, setEditingDetailsId] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLLIElement | null>>({});
 
@@ -156,7 +161,9 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
               // (ver o ref em InteractionRow), não o row.key namespaced.
               <InteractionRow key={row.key} row={row} rowRefs={rowRefs}
                 pending={pending} highlighted={highlighted === row.interaction.id}
-                editingId={editingId} setEditingId={setEditingId} />
+                editingId={editingId} setEditingId={setEditingId}
+                editingDetailsId={editingDetailsId} setEditingDetailsId={setEditingDetailsId}
+                edits={db.interactionEdits.filter((e) => e.interaction_id === row.interaction.id)} />
             )
         ))}
       </ul>
@@ -194,13 +201,16 @@ function DealMessageRow({ row, rowRefs, highlighted }: {
   );
 }
 
-function InteractionRow({ row, rowRefs, pending, highlighted, editingId, setEditingId }: {
+function InteractionRow({ row, rowRefs, pending, highlighted, editingId, setEditingId, editingDetailsId, setEditingDetailsId, edits }: {
   row: Extract<TimelineRow, { kind: 'interaction' }>;
   rowRefs: React.MutableRefObject<Record<string, HTMLLIElement | null>>;
   pending: ReturnType<typeof unclassifiedInbound>;
   highlighted: boolean;
   editingId: string | null;
   setEditingId: (id: string | null) => void;
+  editingDetailsId: string | null;
+  setEditingDetailsId: (id: string | null) => void;
+  edits: InteractionEdit[];
 }) {
   const i = row.interaction;
   const isPending = pending.some((p) => p.id === i.id);
@@ -229,6 +239,16 @@ function InteractionRow({ row, rowRefs, pending, highlighted, editingId, setEdit
         </span>
       )}
       <SharedDocChip documentId={i.document_id} occurredAt={i.occurred_at} />
+      <InteractionEditHint edits={edits} />
+      {/* Prompt 252 — fix a wrong date/channel/content, separate from the
+          classification "Edit" below (a distinct pencil, not a second
+          "Edit" label competing on the same row). */}
+      {editingDetailsId !== i.id && (
+        <button onClick={() => setEditingDetailsId(i.id)} title="Fix date, channel or content"
+          className="text-[10px] text-gray-300 hover:text-[#0E7490]">
+          ✎
+        </button>
+      )}
       {/* Prompt 231 §C — o item pendente monta o InlineClassify
           DIRETAMENTE: a AI corre e grava sozinha assim que há texto,
           sem esperar por um clique que só existia para o revelar. */}
@@ -249,6 +269,11 @@ function InteractionRow({ row, rowRefs, pending, highlighted, editingId, setEdit
             classification: i.classification!, passReasonCategory: i.pass_reason_category,
             passReason: i.pass_reason, classifiedBy: i.classified_by,
           }} />
+      )}
+      {editingDetailsId === i.id && (
+        <div className="w-full">
+          <EditInteractionDetails interaction={i} onDone={() => setEditingDetailsId(null)} />
+        </div>
       )}
     </li>
   );

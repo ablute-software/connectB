@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { SharedDocChip } from '@/components/SharedDocChip';
 import { InlineClassify } from '@/components/InlineClassify';
+import { EditInteractionDetails, InteractionEditHint } from '@/components/EditInteractionDetails';
 import { unclassifiedInbound, mergeTimeline, timelineContent, type DealMessageLike, type TimelineRow } from '@/lib/interaction-history';
 import { formatAsk } from '@/lib/interaction-history';
 import type { Entity, RelationshipStage } from '@/lib/types';
@@ -36,6 +37,8 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [], d
   // um pendente (isso monta directamente agora). Fica so para o "Edit" de
   // uma interacao ja classificada.
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Prompt 252 — separate from editingId (classification edit).
+  const [editingDetailsId, setEditingDetailsId] = useState<string | null>(null);
 
   const people = db.people.filter((p) => p.entity_id === entity.id);
   // Prompt 238 — fundido com as mensagens Sherlock (deal_messages): já
@@ -223,6 +226,15 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [], d
                     )}
                     {/* Prompt 202 §F — document_id ja existia e nunca era mostrado. */}
                     <SharedDocChip documentId={i.document_id} occurredAt={i.occurred_at} />
+                    <InteractionEditHint edits={db.interactionEdits.filter((e) => e.interaction_id === i.id)} />
+                    {/* Prompt 252 — fix a wrong date/channel/content,
+                        separate from the classification "Edit" below. */}
+                    {editingDetailsId !== i.id && (
+                      <button onClick={() => setEditingDetailsId(i.id)} title="Fix date, channel or content"
+                        className="text-[10px] text-gray-300 hover:text-[#0E7490]">
+                        ✎
+                      </button>
+                    )}
                   </div>
                   <blockquote className="whitespace-pre-wrap border-l-2 border-gray-300 pl-2 text-gray-700">{i.content}</blockquote>
                   {i.pass_reason && <div className="mt-1 text-xs text-[#B00000]">Pass reason ({i.pass_reason_category}): {i.pass_reason}</div>}
@@ -247,6 +259,9 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [], d
                           Edit
                         </button>
                       )
+                  )}
+                  {editingDetailsId === i.id && (
+                    <EditInteractionDetails interaction={i} onDone={() => setEditingDetailsId(null)} />
                   )}
                 </li>
               ); })())}

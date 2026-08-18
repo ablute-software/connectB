@@ -8,7 +8,7 @@ import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, CompanyPerson, Db,
   Direction, DocumentItem, DocVisibility, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
   PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory,
-  RejectionCode } from './types';
+  RejectionCode, InteractionEdit } from './types';
 
 export type LogInput = {
   entity_id: string;
@@ -80,6 +80,14 @@ export interface StoreApi {
   // "interested" reply shouldn't flip the entity's live pipeline status.
   // The single write path all dossier triage actions (and their undos) use.
   updateInteraction: (id: string, patch: Partial<Interaction>) => void;
+  // Prompt 252 — the founder-facing "fix a wrong date/channel/content"
+  // path, distinct from updateInteraction (used internally by triage
+  // flows without an audit trail). Diffs the patch against the current
+  // row and writes one interaction_edits row per changed field; the
+  // provider decides edited_by itself (demo mode has no real identity to
+  // pass in — see InteractionEdit's own comment), so this never takes an
+  // editedBy param from the caller.
+  editInteraction: (id: string, patch: { occurred_at?: string; channel?: Channel; content?: string }) => void;
   // Plain historical-interaction insert — a memory the import never
   // captured (e.g. a remembered remote meeting). NOT logInteraction: no
   // contact lock, no follow-up task, no status transition — it's backfill,

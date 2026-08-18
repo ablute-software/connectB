@@ -5,7 +5,8 @@
 // StoreApi contract (locks, follow-up tasks, overrides, runs semantics).
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory } from './types';
+  AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory,
+  InteractionEdit } from './types';
 import { seed } from './data/seed';
 import { revisitTasksToClose } from './exit-effects';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
@@ -145,6 +146,30 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
         ...prev,
         interactions: prev.interactions.map((i) => i.id === id ? { ...i, ...patch } : i),
       }));
+    },
+
+    editInteraction(id, patch) {
+      setDb((prev) => {
+        const current = prev.interactions.find((i) => i.id === id);
+        if (!current) return prev;
+        const now = new Date().toISOString();
+        // No real auth here (demo mode) -- 'demo' is an honest label, never
+        // a fabricated user identity.
+        const editedBy = 'demo';
+        const edits: InteractionEdit[] = (Object.keys(patch) as (keyof typeof patch)[])
+          .filter((field) => patch[field] !== undefined && patch[field] !== current[field])
+          .map((field) => ({
+            id: uid('edit'), interaction_id: id, field,
+            old_value: current[field] ?? null, new_value: patch[field] ?? null,
+            edited_by: editedBy, edited_at: now,
+          }));
+        if (edits.length === 0) return prev;
+        return {
+          ...prev,
+          interactions: prev.interactions.map((i) => i.id === id ? { ...i, ...patch } : i),
+          interactionEdits: [...prev.interactionEdits, ...edits],
+        };
+      });
     },
 
     addInteraction(input) {

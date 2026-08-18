@@ -9,11 +9,11 @@ import React, { useEffect, useMemo, useReducer, useRef } from 'react';
 import { browserClient } from './supabase';
 import { StoreCtx, type StoreApi, type LogInput } from './store-context';
 import type {
-  AccessGrant, Automation, AutomationRun, CatalogEntity, Classification, CompanyFact, CompanyPerson, Db, DocumentItem,
+  AccessGrant, Automation, AutomationRun, CatalogEntity, Channel, Classification, CompanyFact, CompanyPerson, Db, DocumentItem,
   DocumentVersion, DocumentView, Entity, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory,
-  RejectionCode } from './types';
+  RejectionCode, InteractionEdit } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval } from './reawakening';
@@ -29,7 +29,7 @@ const EMPTY_DB: Db = {
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
   documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [],
-  rejectionCodes: [],
+  rejectionCodes: [], interactionEdits: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -76,7 +76,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
     documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes, roadmapMilestonesRes,
-    fundingRoundsRes, roadmapCategoriesRes, rejectionCodesRes,
+    fundingRoundsRes, roadmapCategoriesRes, rejectionCodesRes, interactionEditsRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -130,6 +130,9 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // Prompt 251/253 Bloco A — rejection_codes (0184). Same missing-table-
     // safe pattern as company_facts/ndas above.
     sb.from('rejection_codes').select('*').eq('org_id', orgId),
+    // Prompt 252 — interaction_edits (0185). Same missing-table-safe
+    // pattern as company_facts/ndas above.
+    sb.from('interaction_edits').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -195,6 +198,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     fundingRounds: ((fundingRoundsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<FundingRound>(r)),
     roadmapCategories: ((roadmapCategoriesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RoadmapCategory>(r)),
     rejectionCodes: ((rejectionCodesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RejectionCode>(r)),
+    interactionEdits: ((interactionEditsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<InteractionEdit>(r)),
   };
 }
 
@@ -205,6 +209,9 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
 
   const dbRef = useRef<Db>(EMPTY_DB);
   const orgIdRef = useRef<string | null>(null);
+  // Prompt 252 — the signed-in user's id, for interaction_edits.edited_by.
+  // Set once alongside orgIdRef below, same lifecycle.
+  const userIdRef = useRef<string | null>(null);
   // Prompt 126 F — true until the initial load below resolves (success or
   // not — a signed-out user or org-less account is "done loading", not
   // "still loading"). See store-context.tsx's StoreApi.loading for why.
@@ -264,6 +271,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const { data: { user } } = await sb.auth.getUser();
       if (cancelled) return;
       if (!user) { finishInitialLoad(EMPTY_DB); return; }
+      userIdRef.current = user.id;
       // Prompt 123 Block A — Developer Viewer overrides which org this
       // store loads. /api/me is the only place that re-verifies BOTH the
       // cookie and current developer status together (see its own
@@ -437,6 +445,32 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const prev = dbRef.current;
       commit({ ...prev, interactions: prev.interactions.map((i) => i.id === id ? { ...i, ...patch } : i) });
       if (orgIdRef.current) persist(sb.from('interactions').update(nullify(patch)).eq('id', id), 'updateInteraction');
+    },
+
+    editInteraction(id: string, patch: { occurred_at?: string; channel?: Channel; content?: string }) {
+      const prev = dbRef.current;
+      const current = prev.interactions.find((i) => i.id === id);
+      if (!current) return;
+      const now = new Date().toISOString();
+      const editedBy = userIdRef.current;
+      const changedFields = (Object.keys(patch) as (keyof typeof patch)[])
+        .filter((field) => patch[field] !== undefined && patch[field] !== current[field]);
+      if (changedFields.length === 0) return;
+      const edits: InteractionEdit[] = changedFields.map((field) => ({
+        id: uuid(), interaction_id: id, field,
+        old_value: current[field] ?? null, new_value: patch[field] ?? null,
+        edited_by: editedBy, edited_at: now,
+      }));
+      commit({
+        ...prev,
+        interactions: prev.interactions.map((i) => i.id === id ? { ...i, ...patch } : i),
+        interactionEdits: [...prev.interactionEdits, ...edits],
+      });
+      const o = orgIdRef.current;
+      if (o) {
+        persist(sb.from('interactions').update(nullify(patch)).eq('id', id), 'editInteraction:update');
+        persist(sb.from('interaction_edits').insert(edits.map((e) => ({ ...e, org_id: o }))), 'editInteraction:audit');
+      }
     },
 
     addInteraction(input) {
