@@ -38,15 +38,26 @@ function toICS(tasks: TaskItem[]) {
 export function AgendaPanel() {
   const { db, toggleTask, addTask } = useStore();
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
-  const [newTitle, setNewTitle] = useState('');
-  const [newDate, setNewDate] = useState('');
-  const [newType, setNewType] = useState<ActionType>('other');
   const [typeFilter, setTypeFilter] = useState<ActionType | 'all'>('all');
   const [selected, setSelected] = useState<TaskItem | null>(null);
+  // Prompt 246 — the rail's four groups (OVERDUE/DUE TODAY/THIS WEEK/
+  // COMPLETED) are collapsed by default and open exclusively (opening one
+  // closes whichever was open) — same accordion shape as
+  // AccessGrantedPanel.tsx's expandedOrgId. Local only, no persistence.
+  const [openRailGroup, setOpenRailGroup] = useState<string | null>(null);
   const now = new Date();
 
   // Prompt 126 D — click any day in the grid to create an appointment there.
-  const [creatingDate, setCreatingDate] = useState<Date | null>(null);
+  // Prompt 247 A — the bottom-of-page "Add task" form used to be a
+  // stripped-down duplicate of this modal (title+date+type only, no time,
+  // reminder, or investor). Rather than growing that second form to match
+  // this one field-by-field, "Add task" now opens this same modal with
+  // `apDateOpen` blank — one flow, one set of fields, instead of two that
+  // could drift apart again. `apDateOpen` (gate) is separate from `apDate`
+  // (the editable yyyy-mm-dd value) so a day-grid click can prefill it while
+  // "Add task" leaves it for the user to pick.
+  const [apDateOpen, setApDateOpen] = useState(false);
+  const [apDate, setApDate] = useState('');
   const [apTitle, setApTitle] = useState('');
   const [apTime, setApTime] = useState('09:00');
   const [apType, setApType] = useState<ActionType>('other');
@@ -67,15 +78,30 @@ export function AgendaPanel() {
       .catch(() => setRemindersAvailable(false));
   }, []);
 
-  function openCreate(d: Date) {
-    setCreatingDate(d); setApTitle(''); setApTime('09:00'); setApType('other');
+  function toDateInputValue(d: Date) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  function resetApFields() {
+    setApTitle(''); setApTime('09:00'); setApType('other');
     setApEntityId(''); setApPersonId(''); setApNotes(''); setApReminder('none');
   }
 
+  // Day-grid click: date prefilled (still editable in the modal).
+  function openCreate(d: Date) {
+    setApDate(toDateInputValue(d)); resetApFields(); setApDateOpen(true);
+  }
+
+  // "Add task": same modal, date left for the user to pick.
+  function openCreateBlank() {
+    setApDate(toDateInputValue(now)); resetApFields(); setApDateOpen(true);
+  }
+
   function saveAppointment() {
-    if (!creatingDate || !apTitle.trim()) return;
+    if (!apDate || !apTitle.trim()) return;
+    const [y, m, day] = apDate.split('-').map(Number);
     const [hh, mm] = apTime.split(':').map(Number);
-    const due = new Date(creatingDate.getFullYear(), creatingDate.getMonth(), creatingDate.getDate(), hh || 0, mm || 0);
+    const due = new Date(y, (m || 1) - 1, day || 1, hh || 0, mm || 0);
     const reminderOpt = REMINDER_OPTIONS.find((r) => r.value === apReminder);
     const reminderAt = remindersAvailable && reminderOpt?.offsetMin != null
       ? new Date(due.getTime() - reminderOpt.offsetMin * 60_000).toISOString()
@@ -90,7 +116,7 @@ export function AgendaPanel() {
       notes: remindersAvailable ? (apNotes.trim() || undefined) : undefined,
       reminder_at: reminderAt,
     });
-    setCreatingDate(null);
+    setApDateOpen(false);
   }
 
   const visibleTasks = useMemo(
@@ -191,19 +217,10 @@ export function AgendaPanel() {
           ))}
         </div>
         <Card title="Add task">
-          <div className="flex flex-wrap gap-2">
-            <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Task…"
-              className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
-            <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)}
-              className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
-            <select value={newType} onChange={(e) => setNewType(e.target.value as ActionType)}
-              className="rounded border border-gray-300 px-2 py-1.5 text-sm">
-              {ACTION_TYPES.map((at) => <option key={at} value={at}>{ACTION_TYPE_LABEL[at]}</option>)}
-            </select>
-            <button disabled={!newTitle || !newDate}
-              onClick={() => { addTask({ title: newTitle, kind: 'admin', action_type: newType, due_at: `${newDate}T12:00:00Z` }); setNewTitle(''); setNewDate(''); setNewType('other'); }}
-              className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Add</button>
-          </div>
+          <button onClick={openCreateBlank}
+            className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">
+            + Add task…
+          </button>
         </Card>
       </div>
 
@@ -211,13 +228,27 @@ export function AgendaPanel() {
         {[{ label: 'OVERDUE', items: overdue, cls: 'text-[#B00000]' },
           { label: 'DUE TODAY', items: dueToday, cls: 'text-gray-900' },
           { label: 'THIS WEEK', items: week, cls: 'text-gray-600' },
-          { label: 'COMPLETED', items: completed, cls: 'text-green-700' }].map((g) => (
-          <Card key={g.label} title={<span className={g.cls}>{g.label} ({g.items.length})</span>}>
-            {g.items.length === 0 ? <p className="text-xs text-gray-400">—</p> : (
-              <ul className="space-y-1.5 text-sm">{g.items.map((t) => <TaskRow key={t.id} t={t} />)}</ul>
-            )}
-          </Card>
-        ))}
+          { label: 'COMPLETED', items: completed, cls: 'text-green-700' }].map((g) => {
+          const isOpen = openRailGroup === g.label;
+          const hasItems = g.items.length > 0;
+          // Card wraps `title` in a plain <h3>, not a button, so a <button>
+          // here is valid nesting (no button-inside-button) — confirmed by
+          // reading ui.tsx before reaching for a bespoke container.
+          return (
+            <Card key={g.label} title={
+              <button type="button" disabled={!hasItems} aria-expanded={isOpen}
+                onClick={() => setOpenRailGroup(isOpen ? null : g.label)}
+                className={`flex w-full items-center justify-between text-left ${hasItems ? '' : 'cursor-default opacity-60'}`}>
+                <span className={g.cls}>{g.label} ({g.items.length})</span>
+                {hasItems && <span className="text-xs text-gray-400">{isOpen ? '▾' : '▸'}</span>}
+              </button>
+            }>
+              {isOpen && hasItems && (
+                <ul className="space-y-1.5 text-sm">{g.items.map((t) => <TaskRow key={t.id} t={t} />)}</ul>
+              )}
+            </Card>
+          );
+        })}
       </div>
 
       {selected && (
@@ -257,26 +288,26 @@ export function AgendaPanel() {
         </div>
       )}
 
-      {creatingDate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setCreatingDate(null)}>
+      {apDateOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setApDateOpen(false)}>
           <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-2">
-              <p className="text-sm font-semibold text-gray-900">
-                New appointment — {creatingDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
-              </p>
-              <button onClick={() => setCreatingDate(null)} className="text-sm text-gray-400 hover:text-gray-700">✕</button>
+              <p className="text-sm font-semibold text-gray-900">New task</p>
+              <button onClick={() => setApDateOpen(false)} className="text-sm text-gray-400 hover:text-gray-700">✕</button>
             </div>
             <div className="mt-3 space-y-2">
               <input value={apTitle} onChange={(e) => setApTitle(e.target.value)} placeholder="Title…" autoFocus
                 className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
               <div className="grid grid-cols-2 gap-2">
+                <input type="date" value={apDate} onChange={(e) => setApDate(e.target.value)}
+                  className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
                 <input type="time" value={apTime} onChange={(e) => setApTime(e.target.value)}
                   className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
-                <select value={apType} onChange={(e) => setApType(e.target.value as ActionType)}
-                  className="rounded border border-gray-300 px-2 py-1.5 text-sm">
-                  {ACTION_TYPES.map((at) => <option key={at} value={at}>{ACTION_TYPE_LABEL[at]}</option>)}
-                </select>
               </div>
+              <select value={apType} onChange={(e) => setApType(e.target.value as ActionType)}
+                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
+                {ACTION_TYPES.map((at) => <option key={at} value={at}>{ACTION_TYPE_LABEL[at]}</option>)}
+              </select>
               <div className="grid grid-cols-2 gap-2">
                 <select value={apEntityId} onChange={(e) => { setApEntityId(e.target.value); setApPersonId(''); }}
                   className="rounded border border-gray-300 px-2 py-1.5 text-sm">
@@ -302,9 +333,9 @@ export function AgendaPanel() {
                 <p className="text-[11px] text-gray-400">Notes and reminders aren&apos;t saved yet in this workspace — coming soon.</p>
               )}
             </div>
-            <button disabled={!apTitle.trim()} onClick={saveAppointment}
+            <button disabled={!apTitle.trim() || !apDate} onClick={saveAppointment}
               className="mt-3 w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-medium text-white disabled:opacity-40">
-              Create appointment
+              Create task
             </button>
           </div>
         </div>
