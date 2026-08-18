@@ -393,21 +393,26 @@ export function stageExits(
   const show = stageIsActive && s.stage !== 'not_contacted'
     && (s.whoseTurn === 'us' || s.whoseTurn === 'overdue' || lastInboundWasPass);
 
-  // Prompt 214 §C.3 — a nudge deixa de empurrar para 'decision'. "Responderam"
-  // NAO e "decidiram": a unica coisa que os factos suportam com uma resposta
-  // e que ha conversa. Chegar a Decision faz-se pelas saidas explicitas (o
-  // pass, com razao obrigatoria) ou por um invested -- nunca por uma
-  // sugestao de avancar so porque houve reply.
+  // Prompt 214 §C.3 (revisto no 249 §A) — a nudge automática continuava a não
+  // empurrar para 'decision' sozinha: "Responderam" NAO e "decidiram". O que
+  // mudou no 249 e que "Decision" deixou de estar ESCONDIDO do botão — o
+  // founder pode agora iniciar manualmente um "Move to Decision", só que o
+  // clique já não avança direto: abre um passo de confirmação que pede o
+  // desfecho (passed/invested) e, para passed, a razão. canAdvance continua
+  // a significar "há uma saída de avanço para oferecer" — é o COMPONENTE,
+  // vendo nextStage === 'decision', que decide abrir a confirmação em vez de
+  // avançar logo. A regra de que Decision nunca existe sem desfecho+razão
+  // não mudou; só mudou quem pode iniciá-lo.
   //
-  // Caso real: o founder moveu Meeting->Diligence por engano e a app
-  // respondeu com "Move to Decision", ou seja empurrou-o mais para a frente
-  // em vez de o deixar recuar.
-  const nextIsDecision = nextStage === 'decision';
-
+  // Caso real que motivou o guard original: o founder moveu Meeting-
+  // >Diligence por engano e a app respondeu com "Move to Decision", ou seja
+  // empurrou-o mais para a frente em vez de o deixar recuar. Isso continua
+  // impossível: canAdvance ainda exige s.whoseTurn === 'us' (a vez é nossa),
+  // não uma sugestão cega.
   return {
     show,
     lastInboundWasPass,
-    canAdvance: show && !lastInboundWasPass && s.whoseTurn === 'us' && !nextIsDecision,
+    canAdvance: show && !lastInboundWasPass && s.whoseTurn === 'us',
     nextStage,
     parkLabel: s.stage === 'contacted' ? 'cold' : 'frozen',
   };

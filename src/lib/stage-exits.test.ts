@@ -123,26 +123,30 @@ describe('stageExits — rotulo do parque', () => {
   });
 });
 
-// Prompt 214 §C.3 — a nudge de hoje ("Move to Decision" so porque houve
-// reply) e fraca: reply != decisao. Chegar a Decision faz-se pelas saidas
-// explicitas, nunca por uma sugestao de avancar.
-describe('stageExits — nunca sugere avancar para Decision', () => {
+// Prompt 214 §C.3 tirava Decision do botão por completo: a app não podia
+// empurrar sozinha ("reply != decisão"). Prompt 249 §A reverteu só a
+// PARTE do avanço automático — Decision volta a aparecer como qualquer
+// outra saída de avanço, mas o clique já não avança sozinho: quem decide
+// abrir a confirmação de desfecho em vez de avançar direto é o componente
+// (RelationshipSummaryCard), vendo nextStage === 'decision'. Esta função só
+// decide SE a saída existe, nunca o que o clique faz.
+describe('stageExits — Decision deixou de estar escondida (249 §A)', () => {
   const EM_DILIGENCE = [{ entity_id: 'ent-adara', stage: 'diligence', updated_at: '2026-08-01T00:00:00.000Z' }];
 
-  it('em diligence, com resposta nao-pass, NAO oferece avancar', () => {
+  it('em diligence, com resposta nao-pass, oferece avancar para Decision', () => {
     const d = db([OUTBOUND, interaction({ id: 'r', classification: 'question' })]);
     (d as unknown as { relationshipState: unknown[] }).relationshipState = EM_DILIGENCE;
 
     const e = stageExits(d, ENTITY);
     expect(e.nextStage).toBe('decision');
-    expect(e.canAdvance).toBe(false);
+    expect(e.canAdvance).toBe(true);
   });
 
-  it('mas as saidas 2 e 3 continuam la -- ha sempre como sair', () => {
-    const d = db([OUTBOUND, interaction({ id: 'r', classification: 'question' })]);
+  it('mas continua a NAO oferecer avancar quando o ultimo inbound foi pass', () => {
+    const d = db([OUTBOUND, interaction({ id: 'r', classification: 'pass' })]);
     (d as unknown as { relationshipState: unknown[] }).relationshipState = EM_DILIGENCE;
 
-    expect(stageExits(d, ENTITY).show).toBe(true);
+    expect(stageExits(d, ENTITY).canAdvance).toBe(false);
   });
 
   it('avancar continua a funcionar nos estagios anteriores', () => {

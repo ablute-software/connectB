@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planPark, planPass, planSnooze, advanceConfirmation, revisitTasksToClose, REVISIT_DAYS_DEFAULT } from './exit-effects';
+import { planPark, planPass, planInvested, planSnooze, advanceConfirmation, revisitTasksToClose, REVISIT_DAYS_DEFAULT } from './exit-effects';
 import type { Entity, TaskItem } from './types';
 
 // Prompt 205 — o caso real: "Test idividual", parqueada, e o Today a
@@ -104,6 +104,32 @@ describe('planPass', () => {
 
   it('confirma que a razao ficou registada', () => {
     expect(planPass(ENTITY, []).confirmation).toContain('reason recorded');
+  });
+});
+
+// Prompt 249 §A — o irmão positivo do planPass, para "Move to Decision" ->
+// "Invested".
+describe('planInvested', () => {
+  it('fecha TUDO, sem excepcao de tipo -- igual ao planPass', () => {
+    const tasks = [
+      task({ id: 'a', title: 'Respond to expressed interest', action_type: 'follow_up_thread' }),
+      task({ id: 'b', title: 'Follow up on the deck', action_type: 'follow_up_no_reply' }),
+    ];
+    const p = planInvested(ENTITY, tasks);
+    expect(p.dispositions.map((d) => d.action)).toEqual(['done', 'done']);
+  });
+
+  it('nao agenda revisita nenhuma -- fechado e fechado', () => {
+    expect(planInvested(ENTITY, [task()]).revisitTask).toBeUndefined();
+  });
+
+  it('a confirmacao diz invested, nao passed', () => {
+    expect(planInvested(ENTITY, []).confirmation).toContain('Invested');
+  });
+
+  it('so toca nas tarefas DESTA entidade', () => {
+    const p = planInvested(ENTITY, [task({ id: 'mine' }), task({ id: 'other', entity_id: 'e2' })]);
+    expect(p.dispositions.map((d) => d.taskId)).toEqual(['mine']);
   });
 });
 

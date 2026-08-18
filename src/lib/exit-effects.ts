@@ -97,6 +97,20 @@ export function planPass(entity: Pick<Entity, 'id' | 'name'>, tasks: TaskItem[])
   };
 }
 
+// Prompt 249 §A — o irmão positivo do planPass, para o novo "Move to
+// Decision" com confirmação: um desfecho fecha o loop de tarefas pendentes
+// tal como o outro, seja qual for a direcção. Sem razão obrigatória (só o
+// pass a pede — "porque disseram que não" é o que melhora o pitch; um
+// investimento não precisa de justificação).
+export function planInvested(entity: Pick<Entity, 'id' | 'name'>, tasks: TaskItem[]): ExitPlan {
+  return {
+    dispositions: pending(tasks, entity.id).map((t) => ({
+      taskId: t.id, action: 'done' as const, reason: 'closed — invested',
+    })),
+    confirmation: '✓ Invested — this relationship is closed.',
+  };
+}
+
 // §A — a terceira saída (avançar) não mexe em tarefas, mas confirma na
 // mesma: o founder tem de ver que o clique fez alguma coisa.
 export function advanceConfirmation(stageLabel: string): string {

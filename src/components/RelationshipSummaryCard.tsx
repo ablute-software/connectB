@@ -9,7 +9,7 @@ import {
   STAGE_LABEL, STAGE_ORDER, relationshipSummary, nextBestAction, stageExits, type WhoseTurn, type Health, type DealMessageTouch,
 } from '@/lib/relationship';
 import { LOCK_DAYS } from '@/lib/rules';
-import { planPark, planPass, planSnooze, advanceConfirmation, type ExitPlan } from '@/lib/exit-effects';
+import { planPark, planPass, planInvested, planSnooze, advanceConfirmation, type ExitPlan } from '@/lib/exit-effects';
 
 // Prompt 226 §4 — opções fixas. Sem "custom": um date-picker aqui era mais
 // caixilharia do que valor, e estas quatro cobrem o que o founder diz em voz
@@ -122,7 +122,13 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   historySlot?: ReactNode;
 }) {
   const { db, setRelationshipStage, undoStageChange, setEntityStatus, addTask, toggleTask, updateTask } = useStore();
-  const [exitMode, setExitMode] = useState<'none' | 'pass'>('none');
+  // Prompt 249 §A — 'decision-choose' is the new step: "Move to Decision"
+  // no longer advances on click, it asks for the outcome first. Choosing
+  // "Passed" here just switches into the EXISTING 'pass' mode below (same
+  // textarea, same required-reason rule, same Save button) — one path, not
+  // two that could drift. "Invested" needs no reason, so it applies
+  // immediately from the chooser itself.
+  const [exitMode, setExitMode] = useState<'none' | 'pass' | 'decision-choose'>('none');
   const [passReason, setPassReason] = useState('');
   // Prompt 205 §A — o que se mostra no lugar do banner depois de decidir. O
   // Nuno escolheu "Frozen" e nada de visivel aconteceu; o clique tem de ter
@@ -302,7 +308,14 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
       {!parkedOrClosed && exitMode === 'none' && (
       <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5">
         {!confirmation && !dismissed && exits.show && exits.canAdvance && (
-          <button onClick={() => { changeStage(nextStage, STAGE_LABEL[nextStage]); setConfirmation(advanceConfirmation(STAGE_LABEL[nextStage])); }}
+          <button onClick={() => {
+              // Prompt 249 §A — Decision is no longer hidden from this
+              // button, but a click here never advances it directly: it
+              // opens the outcome confirmation instead (below). Every other
+              // stage keeps advancing immediately, unchanged.
+              if (nextStage === 'decision') { setExitMode('decision-choose'); return; }
+              changeStage(nextStage, STAGE_LABEL[nextStage]); setConfirmation(advanceConfirmation(STAGE_LABEL[nextStage]));
+            }}
             className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[10.5px] font-semibold text-white hover:bg-[#0c637b]">
             Move to {STAGE_LABEL[nextStage]}
           </button>
@@ -427,9 +440,38 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           <span className="italic text-gray-400">Closed relationship — no advance actions.</span>
         )}
       </div>
+      {/* Prompt 249 §A — o passo de confirmação do "Move to Decision":
+          pergunta o desfecho antes de mexer em nada. Cancelar volta a
+          'none' sem tocar em stage/status/tasks nenhuns. */}
+      {!parkedOrClosed && exitMode === 'decision-choose' && (
+        <div className="mt-2 space-y-1.5 rounded-lg border border-gray-200 bg-gray-50 p-2.5">
+          <p className="text-xs text-gray-600">Move to Decision — what was the outcome?</p>
+          <div className="flex flex-wrap gap-1.5">
+            <button onClick={() => setExitMode('pass')}
+              className="rounded-full bg-[#B00000] px-2.5 py-1 text-[11px] font-semibold text-white">
+              Passed
+            </button>
+            <button onClick={() => {
+                setEntityStatus(entity.id, 'invested');
+                setRelationshipStage(entity.id, 'decision');
+                applyPlan(planInvested(entity, db.tasks));
+                setExitMode('none');
+              }}
+              className="rounded-full bg-green-700 px-2.5 py-1 text-[11px] font-semibold text-white">
+              Invested
+            </button>
+            <button onClick={() => setExitMode('none')}
+              className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-600">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* O textarea da razão do pass ocupa a linha toda; vive fora do banner
           de saída (exits.show) porque "No interest / over" agora dispara
-          daqui mesmo sem sugestão nenhuma activa. */}
+          daqui mesmo sem sugestão nenhuma activa, e o "Move to Decision" ->
+          "Passed" (249 §A) reusa este mesmo passo em vez de duplicar. */}
       {!parkedOrClosed && exitMode === 'pass' && (
         <div className="mt-2 space-y-1.5 rounded-lg border border-red-200 bg-red-50/40 p-2.5">
           <textarea value={passReason} onChange={(e) => setPassReason(e.target.value)} rows={2}
