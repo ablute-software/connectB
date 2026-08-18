@@ -25,6 +25,7 @@ import type { WorkspaceNavItem } from '@/components/workspace-shell/types';
 import { BRAND_NAME } from '@/lib/brand';
 import { SupportTicketsPanel, useSupportUnreadCount } from '@/components/SupportTicketsPanel';
 import { InvestorActionsPanel, useInvestorActions } from '@/components/investor-workspace/InvestorActionsPanel';
+import { InvestorReminderPopup } from '@/components/portal/InvestorReminderPopup';
 
 export type Tab = 'pipeline' | 'actions' | 'about' | 'access' | 'agenda' | 'archive' | 'plans' | 'evaluation' | 'support';
 
@@ -325,6 +326,7 @@ export function InvestorWorkspaceShell({
           nav at all before: below ~768px there was no way to switch tabs,
           full stop. Same navItems the sidebar uses. */}
       <WorkspaceMobileNav items={navItems} />
+      <InvestorReminderPopup />
     </div>
     </OnboardingProvider>
   );

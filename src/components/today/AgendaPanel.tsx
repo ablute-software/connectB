@@ -11,18 +11,7 @@ import { useStore } from '@/lib/store';
 import { Card, EntityLink } from '@/components/ui';
 import type { ActionType, TaskItem } from '@/lib/types';
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, ACTION_TYPES } from '@/lib/relationship';
-
-// Prompt 126 D — offsets for the "create appointment" modal's Reminder
-// select. `null` = no reminder at all; `0` = fire right at the event's own
-// time. Minutes-before, not an absolute time, so the popup logic only ever
-// needs one field (reminder_at) regardless of which option was picked.
-const REMINDER_OPTIONS: { value: string; label: string; offsetMin: number | null }[] = [
-  { value: 'none', label: 'No reminder', offsetMin: null },
-  { value: 'at_time', label: 'At the time', offsetMin: 0 },
-  { value: '10_before', label: '10 minutes before', offsetMin: 10 },
-  { value: '1h_before', label: '1 hour before', offsetMin: 60 },
-  { value: '1d_before', label: '1 day before', offsetMin: 1440 },
-];
+import { REMINDER_OPTIONS } from '@/lib/reminders';
 
 function toICS(tasks: TaskItem[]) {
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//ablute_ IRM//EN'];
