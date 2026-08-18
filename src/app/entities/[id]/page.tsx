@@ -197,13 +197,21 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
+      {/* Prompt 202 §C — o histórico deixa de viver só atrás do botão.
+          Prompt 241 — e deixa de viver DUAS vezes: o RecentInteractions
+          (que tem a classificação inline e os saltos) passa a preencher a
+          coluna direita do cartão, em vez de ser um segundo bloco por
+          baixo a mostrar as mesmas linhas. Continua a receber os mesmos
+          nonces daqui — é por isso que o badge "N to classify" e o badge
+          de documento do stepper continuam a saltar para a linha certa. */}
       <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)}
         onClassifyRequest={() => setClassifyNonce((n) => n + 1)}
         onViewInHistory={(id) => setFocusInteraction((p) => ({ id, nonce: p.nonce + 1 }))}
-        dealMessageTouches={dealMessageTouches} dealMessages={messaging.messages} />
-      {/* Prompt 202 §C — o histórico deixa de viver só atrás do botão. */}
-      <RecentInteractions entity={entity} onOpenFull={() => setDrawerOpen(true)} focusClassifyNonce={classifyNonce}
-        focusInteraction={focusInteraction} dealMessages={messaging.messages} />
+        dealMessageTouches={dealMessageTouches}
+        historySlot={(
+          <RecentInteractions entity={entity} onOpenFull={() => setDrawerOpen(true)} focusClassifyNonce={classifyNonce}
+            focusInteraction={focusInteraction} dealMessages={messaging.messages} />
+        )} />
 
       {db.ndas.filter((n) => n.entity_id === entity.id).length > 0 && (
         <Card title="NDAs on file">

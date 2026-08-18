@@ -21,7 +21,6 @@ const SNOOZE_OPTIONS = [
 import { derivedStage } from '@/lib/derived-stage';
 import { JourneyStepper } from '@/components/JourneyStepper';
 import { TermHint } from '@/components/ui';
-import { mergeTimeline, timelineContent, DIRECTION_LABEL, type DealMessageLike } from '@/lib/interaction-history';
 
 // Prompt 49 §4 — jargon inside nextBestAction()'s free-text copy gets a
 // clickable (i) the first time it appears in the string. First-match-only
@@ -102,7 +101,7 @@ export function RelationshipCompactLine({ entityId }: { entityId: string }) {
 }
 
 // Full version for the entity page header.
-export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyRequest, onViewInHistory, dealMessageTouches = [], dealMessages = [] }: {
+export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyRequest, onViewInHistory, dealMessageTouches = [], historySlot }: {
   entity: Entity; onOpenThread?: () => void;
   // Prompt 208 §D — pedido de "leva-me a resposta por classificar". O cartao
   // nao sabe desenhar o historico; quem sabe e o RecentInteractions, logo
@@ -116,12 +115,11 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // eligibility, Prompt 197 A), so it's threaded straight through here
   // instead of this card re-fetching it independently.
   dealMessageTouches?: DealMessageTouch[];
-  // Prompt 238 — as mesmas mensagens Sherlock, agora com conteúdo (não só
-  // {senderSide, createdAt}), para o cartão de histórico as poder LISTAR —
-  // até aqui só contavam para touchCount/lastTouchAt (dealMessageTouches,
-  // acima), nunca apareciam na lista. Era esse o desencontro: "5 touches"
-  // ao lado de uma lista com 2 linhas, nenhuma delas explicando a diferença.
-  dealMessages?: DealMessageLike[];
+  // Prompt 241 — o histórico da coluna direita, injectado pela página. É o
+  // <RecentInteractions>, que já tem a classificação inline e os saltos;
+  // este cartão só lhe dá o lugar no layout. Evita a segunda lista (a
+  // duplicação que o 240 criou) sem trazer para aqui a máquina toda.
+  historySlot?: ReactNode;
 }) {
   const { db, setRelationshipStage, undoStageChange, setEntityStatus, addTask, toggleTask, updateTask } = useStore();
   const [exitMode, setExitMode] = useState<'none' | 'pass'>('none');
@@ -203,14 +201,6 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // dizer. Em 'contacted' o item simplesmente não aparece.
   const stageIndex = STAGE_ORDER.indexOf(s.stage);
   const previousStage = stageIndex > 1 ? STAGE_ORDER[stageIndex - 1] : null;
-  // Prompt 226 §2 / 238 — o conteúdo do cartão de histórico. Mesma leitura
-  // que o RecentInteractions faz (mais recentes primeiro), só sem os
-  // controlos. Fundido com as mensagens Sherlock (238): antes só contavam
-  // para touchCount via dealMessageTouches, sem aparecer aqui — daí "5
-  // touches" ao lado de uma lista de 2 linhas.
-  const timelineRows = mergeTimeline(db.interactions, entity.id, dealMessages);
-  const historyTotal = timelineRows.length;
-  const recentThree = [...timelineRows].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 3);
   // Prompt 205 §E — uma entidade parqueada/fechada não pode continuar a
   // desenhar um funil activo ao lado do pill que diz "dormant". O stepper
   // fica neutro e o chip de "de quem é a vez" desaparece: não é vez de
@@ -577,47 +567,21 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           )}
         </div>
 
-        <div className="min-w-[320px] flex-[1.3] rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
-          <div className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
-              Contact history
-              <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">{historyTotal}</span>
-              {ds.unclassifiedReplies > 0 && (
-                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900">
-                  {ds.unclassifiedReplies} to classify
-                </span>
-              )}
-            </span>
-            <span className="flex items-center gap-2">
-              {/* Prompt 236 — "Show all N" e "Thread view" chamavam o MESMO
-                  onOpenThread desde o 229: dois botões para uma acção só.
-                  Fundidos num, mesmo estilo pill do RecentInteractions, já
-                  sem o `historyTotal > 3` (abrir a vista completa faz
-                  sentido mesmo com poucas interações). */}
-              {onOpenThread && (
-                <button onClick={onOpenThread}
-                  className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50">
-                  {`Thread view (${historyTotal})`}
-                </button>
-              )}
-            </span>
-          </div>
-          {/* As 3 mais recentes, compactas: data · direcção · uma linha. Sem
-              controlos de classificação — esses vivem só na secção completa
-              abaixo, para não haver dois sítios a fazer a mesma coisa. */}
-          <ul className="mt-2 space-y-1">
-            {recentThree.length === 0 ? (
-              <li className="text-xs text-gray-400">No contact logged yet.</li>
-            ) : recentThree.map((row) => (
-              <li key={row.key} className="flex gap-2 truncate border-t border-dashed border-gray-100 pt-1 text-[11.5px] text-gray-500 first:border-0 first:pt-0">
-                <span className="shrink-0 tabular-nums">{row.at.slice(0, 10)}</span>
-                <span className={`shrink-0 font-semibold ${row.direction === 'in' ? 'text-[#0E7490]' : 'text-gray-600'}`}>
-                  {DIRECTION_LABEL[row.direction]}{row.kind === 'deal_message' ? ' · Sherlock' : ''}
-                </span>
-                <span className="truncate text-gray-600">{timelineContent(row)}</span>
-              </li>
-            ))}
-          </ul>
+        {/* Prompt 241 — a coluna direita passa a ser preenchida pelo
+            PRÓPRIO RecentInteractions, em vez de uma segunda lista só de
+            leitura. O 240 deixou os dois a mostrar as mesmas linhas, um a
+            seguir ao outro, porque o merge do 238 tinha tornado o conteúdo
+            idêntico — e a razão original para haver duas (o badge "N to
+            classify" cá em cima a apontar para a lista de baixo) deixou de
+            existir quando esta passou a desenhar a lista inteira.
+            Via escolhida: manter o LAYOUT do 240 (a coluna, o tamanho, a
+            posição) e trazer para aqui o componente que já tem a
+            classificação inline e os saltos — em vez de mover essa máquina
+            toda (InlineClassify, nonces, refs, expanded) para dentro deste
+            ficheiro, que a duplicaria e deixaria o RecentInteractions
+            morto. É composição, não migração de código. */}
+        <div className="min-w-[320px] flex-[1.3]">
+          {historySlot}
         </div>
 
       </div>

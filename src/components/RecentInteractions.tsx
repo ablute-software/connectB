@@ -82,24 +82,30 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
 
   const recent = expanded ? all : all.slice(0, limit);
 
+  // Prompt 241 — a casca passa a ser a do cartão do 240 (gradiente
+  // quase-branco, borda #e6eef0, sombra em duas camadas): este componente
+  // deixou de viver solto por baixo e passou a OCUPAR a coluna direita do
+  // RelationshipSummaryCard, como `historySlot`. É a mesma peça visual que
+  // estava lá, agora com a classificação inline que só existia aqui.
+  const CARD = 'rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]';
+
   if (total === 0) {
     return (
-      <div className="rounded-2xl border border-gray-100 bg-white p-4 text-sm text-gray-400 shadow-sm">
+      <div className={`${CARD} text-sm text-gray-400`}>
         No contact history yet — nothing logged for {entity.name}.
       </div>
     );
   }
 
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+    <div className={CARD}>
       <div className="flex items-center justify-between gap-2">
-        {/* Prompt 228 §A — o titulo saiu daqui POR COMPLETO. O 226 tinha-o
-            trocado de "Contact history" para "All contact", mas continuava a
-            ler-se como repeticao: e a mesma ideia com outra palavra, logo
-            debaixo do cartao que ja diz "Contact history". Ficam a contagem
-            e o chip de "to classify", que sao o ESTADO desta lista e nao um
-            titulo. */}
+        {/* Prompt 228 §A tinha tirado o titulo daqui porque o cartao de cima
+            ja dizia "Contact history" e liam-se como repeticao. O 241
+            removeu essa segunda lista — este e agora o unico historico da
+            pagina, portanto o titulo volta: nao ha nada com que duplicar. */}
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+          Contact history
           <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">{total}</span>
           {unclassifiedReplies > 0 && (
             <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900">
