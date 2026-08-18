@@ -25,6 +25,45 @@ npm run build    # must pass before pushing
 ```
 Without Supabase env vars the app runs in **demo mode** (localStorage only, auth disabled).
 
+## Verifying a change in the browser — never against production (Prompt 250)
+
+Three test-data writes reached the same real production entity (`c8ff10dd-…`,
+sherlockdeal.com) across separate incidents — `stage_change` interactions, real
+quota consumption, `deal_messages` — because the safeguard lived in text
+("disable `.env.local`, remember to restore it") instead of in something that
+enforces itself. This section replaces that with two rules that hold regardless
+of which session or model is reading this file:
+
+1. **Always start the dev server with `npm run dev:verify`, never plain `npm run
+   dev`, for any session that will click through the UI.** `dev:verify` runs
+   `scripts/dev-verify.mjs`, which forces demo mode by overriding the three
+   Supabase env vars to `''` in the spawned process — **regardless of what
+   `.env.local` contains on disk**. No file gets touched, so there's nothing to
+   remember to restore, and no chance of forgetting. `npm run dev` (real
+   Supabase, for actual feature work) is unaffected. Confirmed empirically: with
+   real credentials present and untouched in `.env.local`, `curl localhost:PORT/api/me`
+   under `dev:verify` returns `authEnabled: false`.
+2. **Only ever use the `Claude_Browser` MCP tools (`mcp__Claude_Browser__*`) for
+   verification clicks in this project — never `claude-in-chrome`.**
+   `claude-in-chrome` drives the user's REAL Chrome, with real logged-in
+   sessions; the original incident happened because a stray production tab in
+   that same real browser could silently receive clicks meant for a demo tab.
+   `Claude_Browser` is a separate, sandboxed pane — this alone removes that
+   failure mode. Before any click sequence, call `tabs_context` and abort if any
+   tab's origin matches a production domain (`sherlockdeal.com`,
+   `*.sherlockdeal.com`, `connect-b-*.vercel.app`); always pass an explicit
+   `tabId` to every `computer`/`navigate`/`form_input` call, never rely on
+   "whichever tab is active."
+   - **Known limit, stated plainly:** there is no PreToolUse hook that can
+     enforce this mechanically — a hook is a stateless external process with no
+     access to the live MCP browser session, so it cannot itself inspect open
+     tabs. The two rules above are the strongest available substitute: rule 1 is
+     a real technical control (env vars can't leak through even if rule 2 is
+     forgotten); rule 2 is procedural but concrete and checkable with a real
+     tool call, not a promise.
+3. **Layer 2 (a server-side write gate against real entities) is proposed, not
+   yet implemented** — see the prompt 250 session for the writeup once decided.
+
 ## Architecture — read this before changing anything
 
 There are **two layers**, and they are at different stages:
