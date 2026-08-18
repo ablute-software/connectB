@@ -21,7 +21,7 @@ function task(over: Partial<TaskItem> = {}): TaskItem {
 }
 
 function db(e: Entity, tasks: TaskItem[] = [], interactions: Interaction[] = []): Db {
-  return { entities: [e], interactions, people: [], tasks, relationshipState: [] } as unknown as Db;
+  return { entities: [e], interactions, people: [], tasks, relationshipState: [], reawakeningProposals: [] } as unknown as Db;
 }
 
 describe('entityMode', () => {

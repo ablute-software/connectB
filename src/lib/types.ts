@@ -726,6 +726,22 @@ export interface RejectionCode {
   created_at: string;
 }
 
+// Prompt 251/253 Bloco B — the startup's own position on a rejection axis
+// (migration 0184, schema landed in Bloco A). Read by
+// rejection-code-match.ts for any axis_code that isn't one of the
+// structured ones (stage/sector/geography, which read live org/entity
+// fields instead). Still no writer as of Bloco B — a free-text axis
+// simply never clears until a later block adds a way to confirm one; that
+// gap is real and stated, not silently papered over.
+export interface OrgAxisClassification {
+  id: string;
+  axis_code: string;
+  level: number;
+  level_label: string;
+  source_fact_id?: string;
+  confirmed_at: string;
+}
+
 // Prompt 252 — audit trail for manual interaction edits (occurred_at/
 // channel/content), one row per field changed. edited_by is 'demo' in
 // demo mode (no auth.users row exists there — never a fabricated
@@ -826,7 +842,12 @@ export interface InvestorSubmission {
 export type ReawakeningStatus = 'pending' | 'approved' | 'rejected' | 'dismissed';
 export interface ReawakeningProposal {
   id: string;
-  fact_id: string;
+  // Prompt 251/253 Bloco B — exactly one of fact_id/rejection_code_id is
+  // ever set (DB-enforced XOR, migration 0186): the two triggers for this
+  // same queue — a confirmed company fact (AI-judged), or a deterministic
+  // rejection-code comparison (no AI at all).
+  fact_id?: string;
+  rejection_code_id?: string;
   entity_id: string;
   reopens: boolean;
   rationale?: string;
@@ -872,4 +893,5 @@ export interface Db {
   roadmapCategories: RoadmapCategory[];
   rejectionCodes: RejectionCode[];
   interactionEdits: InteractionEdit[];
+  orgAxisClassifications: OrgAxisClassification[];
 }

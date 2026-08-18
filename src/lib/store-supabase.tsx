@@ -13,10 +13,11 @@ import type {
   DocumentVersion, DocumentView, Entity, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory,
-  RejectionCode, InteractionEdit } from './types';
+  RejectionCode, InteractionEdit, OrgAxisClassification } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
-import { buildReawakenApproval } from './reawakening';
+import { buildReawakenApproval, priorPassInfo } from './reawakening';
+import { findReactivations, reactivationTaskTitle } from './rejection-code-match';
 import { STAGE_LABEL, getStage } from './relationship';
 import { fitBucketFromScore } from './catalog-fit-bucket';
 import { revisitTasksToClose } from './exit-effects';
@@ -29,7 +30,7 @@ const EMPTY_DB: Db = {
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
   documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [],
-  rejectionCodes: [], interactionEdits: [],
+  rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -76,7 +77,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
     documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes, roadmapMilestonesRes,
-    fundingRoundsRes, roadmapCategoriesRes, rejectionCodesRes, interactionEditsRes,
+    fundingRoundsRes, roadmapCategoriesRes, rejectionCodesRes, interactionEditsRes, orgAxisClassificationsRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -133,6 +134,9 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // Prompt 252 — interaction_edits (0185). Same missing-table-safe
     // pattern as company_facts/ndas above.
     sb.from('interaction_edits').select('*').eq('org_id', orgId),
+    // Prompt 251/253 Bloco B — org_axis_classifications (0184), read-only
+    // here still (no writer as of Bloco B).
+    sb.from('org_axis_classifications').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -199,6 +203,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     roadmapCategories: ((roadmapCategoriesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RoadmapCategory>(r)),
     rejectionCodes: ((rejectionCodesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RejectionCode>(r)),
     interactionEdits: ((interactionEditsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<InteractionEdit>(r)),
+    orgAxisClassifications: ((orgAxisClassificationsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<OrgAxisClassification>(r)),
   };
 }
 
@@ -249,6 +254,40 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     }).then((r) => r.json()).then((b) => {
       if (b && b.ok && (b.proposals ?? 0) > 0) refetch();
     }).catch(() => { /* never blocks the confirm */ });
+  }
+
+  // Prompt 251/253 Bloco B — the on-write hook (see the identical comment
+  // in store-demo.tsx for the full reasoning). Takes the state just
+  // committed by the caller, appends any newly-cleared reactivations, and
+  // persists those two inserts — the write that triggered this (updateOrg/
+  // updateEntity/addRejectionCode) already persisted itself.
+  function applyReactivations(next: Db, entityIds?: string[]) {
+    const reactivations = findReactivations(next, entityIds);
+    if (reactivations.length === 0) return;
+    const now = new Date().toISOString();
+    const newProposals = reactivations.map((r) => {
+      const { reason, category } = priorPassInfo(next.interactions.filter((i) => i.entity_id === r.entity.id));
+      return {
+        id: uuid(), rejection_code_id: r.code.id, entity_id: r.entity.id,
+        reopens: true, rationale: r.rationale,
+        prior_pass_reason: reason, prior_pass_category: category,
+        status: 'pending' as const, created_at: now,
+      };
+    });
+    const newTasks = reactivations.map((r) => ({
+      id: uuid(), title: reactivationTaskTitle(r.entity.name, r.code), entity_id: r.entity.id,
+      kind: 'follow_up' as const, action_type: 'other' as const, done: false, source: 'suggested' as const,
+    }));
+    commit({
+      ...next,
+      reawakeningProposals: [...next.reawakeningProposals, ...newProposals],
+      tasks: [...next.tasks, ...newTasks],
+    });
+    const o = orgIdRef.current;
+    if (o) {
+      persist(sb.from('reawakening_proposals').insert(newProposals.map((p) => ({ ...p, org_id: o }))), 'applyReactivations:proposals');
+      persist(sb.from('tasks').insert(newTasks.map((t) => ({ ...t, org_id: o }))), 'applyReactivations:tasks');
+    }
   }
 
   // Prompt 179 §B — extracted to catalog-fit-bucket.ts so the server-side
@@ -556,9 +595,13 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     addRejectionCode(rc: Omit<RejectionCode, 'id' | 'created_at'>) {
       const prev = dbRef.current;
       const row: RejectionCode = { ...rc, id: uuid(), created_at: new Date().toISOString() };
-      commit({ ...prev, rejectionCodes: [...prev.rejectionCodes, row] });
+      const next = { ...prev, rejectionCodes: [...prev.rejectionCodes, row] };
+      commit(next);
       const o = orgIdRef.current;
       if (o) persist(sb.from('rejection_codes').insert({ ...row, org_id: o }), 'addRejectionCode');
+      // 253 §2 — a retroactively-coded pass compares against the CURRENT
+      // startup classification immediately.
+      applyReactivations(next, [rc.entity_id]);
     },
 
     updateTask(id: string, patch: { reminder_at?: string | null; snoozed_until?: string | null; due_at?: string }) {
@@ -570,7 +613,8 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
 
     updateOrg(patch: Partial<Org>) {
       const prev = dbRef.current;
-      commit({ ...prev, org: { ...prev.org, ...patch } });
+      const next = { ...prev, org: { ...prev.org, ...patch } };
+      commit(next);
       // orgs has an owner-only RLS update policy and needs admin editing too,
       // so writes go through /api/org/update (service-role after a role
       // check) rather than the browser client — fire-and-forget, the local
@@ -578,6 +622,9 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       fetch('/api/org/update', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
       }).then((r) => r.json()).then((b) => { if (!b.ok) console.error('[supabase-store] updateOrg failed:', b.error); }).catch((e) => console.error('[supabase-store] updateOrg failed:', e));
+      // Bloco B — the startup itself changed; 'stage'/'sectors' are the
+      // two axes this engine understands structurally today.
+      if ('stage' in patch || 'sectors' in patch) applyReactivations(next);
     },
 
     addCompanyPerson(p) {
@@ -752,8 +799,15 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
 
     updateEntity(id: string, patch: Partial<Entity>) {
       const prev = dbRef.current;
-      commit({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, ...patch } : e) });
+      const next = { ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, ...patch } : e) };
+      commit(next);
       if (orgIdRef.current) persist(sb.from('entities').update(nullify(patch)).eq('id', id), 'updateEntity');
+      // 253 (addendum) — see REACTIVATION_TRIGGER_FIELDS in store-demo.tsx
+      // for the same list; kept here as a literal since this file has no
+      // shared module-scope constant with that one.
+      if (['sectors', 'invests_in_geographies', 'stage_min', 'stage_max', 'check_min_eur', 'check_max_eur'].some((f) => f in patch)) {
+        applyReactivations(next, [id]);
+      }
     },
 
     updatePerson(id: string, patch: Partial<Person>) {

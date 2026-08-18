@@ -248,6 +248,14 @@ export function nextBestAction(db: Db, entityId: string, now = new Date(), dealM
     // status aqui trazia de volta a incoerencia que isto veio resolver.
     if (entity.status === 'invested') return 'Invested — closed.';
 
+    // Prompt 251/253 Bloco B — a deterministic code match takes priority
+    // over the generic Fase-0 copy below: it's a SPECIFIC, citable reason
+    // ("passed over stage; that bar looks cleared now"), not just "no
+    // trigger recorded". Only ever one pending proposal per rejection_code
+    // (DB-unique, migration 0186), so `.find` is enough — no ordering needed.
+    const pendingReactivation = db.reawakeningProposals.find((p) => p.entity_id === entityId && p.status === 'pending' && p.reopens && p.rejection_code_id);
+    if (pendingReactivation) return `↻ ${pendingReactivation.rationale}`;
+
     const lastPass = db.interactions
       .filter((i) => i.entity_id === entityId && i.direction === 'in' && i.classification === 'pass')
       .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)).at(-1);

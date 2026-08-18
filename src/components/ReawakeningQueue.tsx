@@ -21,7 +21,14 @@ export function ReawakeningQueue() {
 
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
-      .then((me) => setAvailable(!!me.capabilities?.reawakening)).catch(() => {});
+      // Prompt 251/253 Bloco B — demo mode has no real Supabase connection
+      // for the capability probe to confirm against, so it always reports
+      // false there; every other migration-gated feature in this codebase
+      // treats demo mode itself as available (AgendaPanel.tsx's
+      // taskReminders is the sibling example) — this one had drifted from
+      // that convention, hiding the whole queue (including Bloco B's own
+      // code-triggered proposals) in demo mode regardless of data.
+      .then((me) => setAvailable(!me.authEnabled || !!me.capabilities?.reawakening)).catch(() => {});
   }, []);
 
   const pending = useMemo(

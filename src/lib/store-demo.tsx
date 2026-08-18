@@ -11,7 +11,8 @@ import { seed } from './data/seed';
 import { revisitTasksToClose } from './exit-effects';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
-import { buildReawakenApproval } from './reawakening';
+import { buildReawakenApproval, priorPassInfo } from './reawakening';
+import { findReactivations, reactivationTaskTitle } from './rejection-code-match';
 import { STAGE_LABEL, getStage } from './relationship';
 import { StoreCtx, type StoreApi } from './store-context';
 
@@ -19,6 +20,43 @@ const STORAGE_KEY = 'ablute-crm-demo-v3';
 
 function uid(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// Prompt 253 (addendum) — editing the INVESTOR's own structured thesis
+// fields also re-compares that entity's rejection_codes: a stage_min/
+// stage_max/sectors/invests_in_geographies/check edit can clear (or
+// reopen) a clash independently of anything the startup did.
+const REACTIVATION_TRIGGER_FIELDS = ['sectors', 'invests_in_geographies', 'stage_min', 'stage_max', 'check_min_eur', 'check_max_eur'] as const;
+
+// Prompt 251/253 Bloco B — the on-write hook, called at the end of every
+// write that could clear a rejection_code: updateOrg (startup changed),
+// updateEntity (investor's thesis fields changed), addRejectionCode (a
+// pass coded after the fact — compare immediately, per 253's second
+// addendum point). Pure comparison (findReactivations), zero AI, zero
+// cron; the only I/O is the two arrays this appends to, same shape
+// approveReawakening already uses for the fact-triggered path.
+function applyReactivations(next: Db, entityIds?: string[]): Db {
+  const reactivations = findReactivations(next, entityIds);
+  if (reactivations.length === 0) return next;
+  const now = new Date().toISOString();
+  const newProposals = reactivations.map((r) => {
+    const { reason, category } = priorPassInfo(next.interactions.filter((i) => i.entity_id === r.entity.id));
+    return {
+      id: uid('rwp'), rejection_code_id: r.code.id, entity_id: r.entity.id,
+      reopens: true, rationale: r.rationale,
+      prior_pass_reason: reason, prior_pass_category: category,
+      status: 'pending' as const, created_at: now,
+    };
+  });
+  const newTasks = reactivations.map((r) => ({
+    id: uid('t'), title: reactivationTaskTitle(r.entity.name, r.code), entity_id: r.entity.id,
+    kind: 'follow_up' as const, action_type: 'other' as const, done: false, source: 'suggested' as const,
+  }));
+  return {
+    ...next,
+    reawakeningProposals: [...next.reawakeningProposals, ...newProposals],
+    tasks: [...next.tasks, ...newTasks],
+  };
 }
 
 export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
@@ -225,11 +263,17 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     },
 
     addRejectionCode(rc) {
-      setDb((prev) => ({
-        ...prev,
-        // 'rej' prefix, not 'rc' -- roadmapCategories already claims that one.
-        rejectionCodes: [...prev.rejectionCodes, { ...rc, id: uid('rej'), created_at: new Date().toISOString() }],
-      }));
+      setDb((prev) => {
+        const next = {
+          ...prev,
+          // 'rej' prefix, not 'rc' -- roadmapCategories already claims that one.
+          rejectionCodes: [...prev.rejectionCodes, { ...rc, id: uid('rej'), created_at: new Date().toISOString() }],
+        };
+        // 253 §2 — coding a rejection retroactively (e.g. BlueCrow's old
+        // pass) compares against the CURRENT startup classification right
+        // away — there may already be no clash at the moment it's coded.
+        return applyReactivations(next, [rc.entity_id]);
+      });
     },
 
     updateTask(id, patch) {
@@ -237,7 +281,15 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     },
 
     updateOrg(patch) {
-      setDb((prev) => ({ ...prev, org: { ...prev.org, ...patch } }));
+      setDb((prev) => {
+        const next = { ...prev, org: { ...prev.org, ...patch } };
+        // Bloco B — the startup itself changed. 'stage'/'sectors' are the
+        // two axes this engine currently understands structurally; other
+        // fields never move a rejection_code's clash state, so skip the
+        // (cheap but pointless) re-check on every unrelated org edit.
+        if ('stage' in patch || 'sectors' in patch) return applyReactivations(next);
+        return next;
+      });
     },
 
     addCompanyPerson(p) {
@@ -355,8 +407,13 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, hard_filter_status: status } : e) }));
     },
 
+    // Bloco B — see REACTIVATION_TRIGGER_FIELDS above.
     updateEntity(id, patch) {
-      setDb((prev) => ({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, ...patch } : e) }));
+      setDb((prev) => {
+        const next = { ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, ...patch } : e) };
+        const triggers = REACTIVATION_TRIGGER_FIELDS.some((f) => f in patch);
+        return triggers ? applyReactivations(next, [id]) : next;
+      });
     },
 
     updatePerson(id, patch) {
