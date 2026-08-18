@@ -5,7 +5,7 @@
 // channel.
 import { useState } from 'react';
 
-export type SupportSource = 'landing' | 'landing_investors' | 'founder_app' | 'investor_portal' | 'suspended';
+export type SupportSource = 'landing' | 'landing_investors' | 'founder_app' | 'investor_portal' | 'suspended' | 'blocked';
 
 const CATEGORIES: { value: string; label: string }[] = [
   { value: 'question', label: 'Question' },

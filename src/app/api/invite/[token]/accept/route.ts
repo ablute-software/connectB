@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -34,6 +35,12 @@ export async function POST(req: Request, { params }: { params: { token: string }
   if (new Date(invite.expires_at) < new Date()) {
     await admin.from('org_invitations').update({ status: 'expired' }).eq('id', invite.id);
     return NextResponse.json({ ok: false, error: 'Invitation expired.' }, { status: 409 });
+  }
+  // Prompt 244/245 — the email may have been blocked AFTER the invitation
+  // was created but before it's accepted; check at accept time too, not
+  // just at creation.
+  if (await isEmailBlocked(admin, invite.email)) {
+    return NextResponse.json({ ok: false, error: BLOCKED_EMAIL_ERROR }, { status: 403 });
   }
 
   const { error: memberErr } = await admin

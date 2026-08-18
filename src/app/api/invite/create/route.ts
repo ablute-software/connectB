@@ -9,6 +9,7 @@ import { serverClient, getOrgRole } from '@/lib/supabase-server';
 import { canAssignRole, type OrgRole } from '@/lib/permissions';
 import { loadOrgMatrix } from '@/lib/org-matrix-server';
 import { canWithMatrix } from '@/lib/org-permissions';
+import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 
 export async function POST(req: Request) {
   const sb = await serverClient();
@@ -28,6 +29,10 @@ export async function POST(req: Request) {
     const matrix = await loadOrgMatrix(admin, orgId);
     if (!canWithMatrix(matrix, actorRole, 'invites')) {
       return NextResponse.json({ ok: false, error: 'Your role can’t invite teammates.' }, { status: 403 });
+    }
+    // Prompt 244/245 — a blocked email never gets a fresh invitation either.
+    if (await isEmailBlocked(admin, email)) {
+      return NextResponse.json({ ok: false, error: BLOCKED_EMAIL_ERROR }, { status: 403 });
     }
   }
   if (!actorRole || !canAssignRole(actorRole, role)) {

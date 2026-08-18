@@ -12,7 +12,7 @@ import { supportTicketsAvailable } from '@/lib/support-capability';
 import { sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { BRAND_NAME } from '@/lib/brand';
 
-const SOURCES = ['landing', 'landing_investors', 'founder_app', 'investor_portal', 'suspended'] as const;
+const SOURCES = ['landing', 'landing_investors', 'founder_app', 'investor_portal', 'suspended', 'blocked'] as const;
 const CATEGORIES = ['question', 'problem', 'billing', 'data_correction', 'claim_profile', 'other'] as const;
 const RATE_LIMIT_PER_HOUR = 5;
 
@@ -90,8 +90,15 @@ export async function POST(req: Request) {
   // (already always allowed) means a ticket from a suspended account is
   // never silently lost to a constraint the DB hasn't caught up to yet —
   // it just gets a slightly generic source label until 0143 lands.
-  if (error && source === 'suspended') {
-    console.warn('[support/submit] insert with source=suspended failed (migration 0143 not applied yet?), retrying as founder_app:', error.message);
+  //
+  // Prompt 244/245 — 'blocked' (the /blocked page's ContactForm) needs its
+  // own companion migration (0181) for the same reason, and it's PROPOSED/
+  // NOT APPLIED for the same reason 0143 still is: this repo's convention
+  // is that widening support_tickets' source check constraint is left for
+  // Nuno to apply by hand, not auto-applied by a Code session. Same
+  // fallback, same rationale.
+  if (error && (source === 'suspended' || source === 'blocked')) {
+    console.warn(`[support/submit] insert with source=${source} failed (companion migration not applied yet?), retrying as founder_app:`, error.message);
     ({ data: ticket, error } = await admin.from('support_tickets').insert({
       source: 'founder_app', org_id: orgId, user_id: user?.id ?? null,
       name: name.trim(), email: finalEmail, category, subject: subject.trim(),

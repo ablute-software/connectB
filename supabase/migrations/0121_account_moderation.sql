@@ -1,7 +1,9 @@
 -- Prompt 123 Block C.2 — account moderation (suspend/undo/delete/quarantine)
 -- for both Startups (orgs) and Investors (catalog_entities — the firm-level
 -- account; matchdeal_investor_members are its seats, same shape as
--- org_members). PROPOSE ONLY — not applied.
+-- org_members). Applied in production (confirmed 2026-08-17 by direct SQL
+-- check of orgs/catalog_entities/account_moderation_actions/
+-- is_account_suspended() — the "PROPOSE ONLY" note below was stale).
 --
 -- Deliberately separate from matchdeal_profiles.owner_suspended_at /
 -- platform_suspended_at (migration 0105): those are cosmetic, MatchDeal-deck-

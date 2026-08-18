@@ -20,6 +20,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { generateRawToken } from '@/lib/matchdeal-pairing';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
+import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { APP_URL, BRAND_NAME } from '@/lib/brand';
 
 // Decision (2026-08-07, per the mini-prompt's own ask to pick and record
@@ -63,6 +64,12 @@ export async function POST(req: Request) {
   if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
+
+  // Prompt 244/245 — a blocked email never gets a fresh guest-preview link
+  // minted or emailed, whether or not one was pending before the block.
+  if (await isEmailBlocked(admin, email)) {
+    return NextResponse.json({ ok: false, error: BLOCKED_EMAIL_ERROR }, { status: 403 });
+  }
 
   // Idempotent by design — this is also what the "Copy guest link" button
   // calls (documents/page.tsx), any time after the invite, not just once at

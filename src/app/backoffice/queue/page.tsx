@@ -6,6 +6,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Card, Tooltip } from '@/components/ui';
 import { classifyConflict, type ConflictClass } from '@/lib/contribution-diff';
+import { SuspiciousAccountsTab } from '@/components/backoffice/SuspiciousAccountsTab';
 
 // Prompt 190 — 'candidates' ("Catalog candidates") added next to
 // Contributions per Nuno's explicit decision: "Added by startups" (Prompt
@@ -14,7 +15,7 @@ import { classifyConflict, type ConflictClass } from '@/lib/contribution-diff';
 // backoffice/catalog/page.tsx (the CatalogCandidatesTab/AddedByStartupsTab/
 // QualityPanel section below) — no logic changes, per the prompt's own
 // scope.
-type Tab = 'contributions' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr';
+type Tab = 'contributions' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'contributions', label: 'Contributions' },
@@ -23,6 +24,9 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'claims', label: 'Claims' },
   { key: 'identity', label: 'Investor identity' },
   { key: 'gdpr', label: 'GDPR' },
+  // Prompt 244/245 — manual flagging by developers (not automatic
+  // detection), see SuspiciousAccountsTab.tsx.
+  { key: 'suspicious', label: 'Suspicious accounts' },
 ];
 
 type Contribution = {
@@ -1084,6 +1088,7 @@ export default function BackofficeQueuePage() {
       {tab === 'claims' && <ClaimsTab />}
       {tab === 'identity' && <InvestorIdentityTab />}
       {tab === 'gdpr' && <GdprTab />}
+      {tab === 'suspicious' && <SuspiciousAccountsTab />}
     </div>
   );
 }

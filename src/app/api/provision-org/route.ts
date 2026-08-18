@@ -7,6 +7,7 @@ import { ABLUTE_ORG_ID } from '@/lib/ablute-org';
 import { logAdminAction } from '@/lib/audit';
 import { PRESET_MATERIALS_FOLDERS, PRESET_DATA_ROOM_FOLDERS } from '@/lib/vault-preset-folders';
 import { acquisitionSourceAvailable } from '@/lib/acquisition-source-capability';
+import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 
 // The platform owner. Signing up with either of these two specific,
 // hardcoded addresses links to the real ablute_ org (already seeded) as
@@ -67,6 +68,14 @@ export async function POST(req: NextRequest) {
     const createdAt = authUser?.user?.created_at ? new Date(authUser.user.created_at).getTime() : 0;
     const freshEnough = createdAt > 0 && Date.now() - createdAt < 10 * 60 * 1000;
     if (!freshEnough) return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 });
+  }
+
+  // Prompt 244/245 — the auth.users row for this email may already exist
+  // (signUp() runs client-side, before this route ever sees the request);
+  // this can't undo that, but it stops a blocked address from getting an
+  // org, ownership, or platform_admin out of it.
+  if (typeof email === 'string' && await isEmailBlocked(admin, email)) {
+    return NextResponse.json({ ok: false, error: BLOCKED_EMAIL_ERROR }, { status: 403 });
   }
 
   const isLegacyOwner = typeof email === 'string' && OWNER_EMAILS.includes(email.trim().toLowerCase());

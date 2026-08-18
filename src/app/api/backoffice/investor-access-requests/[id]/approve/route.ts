@@ -14,6 +14,7 @@ import { logAdminAction } from '@/lib/audit';
 import { ABLUTE_ORG_ID } from '@/lib/ablute-org';
 import { checkInvestorDomainMatch } from '@/lib/investor-domain-match';
 import { notifyInvestorAccessDecision } from '@/lib/investor-access-request-notify';
+import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   const { id } = params;
@@ -25,6 +26,12 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     .select('id, email, firm_name, status').eq('id', id).single();
   if (reqErr) return NextResponse.json({ ok: false, error: reqErr.message }, { status: 404 });
   if (reqRow.status === 'approved') return NextResponse.json({ ok: true, alreadyApproved: true });
+
+  // Prompt 244/245 — a developer approving this by hand should still be
+  // stopped from granting a blocked address real Data Room access.
+  if (await isEmailBlocked(admin, reqRow.email)) {
+    return NextResponse.json({ ok: false, error: BLOCKED_EMAIL_ERROR }, { status: 403 });
+  }
 
   // P103 Bloco 1 — was .eq('name', 'Data Room'), a real functional
   // dependency on the display label (would have broken the moment the

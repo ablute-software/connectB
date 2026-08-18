@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
+import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -43,6 +44,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const documentIds = (reqRow.document_ids as string[]) ?? [];
     if (folderIds.length === 0 && documentIds.length === 0) {
       return NextResponse.json({ ok: false, error: 'This request has no folders or documents to grant.' }, { status: 409 });
+    }
+    // Prompt 244/245 — only the invited_email path (no known person_id yet)
+    // grants a NEW email real access; a person_id already belongs to a
+    // known, existing member and isn't this check's concern.
+    const requestedEmail = reqRow.person_id ? null : (reqRow.requested_email as string | null);
+    if (requestedEmail && await isEmailBlocked(admin, requestedEmail)) {
+      return NextResponse.json({ ok: false, error: BLOCKED_EMAIL_ERROR }, { status: 403 });
     }
     // No expires_at guess here — this re-grants whatever the request asked
     // for with no expiry; the founder can set one afterward the same way
