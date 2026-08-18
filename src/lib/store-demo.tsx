@@ -6,7 +6,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
   AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory,
-  InteractionEdit } from './types';
+  InteractionEdit, OrgAxisClassification } from './types';
 import { seed } from './data/seed';
 import { revisitTasksToClose } from './exit-effects';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
@@ -273,6 +273,17 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
         // pass) compares against the CURRENT startup classification right
         // away — there may already be no clash at the moment it's coded.
         return applyReactivations(next, [rc.entity_id]);
+      });
+    },
+
+    addOrgAxisClassification(c) {
+      setDb((prev) => {
+        const row: OrgAxisClassification = { ...c, id: uid('oax'), confirmed_at: new Date().toISOString() };
+        const next = { ...prev, orgAxisClassifications: [...prev.orgAxisClassifications, row] };
+        // Bloc C — confirming the startup's own position on a free-text
+        // axis can clear ANY entity's rejection_code on that axis, not
+        // just one — no entity filter, re-check everyone 'passed'.
+        return applyReactivations(next);
       });
     },
 

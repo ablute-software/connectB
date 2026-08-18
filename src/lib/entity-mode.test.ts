@@ -20,8 +20,11 @@ function task(over: Partial<TaskItem> = {}): TaskItem {
   } as TaskItem;
 }
 
-function db(e: Entity, tasks: TaskItem[] = [], interactions: Interaction[] = []): Db {
-  return { entities: [e], interactions, people: [], tasks, relationshipState: [], reawakeningProposals: [] } as unknown as Db;
+function db(
+  e: Entity, tasks: TaskItem[] = [], interactions: Interaction[] = [],
+  reawakeningProposals: Db['reawakeningProposals'] = [], rejectionCodes: Db['rejectionCodes'] = [],
+): Db {
+  return { entities: [e], interactions, people: [], tasks, relationshipState: [], reawakeningProposals, rejectionCodes } as unknown as Db;
 }
 
 describe('entityMode', () => {
@@ -127,6 +130,60 @@ describe('nextBestAction — Fase 0: o Tip de reabertura num dossier fechado', (
     const pass = { id: 'p', entity_id: 'e1', direction: 'in', channel: 'email', content: '...',
       classification: 'pass', occurred_at: '2023-08-15T10:00:00.000Z' } as Interaction;
     expect(nextBestAction(db(e, [], [pass]), 'e1', NOW)).toContain('3 years ago');
+  });
+});
+
+// Prompt 251/253 Bloco B/C — a pending code-triggered reactivation takes
+// priority over the generic Fase-0 copy above, and Bloc C fixed the
+// multi-code case (was a silent `.find`, dropped every reason past the
+// first).
+describe('nextBestAction — reativacao por codigo (Bloco B/C)', () => {
+  function proposal(over: Partial<Db['reawakeningProposals'][0]> = {}): Db['reawakeningProposals'][0] {
+    return {
+      id: 'rwp1', entity_id: 'e1', rejection_code_id: 'rc1', reopens: true, status: 'pending',
+      rationale: 'Passed earlier over stage (needed: series_a) — that bar looks cleared now.',
+      created_at: '2026-08-15T00:00:00.000Z', ...over,
+    } as unknown as Db['reawakeningProposals'][0];
+  }
+
+  it('uma proposta pendente: mostra a razao completa, com o icone', () => {
+    const e = entity({ status: 'passed' });
+    expect(nextBestAction(db(e, [], [], [proposal()]), 'e1', NOW))
+      .toBe('↻ Passed earlier over stage (needed: series_a) — that bar looks cleared now.');
+  });
+
+  it('ganha ao Fase 0 mesmo com reopen_trigger tambem preenchido', () => {
+    const e = entity({ status: 'passed', reopen_trigger: 'they raise a Series A' });
+    expect(nextBestAction(db(e, [], [], [proposal()]), 'e1', NOW)).toContain('↻');
+  });
+
+  it('duas propostas pendentes: nomeia os dois eixos, nao so o primeiro', () => {
+    const e = entity({ status: 'passed' });
+    const p1 = proposal({ id: 'rwp1', rejection_code_id: 'rc-stage' });
+    const p2 = proposal({ id: 'rwp2', rejection_code_id: 'rc-sector', rationale: 'Passed earlier over sector...' });
+    const codes = [
+      { id: 'rc-stage', entity_id: 'e1', axis_code: 'stage', required_level: 2, level_label: 'series_a', created_at: NOW.toISOString() },
+      { id: 'rc-sector', entity_id: 'e1', axis_code: 'sector', required_level: 1, level_label: 'digital health', created_at: NOW.toISOString() },
+    ] as Db['rejectionCodes'];
+    const result = nextBestAction(db(e, [], [], [p1, p2], codes), 'e1', NOW);
+    expect(result).toContain('stage');
+    expect(result).toContain('sector');
+    expect(result).toContain('2 bars cleared');
+  });
+
+  it('proposta ja resolvida (approved/rejected) nao conta', () => {
+    const e = entity({ status: 'passed' });
+    expect(nextBestAction(db(e, [], [], [proposal({ status: 'approved' })]), 'e1', NOW)).not.toContain('↻');
+  });
+
+  it('proposta com reopens:false (dismissed) nao conta', () => {
+    const e = entity({ status: 'passed' });
+    expect(nextBestAction(db(e, [], [], [proposal({ reopens: false })]), 'e1', NOW)).not.toContain('↻');
+  });
+
+  it('proposta de outra entidade nao vaza para esta', () => {
+    const e = entity({ status: 'passed' });
+    expect(nextBestAction(db(e, [], [], [proposal({ entity_id: 'outra' })]), 'e1', NOW)).not.toContain('↻');
   });
 });
 

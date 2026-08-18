@@ -8,7 +8,7 @@ import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, CompanyPerson, Db,
   Direction, DocumentItem, DocVisibility, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
   PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory,
-  RejectionCode, InteractionEdit } from './types';
+  RejectionCode, InteractionEdit, OrgAxisClassification } from './types';
 
 export type LogInput = {
   entity_id: string;
@@ -122,6 +122,13 @@ export interface StoreApi {
   // (rejection_codes, migration 0184). Void: the quick-pass flow doesn't
   // need the row back, unlike logInteraction.
   addRejectionCode: (rc: Omit<RejectionCode, 'id' | 'created_at'>) => void;
+  // Prompt 251/253 Bloco C — the startup's own confirmed position on a
+  // free-text axis (org_axis_classifications, schema from Bloc A, first
+  // writer here). Append-only like company_facts' own supersession model:
+  // a new row for the same axis_code is simply the latest one, nothing
+  // gets UPDATEd. Triggers the same on-write reactivation check as
+  // updateOrg/updateEntity/addRejectionCode.
+  addOrgAxisClassification: (c: Omit<OrgAxisClassification, 'id' | 'confirmed_at'>) => void;
   // Prompt 126 D — reminder popup Dismiss/Snooze. Deliberately scoped to
   // just these two fields (not a general patch) — nothing else about a
   // task is ever edited through this path. `null` (not `undefined`) is how

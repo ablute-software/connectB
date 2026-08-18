@@ -248,13 +248,23 @@ export function nextBestAction(db: Db, entityId: string, now = new Date(), dealM
     // status aqui trazia de volta a incoerencia que isto veio resolver.
     if (entity.status === 'invested') return 'Invested — closed.';
 
-    // Prompt 251/253 Bloco B — a deterministic code match takes priority
+    // Prompt 251/253 Bloco B/C — a deterministic code match takes priority
     // over the generic Fase-0 copy below: it's a SPECIFIC, citable reason
     // ("passed over stage; that bar looks cleared now"), not just "no
     // trigger recorded". Only ever one pending proposal per rejection_code
-    // (DB-unique, migration 0186), so `.find` is enough — no ordering needed.
-    const pendingReactivation = db.reawakeningProposals.find((p) => p.entity_id === entityId && p.status === 'pending' && p.reopens && p.rejection_code_id);
-    if (pendingReactivation) return `↻ ${pendingReactivation.rationale}`;
+    // (DB-unique, migration 0186) — but an entity can have SEVERAL codes
+    // clear independently (stage AND sector, say), each its own proposal;
+    // Bloc C fixed this from a silent `.find` (dropped every reason past
+    // the first) to naming all of them, with the full text only when
+    // there's exactly one to keep the common case unchanged.
+    const pendingReactivations = db.reawakeningProposals.filter((p) => p.entity_id === entityId && p.status === 'pending' && p.reopens && p.rejection_code_id);
+    if (pendingReactivations.length === 1) return `↻ ${pendingReactivations[0].rationale}`;
+    if (pendingReactivations.length > 1) {
+      const axes = pendingReactivations
+        .map((p) => db.rejectionCodes.find((c) => c.id === p.rejection_code_id)?.axis_code)
+        .filter((a): a is string => !!a);
+      return `↻ ${pendingReactivations.length} bars cleared (${axes.join(', ')}) — see the reawakening queue for the full reasons on each.`;
+    }
 
     const lastPass = db.interactions
       .filter((i) => i.entity_id === entityId && i.direction === 'in' && i.classification === 'pass')

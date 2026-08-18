@@ -604,6 +604,18 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       applyReactivations(next, [rc.entity_id]);
     },
 
+    addOrgAxisClassification(c: Omit<OrgAxisClassification, 'id' | 'confirmed_at'>) {
+      const prev = dbRef.current;
+      const row: OrgAxisClassification = { ...c, id: uuid(), confirmed_at: new Date().toISOString() };
+      const next = { ...prev, orgAxisClassifications: [...prev.orgAxisClassifications, row] };
+      commit(next);
+      const o = orgIdRef.current;
+      if (o) persist(sb.from('org_axis_classifications').insert({ ...row, org_id: o }), 'addOrgAxisClassification');
+      // Bloc C — see the identical comment in store-demo.tsx: no entity
+      // filter, this can clear any entity's code on the same axis.
+      applyReactivations(next);
+    },
+
     updateTask(id: string, patch: { reminder_at?: string | null; snoozed_until?: string | null; due_at?: string }) {
       const prev = dbRef.current;
       const tasks = prev.tasks.map((t) => t.id === id ? { ...t, ...patch } : t);

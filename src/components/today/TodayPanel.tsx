@@ -12,6 +12,7 @@ import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, recommendedActionType } from '@/l
 import { PageTour } from '@/components/onboarding/PageTour';
 import { useInterestRequests, decideInterestRequest } from '@/lib/interest-requests-client';
 import type { ActionType } from '@/lib/types';
+import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 
 function ActionTypePill({ type }: { type: ActionType }) {
   return <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${ACTION_TYPE_COLOR[type]}`}>{ACTION_TYPE_LABEL[type]}</span>;
@@ -86,6 +87,13 @@ export function TodayPanel() {
             <span className="text-sm text-gray-500">{now.toISOString().slice(0, 10)}</span>
           </div>
         </div>
+
+        {/* Prompt 251/253 Bloco C — the exact same queue Pipeline already
+            shows, mounted here too: a cleared rejection_code is a
+            "today" signal, not something the founder should only find
+            by visiting Pipeline. Self-contained (own fetch, own store
+            read) — no new logic, just a second place it renders. */}
+        <ReawakeningQueue />
 
         <Card title={<span className="text-[#B00000]">Overdue ({overdue.length})</span>}>
           {overdue.length === 0 ? <p className="text-sm text-gray-400">Nothing overdue.</p> : (

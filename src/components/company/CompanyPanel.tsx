@@ -22,6 +22,7 @@ import { TractionCard } from './TractionCard';
 import { OutreachSettingsCard } from './OutreachSettingsCard';
 import { DataroomChecklistCard } from './DataroomChecklistCard';
 import { InvestorDecisionsCard, InterestLevelRequestsCard, InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEngagementCards';
+import { StartupAxisClassifications } from './StartupAxisClassifications';
 
 function DemoResetCard() {
   const { resetDemo } = useStore();
@@ -64,6 +65,7 @@ export function CompanyPanel() {
         </p>
         <OrganisationCard />
         <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
+        <StartupAxisClassifications />
         <DemoResetCard />
       </div>
     );
@@ -99,6 +101,7 @@ export function CompanyPanel() {
       <RoundUpdatesCard />
       <InvestorQACard />
       <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
+      <StartupAxisClassifications />
       <OutreachSettingsCard canEdit={canEdit} />
       <DemoResetCard />
     </div>
