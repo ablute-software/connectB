@@ -61,8 +61,30 @@ of which session or model is reading this file:
      a real technical control (env vars can't leak through even if rule 2 is
      forgotten); rule 2 is procedural but concrete and checkable with a real
      tool call, not a promise.
-3. **Layer 2 (a server-side write gate against real entities) is proposed, not
-   yet implemented** — see the prompt 250 session for the writeup once decided.
+3. **Layer 2 — server-side gate for the residual case: a session that DOES
+   need a real Supabase connection** (testing an actual RLS policy, a route
+   that behaves differently in demo mode, etc.). Any NEW verification
+   fixture (org, entity, catalog entity) must be named starting with
+   `zz-test-` (case-insensitive) — this is now enforced, not just a
+   convention: `interactions`, `deal_threads`, `deal_messages`, and
+   `catalog_deliveries` (the exact tables the original incident touched)
+   can only be written to for a `zz-test-*`/`is_test` target through
+   dedicated functions (`verification_insert_interaction`,
+   `verification_get_or_create_deal_thread`,
+   `verification_insert_deal_message`,
+   `verification_insert_catalog_delivery` — migration 0183), revoked from
+   `public`/`anon`/`authenticated` like every other admin mutation in this
+   codebase. A write against a real record raises a clear Postgres
+   exception instead of silently succeeding. The app's own routes never
+   call these functions, so Nuno's real usage is completely unaffected.
+   Ad-hoc verification scripts (`scripts/_verify_*.mjs`, `_check_*.mjs`, …)
+   that write to these four tables must go through
+   `scripts/_lib/verification-write.mjs` instead of a bare `.from(...).insert(...)`.
+   **Known gap, stated plainly:** a live browser click against a real
+   Supabase-backed server still writes through the app's normal routes,
+   unchanged — rule 1 above (`dev:verify`) is what actually closes that
+   vector by removing the real connection during verification; this layer
+   is the second, independent net for direct-SQL/ad-hoc-script testing.
 
 ## Architecture — read this before changing anything
 
