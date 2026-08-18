@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
-import { Card, FitTag, HardFilterBanner, PersonLink, StatusPill, VerBadge, WaveTag, fmtEur } from '@/components/ui';
+import { Card, FitTag, HardFilterBanner, MatchDealProfileBadge, PersonLink, StatusPill, VerBadge, WaveTag, fmtEur } from '@/components/ui';
+import { computeEntitySummaryPrefill, matchEntityToCatalog } from '@/lib/entity-catalog-prefill';
 import { preflight, preflightSummary } from '@/lib/rules';
 import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
 import { RecentInteractions } from '@/components/RecentInteractions';
@@ -109,6 +110,14 @@ export default function EntityPage({ params }: { params: { id: string } }) {
     setEditingContact(false);
   }
   const completeness = entityCompleteness(entity);
+
+  // Prompt 256 §B — resolved fresh every render (no one-time copy) so an
+  // investor updating their MatchDeal profile shows up here without any
+  // sync step; both entity-catalog-prefill.ts functions are pure and cheap
+  // (one pass over the already-loaded db.catalog), matching the cost class
+  // of the plain filters already on this page.
+  const catalogMatch = matchEntityToCatalog(entity, db.catalog);
+  const summaryPrefill = computeEntitySummaryPrefill(entity, catalogMatch);
 
   const people = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
   const personCandidate = isPersonCandidate(db, entity);
@@ -278,7 +287,10 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                 ) : (
                   <div className="space-y-1 text-xs">
                     <div className="flex items-center gap-1">Website: {entity.website
-                      ? <a className="text-[#0E7490] hover:underline" href={entity.website} target="_blank">{entity.website.replace('https://', '')}</a> : '—'}
+                      ? <a className="text-[#0E7490] hover:underline" href={entity.website} target="_blank">{entity.website.replace('https://', '')}</a>
+                      : summaryPrefill.website
+                        ? <><a className="text-[#0E7490] hover:underline" href={summaryPrefill.website} target="_blank">{summaryPrefill.website.replace('https://', '')}</a><MatchDealProfileBadge /></>
+                        : '—'}
                       {entity.website && <VerBadge state={entity.website_verified ? 'verified' : 'missing'} label={entity.website_verified ? '' : 'unverified'} />}
                     </div>
                     <div>Email: {entity.email ?? '—'}</div>
@@ -289,29 +301,48 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               </div>
             ) : (
               <div className="flex items-center gap-1">Website: {entity.website
-                ? <a className="text-[#0E7490] hover:underline" href={entity.website} target="_blank">{entity.website.replace('https://', '')}</a> : '—'}
+                ? <a className="text-[#0E7490] hover:underline" href={entity.website} target="_blank">{entity.website.replace('https://', '')}</a>
+                : summaryPrefill.website
+                  ? <><a className="text-[#0E7490] hover:underline" href={summaryPrefill.website} target="_blank">{summaryPrefill.website.replace('https://', '')}</a><MatchDealProfileBadge /></>
+                  : '—'}
                 {entity.website && <VerBadge state={entity.website_verified ? 'verified' : 'missing'} label={entity.website_verified ? '' : 'unverified'} />}
               </div>
             )}
             <div>Domain: {entity.email_domain ?? '—'} {entity.email_domain_verified && '✓'}</div>
-            <div>HQ: {entity.hq_city ? `${entity.hq_city}, ` : ''}{entity.hq_country ?? '—'}</div>
-            <EntityClassificationEditor entity={entity} onUpdate={(patch) => updateEntity(entity.id, patch)} />
-            <div>Check: {fmtEur(entity.check_min_eur)}–{fmtEur(entity.check_max_eur)}</div>
+            <div>HQ: {entity.hq_city || entity.hq_country
+              ? <>{entity.hq_city ? `${entity.hq_city}, ` : ''}{entity.hq_country ?? '—'}</>
+              : summaryPrefill.hqCity || summaryPrefill.hqCountry
+                ? <>{summaryPrefill.hqCity ? `${summaryPrefill.hqCity}, ` : ''}{summaryPrefill.hqCountry ?? '—'}<MatchDealProfileBadge /></>
+                : '—'}
+            </div>
+            <EntityClassificationEditor entity={entity} onUpdate={(patch) => updateEntity(entity.id, patch)}
+              sectorsPrefill={summaryPrefill.sectors} stagePrefill={{ min: summaryPrefill.stageMin, max: summaryPrefill.stageMax }} />
+            <div>Check: {entity.check_min_eur != null || entity.check_max_eur != null
+              ? <>{fmtEur(entity.check_min_eur)}–{fmtEur(entity.check_max_eur)}</>
+              : summaryPrefill.checkMinEur != null || summaryPrefill.checkMaxEur != null
+                ? <>{fmtEur(summaryPrefill.checkMinEur)}–{fmtEur(summaryPrefill.checkMaxEur)}<MatchDealProfileBadge /></>
+                : <>{fmtEur(undefined)}–{fmtEur(undefined)}</>}
+            </div>
           </dl>
           <div className="space-y-3">
-            {entity.thesis && (
+            {entity.thesis ? (
               <div>
                 <div className="text-xs text-gray-500">Thesis — their own words</div>
                 <p className="text-sm italic text-gray-600">“{entity.thesis}”</p>
               </div>
-            )}
+            ) : summaryPrefill.thesis ? (
+              <div>
+                <div className="text-xs text-gray-500">Thesis — their own words <MatchDealProfileBadge /></div>
+                <p className="text-sm italic text-gray-600">“{summaryPrefill.thesis}”</p>
+              </div>
+            ) : null}
             {entity.network_cluster_notes && (
               <div>
                 <div className="text-xs text-gray-500">Network notes</div>
                 <p className="text-sm text-gray-700">{entity.network_cluster_notes}</p>
               </div>
             )}
-            {!entity.thesis && !entity.network_cluster_notes && <p className="text-sm text-gray-400">No thesis or network notes yet.</p>}
+            {!entity.thesis && !summaryPrefill.thesis && !entity.network_cluster_notes && <p className="text-sm text-gray-400">No thesis or network notes yet.</p>}
           </div>
         </div>
         <div className="mt-4 border-t border-gray-100 pt-3">

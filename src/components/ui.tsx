@@ -182,6 +182,21 @@ export function VerBadge({ state, label }: { state: 'verified' | 'guessed' | 'bo
   );
 }
 
+// Prompt 256 §B — marks an Entity summary field that was filled from the
+// investor's own MatchDeal profile rather than typed in by the founder. No
+// new color: same neutral gray-100/gray-500 pairing already used for
+// low-emphasis badges elsewhere on this page (e.g. the "unverified" VerBadge
+// label).
+export function MatchDealProfileBadge() {
+  return (
+    <Tooltip text="Pulled from their MatchDeal profile, not typed in by you. Edit the field and your version takes over for good.">
+      <span className="ml-1 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">
+        from their MatchDeal profile
+      </span>
+    </Tooltip>
+  );
+}
+
 export function HardFilterBanner({ entity }: { entity: Entity }) {
   const { resolveHardFilter } = useStore();
   if (entity.hard_filter_status !== 'open' || !entity.hard_filter) return null;

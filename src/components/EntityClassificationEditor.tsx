@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import type { Entity, Stage } from '@/lib/types';
 import { GEOGRAPHIES, SECTORS, STAGE_OPTIONS } from '@/lib/taxonomy';
+import { MatchDealProfileBadge } from '@/components/ui';
 
 function MultiEdit({ values, options, onChange }: { values: string[]; options: string[]; onChange: (v: string[]) => void }) {
   const [custom, setCustom] = useState('');
@@ -36,16 +37,30 @@ function MultiEdit({ values, options, onChange }: { values: string[]; options: s
   );
 }
 
-export function EntityClassificationEditor({ entity, onUpdate }: { entity: Entity; onUpdate: (patch: Partial<Entity>) => void }) {
+// Prompt 256 §B — sectorsPrefill/stagePrefill are the investor's own
+// MatchDeal-profile values, shown only while the founder's own field is
+// still empty (Geos never gets a prefill prop — deliberately excluded, see
+// entity-catalog-prefill.ts's own header comment).
+export function EntityClassificationEditor({ entity, onUpdate, sectorsPrefill, stagePrefill }: {
+  entity: Entity; onUpdate: (patch: Partial<Entity>) => void;
+  sectorsPrefill?: string[]; stagePrefill?: { min?: Stage; max?: Stage };
+}) {
   const [editing, setEditing] = useState<'sectors' | 'geos' | 'stage' | null>(null);
   const [sectors, setSectors] = useState<string[]>([]);
   const [geos, setGeos] = useState<string[]>([]);
   const [stageMin, setStageMin] = useState<Stage | ''>('');
   const [stageMax, setStageMax] = useState<Stage | ''>('');
 
-  function startSectors() { setSectors(entity.sectors); setEditing('sectors'); }
+  // Editing starts from the prefilled MatchDeal values when the founder's
+  // own field is still empty — a confirm-or-adjust starting point instead of
+  // making them retype what the investor already told the platform.
+  function startSectors() { setSectors(entity.sectors.length > 0 ? entity.sectors : sectorsPrefill ?? []); setEditing('sectors'); }
   function startGeos() { setGeos(entity.invests_in_geographies); setEditing('geos'); }
-  function startStage() { setStageMin(entity.stage_min ?? ''); setStageMax(entity.stage_max ?? ''); setEditing('stage'); }
+  function startStage() {
+    setStageMin(entity.stage_min ?? stagePrefill?.min ?? '');
+    setStageMax(entity.stage_max ?? stagePrefill?.max ?? '');
+    setEditing('stage');
+  }
 
   const pencil = (onClick: () => void) => (
     <button onClick={onClick} title="Edit" className="ml-1 text-[11px] text-gray-300 hover:text-cyan-700">✎</button>
@@ -73,7 +88,11 @@ export function EntityClassificationEditor({ entity, onUpdate }: { entity: Entit
               <button onClick={() => setEditing(null)} className="text-[11px] text-gray-500">Cancel</button>
             </div>
           </span>
-        ) : <>{entity.sectors.join(', ') || '—'}{pencil(startSectors)}</>}
+        ) : entity.sectors.length > 0 ? (
+          <>{entity.sectors.join(', ')}{pencil(startSectors)}</>
+        ) : sectorsPrefill?.length ? (
+          <>{sectorsPrefill.join(', ')}<MatchDealProfileBadge />{pencil(startSectors)}</>
+        ) : <>—{pencil(startSectors)}</>}
       </div>
       <div>
         Stage: {editing === 'stage' ? (
@@ -88,7 +107,11 @@ export function EntityClassificationEditor({ entity, onUpdate }: { entity: Entit
             <button onClick={() => { onUpdate({ stage_min: stageMin || undefined, stage_max: stageMax || undefined }); setEditing(null); }} className="rounded bg-[#0E7490] px-2 py-0.5 text-[11px] font-medium text-white">Save</button>
             <button onClick={() => setEditing(null)} className="text-[11px] text-gray-500">Cancel</button>
           </span>
-        ) : <>{entity.stage_min?.replace('_', ' ') ?? '—'} – {entity.stage_max?.replace('_', ' ') ?? '—'}{pencil(startStage)}</>}
+        ) : entity.stage_min || entity.stage_max ? (
+          <>{entity.stage_min?.replace('_', ' ') ?? '—'} – {entity.stage_max?.replace('_', ' ') ?? '—'}{pencil(startStage)}</>
+        ) : stagePrefill?.min || stagePrefill?.max ? (
+          <>{stagePrefill.min?.replace('_', ' ') ?? '—'} – {stagePrefill.max?.replace('_', ' ') ?? '—'}<MatchDealProfileBadge />{pencil(startStage)}</>
+        ) : <>— – —{pencil(startStage)}</>}
       </div>
     </>
   );
