@@ -78,6 +78,28 @@ describe('journeySteps — fechado (o caso Adara)', () => {
     expect(journeySteps(db([OUT], inv), 'adara').at(-1)).toMatchObject({ kind: 'outcome', outcome: 'invested' });
   });
 
+  // Prompt 249 §B — clique-para-evidência: o chip Declined liga à MESMA
+  // interação pass-classificada que já dá a data/categoria acima.
+  it('declined COM pass classificado leva o interactionId, para o clique-para-evidencia', () => {
+    const outcome = journeySteps(db([OUT, PASS], passed), 'adara').at(-1);
+    expect(outcome).toMatchObject({ kind: 'outcome', interactionId: 'pass' });
+  });
+
+  it('declined SEM pass classificado (pass manual, "No interest / over") nao tem interactionId', () => {
+    // Passou a 'passed' sem nenhuma interacao classificada como pass -- e o
+    // caso do menu manual (249 §A), nao de uma resposta classificada.
+    const outcome = journeySteps(db([OUT], passed), 'adara').at(-1);
+    expect(outcome).toMatchObject({ kind: 'outcome', outcome: 'declined' });
+    expect(outcome?.kind === 'outcome' && outcome.interactionId).toBeUndefined();
+  });
+
+  it('invested nunca tem interactionId -- nao ha classification que o represente', () => {
+    const inv = entity({ status: 'invested' });
+    const outcome = journeySteps(db([OUT, inter({ id: 'i', classification: 'interested' })], inv), 'adara').at(-1);
+    expect(outcome).toMatchObject({ kind: 'outcome', outcome: 'invested' });
+    expect(outcome?.kind === 'outcome' && outcome.interactionId).toBeUndefined();
+  });
+
   it('sem resposta nenhuma, percorrido e so [contacted]', () => {
     const steps = journeySteps(db([OUT], entity({ status: 'passed' })), 'adara');
     expect(steps.filter((s) => s.kind === 'stage').map((s) => s.kind === 'stage' && s.stage)).toEqual(['contacted']);
@@ -109,6 +131,17 @@ describe('journeySteps — parqueado e fechado, e quem ganha', () => {
     expect(steps.map((s) => s.kind)).toEqual(['stage', 'stage', 'parked']);
     expect(steps.filter((s) => s.kind === 'stage').every((s) => s.kind === 'stage' && s.state === 'done')).toBe(true);
     expect(steps.at(-1)).toEqual({ kind: 'parked', revisitAt: '2026-09-14T00:00:00.000Z' });
+  });
+
+  // Prompt 249 §B — parquear (setEntityStatus('dormant', ...)) nunca grava
+  // interacao nenhuma hoje, logo o chip nunca e clicavel -- exactamente o
+  // "park manual antigo sem registo" que o proprio prompt deu como caso
+  // esperado de "sem interacao identificavel".
+  it('parked nunca tem interactionId -- nenhum caminho actual grava a interacao que gerou o park', () => {
+    const steps = journeySteps(parkedDb([OUT, inter({ id: 'x', classification: 'interested' })]), 'test');
+    const parked = steps.at(-1);
+    expect(parked?.kind).toBe('parked');
+    expect(parked?.kind === 'parked' && parked.interactionId).toBeUndefined();
   });
 
   it('NUNCA os seis estagios num parqueado', () => {

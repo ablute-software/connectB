@@ -25,10 +25,15 @@ export function stageChangeAt(i: Interaction): RelationshipStage | undefined {
   return STAGE_BY_LABEL.get(m[1].trim().toLowerCase());
 }
 
+// Prompt 249 §B — interactionId is the anchor for "clique-para-evidência":
+// when present, the outcome/parked chip is clickable and opens the history
+// at that exact interaction (same onViewInHistory the 📄 doc badge already
+// uses — Prompt 209). Absent when nothing in the data identifies one — see
+// journeySteps() below for what's actually derivable today and what isn't.
 export type JourneyStep =
   | { kind: 'stage'; stage: RelationshipStage; state: 'done' | 'current' | 'future'; at?: string }
-  | { kind: 'outcome'; outcome: 'declined' | 'invested'; at?: string; passCategory?: string }
-  | { kind: 'parked'; revisitAt?: string };
+  | { kind: 'outcome'; outcome: 'declined' | 'invested'; at?: string; passCategory?: string; interactionId?: string }
+  | { kind: 'parked'; revisitAt?: string; interactionId?: string };
 
 // Os passos efectivamente percorridos, por ordem. Base: as stage_change
 // gravadas. Sem nenhuma (a maioria das relações antigas, que nunca passaram
@@ -75,9 +80,24 @@ export function journeySteps(db: Db, entityId: string): JourneyStep[] {
       .filter((i) => i.entity_id === entityId && i.direction === 'in' && i.classification === 'pass')
       .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)).at(-1);
     const outcome: 'declined' | 'invested' = entity?.status === 'invested' ? 'invested' : 'declined';
+    // Prompt 249 §B — declined anchors to the SAME lastPass interaction
+    // already used for `at`/`passCategory` above: it's the actual reply
+    // that explains the outcome, real evidence to jump to. A pass reached
+    // manually (the "No interest / over" menu, or "Move to Decision" ->
+    // Passed — Prompt 249 §A) never gets one: no inbound reply was
+    // classified 'pass', so this stays undefined there — no heuristic
+    // invented to fill it in.
+    //
+    // Invested has no equivalent today: `Classification` (types.ts) has no
+    // value that represents "they said yes" the way 'pass' represents "they
+    // said no" — there is genuinely no interaction to point at without
+    // guessing one (e.g. picking the last 'interested' reply would be a
+    // fabricated link, not a derived fact). Stays undefined until a real
+    // signal exists.
+    const interactionId = outcome === 'declined' ? lastPass?.id : undefined;
     return [
       ...traversed(db, entityId).map((t): JourneyStep => ({ kind: 'stage', stage: t.stage, state: 'done', at: t.at })),
-      { kind: 'outcome', outcome, at: lastPass?.occurred_at, passCategory: lastPass?.pass_reason_category },
+      { kind: 'outcome', outcome, at: lastPass?.occurred_at, passCategory: lastPass?.pass_reason_category, interactionId },
     ];
   }
 
@@ -86,9 +106,17 @@ export function journeySteps(db: Db, entityId: string): JourneyStep[] {
   // relacao parada nao tem futuro a mostrar, so tem historia e uma data de
   // regresso. Reutiliza o mesmo traversed() do caso fechado.
   if (ds.mode === 'parked') {
+    // Prompt 249 §B — no interactionId here: setEntityStatus('dormant', …)
+    // (the "Frozen"/"Cold" menu action) and the propose_dormant automation
+    // both write straight to entities.dormant_since/dormant_reason, neither
+    // logs an interaction. There is currently no code path that produces
+    // one to anchor "the message/record that generated this park" to — the
+    // exact "park manual antigo sem registo" case the prompt itself named
+    // as expected to stay non-clickable. Left explicit (not just omitted)
+    // so this isn't mistaken for an oversight if a future flow adds one.
     return [
       ...traversed(db, entityId).map((t): JourneyStep => ({ kind: 'stage', stage: t.stage, state: 'done', at: t.at })),
-      { kind: 'parked', revisitAt: nextPendingTaskDue(db, entityId) },
+      { kind: 'parked', revisitAt: nextPendingTaskDue(db, entityId), interactionId: undefined },
     ];
   }
 

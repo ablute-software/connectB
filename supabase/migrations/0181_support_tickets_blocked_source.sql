@@ -1,10 +1,10 @@
 -- =============================================================================
 -- 0181_support_tickets_blocked_source.sql
 --
--- ESTADO: PROPOSTO. NAO APLICADO. Requer decisao do Nuno antes de correr.
--- A sessao Code nunca chama apply_migration -- fica para o revisor aplicar.
--- (Mesma convencao da 0143_support_tickets_suspended_source.sql, que por
--- este mesmo motivo tambem continua nao aplicada em producao a esta data.)
+-- ESTADO: APLICADA em producao (confirmado pelo revisor/Cowork, Prompt 249)
+-- -- a constraint de support_tickets.source ja inclui 'suspended' e
+-- 'blocked'. A 0143_support_tickets_suspended_source.sql continua por
+-- aplicar por outro motivo (revisao propria) -- nao confundir as duas.
 --
 -- Ficheiro companheiro: prompt_244_fila_contas_suspeitas_backoffice_20260817.md
 -- =============================================================================

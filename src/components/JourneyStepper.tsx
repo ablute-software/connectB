@@ -63,11 +63,24 @@ export function JourneyStepper({ entity, onViewInHistory }: {
         ) : null;
 
         if (step.kind === 'parked') {
+          // Prompt 249 §B — clickable only when journeySteps() found an
+          // actual interaction to anchor to (today: never — see that
+          // function's own comment). Plain <span> when there's nothing to
+          // jump to, same as before; a <button> with identical classes when
+          // there is, so the chip's own color carries the affordance
+          // instead of adding visual weight.
+          const clickable = !!step.interactionId && !!onViewInHistory;
+          const parkedClasses = 'whitespace-nowrap rounded-full border border-gray-300 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600';
+          const label = `❄ Parked${step.revisitAt ? ` — revisit ${step.revisitAt.slice(0, 10)}` : ''}`;
           return (
             <Fragment key="parked">
-              <span className="whitespace-nowrap rounded-full border border-gray-300 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600">
-                ❄ Parked{step.revisitAt ? ` — revisit ${step.revisitAt.slice(0, 10)}` : ''}
-              </span>
+              {clickable ? (
+                <button onClick={() => onViewInHistory!(step.interactionId!)} className={`${parkedClasses} cursor-pointer hover:bg-gray-100`}>
+                  {label}
+                </button>
+              ) : (
+                <span className={parkedClasses}>{label}</span>
+              )}
               {connector}
             </Fragment>
           );
@@ -75,14 +88,23 @@ export function JourneyStepper({ entity, onViewInHistory }: {
 
         if (step.kind === 'outcome') {
           const declined = step.outcome === 'declined';
+          const title = step.at ? `${declined ? 'passed' : 'invested'} ${step.at.slice(0, 10)}${step.passCategory ? ` — ${step.passCategory.replace(/_/g, ' ')}` : ''}` : undefined;
+          const outcomeClasses = `whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold text-white ${declined ? 'bg-[#B00000]' : 'bg-green-700'}`;
+          // Prompt 249 §B — same pattern as the doc badge (📄): clicking
+          // jumps the history to the interaction that IS the evidence for
+          // this outcome (the classified pass reply). Only 'declined' can
+          // have one today — see journeySteps()'s comment on why 'invested'
+          // never does yet.
+          const clickable = !!step.interactionId && !!onViewInHistory;
           return (
             <Fragment key="outcome">
-              <span
-                title={step.at ? `${declined ? 'passed' : 'invested'} ${step.at.slice(0, 10)}${step.passCategory ? ` — ${step.passCategory.replace(/_/g, ' ')}` : ''}` : undefined}
-                className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold text-white ${
-                  declined ? 'bg-[#B00000]' : 'bg-green-700'}`}>
-                {declined ? '✕ Declined' : 'Invested'}
-              </span>
+              {clickable ? (
+                <button onClick={() => onViewInHistory!(step.interactionId!)} title={title} className={`${outcomeClasses} cursor-pointer hover:opacity-90`}>
+                  {declined ? '✕ Declined' : 'Invested'}
+                </button>
+              ) : (
+                <span title={title} className={outcomeClasses}>{declined ? '✕ Declined' : 'Invested'}</span>
+              )}
               {connector}
             </Fragment>
           );
