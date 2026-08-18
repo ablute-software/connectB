@@ -6,10 +6,10 @@ import Link from 'next/link';
 import type { Entity, PassReasonCategory } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import {
-  STAGE_LABEL, STAGE_ORDER, relationshipSummary, nextBestAction, needsReopenTrigger, stageExits, PASS_REASON_CATEGORIES,
+  STAGE_LABEL, STAGE_ORDER, relationshipSummary, nextBestAction, nextContactPerson, needsReopenTrigger, stageExits, PASS_REASON_CATEGORIES,
   type WhoseTurn, type Health, type DealMessageTouch,
 } from '@/lib/relationship';
-import { LOCK_DAYS } from '@/lib/rules';
+import { LOCK_DAYS, preflight, preflightSummary } from '@/lib/rules';
 import { planPark, planPass, planInvested, planSnooze, advanceConfirmation, type ExitPlan } from '@/lib/exit-effects';
 
 // Prompt 226 §4 — opções fixas. Sem "custom": um date-picker aqui era mais
@@ -213,6 +213,14 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   }
   const s = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
   const action = nextBestAction(db, entity.id, new Date(), dealMessageTouches);
+  // Prompt 254 — nextBestAction's not_contacted branch already names the
+  // RESULT (ready / N issues); this recomputes the same preflight (cheap,
+  // pure, no I/O — same call the People panel below already makes once per
+  // row) so the Tip can render the actual issue list and, when clear, a
+  // real "Log interaction" shortcut instead of leaving the founder to
+  // guess what "pre-flight" meant.
+  const nextContact = s.stage === 'not_contacted' ? nextContactPerson(db, entity.id) : undefined;
+  const nextContactPreflight = nextContact ? preflightSummary(preflight(db, nextContact, null)) : undefined;
   // Prompt 197 C.2 — continua a ser uma sugestão, nunca uma promoção
   // automática: o founder é que decide qual das saídas usa.
   // Prompt 202 §A.2 + §E — a decisão de que saídas mostrar vive em
@@ -642,6 +650,26 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
                 Sherlock Tip
               </div>
               <div className="mt-1.5 text-[13px] leading-relaxed text-gray-800">{annotateNextStep(action)}</div>
+              {/* Prompt 254 — the RESULT the headline above already named:
+                  a real shortcut when clear (never just "go do it"), or
+                  the actual list of what's failing (no jargon dump —
+                  preflight's own reason text) when it isn't. */}
+              {nextContactPreflight?.green && nextContact && (
+                <Link href={`/log?entity=${entity.id}&person=${nextContact.id}`}
+                  className="mt-1.5 inline-block rounded-lg bg-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c4028]">
+                  Log the first interaction
+                </Link>
+              )}
+              {nextContactPreflight && !nextContactPreflight.green && (
+                <ul className="mt-1.5 space-y-0.5 text-[12px] text-gray-700">
+                  {nextContactPreflight.failed.map((f) => (
+                    <li key={f.key} className="flex gap-1.5">
+                      <span aria-hidden className="text-[#0f5132]">·</span>
+                      <span>{f.reason ?? f.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {/* Prompt 251-B point 3 — the "nothing registered" case also
                   asks the founder to fix that, not just names the gap. */}
               {parkedOrClosed && needsReopenTrigger(entity) && (

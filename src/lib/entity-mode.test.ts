@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { entityMode, effectiveMode, nextBestAction, nextPendingTaskDue, needsReopenTrigger } from './relationship';
-import type { Db, Entity, Interaction, TaskItem } from './types';
+import { entityMode, effectiveMode, nextBestAction, nextContactPerson, nextPendingTaskDue, needsReopenTrigger } from './relationship';
+import type { Db, Entity, Interaction, Person, TaskItem } from './types';
 
 // Prompt 205 §E — o caso confirmado por screenshot em "Test idividual":
 // depois de escolher Frozen, o pill dizia "dormant" e a mesma página dizia
@@ -20,11 +20,31 @@ function task(over: Partial<TaskItem> = {}): TaskItem {
   } as TaskItem;
 }
 
+// Prompt 254 — minimal PASSING-preflight person by default: verified
+// non-bounced email, researched hook, not do-not-contact, rank 1. Tests
+// override only the field they're checking, so a failing check is always
+// the ONE thing the test names, never an accidental side effect of an
+// incomplete fixture.
+function person(over: Partial<Person> = {}): Person {
+  return {
+    id: 'p1', entity_id: 'e1', full_name: 'Jane Doe', role: 'Partner', seniority_rank: 1,
+    linkedin_verified: true, email_verified: 'jane@example.com', bounce_count: 0,
+    hook_status: 'researched', kill_words: [], preferred_language: 'en',
+    privacy_notice_sent: false, do_not_contact: false, identity_verified: false,
+    linked_companies: [], linked_funds: [],
+    ...over,
+  } as Person;
+}
+
 function db(
   e: Entity, tasks: TaskItem[] = [], interactions: Interaction[] = [],
   reawakeningProposals: Db['reawakeningProposals'] = [], rejectionCodes: Db['rejectionCodes'] = [],
+  people: Person[] = [],
 ): Db {
-  return { entities: [e], interactions, people: [], tasks, relationshipState: [], reawakeningProposals, rejectionCodes } as unknown as Db;
+  return {
+    entities: [e], interactions, people, tasks, relationshipState: [], reawakeningProposals, rejectionCodes,
+    org: { id: 'org-1', name: 'ablute_', plan: 'idea', daily_cap: 5, weekly_cap: 20 },
+  } as unknown as Db;
 }
 
 describe('entityMode', () => {
@@ -60,9 +80,53 @@ describe('nextBestAction — parqueado nao pode gritar "ready for first contact"
     expect(nextBestAction(db(e), 'e1', NOW)).toBe('Passed. No reopen trigger recorded — set one, or leave it closed.');
   });
 
-  it('uma entidade activa continua exactamente como estava', () => {
+  it('not_contacted sem pessoa nenhuma: pede para adicionar um contacto', () => {
     const e = entity({ status: 'not_contacted' });
-    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Ready for first contact — run pre-flight.');
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Add a contact person first — pre-flight needs one to check.');
+  });
+});
+
+// Prompt 254 — o Tip mostrava uma ORDEM ("run pre-flight") sem botao nem
+// resultado. preflight() ja e puro e ja corre nesta mesma pagina (o
+// painel People); nextBestAction() passa a correr e mostrar o RESULTADO.
+describe('nextBestAction — not_contacted mostra o resultado do preflight (254)', () => {
+  it('pessoa pronta: diz claro, cita o nome', () => {
+    const e = entity({ status: 'not_contacted' });
+    const p = person();
+    expect(nextBestAction(db(e, [], [], [], [], [p]), 'e1', NOW)).toBe('Ready for first contact — pre-flight clear for Jane Doe.');
+  });
+
+  it('pessoa com falhas: conta as falhas, cita o nome, nao lista aqui (a lista e da UI)', () => {
+    const e = entity({ status: 'not_contacted' });
+    const p = person({ hook_status: 'to_research' });
+    expect(nextBestAction(db(e, [], [], [], [], [p]), 'e1', NOW)).toBe('Not ready yet — pre-flight found 1 issue for Jane Doe:');
+  });
+
+  it('conta corretamente varias falhas', () => {
+    const e = entity({ status: 'not_contacted' });
+    const p = person({ hook_status: 'to_research', do_not_contact: true });
+    // do_not_contact tambem bloqueia dnc — mas nextContactPerson ja filtra
+    // do_not_contact fora da lista de candidatos, portanto este p NUNCA e
+    // escolhido: sem ninguem contactavel, cai no caso "adicionar contacto".
+    expect(nextBestAction(db(e, [], [], [], [], [p]), 'e1', NOW)).toBe('Add a contact person first — pre-flight needs one to check.');
+  });
+
+  it('escolhe o mais senior CONTACTAVEL, nao so o rank 1 literal', () => {
+    const e = entity({ status: 'not_contacted' });
+    const dnc = person({ id: 'p-dnc', seniority_rank: 1, do_not_contact: true });
+    const junior = person({ id: 'p2', seniority_rank: 2, full_name: 'Junior Person' });
+    // rank 2 nao tem senior nao-resolvido a bloquear (o rank 1 esta DNC,
+    // logo nao conta como "senior por resolver" no preflight §5).
+    expect(nextBestAction(db(e, [], [], [], [], [dnc, junior]), 'e1', NOW))
+      .toBe('Ready for first contact — pre-flight clear for Junior Person.');
+  });
+
+  it('nextContactPerson devolve undefined sem pessoas, e o mais senior contactavel com varias', () => {
+    const e = entity({ status: 'not_contacted' });
+    expect(nextContactPerson(db(e), 'e1')).toBeUndefined();
+    const senior = person({ id: 'p-senior', seniority_rank: 1 });
+    const junior2 = person({ id: 'p-junior', seniority_rank: 2, full_name: 'Junior' });
+    expect(nextContactPerson(db(e, [], [], [], [], [junior2, senior]), 'e1')?.id).toBe('p-senior');
   });
 });
 

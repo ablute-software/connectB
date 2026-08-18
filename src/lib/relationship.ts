@@ -1,7 +1,7 @@
 // IRM_SPEC §4 — interaction roadmap derivations. Pure functions, sibling to
 // rules.ts (kept separate so rules.ts stays scoped to its documented set).
 import type { ActionType, Channel, Classification, Db, Direction, Entity, Interaction, Person, PassReasonCategory, RelationshipStage, TaskItem } from './types';
-import { LOCK_DAYS } from './rules';
+import { LOCK_DAYS, preflight, preflightSummary } from './rules';
 import { looksLikePersonName } from './structured-import';
 
 // Prompt 251/253 Bloco A — shared with /log's own pass-category select
@@ -214,6 +214,20 @@ export function needsReopenTrigger(entity: Pick<Entity, 'status' | 'reopen_trigg
     && !entity.reopen_trigger && !entity.reopen_eligible_after;
 }
 
+// Prompt 254 — preflight() operates on a PERSON, the Tip is about the
+// ENTITY. The contact-order doctrine (preflight's own seniority check,
+// and the "People — one at a time, senior first" panel) already answers
+// "which person does this apply to": whoever the founder would actually
+// approach next — the most senior contactable (non-do-not-contact)
+// person. Not "the best case" or an "N of M ready" tally: for a
+// not-yet-contacted entity there is only ever ONE actionable next
+// person, and preflight's own check 5 already blocks anyone else.
+export function nextContactPerson(db: Db, entityId: string): Person | undefined {
+  return db.people
+    .filter((p) => p.entity_id === entityId && !p.do_not_contact)
+    .sort((a, b) => a.seniority_rank - b.seniority_rank)[0];
+}
+
 export function nextBestAction(db: Db, entityId: string, now = new Date(), dealMessageTouches: DealMessageTouch[] = []): string | undefined {
   const entity = db.entities.find((e) => e.id === entityId);
   if (!entity) return undefined;
@@ -293,7 +307,18 @@ export function nextBestAction(db: Db, entityId: string, now = new Date(), dealM
   const summary = relationshipSummary(db, entityId, now, dealMessageTouches);
   if (summary.whoseTurn === 'overdue') return `Follow up — no reply for ${summary.daysSinceLastTouch}d.`;
   if (summary.whoseTurn === 'them') return `Awaiting reply (${summary.daysSinceLastTouch}d) — give it time before following up.`;
-  if (summary.stage === 'not_contacted') return 'Ready for first contact — run pre-flight.';
+  // Prompt 254 — used to tell the founder to "run pre-flight" themselves:
+  // an order in jargon, with nothing to click and nothing that happened.
+  // preflight() is pure and already runs on this same page (the People
+  // panel below) — there's no reason to ask the founder to do what the
+  // code can just do and show. This now names the RESULT.
+  if (summary.stage === 'not_contacted') {
+    const person = nextContactPerson(db, entityId);
+    if (!person) return 'Add a contact person first — pre-flight needs one to check.';
+    const result = preflightSummary(preflight(db, person, null, now));
+    if (result.green) return `Ready for first contact — pre-flight clear for ${person.full_name}.`;
+    return `Not ready yet — pre-flight found ${result.failed.length} issue${result.failed.length === 1 ? '' : 's'} for ${person.full_name}:`;
+  }
   if (summary.nextStep) return summary.nextStep.title;
   return undefined;
 }
