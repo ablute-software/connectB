@@ -150,7 +150,7 @@ describe('journeySteps — parqueado e fechado, e quem ganha', () => {
   });
 
   // O caso Adara literal: dormant de um teste anterior, e um pass depois.
-  it('dormant COM pass classificado le-se Declined, nao Parked', () => {
+  it('dormant COM pass classificado le-se Declined, nao Frozen', () => {
     const steps = journeySteps(parkedDb([OUT, inter({ id: 'p', classification: 'pass', occurred_at: '2026-08-05T10:00:00.000Z' })]), 'test');
 
     expect(steps.map((s) => s.kind)).toEqual(['stage', 'stage', 'outcome']);

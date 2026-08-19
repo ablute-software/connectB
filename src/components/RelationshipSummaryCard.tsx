@@ -427,7 +427,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
                     exactamente o caso que faltava sem "Mark dormant". */}
                 <button role="menuitem" onClick={() => {
                     setMenuOpen(false);
-                    setEntityStatus(entity.id, 'dormant', exits.parkLabel === 'cold' ? 'Cold — no reply' : 'Parked — no continuity');
+                    setEntityStatus(entity.id, 'dormant', exits.parkLabel === 'cold' ? 'Cold — no reply' : 'Frozen — no continuity');
                     applyPlan(planPark(entity, db.tasks, new Date()));
                   }}
                   className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-100">

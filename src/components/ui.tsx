@@ -120,14 +120,29 @@ const statusExplain: Record<EntityStatus, string> = {
   diligence: 'Actively in diligence — documents, calls, references.',
   passed: 'They said no — see the pass reason on the entity page.',
   invested: 'They committed capital to this round.',
-  dormant: 'Parked — no active outbound planned; may be reopened later.',
+  dormant: 'Frozen — no active outbound planned; may be reopened later.',
+};
+
+// Prompt 257 §1 — "dormant"/"parked"/"frozen"/"cold" were four words for
+// the SAME entities.status='dormant' value across different files (badge,
+// filter, dashboard, tour said "dormant"; journey/actions-required/
+// nextBestAction said "parked"). Unified to "Frozen" everywhere the STATUS
+// itself is named — this map is the one place that translation happens, so
+// every other status keeps reading straight off the enum. The one place
+// this deliberately does NOT reach: RelationshipSummaryCard's park-reason
+// picker still offers "Cold — no reply" for a never-replied entity,
+// distinct from "no continuity" — a real distinction the code goes out of
+// its way to compute (stageExits' parkLabel), not just a leftover label.
+export const statusLabel: Record<EntityStatus, string> = {
+  not_contacted: 'not contacted', contacted: 'contacted', in_conversation: 'in conversation',
+  diligence: 'diligence', passed: 'passed', invested: 'invested', dormant: 'Frozen',
 };
 
 export function StatusPill({ status }: { status: EntityStatus }) {
   return (
     <Tooltip text={statusExplain[status]}>
       <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${statusStyle[status]}`}>
-        {status.replace('_', ' ')}
+        {statusLabel[status]}
       </span>
     </Tooltip>
   );

@@ -6,7 +6,7 @@
 import { Fragment, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
-import { Card, EntityLink, fmtRoundEur } from '@/components/ui';
+import { Card, EntityLink, fmtRoundEur, statusLabel } from '@/components/ui';
 import { outboundCounts, passReasonAlert } from '@/lib/rules';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { MatchDealVisibilityBanner } from './MatchDealVisibilityBanner';
@@ -162,7 +162,7 @@ export function OverviewPanel() {
               const n = db.entities.filter((e) => e.status === s).length;
               return (
                 <div key={s} className="flex items-center gap-2 text-sm">
-                  <span className="w-28 text-xs text-gray-500">{s.replace('_', ' ')}</span>
+                  <span className="w-28 text-xs text-gray-500">{statusLabel[s]}</span>
                   <div className={`h-3 rounded ${STATUS_BAR[s]}`} style={{ width: `${Math.max(3, n / db.entities.length * 100)}%` }} />
                   <span className="text-xs">{n}</span>
                 </div>

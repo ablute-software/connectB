@@ -71,7 +71,7 @@ export function JourneyStepper({ entity, onViewInHistory }: {
           // instead of adding visual weight.
           const clickable = !!step.interactionId && !!onViewInHistory;
           const parkedClasses = 'whitespace-nowrap rounded-full border border-gray-300 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600';
-          const label = `❄ Parked${step.revisitAt ? ` — revisit ${step.revisitAt.slice(0, 10)}` : ''}`;
+          const label = `❄ Frozen${step.revisitAt ? ` — revisit ${step.revisitAt.slice(0, 10)}` : ''}`;
           return (
             <Fragment key="parked">
               {clickable ? (

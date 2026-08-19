@@ -17,7 +17,7 @@ function base(over: Partial<FounderActionsInput> = {}): FounderActionsInput {
 describe('overdueRevisitTasks', () => {
   it('only overdue, undone, Revisit-titled tasks qualify', () => {
     const tasks = [
-      task({ id: 'a', title: 'Revisit Adara — parked on 2026-07-01', due_at: '2026-08-01T00:00:00Z' }),
+      task({ id: 'a', title: 'Revisit Adara — frozen on 2026-07-01', due_at: '2026-08-01T00:00:00Z' }),
       task({ id: 'b', title: 'Revisit Foo', due_at: '2026-09-01T00:00:00Z' }),          // futura
       task({ id: 'c', title: 'Follow up with Bar', due_at: '2026-08-01T00:00:00Z' }),   // não é revisit
       task({ id: 'd', title: 'Revisit Baz', due_at: '2026-08-01T00:00:00Z', done: true }),

@@ -54,7 +54,7 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
       // resolution. Not invented: confirmed present for an active pipeline.
       selector: 'pipeline-filters',
       title: 'Stage is the only status that matters',
-      body: 'Not contacted, contacted, in conversation, passed, invested, dormant. Move an investor as reality moves — the dashboard reads from this.',
+      body: 'Not contacted, contacted, in conversation, passed, invested, frozen. Move an investor as reality moves — the dashboard reads from this.',
     },
   ],
 

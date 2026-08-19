@@ -60,13 +60,13 @@ describe('entityMode', () => {
 describe('nextBestAction — parqueado nao pode gritar "ready for first contact"', () => {
   it('dormant sem tarefa: diz que esta parqueado, e mais nada', () => {
     const e = entity({ status: 'dormant' });
-    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Parked — no revisit scheduled. No reopen trigger recorded — set one, or leave it dormant.');
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Frozen — no revisit scheduled. No reopen trigger recorded — set one, or leave it frozen.');
   });
 
   it('dormant com revisit agendado: diz quando volta', () => {
     const e = entity({ status: 'dormant' });
     const t = task({ id: 't-rev', title: 'Revisit Test idividual', due_at: '2026-09-14T00:00:00.000Z' });
-    expect(nextBestAction(db(e, [t]), 'e1', NOW)).toBe('Parked — revisit on 2026-09-14. No reopen trigger recorded — set one, or leave it dormant.');
+    expect(nextBestAction(db(e, [t]), 'e1', NOW)).toBe('Frozen — revisit on 2026-09-14. No reopen trigger recorded — set one, or leave it frozen.');
   });
 
   it('o conselho antigo ("Ready for first contact") desaparece de todo', () => {
@@ -167,9 +167,9 @@ describe('nextBestAction — Fase 0: o Tip de reabertura num dossier fechado', (
     expect(nextBestAction(db(e), 'e1', NOW)).toBe('Reopens if: They raise a Series A. Hasn\'t happened yet? Stays closed.');
   });
 
-  it('dormant com reopen_trigger: mesma logica, "stays dormant"', () => {
+  it('dormant com reopen_trigger: mesma logica, "stays frozen"', () => {
     const e = entity({ status: 'dormant', reopen_trigger: 'they raise a new fund' });
-    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Reopens if: they raise a new fund. Hasn\'t happened yet? Stays dormant.');
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Reopens if: they raise a new fund. Hasn\'t happened yet? Stays frozen.');
   });
 
   it('dormant com reopen_eligible_after ja passado: elegivel, sem categoria (nao houve pass)', () => {
@@ -325,13 +325,13 @@ describe('effectiveMode — fechado ganha a parqueado', () => {
 });
 
 describe('nextBestAction — a pagina inteira concorda', () => {
-  it('dormant + pass NAO diz "Parked", diz que esta fechado', () => {
+  it('dormant + pass NAO diz "Frozen", diz que esta fechado', () => {
     const e = entity({ status: 'dormant' });
     const d = db(e, [], [{ id: 'p', entity_id: 'e1', direction: 'in', channel: 'email', content: '...',
       classification: 'pass', occurred_at: '2026-08-05T10:00:00.000Z' } as Interaction]) as Db;
 
     const acao = nextBestAction(d, 'e1', NOW);
     expect(acao).toBe('Passed 10 days ago. No reopen trigger recorded — set one, or leave it closed.');
-    expect(acao).not.toContain('Parked');
+    expect(acao).not.toContain('Frozen');
   });
 });

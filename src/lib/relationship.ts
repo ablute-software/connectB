@@ -251,10 +251,10 @@ export function nextBestAction(db: Db, entityId: string, now = new Date(), dealM
       const trigger = entity.reopen_trigger ? ` Check whether "${entity.reopen_trigger}" has changed.` : '';
       return `Eligible for re-approach since ${entity.reopen_eligible_after}.${trigger}`;
     }
-    if (entity.reopen_trigger) return `Reopens if: ${withPeriod(entity.reopen_trigger)} Hasn't happened yet? Stays dormant.`;
+    if (entity.reopen_trigger) return `Reopens if: ${withPeriod(entity.reopen_trigger)} Hasn't happened yet? Stays frozen.`;
     return revisit
-      ? `Parked — revisit on ${revisit.slice(0, 10)}. No reopen trigger recorded — set one, or leave it dormant.`
-      : 'Parked — no revisit scheduled. No reopen trigger recorded — set one, or leave it dormant.';
+      ? `Frozen — revisit on ${revisit.slice(0, 10)}. No reopen trigger recorded — set one, or leave it frozen.`
+      : 'Frozen — no revisit scheduled. No reopen trigger recorded — set one, or leave it frozen.';
   }
   if (mode === 'closed') {
     // Lido do FACTO e nao do status: com a precedencia acima, uma entidade

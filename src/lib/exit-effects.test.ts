@@ -50,7 +50,7 @@ describe('planPark', () => {
   it('agenda a revisita a 30 dias por omissao', () => {
     const p = planPark(ENTITY, [], NOW);
     expect(p.revisitTask?.dueAt.slice(0, 10)).toBe('2026-09-14');
-    expect(p.revisitTask?.title).toBe('Revisit Test idividual — parked on 2026-08-15');
+    expect(p.revisitTask?.title).toBe('Revisit Test idividual — frozen on 2026-08-15');
     expect(REVISIT_DAYS_DEFAULT).toBe(30);
   });
 
@@ -141,7 +141,7 @@ describe('advanceConfirmation', () => {
 
 describe('revisitTasksToClose', () => {
   it('fecha a revisita quando a entidade volta a mexer', () => {
-    const rev = task({ id: 't-rev', title: 'Revisit Test idividual — parked on 2026-08-15' });
+    const rev = task({ id: 't-rev', title: 'Revisit Test idividual — frozen on 2026-08-15' });
     const outra = task({ id: 't-x', title: 'Follow up' });
     expect(revisitTasksToClose([rev, outra], 'e1')).toEqual(['t-rev']);
   });

@@ -65,7 +65,7 @@ export function PreviousFundingCard() {
                   </>
                 ) : (
                   <>
-                    <strong>{f.name}</strong> {f.status === 'passed' ? 'passed' : 'is parked'} — remove the{' '}
+                    <strong>{f.name}</strong> {f.status === 'passed' ? 'passed' : 'is frozen'} — remove the{' '}
                     {fmtEur(f.amountEur)} of interest still recorded against them?
                   </>
                 )}

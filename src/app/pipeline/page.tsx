@@ -5,7 +5,7 @@ import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
-import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur } from '@/components/ui';
+import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur, statusLabel } from '@/components/ui';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { MatchDealVisibilityBanner } from '@/components/dashboard/MatchDealVisibilityBanner';
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
@@ -450,7 +450,7 @@ export default function PipelinePage() {
         <div data-tour-id="pipeline-filters">
           <MultiSelectFilter label="Status" selected={status} onChange={setStatus}
             options={['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'invested', 'dormant']
-              .map((s) => ({ value: s, label: s.replace('_', ' ') }))} />
+              .map((s) => ({ value: s, label: statusLabel[s as keyof typeof statusLabel] }))} />
         </div>
         <MultiSelectFilter label="Sectors" selected={sectors} onChange={setSectors}
           options={sectorOptions.map((s) => ({ value: s, label: s }))} />

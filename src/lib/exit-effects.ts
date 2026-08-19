@@ -59,9 +59,9 @@ export function planPark(
   ));
 
   return {
-    revisitTask: { title: `Revisit ${entity.name} — parked on ${now.toISOString().slice(0, 10)}`, dueAt },
+    revisitTask: { title: `Revisit ${entity.name} — frozen on ${now.toISOString().slice(0, 10)}`, dueAt },
     dispositions,
-    confirmation: `❄ Parked — this investor is dormant. Revisit task created for ${dueAt.slice(0, 10)}.`,
+    confirmation: `❄ Frozen — revisit task created for ${dueAt.slice(0, 10)}.`,
   };
 }
 

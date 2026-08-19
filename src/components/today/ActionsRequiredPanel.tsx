@@ -22,7 +22,7 @@ const KIND_LABEL: Record<ActionItem['kind'], string> = {
   unread_message: 'Messages',
   access_request: 'Data-room access requests',
   unclassified_reply: 'Replies to classify',
-  overdue_revisit: 'Parked — revisit overdue',
+  overdue_revisit: 'Frozen — revisit overdue',
 };
 
 function fmtDate(iso?: string) {
