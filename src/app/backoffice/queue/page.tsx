@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { Card, Tooltip } from '@/components/ui';
 import { classifyConflict, type ConflictClass } from '@/lib/contribution-diff';
 import { SuspiciousAccountsTab } from '@/components/backoffice/SuspiciousAccountsTab';
+import { ENTITY_ENRICHMENT_FIELD_LABELS, isKnownEntityField } from '@/lib/entity-enrichment';
 
 // Prompt 190 — 'candidates' ("Catalog candidates") added next to
 // Contributions per Nuno's explicit decision: "Added by startups" (Prompt
@@ -16,7 +17,7 @@ import { SuspiciousAccountsTab } from '@/components/backoffice/SuspiciousAccount
 // backoffice/catalog/page.tsx (the CatalogCandidatesTab/AddedByStartupsTab/
 // QualityPanel section below) — no logic changes, per the prompt's own
 // scope.
-type Tab = 'contributions' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious' | 'key_people';
+type Tab = 'contributions' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious' | 'key_people' | 'community';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'contributions', label: 'Contributions' },
@@ -32,6 +33,11 @@ const TABS: { key: Tab; label: string }[] = [
   // contacts, across every org (248 entities had this gap in production
   // at the time this shipped; a reusable screen, not a one-off fix).
   { key: 'key_people', label: 'Key people' },
+  // Prompt 266 §6 — separate from "Contributions" above: that tab is one
+  // org's authored edit vs the record on file; this one is two DIFFERENT
+  // orgs independently agreeing on the same still-blank field — its own
+  // review surface (catalog_field_consensus, not contributions).
+  { key: 'community', label: 'Contributions — by users' },
 ];
 
 type Contribution = {
@@ -45,6 +51,14 @@ const CLASS_STYLE: Record<ConflictClass, string> = {
   cosmetic: 'bg-gray-100 text-gray-500',
   substantive: 'bg-amber-100 text-amber-800',
 };
+
+function fieldLabel(field: string): string {
+  return isKnownEntityField(field) ? ENTITY_ENRICHMENT_FIELD_LABELS[field] : field;
+}
+
+function formatFieldValue(value: unknown): string {
+  return Array.isArray(value) ? value.join(', ') : String(value);
+}
 
 function ContributionsTab() {
   const [items, setItems] = useState<Contribution[] | null>(null);
@@ -111,6 +125,17 @@ function ContributionsTab() {
   }
   const visibleIds = pending.map((c) => c.id);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  // Prompt 266 §6 — global bulk-approval: every AI-sourced pending
+  // contribution the model itself was already >=80% confident about.
+  // Never touches user-authored rows (those have no confidence score at
+  // all) — this is a volume shortcut for the AI-research backlog
+  // specifically, not a blanket "approve everything" button.
+  const highConfidenceAi = pendingAll.filter((c) => c.source === 'ai' && (c.confidence ?? 0) >= 0.8);
+
+  function bulkApproveHighConfidence() {
+    if (!window.confirm(`Approve ${highConfidenceAi.length} AI-sourced contribution${highConfidenceAi.length === 1 ? '' : 's'} at ≥80% confidence?`)) return;
+    bulkReview(highConfidenceAi.map((c) => c.id), 'verified');
+  }
 
   function toggleOne(id: string) {
     setSelected((prev) => {
@@ -147,6 +172,12 @@ function ContributionsTab() {
             <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} />
             Select all in view ({pending.length})
           </label>
+        )}
+        {highConfidenceAi.length > 0 && (
+          <button disabled={bulkBusy} onClick={bulkApproveHighConfidence}
+            className="rounded-lg border border-green-200 bg-green-50 px-2.5 py-1 text-xs font-medium text-green-800 hover:bg-green-100 disabled:opacity-40">
+            {bulkBusy ? 'Working…' : `Approve all ≥80% AI confidence (${highConfidenceAi.length})`}
+          </button>
         )}
         {selected.size > 0 && (
           <div className="ml-auto flex items-center gap-2">
@@ -227,6 +258,153 @@ function ContributionsTab() {
                 <span className={`rounded-full px-1.5 py-0.5 font-semibold ${c.status === 'verified' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{c.status}</span>
                 <span>{c.subject_name} — {c.field}: {String(c.value)}</span>
                 <span className="text-gray-400">by {c.org_name}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </Card>
+  );
+}
+
+type ConsensusItem = {
+  id: string; catalogName: string; field: string; value: unknown; score: number;
+  sourceCount: number; visibility: 'pending' | 'community' | 'verified' | 'hidden'; createdAt: string;
+};
+
+// Prompt 266 §6 — separate review surface from ContributionsTab above:
+// that one is a single org's edit vs. the record on file; this one is two
+// DIFFERENT orgs independently landing on the same still-blank field
+// (catalog_field_consensus, populated by /api/community-consensus/register
+// — see community-consensus.ts). 'pending' rows are the backlog (1 source
+// awaiting a second, or 2+ that never matched even after the AI arbiter);
+// 'hidden' rows had their score voted/rejected to <=0 and get their own
+// un-hide affordance rather than living in the same list; 'community'/
+// 'verified' rows are already visible to founders and shown read-only,
+// for audit only.
+function ContributionsByUsersTab() {
+  const [items, setItems] = useState<ConsensusItem[] | null>(null);
+  const [err, setErr] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  function refresh() {
+    fetch('/api/backoffice/community-consensus').then((r) => r.json()).then((body) => {
+      if (body.ok === false) { setErr(body.error); return; }
+      setItems(body.items);
+    });
+  }
+  useEffect(refresh, []);
+
+  async function review(id: string, decision: 'approve' | 'reject') {
+    setBusyId(id);
+    try {
+      await fetch(`/api/backoffice/community-consensus/${id}/review`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }),
+      });
+      refresh();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // Same "bulk is a UI convenience only" principle as ContributionsTab's
+  // own bulkReview — every id still goes through the single-item route.
+  async function bulkApprove(ids: string[]) {
+    setBulkBusy(true);
+    try {
+      await Promise.all(ids.map((id) => fetch(`/api/backoffice/community-consensus/${id}/review`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision: 'approve' }),
+      })));
+    } finally {
+      setBulkBusy(false);
+      refresh();
+    }
+  }
+
+  if (err) return <p className="text-sm text-[#B00000]">{err}</p>;
+  if (!items) return <p className="text-sm text-gray-400">Loading…</p>;
+
+  const pending = items.filter((i) => i.visibility === 'pending');
+  const hidden = items.filter((i) => i.visibility === 'hidden');
+  const visible = items.filter((i) => i.visibility === 'community' || i.visibility === 'verified');
+  // Prompt 266 §6 — global bulk-approval threshold for this tab: rows that
+  // already reached 2+ independently agreeing... well, at least
+  // independently REPORTING orgs (a disagreement the AI arbiter couldn't
+  // resolve still counts — a human bulk-approving it is exactly the
+  // override this button is for). A single-source row never qualifies for
+  // the bulk button — with nothing to corroborate it, it stays a one-by-
+  // one call, same as the prompt's own "for manual developer approve/
+  // reject without waiting for a 2nd org" phrasing implies for that case.
+  const concordant = pending.filter((i) => i.sourceCount >= 2);
+
+  function confirmBulk() {
+    if (!window.confirm(`Approve ${concordant.length} field${concordant.length === 1 ? '' : 's'} with 2+ independently reporting orgs?`)) return;
+    bulkApprove(concordant.map((i) => i.id));
+  }
+
+  return (
+    <Card title={`Contributions — by users (${pending.length})`}>
+      <p className="mb-3 text-xs text-gray-500">
+        Two orgs, each in their own private CRM, independently filled the same still-blank field for the same
+        investor. Approve makes it visible to every founder as &quot;community · unconfirmed&quot;; reject hides
+        it — nothing here is ever deleted, only scored. A single source is included too, for a call you don&apos;t
+        want to wait on a second org for.
+      </p>
+      {concordant.length > 0 && (
+        <div className="mb-3">
+          <button disabled={bulkBusy} onClick={confirmBulk}
+            className="rounded-lg border border-green-200 bg-green-50 px-2.5 py-1 text-xs font-medium text-green-800 hover:bg-green-100 disabled:opacity-40">
+            {bulkBusy ? 'Working…' : `Approve all ≥2 concordant orgs (${concordant.length})`}
+          </button>
+        </div>
+      )}
+      {pending.length === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
+        <ul className="space-y-2">
+          {pending.map((c) => (
+            <li key={c.id} className="rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold">{c.catalogName}</span>
+                <span className="text-xs text-gray-400">{fieldLabel(c.field)}</span>
+                <span className="rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
+                  {c.sourceCount} org{c.sourceCount === 1 ? '' : 's'}
+                </span>
+              </div>
+              <p className="mt-1.5 text-xs text-gray-600">{formatFieldValue(c.value)}</p>
+              <div className="mt-1.5 flex gap-1.5">
+                <button disabled={busyId === c.id} onClick={() => review(c.id, 'approve')}
+                  className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800 disabled:opacity-40">Approve</button>
+                <button disabled={busyId === c.id} onClick={() => review(c.id, 'reject')}
+                  className="rounded border border-red-200 px-2 py-1 text-xs text-[#B00000] hover:bg-red-50 disabled:opacity-40">Reject</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {hidden.length > 0 && (
+        <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-2">
+          <p className="mb-1.5 text-xs font-semibold text-gray-500">Hidden — score at or below 0 ({hidden.length})</p>
+          <ul className="space-y-1.5 text-xs">
+            {hidden.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{c.catalogName} — {fieldLabel(c.field)}:</span> {formatFieldValue(c.value)}
+                <span className="text-gray-400">score {c.score}, {c.sourceCount} org{c.sourceCount === 1 ? '' : 's'}</span>
+                <button disabled={busyId === c.id} onClick={() => review(c.id, 'approve')}
+                  className="ml-auto rounded bg-green-700 px-2 py-0.5 text-xs font-medium text-white hover:bg-green-800 disabled:opacity-40">Un-hide</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {visible.length > 0 && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs text-gray-400">Visible to founders ({visible.length})</summary>
+          <ul className="mt-2 space-y-1 text-xs">
+            {visible.map((c) => (
+              <li key={c.id} className="flex items-center gap-2">
+                <span className={`rounded-full px-1.5 py-0.5 font-semibold ${c.visibility === 'verified' ? 'bg-green-50 text-green-700' : 'bg-cyan-50 text-cyan-800'}`}>{c.visibility}</span>
+                <span>{c.catalogName} — {fieldLabel(c.field)}: {formatFieldValue(c.value)}</span>
+                <span className="text-gray-400">score {c.score}, {c.sourceCount} org{c.sourceCount === 1 ? '' : 's'}</span>
               </li>
             ))}
           </ul>
@@ -1231,6 +1409,7 @@ export default function BackofficeQueuePage() {
       {tab === 'gdpr' && <GdprTab />}
       {tab === 'suspicious' && <SuspiciousAccountsTab />}
       {tab === 'key_people' && <KeyPeoplePromoteTab />}
+      {tab === 'community' && <ContributionsByUsersTab />}
     </div>
   );
 }
