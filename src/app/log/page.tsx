@@ -7,6 +7,8 @@ import { Card, PREFLIGHT_EXPLAIN, Tooltip } from '@/components/ui';
 import { QuickCreatePerson } from '@/components/QuickCreatePerson';
 import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
 import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
+import { buildFormAssistContext } from '@/lib/form-assist';
+import { WebFormAssistPanel, type FormQuestion } from '@/components/WebFormAssistPanel';
 import { ACTION_TYPE_LABEL, ACTION_TYPES, PASS_REASON_CATEGORIES, recommendedActionType, relationshipSummary, suggestNextAction, type NextActionSuggestion } from '@/lib/relationship';
 import { evaluateProvenanceGate, type ComposerClaim } from '@/lib/company-canon-logic';
 import { parsePersonHint } from '@/lib/needs-review-logic';
@@ -103,6 +105,21 @@ function LogForm() {
   // stays hidden in that case, not shown at 0.
   const [watson, setWatson] = useState<{ quota: number; used: number; remaining: number; resetAt: string } | null>(null);
 
+  // Prompt 265 — Web form assistant panel state. Lifted here rather than
+  // owned by the panel component itself: "Let Watson Draft" (below) has to
+  // branch on whether the panel is open, and fill formAnswers directly
+  // instead of the message textarea when it is — both live in the same
+  // component for that to be a plain state check, not a ref/callback dance.
+  const [formPanelCollapsed, setFormPanelCollapsed] = useState(false);
+  const [formUrl, setFormUrl] = useState('');
+  const [formQuestions, setFormQuestions] = useState<FormQuestion[] | null>(null);
+  const [formAnswers, setFormAnswers] = useState<string[]>([]);
+  const [formNote, setFormNote] = useState('');
+  const [formSource, setFormSource] = useState<'own' | 'community' | 'cached' | 'fresh' | null>(null);
+  const [formExtracting, setFormExtracting] = useState(false);
+  const [formAnswering, setFormAnswering] = useState(false);
+  const [formPastedQuestions, setFormPastedQuestions] = useState('');
+
   function refreshMe() {
     return fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
       .then((me) => {
@@ -120,6 +137,17 @@ function LogForm() {
   const entity = db.entities.find((e) => e.id === entityId);
   const people = db.people.filter((p) => p.entity_id === entityId).sort((a, b) => a.seniority_rank - b.seniority_rank);
   const person = db.people.find((p) => p.id === personId);
+
+  // Prompt 265 — switching to a different entity means a different form (or
+  // none at all yet); reset the panel's content but re-seed the link field
+  // from entities.submission_channel if this entity already has one on
+  // file. Collapse state is NOT reset here — a founder who closed the panel
+  // once probably means it for the rest of this visit, entity switch or not.
+  useEffect(() => {
+    setFormUrl(entity?.submission_channel ?? '');
+    setFormQuestions(null); setFormAnswers([]); setFormNote(''); setFormSource(null); setFormPastedQuestions('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entityId]);
   // Batch 2 item 2 — a first-ever touch means there's no LinkedIn
   // connection yet (a connection request + note is the only thing that can
   // reach them); any later touch means they're presumably already
@@ -265,6 +293,75 @@ function LogForm() {
       setComposerNote(`AI draft failed: ${(e as Error).message}`);
     } finally {
       setComposing(false);
+    }
+  }
+
+  // Prompt 265 — channel === 'web_form' AND the panel isn't collapsed is
+  // the one condition under which "Let Watson Draft" means "fill the form
+  // answers" instead of "draft the message". Read at click time by the
+  // button itself (not stored) so it always reflects the current channel/
+  // collapse state, never a stale snapshot from when the button first
+  // rendered.
+  function formPanelActive() {
+    return channel === 'web_form' && !formPanelCollapsed;
+  }
+
+  async function extractFormQuestions(refresh: boolean) {
+    if (!entityId) return;
+    setFormExtracting(true); setFormNote('');
+    try {
+      const res = await fetch(`/api/entities/${entityId}/form-questions`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: formUrl.trim() || undefined, refresh }),
+      });
+      const data = await res.json();
+      if (data.configured === false) { setFormNote(data.message); return; }
+      if (data.ok === false) { setFormNote(data.error); return; }
+      if (data.url) setFormUrl(data.url);
+      const qs: FormQuestion[] = data.questions ?? [];
+      setFormQuestions(qs);
+      setFormAnswers(new Array(qs.length).fill(''));
+      setFormSource(data.source ?? null);
+      setFormNote(data.note ?? '');
+    } catch (e) {
+      setFormNote(`Couldn't read the form: ${(e as Error).message}`);
+    } finally {
+      setFormExtracting(false);
+    }
+  }
+
+  // The manual-paste fallback (same shape FormAssistModal already used on
+  // the entity page, Prompt 66) for when auto-extraction can't see the real
+  // fields — one question per line, no AI call spent just to split text.
+  function usePastedFormQuestions() {
+    const qs = formPastedQuestions.split('\n').map((l) => l.trim()).filter(Boolean).map((label) => ({ label }));
+    setFormQuestions(qs);
+    setFormAnswers(new Array(qs.length).fill(''));
+  }
+
+  async function draftFormAnswers() {
+    if (!entity) return;
+    setFormAnswering(true); setFormNote('');
+    try {
+      const context = buildFormAssistContext(db, entityId);
+      const pastedQuestions = formQuestions && formQuestions.length > 0
+        ? formQuestions.map((q) => q.label).join('\n')
+        : formPastedQuestions.trim() || undefined;
+      const res = await fetch('/api/form-assist', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ context, pastedQuestions }),
+      });
+      const data = await res.json();
+      if (data.configured === false) { setFormNote(data.message); return; }
+      if (data.error) { setFormNote(`AI draft failed: ${data.error}`); return; }
+      const drafted: { label: string; answer: string }[] = data.answers;
+      if (!formQuestions || formQuestions.length === 0) setFormQuestions(drafted.map((a) => ({ label: a.label })));
+      setFormAnswers(drafted.map((a) => a.answer));
+      void refreshMe(); // a Watson credit was just spent
+    } catch (e) {
+      setFormNote(`AI draft failed: ${(e as Error).message}`);
+    } finally {
+      setFormAnswering(false);
     }
   }
 
@@ -477,12 +574,18 @@ function LogForm() {
                   className="rounded border border-gray-300 px-2 py-1 text-xs">
                   {(Object.keys(INTENT_LABEL) as ComposerIntent[]).map((i) => <option key={i} value={i}>{INTENT_LABEL[i]}</option>)}
                 </select>
-                <Tooltip text={person
-                  ? "Generates a draft using this person's hook and the entity's context — never sent automatically."
-                  : 'Generates a draft addressed to the firm generally, using the entity\'s context — never sent automatically.'}>
-                  <button disabled={composing} onClick={draftWithAi}
+                {/* Prompt 265 — with the web-form panel open, this same
+                    button fills the FORM's answer boxes instead of the
+                    message textarea below; closed (or any other channel),
+                    it's exactly the pre-265 compose behavior, unchanged. */}
+                <Tooltip text={formPanelActive()
+                  ? 'Drafts an answer for each question in the Web form assistant panel, using the startup\'s own facts — never sent/submitted automatically.'
+                  : person
+                    ? "Generates a draft using this person's hook and the entity's context — never sent automatically."
+                    : 'Generates a draft addressed to the firm generally, using the entity\'s context — never sent automatically.'}>
+                  <button disabled={composing || formAnswering} onClick={formPanelActive() ? draftFormAnswers : draftWithAi}
                     className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-                    {composing ? 'Drafting…' : '✨ Let Watson Draft'}
+                    {formPanelActive() ? (formAnswering ? 'Filling the form…' : '✨ Let Watson Fill the Form') : (composing ? 'Drafting…' : '✨ Let Watson Draft')}
                   </button>
                 </Tooltip>
                 <span className="text-[11px] text-gray-400">Draft only — you review, edit, and confirm before saving. Never auto-sent.</span>
@@ -769,6 +872,22 @@ function LogForm() {
               You still can request Watson&apos;s support {watson.remaining} time{watson.remaining === 1 ? '' : 's'} this month.
             </p>
           </Card>
+        )}
+        {/* Prompt 265 — the empty space to the right of the form, when the
+            channel is Web form: a submission form is almost always
+            addressed to the firm generally (noSpecificPerson), not a named
+            person, so the Pre-flight/Context cards below (person-gated)
+            are often the ONLY other thing that could show here — frequently
+            nothing, which is exactly the empty space the prompt points at. */}
+        {channel === 'web_form' && (
+          <WebFormAssistPanel
+            collapsed={formPanelCollapsed} onExpand={() => setFormPanelCollapsed(false)} onCollapse={() => setFormPanelCollapsed(true)}
+            url={formUrl} onUrlChange={setFormUrl}
+            questions={formQuestions} answers={formAnswers} onAnswerChange={(i, v) => setFormAnswers((prev) => prev.map((a, idx) => idx === i ? v : a))}
+            note={formNote} source={formSource} extracting={formExtracting}
+            onExtract={() => extractFormQuestions(false)} onRefresh={() => extractFormQuestions(true)}
+            pastedQuestions={formPastedQuestions} onPastedQuestionsChange={setFormPastedQuestions} onUsePasted={usePastedFormQuestions}
+          />
         )}
         {person && direction === 'out' && (
           <>
