@@ -119,12 +119,23 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
   async function submit() {
     setBusy(true);
     try {
-      await browserClient().from('contributions').insert({
+      const { data: created } = await browserClient().from('contributions').insert({
         subject_type: subjectType, subject_id: subjectId, org_id: orgId,
         field, value, note: note || null,
-      });
+      }).select('id').single();
       setField(''); setValue(''); setNote(''); setOpen(false);
       refresh();
+      // Prompt 266 — best-effort, fire-and-forget: does this ALSO now agree
+      // with another org's contribution for the same catalog investor?
+      // Never blocks or surfaces an error on the founder's own "+ Add info"
+      // action — a no-op here (ineligible field, no catalog link, migration
+      // not yet applied, ...) is silent and expected, not a failure.
+      if (subjectType === 'entity') {
+        fetch('/api/community-consensus/register', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ entityId: subjectId, field, value, contributionId: created?.id }),
+        }).catch(() => {});
+      }
     } finally { setBusy(false); }
   }
 

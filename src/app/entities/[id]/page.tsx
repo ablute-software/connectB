@@ -10,6 +10,7 @@ import { RecentInteractions } from '@/components/RecentInteractions';
 import { ThreadDrawer } from '@/components/ThreadDrawer';
 import { MessageInvestorDrawer } from '@/components/MessageInvestorDrawer';
 import { ContributionBox } from '@/components/ContributionBox';
+import { CommunityConsensusPanel } from '@/components/CommunityConsensusPanel';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
 import { EntityPeoplePanel } from '@/components/EntityPeoplePanel';
 import { entityCompleteness, qualifiesForContactEnrichment } from '@/lib/completeness';
@@ -349,6 +350,8 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           <ContributionBox subjectType="entity" subjectId={entity.id} orgId={db.org.id} subject={entity as unknown as Record<string, unknown>}
             onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} refreshKey={contributionsRefreshKey} />
         </div>
+        <CommunityConsensusPanel entityId={entity.id}
+          onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} />
       </Card>
 
       <EntityPeoplePanel entityId={entity.id} />
