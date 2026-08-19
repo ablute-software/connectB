@@ -303,6 +303,13 @@ export interface Entity {
   submission_channel_type: SubmissionChannelType;
   hard_filter?: string;
   hard_filter_status: HardFilterStatus;
+  // Prompt 273 §3 — only ever set while hard_filter_status is
+  // 'resolved_blocked'; cleared back to undefined the moment it isn't
+  // (resolved_ok, or Unblock back to 'open'). hard_filter_resolved_by is
+  // the literal 'demo' in demo mode (matches InteractionEdit.edited_by),
+  // a real auth.users id when Supabase-backed. Migration 0194.
+  hard_filter_resolved_at?: string;
+  hard_filter_resolved_by?: string;
   network_cluster_notes?: string;
   // General freeform entity notes — distinct from network_cluster_notes
   // (which is specifically dedup/network-clustering commentary). Migration

@@ -148,7 +148,11 @@ export interface StoreApi {
   updateOrg: (patch: Partial<Org>) => void;
   setEntityStatus: (id: string, status: Db['entities'][0]['status'], reason?: string) => void;
   setInterest: (id: string, eur: number | undefined) => void;
-  resolveHardFilter: (id: string, status: 'resolved_ok' | 'resolved_blocked') => void;
+  // Prompt 273 §3 — 'open' added (was 'resolved_ok' | 'resolved_blocked'
+  // only) for the new "Unblock" action, which reverts a mistaken/outdated
+  // Blocked classification back to an open hard filter — the same state
+  // the entity was in before "Blocked" was ever clicked.
+  resolveHardFilter: (id: string, status: 'open' | 'resolved_ok' | 'resolved_blocked') => void;
   // Generic field-level patch, used by the entity contact-info edit card
   // (batch 2 item 1) and by the conflict compare popover's "usar importado"
   // (batch 2 item 4) — one write path for both, not two ad-hoc ones.

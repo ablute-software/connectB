@@ -416,8 +416,23 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, interest_eur: eur } : e) }));
     },
 
+    // Prompt 273 §3 — hard_filter_resolved_at/by only ever set alongside
+    // 'resolved_blocked' (the one status that stays permanently visible in
+    // the dossier and needs a real audit trail); cleared back to undefined
+    // for 'resolved_ok' or 'open' (Unblock), matching migration 0194's own
+    // "cleared the moment it isn't resolved_blocked" rule.
     resolveHardFilter(id, status) {
-      setDb((prev) => ({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, hard_filter_status: status } : e) }));
+      const now = new Date().toISOString();
+      setDb((prev) => ({
+        ...prev,
+        entities: prev.entities.map((e) => e.id === id
+          ? {
+              ...e, hard_filter_status: status,
+              hard_filter_resolved_at: status === 'resolved_blocked' ? now : undefined,
+              hard_filter_resolved_by: status === 'resolved_blocked' ? 'demo' : undefined,
+            }
+          : e),
+      }));
     },
 
     // Bloco B — see REACTIVATION_TRIGGER_FIELDS above.

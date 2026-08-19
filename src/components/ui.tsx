@@ -218,6 +218,34 @@ export function MatchDealProfileBadge() {
 
 export function HardFilterBanner({ entity }: { entity: Entity }) {
   const { resolveHardFilter } = useStore();
+
+  // Prompt 273 §3 — a permanent, neutral record once blocked: unlike
+  // 'resolved_ok' (which just clears the warning and moves on), this
+  // branch never disappears — the "not a fit" reason and who/when stay
+  // visible in the dossier for as long as the classification stands.
+  // Checked BEFORE the hard_filter-text guard below: the block itself is
+  // the fact worth showing, even in the edge case where hard_filter text
+  // was later cleared by an unrelated edit. Reversible any time via
+  // "Unblock", which reverts hard_filter_status to 'open' — the exact
+  // state the entity was in before "Blocked" was ever clicked.
+  if (entity.hard_filter_status === 'resolved_blocked') {
+    return (
+      <div className="flex items-start justify-between gap-4 rounded-lg border-l-4 border-gray-400 bg-gray-50 px-4 py-3">
+        <div>
+          <div className="text-sm font-semibold text-gray-700">🚫 Blocked — not a fit</div>
+          {entity.hard_filter && <div className="text-sm text-gray-800">{entity.hard_filter}</div>}
+          <div className="mt-1 text-xs text-gray-500">
+            Blocked by you{entity.hard_filter_resolved_at ? ` on ${entity.hard_filter_resolved_at.slice(0, 10)}` : ''}.
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <button onClick={() => resolveHardFilter(entity.id, 'open')}
+            className="rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50">Unblock</button>
+        </div>
+      </div>
+    );
+  }
+
   if (entity.hard_filter_status !== 'open' || !entity.hard_filter) return null;
   return (
     <div className="flex items-start justify-between gap-4 rounded-lg border-l-4 border-[#B00000] bg-red-50 px-4 py-3">
@@ -229,7 +257,15 @@ export function HardFilterBanner({ entity }: { entity: Entity }) {
       <div className="flex shrink-0 gap-2">
         <button onClick={() => resolveHardFilter(entity.id, 'resolved_ok')}
           className="rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50">Resolved OK</button>
-        <button onClick={() => resolveHardFilter(entity.id, 'resolved_blocked')}
+        {/* Prompt 273 §3 — near-terminal (pulls the entity out of both
+            Frozen and Stand by into its own dedicated view): confirm
+            first, same window.confirm pattern as the park-flow's own
+            "freeze anyway?" guard (RelationshipSummaryCard.tsx). */}
+        <button onClick={() => {
+          if (window.confirm(`Block "${entity.name}" as not a fit? This moves them out of both Frozen and Stand by into their own Blocked view. You can Unblock any time from here.`)) {
+            resolveHardFilter(entity.id, 'resolved_blocked');
+          }
+        }}
           className="rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50">Blocked</button>
       </div>
     </div>

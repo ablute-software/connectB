@@ -864,10 +864,29 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('entities').update({ interest_eur: eur ?? null }).eq('id', id), 'setInterest');
     },
 
-    resolveHardFilter(id: string, status: 'resolved_ok' | 'resolved_blocked') {
+    // Prompt 273 §3 — see the matching comment in store-demo.tsx's
+    // resolveHardFilter for why the audit columns only ever accompany
+    // 'resolved_blocked'. userIdRef.current mirrors edited_by's own
+    // pattern (line ~555, interaction_edits) — the signed-in user's real
+    // auth.users id, not a resolved display name.
+    resolveHardFilter(id: string, status: 'open' | 'resolved_ok' | 'resolved_blocked') {
       const prev = dbRef.current;
-      commit({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, hard_filter_status: status } : e) });
-      if (orgIdRef.current) persist(sb.from('entities').update({ hard_filter_status: status }).eq('id', id), 'resolveHardFilter');
+      const now = new Date().toISOString();
+      const resolvedAt = status === 'resolved_blocked' ? now : undefined;
+      const resolvedBy = status === 'resolved_blocked' ? (userIdRef.current ?? undefined) : undefined;
+      commit({
+        ...prev,
+        entities: prev.entities.map((e) => e.id === id
+          ? { ...e, hard_filter_status: status, hard_filter_resolved_at: resolvedAt, hard_filter_resolved_by: resolvedBy }
+          : e),
+      });
+      if (orgIdRef.current) {
+        persist(sb.from('entities').update({
+          hard_filter_status: status,
+          hard_filter_resolved_at: resolvedAt ?? null,
+          hard_filter_resolved_by: resolvedBy ?? null,
+        }).eq('id', id), 'resolveHardFilter');
+      }
     },
 
     updateEntity(id: string, patch: Partial<Entity>) {
