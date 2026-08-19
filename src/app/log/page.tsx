@@ -776,7 +776,11 @@ function LogForm() {
 
         {reopenTrigger && direction === 'out' && (
           <Card title="Reopening — cite the earlier &ldquo;no&rdquo; and what changed" tint="amber">
-            <p className="text-sm text-amber-900">{reopenTrigger}</p>
+            {/* Prompt 269 §2 — attributed as the founder's own note (set
+                when freezing/passing), never presented as Sherlock's own
+                framing of why to reopen. */}
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Your note when freezing</p>
+            <p className="text-sm text-amber-900">&ldquo;{reopenTrigger}&rdquo;</p>
             <label className="mt-2 flex items-start gap-2 text-xs text-amber-800">
               <input type="checkbox" checked={reopenAck} onChange={(e) => setReopenAck(e.target.checked)} className="mt-0.5" />
               <span>The draft cites the earlier pass and what changed, per the reopening doctrine.</span>

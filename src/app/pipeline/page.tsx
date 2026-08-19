@@ -783,10 +783,12 @@ export default function PipelinePage() {
                     <RelationshipCompactLine entityId={e.id} />
                     {/* E2 — a previously-passed/dormant investor that carries a
                         reopen trigger has resurfaced via the reopen doctrine;
-                        say WHY it's back so the row isn't just a greyed name. */}
+                        say WHY it's back so the row isn't just a greyed name.
+                        Prompt 269 §2 — attributed as the founder's own note
+                        (the tooltip), never framed as Sherlock's own reasoning. */}
                     {e.reopen_trigger && (e.status === 'dormant' || e.status === 'passed') && (
                       <div className="mt-0.5 flex items-start gap-1 text-[11px] text-amber-700">
-                        <span title="Reopen doctrine — why this is back in play">↻</span>
+                        <span title="Your note — what you said would justify reopening">↻</span>
                         <span className="line-clamp-2">{e.reopen_trigger}</span>
                       </div>
                     )}

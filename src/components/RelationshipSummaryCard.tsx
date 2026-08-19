@@ -19,6 +19,12 @@ const SNOOZE_OPTIONS = [
   { days: 3, label: '3 days' }, { days: 7, label: '1 week' },
   { days: 14, label: '2 weeks' }, { days: 30, label: '1 month' },
 ] as const;
+
+// Prompt 269 §2 — minimal guard against saving a reopen_trigger that reads
+// as cut off (real case: "nothing nee"). Not a hard content rule — some
+// valid notes are genuinely short — just enough to catch the obviously
+// truncated case without policing every phrasing.
+const REOPEN_TRIGGER_MIN_LENGTH = 15;
 import { derivedStage } from '@/lib/derived-stage';
 import { JourneyStepper } from '@/components/JourneyStepper';
 import { TermHint } from '@/components/ui';
@@ -691,21 +697,42 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
                 </ul>
               )}
               {/* Prompt 251-B point 3 — the "nothing registered" case also
-                  asks the founder to fix that, not just names the gap. */}
-              {parkedOrClosed && needsReopenTrigger(entity) && (
+                  asks the founder to fix that, not just names the gap.
+                  Prompt 269 §2 — reopen_trigger is now editable once set
+                  too (real case: "nothing nee", a typo with no way to fix
+                  it), and shown as an explicitly attributed founder note —
+                  never fused into the Sherlock Tip sentence above, which
+                  is Sherlock's own derived opinion, not a place for raw
+                  manual text. A short minimum guards against saving
+                  something that reads as cut off, without policing valid
+                  short notes into being padded. */}
+              {parkedOrClosed && (
                 reopenTriggerDraft === null ? (
-                  <button onClick={() => setReopenTriggerDraft('')}
-                    className="mt-1.5 text-[11px] font-semibold text-[#0f5132] hover:underline">
-                    + Set reopen trigger
-                  </button>
+                  entity.reopen_trigger ? (
+                    <div className="mt-1.5 flex items-start gap-1.5 text-[12px] text-gray-600">
+                      <span>Your note when freezing: &ldquo;{entity.reopen_trigger}&rdquo;</span>
+                      <button onClick={() => setReopenTriggerDraft(entity.reopen_trigger ?? '')} title="Edit your note"
+                        className="shrink-0 text-[11px] text-gray-300 hover:text-[#0f5132]">
+                        ✎
+                      </button>
+                    </div>
+                  ) : needsReopenTrigger(entity) ? (
+                    <button onClick={() => setReopenTriggerDraft('')}
+                      className="mt-1.5 text-[11px] font-semibold text-[#0f5132] hover:underline">
+                      + Set reopen trigger
+                    </button>
+                  ) : null
                 ) : (
                   <div className="mt-1.5 space-y-1.5">
                     <textarea value={reopenTriggerDraft} onChange={(e) => setReopenTriggerDraft(e.target.value)} rows={2} autoFocus
                       placeholder="What would have to change for a re-approach to be legitimate?"
                       className="w-full rounded border border-[#cdeadb] bg-white p-2 text-xs text-gray-900" />
+                    {reopenTriggerDraft.trim().length > 0 && reopenTriggerDraft.trim().length < REOPEN_TRIGGER_MIN_LENGTH && (
+                      <p className="text-[11px] text-amber-700">A few more words help — this reads as cut off.</p>
+                    )}
                     <div className="flex gap-1.5">
                       <button
-                        disabled={reopenTriggerDraft.trim().length === 0}
+                        disabled={reopenTriggerDraft.trim().length < REOPEN_TRIGGER_MIN_LENGTH}
                         onClick={() => { updateEntity(entity.id, { reopen_trigger: reopenTriggerDraft.trim() }); setReopenTriggerDraft(null); }}
                         className="rounded-full bg-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
                         Save

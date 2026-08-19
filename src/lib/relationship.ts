@@ -184,12 +184,6 @@ export function relationshipSummary(
 // every other branch here. It's the small, immediate fix ahead of Prompt
 // 251's much bigger deterministic code-matching matrix, which structures
 // `reopen_trigger` instead of just reading it verbatim.
-// The founder's own free-text reopen_trigger routinely already ends in a
-// period — avoids "...re-approaching.." when this appends its own.
-function withPeriod(text: string): string {
-  return /[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`;
-}
-
 function isReopenEligible(entity: Entity, now: Date): boolean {
   return !!entity.reopen_eligible_after && entity.reopen_eligible_after <= now.toISOString().slice(0, 10);
 }
@@ -244,14 +238,20 @@ export function nextBestAction(db: Db, entityId: string, now = new Date(), dealM
   // para dormant ("no stage implied") e esta nunca olhava para o status.
   // Corrige-se aqui porque o conselho é o que o founder lê — e um conselho
   // errado é pior do que nenhum.
+  // Prompt 269 §2 — the Tip is Sherlock's own derived opinion; it must
+  // never splice a founder's raw free-text reopen_trigger into its own
+  // sentence as if it were Sherlock's prose (real case: "Reopens if:
+  // nothing nee." — a typo read back as if the app had said it). The Tip
+  // now derives ONLY from structured fields (reopen_eligible_after when
+  // set, else generic closed/frozen guidance); the raw note, when present,
+  // is rendered separately by the caller (RelationshipSummaryCard's own
+  // "Your note when freezing" line), clearly attributed and never fused
+  // into this string.
   const mode = effectiveMode(db, entityId);
   if (mode === 'parked') {
     const revisit = nextPendingTaskDue(db, entityId);
-    if (isReopenEligible(entity, now)) {
-      const trigger = entity.reopen_trigger ? ` Check whether "${entity.reopen_trigger}" has changed.` : '';
-      return `Eligible for re-approach since ${entity.reopen_eligible_after}.${trigger}`;
-    }
-    if (entity.reopen_trigger) return `Reopens if: ${withPeriod(entity.reopen_trigger)} Hasn't happened yet? Stays frozen.`;
+    if (isReopenEligible(entity, now)) return `Eligible for re-approach since ${entity.reopen_eligible_after}.`;
+    if (entity.reopen_trigger) return 'Frozen — reopens once your note (below) comes true.';
     return revisit
       ? `Frozen — revisit on ${revisit.slice(0, 10)}. No reopen trigger recorded — set one, or leave it frozen.`
       : 'Frozen — no revisit scheduled. No reopen trigger recorded — set one, or leave it frozen.';
@@ -287,10 +287,9 @@ export function nextBestAction(db: Db, entityId: string, now = new Date(), dealM
 
     if (isReopenEligible(entity, now)) {
       const why = category ? ` — the earlier no was about ${category}` : '';
-      const trigger = entity.reopen_trigger ? `; check whether "${entity.reopen_trigger}" has changed` : '';
-      return `Eligible for re-approach since ${entity.reopen_eligible_after}${why}${trigger}.`;
+      return `Eligible for re-approach since ${entity.reopen_eligible_after}${why}.`;
     }
-    if (entity.reopen_trigger) return `Reopens if: ${withPeriod(entity.reopen_trigger)} Hasn't happened yet? Stays closed.`;
+    if (entity.reopen_trigger) return `Passed${category ? `, over ${category}` : ''} — reopens once your note (below) comes true.`;
     const age = lastPass ? humanizeAge(lastPass.occurred_at, now) : undefined;
     return `Passed${age ? ` ${age} ago` : ''}${category ? `, over ${category}` : ''}. No reopen trigger recorded — set one, or leave it closed.`;
   }

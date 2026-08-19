@@ -141,12 +141,17 @@ describe('nextBestAction — Fase 0: o Tip de reabertura num dossier fechado', (
     expect(nextBestAction(db(e, [], [pass]), 'e1', NOW)).toBe('Passed 3 months ago, over stage too early. No reopen trigger recorded — set one, or leave it closed.');
   });
 
-  it('reopen_trigger preenchido, sem eligible_after: cita-o verbatim', () => {
+  // Prompt 269 §2 — the Tip never splices the founder's raw reopen_trigger
+  // text into its own sentence anymore (real case: "Reopens if: nothing
+  // nee." read back a typo as if the app had said it). It now derives only
+  // from structured fields; the raw note is rendered separately by
+  // RelationshipSummaryCard's own "Your note when freezing" line.
+  it('reopen_trigger preenchido, sem eligible_after: Tip generico, nunca cita o texto', () => {
     const e = entity({ status: 'passed', reopen_trigger: 'ablute_ ships an actual paying customer' });
-    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Reopens if: ablute_ ships an actual paying customer. Hasn\'t happened yet? Stays closed.');
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Passed — reopens once your note (below) comes true.');
   });
 
-  it('reopen_eligible_after ja passou: diz elegivel, cita a categoria e o trigger', () => {
+  it('reopen_eligible_after ja passou: diz elegivel e a categoria, nunca cita o trigger', () => {
     const e = entity({
       status: 'passed', reopen_trigger: 'product live in market',
       reopen_eligible_after: '2026-08-01',
@@ -154,22 +159,17 @@ describe('nextBestAction — Fase 0: o Tip de reabertura num dossier fechado', (
     const pass = { id: 'p', entity_id: 'e1', direction: 'in', channel: 'email', content: '...',
       classification: 'pass', pass_reason_category: 'traction', occurred_at: '2026-06-01T10:00:00.000Z' } as Interaction;
     expect(nextBestAction(db(e, [], [pass]), 'e1', NOW))
-      .toBe('Eligible for re-approach since 2026-08-01 — the earlier no was about traction; check whether "product live in market" has changed.');
+      .toBe('Eligible for re-approach since 2026-08-01 — the earlier no was about traction.');
   });
 
-  it('reopen_eligible_after no FUTURO: ainda nao elegivel, cai para o trigger', () => {
+  it('reopen_eligible_after no FUTURO: ainda nao elegivel, cai para o Tip generico', () => {
     const e = entity({ status: 'passed', reopen_trigger: 'DACH expansion', reopen_eligible_after: '2027-01-01' });
-    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Reopens if: DACH expansion. Hasn\'t happened yet? Stays closed.');
-  });
-
-  it('reopen_trigger que ja termina em pontuacao nao ganha ponto a mais', () => {
-    const e = entity({ status: 'passed', reopen_trigger: 'They raise a Series A.' });
-    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Reopens if: They raise a Series A. Hasn\'t happened yet? Stays closed.');
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Passed — reopens once your note (below) comes true.');
   });
 
   it('dormant com reopen_trigger: mesma logica, "stays frozen"', () => {
     const e = entity({ status: 'dormant', reopen_trigger: 'they raise a new fund' });
-    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Reopens if: they raise a new fund. Hasn\'t happened yet? Stays frozen.');
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Frozen — reopens once your note (below) comes true.');
   });
 
   it('dormant com reopen_eligible_after ja passado: elegivel, sem categoria (nao houve pass)', () => {
