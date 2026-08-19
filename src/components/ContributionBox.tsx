@@ -17,6 +17,14 @@
 import { useEffect, useState } from 'react';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { AddInfoButton, PrivateBadge } from '@/components/ui';
+import { ENTITY_ENRICHMENT_FIELD_LABELS, isKnownEntityField } from '@/lib/entity-enrichment';
+
+// Prompt 262 — free-text fields typed into "+ Add info" (co-investor,
+// portfolio highlight, ...) aren't in ENTITY_ENRICHMENT_FIELDS at all —
+// falls back to the raw field name unchanged for those, same as before.
+function fieldLabel(field: string): string {
+  return isKnownEntityField(field) ? ENTITY_ENRICHMENT_FIELD_LABELS[field] : field;
+}
 
 // 'held' (migration 0034, prompt 27) — a contribution a human flagged as
 // needing a second look before it's final, distinct from 'submitted'
@@ -190,7 +198,7 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
             isCorrectionRow(c) ? (
               <div key={c.id} className="rounded-lg border border-orange-200 bg-orange-50 p-2 text-xs">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-medium text-gray-700">{c.field}:</span>
+                  <span className="font-medium text-gray-700">{fieldLabel(c.field)}:</span>
                   <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-800">correction · unconfirmed</span>
                 </div>
                 <div className="mt-1.5 grid grid-cols-2 gap-2">
@@ -214,7 +222,7 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
             ) : isAiPendingRow(c) ? (
               <div key={c.id} className="rounded-lg border border-cyan-200 bg-cyan-50 p-2 text-xs">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-medium text-gray-700">{c.field}:</span>
+                  <span className="font-medium text-gray-700">{fieldLabel(c.field)}:</span>
                   <span className="text-gray-700">{formatContributionValue(c.value)}</span>
                   <span className="rounded-full bg-cyan-100 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-800">AI-sourced · unconfirmed</span>
                 </div>
@@ -235,7 +243,7 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
             ) : isHeldRow(c) ? (
               <div key={c.id} className="rounded-lg border border-purple-200 bg-purple-50 p-2 text-xs">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-medium text-gray-700">{c.field}:</span>
+                  <span className="font-medium text-gray-700">{fieldLabel(c.field)}:</span>
                   <span className="text-gray-700">{formatContributionValue(c.value)}</span>
                   <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-800">held · needs a decision</span>
                 </div>
@@ -256,7 +264,7 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
               </div>
             ) : (
               <div key={c.id} className="text-xs text-gray-600">
-                <span className="font-medium">{c.field}:</span>{' '}
+                <span className="font-medium">{fieldLabel(c.field)}:</span>{' '}
                 {isConflictRow(c) ? (
                   <button onClick={() => setConflictPopover(c)}
                     className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 hover:bg-amber-200">
@@ -282,7 +290,7 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
             <div className="mt-1.5 space-y-1.5">
               {rejectedItems.map((c) => (
                 <div key={c.id} className="text-xs text-gray-600">
-                  <span className="font-medium">{c.field}:</span>{' '}
+                  <span className="font-medium">{fieldLabel(c.field)}:</span>{' '}
                   {/* Prompt 49 §1 — a bare "rejected" pill next to a value
                       read as if the value itself were a fact with a status
                       tag, not a proposal that got turned down. Strike the
@@ -306,7 +314,7 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
       )}
       {conflictPopover && (
         <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs">
-          <div className="font-semibold text-amber-900">{conflictPopover.field}</div>
+          <div className="font-semibold text-amber-900">{fieldLabel(conflictPopover.field)}</div>
           <div className="mt-1.5 grid grid-cols-2 gap-2">
             <div><div className="text-gray-500">Valor atual</div><div className="font-medium">{String(subject?.[conflictPopover.field] ?? '—')}</div></div>
             <div><div className="text-gray-500">Valor importado</div><div className="font-medium">{String(conflictPopover.value)}</div></div>

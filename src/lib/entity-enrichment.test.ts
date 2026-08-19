@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isKnownEntityField, coerceEnrichmentValue, entityHasValue, prepareEnrichmentProposals,
   knownEnrichmentValues, buildEntityEnrichmentPrompt, resolveEntityFieldWrite, ENTITY_ENRICHMENT_FIELDS, AI_SEARCH_FIELDS,
+  ENTITY_ENRICHMENT_FIELD_LABELS,
 } from './entity-enrichment';
 import type { Entity } from './types';
 
@@ -238,5 +239,24 @@ describe('buildEntityEnrichmentPrompt', () => {
     expect(prompt).toContain('sectors: "crypto, web3"');
     expect(prompt).toContain('confused with a different One Planet');
     expect(prompt).toContain('email: "info@wrong.com"');
+  });
+});
+
+// Prompt 262 — ContributionBox rendered the raw Postgres column name
+// (e.g. "key_people:") instead of a human label. No React component test
+// harness exists in this codebase (confirmed: zero .test.tsx files) — this
+// tests the underlying data ContributionBox's fieldLabel() reads from,
+// which is the actual fix; the component itself is a one-line lookup with
+// a documented fallback (unknown/free-text fields render unchanged).
+describe('ENTITY_ENRICHMENT_FIELD_LABELS', () => {
+  it('has a human-readable label for every enrichment field, none equal to the raw column name', () => {
+    for (const f of ENTITY_ENRICHMENT_FIELDS) {
+      expect(ENTITY_ENRICHMENT_FIELD_LABELS[f]).toBeTruthy();
+      expect(ENTITY_ENRICHMENT_FIELD_LABELS[f]).not.toBe(f);
+    }
+  });
+
+  it('labels key_people specifically — the field the Karista.vc case surfaced', () => {
+    expect(ENTITY_ENRICHMENT_FIELD_LABELS.key_people).toBe('Key people');
   });
 });

@@ -48,6 +48,22 @@ export const ENTITY_ENRICHMENT_FIELDS = [
 ] as const;
 export type EntityEnrichmentField = typeof ENTITY_ENRICHMENT_FIELDS[number];
 
+// Prompt 262 — ContributionBox rendered the raw Postgres column name
+// (`c.field`) as the label for every contribution, entity or person: "key_
+// people: Olivier Dubuisson (Managing Partner); ..." instead of "Key
+// people: ...". Real, reviewed, verified research data reading like
+// backend jargon. One map for every field this box can show a contribution
+// for — free-text fields typed into "+ Add info" (not in this list) fall
+// back to the raw name unchanged, same as today.
+export const ENTITY_ENRICHMENT_FIELD_LABELS: Record<EntityEnrichmentField, string> = {
+  website: 'Website', email_domain: 'Email domain', hq_city: 'HQ city', hq_country: 'HQ country',
+  invests_in_geographies: 'Geographies', sectors: 'Sectors', stage_min: 'Stage (min)', stage_max: 'Stage (max)',
+  check_min_eur: 'Check (min)', check_max_eur: 'Check (max)', thesis: 'Thesis', email: 'Email', phone: 'Phone',
+  address: 'Address', postal_code: 'Postal code', key_people: 'Key people', general_partner_emails: 'GP emails',
+  aum: 'AUM', current_funds: 'Current funds', latest_fund: 'Latest fund', last_investment_found: 'Last investment found',
+  name: 'Name',
+};
+
 export interface RawProposal { field: string; value: string; confidence: number; source_url: string }
 export interface PreparedProposal { field: EntityEnrichmentField; value: unknown; confidence: number; source_url: string }
 
