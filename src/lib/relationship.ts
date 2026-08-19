@@ -3,6 +3,7 @@
 import type { ActionType, Channel, Classification, Db, Direction, Entity, Interaction, Person, PassReasonCategory, RelationshipStage, TaskItem } from './types';
 import { LOCK_DAYS, preflight, preflightSummary } from './rules';
 import { looksLikePersonName } from './structured-import';
+import { classifyFrozen, lastInteractionSummary } from './frozen-classifier';
 
 // Prompt 251/253 Bloco A — shared with /log's own pass-category select
 // (was duplicated there before this) so there's one list, not two that
@@ -252,6 +253,23 @@ export function nextBestAction(db: Db, entityId: string, now = new Date(), dealM
     const revisit = nextPendingTaskDue(db, entityId);
     if (isReopenEligible(entity, now)) return `Eligible for re-approach since ${entity.reopen_eligible_after}.`;
     if (entity.reopen_trigger) return 'Frozen — reopens once your note (below) comes true.';
+
+    // Prompt 271 §4 — Fase 0 (zero AI, same spirit as 251-B): when this
+    // freeze is class B (dropped_by_us — no pass, no reopen_trigger; both
+    // already ruled out above, classifyFrozen only needs interactions from
+    // here), name the actual dropped-thread fact instead of the generic
+    // "no reopen trigger recorded" copy — cheaper, truer, and doesn't wait
+    // on an AI evaluation the founder hasn't asked for (§3 is on-demand).
+    const its = db.interactions.filter((i) => i.entity_id === entityId);
+    if (classifyFrozen(entity, its) === 'dropped_by_us') {
+      const last = lastInteractionSummary(its);
+      if (last) {
+        const what = last.direction === 'in'
+          ? 'They spoke last'
+          : 'You reached out last';
+        return `${what} (${last.occurredAt.slice(0, 10)}) and never got a reply — this freeze looks like a dropped thread, not a closed door.`;
+      }
+    }
     return revisit
       ? `Frozen — revisit on ${revisit.slice(0, 10)}. No reopen trigger recorded — set one, or leave it frozen.`
       : 'Frozen — no revisit scheduled. No reopen trigger recorded — set one, or leave it frozen.';

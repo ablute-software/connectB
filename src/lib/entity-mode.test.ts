@@ -69,6 +69,46 @@ describe('nextBestAction — parqueado nao pode gritar "ready for first contact"
     expect(nextBestAction(db(e, [t]), 'e1', NOW)).toBe('Frozen — revisit on 2026-09-14. No reopen trigger recorded — set one, or leave it frozen.');
   });
 
+  // Prompt 271 §4 — Fase 0: a dropped_by_us freeze (interacoes reais, sem
+  // pass, sem reopen_trigger) deriva o facto real em vez do texto generico
+  // "no reopen trigger recorded". Caso real ECS Capital: inbound em
+  // fev/2024, zero follow-up.
+  it('dropped_by_us com ultima interacao inbound: "They spoke last"', () => {
+    const e = entity({ status: 'dormant' });
+    const its = [
+      { id: 'i1', entity_id: 'e1', direction: 'in', channel: 'email', content: '...', occurred_at: '2024-02-10T00:00:00.000Z' },
+      { id: 'i2', entity_id: 'e1', direction: 'in', channel: 'email', content: '...', occurred_at: '2024-02-27T00:00:00.000Z' },
+    ] as Interaction[];
+    expect(nextBestAction(db(e, [], its), 'e1', NOW))
+      .toBe('They spoke last (2024-02-27) and never got a reply — this freeze looks like a dropped thread, not a closed door.');
+  });
+
+  it('dropped_by_us com ultima interacao outbound: "You reached out last"', () => {
+    const e = entity({ status: 'dormant' });
+    const its = [
+      { id: 'i1', entity_id: 'e1', direction: 'out', channel: 'email', content: '...', occurred_at: '2026-01-05T00:00:00.000Z' },
+    ] as Interaction[];
+    expect(nextBestAction(db(e, [], its), 'e1', NOW))
+      .toBe('You reached out last (2026-01-05) and never got a reply — this freeze looks like a dropped thread, not a closed door.');
+  });
+
+  // Um pass MAIS ANTIGO que o ultimo inbound mantem effectiveMode em
+  // 'parked' (le so o ultimo inbound — relationship.ts:579-583), mas
+  // classifyFrozen ve QUALQUER pass alguma vez registado (mesmo criterio
+  // da contagem real do Nuno, "3/34 tem um pass real registado") — por
+  // isso o texto de dropped thread nao aparece, mesmo sem effectiveMode
+  // ter mudado de branch.
+  it('pass mais antigo que o ultimo inbound: closed_for_cause, nunca o texto de dropped thread', () => {
+    const e = entity({ status: 'dormant' });
+    const its = [
+      { id: 'i1', entity_id: 'e1', direction: 'in', channel: 'email', content: '...', occurred_at: '2024-02-10T00:00:00.000Z', classification: 'pass' },
+      { id: 'i2', entity_id: 'e1', direction: 'in', channel: 'email', content: '...', occurred_at: '2024-03-01T00:00:00.000Z', classification: 'question' },
+    ] as Interaction[];
+    const result = nextBestAction(db(e, [], its), 'e1', NOW);
+    expect(result).not.toContain('dropped thread');
+    expect(result).toBe('Frozen — no revisit scheduled. No reopen trigger recorded — set one, or leave it frozen.');
+  });
+
   it('o conselho antigo ("Ready for first contact") desaparece de todo', () => {
     const e = entity({ status: 'dormant' });
     expect(nextBestAction(db(e), 'e1', NOW)).not.toContain('pre-flight');

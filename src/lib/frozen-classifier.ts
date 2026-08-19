@@ -25,6 +25,17 @@ import type { Entity, Interaction } from './types';
 
 export type FrozenClass = 'closed_for_cause' | 'dropped_by_us' | 'no_data';
 
+// Deliberately checks ANY interaction ever classified 'pass', not just the
+// most recent inbound one (contrast with effectiveMode's stricter "last
+// inbound only" reading, relationship.ts) — matches Nuno's own SQL count
+// this prompt is built on ("3/34 tem um pass real registado"). The two can
+// diverge on a narrow edge case (an old pass followed by a later non-pass
+// inbound, still status='dormant') — effectiveMode would keep routing that
+// entity through 'parked', while this still reads it as closed_for_cause.
+// Harmless either way: nextBestAction's Fase 0 branch (relationship.ts)
+// only ever reaches this function once effectiveMode already said
+// 'parked', and closed_for_cause there just means the dropped-thread text
+// doesn't fire — never a wrong/contradictory one.
 export function classifyFrozen(
   entity: Pick<Entity, 'reopen_trigger' | 'reopen_eligible_after'>,
   interactions: Pick<Interaction, 'classification'>[],
