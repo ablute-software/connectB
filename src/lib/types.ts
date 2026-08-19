@@ -846,14 +846,23 @@ export interface InvestorSubmission {
 // → 'rejected'. Migration 0030, capability-gated:
 // src/lib/reawakening-capability.ts. NO cron/periodic scan ever.
 export type ReawakeningStatus = 'pending' | 'approved' | 'rejected' | 'dismissed';
+// Prompt 271 §3 — a third origin, 'neglect' (dropped_by_us — no fact, no
+// rejection code, just a thread that went quiet; Sherlock-evaluated
+// on-demand). Migration 0192 replaces 0186's 2-way XOR with an explicit
+// column + a 3-way consistency check; optional here (undefined pre-
+// migration) same as every other propose-only field in this codebase.
+export type ReawakeningTriggerKind = 'fact' | 'rejection_code' | 'neglect';
 export interface ReawakeningProposal {
   id: string;
   // Prompt 251/253 Bloco B — exactly one of fact_id/rejection_code_id is
   // ever set (DB-enforced XOR, migration 0186): the two triggers for this
   // same queue — a confirmed company fact (AI-judged), or a deterministic
-  // rejection-code comparison (no AI at all).
+  // rejection-code comparison (no AI at all). Prompt 271 §3 — a third
+  // origin (trigger_kind='neglect') sets NEITHER: no fact, no rejection
+  // code, just entity_id (already required below).
   fact_id?: string;
   rejection_code_id?: string;
+  trigger_kind?: ReawakeningTriggerKind;
   entity_id: string;
   reopens: boolean;
   rationale?: string;

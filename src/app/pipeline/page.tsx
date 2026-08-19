@@ -334,7 +334,14 @@ function sortValue(db: Db, key: SortKey, e: Entity): unknown {
 
 export default function PipelinePage() {
   useTrackPageView('/pipeline');
-  const { db, loading, markEntityVerified } = useStore();
+  const { db, loading, markEntityVerified, askSherlock } = useStore();
+  // Prompt 271 §3 — per-entity Sherlock evaluation state for the "Dropped"
+  // view. 'loading' while the request is in flight; a verdict object once
+  // it resolves (shown inline — a 'not_worth_it' verdict is recorded in
+  // reawakening_proposals but never surfaced by ReawakeningQueue, so this
+  // is the ONLY place the founder ever sees that reasoning). Absent from
+  // the map = idle, still showing the "Ask Sherlock" button.
+  const [neglectResults, setNeglectResults] = useState<Record<string, 'loading' | { verdict: 'reactivate' | 'not_worth_it'; rationale: string }>>({});
   const [q, setQ] = useState('');
   const [wave, setWave] = useState<string[]>([]);
   const [status, setStatus] = useState<string[]>([]);
@@ -519,6 +526,29 @@ export default function PipelinePage() {
   const noEntities = db.entities.length === 0;
   const noneClassified = !noEntities && db.entities.every((e) => e.wave == null);
 
+  // Prompt 271 §3 — on-demand only, never automatic: askSherlock is only
+  // ever called from these two explicit click handlers.
+  async function askSherlockFor(entityIds: string[]) {
+    setNeglectResults((prev) => {
+      const next = { ...prev };
+      for (const id of entityIds) next[id] = 'loading';
+      return next;
+    });
+    const results = await askSherlock(entityIds);
+    setNeglectResults((prev) => {
+      const next = { ...prev };
+      for (const id of entityIds) {
+        const r = results.find((x) => x.entityId === id);
+        // A missing result (already-pending ask, or server-side reclassified
+        // as not actually dropped_by_us) reverts to idle rather than
+        // getting stuck on "loading" forever — the button just reappears.
+        if (r) next[id] = { verdict: r.verdict, rationale: r.rationale };
+        else delete next[id];
+      }
+      return next;
+    });
+  }
+
   // Top-of-page summary — counts + up to 6 most-recently-updated relationships.
   // "In talks" is in_conversation's display label here specifically (matches
   // the landing page's own wording for this summary); the raw status value
@@ -702,6 +732,14 @@ export default function PipelinePage() {
           className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'standby' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
           {frozenView === 'standby' ? '💤 Showing dropped' : `💤 Dropped (${standbyCount})`}
         </button>
+        {/* Prompt 271 §3 — bulk ask, only in the Dropped view, only for
+            rows not already evaluated/loading this visit. */}
+        {frozenView === 'standby' && rows.some((e) => !neglectResults[e.id]) && (
+          <button onClick={() => askSherlockFor(rows.filter((e) => !neglectResults[e.id]).map((e) => e.id))}
+            className="rounded-lg bg-[#0f5132] px-2.5 py-1.5 text-sm font-medium text-white hover:bg-[#0c4028]">
+            Ask Sherlock — evaluate all ({rows.filter((e) => !neglectResults[e.id]).length})
+          </button>
+        )}
         <span className="text-xs text-gray-400">{rows.length} entities</span>
         <button data-tour-id="pipeline-import" onClick={() => setAddInvestorOpen(true)} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-[#0E7490] hover:bg-[#E8F4F8]">+ Add investor</button>
       </div>
@@ -829,6 +867,25 @@ export default function PipelinePage() {
                         <span title="Your note — what you said would justify reopening">↻</span>
                         <span className="line-clamp-2">{e.reopen_trigger}</span>
                       </div>
+                    )}
+                    {/* Prompt 271 §3 — only in the Dropped view (already
+                        scoped to dropped_by_us by the row filter above).
+                        On-demand, individual: no evaluation happens just
+                        from viewing this list. */}
+                    {frozenView === 'standby' && (
+                      neglectResults[e.id] === 'loading' ? (
+                        <p className="mt-0.5 text-[11px] text-gray-400">Asking Sherlock…</p>
+                      ) : neglectResults[e.id] ? (
+                        <div className={`mt-0.5 text-[11px] ${(neglectResults[e.id] as { verdict: string }).verdict === 'reactivate' ? 'text-[#0f5132]' : 'text-gray-500'}`}>
+                          {(neglectResults[e.id] as { verdict: string }).verdict === 'reactivate'
+                            ? `→ ${(neglectResults[e.id] as { rationale: string }).rationale}`
+                            : `Sherlock: not worth it — ${(neglectResults[e.id] as { rationale: string }).rationale}`}
+                        </div>
+                      ) : (
+                        <button onClick={() => askSherlockFor([e.id])} className="mt-0.5 text-[11px] font-semibold text-[#0f5132] hover:underline">
+                          Ask Sherlock
+                        </button>
+                      )
                     )}
                   </td>
                   <td className="break-words px-3 py-2 text-gray-500">{e.type.replace('_', ' ')}</td>

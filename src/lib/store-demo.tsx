@@ -42,7 +42,9 @@ function applyReactivations(next: Db, entityIds?: string[]): Db {
   const newProposals = reactivations.map((r) => {
     const { reason, category } = priorPassInfo(next.interactions.filter((i) => i.entity_id === r.entity.id));
     return {
-      id: uid('rwp'), rejection_code_id: r.code.id, entity_id: r.entity.id,
+      // Prompt 271 §3 — trigger_kind explicit (migration 0192); demo mode
+      // has no real Supabase schema to fail against, so no gating needed.
+      id: uid('rwp'), rejection_code_id: r.code.id, trigger_kind: 'rejection_code' as const, entity_id: r.entity.id,
       reopens: true, rationale: r.rationale,
       prior_pass_reason: reason, prior_pass_category: category,
       status: 'pending' as const, created_at: now,
@@ -616,6 +618,12 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
         ...prev,
         reawakeningProposals: prev.reawakeningProposals.map((x) => x.id === proposalId ? { ...x, status: 'rejected' as const, resolved_at: now } : x),
       }));
+    },
+
+    // Prompt 271 §3 — no real server/AI in demo mode, same as every other
+    // AI-gated feature here; always resolves to no results.
+    async askSherlock() {
+      return [];
     },
 
     createFolder(name, parentId, kind) {

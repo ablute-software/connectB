@@ -322,7 +322,13 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     const newProposals = survivors.map(({ reactivation: r }) => {
       const { reason, category } = priorPassInfo(next.interactions.filter((i) => i.entity_id === r.entity.id));
       return {
-        id: uuid(), rejection_code_id: r.code.id, entity_id: r.entity.id,
+        // Prompt 271 §3 — trigger_kind: 'rejection_code' identifies this
+        // origin explicitly (migration 0192). Included unconditionally,
+        // same "let a not-yet-applied column degrade via persist()'s
+        // existing error log" precedent already used for tasks.notes
+        // (Prompt 269) — no client-side capability probe for this one
+        // column, consistent with that call.
+        id: uuid(), rejection_code_id: r.code.id, trigger_kind: 'rejection_code' as const, entity_id: r.entity.id,
         reopens: true, rationale: r.rationale,
         prior_pass_reason: reason, prior_pass_category: category,
         status: 'pending' as const, created_at: now,
@@ -1135,6 +1141,24 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const now = new Date().toISOString();
       commit({ ...prev, reawakeningProposals: prev.reawakeningProposals.map((x) => x.id === proposalId ? { ...x, status: 'rejected', resolved_at: now } : x) });
       if (orgIdRef.current) persist(sb.from('reawakening_proposals').update({ status: 'rejected', resolved_at: now }).eq('id', proposalId), 'rejectReawakening');
+    },
+
+    // Prompt 271 §3 — founder-initiated only. Any 'reactivate' verdict
+    // lands as a new reawakening_proposals row server-side; refetch so it
+    // shows up in the same queue the other two origins already use.
+    async askSherlock(entityIds: string[]) {
+      try {
+        const res = await fetch('/api/reawakening/neglect-evaluate', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ entityIds }),
+        });
+        const body = await res.json() as { results?: { entityId: string; verdict: { verdict: 'reactivate' | 'not_worth_it'; rationale: string } }[] };
+        const results = (body.results ?? []).map((r) => ({ entityId: r.entityId, verdict: r.verdict.verdict, rationale: r.verdict.rationale }));
+        if (results.some((r) => r.verdict === 'reactivate')) await refetch();
+        return results;
+      } catch {
+        return [];
+      }
     },
 
     createFolder(name: string, parentId: string | undefined, kind: FolderKind) {

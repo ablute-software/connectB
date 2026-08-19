@@ -285,6 +285,16 @@ export interface StoreApi {
   // runs server-side only on fact confirmation (never here).
   approveReawakening: (proposalId: string, overrides?: { wave?: number; fit?: FitScore }) => void;
   rejectReawakening: (proposalId: string) => void;
+  // Prompt 271 §3 — on-demand only (never a cron/periodic scan): the
+  // founder clicks "Ask Sherlock" (one entity or "evaluate all"), this
+  // calls /api/reawakening/neglect-evaluate and refetches so any new
+  // proposal appears in the same queue as the other two origins. Returns
+  // the per-entity verdicts too, for immediate inline feedback — a
+  // 'not_worth_it' verdict is recorded (dismissed) but never surfaced in
+  // ReawakeningQueue, so the caller needs the verdict text itself to show
+  // the founder anything for that case. Demo mode has no server route to
+  // call — always resolves to [].
+  askSherlock: (entityIds: string[]) => Promise<{ entityId: string; verdict: 'reactivate' | 'not_worth_it'; rationale: string }[]>;
 
   // Company tab redesign (migration 0037, capability-gated). The startup's
   // own team — org-scoped, RLS-open to org members (same pattern as

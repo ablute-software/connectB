@@ -14,6 +14,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { prefilterEntities, priorPassInfo, chunk, proposalStatusForVerdict } from '@/lib/reawakening';
 import type { Entity, FitScore, Interaction } from '@/lib/types';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { reawakeningNeglectAvailable } from '@/lib/reawakening-neglect-capability';
 
 const FITS: FitScore[] = ['high', 'medium_high', 'medium', 'low'];
 
@@ -134,13 +135,19 @@ export async function POST(req: Request) {
 
   // Step 3 — persist a row per evaluated pair (service-role insert). reopens →
   // 'pending', else 'dismissed'. upsert(ignoreDuplicates) keeps re-fires safe.
+  // Prompt 271 §3 — trigger_kind only included once migration 0192 has
+  // landed (the column is NOT NULL there; omitting it entirely, rather
+  // than sending an unknown column, is what keeps this route working on
+  // an environment that hasn't applied 0192 yet).
   const now = new Date().toISOString();
+  const withTriggerKind = await reawakeningNeglectAvailable();
   const proposalRows = verdicts.map((v) => {
     const pass = passInfo.get(v.entity_id) ?? {};
     const fit = FITS.includes(v.suggested_fit as FitScore) ? v.suggested_fit : null;
     const wave = Number.isFinite(v.suggested_wave) ? Math.round(v.suggested_wave as number) : null;
     return {
       org_id: orgId, fact_id: factId, entity_id: v.entity_id,
+      ...(withTriggerKind ? { trigger_kind: 'fact' as const } : {}),
       reopens: !!v.reopens, rationale: v.rationale ?? null,
       suggested_wave: wave, suggested_fit: fit,
       prior_pass_reason: pass.reason ?? null, prior_pass_category: pass.category ?? null,
