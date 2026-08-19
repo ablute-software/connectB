@@ -9,6 +9,18 @@ export interface ParsedKeyPerson {
   role: string | null;
 }
 
+// Prompt 264 — bulk promotion can't eyeball each of 248 entities like the
+// single-entity "Add as contact" button could; this is the "did this
+// actually parse cleanly" check that decides needs-review vs safe-to-apply.
+// Conservative on purpose (whole entity flagged, not just the one bad
+// item): a partially-applied entity (2 of 3 names right, 1 garbled) is
+// worse than one that waits for a human, per the prompt's own "nunca
+// escrever um nome errado ou um cargo cortado a meio."
+export function keyPeopleParseNeedsReview(parsed: ParsedKeyPerson[]): boolean {
+  if (parsed.length === 0) return true;
+  return parsed.some((p) => p.role === null || p.fullName.length < 2 || p.fullName.length > 60);
+}
+
 export function parseKeyPeopleText(raw: string): ParsedKeyPerson[] {
   return raw
     .split(/[;|]/)

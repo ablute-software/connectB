@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseKeyPeopleText } from './key-people-parse';
+import { keyPeopleParseNeedsReview, parseKeyPeopleText } from './key-people-parse';
 
 describe('parseKeyPeopleText', () => {
   it('parses the real Karista.vc shape — "Name (Role)", semicolon-separated', () => {
@@ -40,5 +40,29 @@ describe('parseKeyPeopleText', () => {
 
   it('trims whitespace around name and role', () => {
     expect(parseKeyPeopleText('  Jane Doe   (  CEO  )  ')).toEqual([{ fullName: 'Jane Doe', role: 'CEO' }]);
+  });
+});
+
+describe('keyPeopleParseNeedsReview', () => {
+  it('is clean when every person parsed with a role', () => {
+    expect(keyPeopleParseNeedsReview(parseKeyPeopleText('Jane Doe (CEO); John Smith (CTO)'))).toBe(false);
+  });
+
+  it('flags empty parse results', () => {
+    expect(keyPeopleParseNeedsReview([])).toBe(true);
+  });
+
+  it('flags the whole entity if even one person has no detected role', () => {
+    const parsed = parseKeyPeopleText('Jane Doe (CEO); Some Unparsed Blob Of Text');
+    expect(keyPeopleParseNeedsReview(parsed)).toBe(true);
+  });
+
+  it('flags an implausibly long "name" (an undetected separator swallowing the whole line)', () => {
+    const longBlob = 'A'.repeat(80);
+    expect(keyPeopleParseNeedsReview([{ fullName: longBlob, role: 'CEO' }])).toBe(true);
+  });
+
+  it('flags an implausibly short name', () => {
+    expect(keyPeopleParseNeedsReview([{ fullName: 'X', role: 'CEO' }])).toBe(true);
   });
 });

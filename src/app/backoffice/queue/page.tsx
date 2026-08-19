@@ -16,7 +16,7 @@ import { SuspiciousAccountsTab } from '@/components/backoffice/SuspiciousAccount
 // backoffice/catalog/page.tsx (the CatalogCandidatesTab/AddedByStartupsTab/
 // QualityPanel section below) — no logic changes, per the prompt's own
 // scope.
-type Tab = 'contributions' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious';
+type Tab = 'contributions' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious' | 'key_people';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'contributions', label: 'Contributions' },
@@ -28,6 +28,10 @@ const TABS: { key: Tab; label: string }[] = [
   // Prompt 244/245 — manual flagging by developers (not automatic
   // detection), see SuspiciousAccountsTab.tsx.
   { key: 'suspicious', label: 'Suspicious accounts' },
+  // Prompt 264 — bulk-promote verified key_people research to real
+  // contacts, across every org (248 entities had this gap in production
+  // at the time this shipped; a reusable screen, not a one-off fix).
+  { key: 'key_people', label: 'Key people' },
 ];
 
 type Contribution = {
@@ -1070,6 +1074,129 @@ function CatalogCandidatesTab() {
   );
 }
 
+// Prompt 264 — bulk version of the entity-dossier "Add as contact" button
+// (Prompt 263), same parser/needs-review check (key-people-parse.ts),
+// backed by /api/backoffice/key-people-promote (service-role, re-verifies
+// every entity server-side before writing — never trusts this preview).
+// Idempotent by construction: an applied (or otherwise no-longer-eligible)
+// entity simply isn't in the next GET's result, same as the single-button
+// version derives "Added as contact" from db.people instead of its own flag.
+interface KeyPeopleCandidate {
+  entityId: string; entityName: string; orgId: string; orgName: string;
+  parsed: { fullName: string; role: string | null }[]; needsReview: boolean;
+}
+
+function KeyPeoplePromoteTab() {
+  const [items, setItems] = useState<KeyPeopleCandidate[] | null>(null);
+  const [err, setErr] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [applying, setApplying] = useState(false);
+  const [result, setResult] = useState('');
+
+  function refresh() {
+    fetch('/api/backoffice/key-people-promote').then((r) => r.json()).then((body) => {
+      if (body.ok === false) { setErr(body.error); return; }
+      const list = body.items as KeyPeopleCandidate[];
+      setItems(list);
+      // Every non-needs-review row starts checked, per the prompt's own
+      // "todas selecionadas por defeito, exceto as marcadas needs review."
+      setSelected(new Set(list.filter((i) => !i.needsReview).map((i) => i.entityId)));
+    });
+  }
+  useEffect(refresh, []);
+
+  function toggle(entityId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(entityId)) next.delete(entityId); else next.add(entityId);
+      return next;
+    });
+  }
+
+  async function applySelected() {
+    if (selected.size === 0) return;
+    setApplying(true); setResult('');
+    try {
+      const res = await fetch('/api/backoffice/key-people-promote', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityIds: [...selected] }),
+      });
+      const body = await res.json();
+      if (body.ok === false) { setResult(body.error); return; }
+      const applied = body.applied.length;
+      const skipped = body.skipped.length;
+      setResult(skipped === 0
+        ? `Added contacts for ${applied} entit${applied === 1 ? 'y' : 'ies'}.`
+        : `Added contacts for ${applied}; ${skipped} skipped (already handled, or failed server-side re-check).`);
+      refresh();
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  if (err) return <Card title="Key people"><p className="text-sm text-[#B00000]">{err}</p></Card>;
+  if (!items) return <Card title="Key people"><p className="text-sm text-gray-400">Loading…</p></Card>;
+
+  const clean = items.filter((i) => !i.needsReview);
+  const needsReview = items.filter((i) => i.needsReview);
+
+  return (
+    <Card title={`Key people — verified research not yet real contacts (${items.length})`}>
+      <p className="mb-3 text-xs text-gray-500">
+        Every entity below has a human-verified <code>key_people</code> contribution but zero contacts on file —
+        the founder can see the names but pre-flight, contact order, and messaging all read from real{' '}
+        <code>people</code> rows, which none of these have yet. Applying creates one contact per parsed name, ranked
+        1, 2, 3… by the order they appear in the text — never inferred from title.
+      </p>
+      <div className="mb-3 flex items-center gap-2">
+        <button disabled={applying || selected.size === 0} onClick={applySelected}
+          className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+          {applying ? 'Applying…' : `Apply selected (${selected.size})`}
+        </button>
+        {result && <span className="text-xs text-gray-500">{result}</span>}
+      </div>
+      {items.length === 0 ? <p className="text-sm text-gray-400">Queue clear.</p> : (
+        <div className="space-y-4">
+          {clean.length > 0 && (
+            <ul className="space-y-2">
+              {clean.map((c) => (
+                <li key={c.entityId} className="rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input type="checkbox" checked={selected.has(c.entityId)} onChange={() => toggle(c.entityId)} />
+                    <span className="font-semibold">{c.entityName}</span>
+                    <span className="text-xs text-gray-400">{c.orgName}</span>
+                  </div>
+                  <p className="mt-1.5 text-xs text-gray-600">
+                    {c.parsed.map((p, i) => `${i + 1}. ${p.fullName} — ${p.role}`).join('  ·  ')}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+          {needsReview.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-2">
+              <p className="mb-1.5 text-xs font-semibold text-amber-800">Needs review — won&apos;t be written ({needsReview.length})</p>
+              <ul className="space-y-1.5 text-xs">
+                {needsReview.map((c) => (
+                  <li key={c.entityId} className="rounded-lg border border-amber-100 bg-white p-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{c.entityName}</span>
+                      <span className="text-gray-400">{c.orgName}</span>
+                    </div>
+                    <p className="mt-1 text-gray-500">
+                      Raw text — doesn&apos;t parse cleanly into name + role: {c.parsed.map((p) => p.fullName).join(' / ') || '(nothing parsed)'}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function BackofficeQueuePage() {
   const [tab, setTab] = useState<Tab>('contributions');
   return (
@@ -1103,6 +1230,7 @@ export default function BackofficeQueuePage() {
       {tab === 'identity' && <InvestorIdentityTab />}
       {tab === 'gdpr' && <GdprTab />}
       {tab === 'suspicious' && <SuspiciousAccountsTab />}
+      {tab === 'key_people' && <KeyPeoplePromoteTab />}
     </div>
   );
 }
