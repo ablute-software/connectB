@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { entityCompleteness, personCompleteness, qualifiesForContactEnrichment, ENRICHMENT_THRESHOLD } from './completeness';
+import { entityCompleteness, personCompleteness, qualifiesForContactEnrichment, ENRICHMENT_THRESHOLD, gradeFromPercent, manualEntityCompleteness, type ManualEntityCompletenessFields } from './completeness';
 import type { Entity, Person } from './types';
 
 function ent(p: Partial<Entity> = {}): Entity {
@@ -77,6 +77,67 @@ describe('qualifiesForContactEnrichment', () => {
     const c = entityCompleteness(e);
     expect(c.firmographic.percent).toBeLessThan(ENRICHMENT_THRESHOLD);
     expect(qualifiesForContactEnrichment(c)).toBe(false);
+  });
+});
+
+describe('gradeFromPercent', () => {
+  // Cutoffs measured against the real 757 "Added by startups" rows
+  // (2026-08-19): kept as proposed, no bucket came out degenerate.
+  it.each([
+    [100, 'A'], [80, 'A'], [79, 'B'], [60, 'B'], [59, 'C'], [40, 'C'], [39, 'D'], [20, 'D'], [19, 'E'], [0, 'E'],
+  ] as const)('%i%% -> grade %s', (percent, grade) => {
+    expect(gradeFromPercent(percent)).toBe(grade);
+  });
+});
+
+describe('manualEntityCompleteness', () => {
+  function fields(p: Partial<ManualEntityCompletenessFields> = {}): ManualEntityCompletenessFields {
+    return {
+      website: null, hqCity: null, hqCountry: null, geographies: null, stageMin: null, stageMax: null,
+      checkMinEur: null, checkMaxEur: null, sectors: [], contactCount: 0,
+      ...p,
+    };
+  }
+
+  it('scores 0% and grade E when nothing at all is filled in', () => {
+    const c = manualEntityCompleteness(fields());
+    expect(c.percent).toBe(0);
+    expect(c.grade).toBe('E');
+    expect(c.missing).toHaveLength(10);
+  });
+
+  it('scores 100% and grade A when every one of the 10 fields is present', () => {
+    const c = manualEntityCompleteness(fields({
+      website: 'https://x.vc', hqCity: 'Lisbon', hqCountry: 'PT', geographies: ['Europe'],
+      stageMin: 'seed', stageMax: 'seed', checkMinEur: 1, checkMaxEur: 2, sectors: ['fintech'], contactCount: 1,
+    }));
+    expect(c.percent).toBe(100);
+    expect(c.grade).toBe('A');
+    expect(c.missing).toHaveLength(0);
+  });
+
+  // Real distribution's dominant cluster (36.9% of all 757 rows land here
+  // exactly): 7 of 10 fields present.
+  it('reproduces the real 70%-cluster shape (7 of 10 fields) as grade B', () => {
+    const c = manualEntityCompleteness(fields({
+      website: 'https://x.vc', hqCity: 'Berlin', hqCountry: 'DE', geographies: ['Europe'],
+      stageMin: 'seed', stageMax: 'series_a', sectors: ['deeptech'],
+      // checkMinEur/checkMaxEur/contactCount left absent — exactly 3 of 10 missing.
+    }));
+    expect(c.percent).toBe(70);
+    expect(c.grade).toBe('B');
+  });
+
+  it('treats an empty geographies array the same as null (no credit)', () => {
+    const withNull = manualEntityCompleteness(fields({ geographies: null }));
+    const withEmpty = manualEntityCompleteness(fields({ geographies: [] }));
+    expect(withEmpty.percent).toBe(withNull.percent);
+  });
+
+  it('only counts contacts by presence (>0), not by how many', () => {
+    const one = manualEntityCompleteness(fields({ contactCount: 1 }));
+    const five = manualEntityCompleteness(fields({ contactCount: 5 }));
+    expect(one.percent).toBe(five.percent);
   });
 });
 

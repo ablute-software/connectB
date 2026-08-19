@@ -65,6 +65,58 @@ export function qualifiesForContactEnrichment(c: EntityCompletenessResult): bool
   return c.firmographic.percent >= ENRICHMENT_THRESHOLD && c.contact.percent === 0;
 }
 
+// Prompt 276 — "Added by startups" completeness grade (A-E), so the
+// backoffice reviewer can approve the richest rows first. Deliberately a
+// SEPARATE function from entityCompleteness, not a reuse: the manual-
+// entities route returns a different shape (ManualEntity, page-local to
+// queue/page.tsx — camelCase, a JSON projection, not the full Entity row)
+// AND a different field list (this checks hqCity/hqCountry/geographies,
+// which entityCompleteness never checks at all; and treats stage
+// min/max and check min/max as four independent equal-weight checks,
+// where entityCompleteness collapses each pair into one "range" check).
+// Kept structural rather than importing ManualEntity from the app layer,
+// so this module stays a leaf lib/ has no reason to import from app/.
+//
+// Cutoffs measured against the real 757 rows before fixing them (2026-08-
+// 19): A>=80 (58 rows, 7.7%), B>=60 (288, 38.0%), C>=40 (213, 28.1%),
+// D>=20 (98, 12.9%), E<20 (100, 13.2%) — no bucket is degenerate, kept as
+// proposed. The 38%-in-B / 28%-in-C sizes are a property of the data (most
+// manually-added rows cluster at exactly 70% or 50% complete, from a
+// handful of distinct entry patterns), not a fixable cutoff artifact —
+// every alternative boundary tried lands the same two clusters in one
+// bucket or another, never split more evenly.
+export type CompletenessGrade = 'A' | 'B' | 'C' | 'D' | 'E';
+
+export function gradeFromPercent(percent: number): CompletenessGrade {
+  if (percent >= 80) return 'A';
+  if (percent >= 60) return 'B';
+  if (percent >= 40) return 'C';
+  if (percent >= 20) return 'D';
+  return 'E';
+}
+
+export interface ManualEntityCompletenessFields {
+  website: string | null; hqCity: string | null; hqCountry: string | null;
+  geographies: string[] | null; stageMin: string | null; stageMax: string | null;
+  checkMinEur: number | null; checkMaxEur: number | null; sectors: string[]; contactCount: number;
+}
+
+export function manualEntityCompleteness(f: ManualEntityCompletenessFields): CompletenessResult & { grade: CompletenessGrade } {
+  const result = score([
+    [!!f.website, 'website'],
+    [!!f.hqCity, 'HQ city'],
+    [!!f.hqCountry, 'HQ country'],
+    [(f.geographies?.length ?? 0) > 0, 'geographies'],
+    [!!f.stageMin, 'stage min'],
+    [!!f.stageMax, 'stage max'],
+    [f.checkMinEur != null, 'check min'],
+    [f.checkMaxEur != null, 'check max'],
+    [f.sectors.length > 0, 'sectors'],
+    [f.contactCount > 0, 'contacts'],
+  ]);
+  return { ...result, grade: gradeFromPercent(result.percent) };
+}
+
 export function personCompleteness(p: Person): CompletenessResult {
   const checks: [boolean, string][] = [
     [!!p.linkedin_url, 'LinkedIn'],

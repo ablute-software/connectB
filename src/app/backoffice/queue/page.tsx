@@ -9,6 +9,7 @@ import { Card, Tooltip } from '@/components/ui';
 import { classifyConflict, type ConflictClass } from '@/lib/contribution-diff';
 import { SuspiciousAccountsTab } from '@/components/backoffice/SuspiciousAccountsTab';
 import { ENTITY_ENRICHMENT_FIELD_LABELS, isKnownEntityField } from '@/lib/entity-enrichment';
+import { manualEntityCompleteness, type CompletenessGrade } from '@/lib/completeness';
 
 // Prompt 190 — 'candidates' ("Catalog candidates") added next to
 // Contributions per Nuno's explicit decision: "Added by startups" (Prompt
@@ -914,6 +915,21 @@ type ManualEntity = {
   likelyDuplicate: { catalogId: string; reason: 'domain' | 'name' | 'alias'; catalogEntity: { id: string; name: string; website: string | null; verificationStatus: string } } | null;
 };
 
+// Prompt 276 — completeness grade badge for a manually-added row. A best
+// (green) to worst (gray) scale, not a pass/fail one: nothing here is
+// actually wrong, a low grade just means more enrichment work later.
+const GRADE_STYLE: Record<CompletenessGrade, string> = {
+  A: 'bg-green-100 text-green-800', B: 'bg-cyan-100 text-cyan-800', C: 'bg-amber-100 text-amber-800',
+  D: 'bg-orange-100 text-orange-800', E: 'bg-gray-100 text-gray-600',
+};
+function GradeBadge({ grade, percent }: { grade: CompletenessGrade; percent: number }) {
+  return (
+    <Tooltip text={`${percent}% of the fields we care about most are already filled in.`}>
+      <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${GRADE_STYLE[grade]}`}>{grade}</span>
+    </Tooltip>
+  );
+}
+
 function CompareTable({ manual, catalogEntity }: { manual: ManualEntity; catalogEntity: CatalogEntity }) {
   const rows: [string, string, string][] = [
     ['Website', manual.website ?? '—', catalogEntity.website ?? '—'],
@@ -1066,6 +1082,34 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkResult, setBulkResult] = useState('');
+  // Prompt 276 — 'all' shows every row; a letter shows that grade AND
+  // anything better (e.g. 'B' shows A and B), matching "aprova A e B de
+  // uma vez" rather than exactly-this-grade-only.
+  const [minGrade, setMinGrade] = useState<CompletenessGrade | 'all'>('all');
+
+  const graded = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof manualEntityCompleteness>>();
+    for (const r of rows ?? []) {
+      m.set(r.id, manualEntityCompleteness({
+        website: r.website, hqCity: r.hqCity, hqCountry: r.hqCountry, geographies: r.geographies,
+        stageMin: r.stageMin, stageMax: r.stageMax, checkMinEur: r.checkMinEur, checkMaxEur: r.checkMaxEur,
+        sectors: r.sectors, contactCount: r.contacts.length,
+      }));
+    }
+    return m;
+  }, [rows]);
+
+  // Prompt 276 §3/§4 — default order becomes grade descending (A first),
+  // created_at desc as the tiebreak within the same grade (the API's own
+  // order, preserved exactly where grade doesn't distinguish two rows).
+  // Filtered to minGrade first so "select all" below only ever touches
+  // what's actually on screen, never all 757 regardless of the filter.
+  const visibleRows = useMemo(() => {
+    if (!rows) return [];
+    const list = minGrade === 'all' ? rows : rows.filter((r) => (graded.get(r.id)?.grade ?? 'E').localeCompare(minGrade) <= 0);
+    return [...list].sort((a, b) =>
+      (graded.get(a.id)?.grade ?? 'E').localeCompare(graded.get(b.id)?.grade ?? 'E') || b.createdAt.localeCompare(a.createdAt));
+  }, [rows, graded, minGrade]);
 
   function refresh() {
     fetch('/api/backoffice/catalog/manual-entities').then((r) => r.json()).then((body) => {
@@ -1085,9 +1129,18 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
       return next;
     });
   }
+  // Prompt 276 §4 — operates on visibleRows (post-filter), not the full
+  // 757: toggles only the rows currently on screen, leaving any selection
+  // made under a DIFFERENT filter (e.g. grade A selected, then switched to
+  // viewing grade B) untouched rather than clobbering it.
   function toggleSelectAll() {
-    if (!rows) return;
-    setSelectedIds((prev) => prev.size === rows.length ? new Set() : new Set(rows.map((r) => r.id)));
+    if (visibleRows.length === 0) return;
+    const allVisibleSelected = visibleRows.every((r) => selectedIds.has(r.id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const r of visibleRows) { if (allVisibleSelected) next.delete(r.id); else next.add(r.id); }
+      return next;
+    });
   }
 
   async function dismiss(row: ManualEntity) {
@@ -1150,28 +1203,43 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
         catalog in one go: a flagged row merges into its likely match (filling gaps only, never overwriting), an
         unflagged row is promoted as a new entry. Dismiss a row that isn&apos;t worth either.
       </p>
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <button disabled={selectedIds.size === 0 || bulkBusy} onClick={addSelectedToCatalog}
           className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
           {bulkBusy ? 'Adding…' : `Add selected to catalog (${selectedIds.size})`}
         </button>
         {bulkResult && <span className="text-xs text-gray-500">{bulkResult}</span>}
+        {/* Prompt 276 §4 — "minimum grade" (A/B/... and better), not an
+            exact-grade filter: the point is "show me the richest rows so
+            I can select-all and approve them together", which a
+            single-grade-only filter would make into several separate
+            select-all passes for no benefit. */}
+        <label className="ml-auto text-xs text-gray-500">Minimum grade
+          <select value={minGrade} onChange={(e) => setMinGrade(e.target.value as CompletenessGrade | 'all')}
+            className="ml-1.5 rounded border border-gray-300 px-1.5 py-1 text-xs">
+            <option value="all">All</option>
+            {(['A', 'B', 'C', 'D', 'E'] as const).map((g) => <option key={g} value={g}>{g} or better</option>)}
+          </select>
+        </label>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
-              <th className="w-8 py-1.5"><input type="checkbox" checked={rows.length > 0 && selectedIds.size === rows.length} onChange={toggleSelectAll} /></th>
+              <th className="w-8 py-1.5"><input type="checkbox" checked={visibleRows.length > 0 && visibleRows.every((r) => selectedIds.has(r.id))} onChange={toggleSelectAll} /></th>
+              <th>Grade</th>
               <th>Startup org</th><th>Investor</th><th>HQ</th><th>Geographies</th><th>Stage</th><th>Sectors</th><th>Contact</th><th>Match</th><th></th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {visibleRows.map((r) => {
               const catalogEntity = r.likelyDuplicate ? catalog.find((c) => c.id === r.likelyDuplicate!.catalogId) : undefined;
+              const g = graded.get(r.id);
               return (
                 <Fragment key={r.id}>
                   <tr className="border-t border-gray-50 align-top">
                     <td className="py-2"><input type="checkbox" checked={selectedIds.has(r.id)} onChange={() => toggleSelected(r.id)} /></td>
+                    <td>{g && <GradeBadge grade={g.grade} percent={g.percent} />}</td>
                     <td className="text-gray-500">{r.orgName}</td>
                     <td className="font-medium">{r.name}{r.website && <div className="text-xs font-normal text-gray-400">{r.website}</div>}</td>
                     <td className="text-gray-500">{[r.hqCity, r.hqCountry].filter(Boolean).join(', ') || '—'}</td>
@@ -1200,24 +1268,25 @@ function AddedByStartupsTab({ catalog, onPromoted }: { catalog: CatalogEntity[];
                   </tr>
                   {editId === r.id && (
                     <tr className="border-t border-gray-50">
-                      <td colSpan={10} className="py-2">
+                      <td colSpan={11} className="py-2">
                         <ManualEntityEditForm row={r} onCancel={() => setEditId(null)} onSaved={() => { setEditId(null); refresh(); }} />
                       </td>
                     </tr>
                   )}
                   {contactsId === r.id && (
-                    <tr className="border-t border-gray-50"><td colSpan={10} className="py-2"><ManualEntityContactsPanel contacts={r.contacts} /></td></tr>
+                    <tr className="border-t border-gray-50"><td colSpan={11} className="py-2"><ManualEntityContactsPanel contacts={r.contacts} /></td></tr>
                   )}
                   {compareId === r.id && catalogEntity && (
-                    <tr className="border-t border-gray-50"><td colSpan={10} className="py-2"><CompareTable manual={r} catalogEntity={catalogEntity} /></td></tr>
+                    <tr className="border-t border-gray-50"><td colSpan={11} className="py-2"><CompareTable manual={r} catalogEntity={catalogEntity} /></td></tr>
                   )}
                   {result[r.id] && (
-                    <tr><td colSpan={10} className="pb-2 text-xs text-gray-500">{result[r.id]}</td></tr>
+                    <tr><td colSpan={11} className="pb-2 text-xs text-gray-500">{result[r.id]}</td></tr>
                   )}
                 </Fragment>
               );
             })}
-            {rows.length === 0 && <tr><td colSpan={10} className="py-4 text-center text-sm text-gray-400">No manually-added investors from startups yet.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={11} className="py-4 text-center text-sm text-gray-400">No manually-added investors from startups yet.</td></tr>}
+            {rows.length > 0 && visibleRows.length === 0 && <tr><td colSpan={11} className="py-4 text-center text-sm text-gray-400">No rows at grade {minGrade} or better.</td></tr>}
           </tbody>
         </table>
       </div>
