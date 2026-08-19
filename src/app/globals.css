@@ -67,6 +67,26 @@ body {
    lets this same trigger-on-mount pattern (already used above for
    sub-card entrances) apply here too: it starts painted at the back-stack
    transform and animates in from there. */
+/* Prompt 261 — dismissing the Pipeline stats/spotlight card: a simple
+   scale-down + fade-out, same 220ms/cubic-bezier as the onboarding modal's
+   own entrance above (deliberately sober — no bounce/confetti, matching the
+   app's own tone). The component unmounts itself after this delay (see
+   PipelinePage's dismissStatsCard) rather than a separate exit keyframe
+   driving removal — same "handled by the component unmounting after that
+   delay" pattern as the onboarding modal's own exit. */
+@keyframes pipeline-stats-card-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(.92); }
+}
+.pipeline-stats-card-exit {
+  animation: pipeline-stats-card-out 220ms cubic-bezier(.16, 1, .3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pipeline-stats-card-exit {
+    animation: none;
+  }
+}
+
 @keyframes matchdeal-card-promote-in {
   from { opacity: .6; transform: scale(.94) translateY(10px); }
   to { opacity: 1; transform: scale(1) translateY(0); }

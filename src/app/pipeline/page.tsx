@@ -348,6 +348,22 @@ export default function PipelinePage() {
   const [sortKey, setSortKey] = useState<SortKey>('wave');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [addInvestorOpen, setAddInvestorOpen] = useState(false);
+  // Prompt 261 — dismiss the stats+spotlight card for this visit only.
+  // Plain component state, nothing persisted: PipelinePage unmounts on
+  // route change (confirmed live — navigating to /tasks and back re-runs
+  // this component from scratch), so leaving to another page and coming
+  // back already resets it with no extra logic needed. statsExiting drives
+  // the CSS exit animation; statsDismissed removes the card from the DOM
+  // once that animation (or, for prefers-reduced-motion, no animation at
+  // all) has had time to finish.
+  const [statsExiting, setStatsExiting] = useState(false);
+  const [statsDismissed, setStatsDismissed] = useState(false);
+  function dismissStatsCard() {
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) { setStatsDismissed(true); return; }
+    setStatsExiting(true);
+    setTimeout(() => setStatsDismissed(true), 220);
+  }
   // Prompt 107 B.5 — which delivered entities are currently a suspended
   // investor. Derived at read time, never a mass write to `entities` (see
   // /api/pipeline/suspended-investors's own header for why).
@@ -539,7 +555,17 @@ export default function PipelinePage() {
       <PageTour pageKey="guide_pipeline" />
       <div className="md:shrink-0"><PipelineUnlockBadge unlock={unlock} /></div>
       {noneClassified && <div className="md:shrink-0"><EmptyCompanyBlock variant="banner" /></div>}
-      <div className="md:shrink-0 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+      {!statsDismissed && (
+      <div className={`relative md:shrink-0 ${statsExiting ? 'pipeline-stats-card-exit' : ''}`}>
+        {/* Prompt 261 — half on, half off the rounded-2xl corner, like a
+            badge sitting on the edge, not a button inside the content
+            padding. Neutral palette (gray-500/border-gray-300, hover
+            gray-700/gray-50) — no new color. */}
+        <button onClick={dismissStatsCard} aria-label="Dismiss this card for now" title="Dismiss for this visit"
+          className="absolute -right-2 -top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-500 shadow-sm hover:bg-gray-50 hover:text-gray-700">
+          ×
+        </button>
+        <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <div className="flex items-baseline gap-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Contacted</span>
@@ -581,7 +607,9 @@ export default function PipelinePage() {
             })}
           </div>
         )}
+        </div>
       </div>
+      )}
 
       <div className="md:shrink-0"><ReawakeningQueue /></div>
       {personCandidates.length > 0 && (
