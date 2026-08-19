@@ -780,7 +780,7 @@ export default function PipelinePage() {
                         not yet verified
                       </span>
                     )}
-                    <RelationshipCompactLine entityId={e.id} />
+                    <RelationshipCompactLine entityId={e.id} neutral={showFrozen} />
                     {/* E2 — a previously-passed/dormant investor that carries a
                         reopen trigger has resurfaced via the reopen doctrine;
                         say WHY it's back so the row isn't just a greyed name.
@@ -809,7 +809,11 @@ export default function PipelinePage() {
                     {task ? (
                       <span className="text-xs">
                         <span className="text-gray-700">{task.title}</span>
-                        {task.due_at && <span className={overdue ? 'ml-1 font-semibold text-[#B00000]' : 'ml-1 text-gray-400'}>
+                        {/* Prompt 269 §3 — overdue urgency is muted in the
+                            frozen view for the same reason as the whose-turn
+                            chip above: the frozen state is the dominant
+                            signal there, not a stale due date. */}
+                        {task.due_at && <span className={overdue && !showFrozen ? 'ml-1 font-semibold text-[#B00000]' : 'ml-1 text-gray-400'}>
                           · {task.due_at.slice(5, 10)}
                         </span>}
                       </span>

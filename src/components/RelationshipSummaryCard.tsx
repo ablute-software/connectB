@@ -81,25 +81,30 @@ export function HealthDot({ entityId, dealMessageTouches = [] }: { entityId: str
   return <span title={HEALTH_LABEL[s.health]} className={`inline-block h-2 w-2 rounded-full ${HEALTH_DOT[s.health]}`} />;
 }
 
-export function WhoseTurnChip({ entityId, dealMessageTouches = [] }: { entityId: string; dealMessageTouches?: DealMessageTouch[] }) {
+// Prompt 269 §3 — `neutral` flattens the chip to gray regardless of
+// whoseTurn, for the Pipeline's "Showing frozen" view: a frozen row still
+// computing "We owe a reply"/"Overdue" in the same live colors as an
+// active row reads as urgent when it structurally can't be acted on the
+// same way. The label itself is unchanged — this mutes tone, not content.
+export function WhoseTurnChip({ entityId, dealMessageTouches = [], neutral = false }: { entityId: string; dealMessageTouches?: DealMessageTouch[]; neutral?: boolean }) {
   const { db } = useStore();
   const s = relationshipSummary(db, entityId, new Date(), dealMessageTouches);
   return (
-    <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ${WHOSE_TURN_STYLE[s.whoseTurn]}`}>
+    <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ${neutral ? 'bg-gray-100 text-gray-400' : WHOSE_TURN_STYLE[s.whoseTurn]}`}>
       {WHOSE_TURN_LABEL[s.whoseTurn]}
     </span>
   );
 }
 
 // Compact version for the pipeline row — a whose-turn chip + one-line status.
-export function RelationshipCompactLine({ entityId }: { entityId: string }) {
+export function RelationshipCompactLine({ entityId, neutral = false }: { entityId: string; neutral?: boolean }) {
   const { db } = useStore();
   const s = relationshipSummary(db, entityId);
   if (s.touchCount === 0) return null;
   return (
     <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-400">
       <HealthDot entityId={entityId} />
-      <WhoseTurnChip entityId={entityId} />
+      <WhoseTurnChip entityId={entityId} neutral={neutral} />
       <span>
         Last touch {s.lastTouchAt?.slice(0, 10)} ({s.daysSinceLastTouch}d) · {s.touchCount} touch{s.touchCount === 1 ? '' : 'es'}
       </span>

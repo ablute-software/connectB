@@ -1,8 +1,8 @@
 -- =============================================================================
 -- 0191_reawakening_ai_filter.sql
 --
--- ESTADO: PROPOSTO. NAO APLICADO. Requer decisao do Nuno antes de correr.
--- A sessao Code nunca chama apply_migration -- fica para o revisor aplicar.
+-- ESTADO: APLICADA EM PRODUCAO 2026-08-19 (confirmado pelo Nuno -- Prompt 269;
+-- o opt-in reawakening_ai_filter_enabled do org ablute_ ja esta ON).
 --
 -- Ficheiro companheiro: prompt_268_retoma_bloco_d_251_filtro_ai_20260819.md
 -- =============================================================================
