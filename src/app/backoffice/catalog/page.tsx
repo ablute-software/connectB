@@ -11,6 +11,7 @@
 // Catalog. This page is back to a single view, same as before 187.
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Card } from '@/components/ui';
+import { EnrichmentCampaignPanel } from '@/components/backoffice/EnrichmentCampaignPanel';
 
 type ContactRow = {
   id: string; fullName: string; linkedinUrl: string | null; hookStatus: string;
@@ -494,6 +495,7 @@ export default function BackofficeCatalogPage() {
       </div>
       {err && <p className="text-sm text-[#B00000]">{err}</p>}
       <MergeDuplicatesTool onMerged={refresh} />
+      <EnrichmentCampaignPanel onEntityEnriched={refresh} />
       {catalog && <CatalogTable catalog={catalog} refresh={refresh} />}
     </div>
   );
