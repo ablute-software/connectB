@@ -19,6 +19,7 @@ import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval, priorPassInfo } from './reawakening';
 import { findReactivations, reactivationTaskTitle, type PendingReactivation } from './rejection-code-match';
 import { applyFilterVerdicts, reactivationToFilterCase, verdictsFromWire, type FilterVerdict, type RawFilterVerdict } from './reawakening-ai-filter';
+import type { NeglectOutcome } from './neglect-evaluation';
 import { STAGE_LABEL, getStage } from './relationship';
 import { fitBucketFromScore } from './catalog-fit-bucket';
 import { revisitTasksToClose } from './exit-effects';
@@ -1143,18 +1144,24 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('reawakening_proposals').update({ status: 'rejected', resolved_at: now }).eq('id', proposalId), 'rejectReawakening');
     },
 
-    // Prompt 271 §3 — founder-initiated only. Any 'reactivate' verdict
-    // lands as a new reawakening_proposals row server-side; refetch so it
-    // shows up in the same queue the other two origins already use.
+    // Prompt 271 §3 / Prompt 272 — founder-initiated only. Any 'reactivate'
+    // verdict lands as a new reawakening_proposals row server-side;
+    // refetch so it shows up in the same queue the other two origins
+    // already use.
     async askSherlock(entityIds: string[]) {
       try {
         const res = await fetch('/api/reawakening/neglect-evaluate', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ entityIds }),
         });
-        const body = await res.json() as { results?: { entityId: string; verdict: { verdict: 'reactivate' | 'not_worth_it'; rationale: string } }[] };
-        const results = (body.results ?? []).map((r) => ({ entityId: r.entityId, verdict: r.verdict.verdict, rationale: r.verdict.rationale }));
-        if (results.some((r) => r.verdict === 'reactivate')) await refetch();
+        const body = await res.json() as {
+          results?: { entityId: string; verdict: { outcome: NeglectOutcome; rationale: string; newHook?: string; holdReason?: string } }[];
+        };
+        const results = (body.results ?? []).map((r) => ({
+          entityId: r.entityId, outcome: r.verdict.outcome, rationale: r.verdict.rationale,
+          newHook: r.verdict.newHook, holdReason: r.verdict.holdReason,
+        }));
+        if (results.some((r) => r.outcome === 'reactivate')) await refetch();
         return results;
       } catch {
         return [];

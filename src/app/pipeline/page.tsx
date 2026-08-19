@@ -18,6 +18,7 @@ import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 import { nextMonthlyDeliveryDate } from '@/lib/catalog-monthly-delivery';
 import { classifyFrozen } from '@/lib/frozen-classifier';
+import type { NeglectOutcome } from '@/lib/neglect-evaluation';
 import type { Db, Entity, Interaction, TaskItem } from '@/lib/types';
 
 const fitOrder = { high: 0, medium_high: 1, medium: 2, low: 3 };
@@ -296,6 +297,23 @@ function PipelineUnlockBadge({ unlock }: { unlock: { gateComplete: boolean } | n
   return null;
 }
 
+// Prompt 271 §3 / Prompt 272 — the inline verdict line for a "Ask Sherlock"
+// result. 'reactivate' points at the full proposal (advice, "Draft this
+// message") now sitting in ReawakeningQueue rather than repeating it here;
+// 'hold_for_hook' names the concrete thing to go create first (never
+// silence); 'not_worth_it' is the plain reason. Never reactivate on its
+// own text — the queue is the single place a ready-to-draft reactivation
+// is ever acted on.
+function NeglectResultLine({ result }: { result: { outcome: NeglectOutcome; rationale: string; newHook?: string; holdReason?: string } }) {
+  if (result.outcome === 'reactivate') {
+    return <p className="mt-0.5 text-[11px] font-medium text-[#0f5132]">→ Sherlock proposed a reactivation — see the queue above.</p>;
+  }
+  if (result.outcome === 'hold_for_hook') {
+    return <p className="mt-0.5 text-[11px] text-amber-700">Sherlock: not yet — {result.holdReason ?? result.rationale}</p>;
+  }
+  return <p className="mt-0.5 text-[11px] text-gray-500">Sherlock: not worth it — {result.rationale}</p>;
+}
+
 // Prompt 257 §1/§2 — the founder's own default read of the list, three
 // fixed bands, computed BEFORE any per-column sort: (1) any live
 // relationship — diligence, a fresh/unactioned expressed-interest decision,
@@ -335,13 +353,14 @@ function sortValue(db: Db, key: SortKey, e: Entity): unknown {
 export default function PipelinePage() {
   useTrackPageView('/pipeline');
   const { db, loading, markEntityVerified, askSherlock } = useStore();
-  // Prompt 271 §3 — per-entity Sherlock evaluation state for the "Dropped"
-  // view. 'loading' while the request is in flight; a verdict object once
-  // it resolves (shown inline — a 'not_worth_it' verdict is recorded in
-  // reawakening_proposals but never surfaced by ReawakeningQueue, so this
-  // is the ONLY place the founder ever sees that reasoning). Absent from
-  // the map = idle, still showing the "Ask Sherlock" button.
-  const [neglectResults, setNeglectResults] = useState<Record<string, 'loading' | { verdict: 'reactivate' | 'not_worth_it'; rationale: string }>>({});
+  // Prompt 271 §3 / Prompt 272 — per-entity Sherlock evaluation state for
+  // the "Dropped" view. 'loading' while the request is in flight; a
+  // verdict object once it resolves (shown inline — 'hold_for_hook' and
+  // 'not_worth_it' are recorded in reawakening_proposals but never
+  // surfaced by ReawakeningQueue, so this is the ONLY place the founder
+  // ever sees that reasoning). Absent from the map = idle, still showing
+  // the "Ask Sherlock" button.
+  const [neglectResults, setNeglectResults] = useState<Record<string, 'loading' | { outcome: NeglectOutcome; rationale: string; newHook?: string; holdReason?: string }>>({});
   const [q, setQ] = useState('');
   const [wave, setWave] = useState<string[]>([]);
   const [status, setStatus] = useState<string[]>([]);
@@ -542,7 +561,7 @@ export default function PipelinePage() {
         // A missing result (already-pending ask, or server-side reclassified
         // as not actually dropped_by_us) reverts to idle rather than
         // getting stuck on "loading" forever — the button just reappears.
-        if (r) next[id] = { verdict: r.verdict, rationale: r.rationale };
+        if (r) next[id] = { outcome: r.outcome, rationale: r.rationale, newHook: r.newHook, holdReason: r.holdReason };
         else delete next[id];
       }
       return next;
@@ -868,19 +887,21 @@ export default function PipelinePage() {
                         <span className="line-clamp-2">{e.reopen_trigger}</span>
                       </div>
                     )}
-                    {/* Prompt 271 §3 — only in the Dropped view (already
-                        scoped to dropped_by_us by the row filter above).
-                        On-demand, individual: no evaluation happens just
-                        from viewing this list. */}
+                    {/* Prompt 271 §3 / Prompt 272 — only in the Dropped
+                        view (already scoped to dropped_by_us by the row
+                        filter above). On-demand, individual: no evaluation
+                        happens just from viewing this list. A 'reactivate'
+                        verdict already created the full proposal in
+                        ReawakeningQueue (advice, "Draft this message") —
+                        this line just points there rather than repeating
+                        the whole breakdown in a table cell; 'hold_for_hook'
+                        and 'not_worth_it' never reach that queue, so this
+                        IS the only place their reasoning is ever shown. */}
                     {frozenView === 'standby' && (
                       neglectResults[e.id] === 'loading' ? (
                         <p className="mt-0.5 text-[11px] text-gray-400">Asking Sherlock…</p>
                       ) : neglectResults[e.id] ? (
-                        <div className={`mt-0.5 text-[11px] ${(neglectResults[e.id] as { verdict: string }).verdict === 'reactivate' ? 'text-[#0f5132]' : 'text-gray-500'}`}>
-                          {(neglectResults[e.id] as { verdict: string }).verdict === 'reactivate'
-                            ? `→ ${(neglectResults[e.id] as { rationale: string }).rationale}`
-                            : `Sherlock: not worth it — ${(neglectResults[e.id] as { rationale: string }).rationale}`}
-                        </div>
+                        <NeglectResultLine result={neglectResults[e.id] as { outcome: NeglectOutcome; rationale: string; newHook?: string; holdReason?: string }} />
                       ) : (
                         <button onClick={() => askSherlockFor([e.id])} className="mt-0.5 text-[11px] font-semibold text-[#0f5132] hover:underline">
                           Ask Sherlock

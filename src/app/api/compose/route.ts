@@ -59,6 +59,24 @@ function buildPrompt(context: ComposerContext, channel: Channel, intent: Compose
     'The draft MUST cite the earlier "no" and lead with what changed — never pretend this is a first contact.',
   ].filter(Boolean) : [];
 
+  // Prompt 272 — Sherlock's own structured adviser breakdown, already
+  // grounded against real company_facts and the actual pending questions
+  // at the point it was generated (/api/reawakening/neglect-evaluate) —
+  // this block hands that already-vetted content to the draft, it does
+  // not re-derive or re-verify it.
+  const briefing = context.sherlockBriefing;
+  const sherlockBlock = briefing ? [
+    '',
+    `SHERLOCK'S BRIEFING — a thread with this investor went cold; nobody ever formally passed. ${briefing.acknowledge}`,
+    briefing.respondTo.length
+      ? `Pending questions to answer, each one:\n${briefing.respondTo.map((r) => `- "${r.question}" → ${r.answer}`).join('\n')}`
+      : '',
+    briefing.newHook ? `Why reopen now: ${briefing.newHook}` : '',
+    briefing.timing ? `Timing guidance: ${briefing.timing}` : '',
+    'The draft MUST acknowledge the gap in one line (no drama, no over-apologizing), answer EVERY pending question above, '
+      + 'and lead the reopen with the "why reopen now" reason — never pretend this is a first contact.',
+  ].filter(Boolean) : [];
+
   const noPerson = !context.person.fullName;
 
   return [
@@ -77,6 +95,7 @@ function buildPrompt(context: ComposerContext, channel: Channel, intent: Compose
     JSON.stringify(context, null, 2),
     ...canonBlock,
     ...reopenBlock,
+    ...sherlockBlock,
     '',
     'HARD RULES:',
     '- Never claim traction, revenue, or clinical results that are not in the context.',

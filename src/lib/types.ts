@@ -852,6 +852,26 @@ export type ReawakeningStatus = 'pending' | 'approved' | 'rejected' | 'dismissed
 // column + a 3-way consistency check; optional here (undefined pre-
 // migration) same as every other propose-only field in this codebase.
 export type ReawakeningTriggerKind = 'fact' | 'rejection_code' | 'neglect';
+// Prompt 272 — the adviser-quality breakdown for a 'neglect' proposal
+// (migration 0193). Never set for the other two origins. respondTo is a
+// list because the prompt's own real case (ECS Capital) had multiple
+// pending questions, each needing its own answer, not one merged
+// paragraph. Exactly one of newHook/holdReason is ever set: a real new
+// hook (grounded in company_facts, never invented) means ready to draft
+// now; its absence means "not yet" with a concrete holdReason instead —
+// "an adviser worth listening to also says 'not yet'" (the prompt's own
+// framing). personId is resolved via nextContactPerson (relationship.ts,
+// deterministic, seniority doctrine) — the AI never picks the person.
+export interface NeglectAdvice {
+  acknowledge: string;
+  respondTo: { question: string; answer: string }[];
+  newHook?: string;
+  holdReason?: string;
+  channel?: string;
+  personId?: string;
+  personName?: string;
+  timing?: string;
+}
 export interface ReawakeningProposal {
   id: string;
   // Prompt 251/253 Bloco B — exactly one of fact_id/rejection_code_id is
@@ -871,6 +891,7 @@ export interface ReawakeningProposal {
   prior_pass_reason?: string;
   prior_pass_category?: PassReasonCategory;
   fact_statement?: string; // snapshot of the triggering fact, for the queue UI
+  advice?: NeglectAdvice; // Prompt 272 — trigger_kind='neglect' only, migration 0193
   status: ReawakeningStatus;
   created_at: string;
   resolved_at?: string;

@@ -1,7 +1,7 @@
 // IRM_SPEC §8a — AI outreach composer context builder. Pure function, shared
 // between client (assembles the context to POST) and server (re-derives the
 // same shape for the lint check) — mirrors the relationship.ts pattern.
-import type { Channel, Db } from './types';
+import type { Channel, Db, NeglectAdvice } from './types';
 import { LINKEDIN_DM_MAX, LOCK_DAYS, outboundCounts } from './rules';
 import { relationshipSummary } from './relationship';
 import { computeCanonDelta } from './company-canon-logic';
@@ -44,6 +44,15 @@ export interface ComposerContext {
   // §11c consistency engine — the delta since this entity's last contact,
   // when reopening a passed/dormant relationship. Only set when relevant.
   reopenContext?: { reopenTrigger: string; lastContactAt?: string; supersededSince: string[]; newSince: string[] };
+  // Prompt 272 — Sherlock's own structured adviser breakdown for a
+  // dropped_by_us ("neglect") reactivation, when the founder reached this
+  // draft via "Draft this message" on that proposal. Deliberately a
+  // SIBLING field to reopenContext, not a reuse of it: reopenContext's
+  // reopenTrigger is specifically the FOUNDER's own typed note about why
+  // they said no — a neglect case never has one (that's the whole point
+  // of the class), so overloading that field would send the compose
+  // prompt a "reason given" that was never actually given by anyone.
+  sherlockBriefing?: NeglectAdvice;
 }
 
 export function pickIntent(db: Db, entityId: string): ComposerIntent {
@@ -95,6 +104,16 @@ export function buildComposerContext(db: Db, entityId: string, personId: string,
     };
   }
 
+  // Prompt 272 — the founder reached this compose via "Draft this
+  // message" on a pending neglect-origin reawakening_proposals row for
+  // this same entity. Only 'pending' (i.e. verdict was 'reactivate', a
+  // real newHook exists) ever has anything worth drafting from — a
+  // 'dismissed' one (not_worth_it, or hold-for-hook) never reaches this,
+  // matching the queue's own approvable filter (ReawakeningQueue.tsx).
+  const sherlockBriefing = db.reawakeningProposals.find(
+    (p) => p.entity_id === entityId && p.trigger_kind === 'neglect' && p.status === 'pending' && p.advice,
+  )?.advice;
+
   return {
     startup: {
       name: db.org.name, sector: db.org.sector, stage: db.org.stage,
@@ -121,5 +140,6 @@ export function buildComposerContext(db: Db, entityId: string, personId: string,
     },
     companyFacts,
     reopenContext,
+    sherlockBriefing,
   };
 }

@@ -6,6 +6,7 @@
 // task; reject → the pair stays evaluated, never re-proposed. No AI is called
 // from here — this only resolves proposals that already exist.
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, Tooltip } from '@/components/ui';
 import type { FitScore } from '@/lib/types';
@@ -82,25 +83,80 @@ export function ReawakeningQueue() {
                   <span className="rounded bg-white/70 px-1.5 py-0.5 text-[11px] text-gray-600">fact: {p.fact_statement}</span>
                 )}
               </div>
-              {p.prior_pass_reason && (
-                <p className="mt-0.5 text-[12px] text-gray-500">
-                  <span className="font-medium text-gray-600">Previous &ldquo;no&rdquo;:</span> {p.prior_pass_reason}
-                  {p.prior_pass_category ? ` (${p.prior_pass_category})` : ''}
-                </p>
+              {/* Prompt 272 — the neglect origin's structured adviser
+                  breakdown (only ever set when outcome was "reactivate" —
+                  the only case that reaches this queue at all, per
+                  reopens/status). Rendered as distinct elements, never one
+                  merged paragraph — that was the whole point of this
+                  prompt. Falls back to the pre-272 flat rationale/prior-
+                  pass-reason rendering for the other two origins. */}
+              {p.advice ? (
+                <div className="mt-1 space-y-1 text-[12px] text-gray-700">
+                  {p.advice.acknowledge && <p><span className="font-medium text-amber-800">Acknowledge:</span> {p.advice.acknowledge}</p>}
+                  {p.advice.respondTo.length > 0 && (
+                    <div>
+                      <span className="font-medium text-amber-800">Answer:</span>
+                      <ul className="ml-4 list-disc space-y-0.5">
+                        {p.advice.respondTo.map((r, i) => (
+                          <li key={i}><span className="italic text-gray-600">&ldquo;{r.question}&rdquo;</span> → {r.answer}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {p.advice.newHook && <p><span className="font-medium text-amber-800">Why now:</span> {p.advice.newHook}</p>}
+                  {(p.advice.personName || p.advice.channel || p.advice.timing) && (
+                    <p className="text-gray-500">
+                      {p.advice.personName ? `To ${p.advice.personName}` : 'No contact on file yet'}
+                      {p.advice.channel ? ` via ${p.advice.channel}` : ''}{p.advice.timing ? ` — ${p.advice.timing}` : ''}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {p.prior_pass_reason && (
+                    <p className="mt-0.5 text-[12px] text-gray-500">
+                      <span className="font-medium text-gray-600">Previous &ldquo;no&rdquo;:</span> {p.prior_pass_reason}
+                      {p.prior_pass_category ? ` (${p.prior_pass_category})` : ''}
+                    </p>
+                  )}
+                  {p.rationale && <p className="mt-0.5 text-[12px] text-amber-800">{p.rationale}</p>}
+                </>
               )}
-              {p.rationale && <p className="mt-0.5 text-[12px] text-amber-800">{p.rationale}</p>}
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                <label className="text-[11px] text-gray-500">Wave
-                  <input type="number" min={1} max={9} value={wave ?? ''} onChange={(e) => setEdit(p.id, { wave: e.target.value ? Number(e.target.value) : undefined })}
-                    className="ml-1 w-12 rounded border border-gray-300 px-1 py-0.5 text-xs" />
-                </label>
-                <label className="text-[11px] text-gray-500">Fit
-                  <select value={fit ?? ''} onChange={(e) => setEdit(p.id, { fit: (e.target.value || undefined) as FitScore | undefined })}
-                    className="ml-1 rounded border border-gray-300 px-1 py-0.5 text-xs">
-                    <option value="">—</option>
-                    {FITS.map((f) => <option key={f} value={f}>{FIT_LABEL[f]}</option>)}
-                  </select>
-                </label>
+                {/* Prompt 272 §5 — handoff to action, not just a read: opens
+                    /log pre-filled, reusing the existing compose flow
+                    (composer.ts's sherlockBriefing picks this SAME
+                    proposal back up automatically — no new plumbing). Only
+                    when there's someone to send it to; per Prompt 254's
+                    own rule, the instruction left to the founder is only
+                    the part that's really theirs — review and send. */}
+                {p.advice && (
+                  p.advice.personId ? (
+                    <Link href={`/log?entity=${p.entity_id}&person=${p.advice.personId}`}
+                      className="rounded-lg bg-[#0f5132] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c4028]">
+                      Draft this message
+                    </Link>
+                  ) : (
+                    <Link href={`/entities/${p.entity_id}`} className="text-xs font-medium text-amber-800 hover:underline">
+                      Add a contact first
+                    </Link>
+                  )
+                )}
+                {!p.advice && (
+                  <>
+                    <label className="text-[11px] text-gray-500">Wave
+                      <input type="number" min={1} max={9} value={wave ?? ''} onChange={(e) => setEdit(p.id, { wave: e.target.value ? Number(e.target.value) : undefined })}
+                        className="ml-1 w-12 rounded border border-gray-300 px-1 py-0.5 text-xs" />
+                    </label>
+                    <label className="text-[11px] text-gray-500">Fit
+                      <select value={fit ?? ''} onChange={(e) => setEdit(p.id, { fit: (e.target.value || undefined) as FitScore | undefined })}
+                        className="ml-1 rounded border border-gray-300 px-1 py-0.5 text-xs">
+                        <option value="">—</option>
+                        {FITS.map((f) => <option key={f} value={f}>{FIT_LABEL[f]}</option>)}
+                      </select>
+                    </label>
+                  </>
+                )}
                 <button onClick={() => approveOne(p.id, p.suggested_wave, p.suggested_fit)}
                   className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
                   Reopen

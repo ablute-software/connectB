@@ -9,6 +9,7 @@ import type {
   Direction, DocumentItem, DocVisibility, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
   PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory,
   RejectionCode, InteractionEdit, OrgAxisClassification } from './types';
+import type { NeglectOutcome } from './neglect-evaluation';
 
 export type LogInput = {
   entity_id: string;
@@ -285,16 +286,19 @@ export interface StoreApi {
   // runs server-side only on fact confirmation (never here).
   approveReawakening: (proposalId: string, overrides?: { wave?: number; fit?: FitScore }) => void;
   rejectReawakening: (proposalId: string) => void;
-  // Prompt 271 §3 — on-demand only (never a cron/periodic scan): the
-  // founder clicks "Ask Sherlock" (one entity or "evaluate all"), this
-  // calls /api/reawakening/neglect-evaluate and refetches so any new
-  // proposal appears in the same queue as the other two origins. Returns
-  // the per-entity verdicts too, for immediate inline feedback — a
-  // 'not_worth_it' verdict is recorded (dismissed) but never surfaced in
-  // ReawakeningQueue, so the caller needs the verdict text itself to show
-  // the founder anything for that case. Demo mode has no server route to
-  // call — always resolves to [].
-  askSherlock: (entityIds: string[]) => Promise<{ entityId: string; verdict: 'reactivate' | 'not_worth_it'; rationale: string }[]>;
+  // Prompt 271 §3 / Prompt 272 — on-demand only (never a cron/periodic
+  // scan): the founder clicks "Ask Sherlock" (one entity or "evaluate
+  // all"), this calls /api/reawakening/neglect-evaluate and refetches so
+  // any new proposal appears in the same queue as the other two origins.
+  // Returns the per-entity verdicts too, for immediate inline feedback —
+  // 'hold_for_hook'/'not_worth_it' are recorded (dismissed) but never
+  // surfaced in ReawakeningQueue, so the caller needs the verdict itself
+  // to show the founder anything for those two cases. Demo mode has no
+  // server route to call — always resolves to [].
+  askSherlock: (entityIds: string[]) => Promise<{
+    entityId: string; outcome: NeglectOutcome; rationale: string;
+    newHook?: string; holdReason?: string;
+  }[]>;
 
   // Company tab redesign (migration 0037, capability-gated). The startup's
   // own team — org-scoped, RLS-open to org members (same pattern as

@@ -1,8 +1,8 @@
 -- =============================================================================
 -- 0192_reawakening_neglect_origin.sql
 --
--- ESTADO: PROPOSTO. NAO APLICADO. Requer decisao do Nuno antes de correr.
--- A sessao Code nunca chama apply_migration -- fica para o revisor aplicar.
+-- ESTADO: APLICADA EM PRODUCAO 2026-08-19 (aplicada e verificada pelo
+-- Nuno -- Prompt 272).
 --
 -- Ficheiro companheiro: prompt_271_frozen_por_causa_vs_desleixe_sherlock_avalia_20260819.md
 -- =============================================================================
