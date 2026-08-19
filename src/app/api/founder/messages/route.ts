@@ -74,8 +74,17 @@ export async function GET(req: Request) {
   if (!threads || threads.length === 0) return NextResponse.json({ threads: [] });
 
   const catalogIds = [...new Set(threads.map((t) => t.investor_catalog_entity_id as string))];
-  const { data: catalogEntities } = await admin.from('catalog_entities').select('id, name').in('id', catalogIds);
+  // Prompt 257 §2 — Pipeline's "in conversation" band needs to know WHICH
+  // founder entity each active thread belongs to. Same catalog_deliveries
+  // join every other org-level->entity resolution in this codebase already
+  // uses (investor-interest/route.ts, deal-messages.ts) — additive field,
+  // existing consumers (the Messages page) ignore it.
+  const [{ data: catalogEntities }, { data: deliveryRows }] = await Promise.all([
+    admin.from('catalog_entities').select('id, name').in('id', catalogIds),
+    admin.from('catalog_deliveries').select('catalog_id, entity_id').eq('org_id', orgId).in('catalog_id', catalogIds),
+  ]);
   const nameById = new Map((catalogEntities ?? []).map((c) => [c.id as string, c.name as string]));
+  const entityByCatalogId = new Map((deliveryRows ?? []).map((d) => [d.catalog_id as string, d.entity_id as string | null]));
 
   return NextResponse.json({
     threads: threads.map((t) => ({
@@ -83,6 +92,7 @@ export async function GET(req: Request) {
       investorName: nameById.get(t.investor_catalog_entity_id as string) ?? 'Unknown investor',
       lastMessageAt: t.last_message_at as string,
       unread: !t.founder_last_read_at || (t.founder_last_read_at as string) < (t.last_message_at as string),
+      entityId: entityByCatalogId.get(t.investor_catalog_entity_id as string) ?? null,
     })),
   });
 }

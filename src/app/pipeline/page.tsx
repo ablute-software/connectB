@@ -11,7 +11,7 @@ import { MatchDealVisibilityBanner } from '@/components/dashboard/MatchDealVisib
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 import { AddInvestorModal } from '@/components/AddInvestorModal';
-import { isPersonCandidate, isUnverifiedStub } from '@/lib/relationship';
+import { isPersonCandidate, isUnverifiedStub, relationshipSummary } from '@/lib/relationship';
 import { CoachMark } from '@/components/onboarding/CoachMark';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
@@ -236,6 +236,28 @@ function PipelineUnlockBadge({ unlock }: { unlock: { visible: number; gateComple
   );
 }
 
+// Prompt 257 §1/§2 — the founder's own default read of the list, three
+// fixed bands, computed BEFORE any per-column sort: (1) any live
+// relationship — diligence, a fresh/unactioned expressed-interest decision,
+// an active Sherlock thread, or recent back-and-forth (relationshipSummary's
+// own health, already the app's one recency-aware "still warm" signal —
+// naturally excludes an entity that WAS in conversation months ago and has
+// gone quiet since); (2) no relationship yet but a fit signal — reuses
+// fit_score exactly as already computed at catalog-delivery time (nothing
+// new invented, per the prompt's own "levantar antes, não inventar"); (3)
+// everyone else, including brand-new/never-scored entities. A frozen entity
+// never lands in band 1/2 regardless of a stale fit_score — being parked IS
+// the "not live" signal, independent of what its fit once was.
+function pipelineBand(db: Db, e: Entity, interestedEntityIds: Set<string>, activeThreadEntityIds: Set<string>): 1 | 2 | 3 {
+  if (e.status === 'dormant') return 3;
+  if (e.status === 'diligence') return 1;
+  if (interestedEntityIds.has(e.id) || activeThreadEntityIds.has(e.id)) return 1;
+  const health = relationshipSummary(db, e.id).health;
+  if (health === 'hot' || health === 'warm') return 1;
+  if (e.fit_score && e.fit_score !== 'low') return 2;
+  return 3;
+}
+
 function sortValue(db: Db, key: SortKey, e: Entity): unknown {
   switch (key) {
     case 'name': return e.name;
@@ -258,6 +280,12 @@ export default function PipelinePage() {
   const [status, setStatus] = useState<string[]>([]);
   const [sectors, setSectors] = useState<string[]>([]);
   const [country, setCountry] = useState('');
+  // Prompt 257 §4 — "See frozen" toggle. Off (default) excludes every
+  // dormant/frozen entity from the list; on shows ONLY frozen, same layout —
+  // never both mixed in one view. Session-local, not persisted: unlike the
+  // sort column, there's no case for a returning visitor to silently land
+  // on the frozen-only view without choosing it that visit.
+  const [showFrozen, setShowFrozen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('wave');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [addInvestorOpen, setAddInvestorOpen] = useState(false);
@@ -269,6 +297,24 @@ export default function PipelinePage() {
     if (!authEnabled) return;
     fetch('/api/pipeline/suspended-investors', { cache: 'no-store' }).then((r) => r.json())
       .then((b) => { if (b.ok) setSuspendedEntityIds(new Set(b.suspendedEntityIds)); }).catch(() => {});
+  }, []);
+  // Prompt 257 §2 — the two "live relationship" signals that aren't already
+  // sitting on db.entities (see entity-catalog-prefill.ts-style research:
+  // interested decisions and Sherlock threads are org-level tables with no
+  // stored link to entities.id — resolved server-side via catalog_deliveries,
+  // same join every other founder route already uses). Fetched once on
+  // mount, not per-render; empty sets in demo mode (both routes no-op
+  // cleanly when !authEnabled, matching every other fetch on this page).
+  const [interestedEntityIds, setInterestedEntityIds] = useState<Set<string>>(new Set());
+  const [activeThreadEntityIds, setActiveThreadEntityIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!authEnabled) return;
+    fetch('/api/founder/investor-interest?all=1', { cache: 'no-store' }).then((r) => r.json())
+      .then((b) => setInterestedEntityIds(new Set((b.items ?? []).map((i: { entityId: string | null }) => i.entityId).filter(Boolean))))
+      .catch(() => {});
+    fetch('/api/founder/messages', { cache: 'no-store' }).then((r) => r.json())
+      .then((b) => setActiveThreadEntityIds(new Set((b.threads ?? []).map((t: { entityId: string | null }) => t.entityId).filter(Boolean))))
+      .catch(() => {});
   }, []);
   // How many catalog-sourced investors are blocked by the plan's accumulated
   // quota — a COUNT only, via the catalog_blocked_count() RPC (migration
@@ -331,6 +377,11 @@ export default function PipelinePage() {
 
   const rows = useMemo(() => {
     let list = [...db.entities];
+    // Prompt 257 §4 — the toggle's own base filter, applied before anything
+    // else: off means frozen entities are never in `list` to begin with
+    // (not just dimmed, as before this prompt); on flips it to show
+    // nothing BUT frozen, same filters/sort/layout still apply on top.
+    list = list.filter((e) => showFrozen ? e.status === 'dormant' : e.status !== 'dormant');
     if (q) list = list.filter((e) => e.name.toLowerCase().includes(q.toLowerCase())
       || e.sectors.some((s) => s.toLowerCase().includes(q.toLowerCase())));
     if (wave.length) list = list.filter((e) => wave.includes(String(e.wave)));
@@ -338,13 +389,27 @@ export default function PipelinePage() {
     if (sectors.length) list = list.filter((e) => e.sectors.some((s) => sectors.includes(s)));
     if (country) list = list.filter((e) => e.hq_country === country);
     const dir = sortDir === 'asc' ? 1 : -1;
-    list.sort((a, b) => cmp(sortValue(db, sortKey, a), sortValue(db, sortKey, b)) * dir
-      || (a.wave ?? 9) - (b.wave ?? 9) || (fitOrder[a.fit_score ?? 'low'] - fitOrder[b.fit_score ?? 'low']));
+    // Prompt 257 §1 — bands are the founder's default read of the list, not
+    // a standing constraint: the moment they pick any other column/direction
+    // (toggleSort), that choice wins outright and the list goes back to a
+    // flat sort exactly as before this prompt. Reusing sortKey/sortDir as
+    // the single "has this been overridden" signal needs no new state.
+    const bandingActive = sortKey === 'wave' && sortDir === 'asc';
+    list.sort((a, b) => {
+      if (bandingActive) {
+        const bandDiff = pipelineBand(db, a, interestedEntityIds, activeThreadEntityIds)
+          - pipelineBand(db, b, interestedEntityIds, activeThreadEntityIds);
+        if (bandDiff !== 0) return bandDiff;
+      }
+      return cmp(sortValue(db, sortKey, a), sortValue(db, sortKey, b)) * dir
+        || (a.wave ?? 9) - (b.wave ?? 9) || (fitOrder[a.fit_score ?? 'low'] - fitOrder[b.fit_score ?? 'low']);
+    });
     return list;
-  }, [db, q, wave, status, sectors, country, sortKey, sortDir]);
+  }, [db, q, wave, status, sectors, country, sortKey, sortDir, interestedEntityIds, activeThreadEntityIds, showFrozen]);
 
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
   const sectorOptions = Array.from(new Set(db.entities.flatMap((e) => e.sectors))).sort();
+  const frozenCount = db.entities.filter((e) => e.status === 'dormant').length;
   const personCandidates = db.entities.filter((e) => isPersonCandidate(db, e));
   const noEntities = db.entities.length === 0;
   const noneClassified = !noEntities && db.entities.every((e) => e.wave == null);
@@ -383,17 +448,32 @@ export default function PipelinePage() {
   }
 
   return (
-    <div className="space-y-4">
+    // Prompt 257 §5 — "two elevators" (the whole page, and the list's own
+    // 15-row scroll). Fix is scoped to md+ only (desktop is this table's
+    // real use case — 760 rows on a phone is already a stretch, and mobile
+    // pixel math for a sticky/bounded chrome is a different, riskier
+    // problem not asked for here): the root becomes a flex column bounded
+    // to the viewport height minus WorkspaceHeader (53px, measured live in
+    // the browser, same "measured, not guessed" discipline as
+    // PIPELINE_LIST_MAX_HEIGHT_PX below) minus <main>'s own top+bottom
+    // padding (32px+32px at md+, p-8). Every child keeps its natural size
+    // (shrink-0) EXCEPT the list, which becomes flex-1 and absorbs
+    // whatever space is left — in the common case (short/no banners) that's
+    // most of the viewport, and the list's own overflow-y-auto is the only
+    // scrollbar that ever activates. The root itself keeps overflow-y-auto
+    // too (not hidden) as a graceful fallback if an unusual banner stack
+    // ever exceeds the bounded height, rather than clipping content.
+    <div className="space-y-4 md:flex md:h-[calc(100vh-117px)] md:flex-col md:space-y-0 md:gap-4 md:overflow-y-auto">
       {/* P131-A — the banner already existed (Dashboard only, addenda to
           Prompt 120); the founder-facing gap was that Pipeline — the page
           this whole "why can't investors see us" mystery is actually about —
           never had it. Same component, same /api/company/visibility source,
           no new logic. */}
-      <MatchDealVisibilityBanner />
+      <div className="md:shrink-0"><MatchDealVisibilityBanner /></div>
       <PageTour pageKey="guide_pipeline" />
-      <PipelineUnlockBadge unlock={unlock} />
-      {noneClassified && <EmptyCompanyBlock variant="banner" />}
-      <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+      <div className="md:shrink-0"><PipelineUnlockBadge unlock={unlock} /></div>
+      {noneClassified && <div className="md:shrink-0"><EmptyCompanyBlock variant="banner" /></div>}
+      <div className="md:shrink-0 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <div className="flex items-baseline gap-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Contacted</span>
@@ -421,9 +501,9 @@ export default function PipelinePage() {
         )}
       </div>
 
-      <ReawakeningQueue />
+      <div className="md:shrink-0"><ReawakeningQueue /></div>
       {personCandidates.length > 0 && (
-        <div className="rounded-2xl border-l-4 border-purple-400 bg-purple-50 p-4">
+        <div className="md:shrink-0 rounded-2xl border-l-4 border-purple-400 bg-purple-50 p-4">
           <div className="text-sm font-semibold text-purple-900">
             Needs verification — looks like a person, not a fund ({personCandidates.length})
           </div>
@@ -442,14 +522,18 @@ export default function PipelinePage() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 md:shrink-0">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name or sector…"
           className="w-56 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
         <MultiSelectFilter label="Wave" selected={wave} onChange={setWave}
           options={[1, 2, 3].map((w) => ({ value: String(w), label: `Wave ${w}` }))} />
         <div data-tour-id="pipeline-filters">
+          {/* Prompt 257 §4 — 'dormant' dropped from this list: the dedicated
+              "See frozen" toggle below now owns that dimension exclusively,
+              so there's exactly one way to ask for frozen entities, not two
+              that could disagree. */}
           <MultiSelectFilter label="Status" selected={status} onChange={setStatus}
-            options={['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'invested', 'dormant']
+            options={['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'invested']
               .map((s) => ({ value: s, label: statusLabel[s as keyof typeof statusLabel] }))} />
         </div>
         <MultiSelectFilter label="Sectors" selected={sectors} onChange={setSectors}
@@ -461,7 +545,16 @@ export default function PipelinePage() {
         {(q || wave.length > 0 || status.length > 0 || sectors.length > 0 || country) && (
           <button onClick={() => { setQ(''); setWave([]); setStatus([]); setSectors([]); setCountry(''); }} className="text-sm text-gray-500 hover:underline">Clear</button>
         )}
-        <span className="ml-auto text-xs text-gray-400">{rows.length} entities</span>
+        {/* Prompt 257 §4 — pure visualization, no actions of its own: to
+            unfreeze, open the dossier and use reactivation/reopen, already
+            there. Off by default (frozen entities excluded from the list
+            entirely, not just dimmed); on shows ONLY frozen, same layout —
+            never a third, mixed state. */}
+        <button onClick={() => setShowFrozen((v) => !v)}
+          className={`ml-auto rounded-lg border px-2.5 py-1.5 text-sm font-medium ${showFrozen ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+          {showFrozen ? '❄ Showing frozen' : `See frozen (${frozenCount})`}
+        </button>
+        <span className="text-xs text-gray-400">{rows.length} entities</span>
         <button data-tour-id="pipeline-import" onClick={() => setAddInvestorOpen(true)} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-[#0E7490] hover:bg-[#E8F4F8]">+ Add investor</button>
       </div>
 
@@ -479,9 +572,19 @@ export default function PipelinePage() {
           one keeps its own scroll and, when a panel follows, only rounds
           its TOP corners and drops its bottom border so the two read as
           one continuous shape with no seam. */}
+      {/* Prompt 257 §5 — at md+ this is the ONE scrollbar the root's own
+          bounded flex column exists for: flex-1 + min-h-0 lets it absorb
+          whatever height the (shrink-0) banners/filters above didn't use,
+          overriding the fixed maxHeight below. Below md, the root isn't
+          flex-bound (mobile keeps ordinary page scroll, see the root div's
+          own comment), so the original fixed cap still applies there. */}
+      {/* max-h-[888px] must match PIPELINE_LIST_MAX_HEIGHT_PX above — a
+          literal class, not the JS constant, because Tailwind's build-time
+          scanner can't see a template-interpolated arbitrary value; only
+          applies below md (mobile keeps the original fixed-cap behavior),
+          overridden by md:max-h-none once the flex-1 sizing takes over. */}
       <div data-tour-id="pipeline-list"
-        className={`overflow-x-auto overflow-y-auto border border-gray-100 bg-white shadow-sm ${blockedCount > 0 ? 'rounded-t-2xl border-b-0' : 'rounded-2xl'}`}
-        style={{ maxHeight: PIPELINE_LIST_MAX_HEIGHT_PX }}>
+        className={`overflow-x-auto overflow-y-auto border border-gray-100 bg-white shadow-sm max-h-[888px] md:min-h-0 md:max-h-none md:flex-1 ${blockedCount > 0 ? 'rounded-t-2xl border-b-0' : 'rounded-2xl'}`}>
         {/* table-fixed + explicit column widths (colgroup) so the table
             holds to the container's width at every wave filter setting
             instead of growing with content and forcing horizontal scroll;
@@ -515,13 +618,28 @@ export default function PipelinePage() {
               const overdue = task?.due_at && new Date(task.due_at) < new Date();
               const hf = e.hard_filter_status === 'open';
               const suspended = suspendedEntityIds.has(e.id);
+              // Prompt 257 §2 — the graphic identification band 1 needs: a
+              // discrete chip in the existing teal palette, no new colors.
+              // "★ Interested" specifically for an unactioned expressed-
+              // interest decision (the Invest green case — the one that
+              // should jump out fastest); "● In conversation" for every
+              // other live-relationship reason (diligence, an active
+              // thread, recent back-and-forth).
+              const interested = interestedEntityIds.has(e.id);
+              const inBand1 = pipelineBand(db, e, interestedEntityIds, activeThreadEntityIds) === 1;
               return (
                 <tr key={e.id}
-                  className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${e.status === 'dormant' || suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''}`}>
+                  className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''}`}>
                   <td className="break-words px-3 py-2 font-medium">
                     <Link href={`/entities/${e.id}`} className="text-gray-900 hover:text-[#0E7490]">
                       {e.name} {hf && <span title={e.hard_filter} className="text-[#B00000]">⚑</span>}
                     </Link>
+                    {inBand1 && (
+                      <span className="ml-1.5 inline-block rounded-full border border-[#0E7490]/30 bg-[#E8F4F8] px-1.5 py-0.5 text-[10px] font-semibold text-[#0E7490]"
+                        title={interested ? 'Expressed interest on the platform — hasn’t been actioned yet.' : 'A live relationship — diligence, an active thread, or recent back-and-forth.'}>
+                        {interested ? '★ Interested' : '● In conversation'}
+                      </span>
+                    )}
                     {suspended && (
                       <span className="ml-1.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600" title="This investor has suspended their own visibility — not accepting contact right now. Existing access is unaffected.">
                         Suspended
@@ -634,7 +752,7 @@ export default function PipelinePage() {
         const atTarget = (db.org.catalog_quota ?? 0) >= target;
         const onMaxPlan = db.org.plan === 'motherfunding';
         return (
-          <div className="relative overflow-hidden rounded-b-2xl border border-t-0 border-gray-100 bg-white shadow-sm">
+          <div className="relative overflow-hidden rounded-b-2xl border border-t-0 border-gray-100 bg-white shadow-sm md:shrink-0">
             <div aria-hidden className="divide-y divide-gray-100">
               {Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-4 px-3 py-3">

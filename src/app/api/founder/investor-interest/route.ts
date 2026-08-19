@@ -14,7 +14,7 @@ async function resolveFounderOrgId(sb: Awaited<ReturnType<typeof serverClient>>,
   return (member?.org_id as string | undefined) ?? null;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   // Demo mode — same "check before ever calling serverClient()" convention
   // every other route in this codebase follows, since the InvestorInterestPopup
   // is mounted unconditionally in Shell and will hit this route on every
@@ -29,10 +29,17 @@ export async function GET() {
   const orgId = await resolveFounderOrgId(sb, user.id);
   if (!orgId) return NextResponse.json({ items: [] });
 
-  const { data: rows } = await sb.from('investor_relationship_decisions')
+  // Prompt 257 §2 — Pipeline's "in conversation" band needs every entity
+  // with an expressed-interest decision on record, not just the ones still
+  // waiting for the popup's one-time dismissal. ?all=1 is additive: the
+  // popup itself never passes it, so its own seen_at-filtered behavior is
+  // untouched.
+  const all = new URL(req.url).searchParams.get('all') === '1';
+  let query = sb.from('investor_relationship_decisions')
     .select('id, investor_catalog_entity_id, reason_detail, decided_at')
-    .eq('org_id', orgId).eq('decision', 'interested').is('seen_at', null)
-    .order('decided_at', { ascending: true });
+    .eq('org_id', orgId).eq('decision', 'interested');
+  if (!all) query = query.is('seen_at', null);
+  const { data: rows } = await query.order('decided_at', { ascending: true });
   if (!rows || rows.length === 0) return NextResponse.json({ items: [] });
 
   const catalogIds = rows.map((r) => r.investor_catalog_entity_id as string);
