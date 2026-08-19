@@ -1,5 +1,5 @@
-// Prompt 271 §3 / Prompt 272 — Sherlock evaluates a dropped_by_us frozen
-// entity ON DEMAND ("Ask Sherlock" — individual or "evaluate all"), never
+// Prompt 271 §3 / Prompt 272 / Prompt 273 — Sherlock evaluates a stand_by
+// frozen entity ON DEMAND ("Ask Sherlock" — individual or "evaluate all"), never
 // a cron or automatic per-render call. Feeds the SAME reawakening_proposals
 // queue as the other two origins (fact-triggered F, rejection-code-
 // triggered Bloc B/C) — never a parallel system, per the 251 rule. Reuses
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
   const admin: SupabaseClient = createClient(url, service, { auth: { persistSession: false } });
 
   // Re-derive everything server-side rather than trust the client's claim
-  // that these entities are dropped_by_us — same non-clobbering/trust-but-
+  // that these entities are stand_by — same non-clobbering/trust-but-
   // verify posture as every other bulk backoffice/AI action in this
   // codebase. Only dormant entities in the caller's OWN org qualify.
   const { data: entitiesRaw } = await admin.from('entities').select('*').eq('org_id', orgId).eq('status', 'dormant').in('id', body.entityIds);
@@ -167,9 +167,11 @@ export async function POST(req: NextRequest) {
     if (alreadyPending.has(e.id)) continue;
     const its = byEntity.get(e.id) ?? [];
     // Server-side re-classification (§ non-clobbering): only genuinely
-    // dropped_by_us entities are ever evaluated, regardless of which
-    // button the client called this from.
-    if (classifyFrozen(e, its) !== 'dropped_by_us') continue;
+    // stand_by entities are ever evaluated (Prompt 273 — frozen_cold, e.g.
+    // Alter VP's 2-outbound-zero-reply shape, is NOT this list — they
+    // never replied, we didn't drop anything), regardless of which button
+    // the client called this from.
+    if (classifyFrozen(e, its) !== 'stand_by') continue;
     const c = entityToNeglectCase(e, its);
     if (c) cases.push(c);
   }

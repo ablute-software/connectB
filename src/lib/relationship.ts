@@ -255,19 +255,26 @@ export function nextBestAction(db: Db, entityId: string, now = new Date(), dealM
     if (entity.reopen_trigger) return 'Frozen — reopens once your note (below) comes true.';
 
     // Prompt 271 §4 — Fase 0 (zero AI, same spirit as 251-B): when this
-    // freeze is class B (dropped_by_us — no pass, no reopen_trigger; both
-    // already ruled out above, classifyFrozen only needs interactions from
-    // here), name the actual dropped-thread fact instead of the generic
-    // "no reopen trigger recorded" copy — cheaper, truer, and doesn't wait
-    // on an AI evaluation the founder hasn't asked for (§3 is on-demand).
+    // freeze has no pass and no reopen_trigger (both already ruled out
+    // above), name the actual fact instead of the generic "no reopen
+    // trigger recorded" copy — cheaper, truer, and doesn't wait on an AI
+    // evaluation the founder hasn't asked for (§3 is on-demand).
+    //
+    // Prompt 273 — the two sub-cases read differently on purpose (a real
+    // bug in the original 271 wording conflated them): stand_by (they
+    // spoke last, WE can fix this unilaterally by replying) reads as a
+    // dropped thread, ours to pick back up. frozen_cold (we reached out,
+    // THEY never replied — Alter VP's real shape) reads like a pass: it
+    // needs a genuine new reason to try again, the same as closed_for_cause
+    // just above, never a bare repeat of the same ask.
     const its = db.interactions.filter((i) => i.entity_id === entityId);
-    if (classifyFrozen(entity, its) === 'dropped_by_us') {
+    const frozenClass = classifyFrozen(entity, its);
+    if (frozenClass === 'stand_by' || frozenClass === 'frozen_cold') {
       const last = lastInteractionSummary(its);
       if (last) {
-        const what = last.direction === 'in'
-          ? 'They spoke last'
-          : 'You reached out last';
-        return `${what} (${last.occurredAt.slice(0, 10)}) and never got a reply — this freeze looks like a dropped thread, not a closed door.`;
+        return frozenClass === 'stand_by'
+          ? `They spoke last (${last.occurredAt.slice(0, 10)}) and never got a reply — this freeze looks like a dropped thread, not a closed door.`
+          : `You reached out last (${last.occurredAt.slice(0, 10)}) and never heard back — reopening this needs a real new reason, same as a formal pass.`;
       }
     }
     return revisit

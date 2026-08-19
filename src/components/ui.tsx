@@ -138,11 +138,15 @@ export const statusLabel: Record<EntityStatus, string> = {
   diligence: 'diligence', passed: 'passed', invested: 'invested', dormant: 'Frozen',
 };
 
-export function StatusPill({ status }: { status: EntityStatus }) {
+// Prompt 273 §3 — labelOverride/explainOverride let a caller show a computed
+// CLASS (Stand by / Frozen / Frozen — never contacted / Blocked) instead of
+// the raw status, for the 3 dedicated Pipeline views only; every other call
+// site is unaffected since both default to the plain status lookup.
+export function StatusPill({ status, labelOverride, explainOverride }: { status: EntityStatus; labelOverride?: string; explainOverride?: string }) {
   return (
-    <Tooltip text={statusExplain[status]}>
+    <Tooltip text={explainOverride ?? statusExplain[status]}>
       <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${statusStyle[status]}`}>
-        {statusLabel[status]}
+        {labelOverride ?? statusLabel[status]}
       </span>
     </Tooltip>
   );

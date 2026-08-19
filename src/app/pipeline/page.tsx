@@ -354,7 +354,7 @@ export default function PipelinePage() {
   useTrackPageView('/pipeline');
   const { db, loading, markEntityVerified, askSherlock } = useStore();
   // Prompt 271 §3 / Prompt 272 — per-entity Sherlock evaluation state for
-  // the "Dropped" view. 'loading' while the request is in flight; a
+  // the "Stand by" view. 'loading' while the request is in flight; a
   // verdict object once it resolves (shown inline — 'hold_for_hook' and
   // 'not_worth_it' are recorded in reawakening_proposals but never
   // surfaced by ReawakeningQueue, so this is the ONLY place the founder
@@ -371,10 +371,17 @@ export default function PipelinePage() {
   // with the normal view (never mixed): 'frozen' is closed_for_cause (+
   // no_data — nothing to evaluate there either) — pass/reopen_trigger
   // already governs reactivation, reawakening_proposals/reopen doctrine.
-  // 'standby' is dropped_by_us — no door was ever closed, just a thread
-  // that went quiet; this is the list Sherlock evaluates (§3). Session-
-  // local, not persisted, same reasoning as before this prompt.
-  const [frozenView, setFrozenView] = useState<'none' | 'frozen' | 'standby'>('none');
+  // 'standby' is the recoverable class (last touch was THEM, still
+  // unanswered by us) — no door was ever closed, just a thread that went
+  // quiet on our side; this is the list Sherlock evaluates (§3). Renamed
+  // "Dropped" -> "Stand by" in the UI by Prompt 273 (the old label read as
+  // "discarded", backwards from what this list actually is), but the
+  // internal state VALUE stays 'standby' to avoid churn in the Ask-Sherlock
+  // wiring that already keys off it. Prompt 273 also added 'blocked' — its
+  // own dedicated view, excluded from both frozen and standby (see the
+  // row filter above). Session-local, not persisted, same reasoning as
+  // before this prompt.
+  const [frozenView, setFrozenView] = useState<'none' | 'frozen' | 'standby' | 'blocked'>('none');
   const [sortKey, setSortKey] = useState<SortKey>('wave');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [addInvestorOpen, setAddInvestorOpen] = useState(false);
@@ -484,31 +491,46 @@ export default function PipelinePage() {
     else { setSortKey(key); setSortDir('asc'); }
   }
 
+  // Prompt 273 §3 — hard_filter_status='resolved_blocked' takes precedence
+  // over everything, including status: checked separately (cheap, no
+  // interactions needed) so it applies even to a not-yet-dormant entity —
+  // "not a fit at all" is a stronger signal than being frozen.
+  const blockedIds = useMemo(
+    () => new Set(db.entities.filter((e) => e.hard_filter_status === 'resolved_blocked').map((e) => e.id)),
+    [db.entities],
+  );
+
   // Prompt 271 §1/§2 — computed once, reused by both the row filter below
-  // and the two button counts: classifyFrozen only ever needs to run per
-  // dormant entity, not per render of either consumer.
+  // and the button counts: classifyFrozen only ever needs to run per
+  // dormant, non-blocked entity, not per render of either consumer.
   const frozenClasses = useMemo(() => {
     const m = new Map<string, ReturnType<typeof classifyFrozen>>();
     for (const e of db.entities) {
-      if (e.status !== 'dormant') continue;
+      if (e.status !== 'dormant' || blockedIds.has(e.id)) continue;
       m.set(e.id, classifyFrozen(e, db.interactions.filter((i) => i.entity_id === e.id)));
     }
     return m;
-  }, [db]);
+  }, [db, blockedIds]);
 
   const rows = useMemo(() => {
     let list = [...db.entities];
     // Prompt 257 §4 — the toggle's own base filter, applied before anything
     // else: 'none' means frozen entities are never in `list` to begin with
-    // (not just dimmed); 'frozen'/'standby' flip it to show nothing BUT
-    // that class, same filters/sort/layout still apply on top. Prompt 271
-    // §2 — no_data joins 'frozen' (nothing for Sherlock to evaluate there
-    // either — there's no thread content to reason about).
+    // (not just dimmed); 'frozen'/'standby'/'blocked' flip it to show
+    // nothing BUT that class, same filters/sort/layout still apply on top.
+    // Prompt 271 §2 — no_data joins 'frozen' (nothing for Sherlock to
+    // evaluate there either — there's no thread content to reason about).
+    // Prompt 273 §3 — blocked takes precedence and is excluded from every
+    // OTHER view (active, frozen, standby): "not a fit at all" is a
+    // stronger, orthogonal signal than being frozen, so it gets its own
+    // dedicated view rather than sitting inside Frozen.
     list = list.filter((e) => {
+      if (blockedIds.has(e.id)) return frozenView === 'blocked';
+      if (frozenView === 'blocked') return false;
       if (frozenView === 'none') return e.status !== 'dormant';
       const cls = frozenClasses.get(e.id);
       if (!cls) return false;
-      return frozenView === 'frozen' ? cls !== 'dropped_by_us' : cls === 'dropped_by_us';
+      return frozenView === 'frozen' ? cls !== 'stand_by' : cls === 'stand_by';
     });
     if (q) list = list.filter((e) => e.name.toLowerCase().includes(q.toLowerCase())
       || e.sectors.some((s) => s.toLowerCase().includes(q.toLowerCase())));
@@ -533,14 +555,35 @@ export default function PipelinePage() {
         || (a.wave ?? 9) - (b.wave ?? 9) || (fitOrder[a.fit_score ?? 'low'] - fitOrder[b.fit_score ?? 'low']);
     });
     return list;
-  }, [db, q, wave, status, sectors, country, sortKey, sortDir, interestedEntityIds, activeThreadEntityIds, frozenView, frozenClasses]);
+  }, [db, q, wave, status, sectors, country, sortKey, sortDir, interestedEntityIds, activeThreadEntityIds, frozenView, frozenClasses, blockedIds]);
 
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
   const sectorOptions = Array.from(new Set(db.entities.flatMap((e) => e.sectors))).sort();
   // Prompt 271 §2 — two counts instead of one, matching the two buttons.
   // no_data folds into frozenCount (see the row filter above for why).
-  const standbyCount = [...frozenClasses.values()].filter((c) => c === 'dropped_by_us').length;
+  // Prompt 273 §3 — third count for the Blocked view.
+  const standbyCount = [...frozenClasses.values()].filter((c) => c === 'stand_by').length;
   const frozenCount = frozenClasses.size - standbyCount;
+  // Named hardFilterBlockedCount, not blockedCount — that name is already
+  // taken by the unrelated catalog-quota "blocked" count further up (from
+  // the catalog_blocked_count() RPC, Prompt 123).
+  const hardFilterBlockedCount = blockedIds.size;
+
+  // Prompt 273 §3 — the row's Status pill shows the CLASS, not the raw
+  // 'dormant' status, but only inside the 3 dedicated views (frozenView !==
+  // 'none') — the normal pipeline view keeps StatusPill's plain default.
+  // no_data gets its own sub-label ("never contacted") per the prompt;
+  // closed_for_cause and frozen_cold both read as plain "Frozen" here (the
+  // Fase 0 Tip on the entity page is where the two are distinguished in
+  // wording, not this pill).
+  function frozenPillLabel(e: Entity): string | undefined {
+    if (frozenView === 'none') return undefined;
+    if (blockedIds.has(e.id)) return 'Blocked';
+    const cls = frozenClasses.get(e.id);
+    if (cls === 'stand_by') return 'Stand by';
+    if (cls === 'no_data') return 'Frozen — never contacted';
+    return 'Frozen';
+  }
   const personCandidates = db.entities.filter((e) => isPersonCandidate(db, e));
   const noEntities = db.entities.length === 0;
   const noneClassified = !noEntities && db.entities.every((e) => e.wave == null);
@@ -733,25 +776,35 @@ export default function PipelinePage() {
         {/* Prompt 257 §4 — pure visualization, no actions of its own: to
             unfreeze, open the dossier and use reactivation/reopen, already
             there. 'none' by default (frozen entities excluded from the list
-            entirely, not just dimmed); either button shows ONLY that class,
-            same layout — never a third, mixed state.
+            entirely, not just dimmed); each button shows ONLY that class,
+            same layout — never a mixed state.
             Prompt 271 §2 — one toggle became two: "Frozen" is
-            closed_for_cause (+ no_data) — a real pass/reopen_trigger closed
-            the door, reactivation is governed by what already exists (251's
-            code matrix / reopen doctrine). "Dropped" is dropped_by_us — no
-            door was closed, the thread just went quiet; this is the list
-            Sherlock evaluates for reactivation (§3). Two physically separate
-            lists on purpose (per the prompt itself), not one with
-            sub-labels: each has a different available action. */}
+            closed_for_cause + frozen_cold (+ no_data) — either a real
+            pass/reopen_trigger closed the door, or we reached out and never
+            heard back; reactivation is governed by what already exists
+            (251's code matrix / reopen doctrine). "Stand by" is the
+            recoverable class — last touch was THEM, unanswered by us; no
+            door was closed, the ball is in our court. This is the list
+            Sherlock evaluates for reactivation (§3). Three physically
+            separate lists on purpose, not one with sub-labels: each has a
+            different available action.
+            Prompt 273 §3 — third button, "Blocked": hard_filter_status=
+            'resolved_blocked', excluded from both other views (see the row
+            filter above) since "not a fit at all" is a stronger, orthogonal
+            signal than being frozen. */}
         <button onClick={() => setFrozenView((v) => v === 'frozen' ? 'none' : 'frozen')}
           className={`ml-auto rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'frozen' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
           {frozenView === 'frozen' ? '❄ Showing frozen' : `❄ Frozen (${frozenCount})`}
         </button>
         <button onClick={() => setFrozenView((v) => v === 'standby' ? 'none' : 'standby')}
           className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'standby' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-          {frozenView === 'standby' ? '💤 Showing dropped' : `💤 Dropped (${standbyCount})`}
+          {frozenView === 'standby' ? '⏸ Showing stand by' : `⏸ Stand by (${standbyCount})`}
         </button>
-        {/* Prompt 271 §3 — bulk ask, only in the Dropped view, only for
+        <button onClick={() => setFrozenView((v) => v === 'blocked' ? 'none' : 'blocked')}
+          className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'blocked' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+          {frozenView === 'blocked' ? '🚫 Showing blocked' : `🚫 Blocked (${hardFilterBlockedCount})`}
+        </button>
+        {/* Prompt 271 §3 — bulk ask, only in the Stand by view, only for
             rows not already evaluated/loading this visit. */}
         {frozenView === 'standby' && rows.some((e) => !neglectResults[e.id]) && (
           <button onClick={() => askSherlockFor(rows.filter((e) => !neglectResults[e.id]).map((e) => e.id))}
@@ -887,8 +940,8 @@ export default function PipelinePage() {
                         <span className="line-clamp-2">{e.reopen_trigger}</span>
                       </div>
                     )}
-                    {/* Prompt 271 §3 / Prompt 272 — only in the Dropped
-                        view (already scoped to dropped_by_us by the row
+                    {/* Prompt 271 §3 / Prompt 272 — only in the Stand by
+                        view (already scoped to stand_by by the row
                         filter above). On-demand, individual: no evaluation
                         happens just from viewing this list. A 'reactivate'
                         verdict already created the full proposal in
@@ -920,7 +973,7 @@ export default function PipelinePage() {
                   </td>
                   <td className="px-3 py-2"><FitTag fit={e.fit_score} /></td>
                   <td className="px-3 py-2"><WaveTag wave={e.wave} /></td>
-                  <td className="px-3 py-2"><StatusPill status={e.status} /></td>
+                  <td className="px-3 py-2"><StatusPill status={e.status} labelOverride={frozenPillLabel(e)} /></td>
                   <td className="break-words px-3 py-2">
                     {task ? (
                       <span className="text-xs">

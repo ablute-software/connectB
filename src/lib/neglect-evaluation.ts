@@ -1,5 +1,5 @@
 // Prompt 271 §3 / Prompt 272 — pure core for Sherlock's ON-DEMAND
-// evaluation of dropped_by_us frozen entities (frozen-classifier.ts
+// evaluation of stand_by frozen entities (frozen-classifier.ts
 // already decided classification; this module never re-decides it, only
 // judges whether/how to resurface an already-classified case — same split
 // as Bloco D's reawakening-ai-filter.ts). No cron: every call here is

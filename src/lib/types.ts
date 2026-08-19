@@ -846,7 +846,7 @@ export interface InvestorSubmission {
 // → 'rejected'. Migration 0030, capability-gated:
 // src/lib/reawakening-capability.ts. NO cron/periodic scan ever.
 export type ReawakeningStatus = 'pending' | 'approved' | 'rejected' | 'dismissed';
-// Prompt 271 §3 — a third origin, 'neglect' (dropped_by_us — no fact, no
+// Prompt 271 §3 — a third origin, 'neglect' (stand_by — no fact, no
 // rejection code, just a thread that went quiet; Sherlock-evaluated
 // on-demand). Migration 0192 replaces 0186's 2-way XOR with an explicit
 // column + a 3-way consistency check; optional here (undefined pre-

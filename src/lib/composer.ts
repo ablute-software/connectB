@@ -45,7 +45,7 @@ export interface ComposerContext {
   // when reopening a passed/dormant relationship. Only set when relevant.
   reopenContext?: { reopenTrigger: string; lastContactAt?: string; supersededSince: string[]; newSince: string[] };
   // Prompt 272 — Sherlock's own structured adviser breakdown for a
-  // dropped_by_us ("neglect") reactivation, when the founder reached this
+  // stand_by ("neglect") reactivation, when the founder reached this
   // draft via "Draft this message" on that proposal. Deliberately a
   // SIBLING field to reopenContext, not a reuse of it: reopenContext's
   // reopenTrigger is specifically the FOUNDER's own typed note about why

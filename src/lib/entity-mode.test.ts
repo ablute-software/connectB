@@ -69,11 +69,11 @@ describe('nextBestAction — parqueado nao pode gritar "ready for first contact"
     expect(nextBestAction(db(e, [t]), 'e1', NOW)).toBe('Frozen — revisit on 2026-09-14. No reopen trigger recorded — set one, or leave it frozen.');
   });
 
-  // Prompt 271 §4 — Fase 0: a dropped_by_us freeze (interacoes reais, sem
-  // pass, sem reopen_trigger) deriva o facto real em vez do texto generico
-  // "no reopen trigger recorded". Caso real ECS Capital: inbound em
-  // fev/2024, zero follow-up.
-  it('dropped_by_us com ultima interacao inbound: "They spoke last"', () => {
+  // Prompt 271 §4 — Fase 0: a stand_by/frozen_cold freeze (interacoes
+  // reais, sem pass, sem reopen_trigger) deriva o facto real em vez do
+  // texto generico "no reopen trigger recorded". Caso real ECS Capital:
+  // inbound em fev/2024, zero follow-up — stand_by, recuperavel por nos.
+  it('stand_by (inbound-last, caso real ECS Capital): "They spoke last... dropped thread"', () => {
     const e = entity({ status: 'dormant' });
     const its = [
       { id: 'i1', entity_id: 'e1', direction: 'in', channel: 'email', content: '...', occurred_at: '2024-02-10T00:00:00.000Z' },
@@ -83,13 +83,19 @@ describe('nextBestAction — parqueado nao pode gritar "ready for first contact"
       .toBe('They spoke last (2024-02-27) and never got a reply — this freeze looks like a dropped thread, not a closed door.');
   });
 
-  it('dropped_by_us com ultima interacao outbound: "You reached out last"', () => {
+  // Prompt 273 — caso real Alter VP: 2 outbound nossos, zero respostas.
+  // frozen_cold, NAO stand_by (correcao de um bug real do 271 original,
+  // que dava o MESMO texto "dropped thread" para este caso — errado,
+  // ninguem abandonou fio nenhum, eles e que nunca responderam).
+  it('frozen_cold (outbound-last, caso real Alter VP): texto DIFERENTE de stand_by, nunca "dropped thread"', () => {
     const e = entity({ status: 'dormant' });
     const its = [
       { id: 'i1', entity_id: 'e1', direction: 'out', channel: 'email', content: '...', occurred_at: '2026-01-05T00:00:00.000Z' },
+      { id: 'i2', entity_id: 'e1', direction: 'out', channel: 'email', content: '...', occurred_at: '2026-01-20T00:00:00.000Z' },
     ] as Interaction[];
-    expect(nextBestAction(db(e, [], its), 'e1', NOW))
-      .toBe('You reached out last (2026-01-05) and never got a reply — this freeze looks like a dropped thread, not a closed door.');
+    const result = nextBestAction(db(e, [], its), 'e1', NOW);
+    expect(result).toBe('You reached out last (2026-01-20) and never heard back — reopening this needs a real new reason, same as a formal pass.');
+    expect(result).not.toContain('dropped thread');
   });
 
   // Um pass MAIS ANTIGO que o ultimo inbound mantem effectiveMode em
