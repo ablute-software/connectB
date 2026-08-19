@@ -1,8 +1,8 @@
 -- =============================================================================
 -- 0190_catalog_field_consensus_select_rls.sql
 --
--- ESTADO: PROPOSTO. NAO APLICADO. Requer decisao do Nuno antes de correr.
--- A sessao Code nunca chama apply_migration -- fica para o revisor aplicar.
+-- ESTADO: APLICADA EM PRODUCAO 2026-08-19 (revista e aplicada pelo Nuno,
+-- verbatim -- Prompt 268).
 --
 -- Ficheiro companheiro: prompt_267_0190_apertar_rls_consensus_select_20260819.md
 -- =============================================================================

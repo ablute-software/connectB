@@ -17,7 +17,8 @@ import type {
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval, priorPassInfo } from './reawakening';
-import { findReactivations, reactivationTaskTitle } from './rejection-code-match';
+import { findReactivations, reactivationTaskTitle, type PendingReactivation } from './rejection-code-match';
+import { applyFilterVerdicts, reactivationToFilterCase, verdictsFromWire, type RawFilterVerdict } from './reawakening-ai-filter';
 import { STAGE_LABEL, getStage } from './relationship';
 import { fitBucketFromScore } from './catalog-fit-bucket';
 import { revisitTasksToClose } from './exit-effects';
@@ -261,11 +262,46 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
   // committed by the caller, appends any newly-cleared reactivations, and
   // persists those two inserts — the write that triggered this (updateOrg/
   // updateEntity/addRejectionCode) already persisted itself.
-  function applyReactivations(next: Db, entityIds?: string[]) {
+  //
+  // Prompt 268 (Bloco D) — org opt-in only (reawakening_ai_filter_enabled,
+  // default false for every org): off, this function never awaits
+  // anything — same synchronous, same-tick commit as before this prompt,
+  // byte-for-byte. On, it awaits one batched call to
+  // /api/reawakening/rejection-filter BEFORE building newProposals/
+  // newTasks, so a 'hold' verdict genuinely keeps a suggestion from ever
+  // reaching the founder, not a filter bolted on after the fact. Demo mode
+  // (store-demo.tsx) never sees this branch at all — no seed org sets the
+  // flag, and there is no server route to call there anyway.
+  async function applyReactivations(next: Db, entityIds?: string[]) {
     const reactivations = findReactivations(next, entityIds);
     if (reactivations.length === 0) return;
+
+    let survivors: { reactivation: PendingReactivation; taskTitleOverride?: string }[] =
+      reactivations.map((r) => ({ reactivation: r }));
+
+    if (next.org.reawakening_ai_filter_enabled) {
+      try {
+        const res = await fetch('/api/reawakening/rejection-filter', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ orgId: next.org.id, cases: reactivations.map(reactivationToFilterCase) }),
+        });
+        const body = await res.json() as { verdicts?: RawFilterVerdict[] };
+        survivors = applyFilterVerdicts(reactivations, verdictsFromWire(body.verdicts ?? []));
+      } catch {
+        // Fail-open (§4): survivors stays at its unfiltered default — every
+        // reactivation proceeds exactly as if the filter were off.
+      }
+      // A concurrent write may have committed newer state while this
+      // awaited (addRejectionCode/updateOrg/updateEntity elsewhere in the
+      // same tab) — merge onto the freshest snapshot, not the possibly-
+      // stale `next` closure. The sync branch above never needs this: it
+      // never yields control, so `next` is still current.
+      next = dbRef.current;
+      if (survivors.length === 0) return;
+    }
+
     const now = new Date().toISOString();
-    const newProposals = reactivations.map((r) => {
+    const newProposals = survivors.map(({ reactivation: r }) => {
       const { reason, category } = priorPassInfo(next.interactions.filter((i) => i.entity_id === r.entity.id));
       return {
         id: uuid(), rejection_code_id: r.code.id, entity_id: r.entity.id,
@@ -274,8 +310,8 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         status: 'pending' as const, created_at: now,
       };
     });
-    const newTasks = reactivations.map((r) => ({
-      id: uuid(), title: reactivationTaskTitle(r.entity.name, r.code), entity_id: r.entity.id,
+    const newTasks = survivors.map(({ reactivation: r, taskTitleOverride }) => ({
+      id: uuid(), title: taskTitleOverride ?? reactivationTaskTitle(r.entity.name, r.code), entity_id: r.entity.id,
       kind: 'follow_up' as const, action_type: 'other' as const, done: false, source: 'suggested' as const,
     }));
     commit({

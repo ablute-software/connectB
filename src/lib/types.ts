@@ -150,6 +150,12 @@ export interface Org {
   // Prompt 167 §C — same toggle shape, for the Roadmap (below). Additive,
   // propose-only (migration 0161).
   roadmap_visible_to_investors?: boolean;
+  // Prompt 268 (251/253 Bloco D) — opt-in, NOT a visibility toggle like the
+  // three above (those default true/opt-out; this defaults false/opt-in —
+  // a genuinely new capability, not a retrofit). Undefined/false pre-
+  // migration or pre-opt-in both mean the same thing: Bloco B/C's
+  // deterministic path runs unfiltered, exactly as before this prompt.
+  reawakening_ai_filter_enabled?: boolean;
   // Catalog-investor accumulated quota (pipeline "vidro fosco" blocking —
   // DECISIONS.md, migration 0042). Existed in the DB since 0042 but was
   // never declared here (Prompt 179 gap found while fixing
