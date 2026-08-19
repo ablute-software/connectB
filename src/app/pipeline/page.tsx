@@ -278,7 +278,7 @@ function EmptyCompanyBlock({ variant }: { variant: 'screen' | 'banner' }) {
 // completes their profile / uploads documents / logs milestones, not just
 // static card copy. `null` (still loading, or the route failed) renders
 // nothing rather than a misleading "0".
-function PipelineUnlockBadge({ unlock }: { unlock: { visible: number; gateComplete: boolean; eligiblePoolSize: number } | null }) {
+function PipelineUnlockBadge({ unlock }: { unlock: { gateComplete: boolean } | null }) {
   if (!unlock) return null;
   if (!unlock.gateComplete) {
     return (
@@ -287,11 +287,12 @@ function PipelineUnlockBadge({ unlock }: { unlock: { visible: number; gateComple
       </div>
     );
   }
-  return (
-    <div className="rounded-xl border border-[#0E7490]/20 bg-[#E8F4F8] px-3 py-2 text-xs text-[#0E7490]">
-      <span className="font-semibold">{unlock.visible}</span> of {unlock.eligiblePoolSize} eligible investors unlocked in your pipeline.
-    </div>
-  );
+  // Prompt 260 §1 — the "N of M eligible investors unlocked" sentence is
+  // gone; gateComplete no longer has anything left to say here (Active/
+  // Frozen counts on the stats row below cover the "how many do I have"
+  // question instead). Nothing renders rather than an empty styled div
+  // taking up layout space.
+  return null;
 }
 
 // Prompt 257 §1/§2 — the founder's own default read of the list, three
@@ -387,11 +388,15 @@ export default function PipelinePage() {
   // whenever entities change so it visibly moves right after a founder
   // completes their profile or uploads a deck, per the block's own
   // acceptance criterion.
-  const [unlock, setUnlock] = useState<{ visible: number; gateComplete: boolean; eligiblePoolSize: number; catalogQuotaTarget: number } | null>(null);
+  // Prompt 260 §1 — visible/eligiblePoolSize dropped from this local type:
+  // they only ever fed PipelineUnlockBadge's now-removed "N of M unlocked"
+  // sentence. gateComplete (the badge) and catalogQuotaTarget (the blocked-
+  // panel copy below) are the only fields this page still reads.
+  const [unlock, setUnlock] = useState<{ gateComplete: boolean; catalogQuotaTarget: number } | null>(null);
   useEffect(() => {
     if (!authEnabled) return;
     fetch('/api/pipeline-unlock', { cache: 'no-store' }).then((r) => r.json())
-      .then((b) => { if (b.ok) setUnlock({ visible: b.visible, gateComplete: b.gateComplete, eligiblePoolSize: b.eligiblePoolSize, catalogQuotaTarget: b.catalogQuotaTarget ?? 0 }); })
+      .then((b) => { if (b.ok) setUnlock({ gateComplete: b.gateComplete, catalogQuotaTarget: b.catalogQuotaTarget ?? 0 }); })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [db.entities.length]);
@@ -547,6 +552,18 @@ export default function PipelinePage() {
           <div className="flex items-baseline gap-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Diligence</span>
             <span className="text-lg font-bold text-amber-600">{diligenceCount}</span>
+          </div>
+          {/* Prompt 260 §2 — Active/Frozen, pushed to the right on the same
+              row (ml-auto, same pattern as the "See frozen" toggle further
+              down). Neutral colors on purpose: this is context ("how many
+              do I have"), not a metric to celebrate like the three above. */}
+          <div className="ml-auto flex items-baseline gap-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Active</span>
+            <span className="text-lg font-bold text-gray-800">{db.entities.length - frozenCount}</span>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Frozen</span>
+            <span className="text-lg font-bold text-gray-500">{frozenCount}</span>
           </div>
         </div>
         {updateCards.length > 0 && (
