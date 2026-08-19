@@ -1,8 +1,8 @@
 -- =============================================================================
 -- 0188_catalog_form_questions.sql
 --
--- ESTADO: PROPOSTO. NAO APLICADO. Requer decisao do Nuno antes de correr.
--- A sessao Code nunca chama apply_migration -- fica para o revisor aplicar.
+-- ESTADO: APLICADA EM PRODUCAO 2026-08-19 (revista e aplicada pelo Nuno,
+-- verbatim -- Prompt 267).
 --
 -- Ficheiro companheiro: prompt_265_webform_assistant_painel_lateral_20260819.md
 -- =============================================================================

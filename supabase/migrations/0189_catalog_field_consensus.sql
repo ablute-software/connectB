@@ -1,8 +1,10 @@
 -- =============================================================================
 -- 0189_catalog_field_consensus.sql
 --
--- ESTADO: PROPOSTO. NAO APLICADO. Requer decisao do Nuno antes de correr.
--- A sessao Code nunca chama apply_migration -- fica para o revisor aplicar.
+-- ESTADO: APLICADA EM PRODUCAO 2026-08-19 (revista e aplicada pelo Nuno,
+-- verbatim -- Prompt 267). A policy catalog_field_consensus_select criada
+-- aqui e apertada (removida) pela 0190_catalog_field_consensus_select_rls.sql
+-- logo a seguir -- ver esse ficheiro para o porque.
 --
 -- Ficheiro companheiro: prompt_266_memoria_comunitaria_consenso_2_entradas_20260819.md
 -- =============================================================================

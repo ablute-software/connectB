@@ -1,0 +1,35 @@
+-- =============================================================================
+-- 0190_catalog_field_consensus_select_rls.sql
+--
+-- ESTADO: PROPOSTO. NAO APLICADO. Requer decisao do Nuno antes de correr.
+-- A sessao Code nunca chama apply_migration -- fica para o revisor aplicar.
+--
+-- Ficheiro companheiro: prompt_267_0190_apertar_rls_consensus_select_20260819.md
+-- =============================================================================
+-- Prompt 267 — corrige uma justificacao de policy factualmente errada na
+-- 0189. O comentario junto a catalog_field_consensus_select dizia que a
+-- policy "nao pode ser mais restritiva do que autenticado" porque o
+-- developer do backoffice precisa de ver linhas nao-promovidas (score<=0
+-- ou so 1 fonte) -- mas nenhuma leitura passa por RLS: o painel do founder
+-- (CommunityConsensusPanel.tsx) so chama fetch() para
+-- /api/community-consensus/entity/[id], e o backoffice so chama fetch()
+-- para /api/backoffice/community-consensus -- ambas as rotas leem via
+-- service-role (createClient com SUPABASE_SERVICE_ROLE_KEY), que ignora
+-- RLS por completo, exactamente como todo o resto deste schema. Confirmado
+-- no codigo: nenhum componente cliente chama browserClient() contra esta
+-- tabela.
+--
+-- Consequencia real da policy tal como estava: abria leitura DIRECTA via
+-- PostgREST a qualquer sessao autenticada -- incluindo valores com
+-- score<=0 ou 1 fonte, que a rota /entity/[id] filtra deliberadamente
+-- antes de mostrar a um founder. Exposicao de baixo risco (factos
+-- candidatos sobre investidores, nao dados de performance do founder --
+-- ver a regra de privacidade root do CLAUDE.md, que e sobre a direccao
+-- inversa), mas inconsistente com as tres tabelas irmas desta mesma
+-- migracao (catalog_field_consensus_sources/_votes,
+-- catalog_field_arbitration_cache), que ja nao tem policy nenhuma de
+-- select -- so leitura service-role, deliberado, comentado na propria
+-- 0189.
+--
+-- Nada no cliente parte: nenhuma leitura real passava por aqui.
+drop policy if exists catalog_field_consensus_select on catalog_field_consensus;
