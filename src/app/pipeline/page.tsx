@@ -17,7 +17,7 @@ import { PageTour } from '@/components/onboarding/PageTour';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 import { nextMonthlyDeliveryDate } from '@/lib/catalog-monthly-delivery';
-import type { Db, Entity, TaskItem } from '@/lib/types';
+import type { Db, Entity, Interaction, TaskItem } from '@/lib/types';
 
 const fitOrder = { high: 0, medium_high: 1, medium: 2, low: 3 };
 const SORT_STORAGE_KEY = 'ablute-pipeline-sort-v1';
@@ -88,6 +88,64 @@ function lastUpdateTag(db: Db, e: Entity): string | null {
   if (latest.direction === 'out') return 'Follow-up sent';
   return null;
 }
+
+// Prompt 258 — a card in the top-of-page "recent activity" spotlight can
+// silently drop out of it the moment another entity has fresher activity
+// (updateCards keeps only the 6 most recent, sorted by latest.occurred_at).
+// If that card represented a request still awaiting the founder's reply, it
+// can vanish from sight unanswered. This escalates the card's own color
+// green light->vivid across 4 days so it visibly demands attention before
+// it falls out of the top 6, instead of just quietly disappearing.
+//
+// "Pending request" reuses lastUpdateTag's own inbound tags verbatim — no
+// new classification invented, per the prompt's own instruction. Every tag
+// lastUpdateTag can return for an inbound interaction ('Meeting requested',
+// 'Warm — interested', the generic 'Replied' for any other inbound
+// classification incl. question/unclear/awaiting) means exactly "they did
+// something, we haven't answered" — which is also exactly the condition
+// `latest.direction === 'in'` captures on its own: if the founder HAD
+// replied since, that reply (an outbound interaction) would itself be
+// `latest`, and lastUpdateTag would already say 'Follow-up sent'/'Intro
+// sent' instead. So the founder-replied closing condition (§4) falls out
+// for free from the same check that decides whether to escalate at all —
+// no separate "has this been answered" query needed.
+//
+// Deliberately NOT integrated here: access_requests (migration 0178, the
+// data-room "request access" flow) — it's a wholly separate table with no
+// automatic interaction insert, invisible to updateCards today regardless
+// of this prompt (updateCards only ever reads db.interactions). Folding it
+// in would need a new bulk fetch resolving person_id -> people.entity_id,
+// the same shape as Prompt 257's investor-interest/messages extensions —
+// flagged as a real gap, left out of this pass to avoid scope creep beyond
+// what's already visible in updateCards.
+//
+// The other closing condition (§4) — the case is closed, not answered —
+// entity.status already says so directly: dormant (frozen), passed, or
+// invested all mean "not an open ask anymore," so escalation simply never
+// applies to those regardless of how recent/inbound the interaction is.
+function pendingRequestEscalationTier(entity: Entity, latest: Interaction | undefined, now: Date): 1 | 2 | 3 | 4 | null {
+  if (!latest || latest.direction !== 'in') return null;
+  if (entity.status === 'dormant' || entity.status === 'passed' || entity.status === 'invested') return null;
+  const daysSince = Math.floor((now.getTime() - new Date(latest.occurred_at).getTime()) / 86_400_000);
+  // Day 1 (the request's own day) starts at the lightest tone; day 4
+  // onward stays at the most vivid one — "não escalar mais" past day 4,
+  // per the prompt's own §5.
+  return Math.min(Math.max(daysSince + 1, 1), 4) as 1 | 2 | 3 | 4;
+}
+
+// Reuses exactly the 4 green tones already established elsewhere in the app
+// (green-600/green-700 — RelationshipSummaryCard's own "warm" dot and the
+// "invested" StatusPill; green-50/green-100 — SupportTicketsPanel/
+// CompanyFactsPanel badges) — no new gradient/tone invented, per the
+// prompt's own instruction. Text flips to a light green at tiers 3-4 for
+// contrast on the now-solid background, matching how StatusPill already
+// pairs 'invested' (bg-green-700) with white text.
+const ESCALATION_TIER_CLASS: Record<1 | 2 | 3 | 4, { card: string; tag: string }> = {
+  1: { card: 'border-green-100 bg-green-50 hover:border-green-100', tag: 'text-gray-500' },
+  2: { card: 'border-green-100 bg-green-100 hover:border-green-100', tag: 'text-gray-500' },
+  3: { card: 'border-green-600 bg-green-600 hover:border-green-600', tag: 'text-green-100' },
+  4: { card: 'border-green-700 bg-green-700 hover:border-green-700', tag: 'text-green-100' },
+};
 
 // Wave/Status/Sectors are all multi-select and combinable (AND across the
 // three, OR within each one's selected values) — <details>/<summary> gives a
@@ -422,7 +480,10 @@ export default function PipelinePage() {
   const inTalksCount = db.entities.filter((e) => e.status === 'in_conversation').length;
   const diligenceCount = db.entities.filter((e) => e.status === 'diligence').length;
   const updateCards = db.entities
-    .map((e) => ({ entity: e, tag: lastUpdateTag(db, e), latest: db.interactions.filter((i) => i.entity_id === e.id).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0] }))
+    .map((e) => {
+      const latest = db.interactions.filter((i) => i.entity_id === e.id).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
+      return { entity: e, tag: lastUpdateTag(db, e), latest, escalationTier: pendingRequestEscalationTier(e, latest, new Date()) };
+    })
     .filter((r) => r.tag)
     .sort((a, b) => (b.latest?.occurred_at ?? '').localeCompare(a.latest?.occurred_at ?? ''))
     .slice(0, 6);
@@ -490,13 +551,17 @@ export default function PipelinePage() {
         </div>
         {updateCards.length > 0 && (
           <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
-            {updateCards.map(({ entity, tag }) => (
-              <Link key={entity.id} href={`/entities/${entity.id}`}
-                className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 transition hover:border-[#0E7490] hover:bg-[#E8F4F8]">
-                <div className="truncate text-sm font-medium text-gray-800">{entity.name}</div>
-                <div className="mt-0.5 truncate text-xs text-gray-500">{tag}</div>
-              </Link>
-            ))}
+            {updateCards.map(({ entity, tag, escalationTier }) => {
+              const tier = escalationTier ? ESCALATION_TIER_CLASS[escalationTier] : null;
+              return (
+                <Link key={entity.id} href={`/entities/${entity.id}`}
+                  title={escalationTier ? `Awaiting your reply — day ${escalationTier} of the spotlight` : undefined}
+                  className={`rounded-xl border px-3 py-2 transition ${tier ? tier.card : 'border-gray-100 bg-gray-50 hover:border-[#0E7490] hover:bg-[#E8F4F8]'}`}>
+                  <div className={`truncate text-sm font-medium ${escalationTier && escalationTier >= 3 ? 'text-white' : 'text-gray-800'}`}>{entity.name}</div>
+                  <div className={`mt-0.5 truncate text-xs ${tier ? tier.tag : 'text-gray-500'}`}>{tag}</div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>
