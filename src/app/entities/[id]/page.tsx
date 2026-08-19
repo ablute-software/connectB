@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, FitTag, HardFilterBanner, MatchDealProfileBadge, PersonLink, StatusPill, VerBadge, WaveTag, fmtEur } from '@/components/ui';
@@ -45,6 +45,16 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const [editingContact, setEditingContact] = useState(false);
   const [contactDraft, setContactDraft] = useState({ website: '', email: '', phone: '', address: '' });
   const [contributionsRefreshKey, setContributionsRefreshKey] = useState(0);
+  // Prompt 275 §1 — set by EntityPeoplePanel itself (only it knows whether
+  // its live catalog read is empty, which is what decides whether the
+  // key_people fallback list renders) so ContributionBox can drop its own
+  // duplicate "Key people: ... verified" line for the exact same data.
+  const [keyPeopleShownInTeam, setKeyPeopleShownInTeam] = useState(false);
+  // Prompt 275 §3 — id of the person just promoted from the Team card's
+  // key_people fallback via "Add as contact"; drives the scroll+highlight
+  // in the "People" card below so the click's effect is visible.
+  const [justAddedPersonId, setJustAddedPersonId] = useState<string | null>(null);
+  const personRowRefs = useRef<Record<string, HTMLLIElement | null>>({});
   const [showFormAssist, setShowFormAssist] = useState(false);
   // Prompt 197 A §2 — "Message investor" button visibility. canMessage
   // mirrors canInvestorMessage's own symmetric criterion, computed
@@ -81,6 +91,24 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity?.id]);
+
+  // Prompt 275 §3 — scrolls to and briefly highlights the row a founder
+  // just promoted from the Team card's key_people fallback via "Add as
+  // contact", closing the loop between the two cards. Same ref-map +
+  // setTimeout(0) pattern as RecentInteractions' own focusInteraction (the
+  // row must exist in the DOM before scrollIntoView can find it — the
+  // person only enters `people` on the next render after addPerson). The
+  // clearing timeout matches the CSS animation's own 1500ms duration
+  // (person-added-highlight, globals.css) rather than leaving the
+  // conditional class attached indefinitely.
+  useEffect(() => {
+    if (!justAddedPersonId) return;
+    const scrollId = window.setTimeout(() => {
+      personRowRefs.current[justAddedPersonId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+    const clearId = window.setTimeout(() => setJustAddedPersonId(null), 1500);
+    return () => { window.clearTimeout(scrollId); window.clearTimeout(clearId); };
+  }, [justAddedPersonId]);
 
   // Prompt 197 C.1 — deal_messages -> the same {occurredAt, direction} shape
   // relationshipSummary already understands. senderSide==='investor' is the
@@ -348,13 +376,14 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
         <div className="mt-4 border-t border-gray-100 pt-3">
           <ContributionBox subjectType="entity" subjectId={entity.id} orgId={db.org.id} subject={entity as unknown as Record<string, unknown>}
-            onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} refreshKey={contributionsRefreshKey} />
+            onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} refreshKey={contributionsRefreshKey}
+            keyPeopleShownElsewhere={keyPeopleShownInTeam} />
         </div>
         <CommunityConsensusPanel entityId={entity.id}
           onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} />
       </Card>
 
-      <EntityPeoplePanel entityId={entity.id} />
+      <EntityPeoplePanel entityId={entity.id} onShowsKeyPeopleFallback={setKeyPeopleShownInTeam} onPersonAdded={setJustAddedPersonId} />
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-4 md:col-span-2">
@@ -372,7 +401,8 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               {people.map((p) => {
                 const s = preflightSummary(preflight(db, p, null));
                 return (
-                  <li key={p.id} className="flex items-center gap-3 py-2">
+                  <li key={p.id} ref={(el) => { personRowRefs.current[p.id] = el; }}
+                    className={`flex items-center gap-3 py-2 ${justAddedPersonId === p.id ? 'person-added-highlight' : ''}`}>
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600">{p.seniority_rank}</span>
                     <div className="min-w-0 flex-1">
                       <PersonLink id={p.id}><span className="font-medium">{p.full_name}</span></PersonLink>

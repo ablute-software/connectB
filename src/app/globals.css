@@ -99,3 +99,24 @@ body {
     animation: none;
   }
 }
+
+/* Prompt 275 §3 — closing the loop after "Add as contact" on the entity
+   dossier: clicking it makes the person vanish from the Team card's
+   key_people fallback (it becomes "Added as contact" there) and reappear in
+   the "People — one at a time, senior first" card below, with nothing
+   visually tying the two together. Same ~1.5s duration convention as
+   pipeline-stats-card-out above, but a background flash-then-fade rather
+   than a scale/opacity exit, since this row has to stay in place and be
+   read, not leave. */
+@keyframes person-added-highlight {
+  from { background-color: rgba(14, 116, 144, .16); }
+  to { background-color: transparent; }
+}
+.person-added-highlight {
+  animation: person-added-highlight 1500ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .person-added-highlight {
+    animation: none;
+  }
+}

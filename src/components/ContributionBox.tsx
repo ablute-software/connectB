@@ -75,7 +75,7 @@ function formatContributionValue(value: unknown): string {
   return Array.isArray(value) ? value.join(', ') : String(value);
 }
 
-export function ContributionBox({ subjectType, subjectId, orgId, subject, onApplyValue, refreshKey }: {
+export function ContributionBox({ subjectType, subjectId, orgId, subject, onApplyValue, refreshKey, keyPeopleShownElsewhere }: {
   subjectType: 'entity' | 'person'; subjectId: string; orgId: string;
   // The current entity/person record (for "valor atual" in the conflict
   // popover) and a callback that writes an accepted imported value onto it
@@ -87,6 +87,16 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
   // Bumped by the caller (e.g. after EnrichmentBadge's lookup stores new
   // AI proposals) to force a refetch — this box has no other way to know.
   refreshKey?: number;
+  // Prompt 275 §1 — the Northzone case: a verified `key_people` contribution
+  // rendered here as a plain "Key people: <names> verified" line, AND the
+  // exact same names again as an actionable list in the Team card
+  // (EntityPeoplePanel's key_people fallback) right below it — same
+  // underlying data, shown twice with no explanation. When the caller says
+  // the Team card is ALREADY showing that fallback, this box drops its own
+  // `key_people` line rather than repeat it in flat text. Every other
+  // field (thesis, network_cluster_notes, ...) is unaffected — this only
+  // ever touches the one field.
+  keyPeopleShownElsewhere?: boolean;
 }) {
   const [items, setItems] = useState<Contribution[]>([]);
   const [open, setOpen] = useState(false);
@@ -180,7 +190,15 @@ export function ContributionBox({ subjectType, subjectId, orgId, subject, onAppl
   if (!authEnabled) return <AddInfoButton />;
 
   const rejectedItems = items.filter((c) => c.status === 'rejected');
-  const visibleItems = items.filter((c) => c.status !== 'rejected');
+  // Prompt 275 §1 — only the plain VERIFIED key_people line is suppressed
+  // (the exact one EntityPeoplePanel's fallback also draws from, via the
+  // same `status = 'verified'` check it uses for keyPeopleVerified). A
+  // still-pending AI/correction/held key_people proposal is untouched —
+  // EntityPeoplePanel never treats those as verified, so there is nothing
+  // for them to duplicate yet, and the founder still needs to see and
+  // resolve them here.
+  const visibleItems = items.filter((c) => c.status !== 'rejected'
+    && !(keyPeopleShownElsewhere && c.field === 'key_people' && c.status === 'verified'));
 
   return (
     <div>
