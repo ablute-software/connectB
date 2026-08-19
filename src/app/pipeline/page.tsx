@@ -700,10 +700,14 @@ export default function PipelinePage() {
           {/* Prompt 260 §2 — Active/Frozen, pushed to the right on the same
               row (ml-auto, same pattern as the "See frozen" toggle further
               down). Neutral colors on purpose: this is context ("how many
-              do I have"), not a metric to celebrate like the three above. */}
+              do I have"), not a metric to celebrate like the three above.
+              Prompt 273 §3 — blocked entities subtracted out too, same as
+              they're excluded from the row filter's 'none' view: a blocked
+              entity is not "active" just because it no longer counts as
+              frozen. */}
           <div className="ml-auto flex items-baseline gap-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Active</span>
-            <span className="text-lg font-bold text-gray-800">{db.entities.length - frozenCount}</span>
+            <span className="text-lg font-bold text-gray-800">{db.entities.length - frozenCount - hardFilterBlockedCount}</span>
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Frozen</span>
