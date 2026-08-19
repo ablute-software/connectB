@@ -17,6 +17,7 @@ import { PageTour } from '@/components/onboarding/PageTour';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 import { nextMonthlyDeliveryDate } from '@/lib/catalog-monthly-delivery';
+import { classifyFrozen } from '@/lib/frozen-classifier';
 import type { Db, Entity, Interaction, TaskItem } from '@/lib/types';
 
 const fitOrder = { high: 0, medium_high: 1, medium: 2, low: 3 };
@@ -339,12 +340,15 @@ export default function PipelinePage() {
   const [status, setStatus] = useState<string[]>([]);
   const [sectors, setSectors] = useState<string[]>([]);
   const [country, setCountry] = useState('');
-  // Prompt 257 §4 — "See frozen" toggle. Off (default) excludes every
-  // dormant/frozen entity from the list; on shows ONLY frozen, same layout —
-  // never both mixed in one view. Session-local, not persisted: unlike the
-  // sort column, there's no case for a returning visitor to silently land
-  // on the frozen-only view without choosing it that visit.
-  const [showFrozen, setShowFrozen] = useState(false);
+  // Prompt 257 §4 — "See frozen" toggle, off (default) by exclusion. Prompt
+  // 271 §2 — one toggle became two, mutually exclusive with each other and
+  // with the normal view (never mixed): 'frozen' is closed_for_cause (+
+  // no_data — nothing to evaluate there either) — pass/reopen_trigger
+  // already governs reactivation, reawakening_proposals/reopen doctrine.
+  // 'standby' is dropped_by_us — no door was ever closed, just a thread
+  // that went quiet; this is the list Sherlock evaluates (§3). Session-
+  // local, not persisted, same reasoning as before this prompt.
+  const [frozenView, setFrozenView] = useState<'none' | 'frozen' | 'standby'>('none');
   const [sortKey, setSortKey] = useState<SortKey>('wave');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [addInvestorOpen, setAddInvestorOpen] = useState(false);
@@ -454,13 +458,32 @@ export default function PipelinePage() {
     else { setSortKey(key); setSortDir('asc'); }
   }
 
+  // Prompt 271 §1/§2 — computed once, reused by both the row filter below
+  // and the two button counts: classifyFrozen only ever needs to run per
+  // dormant entity, not per render of either consumer.
+  const frozenClasses = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof classifyFrozen>>();
+    for (const e of db.entities) {
+      if (e.status !== 'dormant') continue;
+      m.set(e.id, classifyFrozen(e, db.interactions.filter((i) => i.entity_id === e.id)));
+    }
+    return m;
+  }, [db]);
+
   const rows = useMemo(() => {
     let list = [...db.entities];
     // Prompt 257 §4 — the toggle's own base filter, applied before anything
-    // else: off means frozen entities are never in `list` to begin with
-    // (not just dimmed, as before this prompt); on flips it to show
-    // nothing BUT frozen, same filters/sort/layout still apply on top.
-    list = list.filter((e) => showFrozen ? e.status === 'dormant' : e.status !== 'dormant');
+    // else: 'none' means frozen entities are never in `list` to begin with
+    // (not just dimmed); 'frozen'/'standby' flip it to show nothing BUT
+    // that class, same filters/sort/layout still apply on top. Prompt 271
+    // §2 — no_data joins 'frozen' (nothing for Sherlock to evaluate there
+    // either — there's no thread content to reason about).
+    list = list.filter((e) => {
+      if (frozenView === 'none') return e.status !== 'dormant';
+      const cls = frozenClasses.get(e.id);
+      if (!cls) return false;
+      return frozenView === 'frozen' ? cls !== 'dropped_by_us' : cls === 'dropped_by_us';
+    });
     if (q) list = list.filter((e) => e.name.toLowerCase().includes(q.toLowerCase())
       || e.sectors.some((s) => s.toLowerCase().includes(q.toLowerCase())));
     if (wave.length) list = list.filter((e) => wave.includes(String(e.wave)));
@@ -484,11 +507,14 @@ export default function PipelinePage() {
         || (a.wave ?? 9) - (b.wave ?? 9) || (fitOrder[a.fit_score ?? 'low'] - fitOrder[b.fit_score ?? 'low']);
     });
     return list;
-  }, [db, q, wave, status, sectors, country, sortKey, sortDir, interestedEntityIds, activeThreadEntityIds, showFrozen]);
+  }, [db, q, wave, status, sectors, country, sortKey, sortDir, interestedEntityIds, activeThreadEntityIds, frozenView, frozenClasses]);
 
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
   const sectorOptions = Array.from(new Set(db.entities.flatMap((e) => e.sectors))).sort();
-  const frozenCount = db.entities.filter((e) => e.status === 'dormant').length;
+  // Prompt 271 §2 — two counts instead of one, matching the two buttons.
+  // no_data folds into frozenCount (see the row filter above for why).
+  const standbyCount = [...frozenClasses.values()].filter((c) => c === 'dropped_by_us').length;
+  const frozenCount = frozenClasses.size - standbyCount;
   const personCandidates = db.entities.filter((e) => isPersonCandidate(db, e));
   const noEntities = db.entities.length === 0;
   const noneClassified = !noEntities && db.entities.every((e) => e.wave == null);
@@ -657,12 +683,24 @@ export default function PipelinePage() {
         )}
         {/* Prompt 257 §4 — pure visualization, no actions of its own: to
             unfreeze, open the dossier and use reactivation/reopen, already
-            there. Off by default (frozen entities excluded from the list
-            entirely, not just dimmed); on shows ONLY frozen, same layout —
-            never a third, mixed state. */}
-        <button onClick={() => setShowFrozen((v) => !v)}
-          className={`ml-auto rounded-lg border px-2.5 py-1.5 text-sm font-medium ${showFrozen ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-          {showFrozen ? '❄ Showing frozen' : `See frozen (${frozenCount})`}
+            there. 'none' by default (frozen entities excluded from the list
+            entirely, not just dimmed); either button shows ONLY that class,
+            same layout — never a third, mixed state.
+            Prompt 271 §2 — one toggle became two: "Frozen" is
+            closed_for_cause (+ no_data) — a real pass/reopen_trigger closed
+            the door, reactivation is governed by what already exists (251's
+            code matrix / reopen doctrine). "Dropped" is dropped_by_us — no
+            door was closed, the thread just went quiet; this is the list
+            Sherlock evaluates for reactivation (§3). Two physically separate
+            lists on purpose (per the prompt itself), not one with
+            sub-labels: each has a different available action. */}
+        <button onClick={() => setFrozenView((v) => v === 'frozen' ? 'none' : 'frozen')}
+          className={`ml-auto rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'frozen' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+          {frozenView === 'frozen' ? '❄ Showing frozen' : `❄ Frozen (${frozenCount})`}
+        </button>
+        <button onClick={() => setFrozenView((v) => v === 'standby' ? 'none' : 'standby')}
+          className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'standby' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+          {frozenView === 'standby' ? '💤 Showing dropped' : `💤 Dropped (${standbyCount})`}
         </button>
         <span className="text-xs text-gray-400">{rows.length} entities</span>
         <button data-tour-id="pipeline-import" onClick={() => setAddInvestorOpen(true)} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-[#0E7490] hover:bg-[#E8F4F8]">+ Add investor</button>
@@ -780,7 +818,7 @@ export default function PipelinePage() {
                         not yet verified
                       </span>
                     )}
-                    <RelationshipCompactLine entityId={e.id} neutral={showFrozen} />
+                    <RelationshipCompactLine entityId={e.id} neutral={frozenView !== 'none'} />
                     {/* E2 — a previously-passed/dormant investor that carries a
                         reopen trigger has resurfaced via the reopen doctrine;
                         say WHY it's back so the row isn't just a greyed name.
@@ -813,7 +851,7 @@ export default function PipelinePage() {
                             frozen view for the same reason as the whose-turn
                             chip above: the frozen state is the dominant
                             signal there, not a stale due date. */}
-                        {task.due_at && <span className={overdue && !showFrozen ? 'ml-1 font-semibold text-[#B00000]' : 'ml-1 text-gray-400'}>
+                        {task.due_at && <span className={overdue && frozenView === 'none' ? 'ml-1 font-semibold text-[#B00000]' : 'ml-1 text-gray-400'}>
                           · {task.due_at.slice(5, 10)}
                         </span>}
                       </span>
