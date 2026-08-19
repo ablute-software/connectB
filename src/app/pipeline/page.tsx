@@ -678,7 +678,7 @@ export default function PipelinePage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((e) => {
+            {rows.map((e, i) => {
               const task = nextAction(db, e);
               const overdue = task?.due_at && new Date(task.due_at) < new Date();
               const hf = e.hard_filter_status === 'open';
@@ -692,9 +692,16 @@ export default function PipelinePage() {
               // thread, recent back-and-forth).
               const interested = interestedEntityIds.has(e.id);
               const inBand1 = pipelineBand(db, e, interestedEntityIds, activeThreadEntityIds) === 1;
+              // Prompt 259 — zebra striping so the eye can track a row
+              // across 760 entities. Reuses gray-50 (already the app's own
+              // card/dropdown-hover tone, not a new color) at 60% opacity;
+              // it's only the BASE fill — hover and the hard-filter/
+              // suspended states below still win visually, since they're
+              // separate classes applied alongside it, not replacing it.
+              const zebra = i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white';
               return (
                 <tr key={e.id}
-                  className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''}`}>
+                  className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${zebra} ${suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''}`}>
                   <td className="break-words px-3 py-2 font-medium">
                     <Link href={`/entities/${e.id}`} className="text-gray-900 hover:text-[#0E7490]">
                       {e.name} {hf && <span title={e.hard_filter} className="text-[#B00000]">⚑</span>}
