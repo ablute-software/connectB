@@ -206,8 +206,18 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
       });
     }
     for (const d of plan.dispositions) {
-      if (d.action === 'done') toggleTask(d.taskId);
-      else updateTask(d.taskId, { due_at: d.dueAt });
+      if (d.action === 'done') {
+        toggleTask(d.taskId);
+        // Prompt 269 §1 — exit-effects.ts already computes WHY each task
+        // got auto-closed (d.reason); it was being thrown away instead of
+        // recorded. Appended, never overwriting a founder's own note on
+        // the task (notes is also a real founder-facing field — the
+        // appointment-note flow, AgendaPanel.tsx).
+        const existing = db.tasks.find((t) => t.id === d.taskId)?.notes;
+        updateTask(d.taskId, { notes: existing ? `${existing}\n\n${d.reason}` : d.reason });
+      } else {
+        updateTask(d.taskId, { due_at: d.dueAt });
+      }
     }
     setConfirmation(plan.confirmation);
   }
@@ -427,6 +437,16 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
                     exactamente o caso que faltava sem "Mark dormant". */}
                 <button role="menuitem" onClick={() => {
                     setMenuOpen(false);
+                    // Prompt 269 §1 — an OPEN investor_interest task means a
+                    // real expressed interest is waiting on a reply.
+                    // planPark below already closes it (Prompt 205's
+                    // answersByParking heuristic, action_type='follow_up_thread')
+                    // but did so silently, with no acknowledgment that the
+                    // founder is choosing to freeze instead of responding —
+                    // this confirm is that acknowledgment. Cancel leaves the
+                    // entity and the task exactly as they were.
+                    const hasOpenInterest = db.tasks.some((t) => t.entity_id === entity.id && !t.done && t.source === 'investor_interest');
+                    if (hasOpenInterest && !window.confirm("This investor expressed interest and you haven't responded — freeze anyway?")) return;
                     setEntityStatus(entity.id, 'dormant', exits.parkLabel === 'cold' ? 'Cold — no reply' : 'Frozen — no continuity');
                     applyPlan(planPark(entity, db.tasks, new Date()));
                   }}

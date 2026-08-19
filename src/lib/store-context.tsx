@@ -137,7 +137,10 @@ export interface StoreApi {
   // until then" precisa: snoozed_until so silencia o popup de lembrete
   // (reminders.ts), NAO tira a tarefa da lista de atrasados do Today, que e
   // exactamente onde o founder a continuava a ver depois de parquear.
-  updateTask: (id: string, patch: { reminder_at?: string | null; snoozed_until?: string | null; due_at?: string }) => void;
+  // Prompt 269 §1 — notes added so applyPlan (RelationshipSummaryCard.tsx)
+  // can persist WHY an exit-effect closed a task (exit-effects.ts already
+  // computes a reason string per disposition; it was being discarded).
+  updateTask: (id: string, patch: { reminder_at?: string | null; snoozed_until?: string | null; due_at?: string; notes?: string | null }) => void;
   // Batch 3 B — edit Organisation data (name, sender, caps, onboarding
   // fields). Owner+admin only; enforced server-side in /api/org/update (the
   // Supabase provider posts there), the UI just gates the form.

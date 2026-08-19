@@ -670,7 +670,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       applyReactivations(next);
     },
 
-    updateTask(id: string, patch: { reminder_at?: string | null; snoozed_until?: string | null; due_at?: string }) {
+    updateTask(id: string, patch: { reminder_at?: string | null; snoozed_until?: string | null; due_at?: string; notes?: string | null }) {
       const prev = dbRef.current;
       const tasks = prev.tasks.map((t) => t.id === id ? { ...t, ...patch } : t);
       commit({ ...prev, tasks });
