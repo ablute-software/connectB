@@ -89,6 +89,37 @@ async function invokeWorker(accessToken: string, layer: 1 | 2): Promise<Record<s
   }
 }
 
+// Bug found live during this campaign's own first supervised trial
+// (2026-08-19): a job the worker requeues for retry keeps its ORIGINAL
+// created_at, so it stays at the front of its (priority, created_at)
+// queue position — a naive "invoke once per candidate, then move to the
+// next" loop just kept re-claiming the SAME stuck job instead of ever
+// reaching later candidates (confirmed: one entity with a broken website
+// absorbed 3 of the first 5 invocations; 3 of 5 candidates in that trial
+// never got attempted at all). Fix: for one target, keep invoking until
+// ITS OWN job reaches a terminal status (done/skipped/failed) — bounded
+// at 4 tries, one more than the worker's own 3-attempt cap so a final
+// requeue still gets read back correctly instead of stopping one short —
+// before ever moving to the next target. Shared by both Layer 1
+// (entity) and Layer 2 (person) call sites below.
+async function invokeUntilTerminal(accessToken: string, layer: 1 | 2, collect: () => Promise<Record<string, unknown>>):
+  Promise<{ abort: string } | { error: string } | { collected: Record<string, unknown> }> {
+  let collected: Record<string, unknown> = { status: 'queued' };
+  for (let attempt = 0; attempt < 4 && collected.status === 'queued'; attempt++) {
+    let invoked: Record<string, unknown>;
+    try {
+      invoked = await invokeWorker(accessToken, layer);
+    } catch (e) {
+      return { error: `Worker call failed: ${(e as Error).message}` };
+    }
+    if (invoked.skipped) return { abort: `Enrichment is disabled server-side (${invoked.reason}).` };
+    if (invoked.stopped) return { abort: `Daily AI cost cap reached (€${Number(invoked.spentToday ?? 0).toFixed(2)} of €${invoked.cap}) — stopping here for today.` };
+    collected = await collect();
+    if (!collected.ok) return { error: String(collected.error ?? 'Unknown error.') };
+  }
+  return { collected };
+}
+
 export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched: () => void }) {
   const [counts, setCounts] = useState<Counts | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -128,20 +159,12 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
     if (!enq.ok) { patchRow(c.id, { state: 'failed', detail: enq.error }); setSummary((p) => ({ ...p, entitiesFailed: p.entitiesFailed + 1 })); return {}; }
     if (enq.skip) { patchRow(c.id, { state: 'skipped', detail: enq.reason }); setSummary((p) => ({ ...p, entitiesSkipped: p.entitiesSkipped + 1 })); return {}; }
 
-    let invoked: Record<string, unknown>;
-    try {
-      invoked = await invokeWorker(accessToken, 1);
-    } catch (e) {
-      patchRow(c.id, { state: 'failed', detail: `Worker call failed: ${(e as Error).message}` });
-      setSummary((p) => ({ ...p, entitiesFailed: p.entitiesFailed + 1 }));
-      return {};
-    }
-    if (invoked.skipped) return { abort: `Enrichment is disabled server-side (${invoked.reason}).` };
-    if (invoked.stopped) return { abort: `Daily AI cost cap reached (€${Number(invoked.spentToday ?? 0).toFixed(2)} of €${invoked.cap}) — stopping here for today.` };
-
-    const collected = await postJson('/api/backoffice/catalog/enrichment-campaign/collect-entity-layer1-result', { catalogEntityId: c.id, jobId: enq.jobId });
-    if (!collected.ok) { patchRow(c.id, { state: 'failed', detail: collected.error }); setSummary((p) => ({ ...p, entitiesFailed: p.entitiesFailed + 1 })); return {}; }
-    addCost(collected.cost?.eur ?? 0);
+    const result = await invokeUntilTerminal(accessToken, 1, () =>
+      postJson('/api/backoffice/catalog/enrichment-campaign/collect-entity-layer1-result', { catalogEntityId: c.id, jobId: enq.jobId }));
+    if ('abort' in result) return result;
+    if ('error' in result) { patchRow(c.id, { state: 'failed', detail: result.error }); setSummary((p) => ({ ...p, entitiesFailed: p.entitiesFailed + 1 })); return {}; }
+    const collected = result.collected;
+    addCost((collected.cost as { eur?: number } | undefined)?.eur ?? 0);
 
     if (collected.status === 'done') {
       setSummary((p) => ({ ...p, entitiesEnriched: p.entitiesEnriched + 1 }));
@@ -152,29 +175,23 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
       setSummary((p) => ({ ...p, entitiesFailed: p.entitiesFailed + 1 }));
     }
 
-    const people: { id: string; fullName: string }[] = collected.peopleNeedingLayer2 ?? [];
+    const people = (collected.peopleNeedingLayer2 as { id: string; fullName: string }[] | undefined) ?? [];
     let hooksGainedHere = 0;
     for (const person of people) {
       if (stopRequestedRef.current) break;
       patchRow(c.id, { state: 'layer2', detail: `Researching ${person.fullName}…` });
       const enqP = await postJson('/api/backoffice/catalog/enrichment-campaign/enqueue-person-layer2', { catalogPersonId: person.id });
       if (!enqP.ok || enqP.skip) continue;
-      let invokedP: Record<string, unknown>;
-      try {
-        invokedP = await invokeWorker(accessToken, 2);
-      } catch {
-        continue; // one person's transient failure doesn't abort the entity or the campaign
-      }
-      if (invokedP.skipped) return { abort: `Enrichment is disabled server-side (${invokedP.reason}).` };
-      if (invokedP.stopped) return { abort: `Daily AI cost cap reached (€${Number(invokedP.spentToday ?? 0).toFixed(2)} of €${invokedP.cap}) — stopping here for today.` };
-      const collectedP = await postJson('/api/backoffice/catalog/enrichment-campaign/collect-person-layer2-result', { catalogPersonId: person.id, jobId: enqP.jobId });
-      if (collectedP.ok) {
-        addCost(collectedP.cost?.eur ?? 0);
-        setSummary((p) => ({ ...p, peopleResearched: p.peopleResearched + 1 }));
-        if (collectedP.hookWritten) { hooksGainedHere++; setSummary((p) => ({ ...p, hooksGained: p.hooksGained + 1 })); }
-      }
+      const resultP = await invokeUntilTerminal(accessToken, 2, () =>
+        postJson('/api/backoffice/catalog/enrichment-campaign/collect-person-layer2-result', { catalogPersonId: person.id, jobId: enqP.jobId }));
+      if ('abort' in resultP) return resultP;
+      if ('error' in resultP) continue; // one person's failure doesn't abort the entity or the campaign
+      const collectedP = resultP.collected;
+      addCost((collectedP.cost as { eur?: number } | undefined)?.eur ?? 0);
+      setSummary((p) => ({ ...p, peopleResearched: p.peopleResearched + 1 }));
+      if (collectedP.hookWritten) { hooksGainedHere++; setSummary((p) => ({ ...p, hooksGained: p.hooksGained + 1 })); }
     }
-    patchRow(c.id, { state: 'done', detail: collected.status === 'done' ? undefined : collected.reason, hooksGained: hooksGainedHere });
+    patchRow(c.id, { state: 'done', detail: collected.status === 'done' ? undefined : String(collected.reason ?? ''), hooksGained: hooksGainedHere });
     return {};
   }
 
