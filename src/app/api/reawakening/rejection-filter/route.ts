@@ -84,7 +84,23 @@ export async function POST(req: NextRequest) {
   if (!(await reawakeningAiFilterAvailable())) return NextResponse.json({ ok: true, verdicts: [] });
 
   const admin: SupabaseClient = createClient(url, service, { auth: { persistSession: false } });
-  const cases = body.cases;
+
+  // Ownership check — org membership (above) only proves the caller belongs
+  // to body.orgId, not that the rejection_code_ids in body.cases actually
+  // belong to THAT org. Without this, a member of org A could pass org B's
+  // real rejection_code_id (founder-private reasoning about a different
+  // startup) and either read back org B's cached verdict verbatim, or — on
+  // a cache miss — get the AI to evaluate fabricated case text and upsert
+  // the result under org B's real code id, permanently poisoning the one
+  // verdict org B's own future evaluation of that code will ever receive
+  // (the cache has no TTL). Every case whose id doesn't resolve to a
+  // rejection_codes row owned by body.orgId is silently dropped, never
+  // reaches the cache or the model.
+  const { data: ownedCodes } = await admin.from('rejection_codes').select('id')
+    .eq('org_id', body.orgId).in('id', body.cases.map((c) => c.rejectionCodeId));
+  const ownedIds = new Set((ownedCodes ?? []).map((r) => r.id as string));
+  const cases = body.cases.filter((c) => ownedIds.has(c.rejectionCodeId));
+  if (cases.length === 0) return NextResponse.json({ ok: true, verdicts: [] });
 
   // Cache-first, per case — the same case re-firing (addOrgAxisClassification
   // has no entity filter, so one write can re-evaluate several codes across

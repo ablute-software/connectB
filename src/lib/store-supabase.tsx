@@ -18,7 +18,7 @@ import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval, priorPassInfo } from './reawakening';
 import { findReactivations, reactivationTaskTitle, type PendingReactivation } from './rejection-code-match';
-import { applyFilterVerdicts, reactivationToFilterCase, verdictsFromWire, type RawFilterVerdict } from './reawakening-ai-filter';
+import { applyFilterVerdicts, reactivationToFilterCase, verdictsFromWire, type FilterVerdict, type RawFilterVerdict } from './reawakening-ai-filter';
 import { STAGE_LABEL, getStage } from './relationship';
 import { fitBucketFromScore } from './catalog-fit-bucket';
 import { revisitTasksToClose } from './exit-effects';
@@ -280,23 +280,41 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       reactivations.map((r) => ({ reactivation: r }));
 
     if (next.org.reawakening_ai_filter_enabled) {
+      let verdicts = new Map<string, FilterVerdict>();
       try {
         const res = await fetch('/api/reawakening/rejection-filter', {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ orgId: next.org.id, cases: reactivations.map(reactivationToFilterCase) }),
+          body: JSON.stringify({
+            orgId: next.org.id,
+            cases: reactivations.map((r) => reactivationToFilterCase(r, priorPassInfo(next.interactions.filter((i) => i.entity_id === r.entity.id)))),
+          }),
         });
         const body = await res.json() as { verdicts?: RawFilterVerdict[] };
-        survivors = applyFilterVerdicts(reactivations, verdictsFromWire(body.verdicts ?? []));
+        verdicts = verdictsFromWire(body.verdicts ?? []);
       } catch {
-        // Fail-open (§4): survivors stays at its unfiltered default — every
-        // reactivation proceeds exactly as if the filter were off.
+        // Fail-open (§4): verdicts stays empty — every still-clashing
+        // reactivation below proceeds exactly as if the filter were off.
       }
       // A concurrent write may have committed newer state while this
       // awaited (addRejectionCode/updateOrg/updateEntity elsewhere in the
-      // same tab) — merge onto the freshest snapshot, not the possibly-
-      // stale `next` closure. The sync branch above never needs this: it
-      // never yields control, so `next` is still current.
+      // same tab) — re-derive the candidate list from dbRef.current rather
+      // than reusing the pre-await `reactivations` snapshot. Two things can
+      // have gone stale during the round-trip: (a) the entity/org data
+      // itself may have changed again, so a code that cleared a moment ago
+      // might not clear anymore — inserting from the stale snapshot would
+      // create a WRONG proposal that the (rejection_code_id) unique index
+      // then makes permanent, since only one proposal is ever allowed per
+      // code; (b) another concurrent call may have already turned this same
+      // code into a real proposal — findReactivations' own alreadyProposed
+      // dedup, now reading the freshest committed rows, excludes it here so
+      // a stale duplicate never enters the batch insert below (which would
+      // otherwise fail atomically and silently drop other, unrelated,
+      // genuinely-new proposals bundled in the same statement). The sync
+      // branch above never needs any of this: it never yields control, so
+      // `next`/`reactivations` are still current by construction.
       next = dbRef.current;
+      const stillClear = new Set(findReactivations(next, entityIds).map((r) => r.code.id));
+      survivors = applyFilterVerdicts(reactivations.filter((r) => stillClear.has(r.code.id)), verdicts);
       if (survivors.length === 0) return;
     }
 

@@ -46,6 +46,12 @@ describe('reactivationToFilterCase', () => {
       axisCode: 'stage', levelLabel: 'series_a', rationale: blueCrow.rationale,
     });
   });
+
+  it('threads a given priorPass reason/category into the case — never left "(not recorded)" when the founder actually logged one', () => {
+    const c = reactivationToFilterCase(blueCrow, { reason: 'Valuation too high for our thesis.', category: 'valuation' });
+    expect(c.priorPassReason).toBe('Valuation too high for our thesis.');
+    expect(c.priorPassCategory).toBe('valuation');
+  });
 });
 
 describe('buildRejectionFilterPrompt', () => {

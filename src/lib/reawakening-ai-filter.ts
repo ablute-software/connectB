@@ -44,11 +44,18 @@ export function verdictsFromWire(raw: RawFilterVerdict[]): Map<string, FilterVer
   }]));
 }
 
-export function reactivationToFilterCase(r: PendingReactivation): FilterCase {
+// priorPass — the founder's own recorded reason for the earlier "no"
+// (priorPassInfo(), reawakening.ts), passed in by the caller rather than
+// looked up here: this module stays I/O-free and Db-shape-agnostic, same
+// as the rest of the file. Omitted entirely, the AI sees "(not recorded)"
+// (buildRejectionFilterPrompt below) — a real gap when the reason IS on
+// file, so every caller should thread this through when it has it.
+export function reactivationToFilterCase(r: PendingReactivation, priorPass?: { reason?: string; category?: string }): FilterCase {
   return {
     rejectionCodeId: r.code.id, entityName: r.entity.name,
     axisCode: r.code.axis_code, levelLabel: r.code.level_label,
     rationale: r.rationale,
+    priorPassReason: priorPass?.reason, priorPassCategory: priorPass?.category,
   };
 }
 
