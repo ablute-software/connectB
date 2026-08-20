@@ -9,6 +9,7 @@ import { Card, Tooltip } from '@/components/ui';
 import { classifyConflict, type ConflictClass } from '@/lib/contribution-diff';
 import { SuspiciousAccountsTab } from '@/components/backoffice/SuspiciousAccountsTab';
 import { FraudFlagsTab } from '@/components/backoffice/FraudFlagsTab';
+import { DomainMismatchTab } from '@/components/backoffice/DomainMismatchTab';
 import { ENTITY_ENRICHMENT_FIELD_LABELS, isKnownEntityField } from '@/lib/entity-enrichment';
 import { manualEntityCompleteness, type CompletenessGrade } from '@/lib/completeness';
 
@@ -19,7 +20,7 @@ import { manualEntityCompleteness, type CompletenessGrade } from '@/lib/complete
 // backoffice/catalog/page.tsx (the CatalogCandidatesTab/AddedByStartupsTab/
 // QualityPanel section below) — no logic changes, per the prompt's own
 // scope.
-type Tab = 'contributions' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious' | 'fraud' | 'key_people' | 'community';
+type Tab = 'contributions' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious' | 'fraud' | 'key_people' | 'community' | 'domain_mismatch';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'contributions', label: 'Contributions' },
@@ -28,6 +29,10 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'claims', label: 'Claims' },
   { key: 'identity', label: 'Investor identity' },
   { key: 'gdpr', label: 'GDPR' },
+  // Prompt 284 §1 — entities.email_domain vs entities.website mismatches
+  // (54 in production, Nalka Invest being the case that surfaced it) —
+  // live detection, not a stored flag, see DomainMismatchTab.tsx.
+  { key: 'domain_mismatch', label: 'Domain mismatch' },
   // Prompt 244/245 — manual flagging by developers (not automatic
   // detection), see SuspiciousAccountsTab.tsx.
   { key: 'suspicious', label: 'Suspicious accounts' },
@@ -1485,6 +1490,7 @@ export default function BackofficeQueuePage() {
       {tab === 'fraud' && <FraudFlagsTab />}
       {tab === 'key_people' && <KeyPeoplePromoteTab />}
       {tab === 'community' && <ContributionsByUsersTab />}
+      {tab === 'domain_mismatch' && <DomainMismatchTab />}
     </div>
   );
 }

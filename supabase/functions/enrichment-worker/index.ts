@@ -38,6 +38,19 @@
 // nao extraccao, o mesmo risco residual do hook da Camada 2, nao fechado
 // por esta correccao.
 //
+// D1 estendido a email (Prompt 284, caso Nalka Invest): a pagina de equipa
+// publica "Email: sigrid.fjermeros@nalka.com" como texto literal — uma
+// fonte primaria oficial, nao um guess. extractEmailCandidates() extrai por
+// codigo (mailto: hrefs + regex no texto visivel) ANTES da chamada, mesmo
+// principio D1 estendido do linkedin_url: o modelo so escolhe de uma lista
+// fechada, nunca escreve o valor livremente. Gravado em
+// catalog_people_research.email_verified (migracao 0198, propose-only) —
+// distinto de email_guess/email_guess_confidence (Camada 2, ja existentes),
+// que continuam a ser um guess a partir de fontes de pesquisa, nao um
+// email publicado. isEmailVerifiedColumnAvailable() sonda a coluna antes
+// de gravar (este worker Deno nao tem acesso ao makeCapabilityProbe da
+// app Next.js), para nao falhar silenciosamente antes da migracao aterrar.
+//
 // Camada 2: hook so se escreve se houver pelo menos uma fonte LIDA (nao so
 // encontrada) em catalog_entity_enrichment_sources — um hook inventado
 // queima o contacto de forma permanente, pior que hook nenhum. Sem fonte
@@ -363,6 +376,32 @@ function extractInternalLinkCandidates(html: string, baseUrl: string): string[] 
   return [...out];
 }
 
+// Prompt 284 §2 — mesma disciplina D1 estendida do linkedin_url/individual_
+// profile_url (ver o bloco de comentario acima dessas duas funcoes): um
+// email so pode ser "verified" se vier de uma lista de candidatos extraida
+// por CODIGO da propria pagina, nunca de texto livre do modelo. Duas
+// fontes, porque o caso real (Nalka: "Email: sigrid.fjermeros@nalka.com")
+// e texto visivel simples, sem <a href="mailto:"> nenhum — so procurar
+// mailto: teria falhado exactamente no caso que motivou este pedido.
+// htmlToText() e o mesmo texto que o modelo realmente le, por isso e onde
+// o regex de texto livre corre, nao no html cru.
+const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+
+function extractEmailCandidates(html: string): string[] {
+  const out = new Set<string>();
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  if (doc) {
+    for (const a of [...doc.querySelectorAll('a')] as any[]) {
+      const href = a.getAttribute('href');
+      if (!href || !/^mailto:/i.test(href)) continue;
+      const addr = href.replace(/^mailto:/i, '').split('?')[0].trim();
+      if (addr) out.add(addr.toLowerCase());
+    }
+  }
+  for (const m of htmlToText(html).matchAll(EMAIL_PATTERN)) out.add(m[0].toLowerCase());
+  return [...out];
+}
+
 function formatCandidateList(candidates: string[]): string {
   return candidates.length ? candidates.map((c) => `- ${c}`).join('\n') : '(nenhum encontrado nesta pagina)';
 }
@@ -381,6 +420,12 @@ function pickMatchingUrlCandidate(modelValue: string | null, candidates: string[
   const norm = (u: string) => u.replace(/\/+$/, '');
   const target = norm(modelValue);
   return candidates.find((c) => norm(c) === target) ?? null;
+}
+
+function pickMatchingEmailCandidate(modelValue: string | null, candidates: string[]): string | null {
+  if (!modelValue) return null;
+  const target = modelValue.trim().toLowerCase();
+  return candidates.find((c) => c.trim().toLowerCase() === target) ?? null;
 }
 
 // Para campos de texto livre (nome, cargo, canal de submissao) que devem
@@ -444,7 +489,7 @@ function extractToolInput(response: any, toolName: string): any | null {
 const EXTRACT_TEAM_TOOL = {
   name: 'extract_team',
   description:
-    'Regista as pessoas e factos do fundo encontrados NESTA pagina especifica. bio_start_anchor/bio_end_anchor tem de ser copiados literalmente do texto da pagina (6-10 palavras cada) — nunca parafraseados. linkedin_url e individual_profile_url tem de ser copiados EXACTAMENTE (byte a byte) de uma das listas de candidatos fornecidas no texto — nunca inventados, nunca derivados do nome da pessoa. Se nenhum candidato corresponder a esta pessoa, usa null.',
+    'Regista as pessoas e factos do fundo encontrados NESTA pagina especifica. bio_start_anchor/bio_end_anchor tem de ser copiados literalmente do texto da pagina (6-10 palavras cada) — nunca parafraseados. linkedin_url, individual_profile_url e email tem de ser copiados EXACTAMENTE (byte a byte) de uma das listas de candidatos fornecidas no texto — nunca inventados, nunca derivados do nome da pessoa. Se nenhum candidato corresponder a esta pessoa, usa null.',
   input_schema: {
     type: 'object',
     properties: {
@@ -466,6 +511,12 @@ const EXTRACT_TEAM_TOOL = {
             title: { type: ['string', 'null'] },
             linkedin_url: { type: ['string', 'null'], description: 'copiado EXACTAMENTE de uma das linhas em "Links LinkedIn encontrados nesta pagina" abaixo, ou null' },
             individual_profile_url: { type: ['string', 'null'], description: 'copiado EXACTAMENTE de uma das linhas em "Links de perfil individual encontrados nesta pagina" abaixo, ou null' },
+            // Prompt 284 §2 — mesma disciplina: copiado de uma lista fechada
+            // de candidatos ja extraidos do texto, nunca escrito livremente.
+            // So um email PESSOAL desta pessoa especifica, nunca um email
+            // generico do fundo (info@, contact@, hello@, press@) mesmo que
+            // esteja na mesma pagina — esse nao pertence a ninguem em concreto.
+            email: { type: ['string', 'null'], description: 'copiado EXACTAMENTE de uma das linhas em "Emails encontrados nesta pagina" abaixo, so se for pessoal desta pessoa (nunca um email generico do fundo), ou null' },
             bio_start_anchor: { type: ['string', 'null'], description: 'primeiras 6-10 palavras da bio desta pessoa, copiadas exactamente do texto da pagina' },
             bio_end_anchor: { type: ['string', 'null'], description: 'ultimas 6-10 palavras da bio desta pessoa, copiadas exactamente do texto da pagina' },
           },
@@ -480,11 +531,14 @@ const EXTRACT_TEAM_TOOL = {
 const EXTRACT_PERSON_BIO_TOOL = {
   name: 'extract_person_bio',
   description:
-    'Regista a biografia desta pessoa a partir da sua pagina individual. bio_start_anchor/bio_end_anchor tem de ser copiados literalmente do texto da pagina. linkedin_url tem de ser copiado EXACTAMENTE de uma das linhas em "Links LinkedIn encontrados nesta pagina" — nunca inventado.',
+    'Regista a biografia desta pessoa a partir da sua pagina individual. bio_start_anchor/bio_end_anchor tem de ser copiados literalmente do texto da pagina. linkedin_url e email tem de ser copiados EXACTAMENTE de uma das linhas nas listas de candidatos fornecidas — nunca inventados.',
   input_schema: {
     type: 'object',
     properties: {
       linkedin_url: { type: ['string', 'null'] },
+      // Prompt 284 §2 — mesma lista fechada, mesma disciplina que no
+      // extract_team acima: so pessoal, nunca um email generico do fundo.
+      email: { type: ['string', 'null'], description: 'copiado EXACTAMENTE de uma das linhas em "Emails encontrados nesta pagina" abaixo, so se for pessoal desta pessoa, ou null' },
       bio_start_anchor: { type: ['string', 'null'] },
       bio_end_anchor: { type: ['string', 'null'] },
     },
@@ -556,6 +610,26 @@ const SEARCH_SYSTEM_PROMPT =
 // ============================================================
 // Camada 1 — processa uma catalog_entities.
 // ============================================================
+
+// Prompt 284 §2 — catalog_people_research.email_verified e uma migracao
+// propose-only (0198), aplicada pelo Nuno no seu proprio ritmo, como
+// qualquer outra deste repositorio — este worker (Deno, fora do Next app)
+// nao tem acesso ao makeCapabilityProbe da app, por isso reimplementa o
+// mesmo principio: uma sonda barata, cache positivo por instancia (uma
+// coluna nao deixa de existir), sem cache negativo (o proximo cold start,
+// ou mesmo a proxima invocacao se a migracao acabou de ser aplicada,
+// volta a sondar). Sem isto, um upsert que inclua email_verified antes da
+// migracao aterrar falharia SILENCIOSAMENTE (supabase-js nao lanca em erro
+// de query) e arrastaria bio_raw consigo, porque os dois campos partilham
+// o mesmo upsert — pior do que so nao gravar o email.
+let emailVerifiedColumnAvailable: boolean | null = null;
+async function isEmailVerifiedColumnAvailable(): Promise<boolean> {
+  if (emailVerifiedColumnAvailable === true) return true;
+  const { error } = await supabase.from('catalog_people_research').select('email_verified').limit(1);
+  emailVerifiedColumnAvailable = !error;
+  return emailVerifiedColumnAvailable;
+}
+
 async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry, batchId: string) {
   const { data: entity, error: entityErr } = await supabase
     .from('catalog_entities')
@@ -633,17 +707,22 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
   // confirmado com o Nuno): os candidatos reais extraem-se por codigo,
   // ANTES da chamada, e entram no proprio texto do prompt — o modelo so
   // pode copiar um destes, nunca inventar a partir do nome.
+  // Prompt 284 §2 — email entra na mesma disciplina, mesmo padrao de
+  // extraccao-antes-da-chamada (caso real: Nalka Invest publica
+  // "Email: sigrid.fjermeros@nalka.com" na propria pagina de equipa —
+  // fonte primaria oficial, nao um guess).
   const linkedinCandidates = extractLinkedinCandidates(teamPage.html);
   const profileCandidates = extractInternalLinkCandidates(teamPage.html, teamUrl);
+  const emailCandidates = extractEmailCandidates(teamPage.html);
 
   const extraction = await callClaude({
     model: LAYER1_MODEL,
     system:
-      'Extrai pessoas e factos do fundo a partir do texto de uma pagina de equipa de venture capital. As ancoras de biografia (inicio/fim) tem de ser copiadas EXACTAMENTE do texto dado — nunca parafraseadas, nunca resumidas. Se uma pessoa nao tiver biografia visivel, deixa as ancoras a null. linkedin_url e individual_profile_url tem de vir EXACTAMENTE das listas de candidatos fornecidas no texto — nunca inventados a partir do nome da pessoa.',
+      'Extrai pessoas e factos do fundo a partir do texto de uma pagina de equipa de venture capital. As ancoras de biografia (inicio/fim) tem de ser copiadas EXACTAMENTE do texto dado — nunca parafraseadas, nunca resumidas. Se uma pessoa nao tiver biografia visivel, deixa as ancoras a null. linkedin_url, individual_profile_url e email tem de vir EXACTAMENTE das listas de candidatos fornecidas no texto — nunca inventados a partir do nome da pessoa. email so se for pessoal desta pessoa, nunca um endereco generico do fundo (info@, contact@, hello@, press@).',
     messages: [
       {
         role: 'user',
-        content: `URL: ${teamUrl}\n\nTexto da pagina:\n${teamText}\n\nLinks LinkedIn encontrados nesta pagina (usa um destes por pessoa, ou null se nenhum corresponder):\n${formatCandidateList(linkedinCandidates)}\n\nLinks de perfil individual encontrados nesta pagina (usa um destes, ou null):\n${formatCandidateList(profileCandidates)}`,
+        content: `URL: ${teamUrl}\n\nTexto da pagina:\n${teamText}\n\nLinks LinkedIn encontrados nesta pagina (usa um destes por pessoa, ou null se nenhum corresponder):\n${formatCandidateList(linkedinCandidates)}\n\nLinks de perfil individual encontrados nesta pagina (usa um destes, ou null):\n${formatCandidateList(profileCandidates)}\n\nEmails encontrados nesta pagina (usa um destes se for pessoal desta pessoa, ou null):\n${formatCandidateList(emailCandidates)}`,
       },
     ],
     tools: [EXTRACT_TEAM_TOOL],
@@ -680,6 +759,7 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
     });
   }
 
+  const emailVerifiedAvailable = await isEmailVerifiedColumnAvailable();
   let peopleProcessed = 0;
   let peopleWithBio = 0;
   const affiliationsCreated: string[] = [];
@@ -695,6 +775,10 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
     // quando coincidem (mesmo principio D1(c) do bio_raw).
     let linkedinUrl = pickMatchingLinkedinCandidate(p.linkedin_url, linkedinCandidates);
     const individualProfileUrl = pickMatchingUrlCandidate(p.individual_profile_url, profileCandidates);
+    // Prompt 284 §2 — same code-verified-candidate discipline as linkedinUrl
+    // above: a real, published address, never the model's raw string.
+    let email = pickMatchingEmailCandidate(p.email, emailCandidates);
+    let emailSourceUrl = teamUrl;
 
     let bioRaw = sliceByAnchors(teamText, p.bio_start_anchor, p.bio_end_anchor);
     let bioSourceUrl = teamUrl;
@@ -709,14 +793,15 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
           const profileText = htmlToText(profilePage.html);
           if (profileText.length > 50 && !looksLikeJsOnlyShell(profilePage.html, profileText.length)) {
             const profileLinkedinCandidates = extractLinkedinCandidates(profilePage.html);
+            const profileEmailCandidates = extractEmailCandidates(profilePage.html);
             const profileExtraction = await callClaude({
               model: LAYER1_MODEL,
               system:
-                'Extrai a biografia desta pessoa a partir do texto da sua pagina individual. As ancoras (inicio/fim) tem de ser copiadas EXACTAMENTE do texto dado. linkedin_url tem de vir EXACTAMENTE da lista de candidatos fornecida — nunca inventado.',
+                'Extrai a biografia desta pessoa a partir do texto da sua pagina individual. As ancoras (inicio/fim) tem de ser copiadas EXACTAMENTE do texto dado. linkedin_url e email tem de vir EXACTAMENTE das listas de candidatos fornecidas — nunca inventados. email so se for pessoal desta pessoa, nunca um endereco generico do fundo.',
               messages: [
                 {
                   role: 'user',
-                  content: `Pessoa: ${p.full_name}\nURL: ${individualProfileUrl}\n\nTexto da pagina:\n${profileText}\n\nLinks LinkedIn encontrados nesta pagina:\n${formatCandidateList(profileLinkedinCandidates)}`,
+                  content: `Pessoa: ${p.full_name}\nURL: ${individualProfileUrl}\n\nTexto da pagina:\n${profileText}\n\nLinks LinkedIn encontrados nesta pagina:\n${formatCandidateList(profileLinkedinCandidates)}\n\nEmails encontrados nesta pagina:\n${formatCandidateList(profileEmailCandidates)}`,
                 },
               ],
               tools: [EXTRACT_PERSON_BIO_TOOL],
@@ -731,6 +816,14 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
             }
             if (!linkedinUrl) {
               linkedinUrl = pickMatchingLinkedinCandidate(profileParsed?.linkedin_url ?? null, profileLinkedinCandidates);
+            }
+            // Prompt 284 §2 — the team page wins if it already had one; the
+            // individual page only fills a gap, same "keep the better one"
+            // shape as bioRaw above (email has no length to compare, so
+            // it's simply first-found-wins across the two pages).
+            if (!email) {
+              const profileEmail = pickMatchingEmailCandidate(profileParsed?.email ?? null, profileEmailCandidates);
+              if (profileEmail) { email = profileEmail; emailSourceUrl = individualProfileUrl; }
             }
           }
         }
@@ -783,20 +876,41 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
       );
     affiliationsCreated.push(personId!); // sempre nao-nulo aqui: ramo if era truthy, ramo else fez `continue` antes se falhou
 
-    if (bioRaw) {
-      await supabase
-        .from('catalog_people_research')
-        .upsert({ person_id: personId, bio_raw: bioRaw, updated_at: new Date().toISOString() }, { onConflict: 'person_id' });
-      await supabase.from('catalog_entity_enrichment_sources').insert({
-        entity_id: entity.id,
-        person_id: personId,
-        source_url: bioSourceUrl,
-        source_type: 'team_page',
-        supports: 'bio_raw',
-        quality: 'verbatim_anchor_match',
-        batch_id: batchId,
-      });
-      peopleWithBio++;
+    // Prompt 284 §2 — email is independent of bio: a person can have one
+    // without the other, so the upsert (and its provenance row) fires
+    // whenever EITHER is present, not gated on bioRaw alone the way it was
+    // before this prompt. emailVerifiedAvailable guards against the
+    // pre-migration case (see isEmailVerifiedColumnAvailable above) —
+    // still writes bio_raw normally even when the column doesn't exist yet.
+    const canWriteEmail = !!email && emailVerifiedAvailable;
+    if (bioRaw || canWriteEmail) {
+      const researchPatch: Record<string, unknown> = { person_id: personId, updated_at: new Date().toISOString() };
+      if (bioRaw) researchPatch.bio_raw = bioRaw;
+      if (canWriteEmail) researchPatch.email_verified = email;
+      await supabase.from('catalog_people_research').upsert(researchPatch, { onConflict: 'person_id' });
+      if (bioRaw) {
+        await supabase.from('catalog_entity_enrichment_sources').insert({
+          entity_id: entity.id,
+          person_id: personId,
+          source_url: bioSourceUrl,
+          source_type: 'team_page',
+          supports: 'bio_raw',
+          quality: 'verbatim_anchor_match',
+          batch_id: batchId,
+        });
+        peopleWithBio++;
+      }
+      if (canWriteEmail) {
+        await supabase.from('catalog_entity_enrichment_sources').insert({
+          entity_id: entity.id,
+          person_id: personId,
+          source_url: emailSourceUrl,
+          source_type: 'team_page',
+          supports: 'email',
+          quality: 'verbatim_literal_match',
+          batch_id: batchId,
+        });
+      }
     }
     peopleProcessed++;
   }

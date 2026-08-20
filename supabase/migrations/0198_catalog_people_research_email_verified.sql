@@ -1,0 +1,27 @@
+-- Prompt 284 §2 — catalog_people_research.email_verified: a literal email
+-- address the enrichment worker found PUBLISHED on the fund's own team
+-- page (or a person's individual profile page), as text extracted by code
+-- from a closed candidate list (mailto: hrefs + plain visible text) and
+-- only ever confirmed against that list — never the model's raw string,
+-- same D1-extended discipline already applied to linkedin_url/
+-- individual_profile_url. Real case: Nalka Invest's team page literally
+-- reads "Email: sigrid.fjermeros@nalka.com" — a primary official source,
+-- the opposite of the invented-contact-data the app's own rule forbids.
+--
+-- `text`, not boolean, following the naming AND typing convention this
+-- codebase already uses for the exact same concept on the private,
+-- org-scoped `people` table (0001_init.sql): `email_verified text` holds
+-- the confirmed address itself, sitting alongside `email_guess`/
+-- `email_guess_confidence` (already on this table since 0146) as the
+-- upgrade path once real evidence exists — "email_verified is sacred:
+-- never derived from email_guess, never overwritten" is the same rule
+-- here. Provenance for a given email_verified value lives in
+-- catalog_entity_enrichment_sources (supports='email'), the same
+-- provenance table this pipeline already uses for bio_raw/hook — no new
+-- provenance mechanism needed.
+--
+-- Additive, non-destructive. No RLS change needed: catalog_people_research
+-- write policy is already is_platform_admin()-only (service role), same
+-- as the worker's own access — this column inherits that unchanged.
+alter table public.catalog_people_research
+  add column if not exists email_verified text;
