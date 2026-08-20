@@ -366,33 +366,33 @@ export default function PipelinePage() {
   const [status, setStatus] = useState<string[]>([]);
   const [sectors, setSectors] = useState<string[]>([]);
   const [country, setCountry] = useState('');
-  // Prompt 257 §4 — "See frozen" toggle, off (default) by exclusion. Prompt
-  // 271 §2 — one toggle became two, mutually exclusive with each other and
-  // with the normal view (never mixed). 'standby' is the recoverable class
-  // (last touch was THEM, still unanswered by us) — no door was ever
-  // closed, just a thread that went quiet on our side; this is the list
-  // Sherlock evaluates (§3). Renamed "Dropped" -> "Stand by" in the UI by
-  // Prompt 273 (the old label read as "discarded", backwards from what
-  // this list actually is), but the internal state VALUE stays 'standby'
-  // to avoid churn in the Ask-Sherlock wiring that already keys off it.
-  //
-  // Prompt 277 B — 'frozen' split in two: 'frozen' is now ONLY
-  // closed_for_cause (a real pass/decision/reopen_trigger actually closed
-  // the door) — 'stale' takes frozen_cold + no_data (cooled off on its own
-  // or was never contacted; nothing was ever actively decided). Same
-  // reactivation governance either way (251's matrix/reopen doctrine), but
-  // conflating "we said no" with "nobody ever answered" under one "Frozen"
-  // label was misleading — the prompt's own name for the two.
-  //
-  // Prompt 273/277 A — 'blocked' (audit-column-wise still hard_filter_
-  // status='resolved_blocked', see frozen-classifier.ts) split into its
-  // own two views too, matching HardFilterBanner's own 3-way split:
-  // 'not_applicable' (resolved_not_a_fit — a founder-owned, no-drama call)
-  // and 'reported' (resolved_blocked — a founder-submitted fraud/scam
-  // report, pending platform review, never a verdict). Five dedicated
-  // views total now, all mutually exclusive with each other and with the
-  // normal view. Session-local, not persisted, same reasoning as before.
-  const [frozenView, setFrozenView] = useState<'none' | 'frozen' | 'stale' | 'standby' | 'not_applicable' | 'reported'>('none');
+  // Prompt 257 §4 — "See frozen" toggle, off (default) by exclusion.
+  // Prompt 277 B split this into five dedicated views (Frozen/Stale/Stand
+  // by/Not applicable/Reported); Prompt 282 collapses that back to THREE,
+  // by Nuno's own explicit decision after seeing the 5-button header in
+  // production ("são demasiados") — the classifier itself (classifyFrozen,
+  // frozen-classifier.ts) is completely untouched, only how its four
+  // classes get GROUPED into views changes:
+  //   'frozen' = closed_for_cause + frozen_cold — "chegaram a um impasse,
+  //     não evoluirão sem alteração das condições" (Nuno's own words): a
+  //     real pass/decision AND a thread that cooled off on its own both
+  //     need a genuinely new condition to reopen, so they share a view now.
+  //   'stale' = stand_by + no_data — "por alguma coisa caíram no
+  //     esquecimento": we owe a reply (stand_by) or it never even started
+  //     (no_data), same root cause (nobody acted), different starting point.
+  //     This absorbs the old dedicated 'standby' view — the Ask-Sherlock
+  //     flow (§3 below) still only ever evaluates the stand_by rows WITHIN
+  //     this view, never the no_data ones alongside them.
+  //   'reported' = resolved_not_a_fit + resolved_blocked, in the SAME view
+  //     now — "não são investidores" (para a ablute_): both are "this
+  //     doesn't belong in an active pipeline" for the same underlying
+  //     reason (not a real prospect), just for two different sub-reasons
+  //     (no fit vs. suspected fraud) — the row-level badge (frozenPillLabel
+  //     below) keeps that distinction visible, and the two founder ACTIONS
+  //     on the dossier stay exactly as separate as they were (277 A) — only
+  //     the LIST is now shared, not the workflow.
+  // Three mutually-exclusive views plus 'none', still session-local.
+  const [frozenView, setFrozenView] = useState<'none' | 'frozen' | 'stale' | 'reported'>('none');
   const [sortKey, setSortKey] = useState<SortKey>('wave');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [addInvestorOpen, setAddInvestorOpen] = useState(false);
@@ -538,23 +538,20 @@ export default function PipelinePage() {
     // else: 'none' means frozen entities are never in `list` to begin with
     // (not just dimmed); any other value flips it to show nothing BUT that
     // class, same filters/sort/layout still apply on top.
-    // Prompt 273/277 A — not_applicable/reported both take precedence and
-    // are excluded from every OTHER view (active, frozen, stale, standby):
-    // each is a stronger, orthogonal signal than being frozen, so each
-    // gets its own dedicated view rather than sitting inside Frozen.
-    // Prompt 277 B — 'frozen' (closed_for_cause) and 'stale' (frozen_cold +
-    // no_data — nothing for Sherlock to evaluate there either, no thread
-    // content to reason about) are now two separate views, not one.
+    // Prompt 282 — not_applicable and reported now share the SAME view
+    // ('reported'), both still excluded from every other view: each is a
+    // stronger, orthogonal signal than being frozen, so together they still
+    // get precedence over Frozen/Stale, just no longer split from each
+    // other. 'frozen' = closed_for_cause + frozen_cold; 'stale' = stand_by
+    // + no_data (see the frozenView state comment above for the reasoning).
     list = list.filter((e) => {
-      if (notApplicableIds.has(e.id)) return frozenView === 'not_applicable';
-      if (reportedIds.has(e.id)) return frozenView === 'reported';
-      if (frozenView === 'not_applicable' || frozenView === 'reported') return false;
+      if (notApplicableIds.has(e.id) || reportedIds.has(e.id)) return frozenView === 'reported';
+      if (frozenView === 'reported') return false;
       if (frozenView === 'none') return e.status !== 'dormant';
       const cls = frozenClasses.get(e.id);
       if (!cls) return false;
-      if (frozenView === 'standby') return cls === 'stand_by';
-      if (frozenView === 'frozen') return cls === 'closed_for_cause';
-      return cls === 'frozen_cold' || cls === 'no_data'; // frozenView === 'stale'
+      if (frozenView === 'frozen') return cls === 'closed_for_cause' || cls === 'frozen_cold';
+      return cls === 'stand_by' || cls === 'no_data'; // frozenView === 'stale'
     });
     if (q) list = list.filter((e) => e.name.toLowerCase().includes(q.toLowerCase())
       || e.sectors.some((s) => s.toLowerCase().includes(q.toLowerCase())));
@@ -583,32 +580,36 @@ export default function PipelinePage() {
 
   const countries = Array.from(new Set(db.entities.map((e) => e.hq_country).filter(Boolean))) as string[];
   const sectorOptions = Array.from(new Set(db.entities.flatMap((e) => e.sectors))).sort();
-  // Prompt 271 §2 / Prompt 277 B — five counts, matching the five buttons.
-  const standbyCount = [...frozenClasses.values()].filter((c) => c === 'stand_by').length;
-  const frozenCount = [...frozenClasses.values()].filter((c) => c === 'closed_for_cause').length;
-  const staleCount = [...frozenClasses.values()].filter((c) => c === 'frozen_cold' || c === 'no_data').length;
-  // Named notApplicableCount/reportedCount, not blockedCount — that name is
-  // already taken by the unrelated catalog-quota "blocked" count further up
-  // (from the catalog_blocked_count() RPC, Prompt 123).
-  const notApplicableCount = notApplicableIds.size;
-  const reportedCount = reportedIds.size;
-  const notActivePipelineCount = frozenCount + staleCount + standbyCount + notApplicableCount + reportedCount;
+  // Prompt 282 — three counts, matching the three buttons. frozenCount/
+  // staleCount now each sum two of classifyFrozen's four classes; the
+  // classifier itself never changed, only this grouping.
+  const frozenCount = [...frozenClasses.values()].filter((c) => c === 'closed_for_cause' || c === 'frozen_cold').length;
+  const staleCount = [...frozenClasses.values()].filter((c) => c === 'stand_by' || c === 'no_data').length;
+  // Named reportedCount, not blockedCount — that name is already taken by
+  // the unrelated catalog-quota "blocked" count further up (from the
+  // catalog_blocked_count() RPC, Prompt 123). Sums both hard-filter values
+  // now that they share one view.
+  const reportedCount = notApplicableIds.size + reportedIds.size;
+  const notActivePipelineCount = frozenCount + staleCount + reportedCount;
 
-  // Prompt 273 §3 / Prompt 277 B — the row's Status pill shows the CLASS,
-  // not the raw 'dormant' status, but only inside the 5 dedicated views
-  // (frozenView !== 'none') — the normal pipeline view keeps StatusPill's
-  // plain default. All 5 classes get their own distinct label now: Stand
-  // by / Frozen (closed_for_cause) / Stale (frozen_cold, or "Stale — never
-  // contacted" for no_data) / Not applicable / Reported.
+  // Prompt 273 §3 / Prompt 282 — the row's Status pill shows the real
+  // sub-class, not the raw 'dormant' status, but only inside the 3
+  // dedicated views (frozenView !== 'none') — the normal pipeline view
+  // keeps StatusPill's plain default. Collapsing 5 header buttons to 3
+  // (282) didn't lose any granularity — it only moved it from the header
+  // into this per-row pill: within Frozen, "Frozen" (closed_for_cause) vs
+  // "Frozen — no reply" (frozen_cold); within Stale, "Stale" (stand_by) vs
+  // "Never contacted" (no_data); within Reported, "Not a fit" vs
+  // "Fraud — pending review".
   function frozenPillLabel(e: Entity): string | undefined {
     if (frozenView === 'none') return undefined;
-    if (notApplicableIds.has(e.id)) return 'Not applicable';
-    if (reportedIds.has(e.id)) return 'Reported';
+    if (notApplicableIds.has(e.id)) return 'Not a fit';
+    if (reportedIds.has(e.id)) return 'Fraud — pending review';
     const cls = frozenClasses.get(e.id);
-    if (cls === 'stand_by') return 'Stand by';
     if (cls === 'closed_for_cause') return 'Frozen';
-    if (cls === 'no_data') return 'Stale — never contacted';
-    return 'Stale';
+    if (cls === 'frozen_cold') return 'Frozen — no reply';
+    if (cls === 'stand_by') return 'Stale';
+    return 'Never contacted'; // cls === 'no_data'
   }
   const personCandidates = db.entities.filter((e) => isPersonCandidate(db, e));
   const noEntities = db.entities.length === 0;
@@ -727,14 +728,14 @@ export default function PipelinePage() {
               row (ml-auto, same pattern as the "See frozen" toggle further
               down). Neutral colors on purpose: this is context ("how many
               do I have"), not a metric to celebrate like the three above.
-              Prompt 273/277 — every dedicated view's entities subtracted
+              Prompt 273/277/282 — every dedicated view's entities subtracted
               out, same as they're excluded from the row filter's 'none'
               view: none of them are "active" just because they no longer
               count as plain frozen. "Frozen" stays the umbrella label for
-              this one summary number on purpose — the 5-way breakdown
-              (Frozen/Stale/Stand by/Not applicable/Reported) is what the
-              toggle buttons below are for; this top line only needs "how
-              many am I not actively pursuing right now". */}
+              this one summary number on purpose — the 3-way breakdown
+              (Frozen/Stale/Reported) is what the toggle buttons below are
+              for; this top line only needs "how many am I not actively
+              pursuing right now". */}
           <div className="ml-auto flex items-baseline gap-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Active</span>
             <span className="text-lg font-bold text-gray-800">{db.entities.length - notActivePipelineCount}</span>
@@ -812,55 +813,43 @@ export default function PipelinePage() {
             there. 'none' by default (frozen entities excluded from the list
             entirely, not just dimmed); each button shows ONLY that class,
             same layout — never a mixed state.
-            Prompt 277 B — "Frozen" split in two: it's now ONLY
-            closed_for_cause (a real pass/decision/reopen_trigger actually
-            closed the door) — "Stale" takes frozen_cold + no_data (cooled
-            off on its own, or was never contacted; nothing was ever
-            actively decided). Reactivation is governed by what already
-            exists either way (251's code matrix / reopen doctrine) — this
-            split is about not conflating "we said no" with "nobody ever
-            answered" in the label, nothing about the available action.
-            "Stand by" is the recoverable class — last touch was THEM,
-            unanswered by us; no door was closed, the ball is in our court.
-            This is the list Sherlock evaluates for reactivation (§3).
-            Prompt 273/277 A — "Not applicable" (resolved_not_a_fit — not
-            even the right kind of investor, a founder-owned no-drama call)
-            and "Reported" (resolved_blocked — a founder-submitted fraud/
-            scam report, pending platform review) are their own two views
-            too, excluded from every other view (see the row filter above)
-            since each is a stronger, orthogonal signal than being frozen.
-            Five physically separate lists on purpose, not one with
-            sub-labels: each has a different available action (or, for
-            Reported, none — only platform review resolves it). */}
+            Prompt 282 — back down to THREE buttons (Nuno's own call after
+            seeing the 5-button header live: "são demasiados"). Each
+            button's title is Nuno's own one-line definition, verbatim, so
+            the meaning can't drift again — see the frozenView state
+            comment above for the full class -> view mapping and reasoning.
+            Reactivation is governed by what already exists either way
+            (251's code matrix / reopen doctrine); Reported still has no
+            founder-side action of its own — only platform review resolves
+            it, same as before. Sub-class granularity isn't lost, just moved
+            off the header and onto the row's own Status pill
+            (frozenPillLabel above). */}
         <button onClick={() => setFrozenView((v) => v === 'frozen' ? 'none' : 'frozen')}
+          title="Chegaram a um impasse — não evoluirão sem alteração das condições."
           className={`ml-auto rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'frozen' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
           {frozenView === 'frozen' ? '❄ Showing frozen' : `❄ Frozen (${frozenCount})`}
         </button>
         <button onClick={() => setFrozenView((v) => v === 'stale' ? 'none' : 'stale')}
+          title="Por alguma coisa caíram no esquecimento."
           className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'stale' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
           {frozenView === 'stale' ? '💤 Showing stale' : `💤 Stale (${staleCount})`}
         </button>
-        <button onClick={() => setFrozenView((v) => v === 'standby' ? 'none' : 'standby')}
-          className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'standby' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-          {frozenView === 'standby' ? '⏸ Showing stand by' : `⏸ Stand by (${standbyCount})`}
-        </button>
-        <button onClick={() => setFrozenView((v) => v === 'not_applicable' ? 'none' : 'not_applicable')}
-          className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'not_applicable' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-          {frozenView === 'not_applicable' ? '⚠️ Showing not applicable' : `⚠️ Not applicable (${notApplicableCount})`}
-        </button>
         <button onClick={() => setFrozenView((v) => v === 'reported' ? 'none' : 'reported')}
+          title="Não são investidores."
           className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'reported' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
           {frozenView === 'reported' ? '🚨 Showing reported' : `🚨 Reported (${reportedCount})`}
         </button>
-        {/* Prompt 271 §3 — bulk ask, only in the Stand by view, only for
-            rows not already evaluated/loading this visit. */}
-        {frozenView === 'standby' && rows.some((e) => !neglectResults[e.id]) && (
-          <button onClick={() => askSherlockFor(rows.filter((e) => !neglectResults[e.id]).map((e) => e.id))}
+        {/* Prompt 271 §3 / Prompt 282 — bulk ask moved to the Stale view
+            (Stand by no longer has its own button), but still only ever
+            acts on the stand_by rows WITHIN it, never the no_data ones now
+            sharing the view — the server-side re-verification itself is
+            unchanged. */}
+        {frozenView === 'stale' && rows.some((e) => frozenClasses.get(e.id) === 'stand_by' && !neglectResults[e.id]) && (
+          <button onClick={() => askSherlockFor(rows.filter((e) => frozenClasses.get(e.id) === 'stand_by' && !neglectResults[e.id]).map((e) => e.id))}
             className="rounded-lg bg-[#0f5132] px-2.5 py-1.5 text-sm font-medium text-white hover:bg-[#0c4028]">
-            Ask Sherlock — evaluate all ({rows.filter((e) => !neglectResults[e.id]).length})
+            Ask Sherlock — evaluate all ({rows.filter((e) => frozenClasses.get(e.id) === 'stand_by' && !neglectResults[e.id]).length})
           </button>
         )}
-        <span className="text-xs text-gray-400">{rows.length} entities</span>
         <button data-tour-id="pipeline-import" onClick={() => setAddInvestorOpen(true)} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-[#0E7490] hover:bg-[#E8F4F8]">+ Add investor</button>
       </div>
 
@@ -988,17 +977,19 @@ export default function PipelinePage() {
                         <span className="line-clamp-2">{e.reopen_trigger}</span>
                       </div>
                     )}
-                    {/* Prompt 271 §3 / Prompt 272 — only in the Stand by
-                        view (already scoped to stand_by by the row
-                        filter above). On-demand, individual: no evaluation
-                        happens just from viewing this list. A 'reactivate'
-                        verdict already created the full proposal in
+                    {/* Prompt 271 §3 / Prompt 272 / Prompt 282 — only for
+                        stand_by rows, now inside the shared Stale view (the
+                        row filter no longer scopes the whole view to
+                        stand_by alone, so this checks the class directly).
+                        On-demand, individual: no evaluation happens just
+                        from viewing this list. A 'reactivate' verdict
+                        already created the full proposal in
                         ReawakeningQueue (advice, "Draft this message") —
                         this line just points there rather than repeating
                         the whole breakdown in a table cell; 'hold_for_hook'
                         and 'not_worth_it' never reach that queue, so this
                         IS the only place their reasoning is ever shown. */}
-                    {frozenView === 'standby' && (
+                    {frozenView === 'stale' && frozenClasses.get(e.id) === 'stand_by' && (
                       neglectResults[e.id] === 'loading' ? (
                         <p className="mt-0.5 text-[11px] text-gray-400">Asking Sherlock…</p>
                       ) : neglectResults[e.id] ? (
