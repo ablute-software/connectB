@@ -1,0 +1,28 @@
+-- Prompt 278 §4 — orgs.vault_access_frozen_at: the Vault "kill switch".
+-- Emergency, founder-triggered ON/OFF: null = normal (grants behave exactly
+-- as today); set = every investor-facing document/folder-serving path for
+-- this org returns nothing, even though the underlying access_grants rows
+-- are untouched — turning it back off (set back to null) restores exactly
+-- the prior state, nothing lost.
+--
+-- A nullable timestamp, not a boolean: matches this codebase's existing
+-- "did this event happen" convention (access_grants.revoked_at,
+-- access_grants.confirmed_at, access_grants.expires_at) rather than the
+-- opt-out `_visible_to_investors` boolean family (swot/roadmap/round
+-- progress, migrations 0159/0161/0174) — those default TRUE and gate a
+-- single dossier field; this is the opposite shape, an emergency switch
+-- that starts OFF and, once set, must be checked by every route that
+-- serves a document or folder name to an investor, not just one page.
+--
+-- Single read helper: vaultFrozenForOrg() in src/lib/data-room-server.ts,
+-- gated by its own capability probe (vault-kill-switch-capability.ts) so
+-- every caller degrades to "never frozen" (today's behavior, unchanged)
+-- until this migration is applied.
+--
+-- Write path: added to the EDITABLE whitelist in /api/org/update (same
+-- owner/admin org_editing permission gate as swot_visible_to_investors and
+-- every other org toggle) — no new route needed, no new permission model.
+--
+-- PROPOSTA, NAO APLICADA — esta sessao nao aplica as proprias migracoes.
+alter table public.orgs
+  add column vault_access_frozen_at timestamptz;

@@ -39,6 +39,7 @@ import { descendantFolderIds, resolveDocumentAccess, unlockedGrants } from '@/li
 import { grantIsActive, grantStatus } from '@/lib/access-grants';
 import { PORTAL_SECTIONS } from '@/lib/dataroom-sections';
 import { roundValuationBasisAvailable } from '@/lib/round-valuation-basis-capability';
+import { vaultFrozenForOrg } from '@/lib/data-room-server';
 
 // Investor Workspace Fase 2 (prompt 55) — groups documents into the 6 fixed
 // diligence-journey sections by their folder's portal_section (migration
@@ -210,6 +211,18 @@ export async function GET(req: Request) {
       if (membership) {
         const orgId = membership.org_id as string;
         const { data: org } = await admin.from('orgs').select('name, sender_email').eq('id', orgId).single();
+        // Prompt 278 §4 — the kill switch reaches the QA fallback too: this
+        // branch bypasses resolveDocumentAccess entirely (reads every org
+        // document directly), so it's exactly the escape hatch the research
+        // for this prompt flagged as needing its own explicit guard.
+        if (await vaultFrozenForOrg(admin, orgId)) {
+          const snapshot = await buildSnapshot(admin, orgId);
+          return NextResponse.json({
+            orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
+            pendingNdaCount: 0, folders: [], documents: [], sections: buildSections([], []),
+            pendingConfirmation, qaAccess: true, snapshot, orgId, currentTicketSignal: null,
+          });
+        }
         const [{ data: allFolders }, { data: allDocs }] = await Promise.all([
           admin.from('folders').select('id, name, portal_section').eq('org_id', orgId),
           admin.from('documents').select('*').eq('org_id', orgId),
@@ -243,6 +256,23 @@ export async function GET(req: Request) {
   const orgGrants = activeGrants.filter((g) => g.org_id === orgId);
 
   const { data: org } = await admin.from('orgs').select('name, sender_email').eq('id', orgId).single();
+
+  // Prompt 278 §4 — the kill switch, checked before the folders/documents
+  // queries run at all: same empty shape this route already returns for a
+  // firm with zero active grants above, so the client's existing empty
+  // state covers this with no new branch. snapshot/currentTicketSignal are
+  // unrelated to the Vault (round data, ticket-size signal) and stay
+  // unaffected — the switch is scoped to documents/folders, not the whole
+  // portal.
+  if (await vaultFrozenForOrg(admin, orgId)) {
+    const snapshot = await buildSnapshot(admin, orgId);
+    const currentTicketSignal = await latestTicketSignal(admin, orgId, email);
+    return NextResponse.json({
+      orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
+      pendingNdaCount: 0, folders: [], documents: [], sections: buildSections([], []),
+      pendingConfirmation, snapshot, orgId, currentTicketSignal,
+    });
+  }
 
   // Fetch documents for EVERY granted folder (locked or not) and every
   // directly-granted document (locked or not) — resolveDocumentAccess needs

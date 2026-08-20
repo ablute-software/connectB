@@ -18,6 +18,7 @@ import { createClient } from '@supabase/supabase-js';
 import { descendantFolderIds, resolveDocumentAccess } from '@/lib/data-room';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { grantStatus } from '@/lib/access-grants';
+import { vaultFrozenForOrg } from '@/lib/data-room-server';
 
 // This route reads no cookies/headers — unlike every other GET route in
 // this app, which calls serverClient() first and reads a cookie, implicitly
@@ -67,6 +68,22 @@ export async function GET(_req: Request, { params }: { params: { token: string }
       .eq('org_id', orgId).eq('invited_email', invitedEmail).is('confirmed_at', null).is('revoked_at', null),
   ]);
   if (!org) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200 });
+
+  // Prompt 278 §4 — the kill switch, explicitly confirmed to cover this
+  // route too: unlike every other gated path, this one shows folder/
+  // document NAMES with no login at all, so "blank the metadata" here means
+  // literally zero folders/names, not merely no signed URLs (which this
+  // route never had anyway). Company identity (name/description/logo)
+  // stays — that's not Vault content, it's the same public profile shown
+  // regardless of documents.
+  if (await vaultFrozenForOrg(admin, orgId)) {
+    return NextResponse.json({
+      ok: true, orgName: org.name as string,
+      orgDescription: (org.one_liner as string | null) ?? (profile?.description as string | null) ?? null,
+      orgLogoUrl: (profile?.photo_url as string | null) ?? null,
+      invitedEmail, folders: [], documentNames: [], documentCount: 0, pendingNdaCount: 0,
+    });
+  }
 
   // Prompt 171 §B.1 — the bug: this route never checked an individual
   // grant's own expires_at at all, so an expired grant's document kept

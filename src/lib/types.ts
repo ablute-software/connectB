@@ -172,6 +172,12 @@ export interface Org {
   // job stamps once it's grown catalog_quota for this org this month.
   // Additive, propose-only (migration 0165) — undefined pre-migration.
   catalog_last_monthly_delivery?: string;
+  // Prompt 278 §4 — the Vault kill switch. Additive, propose-only (migration
+  // 0197, not yet applied) — undefined pre-migration, same as every other
+  // capability-gated column here, in which case every gated route treats it
+  // as never frozen. Set = every investor-facing document/folder path for
+  // this org returns nothing; null/undefined = normal.
+  vault_access_frozen_at?: string | null;
 }
 
 // Prompt 167 §A — one row per roadmap period (a quarter or a whole year).

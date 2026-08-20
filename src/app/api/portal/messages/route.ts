@@ -14,6 +14,7 @@ import { dealMessagesAvailable } from '@/lib/deal-messages-capability';
 import { findThread, getOrCreateThread, getThreadMessages, postMessage, markThreadRead, canInvestorMessage } from '@/lib/deal-messages';
 import { resolveInvestorMessageDocs } from '@/lib/deal-messages-resolve';
 import { descendantFolderIds, resolveDocumentAccess, type GrantLike } from '@/lib/data-room';
+import { vaultFrozenForOrg } from '@/lib/data-room-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 
@@ -92,7 +93,10 @@ export async function POST(req: Request) {
   // rather than trusted from the client.
   const requestedDocIds = [...new Set(body.documentIds ?? [])];
   let allowedDocIds: string[] = [];
-  if (requestedDocIds.length > 0) {
+  // Prompt 278 §4 — the kill switch: a message can still be sent while the
+  // Vault is frozen, but it can never attach a document while it's on —
+  // same "documents/folders only" scope as everywhere else in this prompt.
+  if (requestedDocIds.length > 0 && !(await vaultFrozenForOrg(admin, body.orgId))) {
     const { data: grants } = await admin.from('access_grants').select('*').eq('org_id', body.orgId).is('revoked_at', null)
       .or([`grantee_email.eq.${email}`, `invited_email.eq.${email}`].join(','));
     const now = new Date();

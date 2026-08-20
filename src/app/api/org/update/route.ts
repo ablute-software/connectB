@@ -48,6 +48,13 @@ const EDITABLE = [
   // Prompt 167 §C.2 — same shape, for the Roadmap-sharing tickbox in
   // RoadmapCard.tsx (migration 0161, propose-only).
   'roadmap_visible_to_investors',
+  // Prompt 278 §4 — the Vault kill switch (migration 0197, propose-only).
+  // Unlike the three toggles above, this isn't a display gate on data
+  // already sent — the server-side gate (vaultFrozenForOrg,
+  // data-room-server.ts) decides what's fetched at all, so a non-owner/
+  // admin write is blocked by the same org_editing check as everything
+  // else in this list, not by this column being special-cased.
+  'vault_access_frozen_at',
 ] as const;
 
 export async function POST(req: Request) {

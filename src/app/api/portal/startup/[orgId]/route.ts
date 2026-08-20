@@ -36,6 +36,7 @@ import { getInterestLevelRows, toInvestorFacingLevelRows } from '@/lib/investor-
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
 import { getInteractionTimeline } from '@/lib/investor-interaction-log';
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
+import { vaultFrozenForOrg } from '@/lib/data-room-server';
 import type { SwotData } from '@/lib/types';
 import type { ReviewCategory } from '@/lib/review-clarifications';
 
@@ -104,19 +105,27 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   let documentTitles: FullDossierData['documentTitles'] = [];
   let tractionDetailed: Record<string, unknown> = {};
   if (level >= 2) {
-    const [{ data: people }, { data: docs }] = await Promise.all([
-      admin.from('company_people').select('id, full_name, title, is_founder, linkedin_url, email').eq('org_id', params.orgId).order('sort_order', { ascending: true }),
-      admin.from('documents').select('id, name').eq('org_id', params.orgId),
-    ]);
+    const { data: people } = await admin.from('company_people')
+      .select('id, full_name, title, is_founder, linkedin_url, email').eq('org_id', params.orgId).order('sort_order', { ascending: true });
     team = (people ?? []).map((p) => ({
       id: p.id as string, fullName: p.full_name as string, title: p.title as string | null,
       isFounder: p.is_founder as boolean, linkedinUrl: p.linkedin_url as string | null, email: p.email as string | null,
     }));
-    documentTitles = (docs ?? []).map((d) => ({ id: d.id as string, name: d.name as string }));
     tractionDetailed = (overview?.traction_metrics as Record<string, unknown> | null) ?? {};
     if (investorCatalogEntityId) {
       const timeline = await getInteractionTimeline(admin, { investorCatalogEntityId, email, orgId: params.orgId });
       contactHistory = timeline.map((t) => ({ id: t.id, at: t.at, content: t.content, channel: t.channel }));
+    }
+    // Prompt 278 §4 — the kill switch, explicitly confirmed to cover this
+    // route too: documentTitles is its OWN gate here (level >= 2), entirely
+    // separate from access_grants/resolveDocumentAccess — this route reads
+    // `documents` directly, with no grant check at all otherwise. Not
+    // fetched-then-hidden: skipped entirely while frozen, same "not fetched
+    // below its level" discipline this route already applies everywhere
+    // else.
+    if (!(await vaultFrozenForOrg(admin, params.orgId))) {
+      const { data: docs } = await admin.from('documents').select('id, name').eq('org_id', params.orgId);
+      documentTitles = (docs ?? []).map((d) => ({ id: d.id as string, name: d.name as string }));
     }
   }
 

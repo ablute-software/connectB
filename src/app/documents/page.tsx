@@ -13,6 +13,7 @@ import { grantStatus } from '@/lib/access-grants';
 import { entityStatusChip, passedNote, everyoneDncWarning } from '@/lib/grantee-warnings';
 import { PeopleAccessPanel } from '@/components/documents/PeopleAccessPanel';
 import { WhoHasAccessPanel } from '@/components/documents/WhoHasAccessPanel';
+import { VaultKillSwitch } from '@/components/documents/VaultKillSwitch';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { VaultPinGate } from '@/components/documents/VaultPinGate';
 import { useTrackPageView } from '@/lib/use-track-page-view';
@@ -746,6 +747,7 @@ function DocumentsPageInner() {
       {tab === 'people' && <PageTour pageKey="guide_people_access" />}
       <div className="flex items-center justify-between gap-1.5">
         <h1 className="text-lg font-bold">{tab === 'documents' ? 'Documents & Vault Data Room' : 'People & Access'}</h1>
+        <VaultKillSwitch />
       </div>
       <div className="flex gap-1.5 border-b border-gray-100 pb-2">
         <button onClick={() => setTab('documents')}

@@ -12,6 +12,7 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { withDocumentInfo, type DealMessage } from './deal-messages';
 import { resolveDocumentAccess, type GrantLike } from './data-room';
+import { vaultFrozenForOrg } from './data-room-server';
 
 function idsOf(messages: DealMessage[]): string[] {
   return [...new Set(messages.flatMap((m) => m.documentIds))];
@@ -45,6 +46,11 @@ export async function resolveInvestorMessageDocs(
   if (ids.length === 0) return withDocumentInfo(messages, new Map(), new Set());
 
   const names = await namesFor(admin, orgId, ids);
+
+  // Prompt 278 §4 — the kill switch: a message attachment is never a
+  // channel around it. Same shape as "no active grant" below — the
+  // message text stays, only accessible flips to false on every attachment.
+  if (await vaultFrozenForOrg(admin, orgId)) return withDocumentInfo(messages, names, new Set());
 
   const { data: grants } = await admin.from('access_grants').select('*').eq('org_id', orgId).is('revoked_at', null)
     .or([`grantee_email.eq.${viewerEmail}`, `invited_email.eq.${viewerEmail}`].join(','));

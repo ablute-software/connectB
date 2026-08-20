@@ -11,10 +11,28 @@
 // fim — para nunca resolver documentos de outra org.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { descendantFolderIds, resolveDocumentAccess, type GrantLike } from './data-room';
+import { vaultKillSwitchAvailable } from './vault-kill-switch-capability';
 
 export type FirmGrant = GrantLike & { expires_at?: string | null; invited_email?: string | null; confirmed_at?: string | null };
 
+// Prompt 278 §4 — the Vault kill switch's single read point. Every route
+// that resolves what an investor can see of a startup's data room calls
+// this (directly, or transitively through activeGrantsForFirm below) —
+// fail-closed: an org this returns true for must behave exactly like an
+// investor with zero grants, no matter what access_grants itself says.
+export async function vaultFrozenForOrg(admin: SupabaseClient, orgId: string): Promise<boolean> {
+  if (!(await vaultKillSwitchAvailable())) return false;
+  const { data } = await admin.from('orgs').select('vault_access_frozen_at').eq('id', orgId).maybeSingle();
+  return !!data?.vault_access_frozen_at;
+}
+
 export async function activeGrantsForFirm(admin: SupabaseClient, orgId: string, email: string): Promise<FirmGrant[]> {
+  // Checked first, before any grants query: both this function's own
+  // callers (actions-required's NDA-pending/new-docs counts) and its
+  // downstream caller visibleDocumentsForFirm (interaction-log,
+  // actions-required's newDocs) exist only to describe document access —
+  // an empty list here is the correct "nothing to report" for all of them.
+  if (await vaultFrozenForOrg(admin, orgId)) return [];
   const { data: grants } = await admin.from('access_grants').select('*').eq('org_id', orgId).is('revoked_at', null)
     .or([`grantee_email.eq.${email}`, `invited_email.eq.${email}`].join(','));
   const now = new Date();

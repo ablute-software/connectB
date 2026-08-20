@@ -20,6 +20,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { grantStatus, grantIsActive, type GrantStatusInput } from '@/lib/access-grants';
 import { descendantFolderIds, resolveDocumentAccess } from '@/lib/data-room';
+import { vaultFrozenForOrg } from '@/lib/data-room-server';
 
 interface RawGrant extends GrantStatusInput {
   id: string; org_id: string; folder_id?: string; document_id?: string;
@@ -69,7 +70,14 @@ export async function GET() {
     const activeGrants = orgGrants.filter((g) => grantIsActive(g, now));
     const expiredGrants = orgGrants.filter((g) => grantStatus(g, now) === 'expired');
 
-    if (activeGrants.length > 0) {
+    if (activeGrants.length > 0 && await vaultFrozenForOrg(admin, orgId)) {
+      // Prompt 278 §4 — the kill switch: the grant is real and stays listed
+      // (it's not expired or revoked), but no document/folder crosses this
+      // response while the switch is on — same "documents/folders only"
+      // scope as every other gated route in this prompt.
+      const grantedAt = activeGrants.map((g) => g.granted_at).sort()[0] ?? null;
+      granted.push({ orgId, orgName, grantedAt, folders: [] });
+    } else if (activeGrants.length > 0) {
       // Same resolution as /api/portal/access: fetch every candidate
       // document (granted folders' contents + directly-granted documents),
       // then let resolveDocumentAccess apply the "document-level grant
