@@ -12,6 +12,7 @@ import {
 import { grantStatus } from '@/lib/access-grants';
 import { entityStatusChip, passedNote, everyoneDncWarning } from '@/lib/grantee-warnings';
 import { PeopleAccessPanel } from '@/components/documents/PeopleAccessPanel';
+import { WhoHasAccessPanel } from '@/components/documents/WhoHasAccessPanel';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { VaultPinGate } from '@/components/documents/VaultPinGate';
 import { useTrackPageView } from '@/lib/use-track-page-view';
@@ -1403,6 +1404,11 @@ function DocumentsPageInner() {
             </div>
           </Card>
           </div>
+
+          {/* Prompt 278 §3 — tied to the Folders tree's own current
+              selection (selFolder), not a standalone picker: empty/hidden
+              with nothing selected, per the prompt's own spec. */}
+          {selFolder && <WhoHasAccessPanel folderId={selFolder} />}
 
           {ndaSystemAvailable && pendingNdaInvestors.length > 0 && (
             <Card title="Awaiting NDA">
