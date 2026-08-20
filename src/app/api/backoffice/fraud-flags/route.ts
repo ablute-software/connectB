@@ -29,6 +29,10 @@ export async function GET() {
   const userIds = Array.from(new Set([
     ...(rows ?? []).map((r) => r.flagged_by as string),
     ...(rows ?? []).map((r) => r.reviewed_by as string | null).filter((v): v is string => !!v),
+    // Prompt 285 §2 — dispute rows are propose-only (migration 0199): a
+    // pre-migration row simply has no disputed_by key at all, filtered out
+    // exactly like the other two nullable-user-id fields above.
+    ...(rows ?? []).map((r) => r.disputed_by as string | null | undefined).filter((v): v is string => !!v),
   ]));
   const emailById = new Map<string, string>();
   for (const id of userIds) {
@@ -48,6 +52,14 @@ export async function GET() {
         status: r.status, outcome: r.outcome,
         reviewedBy: r.reviewed_by ? (emailById.get(r.reviewed_by as string) ?? r.reviewed_by) : null,
         reviewedAt: r.reviewed_at, reviewerNotes: r.reviewer_notes,
+        // Prompt 285 §2 — undefined (not present in the row at all) on a
+        // pre-0199 database reads the same as null here; the client only
+        // ever checks truthiness, never distinguishes the two.
+        disputeReason: (r as Record<string, unknown>).dispute_reason ?? null,
+        disputedAt: (r as Record<string, unknown>).disputed_at ?? null,
+        disputedBy: (r as Record<string, unknown>).disputed_by
+          ? (emailById.get((r as Record<string, unknown>).disputed_by as string) ?? (r as Record<string, unknown>).disputed_by)
+          : null,
       };
     }),
   });

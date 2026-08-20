@@ -220,6 +220,34 @@ export function MatchDealProfileBadge() {
 export function HardFilterBanner({ entity }: { entity: Entity }) {
   const { resolveHardFilter } = useStore();
   const [reporting, setReporting] = useState(false);
+  // Prompt 285 §2 — "this may be a mistake", independent of `reporting`
+  // above (that's the original report modal, this is the post-report
+  // dispute). Declared unconditionally alongside it per Rules of Hooks.
+  // disputeSent is local-only: the dispute route never touches
+  // hard_filter_status, so without it the form would just reappear after
+  // a successful submit with nothing to show for it.
+  const [disputing, setDisputing] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [disputeEvidence, setDisputeEvidence] = useState('');
+  const [disputeBusy, setDisputeBusy] = useState(false);
+  const [disputeErr, setDisputeErr] = useState('');
+  const [disputeSent, setDisputeSent] = useState(false);
+
+  async function submitDispute() {
+    if (!disputeReason.trim()) { setDisputeErr('A reason is required.'); return; }
+    setDisputeBusy(true); setDisputeErr('');
+    try {
+      const res = await fetch(`/api/entities/${entity.id}/report-fraud/dispute`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: disputeReason.trim(), evidence: disputeEvidence.trim() || undefined }),
+      });
+      const body = await res.json();
+      if (!body.ok) { setDisputeErr(body.error ?? 'Could not send the dispute.'); return; }
+      setDisputeSent(true); setDisputing(false);
+    } finally {
+      setDisputeBusy(false);
+    }
+  }
 
   // Prompt 277 A — "Blocked" was doing two different jobs: "not even an
   // investor" (Sofinnova, an accelerator) and "suspected fraud/scam". The
@@ -258,14 +286,56 @@ export function HardFilterBanner({ entity }: { entity: Entity }) {
   // through support, the same as any other irreversible-by-design action.
   if (entity.hard_filter_status === 'resolved_blocked') {
     return (
-      <div className="flex items-start justify-between gap-4 rounded-lg border-l-4 border-amber-500 bg-amber-50 px-4 py-3">
-        <div>
-          <div className="text-sm font-semibold text-amber-800">🚨 Reported — pending review</div>
-          {entity.hard_filter && <div className="text-sm text-gray-800">{entity.hard_filter}</div>}
-          <div className="mt-1 text-xs text-gray-500">
-            Reported by you{entity.hard_filter_resolved_at ? ` on ${entity.hard_filter_resolved_at.slice(0, 10)}` : ''} — a platform admin will review it.
+      <div className="flex flex-col gap-3 rounded-lg border-l-4 border-amber-500 bg-amber-50 px-4 py-3">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-sm font-semibold text-amber-800">🚨 Reported — pending review</div>
+            {entity.hard_filter && <div className="text-sm text-gray-800">{entity.hard_filter}</div>}
+            <div className="mt-1 text-xs text-gray-500">
+              Reported by you{entity.hard_filter_resolved_at ? ` on ${entity.hard_filter_resolved_at.slice(0, 10)}` : ''} — a platform admin will review it.
+            </div>
           </div>
+          {/* Prompt 285 §2 — deliberately not an "undo": it doesn't touch
+              hard_filter_status, only flags the report for priority
+              re-review — "só a revisão da plataforma decide" above still
+              holds. */}
+          {!disputing && !disputeSent && (
+            <button onClick={() => setDisputing(true)}
+              className="shrink-0 rounded border border-amber-300 bg-white px-2 py-1 text-xs text-amber-800 hover:bg-amber-100">
+              This may be a mistake
+            </button>
+          )}
         </div>
+        {disputeSent && (
+          <div className="rounded border border-amber-200 bg-white px-3 py-2 text-xs text-amber-800">
+            Sent — an admin will take another look at this report as a priority.
+          </div>
+        )}
+        {disputing && (
+          <div className="space-y-2 rounded border border-amber-200 bg-white px-3 py-2">
+            <div>
+              <label className="text-[11px] font-semibold uppercase text-gray-400">Why do you think this was a mistake?</label>
+              <textarea value={disputeReason} onChange={(e) => setDisputeReason(e.target.value)} rows={2}
+                className="mt-0.5 w-full rounded border border-gray-200 p-1.5 text-xs" placeholder="Required" />
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold uppercase text-gray-400">Additional evidence (optional)</label>
+              <textarea value={disputeEvidence} onChange={(e) => setDisputeEvidence(e.target.value)} rows={2}
+                className="mt-0.5 w-full rounded border border-gray-200 p-1.5 text-xs" />
+            </div>
+            {disputeErr && <p className="text-xs text-[#B00000]">{disputeErr}</p>}
+            <div className="flex gap-2">
+              <button disabled={disputeBusy} onClick={submitDispute}
+                className="rounded bg-amber-700 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
+                {disputeBusy ? 'Sending…' : 'Send to admin review'}
+              </button>
+              <button disabled={disputeBusy} onClick={() => { setDisputing(false); setDisputeErr(''); }}
+                className="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-40">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

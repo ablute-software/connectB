@@ -23,10 +23,11 @@ import { FormAssistModal } from '@/components/FormAssistModal';
 import { useInterestRequests } from '@/lib/interest-requests-client';
 import type { DealMessage } from '@/components/deal-messages/DealThreadView';
 import { PageTour } from '@/components/onboarding/PageTour';
+import { ReportFraudModal } from '@/components/ReportFraudModal';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
-  const { db, setInterest, markEntityVerified, updateEntity } = useStore();
+  const { db, setInterest, markEntityVerified, updateEntity, resolveHardFilter } = useStore();
   const entity = db.entities.find((e) => e.id === id);
   // Prompt 220 §C — o pedido de nível 3 deste investidor, se pendente. O
   // match é por entityId (a resolução catalog_deliveries devolvida pelo
@@ -56,6 +57,13 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const [justAddedPersonId, setJustAddedPersonId] = useState<string | null>(null);
   const personRowRefs = useRef<Record<string, HTMLLIElement | null>>({});
   const [showFormAssist, setShowFormAssist] = useState(false);
+  // Prompt 285 §1 — a general, always-reachable report entry point,
+  // independent of HardFilterBanner's own "Report" button (ui.tsx L273
+  // only ever shows it when hard_filter_status==='open' AND hard_filter
+  // text exists — most entities have neither, so most had no way to
+  // report at all). Own state, own modal instance: HardFilterBanner's
+  // `reporting` state is scoped to its own button and stays exactly as is.
+  const [reportingFraud, setReportingFraud] = useState(false);
   // Prompt 197 A §2 — "Message investor" button visibility. canMessage
   // mirrors canInvestorMessage's own symmetric criterion, computed
   // server-side (deal-messages.ts's founderMessageEligibleFirms +
@@ -218,6 +226,28 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       )}
 
       <HardFilterBanner entity={entity} />
+      {/* Prompt 285 §1 — same modal, same route (POST /api/entities/[id]/
+          report-fraud — already org_id/membership-scoped only, no
+          hard_filter dependency at all, confirmed by reading the route
+          first), just a second, always-visible entry point next to the
+          status banner. Hidden once already resolved_blocked — the banner
+          above already shows that state there, and a second "report"
+          button on an already-reported entity would be confusing, not
+          useful (see the banner's own new dispute action for that state
+          instead). Discreet on purpose (small, muted text, not a primary
+          action like "Add as contact") — reachable, never prominent. */}
+      {entity.hard_filter_status !== 'resolved_blocked' && (
+        <div className="flex justify-end">
+          <button onClick={() => setReportingFraud(true)} className="text-xs text-gray-400 hover:text-red-700 hover:underline">
+            🚩 Report this investor
+          </button>
+        </div>
+      )}
+      {reportingFraud && (
+        <ReportFraudModal entityId={entity.id} entityName={entity.name}
+          onCancel={() => setReportingFraud(false)}
+          onReported={() => { setReportingFraud(false); resolveHardFilter(entity.id, 'resolved_blocked'); }} />
+      )}
       {alignment && alignment.status !== 'aligned' && (
         <div className={`rounded-lg border-l-4 px-4 py-3 ${alignment.status === 'misaligned' ? 'border-[#B00000] bg-red-50' : 'border-amber-400 bg-amber-50'}`}>
           <div className={`text-sm font-semibold ${alignment.status === 'misaligned' ? 'text-[#B00000]' : 'text-amber-900'}`}>

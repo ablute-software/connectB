@@ -18,6 +18,13 @@ interface FraudFlag {
   justification: string; evidence: string; flaggedBy: string; flaggedAt: string;
   status: 'pending' | 'actioned'; outcome: 'confirmed' | 'dismissed' | null;
   reviewedBy: string | null; reviewedAt: string | null; reviewerNotes: string | null;
+  // Prompt 285 §2 — set once a founder has said "this may be a mistake"
+  // (POST /api/entities/[id]/report-fraud/dispute). Disputing an
+  // already-actioned/confirmed flag re-arms status='pending', which is
+  // why a disputed flag can show up back in the Pending card even after a
+  // prior admin decision — reviewedBy/reviewedAt/outcome above stay as
+  // that decision's own history, untouched, right alongside the dispute.
+  disputeReason: string | null; disputedAt: string | null; disputedBy: string | null;
 }
 
 function FlagRow({ flag, onResolved }: { flag: FraudFlag; onResolved: () => void }) {
@@ -53,6 +60,13 @@ function FlagRow({ flag, onResolved }: { flag: FraudFlag; onResolved: () => void
             : flag.outcome === 'confirmed' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
           {flag.status === 'pending' ? 'pending' : flag.outcome}
         </span>
+        {/* Prompt 285 §2 — visible even collapsed, so an admin doesn't have
+            to open every row to notice a founder disputed it. */}
+        {flag.disputedAt && (
+          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-blue-700" title="The founder says this may have been a mistake — see the dispute below.">
+            🔔 disputed
+          </span>
+        )}
         <span className="ml-auto text-xs text-gray-400">reported by {flag.flaggedBy} · {new Date(flag.flaggedAt).toLocaleString()}</span>
       </button>
       {open && (
@@ -65,6 +79,13 @@ function FlagRow({ flag, onResolved }: { flag: FraudFlag; onResolved: () => void
             <p className="text-[11px] font-semibold uppercase text-gray-400">Evidence</p>
             <p className="whitespace-pre-wrap text-gray-700">{flag.evidence}</p>
           </div>
+          {flag.disputedAt && (
+            <div className="rounded border border-blue-100 bg-blue-50 p-2">
+              <p className="text-[11px] font-semibold uppercase text-blue-700">🔔 Founder dispute — &ldquo;this may be a mistake&rdquo;</p>
+              <p className="whitespace-pre-wrap text-gray-700">{flag.disputeReason}</p>
+              <p className="mt-0.5 text-[11px] text-gray-500">{flag.disputedBy} · {new Date(flag.disputedAt).toLocaleString()}</p>
+            </div>
+          )}
           {flag.status === 'pending' ? (
             <div className="space-y-2 border-t border-gray-100 pt-2">
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Review notes (optional)"
