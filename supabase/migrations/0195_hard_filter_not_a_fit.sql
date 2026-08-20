@@ -1,0 +1,20 @@
+-- Prompt 277 A.1 — "Blocked" was doing two different jobs: "not even an
+-- investor" (Sofinnova, an accelerator) and "suspected fraud/scam". The
+-- word "Blocked" reads as an accusation — kept exclusively for the fraud
+-- case from here on (0196); this value covers the first case with a
+-- neutral, no-drama status instead.
+--
+-- Deliberately NOT a reuse of 'not_applicable' — that value already means
+-- "no hard-filter rule was ever evaluated on this entity" (the default
+-- across hundreds of rows — see structured-import.ts:253,
+-- catalog-monthly-delivery-server.ts:126); overloading it here would
+-- make "no rule ever ran" and "we actively decided this isn't a fit"
+-- indistinguishable.
+--
+-- hard_filter_status is a real Postgres enum type (0001_init.sql), so this
+-- needs its own ALTER TYPE, in its own migration file: ALTER TYPE ... ADD
+-- VALUE cannot run in the same transaction as a statement that USES the
+-- new value (0196's policies/queries don't reference it, but keeping the
+-- enum change isolated avoids ever hitting that restriction by accident
+-- in a later edit of this file).
+alter type hard_filter_status add value if not exists 'resolved_not_a_fit';

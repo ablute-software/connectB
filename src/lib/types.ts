@@ -8,7 +8,13 @@ export type EntityType =
 // it (investor stage ranges are always one of the original four).
 export type Stage = 'pre_seed' | 'seed' | 'series_a' | 'later' | 'other';
 export type FitScore = 'high' | 'medium_high' | 'medium' | 'low';
-export type HardFilterStatus = 'open' | 'resolved_ok' | 'resolved_blocked' | 'not_applicable';
+// Prompt 277 A.1 — 'resolved_not_a_fit' is a new value ("not even the
+// right kind of investor", e.g. an accelerator), deliberately not a reuse
+// of 'not_applicable' (which means "no hard-filter rule was ever
+// evaluated here" — see the field's own comment below). 'resolved_blocked'
+// is now reserved exclusively for reported/confirmed fraud — see
+// HardFilterBanner and entity_fraud_flags (migration 0196).
+export type HardFilterStatus = 'open' | 'resolved_ok' | 'resolved_blocked' | 'resolved_not_a_fit' | 'not_applicable';
 export type EntityStatus =
   | 'not_contacted' | 'contacted' | 'in_conversation' | 'diligence'
   | 'passed' | 'invested' | 'dormant';

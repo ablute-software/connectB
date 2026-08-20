@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { Card, Tooltip } from '@/components/ui';
 import { classifyConflict, type ConflictClass } from '@/lib/contribution-diff';
 import { SuspiciousAccountsTab } from '@/components/backoffice/SuspiciousAccountsTab';
+import { FraudFlagsTab } from '@/components/backoffice/FraudFlagsTab';
 import { ENTITY_ENRICHMENT_FIELD_LABELS, isKnownEntityField } from '@/lib/entity-enrichment';
 import { manualEntityCompleteness, type CompletenessGrade } from '@/lib/completeness';
 
@@ -18,7 +19,7 @@ import { manualEntityCompleteness, type CompletenessGrade } from '@/lib/complete
 // backoffice/catalog/page.tsx (the CatalogCandidatesTab/AddedByStartupsTab/
 // QualityPanel section below) — no logic changes, per the prompt's own
 // scope.
-type Tab = 'contributions' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious' | 'key_people' | 'community';
+type Tab = 'contributions' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious' | 'fraud' | 'key_people' | 'community';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'contributions', label: 'Contributions' },
@@ -30,6 +31,10 @@ const TABS: { key: Tab; label: string }[] = [
   // Prompt 244/245 — manual flagging by developers (not automatic
   // detection), see SuspiciousAccountsTab.tsx.
   { key: 'suspicious', label: 'Suspicious accounts' },
+  // Prompt 277 A.3 — founder-submitted (not developer-flagged, the
+  // opposite direction from the tab above) fraud/scam reports, see
+  // FraudFlagsTab.tsx for why this isn't just an extension of it.
+  { key: 'fraud', label: 'Fraud reports' },
   // Prompt 264 — bulk-promote verified key_people research to real
   // contacts, across every org (248 entities had this gap in production
   // at the time this shipped; a reusable screen, not a one-off fix).
@@ -1477,6 +1482,7 @@ export default function BackofficeQueuePage() {
       {tab === 'identity' && <InvestorIdentityTab />}
       {tab === 'gdpr' && <GdprTab />}
       {tab === 'suspicious' && <SuspiciousAccountsTab />}
+      {tab === 'fraud' && <FraudFlagsTab />}
       {tab === 'key_people' && <KeyPeoplePromoteTab />}
       {tab === 'community' && <ContributionsByUsersTab />}
     </div>

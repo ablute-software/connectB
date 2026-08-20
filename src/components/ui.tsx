@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { Entity, EntityStatus, FitScore, Person } from '@/lib/types';
 import { PreflightCheck, preflightSummary } from '@/lib/rules';
 import { useStore } from '@/lib/store';
+import { ReportFraudModal } from './ReportFraudModal';
 
 export const BRAND = '#0E7490';
 
@@ -218,29 +219,52 @@ export function MatchDealProfileBadge() {
 
 export function HardFilterBanner({ entity }: { entity: Entity }) {
   const { resolveHardFilter } = useStore();
+  const [reporting, setReporting] = useState(false);
 
-  // Prompt 273 §3 — a permanent, neutral record once blocked: unlike
-  // 'resolved_ok' (which just clears the warning and moves on), this
-  // branch never disappears — the "not a fit" reason and who/when stay
-  // visible in the dossier for as long as the classification stands.
-  // Checked BEFORE the hard_filter-text guard below: the block itself is
-  // the fact worth showing, even in the edge case where hard_filter text
-  // was later cleared by an unrelated edit. Reversible any time via
-  // "Unblock", which reverts hard_filter_status to 'open' — the exact
-  // state the entity was in before "Blocked" was ever clicked.
-  if (entity.hard_filter_status === 'resolved_blocked') {
+  // Prompt 277 A — "Blocked" was doing two different jobs: "not even an
+  // investor" (Sofinnova, an accelerator) and "suspected fraud/scam". The
+  // word read as an accusation either way — split into two states, each
+  // with its own tone and its own action. Both checked BEFORE the
+  // hard_filter-text guard further down: the classification itself is the
+  // fact worth showing, even in the edge case where hard_filter text was
+  // later cleared by an unrelated edit.
+
+  // Not a fit — a light, founder-owned, fully reversible call. Never a
+  // review, never an accusation.
+  if (entity.hard_filter_status === 'resolved_not_a_fit') {
     return (
       <div className="flex items-start justify-between gap-4 rounded-lg border-l-4 border-gray-400 bg-gray-50 px-4 py-3">
         <div>
-          <div className="text-sm font-semibold text-gray-700">🚫 Blocked — not a fit</div>
+          <div className="text-sm font-semibold text-gray-700">⚠️ Not applicable — not the right kind of investor</div>
           {entity.hard_filter && <div className="text-sm text-gray-800">{entity.hard_filter}</div>}
           <div className="mt-1 text-xs text-gray-500">
-            Blocked by you{entity.hard_filter_resolved_at ? ` on ${entity.hard_filter_resolved_at.slice(0, 10)}` : ''}.
+            Marked by you{entity.hard_filter_resolved_at ? ` on ${entity.hard_filter_resolved_at.slice(0, 10)}` : ''}.
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
           <button onClick={() => resolveHardFilter(entity.id, 'open')}
-            className="rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50">Unblock</button>
+            className="rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50">Revert</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Reported — hard_filter_status is still ‘resolved_blocked’ in the DB
+  // (unchanged, see frozen-classifier.ts), but the founder-facing copy
+  // never says "Blocked" or implies a verdict: this is a report awaiting
+  // platform review (entity_fraud_flags, migration 0196), not a
+  // confirmation. No self-service undo here on purpose — "só a revisão da
+  // plataforma decide" — a founder who reported by mistake reaches a human
+  // through support, the same as any other irreversible-by-design action.
+  if (entity.hard_filter_status === 'resolved_blocked') {
+    return (
+      <div className="flex items-start justify-between gap-4 rounded-lg border-l-4 border-amber-500 bg-amber-50 px-4 py-3">
+        <div>
+          <div className="text-sm font-semibold text-amber-800">🚨 Reported — pending review</div>
+          {entity.hard_filter && <div className="text-sm text-gray-800">{entity.hard_filter}</div>}
+          <div className="mt-1 text-xs text-gray-500">
+            Reported by you{entity.hard_filter_resolved_at ? ` on ${entity.hard_filter_resolved_at.slice(0, 10)}` : ''} — a platform admin will review it.
+          </div>
         </div>
       </div>
     );
@@ -257,17 +281,29 @@ export function HardFilterBanner({ entity }: { entity: Entity }) {
       <div className="flex shrink-0 gap-2">
         <button onClick={() => resolveHardFilter(entity.id, 'resolved_ok')}
           className="rounded border border-gray-300 bg-white px-2 py-1 text-xs hover:bg-gray-50">Resolved OK</button>
-        {/* Prompt 273 §3 — near-terminal (pulls the entity out of both
-            Frozen and Stand by into its own dedicated view): confirm
-            first, same window.confirm pattern as the park-flow's own
-            "freeze anyway?" guard (RelationshipSummaryCard.tsx). */}
+        {/* Prompt 277 A.2 — light confirm on purpose: "not even the right
+            kind of investor" is a founder-owned, low-stakes, reversible
+            call, same window.confirm pattern as the park-flow’s own
+            "freeze anyway?" guard (RelationshipSummaryCard.tsx) — never
+            the serious modal below, which is reserved for the fraud
+            report. */}
         <button onClick={() => {
-          if (window.confirm(`Block "${entity.name}" as not a fit? This moves them out of both Frozen and Stand by into their own Blocked view. You can Unblock any time from here.`)) {
-            resolveHardFilter(entity.id, 'resolved_blocked');
+          if (window.confirm(`Mark "${entity.name}" as not a fit? This moves them out of both Frozen and Stand by into their own Not applicable view. You can revert any time from here.`)) {
+            resolveHardFilter(entity.id, 'resolved_not_a_fit');
           }
         }}
-          className="rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50">Blocked</button>
+          className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-600 hover:bg-gray-50">Not a fit</button>
+        {/* Prompt 277 A.2 — the serious path: a real modal (justification +
+            evidence both required), never window.confirm — see
+            ReportFraudModal.tsx. */}
+        <button onClick={() => setReporting(true)}
+          className="rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-50">Report — suspected fraud/scam</button>
       </div>
+      {reporting && (
+        <ReportFraudModal entityId={entity.id} entityName={entity.name}
+          onCancel={() => setReporting(false)}
+          onReported={() => { setReporting(false); resolveHardFilter(entity.id, 'resolved_blocked'); }} />
+      )}
     </div>
   );
 }

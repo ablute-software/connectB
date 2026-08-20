@@ -81,18 +81,31 @@ describe('classifyFrozen', () => {
 });
 
 describe('classifyEntityFrozenState', () => {
-  // Real Sofinnova shape (Prompt 273's own real example): an accelerator,
-  // never a viable backer — hard_filter_status='resolved_blocked'.
+  // Prompt 277 A — 'resolved_blocked' is now reserved for a founder-
+  // submitted fraud/scam report (evidence + justification in
+  // entity_fraud_flags, migration 0196), pending platform review — never
+  // confirmed just by this classification alone.
   it("hard_filter_status='resolved_blocked' takes precedence over everything else", () => {
     const its = [interaction({ id: 'i1', direction: 'in', classification: 'pass' })];
     expect(classifyEntityFrozenState({ hard_filter_status: 'resolved_blocked' }, its)).toBe('blocked');
     expect(classifyEntityFrozenState({ hard_filter_status: 'resolved_blocked' }, [])).toBe('blocked');
   });
 
-  it('falls through to classifyFrozen when not blocked', () => {
+  // Real Sofinnova shape (Prompt 273's own real example, reclassified
+  // under Prompt 277's split): an accelerator, never a viable backer —
+  // "not even the right kind of investor", not a fraud suspicion. This is
+  // the case that moved from 'resolved_blocked' to 'resolved_not_a_fit'.
+  it("hard_filter_status='resolved_not_a_fit' takes precedence over everything else, and over 'resolved_blocked'", () => {
+    const its = [interaction({ id: 'i1', direction: 'in', classification: 'pass' })];
+    expect(classifyEntityFrozenState({ hard_filter_status: 'resolved_not_a_fit' }, its)).toBe('not_a_fit');
+    expect(classifyEntityFrozenState({ hard_filter_status: 'resolved_not_a_fit' }, [])).toBe('not_a_fit');
+  });
+
+  it('falls through to classifyFrozen when neither blocked nor not_a_fit', () => {
     const its = [interaction({ id: 'i1', direction: 'in' })];
     expect(classifyEntityFrozenState({ hard_filter_status: 'open' }, its)).toBe('stand_by');
     expect(classifyEntityFrozenState({ hard_filter_status: 'not_applicable' }, its)).toBe('stand_by');
+    expect(classifyEntityFrozenState({ hard_filter_status: 'resolved_ok' }, its)).toBe('stand_by');
   });
 });
 

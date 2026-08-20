@@ -149,10 +149,19 @@ export interface StoreApi {
   setEntityStatus: (id: string, status: Db['entities'][0]['status'], reason?: string) => void;
   setInterest: (id: string, eur: number | undefined) => void;
   // Prompt 273 §3 — 'open' added (was 'resolved_ok' | 'resolved_blocked'
-  // only) for the new "Unblock" action, which reverts a mistaken/outdated
-  // Blocked classification back to an open hard filter — the same state
-  // the entity was in before "Blocked" was ever clicked.
-  resolveHardFilter: (id: string, status: 'open' | 'resolved_ok' | 'resolved_blocked') => void;
+  // only) for the "Unblock"/"Revert" action, which reverts a mistaken or
+  // superseded classification back to an open hard filter — the same
+  // state the entity was in before either action was ever clicked.
+  // Prompt 277 A — 'resolved_not_a_fit' added (not even the right kind of
+  // investor — no drama, no review needed). 'resolved_blocked' is now
+  // reserved for a founder-submitted fraud/scam report; this store action
+  // only ever flips the status + audit columns on `entities` (as before)
+  // — the actual report (justification + evidence, entity_fraud_flags row,
+  // migration 0196) is written server-side by POST /api/entities/[id]/
+  // report-fraud BEFORE this is called, not by this action itself, since
+  // that write needs to surface real success/error to a serious modal,
+  // not the fire-and-forget persist() every other store action here uses.
+  resolveHardFilter: (id: string, status: 'open' | 'resolved_ok' | 'resolved_not_a_fit' | 'resolved_blocked') => void;
   // Generic field-level patch, used by the entity contact-info edit card
   // (batch 2 item 1) and by the conflict compare popover's "usar importado"
   // (batch 2 item 4) — one write path for both, not two ad-hoc ones.

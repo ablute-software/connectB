@@ -60,21 +60,36 @@ export function classifyFrozen(
   return last?.direction === 'in' ? 'stand_by' : 'frozen_cold';
 }
 
-// Prompt 273 §3 — hard_filter_status='resolved_blocked' takes precedence
-// over EVERYTHING else, including status itself: "not a fit" is a
-// stronger, orthogonal signal than being frozen — an entity can be
-// blocked before ever going dormant. Named as a distinct wrapper (not
-// folded into classifyFrozen's own enum) because it's checked first and
-// short-circuits the frozen classification entirely; call sites that only
-// ever deal with already-dormant entities (nextBestAction's Fase 0
-// branch) can keep calling classifyFrozen directly without this extra
-// field.
-export type EntityFrozenState = FrozenClass | 'blocked';
+// Prompt 273 §3 / Prompt 277 A — hard_filter_status='resolved_not_a_fit' or
+// 'resolved_blocked' both take precedence over EVERYTHING else, including
+// status itself: either is a stronger, orthogonal signal than being frozen
+// — an entity can reach either before ever going dormant. Named as a
+// distinct wrapper (not folded into classifyFrozen's own enum) because
+// it's checked first and short-circuits the frozen classification
+// entirely; call sites that only ever deal with already-dormant entities
+// (nextBestAction's Fase 0 branch) can keep calling classifyFrozen
+// directly without this extra field.
+//
+// Prompt 277 A — the literal stays 'blocked' here on purpose (existing
+// tests/call sites keep working unchanged, per the prompt's own "sem
+// tocar no existente"), even though Prompt 277 retired "Blocked" from the
+// founder-facing UI COPY for this state (it now reads "Reported — pending
+// review", never a verdict — see HardFilterBanner). The underlying DB
+// value is still hard_filter_status='resolved_blocked' (a founder-
+// submitted fraud/scam report, evidence + justification in
+// entity_fraud_flags, migration 0196); only the label changed, not this
+// function's return value. 'not_a_fit' is the new, separate, no-drama
+// state ("not even the right kind of investor" — an accelerator, a
+// service provider) — resolved_not_a_fit, checked first since the two are
+// mutually exclusive (a single hard_filter_status column) but distinct
+// concerns worth keeping in a stable check order.
+export type EntityFrozenState = FrozenClass | 'not_a_fit' | 'blocked';
 
 export function classifyEntityFrozenState(
   entity: Pick<Entity, 'reopen_trigger' | 'reopen_eligible_after' | 'hard_filter_status'>,
   interactions: Pick<Interaction, 'classification' | 'direction' | 'occurred_at'>[],
 ): EntityFrozenState {
+  if (entity.hard_filter_status === 'resolved_not_a_fit') return 'not_a_fit';
   if (entity.hard_filter_status === 'resolved_blocked') return 'blocked';
   return classifyFrozen(entity, interactions);
 }

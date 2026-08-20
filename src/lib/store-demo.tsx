@@ -416,20 +416,25 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, entities: prev.entities.map((e) => e.id === id ? { ...e, interest_eur: eur } : e) }));
     },
 
-    // Prompt 273 §3 — hard_filter_resolved_at/by only ever set alongside
-    // 'resolved_blocked' (the one status that stays permanently visible in
-    // the dossier and needs a real audit trail); cleared back to undefined
-    // for 'resolved_ok' or 'open' (Unblock), matching migration 0194's own
-    // "cleared the moment it isn't resolved_blocked" rule.
+    // Prompt 273 §3 / Prompt 277 A — hard_filter_resolved_at/by only ever
+    // set alongside a PERMANENT-banner status ('resolved_blocked' —
+    // reported for fraud review — or 'resolved_not_a_fit'); cleared back
+    // to undefined for 'resolved_ok' or 'open' (Unblock/Revert), matching
+    // migration 0194's own "cleared the moment it isn't a permanent
+    // status" rule. Demo mode has no entity_fraud_flags table — the
+    // `report` payload (justification/evidence) is accepted for signature
+    // parity with the real store but has nothing to write to here, same
+    // as every other admin-review feature in demo mode.
     resolveHardFilter(id, status) {
       const now = new Date().toISOString();
+      const permanent = status === 'resolved_blocked' || status === 'resolved_not_a_fit';
       setDb((prev) => ({
         ...prev,
         entities: prev.entities.map((e) => e.id === id
           ? {
               ...e, hard_filter_status: status,
-              hard_filter_resolved_at: status === 'resolved_blocked' ? now : undefined,
-              hard_filter_resolved_by: status === 'resolved_blocked' ? 'demo' : undefined,
+              hard_filter_resolved_at: permanent ? now : undefined,
+              hard_filter_resolved_by: permanent ? 'demo' : undefined,
             }
           : e),
       }));

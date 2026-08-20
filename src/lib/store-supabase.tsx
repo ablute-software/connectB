@@ -864,16 +864,20 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('entities').update({ interest_eur: eur ?? null }).eq('id', id), 'setInterest');
     },
 
-    // Prompt 273 §3 — see the matching comment in store-demo.tsx's
-    // resolveHardFilter for why the audit columns only ever accompany
-    // 'resolved_blocked'. userIdRef.current mirrors edited_by's own
-    // pattern (line ~555, interaction_edits) — the signed-in user's real
-    // auth.users id, not a resolved display name.
-    resolveHardFilter(id: string, status: 'open' | 'resolved_ok' | 'resolved_blocked') {
+    // Prompt 273 §3 / Prompt 277 A — see the matching comment in
+    // store-demo.tsx's resolveHardFilter for why the audit columns
+    // accompany both permanent-banner statuses now, and store-context.tsx
+    // for why the actual fraud report (entity_fraud_flags) is written
+    // separately, server-side, before this is ever called. userIdRef.
+    // current mirrors edited_by's own pattern (line ~555,
+    // interaction_edits) — the signed-in user's real auth.users id, not a
+    // resolved display name.
+    resolveHardFilter(id: string, status: 'open' | 'resolved_ok' | 'resolved_not_a_fit' | 'resolved_blocked') {
       const prev = dbRef.current;
       const now = new Date().toISOString();
-      const resolvedAt = status === 'resolved_blocked' ? now : undefined;
-      const resolvedBy = status === 'resolved_blocked' ? (userIdRef.current ?? undefined) : undefined;
+      const permanent = status === 'resolved_blocked' || status === 'resolved_not_a_fit';
+      const resolvedAt = permanent ? now : undefined;
+      const resolvedBy = permanent ? (userIdRef.current ?? undefined) : undefined;
       commit({
         ...prev,
         entities: prev.entities.map((e) => e.id === id
