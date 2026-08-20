@@ -940,7 +940,18 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
   // se o hook pode ser escrito.
   const synthesis = await callClaude({
     model: LAYER2_MODEL,
-    system: 'Sintetiza apenas com base no texto das fontes lidas abaixo. Se nao conseguiste ler nenhuma fonte com substancia suficiente, deixa os campos a null em vez de inventar ou de usar so titulos/resumos de pesquisa.',
+    // Prompt 280 — bug confirmado 2x em producao: sem instrucao de lingua,
+    // o modelo escreve na lingua das FONTES lidas (imprensa alema saiu em
+    // portugues; imprensa romena saiu 3 em romeno e 1 em portugues, nem
+    // sequer consistente dentro do mesmo fundo) em vez de ingles, a lingua
+    // fixa do produto. A directiva fica em ingles, nao em portugues como o
+    // resto deste system prompt — e a lingua-alvo, e o comando mais directo
+    // possivel para a obter de forma fiavel. Aplica-se a toda a resposta
+    // desta chamada (hook, intro_path, watch_outs, background, kill_words),
+    // nao so a hook/background: e a MESMA chamada a produzir todos os
+    // campos, por isso nao ha como restringir a instrucao so a dois deles.
+    system: 'Sintetiza apenas com base no texto das fontes lidas abaixo. Se nao conseguiste ler nenhuma fonte com substancia suficiente, deixa os campos a null em vez de inventar ou de usar so titulos/resumos de pesquisa. '
+      + 'Write every text field (hook, intro_path, watch_outs, background, kill_words) in English, regardless of the language of the sources you read — the sources may be in Portuguese, Romanian, German, or any other language, but your output must always be English.',
     messages: [
       {
         role: 'user',
