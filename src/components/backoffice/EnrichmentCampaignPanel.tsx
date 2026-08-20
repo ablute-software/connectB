@@ -51,8 +51,19 @@ import { useEffect, useRef, useState } from 'react';
 import { authEnabled, browserClient, SUPABASE_URL } from '@/lib/supabase';
 import { Card } from '@/components/ui';
 
-interface Candidate { id: string; name: string; verified: boolean; deliveredCount: number }
-interface Counts { total: number; pending: number; withCheckSize: number; withPeople: number; withHooks: number }
+// Prompt 279 — existingFields is the same-tier completeness tiebreaker
+// the status route now sorts by; surfaced here only for a title tooltip,
+// not re-sorted client-side (the server already returns candidates in
+// final priority order).
+interface Candidate { id: string; name: string; verified: boolean; deliveredCount: number; existingFields: number }
+interface Counts { total: number; pending: number; withCheckSize: number; withPeople: number; withHooks: number; chronicFetchFailures: number }
+// Prompt 279 — rows the status route excluded from `candidates` because
+// they've failed the same fetch-stage reason >=2 campaign runs in a row
+// (site 404s/403s/429s — retrying costs a cap slot for a guaranteed
+// repeat). Never hidden: listed here so a human can still see them and
+// manually retry (POST enqueue-entity-layer1 has no knowledge of this
+// exclusion at all — see status/route.ts's own header comment).
+interface ChronicFailure { id: string; name: string; streak: number; lastError: string }
 
 type RowState = 'idle' | 'layer1' | 'layer2' | 'done' | 'skipped' | 'failed';
 interface RowInfo { name: string; state: RowState; detail?: string; hooksGained: number }
@@ -129,13 +140,14 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
   const [rows, setRows] = useState<Record<string, RowInfo>>({});
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
   const [abortReason, setAbortReason] = useState('');
+  const [chronicFailures, setChronicFailures] = useState<ChronicFailure[]>([]);
   const stopRequestedRef = useRef(false);
 
   function refreshStatus() {
     setLoadErr('');
     fetch('/api/backoffice/catalog/enrichment-campaign/status').then((r) => r.json()).then((body) => {
       if (body.ok === false) { setLoadErr(body.error); return; }
-      setCounts(body.counts); setCandidates(body.candidates);
+      setCounts(body.counts); setCandidates(body.candidates); setChronicFailures(body.chronicFailures ?? []);
     }).catch((e) => setLoadErr((e as Error).message));
   }
   useEffect(refreshStatus, []);
@@ -214,6 +226,23 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
     refreshStatus();
   }
 
+  // Prompt 279 — a single manual retry for one chronically-excluded
+  // candidate. Not routed through `candidates`/the cap loop — this bypasses
+  // the exclusion entirely by construction (processCandidate only ever
+  // reads c.id/c.name; verified/deliveredCount/existingFields are unused
+  // here, dummy values are fine) since enqueue-entity-layer1 itself has no
+  // knowledge of the chronic-failure list, same as any other direct call.
+  async function retryOne(id: string, name: string) {
+    setLoadErr(''); setRunning(true);
+    const { data: { session } } = await browserClient().auth.getSession();
+    if (!session) { setLoadErr('Session expired — sign in again.'); setRunning(false); return; }
+    setSummary((p) => ({ ...p, entitiesAttempted: p.entitiesAttempted + 1 }));
+    const { abort } = await processCandidate({ id, name, verified: false, deliveredCount: 0, existingFields: 0 }, session.access_token);
+    if (abort) setAbortReason(abort);
+    setRunning(false);
+    refreshStatus();
+  }
+
   if (!authEnabled) {
     return (
       <Card title="Enrichment campaign">
@@ -232,10 +261,15 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
           <span><span className="font-semibold text-gray-800">{counts.withCheckSize}</span> with check size</span>
           <span><span className="font-semibold text-gray-800">{counts.withPeople}</span> with people</span>
           <span><span className="font-semibold text-gray-800">{counts.withHooks}</span> with researched hooks</span>
+          {counts.chronicFetchFailures > 0 && (
+            <span title="Failed the same fetch-stage reason 2+ campaign runs in a row — excluded from auto-selection, listed below, still manually retryable.">
+              <span className="font-semibold text-gray-500">{counts.chronicFetchFailures}</span> chronically unreachable (excluded below)
+            </span>
+          )}
         </div>
       )}
       <p className="mb-2 text-[11px] text-gray-400">
-        Priority: already delivered to a founder&apos;s org first, then verified over pending — catalog rows have no stored &quot;fit&quot; (that only exists per-org, after delivery), so this is the closest available substitute.
+        Priority: already delivered to a founder&apos;s org first, then verified over pending, then — within the same tier — whichever row already has more fields filled in (cheaper to finish, visible result sooner). Catalog rows have no stored &quot;fit&quot; (that only exists per-org, after delivery), so this is the closest available substitute.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <label className="text-xs text-gray-600">Cap per run
@@ -288,6 +322,29 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
             </li>
           ))}
         </ul>
+      )}
+
+      {/* Prompt 279 — surfaced, not hidden: excluded from auto-selection
+          above, but still one click from a manual retry (enqueue-entity-
+          layer1 has no knowledge of this exclusion — see status/route.ts). */}
+      {chronicFailures.length > 0 && (
+        <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-2.5">
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+            Chronically unreachable — excluded from auto-selection ({chronicFailures.length})
+          </p>
+          <ul className="space-y-1 text-xs">
+            {chronicFailures.map((f) => (
+              <li key={f.id} className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate font-medium text-gray-700">{f.name}</span>
+                <span className="shrink-0 text-gray-400">{f.lastError} × {f.streak}</span>
+                <button disabled={running} onClick={() => void retryOne(f.id, f.name)}
+                  className="shrink-0 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] text-gray-600 hover:bg-gray-100 disabled:opacity-40">
+                  Retry now
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </Card>
   );
