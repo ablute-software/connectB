@@ -55,8 +55,18 @@ import { Card } from '@/components/ui';
 // the status route now sorts by; surfaced here only for a title tooltip,
 // not re-sorted client-side (the server already returns candidates in
 // final priority order).
-interface Candidate { id: string; name: string; verified: boolean; deliveredCount: number; existingFields: number }
+// Prompt 281 §1 — fit is now the TOP-level sort key server-side; surfaced
+// here purely for the "low fit" badge, never re-sorted client-side (same
+// "server already returns final priority order" convention as existingFields).
+type SectorFit = 'fit' | 'low_fit' | 'not_applicable';
+interface Candidate { id: string; name: string; verified: boolean; deliveredCount: number; existingFields: number; fit: SectorFit }
 interface Counts { total: number; pending: number; withCheckSize: number; withPeople: number; withHooks: number; chronicFetchFailures: number }
+// Prompt 281 §3 — a catalog_people row reset back to hook_status=
+// 'to_research' whose entity is already enriched, so it can never re-enter
+// the entity-driven Layer 1 -> peopleNeedingLayer2 flow on its own — this is
+// the "still in the queue" home for those rows (see status/route.ts's own
+// header comment on this list for why it has to exist as its own thing).
+interface Layer2Candidate { id: string; name: string; entityName: string; fit: SectorFit }
 // Prompt 279 — rows the status route excluded from `candidates` because
 // they've failed the same fetch-stage reason >=2 campaign runs in a row
 // (site 404s/403s/429s — retrying costs a cap slot for a guaranteed
@@ -66,7 +76,7 @@ interface Counts { total: number; pending: number; withCheckSize: number; withPe
 interface ChronicFailure { id: string; name: string; streak: number; lastError: string }
 
 type RowState = 'idle' | 'layer1' | 'layer2' | 'done' | 'skipped' | 'failed';
-interface RowInfo { name: string; state: RowState; detail?: string; hooksGained: number }
+interface RowInfo { name: string; state: RowState; detail?: string; hooksGained: number; fit?: SectorFit }
 
 interface Summary {
   entitiesAttempted: number; entitiesEnriched: number; entitiesSkipped: number; entitiesFailed: number;
@@ -141,6 +151,8 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
   const [abortReason, setAbortReason] = useState('');
   const [chronicFailures, setChronicFailures] = useState<ChronicFailure[]>([]);
+  const [layer2Candidates, setLayer2Candidates] = useState<Layer2Candidate[]>([]);
+  const [researchingId, setResearchingId] = useState<string | null>(null);
   const stopRequestedRef = useRef(false);
 
   function refreshStatus() {
@@ -148,6 +160,7 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
     fetch('/api/backoffice/catalog/enrichment-campaign/status').then((r) => r.json()).then((body) => {
       if (body.ok === false) { setLoadErr(body.error); return; }
       setCounts(body.counts); setCandidates(body.candidates); setChronicFailures(body.chronicFailures ?? []);
+      setLayer2Candidates(body.layer2Candidates ?? []);
     }).catch((e) => setLoadErr((e as Error).message));
   }
   useEffect(refreshStatus, []);
@@ -166,7 +179,7 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
   // per-entity and the campaign just moves on to the next candidate,
   // matching "uma falha nao trava as outras".
   async function processCandidate(c: Candidate, accessToken: string): Promise<{ abort?: string }> {
-    patchRow(c.id, { name: c.name, state: 'layer1', hooksGained: 0 });
+    patchRow(c.id, { name: c.name, state: 'layer1', hooksGained: 0, fit: c.fit });
     const enq = await postJson('/api/backoffice/catalog/enrichment-campaign/enqueue-entity-layer1', { catalogEntityId: c.id });
     if (!enq.ok) { patchRow(c.id, { state: 'failed', detail: enq.error }); setSummary((p) => ({ ...p, entitiesFailed: p.entitiesFailed + 1 })); return {}; }
     if (enq.skip) { patchRow(c.id, { state: 'skipped', detail: enq.reason }); setSummary((p) => ({ ...p, entitiesSkipped: p.entitiesSkipped + 1 })); return {}; }
@@ -237,9 +250,39 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
     const { data: { session } } = await browserClient().auth.getSession();
     if (!session) { setLoadErr('Session expired — sign in again.'); setRunning(false); return; }
     setSummary((p) => ({ ...p, entitiesAttempted: p.entitiesAttempted + 1 }));
-    const { abort } = await processCandidate({ id, name, verified: false, deliveredCount: 0, existingFields: 0 }, session.access_token);
+    const { abort } = await processCandidate({ id, name, verified: false, deliveredCount: 0, existingFields: 0, fit: 'not_applicable' }, session.access_token);
     if (abort) setAbortReason(abort);
     setRunning(false);
+    refreshStatus();
+  }
+
+  // Prompt 281 §3 — the standalone Layer-2 half of "still in the queue":
+  // a single person, enqueued+invoked directly (enqueue-person-layer2 has
+  // no knowledge of which entity it belongs to or whether that entity is
+  // 'pending' — it only checks the person's own hook_status), mirroring
+  // retryOne's bypass pattern above but for Layer 2 instead of Layer 1.
+  async function researchPerson(id: string, name: string) {
+    setLoadErr(''); setResearchingId(id);
+    const { data: { session } } = await browserClient().auth.getSession();
+    if (!session) { setLoadErr('Session expired — sign in again.'); setResearchingId(null); return; }
+    patchRow(id, { name, state: 'layer2', hooksGained: 0, detail: 'Researching…' });
+    const enq = await postJson('/api/backoffice/catalog/enrichment-campaign/enqueue-person-layer2', { catalogPersonId: id });
+    if (!enq.ok || enq.skip) {
+      patchRow(id, { state: 'skipped', detail: enq.reason ?? enq.error });
+      setResearchingId(null);
+      return;
+    }
+    const result = await invokeUntilTerminal(session.access_token, 2, () =>
+      postJson('/api/backoffice/catalog/enrichment-campaign/collect-person-layer2-result', { catalogPersonId: id, jobId: enq.jobId }));
+    if ('abort' in result) { setAbortReason(result.abort); patchRow(id, { state: 'failed', detail: result.abort }); }
+    else if ('error' in result) { patchRow(id, { state: 'failed', detail: result.error }); }
+    else {
+      const collected = result.collected;
+      addCost((collected.cost as { eur?: number } | undefined)?.eur ?? 0);
+      setSummary((p) => ({ ...p, peopleResearched: p.peopleResearched + 1, hooksGained: p.hooksGained + (collected.hookWritten ? 1 : 0) }));
+      patchRow(id, { state: 'done', hooksGained: collected.hookWritten ? 1 : 0, detail: collected.hookWritten ? undefined : 'No usable hook found — background may still have been recorded.' });
+    }
+    setResearchingId(null);
     refreshStatus();
   }
 
@@ -317,6 +360,12 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
                 {r.state === 'layer1' ? 'team page…' : r.state === 'layer2' ? 'hooks…' : r.state}
               </span>
               <span className="min-w-0 flex-1 truncate font-medium text-gray-800">{r.name}</span>
+              {r.fit === 'low_fit' && (
+                <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                  title="Delivered to a healthtech org, but its own sectors/thesis show no healthtech-adjacent signal — kept in the queue, just not prioritized.">
+                  ⚠️ low fit
+                </span>
+              )}
               {r.hooksGained > 0 && <span className="shrink-0 text-[#0E7490]">+{r.hooksGained} hook{r.hooksGained > 1 ? 's' : ''}</span>}
               {r.detail && <span className="min-w-0 flex-1 truncate text-gray-400">{r.detail}</span>}
             </li>
@@ -340,6 +389,36 @@ export function EnrichmentCampaignPanel({ onEntityEnriched }: { onEntityEnriched
                 <button disabled={running} onClick={() => void retryOne(f.id, f.name)}
                   className="shrink-0 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] text-gray-600 hover:bg-gray-100 disabled:opacity-40">
                   Retry now
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Prompt 281 §3 — people reset back to hook_status='to_research'
+          whose entity is already enriched, so the normal Layer-1-driven
+          flow can never re-surface them on its own. Explicit per-person
+          action (not folded into the automatic cap loop above) — a
+          smaller, safer diff, and it matches the "don't spend by
+          accident" caution Prompt 279 already established for this
+          campaign, especially right after 280/281 fixed real quality bugs. */}
+      {layer2Candidates.length > 0 && (
+        <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-2.5">
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+            Hook research candidates — entity already enriched ({layer2Candidates.length})
+          </p>
+          <ul className="space-y-1 text-xs">
+            {layer2Candidates.map((p) => (
+              <li key={p.id} className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate font-medium text-gray-700">{p.name}</span>
+                <span className="shrink-0 truncate text-gray-400">{p.entityName}</span>
+                {p.fit === 'low_fit' && (
+                  <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">⚠️ low fit</span>
+                )}
+                <button disabled={running || researchingId === p.id} onClick={() => void researchPerson(p.id, p.name)}
+                  className="shrink-0 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] text-gray-600 hover:bg-gray-100 disabled:opacity-40">
+                  {researchingId === p.id ? 'Researching…' : 'Research now'}
                 </button>
               </li>
             ))}

@@ -497,7 +497,19 @@ const RECORD_RESEARCH_TOOL = {
   input_schema: {
     type: 'object',
     properties: {
-      hook: { type: ['string', 'null'] },
+      // Prompt 281 §2 — o critério que faltava, para além da língua (280).
+      // A 2ª corrida real gravou 4 hooks tecnicamente cumpridores da regra
+      // "só com fonte lida" mas inúteis: o nome do fundo veio do metro de
+      // Londres, uma opinião sobre Schengen/portos — anedotas biográficas
+      // interessantes, não algo que sirva de abertura a uma aproximação de
+      // investimento. A descrição abaixo é a MESMA regra que o system
+      // prompt da síntese repete (ver mais abaixo) — descrita duas vezes de
+      // propósito, no schema e no system prompt, mesmo padrão já usado
+      // para as âncoras de bio_start_anchor/bio_end_anchor na Camada 1.
+      hook: {
+        type: ['string', 'null'],
+        description: 'Só preenche se for: (a) específico a ESTA pessoa (não um facto genérico sobre o fundo); (b) recente ou ainda actual, não uma história antiga sem relevância hoje; (c) relevante para uma aproximação de investimento — a tese dela, um deal ou afirmação pública sobre o sector, um interesse de investimento declarado. Anedotas biográficas (origem do nome do fundo, histórias de família, opiniões fora do âmbito de investimento) NÃO contam, mesmo que venham de uma fonte lida — nesse caso deixa null. Vazio honesto é melhor que preenchido mas inútil.',
+      },
       intro_path: { type: ['string', 'null'] },
       watch_outs: { type: ['string', 'null'] },
       kill_words: { type: 'array', items: { type: 'string' } },
@@ -950,8 +962,20 @@ async function processPersonJob(job: any, dryRun: boolean, telemetry: Telemetry,
     // desta chamada (hook, intro_path, watch_outs, background, kill_words),
     // nao so a hook/background: e a MESMA chamada a produzir todos os
     // campos, por isso nao ha como restringir a instrucao so a dois deles.
+    //
+    // Prompt 281 §2 — a lingua nao era o unico problema: os 4 hooks da 2a
+    // corrida real (GapMinder) cumpriam a regra "so com fonte lida" mas
+    // eram anedotas biograficas (nome do fundo vindo do metro de Londres,
+    // opiniao sobre Schengen/portos) — curiosas, inuteis como abertura de
+    // uma aproximacao de investimento. Mesmo criterio repetido aqui e na
+    // description do proprio campo hook (RECORD_RESEARCH_TOOL, acima) de
+    // proposito, mesmo padrao ja usado para as ancoras de bio na Camada 1.
+    // O background NAO leva esta obrigacao — so o hook, tal como so o hook
+    // (nao os outros campos) exige fonte lida: um facto biografico correcto
+    // continua a ser um facto correcto, so nao serve de linha de abertura.
     system: 'Sintetiza apenas com base no texto das fontes lidas abaixo. Se nao conseguiste ler nenhuma fonte com substancia suficiente, deixa os campos a null em vez de inventar ou de usar so titulos/resumos de pesquisa. '
-      + 'Write every text field (hook, intro_path, watch_outs, background, kill_words) in English, regardless of the language of the sources you read — the sources may be in Portuguese, Romanian, German, or any other language, but your output must always be English.',
+      + 'Write every text field (hook, intro_path, watch_outs, background, kill_words) in English, regardless of the language of the sources you read — the sources may be in Portuguese, Romanian, German, or any other language, but your output must always be English. '
+      + 'The hook field has a stricter bar than the other fields: only write it if it is (a) specific to THIS person, not a generic fact about the fund, (b) recent or still current, not an old story with no relevance today, and (c) relevant to an investment approach — her thesis, a deal or public statement about the sector, a declared investment interest. Biographical trivia — where the fund\'s name came from, family stories, opinions outside the investment domain — does NOT qualify, even if it came from a source you read: leave hook null in that case, but you may still write background (background is purely factual, it has no relevance bar).',
     messages: [
       {
         role: 'user',

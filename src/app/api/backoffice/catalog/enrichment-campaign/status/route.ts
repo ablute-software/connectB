@@ -11,6 +11,7 @@
 // already uses for aliases/contacts.
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
+import { catalogEntitySectorFit, type SectorFitResult } from '@/lib/catalog-sector-fit';
 
 // Prompt 279 — real numbers measured after the first campaign run
 // (commit 7b987c0): 33N Ventures/A/O PropTech/Atomico all failed the
@@ -76,7 +77,7 @@ export async function GET() {
   const [{ data: entities, error: entitiesErr }, { data: deliveries }, { data: affiliations }] = await Promise.all([
     admin.from('catalog_entities')
       .select('id, name, verification_status, is_test, website, sectors, thesis, stage_min, stage_max, check_min_eur, check_max_eur, geographies, enrichment_status'),
-    admin.from('catalog_deliveries').select('catalog_id'),
+    admin.from('catalog_deliveries').select('catalog_id, org_id'),
     admin.from('catalog_person_affiliations').select('entity_id, catalog_people(hook_status)'),
   ]);
   if (entitiesErr) return NextResponse.json({ ok: false, error: entitiesErr.message }, { status: 500 });
@@ -84,7 +85,29 @@ export async function GET() {
   const real = (entities ?? []).filter((e) => !e.is_test);
 
   const deliveredCount = new Map<string, number>();
-  for (const d of deliveries ?? []) deliveredCount.set(d.catalog_id, (deliveredCount.get(d.catalog_id) ?? 0) + 1);
+  // Prompt 281 §1 — which org(s) a row was delivered to, not just the
+  // count: needed below to know whose `sectors` to judge fit against.
+  const orgIdsByCatalog = new Map<string, Set<string>>();
+  for (const d of deliveries ?? []) {
+    deliveredCount.set(d.catalog_id, (deliveredCount.get(d.catalog_id) ?? 0) + 1);
+    const set = orgIdsByCatalog.get(d.catalog_id) ?? new Set<string>();
+    set.add(d.org_id as string);
+    orgIdsByCatalog.set(d.catalog_id, set);
+  }
+  const deliveredOrgIds = [...new Set((deliveries ?? []).map((d) => d.org_id as string))];
+  // Deliberately NOT filtered by orgs.is_test: ablute_'s own org row has
+  // is_test=true despite being the one org with real production deliveries
+  // (a known trap in this codebase — see catalog-sector-fit.ts's header and
+  // scripts/_pilot_run.mjs's own comment on the same org id). Filtering
+  // is_test here would silently drop the only org whose sectors matter today.
+  const { data: deliveredOrgs } = deliveredOrgIds.length
+    ? await admin.from('orgs').select('id, sectors').in('id', deliveredOrgIds)
+    : { data: [] as { id: string; sectors: string[] | null }[] };
+  const orgSectorsById = new Map((deliveredOrgs ?? []).map((o) => [o.id as string, (o.sectors as string[] | null) ?? []]));
+
+  function deliveredOrgsSectorsFor(catalogId: string): string[][] {
+    return [...(orgIdsByCatalog.get(catalogId) ?? [])].map((orgId) => orgSectorsById.get(orgId) ?? []);
+  }
 
   const entitiesWithPeople = new Set<string>();
   const entitiesWithHooks = new Set<string>();
@@ -145,14 +168,29 @@ export async function GET() {
   // tiebreaker now sits ahead of the final name-alphabetical fallback:
   // within the same tier, whichever row already has more of the 8 fields
   // filled in goes first (cheaper to finish, visible result sooner).
+  //
+  // Prompt 281 §1 — the €1.25 run that enriched GapMinder (AI/Deeptech/
+  // SaaS B2B, zero healthtech overlap) is what this fixes: "delivered" and
+  // "cheapest to finish" both said GO on that row; nothing before this ever
+  // asked whether it was worth showing to ablute_ at all. Fit is now the
+  // TOP-level sort key, ABOVE delivered/verified/completeness — a fund with
+  // real fit but zero deliveries still loses to a delivered-but-mismatched
+  // one only because 'fit' requires having been delivered somewhere to
+  // judge against in the first place (see catalog-sector-fit.ts); it never
+  // outranks a delivered low-fit row on some other, unrelated basis.
+  // Everything else in the existing chain becomes the tiebreak WITHIN the
+  // same fit tier, exactly as asked ("nunca acima dele").
+  const fitRank = (f: SectorFitResult) => (f === 'fit' ? 1 : 0);
   const candidates = pending
     .filter((e) => !chronicFailures.has(e.id))
     .map((e) => ({
       id: e.id, name: e.name, verified: e.verification_status === 'verified',
       deliveredCount: deliveredCount.get(e.id) ?? 0, existingFields: existingFieldCount(e),
+      fit: catalogEntitySectorFit(e.sectors, e.thesis, deliveredOrgsSectorsFor(e.id)),
     }))
     .sort((a, b) =>
-      (b.deliveredCount > 0 ? 1 : 0) - (a.deliveredCount > 0 ? 1 : 0)
+      fitRank(b.fit) - fitRank(a.fit)
+      || (b.deliveredCount > 0 ? 1 : 0) - (a.deliveredCount > 0 ? 1 : 0)
       || (b.verified ? 1 : 0) - (a.verified ? 1 : 0)
       || b.deliveredCount - a.deliveredCount
       || b.existingFields - a.existingFields
@@ -163,7 +201,31 @@ export async function GET() {
     .map((e) => ({ id: e.id, name: e.name, ...chronicFailures.get(e.id)! }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  // Prompt 281 §3 — standalone Layer 2 candidates: catalog_people reset
+  // back to hook_status='to_research' (Maschmeyer + the 4 GapMinder people,
+  // both violating 280's language rule and/or 281's hook-usability
+  // criterion) whose ENTITY is already enrichment_status='enriched'. The
+  // normal Layer-1-driven flow (collect-entity-layer1-result's own
+  // peopleNeedingLayer2) only ever re-surfaces a person the moment THEIR
+  // entity's Layer 1 finishes — an already-enriched entity never re-enters
+  // `candidates` above (it's not 'pending'), so without this list these 5
+  // people would sit at hook_status='to_research' with no path back into
+  // the campaign at all — silently stuck, not genuinely "in the queue" as
+  // Prompt 281 §3 asks. Same fit gate as entity candidates, computed from
+  // the PERSON's own entity's sectors/thesis (fit is entity-level data).
+  const { data: layer2Raw } = await admin.from('catalog_people')
+    .select('id, full_name, hook_status, entity_id, catalog_entities!inner(id, name, sectors, thesis, enrichment_status, is_test)')
+    .eq('hook_status', 'to_research');
+  const layer2Candidates = (layer2Raw ?? [])
+    .map((p) => ({ ...p, entity: p.catalog_entities as unknown as { id: string; name: string; sectors: string[] | null; thesis: string | null; enrichment_status: string; is_test: boolean } }))
+    .filter((p) => !p.entity.is_test && p.entity.enrichment_status === 'enriched')
+    .map((p) => ({
+      id: p.id as string, name: p.full_name as string, entityName: p.entity.name,
+      fit: catalogEntitySectorFit(p.entity.sectors, p.entity.thesis, deliveredOrgsSectorsFor(p.entity.id)),
+    }))
+    .sort((a, b) => fitRank(b.fit) - fitRank(a.fit) || a.name.localeCompare(b.name));
+
   return NextResponse.json({
-    ok: true, counts: { ...counts, chronicFetchFailures: chronicFailures.size }, candidates, chronicFailures: chronicFailureList,
+    ok: true, counts: { ...counts, chronicFetchFailures: chronicFailures.size }, candidates, chronicFailures: chronicFailureList, layer2Candidates,
   });
 }
