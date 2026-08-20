@@ -175,6 +175,16 @@ function DocumentsPageInner() {
   // below, unchanged.
   const [grantEntityId, setGrantEntityId] = useState('');
   const [grantEntityQuery, setGrantEntityQuery] = useState('');
+  // Prompt 278 §2 — an empty query used to return the WHOLE pipeline
+  // (200+ funds rendered before typing a single character, confirmed in
+  // the screenshots that prompted this). Autocomplete by default (empty
+  // query shows nothing, typed characters show up to 10 matches); this
+  // flag is the deliberate escape hatch for "I'd rather scroll and
+  // recognize the name than type it" — bypasses the query/cap entirely
+  // while true, and resets the moment the founder types again (see the
+  // input's onChange below) so it never gets stuck showing everything
+  // once they've started searching for real.
+  const [showFullGrantList, setShowFullGrantList] = useState(false);
   const [grantScope, setGrantScope] = useState<'' | 'everyone' | 'specific'>('');
   const [grantSpecificIds, setGrantSpecificIds] = useState<string[]>([]);
   const [grantShowInvite, setGrantShowInvite] = useState(false);
@@ -226,9 +236,22 @@ function DocumentsPageInner() {
   // match an entity's own contact email (Entity.email) and its affiliated
   // people's emails, alongside the existing name match.
   const grantEntityQuery_ = grantEntityQuery.trim().toLowerCase();
+  // Prompt 278 §1 — the grant-entity list is "who could plausibly be an
+  // investor to grant Vault access to", not the whole pipeline: a Reported
+  // (resolved_blocked — a founder-submitted fraud/scam report, pending
+  // platform review, see Prompt 277 A) or Not applicable (resolved_not_a_
+  // fit — not even the right kind of investor) entity shouldn't be
+  // offered here at all. hard_filter_status is checked directly rather
+  // than duplicating frozen-classifier.ts's dormant-only interaction
+  // logic — this list isn't about frozen/stale/stand-by, only about the
+  // two hard-filter states that mean "not a real prospect."
+  const grantableEntities = useMemo(
+    () => db.entities.filter((e) => e.hard_filter_status !== 'resolved_blocked' && e.hard_filter_status !== 'resolved_not_a_fit'),
+    [db.entities],
+  );
   const filteredGrantEntities = useMemo(() => {
-    if (!grantEntityQuery_) return db.entities.slice().sort((a, b) => a.name.localeCompare(b.name));
-    return db.entities
+    if (!grantEntityQuery_) return grantableEntities.slice().sort((a, b) => a.name.localeCompare(b.name));
+    return grantableEntities
       .filter((e) => {
         if (e.name.toLowerCase().includes(grantEntityQuery_)) return true;
         if (e.email && e.email.toLowerCase().includes(grantEntityQuery_)) return true;
@@ -237,7 +260,15 @@ function DocumentsPageInner() {
           && ((p.email_verified?.toLowerCase().includes(grantEntityQuery_)) || (p.email_guess?.toLowerCase().includes(grantEntityQuery_))));
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [db.entities, db.people, db.personAffiliations, grantEntityQuery_]);
+  }, [grantableEntities, db.people, db.personAffiliations, grantEntityQuery_]);
+  // Prompt 278 §2 — autocomplete, not "everything by default": an empty
+  // query with the escape hatch off shows nothing to pick from yet; a
+  // typed query shows up to 10 suggestions (not the unbounded list this
+  // used to render). "Ver lista completa" (showFullGrantList) is the only
+  // path back to the unbounded list.
+  const visibleGrantEntities = grantEntityQuery_
+    ? filteredGrantEntities.slice(0, 10)
+    : (showFullGrantList ? filteredGrantEntities : []);
 
   // Prompt 121 §2.6 — "the two lists don't talk to each other": a founder
   // searching by name only ever saw their own org's entities, never the
@@ -973,11 +1004,25 @@ function DocumentsPageInner() {
                   </div>
                 ) : (
                   <>
-                    <input value={grantEntityQuery} onChange={(e) => setGrantEntityQuery(e.target.value)}
-                      placeholder="Search by name or email…"
-                      className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                    <div className="flex items-center gap-2">
+                      <input value={grantEntityQuery}
+                        onChange={(e) => { setGrantEntityQuery(e.target.value); if (e.target.value) setShowFullGrantList(false); }}
+                        placeholder="Search by name or email…"
+                        className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+                      {/* Prompt 278 §2 — the escape hatch: scroll and
+                          recognize the name instead of typing it. */}
+                      {!showFullGrantList && (
+                        <button type="button" onClick={() => setShowFullGrantList(true)}
+                          className="shrink-0 whitespace-nowrap text-[11px] font-medium text-[#0E7490] hover:underline">
+                          See full list →
+                        </button>
+                      )}
+                    </div>
+                    {!grantEntityQuery_ && !showFullGrantList ? (
+                      <p className="mt-1 px-1 text-xs text-gray-400">Type to search, or see the full list →</p>
+                    ) : (
                     <ul className="mt-1 max-h-56 space-y-0.5 overflow-y-auto rounded border border-gray-100 bg-gray-50 p-1">
-                      {filteredGrantEntities.slice(0, 200).map((e) => (
+                      {visibleGrantEntities.map((e) => (
                         <li key={e.id}>
                           {/* Prompt 222 §2 — chip de estado: passed/dormant/
                               invested continuam a ser sugeridos (avisar,
@@ -999,7 +1044,7 @@ function DocumentsPageInner() {
                           </button>
                         </li>
                       ))}
-                      {filteredGrantEntities.length === 0 && catalogMatches.length === 0 && (
+                      {visibleGrantEntities.length === 0 && catalogMatches.length === 0 && (
                         <li className="px-2 py-1.5 text-xs text-gray-400">No entity matches &quot;{grantEntityQuery}&quot;.</li>
                       )}
                       {/* Prompt 121 §2.6 — catalog matches are informational only,
@@ -1018,6 +1063,7 @@ function DocumentsPageInner() {
                         </li>
                       ))}
                     </ul>
+                    )}
                   </>
                 )}
               </div>
