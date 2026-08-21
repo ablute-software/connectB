@@ -619,6 +619,11 @@ export interface DocumentItem {
   // Data Room v3 (E5) — persisted sort order within a folder. Migration 0027,
   // capability-gated: src/lib/document-ordering-capability.ts.
   position?: number;
+  // Prompt 301 §3 — mirrors the CURRENT version's scan status (migration
+  // 0205). 'not_scanned' is a real, honest value — never assume 'clean' for
+  // a document created before this existed. Capability-gated:
+  // src/lib/upload-security-capability.ts.
+  malware_scan_status?: 'not_scanned' | 'pending' | 'clean' | 'flagged';
 }
 
 // E7 — Google-Drive-style version history for a document. The document row's
@@ -634,6 +639,9 @@ export interface DocumentVersion {
   size?: number;
   uploaded_at: string;
   uploaded_by?: string;
+  // Prompt 301 §3 — migration 0205. See documents.malware_scan_status above.
+  malware_scan_status?: 'not_scanned' | 'pending' | 'clean' | 'flagged';
+  content_sha256?: string;
 }
 
 // Data Room V2 (F5) — a real signed NDA file, attached to the investor's own

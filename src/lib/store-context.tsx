@@ -201,7 +201,7 @@ export interface StoreApi {
   // time), and repoints document.storage_path so the portal serves it. Never
   // deletes; "restore" is just another addDocumentVersion pointing at an older
   // object. size is the new file's byte length when known.
-  addDocumentVersion: (docId: string, storagePath: string, size?: number) => void;
+  addDocumentVersion: (docId: string, storagePath: string, size?: number, scan?: { status?: string; provider?: string | null; sha256?: string }) => void;
   // Data Room V2 (F3) — org-scoped folder management. createFolder appends
   // at the end of its new siblings; deleteFolder throws (caught by the UI)
   // if the folder still has children and moveContentsToParent is false —

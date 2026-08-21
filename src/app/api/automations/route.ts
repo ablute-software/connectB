@@ -26,6 +26,8 @@ import { deliverMonthlyForOrg, type MonthlyDeliveryOrgRow, type MonthlyDeliveryR
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { runPioneerExpiryJob } from '@/lib/pioneer-server';
 import { computeAndStoreOverviewSnapshot } from '@/lib/metrics-snapshot';
+import { recheckPendingMalwareScans } from '@/lib/upload-security';
+import { malwareScanAvailable } from '@/lib/upload-security-capability';
 
 // Prompt 201 §3 — limiar de sinal, não de aborto.
 const MONTHLY_DELIVERY_ALERT_THRESHOLD = 100;
@@ -92,6 +94,17 @@ export async function GET() {
     console.error('[automations] daily metrics snapshot failed:', e);
   }
 
+  // Prompt 301 §3 — re-checks any document still 'pending' a VirusTotal
+  // verdict (a genuinely new file at upload time never gets a synchronous
+  // one — see upload-security.ts's own header). Cheap hash lookups only,
+  // never a re-submission.
+  let malwareScanSweep: { checked: number; resolved: number; flagged: number } | null = null;
+  try {
+    if (await malwareScanAvailable()) malwareScanSweep = await recheckPendingMalwareScans(admin);
+  } catch (e) {
+    console.error('[automations] daily malware-scan sweep failed:', e);
+  }
+
   // TODO: implement server-side automation-rules tick — see src/lib/rules.ts
   // (pure functions, ready to reuse). Unchanged scope from before this prompt.
   return NextResponse.json({
@@ -100,5 +113,6 @@ export async function GET() {
     monthlyDelivery,
     pioneerBadges,
     metricsSnapshot,
+    malwareScanSweep,
   });
 }

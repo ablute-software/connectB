@@ -1110,28 +1110,49 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     // E7 — the versioning counterpart to replaceDocumentFile. NEVER removes the
     // old Storage object; it becomes a prior version. Repoints the document to
     // the new path (so portal/signed URLs serve current automatically).
-    addDocumentVersion(docId: string, storagePath: string, size?: number) {
+    addDocumentVersion(docId: string, storagePath: string, size?: number, scan?: { status?: string; provider?: string | null; sha256?: string }) {
       const prev = dbRef.current;
       const doc = prev.documents.find((d) => d.id === docId);
       if (!doc) return;
       const existing = prev.documentVersions.filter((v) => v.document_id === docId);
       const now = new Date().toISOString();
+      // Prompt 301 §3 — a restore (an OLD object, already scanned when it
+      // was first uploaded) passes no `scan` at all; a genuinely new file
+      // always does. Falling back to 'not_scanned' rather than inventing a
+      // status for either case keeps this honest either way.
+      const malwareScanStatus = (scan?.status as DocumentItem['malware_scan_status']) ?? 'not_scanned';
       const rows: DocumentVersion[] = [];
       let nextNum = existing.length ? Math.max(...existing.map((v) => v.version)) + 1 : 1;
       if (existing.length === 0 && doc.storage_path && doc.storage_path !== storagePath) {
-        rows.push({ id: uuid(), document_id: docId, version: 1, storage_path: doc.storage_path, uploaded_at: doc.created_at ?? now });
+        rows.push({
+          id: uuid(), document_id: docId, version: 1, storage_path: doc.storage_path, uploaded_at: doc.created_at ?? now,
+          malware_scan_status: doc.malware_scan_status ?? 'not_scanned',
+        });
         nextNum = 2;
       }
-      rows.push({ id: uuid(), document_id: docId, version: nextNum, storage_path: storagePath, size, uploaded_at: now });
+      rows.push({
+        id: uuid(), document_id: docId, version: nextNum, storage_path: storagePath, size, uploaded_at: now,
+        malware_scan_status: malwareScanStatus, content_sha256: scan?.sha256,
+      });
       commit({
         ...prev,
         documentVersions: [...prev.documentVersions, ...rows],
-        documents: prev.documents.map((d) => d.id === docId ? { ...d, storage_path: storagePath, version: `v${nextNum}` } : d),
+        documents: prev.documents.map((d) => d.id === docId ? { ...d, storage_path: storagePath, version: `v${nextNum}`, malware_scan_status: malwareScanStatus } : d),
       });
       const o = orgIdRef.current;
       if (o) {
-        for (const r of rows) persist(sb.from('document_versions').insert({ ...r, org_id: o }), 'addDocumentVersion:ver');
-        persist(sb.from('documents').update({ storage_path: storagePath, version: `v${nextNum}` }).eq('id', docId), 'addDocumentVersion:doc');
+        for (const r of rows) {
+          persist(sb.from('document_versions').insert({
+            id: r.id, document_id: r.document_id, version: r.version, storage_path: r.storage_path, size: r.size,
+            uploaded_at: r.uploaded_at, malware_scan_status: r.malware_scan_status, content_sha256: r.content_sha256,
+            malware_scan_provider: scan?.provider ?? null, malware_scan_checked_at: r.malware_scan_status !== 'not_scanned' ? now : null,
+            org_id: o,
+          }), 'addDocumentVersion:ver');
+        }
+        persist(sb.from('documents').update({
+          storage_path: storagePath, version: `v${nextNum}`, malware_scan_status: malwareScanStatus,
+          malware_scan_provider: scan?.provider ?? null, malware_scan_checked_at: malwareScanStatus !== 'not_scanned' ? now : null,
+        }).eq('id', docId), 'addDocumentVersion:doc');
       }
     },
 

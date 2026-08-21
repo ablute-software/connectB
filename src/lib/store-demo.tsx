@@ -5,7 +5,7 @@
 // StoreApi contract (locks, follow-up tasks, overrides, runs semantics).
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  AccessGrant, AutomationRun, CompanyFact, Db, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory,
+  AccessGrant, AutomationRun, CompanyFact, Db, DocumentItem, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory,
   InteractionEdit, OrgAxisClassification } from './types';
 import { seed } from './data/seed';
 import { revisitTasksToClose } from './exit-effects';
@@ -591,7 +591,7 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, documents: prev.documents.map((d) => d.id === docId ? { ...d, storage_path: newStoragePath } : d) }));
     },
 
-    addDocumentVersion(docId, storagePath, size) {
+    addDocumentVersion(docId, storagePath, size, scan) {
       setDb((prev) => {
         const doc = prev.documents.find((d) => d.id === docId);
         if (!doc) return prev;
@@ -599,18 +599,25 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
         const now = new Date().toISOString();
         const rows = [...prev.documentVersions];
         let nextNum = existing.length ? Math.max(...existing.map((v) => v.version)) + 1 : 1;
+        const malwareScanStatus = (scan?.status as DocumentItem['malware_scan_status']) ?? 'not_scanned';
         // First time a document is versioned, snapshot its current file as v1
         // so the original is preserved (never lost, per the "never deletion"
         // rule) before the new upload becomes the current version.
         if (existing.length === 0 && doc.storage_path && doc.storage_path !== storagePath) {
-          rows.push({ id: uid('ver'), document_id: docId, version: 1, storage_path: doc.storage_path, uploaded_at: doc.created_at ?? now });
+          rows.push({
+            id: uid('ver'), document_id: docId, version: 1, storage_path: doc.storage_path, uploaded_at: doc.created_at ?? now,
+            malware_scan_status: doc.malware_scan_status ?? 'not_scanned',
+          });
           nextNum = 2;
         }
-        rows.push({ id: uid('ver'), document_id: docId, version: nextNum, storage_path: storagePath, size, uploaded_at: now });
+        rows.push({
+          id: uid('ver'), document_id: docId, version: nextNum, storage_path: storagePath, size, uploaded_at: now,
+          malware_scan_status: malwareScanStatus, content_sha256: scan?.sha256,
+        });
         return {
           ...prev,
           documentVersions: rows,
-          documents: prev.documents.map((d) => d.id === docId ? { ...d, storage_path: storagePath, version: `v${nextNum}` } : d),
+          documents: prev.documents.map((d) => d.id === docId ? { ...d, storage_path: storagePath, version: `v${nextNum}`, malware_scan_status: malwareScanStatus } : d),
         };
       });
     },

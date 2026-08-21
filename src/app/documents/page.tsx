@@ -1,6 +1,7 @@
 'use client';
 // Documents & Data Room — folder tree, documents with visibility attributes, grants, engagement
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card, PersonLink } from '@/components/ui';
@@ -529,6 +530,21 @@ function DocumentsPageInner() {
     });
   }, [db.org.id, db.documents.length]);
 
+  // Prompt 301 §3 — verify-then-confirm: the upload itself still goes
+  // straight to Storage (unchanged), but the document row is only ever
+  // created after /api/data-room/verify-upload clears it (magic-byte
+  // allowlist + malware scan). A rejected file never becomes a Vault entry
+  // — the route itself deletes the Storage object on rejection.
+  async function verifyUpload(path: string, fileName: string): Promise<{ status?: string; provider?: string | null; sha256?: string }> {
+    const res = await fetch('/api/data-room/verify-upload', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ storagePath: path, fileName }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!body.ok) throw new Error(body.error ?? 'File could not be verified.');
+    return { status: body.malwareScanStatus, provider: body.provider, sha256: body.sha256 };
+  }
+
   // F2: multiple files upload sequentially (one Storage round-trip each),
   // with per-file progress and a failed-file list — one bad file shouldn't
   // silently drop the rest of the batch.
@@ -543,9 +559,11 @@ function DocumentsPageInner() {
         const path = `${db.org.id}/${crypto.randomUUID()}-${sanitizeStorageKey(file.name)}`;
         const { error } = await sb.storage.from('data-room').upload(path, file);
         if (error) throw error;
+        const scan = await verifyUpload(path, file.name);
         addDocument({
           folder_id: selFolder, name: file.name, storage_path: path,
           is_view_only: true, visibility: docVisibility, watermark: false, downloadable: false,
+          malware_scan_status: scan.status as 'not_scanned' | 'pending' | 'clean' | 'flagged' | undefined,
         });
       } catch (e) {
         failed.push(`${file.name}: ${(e as Error).message}`);
@@ -563,6 +581,25 @@ function DocumentsPageInner() {
     if (error) { alert(`Could not open file: ${error.message}`); return; }
     window.open(data.signedUrl, '_blank');
   }
+
+  // Prompt 301 §1 — download as a DISTINCT action from Open. Confirmed by
+  // reading the Supabase JS client: a plain createSignedUrl() only ever
+  // gets Content-Disposition: inline from Storage, so openStored()'s
+  // window.open was never actually forcing a download for any of the
+  // Vault's file types (browsers render PDFs/images inline given the
+  // chance) — createSignedUrl's own `download` option is what forces
+  // Content-Disposition: attachment.
+  async function downloadStored(storagePath: string, fileName: string) {
+    const sb = browserClient();
+    const { data, error } = await sb.storage.from('data-room').createSignedUrl(storagePath, 60, { download: fileName });
+    if (error) { alert(`Could not download file: ${error.message}`); return; }
+    window.location.href = data.signedUrl;
+  }
+
+  // Prompt 301 §1 — version history moves from an inline <details> (only
+  // visible when expanded) to a popup, opened by clicking the current
+  // version number directly instead of it being small, inert text.
+  const [versionModalDocId, setVersionModalDocId] = useState<string | null>(null);
 
   function startRenameDoc(d: { id: string; name: string }) { setRenamingDocId(d.id); setRenameText(d.name); }
   function saveRenameDoc() {
@@ -612,7 +649,8 @@ function DocumentsPageInner() {
   // (name, folder, position, grants, details). When versioning is available
   // (migration 0029) this becomes "Nova versão": the prior file is KEPT as a
   // version (addDocumentVersion). Pre-migration it falls back to the legacy
-  // replace (replaceDocumentFile swaps + removes the old object).
+  // replace (replaceDocumentFile swaps + removes the old object). Prompt
+  // 301 §3 — same verify-then-confirm gate as a brand-new upload.
   async function newVersion(docId: string, file: File) {
     setReplacingDocId(docId);
     try {
@@ -620,7 +658,8 @@ function DocumentsPageInner() {
       const path = `${db.org.id}/${crypto.randomUUID()}-${sanitizeStorageKey(file.name)}`;
       const { error } = await sb.storage.from('data-room').upload(path, file);
       if (error) throw error;
-      if (documentVersionsAvailable) addDocumentVersion(docId, path, file.size);
+      const scan = await verifyUpload(path, file.name);
+      if (documentVersionsAvailable) addDocumentVersion(docId, path, file.size, scan);
       else replaceDocumentFile(docId, path);
     } catch (e) {
       alert(`Upload failed: ${(e as Error).message}`);
@@ -629,11 +668,44 @@ function DocumentsPageInner() {
     }
   }
 
+  // Prompt 301 §2 — new version from a link/Drive URL. The content is
+  // FETCHED server-side and stored as a real, scanned Storage object — see
+  // the decision recorded in new-version-from-link/route.ts's own header —
+  // never kept as a live external reference.
+  const [linkVersionDocId, setLinkVersionDocId] = useState<string | null>(null);
+  const [linkVersionUrl, setLinkVersionUrl] = useState('');
+  const [linkVersionErr, setLinkVersionErr] = useState('');
+  async function newVersionFromLink(docId: string) {
+    if (!linkVersionUrl.trim()) return;
+    setReplacingDocId(docId); setLinkVersionErr('');
+    try {
+      const res = await fetch('/api/data-room/new-version-from-link', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ docId, url: linkVersionUrl.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.ok) { setLinkVersionErr(body.error ?? 'Could not fetch that link.'); return; }
+      const scan = { status: body.malwareScanStatus, provider: body.provider, sha256: body.sha256 };
+      if (documentVersionsAvailable) addDocumentVersion(docId, body.storagePath, body.size, scan);
+      else replaceDocumentFile(docId, body.storagePath);
+      setLinkVersionDocId(null); setLinkVersionUrl('');
+    } finally {
+      setReplacingDocId(null);
+    }
+  }
+
   // E7 — restore an older version: point the document back at that object as a
   // NEW current version (never a deletion). No upload — the object already
   // exists in Storage.
+  // Restoring points back at an object that was already verified/scanned
+  // when it was first uploaded — carry that same status through instead of
+  // resetting it to 'not_scanned' (which would be dishonest either way: it
+  // HAS been scanned, just not just now).
   function restoreVersion(docId: string, storagePath: string, size?: number) {
-    addDocumentVersion(docId, storagePath, size);
+    const priorVersion = db.documentVersions.find((v) => v.document_id === docId && v.storage_path === storagePath);
+    addDocumentVersion(docId, storagePath, size, priorVersion
+      ? { status: priorVersion.malware_scan_status, sha256: priorVersion.content_sha256 }
+      : undefined);
   }
 
   function startRenameFolder(f: Folder) { setRenamingFolderId(f.id); setFolderRenameText(f.name); }
@@ -823,7 +895,25 @@ function DocumentsPageInner() {
                         ) : (
                           <span className="font-medium">{d.name}</span>
                         )}
-                        {d.version && <span className="text-xs text-gray-400">{d.version}</span>}
+                        {d.version && (
+                          documentVersionsAvailable ? (
+                            <button onClick={() => setVersionModalDocId(d.id)}
+                              className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-cyan-700 hover:bg-gray-200"
+                              title="View version history">
+                              {d.version}
+                            </button>
+                          ) : <span className="text-xs text-gray-400">{d.version}</span>
+                        )}
+                        {d.malware_scan_status === 'flagged' && (
+                          <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-[#B00000]" title="Flagged by malware scan — not servable to anyone but you">
+                            ⚠ flagged
+                          </span>
+                        )}
+                        {d.malware_scan_status === 'pending' && (
+                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Malware scan still in progress">
+                            scan pending
+                          </span>
+                        )}
                         {d.is_view_only
                           ? <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-800">view-only ✓</span>
                           : <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-800">not view-only — blocked from sharing</span>}
@@ -842,18 +932,34 @@ function DocumentsPageInner() {
                             className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
                             Open
                           </button>
+                          {d.storage_path && (
+                            <button onClick={() => downloadStored(d.storage_path!, d.name)}
+                              className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">
+                              Download
+                            </button>
+                          )}
                           <button onClick={() => startRenameDoc(d)} className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">
                             Rename
                           </button>
                           {authEnabled && d.storage_path && (
-                            <label className={`cursor-pointer rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 ${replacingDocId === d.id ? 'opacity-50' : ''}`}
-                              title={documentVersionsAvailable
-                                ? 'Upload a new version — the previous file is kept in the version history'
-                                : "Upload a new file, keeping this document's name, folder and access grants"}>
-                              {replacingDocId === d.id ? 'Uploading…' : documentVersionsAvailable ? 'Nova versão' : 'Replace'}
-                              <input type="file" className="hidden" disabled={replacingDocId === d.id}
-                                onChange={(e) => { const f = e.target.files?.[0]; if (f) newVersion(d.id, f); e.target.value = ''; }} />
-                            </label>
+                            <>
+                              <label className={`cursor-pointer rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 ${replacingDocId === d.id ? 'opacity-50' : ''}`}
+                                title={documentVersionsAvailable
+                                  ? 'Upload a new version — the previous file is kept in the version history'
+                                  : "Upload a new file, keeping this document's name, folder and access grants"}>
+                                {replacingDocId === d.id ? 'Uploading…' : documentVersionsAvailable ? 'Nova versão' : 'Replace'}
+                                <input type="file" className="hidden" disabled={replacingDocId === d.id}
+                                  onChange={(e) => { const f = e.target.files?.[0]; if (f) newVersion(d.id, f); e.target.value = ''; }} />
+                              </label>
+                              {documentVersionsAvailable && (
+                                <button onClick={() => { setLinkVersionDocId(linkVersionDocId === d.id ? null : d.id); setLinkVersionUrl(''); setLinkVersionErr(''); }}
+                                  disabled={replacingDocId === d.id}
+                                  className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                                  title="New version from a link or Google Drive">
+                                  ou link
+                                </button>
+                              )}
+                            </>
                           )}
                           {documentDetailsAvailable && (
                             <button onClick={() => startDetails(d)} className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">
@@ -881,34 +987,70 @@ function DocumentsPageInner() {
                       ) : d.details && documentDetailsAvailable ? (
                         <p className="mt-1 text-xs italic text-gray-400">{d.details}</p>
                       ) : null}
-                      {documentVersionsAvailable && (() => {
-                        const versions = db.documentVersions.filter((v) => v.document_id === d.id).sort((a, b) => b.version - a.version);
-                        if (versions.length === 0) return null;
-                        return (
-                          <details className="mt-1.5">
-                            <summary className="cursor-pointer text-[11px] text-gray-500">Versions ({versions.length})</summary>
-                            <ul className="mt-1 space-y-1">
-                              {versions.map((v) => {
-                                const isCurrent = v.storage_path === d.storage_path;
-                                return (
-                                  <li key={v.id} className="flex flex-wrap items-center gap-2 text-[11px] text-gray-600">
-                                    <span className="font-medium">v{v.version}</span>
-                                    {isCurrent && <span className="rounded bg-green-100 px-1 py-0.5 text-[10px] font-bold text-green-700">atual</span>}
-                                    <span className="text-gray-400">{v.uploaded_at.slice(0, 10)}{v.size != null ? ` · ${fmtBytes(v.size)}` : ''}</span>
-                                    <button onClick={() => openStored(v.storage_path)} className="text-cyan-700 hover:underline">abrir</button>
-                                    {!isCurrent && <button onClick={() => restoreVersion(d.id, v.storage_path, v.size)} className="text-cyan-700 hover:underline">restaurar</button>}
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          </details>
-                        );
-                      })()}
+                      {linkVersionDocId === d.id && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 p-2">
+                          <input value={linkVersionUrl} onChange={(e) => setLinkVersionUrl(e.target.value)}
+                            placeholder="Paste a link or Google Drive share URL…" autoFocus
+                            className="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-xs" />
+                          <button onClick={() => newVersionFromLink(d.id)} disabled={!linkVersionUrl.trim() || replacingDocId === d.id}
+                            className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
+                            {replacingDocId === d.id ? 'Fetching…' : 'Fetch & version'}
+                          </button>
+                          <button onClick={() => { setLinkVersionDocId(null); setLinkVersionErr(''); }} className="text-xs text-gray-400 hover:underline">
+                            Cancel
+                          </button>
+                          {linkVersionErr && <p className="w-full text-[11px] text-[#B00000]">{linkVersionErr}</p>}
+                          <p className="w-full text-[10px] text-gray-400">
+                            Fetched and stored as a real file, going through the same allowlist + malware scan as a direct upload — the link itself is never kept as a live reference.
+                          </p>
+                        </div>
+                      )}
                     </li>
                   );
                 })}
               </ul>
             )}
+            {versionModalDocId && typeof document !== 'undefined' && (() => {
+              const d = db.documents.find((doc) => doc.id === versionModalDocId);
+              if (!d) return null;
+              const versions = db.documentVersions.filter((v) => v.document_id === d.id).sort((a, b) => b.version - a.version);
+              // Prompt 301 §1 / CLAUDE.md — a fixed, full-viewport overlay must
+              // portal to document.body: an ancestor with backdrop-blur/
+              // transform/etc silently becomes fixed's containing block
+              // otherwise (confirmed root-cause of a prior bug on this exact
+              // pattern, see WorkspaceHeader's backdrop-blur incident).
+              return createPortal(
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setVersionModalDocId(null)}>
+                  <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+                    <div className="mb-3 flex items-start justify-between">
+                      <h3 className="text-base font-bold text-gray-900">Version history — {d.name}</h3>
+                      <button onClick={() => setVersionModalDocId(null)} className="text-sm text-gray-400 hover:text-gray-700">✕</button>
+                    </div>
+                    {versions.length === 0 ? <p className="text-sm text-gray-400">No prior versions.</p> : (
+                      <ul className="space-y-2">
+                        {versions.map((v) => {
+                          const isCurrent = v.storage_path === d.storage_path;
+                          return (
+                            <li key={v.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-100 p-2 text-sm">
+                              <span className="font-semibold text-gray-900">v{v.version}</span>
+                              {isCurrent && <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-700">current</span>}
+                              {v.malware_scan_status === 'flagged' && <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-[#B00000]">⚠ flagged</span>}
+                              <span className="text-xs text-gray-400">{v.uploaded_at.slice(0, 10)}{v.size != null ? ` · ${fmtBytes(v.size)}` : ''}</span>
+                              <span className="ml-auto flex gap-2 text-xs">
+                                <button onClick={() => openStored(v.storage_path)} className="text-cyan-700 hover:underline">Open</button>
+                                <button onClick={() => downloadStored(v.storage_path, `${d.name} (v${v.version})`)} className="text-cyan-700 hover:underline">Download</button>
+                                {!isCurrent && <button onClick={() => restoreVersion(d.id, v.storage_path, v.size)} className="text-cyan-700 hover:underline">Restore</button>}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </div>,
+                document.body,
+              );
+            })()}
             <div className="mt-3 border-t border-gray-100 pt-3">
               <div className="text-xs font-medium text-gray-500">Access level for new documents</div>
               <div className="mt-1 flex flex-wrap gap-1.5">

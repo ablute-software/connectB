@@ -128,7 +128,9 @@ async function latestTicketSignal(admin: SupabaseClient, orgId: string, email: s
 
 async function toPortalDoc(admin: SupabaseClient, d: Record<string, unknown>) {
   let signedUrl: string | null = (d.external_url as string | null) ?? null;
-  if (!signedUrl && d.storage_path) {
+  // Prompt 301 §3 — same gate as /api/portal/access-granted: a flagged
+  // document is refused to any viewer other than the uploading org itself.
+  if (!signedUrl && d.storage_path && d.malware_scan_status !== 'flagged') {
     const { data: signed } = await admin.storage.from('data-room').createSignedUrl(d.storage_path as string, 300);
     signedUrl = signed?.signedUrl ?? null;
   }

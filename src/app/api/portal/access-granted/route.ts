@@ -27,9 +27,15 @@ interface RawGrant extends GrantStatusInput {
   granted_at: string; nda_required: boolean; nda_accepted_at?: string;
 }
 
+// Prompt 301 §3 — a flagged document is refused to any viewer other than
+// the uploading org itself; every other status (including 'pending' and
+// 'not_scanned') still serves normally — hard-blocking anything short of a
+// confirmed 'clean' would make every pre-existing document, and every
+// upload while VIRUSTOTAL_API_KEY isn't configured, invisible to investors.
 async function signedUrlFor(admin: SupabaseClient, d: Record<string, unknown>) {
   if (d.external_url) return d.external_url as string;
   if (!d.storage_path) return null;
+  if (d.malware_scan_status === 'flagged') return null;
   const { data } = await admin.storage.from('data-room').createSignedUrl(d.storage_path as string, 300);
   return data?.signedUrl ?? null;
 }
