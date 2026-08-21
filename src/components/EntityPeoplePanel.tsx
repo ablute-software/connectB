@@ -15,6 +15,7 @@
 // rule the worker itself enforces, checked again here rather than trusted
 // blindly from hook_status alone.
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card } from '@/components/ui';
 import { useStore } from '@/lib/store';
@@ -227,7 +228,10 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
             return (
               <li key={p.id} className="py-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-gray-900">{p.full_name}</span>
+                  {/* Prompt 291 §4 — the only change this prompt makes
+                      here: the catalog-level profile page (all of this
+                      person's current affiliations, not just this one). */}
+                  <Link href={`/catalog-people/${p.id}`} className="font-medium text-gray-900 hover:text-[#0E7490] hover:underline">{p.full_name}</Link>
                   {row.title && <span className="text-xs text-gray-500">{row.title}</span>}
                   {p.linkedin_verified && p.linkedin_url && (
                     <a href={p.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#0E7490] hover:underline">
