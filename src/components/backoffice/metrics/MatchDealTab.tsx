@@ -12,7 +12,139 @@ interface MatchDealData {
   usageByTier: Record<string, { profiles: number; shown: number; likes: number; reconsiderations: number }>;
 }
 
+interface RankRow {
+  profileId: string; label: string; activeMinutes: number; standbyMinutes: number;
+  accessesPerDay: number; sessionCount: number; hourlyHistogram: number[];
+}
+interface UsageRankingData { windowDays: number; byKind: { startup: RankRow[]; investor: RankRow[] }; hourlyHistogram: number[] }
+
+interface AffinityRow {
+  viewerProfileId: string; viewerKind?: 'startup' | 'investor'; viewerLabel: string; sampleSize: number;
+  overallAvgDecisionSeconds: number; overallLikeRatePct: number;
+  topPattern: {
+    type: 'sector' | 'stage'; value: string; sampleSize: number;
+    avgDecisionSeconds: number; likeRatePct: number;
+    elsewhereAvgDecisionSeconds: number; elsewhereLikeRatePct: number;
+  } | null;
+}
+interface AffinityData { minSample: number; rows: AffinityRow[] }
+
 const TIER_LABEL: Record<string, string> = { tier_a: 'Tier A (Elementary)', tier_b: 'Tier B (List of Suspects)', tier_c: 'Tier C (Butler)', unknown: 'Unknown tier' };
+
+function fmtDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.round(seconds / 60)}min`;
+}
+
+function HourlyHistogram({ hours }: { hours: number[] }) {
+  const max = Math.max(1, ...hours);
+  return (
+    <div className="flex h-12 items-end gap-0.5">
+      {hours.map((v, h) => (
+        <div key={h} title={`${h}:00 — ${v}`} className="w-2 flex-1 rounded-t bg-[#0E7490]" style={{ height: `${Math.max(2, (v / max) * 100)}%`, opacity: v > 0 ? 1 : 0.15 }} />
+      ))}
+    </div>
+  );
+}
+
+function UsageRankingSection() {
+  const [data, setData] = useState<UsageRankingData | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/backoffice/metrics/matchdeal/usage-ranking').then((r) => r.json()).then((body) => { if (body.ok) setData(body); });
+  }, []);
+
+  if (!data) return <p className="text-sm text-gray-400">Loading…</p>;
+
+  function RankTable({ rows }: { rows: RankRow[] }) {
+    if (rows.length === 0) return <p className="text-sm text-gray-400">No usage recorded in this window yet.</p>;
+    return (
+      <div className="space-y-1">
+        {rows.map((r) => (
+          <div key={r.profileId} className="rounded-lg border border-gray-50 p-2">
+            <button onClick={() => setExpandedId(expandedId === r.profileId ? null : r.profileId)} className="flex w-full items-center justify-between text-left text-sm">
+              <span className="font-semibold text-gray-900">{r.label}</span>
+              <span className="flex gap-3 text-xs text-gray-500">
+                <span>{r.activeMinutes}min active</span>
+                <span className="text-gray-300">·</span>
+                <span>{r.standbyMinutes}min standby</span>
+                <span className="text-gray-300">·</span>
+                <span>{r.accessesPerDay}/day</span>
+              </span>
+            </button>
+            {expandedId === r.profileId && (
+              <div className="mt-2 border-t border-gray-50 pt-2">
+                <p className="mb-1 text-[10px] uppercase tracking-wide text-gray-400">Usual hours of access (UTC)</p>
+                <HourlyHistogram hours={r.hourlyHistogram} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <Card title={`MatchDeal usage ranking — last ${data.windowDays} days`}>
+      <p className="mb-3 text-xs text-gray-400">
+        Active and standby minutes are kept separate, never summed. Hours-of-access below is aggregated across all
+        participants (UTC) — per-person hours appear when a row is expanded.
+      </p>
+      <div className="mb-4">
+        <p className="mb-1 text-[10px] uppercase tracking-wide text-gray-400">Usual hours of access — all participants (UTC)</p>
+        <HourlyHistogram hours={data.hourlyHistogram} />
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Startups</h3>
+          <RankTable rows={data.byKind.startup} />
+        </div>
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Investors</h3>
+          <RankTable rows={data.byKind.investor} />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function AffinitySection() {
+  const [data, setData] = useState<AffinityData | null>(null);
+
+  useEffect(() => {
+    fetch('/api/backoffice/metrics/matchdeal/affinity').then((r) => r.json()).then((body) => { if (body.ok) setData(body); });
+  }, []);
+
+  if (!data) return <p className="text-sm text-gray-400">Loading…</p>;
+  const withPattern = data.rows.filter((r) => r.topPattern);
+
+  return (
+    <Card title="Profile affinity — per-viewer decision time & like rate">
+      <p className="mb-3 text-xs text-gray-400">
+        Diagnostic only — internal, admin-only, never surfaced to any investor/startup-facing page (see migration 0204).
+        Decision time is approximated from the most recent prior exposure, not a measured dwell time; a pattern only
+        shows below a minimum sample of {data.minSample} exposure-backed swipes — otherwise it honestly says so.
+      </p>
+      {withPattern.length === 0 ? (
+        <p className="text-sm text-gray-400">No viewer has enough exposure-backed swipes yet for a pattern to be meaningful.</p>
+      ) : (
+        <ul className="space-y-2">
+          {withPattern.map((r) => (
+            <li key={r.viewerProfileId} className="rounded-lg border border-gray-50 p-2.5 text-sm">
+              <span className="font-semibold text-gray-900">{r.viewerLabel}</span>
+              <span className="ml-1.5 text-xs text-gray-400">({r.viewerKind ?? '—'}, {r.sampleSize} swipes)</span>
+              <p className="mt-1 text-xs text-gray-600">
+                Spends {fmtDuration(r.topPattern!.avgDecisionSeconds)} avg on <span className="font-medium">{r.topPattern!.value}</span> profiles
+                ({r.topPattern!.type}), {r.topPattern!.likeRatePct}% like rate — vs {fmtDuration(r.topPattern!.elsewhereAvgDecisionSeconds)}/{r.topPattern!.elsewhereLikeRatePct}% elsewhere.
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
 
 function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
@@ -75,6 +207,9 @@ export function MatchDealTab() {
           </table>
         )}
       </Card>
+
+      <UsageRankingSection />
+      <AffinitySection />
     </div>
   );
 }

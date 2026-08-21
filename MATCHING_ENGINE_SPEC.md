@@ -112,6 +112,40 @@ and a future weight change replayable without re-touching raw data.
 (giving the founder an argument for their first approach), the fact matters more than the
 sentence.
 
+**MatchDeal dwell-time affinity signal — candidate, not yet built (Prompt 297):**
+
+Same phased, additive-only discipline as the portfolio signal above, for a second candidate that
+comes from a completely different part of the product (MatchDeal, not the CRM catalog):
+
+1. **Data source.** Prompt 297 §2 built a backoffice-only diagnostic (`GET /api/backoffice/
+   metrics/matchdeal/affinity`) that cross-references `matchdeal_exposures`/`matchdeal_swipes`
+   (migration 0053) to approximate, per viewer, how long they spend deciding on a profile and how
+   often they like it — broken down by the swiped-on profile's own sector/stage. That route is
+   diagnostic only today: nothing in it feeds the matching engine, and this section documents it
+   as a *candidate* signal, not a decision to wire it in.
+2. **Not in v1, same reasoning as the portfolio signal.** Most viewers don't have enough
+   exposure-backed swipes yet for the pattern to be statistically meaningful (the diagnostic
+   route itself won't surface a pattern below a minimum sample size, for exactly this reason) —
+   scoring on it now would reward/penalize based on how much a viewer happens to have used the
+   swipe deck, not on genuine fit.
+3. **Would enter only as an ADDITIVE bonus**, applied only where a viewer has a clear,
+   sample-backed pattern (the same "topPattern" the diagnostic route already computes) —
+   absence of a pattern is neutral, exactly like the portfolio signal's own rule. A viewer with
+   no discernible pattern lands wherever the other factors already put them; never a penalty for
+   swiping less.
+4. **Two hard constraints, both from Prompt 297 §3 directly:**
+   - **Never becomes an incentive to spend more time in the app.** This stays purely internal/
+     diagnostic — no gamification, no notification, no on-screen nudge telling a user "you spend
+     more time on X" — the moment this becomes visible to the person it's measuring, it stops
+     being a passive signal and starts being something the platform is asking users to optimize
+     for, which is explicitly out of bounds.
+   - **Same "absence never penalizes" rule as the portfolio signal** (point 3 above) — restated
+     because it's the one property that must survive unchanged if this is ever actually wired in.
+5. **Known limitations, inherited from the diagnostic route itself** — decision-time is
+   approximated from the most recent PRIOR exposure, not a measured dwell time; swipes with no
+   recorded exposure are excluded rather than guessed at. A future scoring use would need to
+   re-confirm these approximations are still tight enough to score on, not just diagnose with.
+
 ## 5. Where AI still lives — catalog ingestion only
 
 The one place AI remains: converting an investor's unstructured prose (thesis, site copy, fund
