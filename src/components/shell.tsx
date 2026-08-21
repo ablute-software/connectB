@@ -18,6 +18,7 @@ import { ReminderPopup } from '@/components/ReminderPopup';
 import { InvestorInterestPopup } from '@/components/InvestorInterestPopup';
 import { useBottomNavRef } from '@/lib/bottom-nav-context';
 import { BRAND_NAME } from '@/lib/brand';
+import { useUsageHeartbeat } from '@/lib/use-usage-heartbeat';
 import { WorkspaceSidebar } from '@/components/workspace-shell/WorkspaceSidebar';
 import { WorkspaceMobileNav } from '@/components/workspace-shell/WorkspaceMobileNav';
 import { WorkspaceHeader } from '@/components/workspace-shell/WorkspaceHeader';
@@ -148,6 +149,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // for a signed-in visitor who followed the landing footer link, not get
   // the founder app chrome wrapped around it.
   const isStandaloneAuthPage = path === '/login' || path === '/signup' || path === '/forgot-password' || path === '/reset-password' || path === '/set-password' || path === '/contact' || path === '/auth/confirm' || path === '/suspended';
+  // Prompt 295 §1 — Shell mounts (and its hooks run) for EVERY route,
+  // including the ones just below that early-return bare children — the
+  // heartbeat must not count that time as 'crm' context (backoffice has
+  // its own heartbeat mount, /pair's MatchDeal heartbeat is separate, and
+  // the rest have no real founder-workspace session to attribute at all).
+  // Same condition as the early-return two lines down, computed once here
+  // so both share it instead of duplicating the path list.
+  const isBareShellRoute = path === '/' || path === '/investors' || path === '/pair' || isStandaloneAuthPage
+    || path?.startsWith('/guest') || path?.startsWith('/claim') || path?.startsWith('/invite') || path?.startsWith('/portal') || path?.startsWith('/backoffice');
+  useUsageHeartbeat({ context: 'crm', enabled: me?.authEnabled === true && !isBareShellRoute });
   // /pair is the MatchDeal PWA (MD-08). It was missing from this list, so
   // the phone screen behind the QR code inherited the founder CRM chrome —
   // "ablute_" header, outreach caps pill, "+ Log interaction", and the
@@ -172,7 +183,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // (wrong title, ghost nav links that 401/redirect for someone with no
   // org membership yet) when wrapped. Flagged separately from the /guest
   // fix above rather than folded in silently; fixed here.
-  if (path === '/' || path === '/investors' || path === '/pair' || isStandaloneAuthPage || path?.startsWith('/guest') || path?.startsWith('/claim') || path?.startsWith('/invite') || path?.startsWith('/portal') || path?.startsWith('/backoffice')) return <>{children}</>;
+  if (isBareShellRoute) return <>{children}</>;
 
   // Prompt 152 — an authenticated session that resolves to role==='none'
   // means /api/provision-org never completed for this account (confirmed

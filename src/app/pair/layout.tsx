@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { MatchDealHeartbeat } from '@/components/matchdeal/MatchDealHeartbeat';
 
 // Manifest link scoped to /pair only, not the whole app (a static
 // public/manifest.json, not the Next.js per-segment manifest.ts file
@@ -25,5 +26,10 @@ export const viewport: Viewport = {
 };
 
 export default function PairLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return (
+    <>
+      {children}
+      <MatchDealHeartbeat />
+    </>
+  );
 }

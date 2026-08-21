@@ -25,6 +25,7 @@ import { catalogMonthlyDeliveryAvailable } from '@/lib/catalog-monthly-delivery-
 import { deliverMonthlyForOrg, type MonthlyDeliveryOrgRow, type MonthlyDeliveryResult } from '@/lib/catalog-monthly-delivery-server';
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { runPioneerExpiryJob } from '@/lib/pioneer-server';
+import { computeAndStoreOverviewSnapshot } from '@/lib/metrics-snapshot';
 
 // Prompt 201 §3 — limiar de sinal, não de aborto.
 const MONTHLY_DELIVERY_ALERT_THRESHOLD = 100;
@@ -78,6 +79,19 @@ export async function GET() {
     pioneerBadges = await runPioneerExpiryJob(admin, now);
   }
 
+  // Prompt 295 §3 — guarantees at least 1 overview snapshot/day even if no
+  // developer opens /metrics that day, so History never has a gap wider
+  // than 24h. The Hobby plan's 1x/day cron cap (CLAUDE.md) is exactly why
+  // this can't also be the "adjust frequency to traffic" mechanism the
+  // Nuno asked for — Prompt 296's popup (a developer's own manual
+  // decision, session by session) is that mechanism instead.
+  let metricsSnapshot: { stored: boolean } | null = null;
+  try {
+    metricsSnapshot = await computeAndStoreOverviewSnapshot(admin, { triggeredBy: 'daily_cron' });
+  } catch (e) {
+    console.error('[automations] daily metrics snapshot failed:', e);
+  }
+
   // TODO: implement server-side automation-rules tick — see src/lib/rules.ts
   // (pure functions, ready to reuse). Unchanged scope from before this prompt.
   return NextResponse.json({
@@ -85,5 +99,6 @@ export async function GET() {
     message: 'Engine tick placeholder — automation-rules tick not yet wired to the real database.',
     monthlyDelivery,
     pioneerBadges,
+    metricsSnapshot,
   });
 }
