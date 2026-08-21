@@ -284,7 +284,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </>
           }
         />
-        <main className="mx-auto max-w-6xl p-4 md:p-8">{children}</main>
+        {/* Prompt 286 — Pipeline's 9-column table needs real desktop
+            width to avoid horizontal scroll; every other page (forms,
+            dossier) is narrower by design and keeps max-w-6xl. Reading
+            `path` here (already computed above for tourKeysForPath)
+            instead of a new Shell prop, since Shell has exactly one call
+            site (app/layout.tsx) — a prop would need threading through
+            that single site anyway, for no extra flexibility. */}
+        <main className={`mx-auto p-4 md:p-8 ${path === '/pipeline' ? 'max-w-[1600px]' : 'max-w-6xl'}`}>{children}</main>
       </div>
 
       <WorkspaceMobileNav ref={mobileNavRef} items={mobileNavItems} />

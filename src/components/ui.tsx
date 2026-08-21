@@ -144,9 +144,19 @@ export const statusLabel: Record<EntityStatus, string> = {
 // the raw status, for the 3 dedicated Pipeline views only; every other call
 // site is unaffected since both default to the plain status lookup.
 export function StatusPill({ status, labelOverride, explainOverride }: { status: EntityStatus; labelOverride?: string; explainOverride?: string }) {
+  // Prompt 286 — was whitespace-nowrap: the one genuinely unbreakable
+  // string in the whole Pipeline table (frozenPillLabel overrides like
+  // "Fraud — pending review" run past most column widths). Confirmed by
+  // grep this was the only nowrap in the table's render path — under
+  // table-fixed, an unbreakable span still forces its column past its
+  // allotted % and the whole table past the container, which is exactly
+  // the horizontal-scroll bug reported. A long label now wraps to two
+  // lines inside the rounded-full pill instead — a taller capsule, not a
+  // broken shape — everywhere this component is used (both the Pipeline
+  // table and the entities/[id] header's flex-wrap row tolerate it fine).
   return (
     <Tooltip text={explainOverride ?? statusExplain[status]}>
-      <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${statusStyle[status]}`}>
+      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${statusStyle[status]}`}>
         {labelOverride ?? statusLabel[status]}
       </span>
     </Tooltip>
