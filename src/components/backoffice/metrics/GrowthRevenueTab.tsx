@@ -3,17 +3,34 @@
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
 import { PeriodPicker, type Period } from './PeriodPicker';
+import { MetricDrillDown, type DrillDownSeries } from './MetricDrillDown';
 
 interface GrowthData {
   acquisition: { completedRegistrations: number; bySource: Record<string, number> };
   plans: { free: number; paid: number; byPlan: Record<string, number>; upgrades: number; downgrades: number; cancellations: number };
-  revenue: { mrr: number; arr: number; netNewMrr: number; startupRevenue: number; investorRevenue: number; arpa: number; discountsValue: number };
+  revenue: {
+    mrr: number; mrrPotential: number; arr: number; arrPotential: number; netNewMrr: number;
+    startupRevenue: number; investorRevenue: number; arpa: number; discountsValue: number;
+  };
   promo: { totalRedemptions: number; byPartner: Record<string, number>; activationRatePct: number | null };
 }
 
-function MiniStat({ label, value }: { label: string; value: string | number }) {
+function fmtEur(n: number): string { return `€${Math.round(n).toLocaleString()}`; }
+
+// Prompt 296 §2 — clickable when it names history path(s) (only MRR/ARR
+// have history captured today, since those are the fields the daily
+// snapshot stores under revenue.* — see metrics-snapshot.ts). Everything
+// else here (ARPA, upgrades/downgrades, promo breakdown, …) isn't in the
+// snapshot payload yet, so it stays a plain, non-clickable card rather than
+// promising a trend chart that would never have anything to show.
+function MiniStat({ label, value, onClick }: { label: string; value: string | number; onClick?: () => void }) {
   return (
-    <div className="rounded-xl border border-gray-100 bg-white p-3">
+    <div
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      className={`rounded-xl border border-gray-100 bg-white p-3 ${onClick ? 'cursor-pointer transition hover:border-[#0E7490] hover:shadow-sm' : ''}`}
+    >
       <div className="text-lg font-bold text-[#0E7490]">{value}</div>
       <div className="mt-0.5 text-[11px] text-gray-500">{label}</div>
     </div>
@@ -38,6 +55,7 @@ export function GrowthRevenueTab() {
   const [period, setPeriod] = useState<Period>('30d');
   const [data, setData] = useState<GrowthData | null>(null);
   const [err, setErr] = useState('');
+  const [drillDown, setDrillDown] = useState<{ title: string; series: DrillDownSeries[] } | null>(null);
 
   useEffect(() => {
     fetch(`/api/backoffice/metrics/growth?period=${period}`).then((r) => r.json()).then((body) => {
@@ -76,10 +94,36 @@ export function GrowthRevenueTab() {
           </Card>
 
           <Card title="Revenue">
+            {/* Prompt 296 §3 — real (effective, post-discount) always primary
+                and prominent; potential (list price) always secondary and
+                discreet, right next to it — never a single ambiguous number. */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <MiniStat label="MRR" value={`€${data.revenue.mrr.toLocaleString()}`} />
-              <MiniStat label="ARR" value={`€${data.revenue.arr.toLocaleString()}`} />
-              <MiniStat label="Net New MRR" value={`€${data.revenue.netNewMrr.toLocaleString()}`} />
+              <div className="rounded-xl border border-gray-100 bg-white p-3 cursor-pointer transition hover:border-[#0E7490] hover:shadow-sm"
+                onClick={() => setDrillDown({
+                  title: 'MRR — real vs. potencial',
+                  series: [
+                    { path: 'revenue.mrr', label: 'Real (efetivo)', color: '#0E7490', formatValue: fmtEur },
+                    { path: 'revenue.mrrPotential', label: 'Potencial (preço de tabela)', color: '#CBD5E1', formatValue: fmtEur },
+                  ],
+                })}>
+                <div className="text-lg font-bold text-[#0E7490]">{fmtEur(data.revenue.mrr)}</div>
+                <div className="text-[11px] text-gray-400">real · {fmtEur(data.revenue.mrrPotential)} ao preço de tabela</div>
+                <div className="mt-0.5 text-[11px] text-gray-500">MRR</div>
+              </div>
+              <div className="rounded-xl border border-gray-100 bg-white p-3 cursor-pointer transition hover:border-[#0E7490] hover:shadow-sm"
+                onClick={() => setDrillDown({
+                  title: 'ARR — real vs. potencial (MRR × 12)',
+                  series: [
+                    { path: 'revenue.mrr', label: 'Real (efetivo) — MRR', color: '#0E7490', formatValue: (v) => fmtEur(v * 12) },
+                    { path: 'revenue.mrrPotential', label: 'Potencial (preço de tabela) — MRR', color: '#CBD5E1', formatValue: (v) => fmtEur(v * 12) },
+                  ],
+                })}>
+                <div className="text-lg font-bold text-[#0E7490]">{fmtEur(data.revenue.arr)}</div>
+                <div className="text-[11px] text-gray-400">real · {fmtEur(data.revenue.arrPotential)} ao preço de tabela</div>
+                <div className="mt-0.5 text-[11px] text-gray-500">ARR</div>
+              </div>
+              <MiniStat label="Net New MRR" value={`€${data.revenue.netNewMrr.toLocaleString()}`}
+                onClick={() => setDrillDown({ title: 'Net New MRR', series: [{ path: 'revenue.netNewMrr', label: 'Net New MRR', color: '#16a34a', formatValue: fmtEur }] })} />
               <MiniStat label="ARPA" value={`€${data.revenue.arpa.toLocaleString()}`} />
               <MiniStat label="Startup revenue" value={`€${data.revenue.startupRevenue.toLocaleString()}`} />
               <MiniStat label="Investor revenue" value={`€${data.revenue.investorRevenue.toLocaleString()}`} />
@@ -98,6 +142,10 @@ export function GrowthRevenueTab() {
             <div className="mt-3"><Breakdown data={data.promo.byPartner} /></div>
           </Card>
         </>
+      )}
+
+      {drillDown && (
+        <MetricDrillDown title={drillDown.title} series={drillDown.series} onClose={() => setDrillDown(null)} />
       )}
     </div>
   );

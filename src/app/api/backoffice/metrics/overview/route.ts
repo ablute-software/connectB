@@ -55,6 +55,9 @@ export async function GET(req: Request) {
     },
     revenue: {
       mrr: mrrNow.total,
+      // Prompt 296 §3 — always shown alongside the real number, never alone.
+      mrrPotential: mrrNow.totalPotential,
+      discountsValue: mrrNow.discountsValue,
       netNewMrr: netNew,
       freeToPaidConversion: freeToPaid,
       monthlyRevenueChurnPct: churn,

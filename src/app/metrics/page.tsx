@@ -28,6 +28,8 @@ import { EcosystemTab } from '@/components/backoffice/metrics/EcosystemTab';
 import { MatchDealTab } from '@/components/backoffice/metrics/MatchDealTab';
 import { SampleCoverageTab } from '@/components/backoffice/metrics/SampleCoverageTab';
 import { MethodologyTab } from '@/components/backoffice/metrics/MethodologyTab';
+import { MetricDrillDown, type DrillDownSeries } from '@/components/backoffice/metrics/MetricDrillDown';
+import { UsageRankingTab } from '@/components/backoffice/metrics/UsageRankingTab';
 
 // Prompt 124 §0 — two floors, not a flat row of tabs: the rules differ (the
 // app floor can show individual accounts; Ecosystem never does — K=8 RPCs),
@@ -35,7 +37,7 @@ import { MethodologyTab } from '@/components/backoffice/metrics/MethodologyTab';
 // cohorts), and Ecosystem only gets real screen space if it isn't competing
 // with a row of 7 tabs.
 type Floor = 'app' | 'ecosystem';
-type AppTab = 'overview' | 'growth' | 'activation' | 'fundraising' | 'organizations' | 'matchdeal';
+type AppTab = 'overview' | 'growth' | 'activation' | 'fundraising' | 'organizations' | 'matchdeal' | 'usage';
 type EcosystemTabKey = 'xray' | 'sample-coverage' | 'methodology';
 
 const APP_TABS: { key: AppTab; label: string }[] = [
@@ -45,6 +47,11 @@ const APP_TABS: { key: AppTab; label: string }[] = [
   { key: 'fundraising', label: 'Fundraising Outcomes' },
   { key: 'organizations', label: 'Organizations' },
   { key: 'matchdeal', label: 'MatchDeal' },
+  // Prompt 296 §4 — CRM usage ranking (by org/person). Lives here for now,
+  // in the current tab shell; Prompt 294's backoffice redesign (branch
+  // backoffice-redesign, not yet merged) may give this its own nav location
+  // once it lands — flagged per that prompt's own explicit sequencing note.
+  { key: 'usage', label: 'Usage' },
 ];
 const ECOSYSTEM_TABS: { key: EcosystemTabKey; label: string }[] = [
   { key: 'xray', label: 'X-Ray' },
@@ -174,14 +181,26 @@ interface OverviewData {
     activatedStartups: number; activeFundraisingStartups: number; startupsWithRelevantActivity: number;
     activationRate7d: number | null; retention30d: number | null;
   };
-  revenue: { mrr: number; netNewMrr: number; freeToPaidConversion: { rate: number | null; normal: number; promo: number }; monthlyRevenueChurnPct: number | null };
+  revenue: {
+    mrr: number; mrrPotential: number; discountsValue: number; netNewMrr: number;
+    freeToPaidConversion: { rate: number | null; normal: number; promo: number }; monthlyRevenueChurnPct: number | null;
+  };
   valueProof: { qualifiedConversations: number; medianDaysToFirstResponse: number | null };
   alerts: { failedAutomations: number; hardBounces: number; overduePipelines: number; failedPayments: number };
 }
 
-function Stat({ label, value, hint, delta }: { label: string; value: string | number; hint?: string; delta?: number | null }) {
+// Prompt 296 §2 — every Stat is clickable when it names its own history
+// path(s); the click opens MetricDrillDown with a trend built from
+// metrics_snapshots. Cards with no onClick (none currently — every Overview
+// field is captured in the snapshot payload) fall back to a plain, inert card.
+function Stat({ label, value, hint, delta, onClick }: { label: string; value: string | number; hint?: string; delta?: number | null; onClick?: () => void }) {
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+    <div
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      className={`rounded-2xl border border-gray-100 bg-white p-4 shadow-sm ${onClick ? 'cursor-pointer transition hover:border-[#0E7490] hover:shadow-md' : ''}`}
+    >
       <div className="flex items-baseline gap-2">
         <span className="text-2xl font-bold text-[#0E7490]">{value}</span>
         {delta != null && (
@@ -196,17 +215,56 @@ function Stat({ label, value, hint, delta }: { label: string; value: string | nu
   );
 }
 
+interface Staleness { lastSnapshotAt: string | null; eventsSinceSnapshot: number; worthRefreshing: boolean }
+interface DrillDownState { title: string; series: DrillDownSeries[]; entitiesMetric?: string; period?: string }
+
+function fmtEurReal(n: number): string { return `€${Math.round(n).toLocaleString()}`; }
+
 function OverviewTab() {
   const [period, setPeriod] = useState<Period>('30d');
   const [data, setData] = useState<OverviewData | null>(null);
   const [err, setErr] = useState('');
+  const [staleness, setStaleness] = useState<Staleness | null>(null);
+  const [showStalenessPopup, setShowStalenessPopup] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [drillDown, setDrillDown] = useState<DrillDownState | null>(null);
 
   useEffect(() => {
-    fetch(`/api/backoffice/metrics/overview?period=${period}`).then((r) => r.json()).then((body) => {
-      if (body.ok === false) { setErr(body.error); return; }
-      setData(body); setErr('');
+    setErr('');
+    if (period !== '30d') {
+      // Prompt 296 §1 — the cache/popup mechanism only exists for the 30d
+      // window (the only one metrics_snapshots ever stores); any other
+      // period always live-computes, exactly as before this prompt.
+      fetch(`/api/backoffice/metrics/overview?period=${period}`).then((r) => r.json()).then((body) => {
+        if (body.ok === false) { setErr(body.error); return; }
+        setData(body);
+      }).catch(() => setErr('Failed to load.'));
+      return;
+    }
+    // Default load: serve the cached snapshot instantly instead of
+    // recomputing every indicator on every page open — the live route is
+    // still there for "Atualizar agora" and for the very first-ever load.
+    fetch('/api/backoffice/metrics/overview/cached').then((r) => r.json()).then((body) => {
+      if (body.ok) { setData(body); return; }
+      fetch('/api/backoffice/metrics/overview?period=30d').then((r2) => r2.json()).then((body2) => {
+        if (body2.ok === false) { setErr(body2.error); return; }
+        setData(body2);
+      }).catch(() => setErr('Failed to load.'));
     }).catch(() => setErr('Failed to load.'));
+
+    fetch('/api/backoffice/metrics/overview/staleness').then((r) => r.json()).then((body) => {
+      if (body.ok && body.worthRefreshing) { setStaleness(body); setShowStalenessPopup(true); }
+    }).catch(() => {});
   }, [period]);
+
+  async function refreshNow() {
+    setRefreshing(true);
+    try {
+      const res = await fetch('/api/backoffice/metrics/overview/refresh', { method: 'POST' });
+      const body = await res.json();
+      if (body.ok) { setData(body); setErr(''); }
+    } finally { setRefreshing(false); setShowStalenessPopup(false); }
+  }
 
   return (
     <div className="space-y-5">
@@ -217,36 +275,72 @@ function OverviewTab() {
           <div>
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Growth</h2>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <Stat label="New startups" value={data.growth.newStartups.value} delta={data.growth.newStartups.deltaPct} />
+              <Stat label="New startups" value={data.growth.newStartups.value} delta={data.growth.newStartups.deltaPct}
+                onClick={() => setDrillDown({
+                  title: 'New startups', period,
+                  series: [{ path: 'growth.newStartups.value', label: 'New startups', color: '#0E7490' }],
+                  entitiesMetric: 'newStartups',
+                })} />
               <Stat label="Catalog entities added" value={data.growth.newCatalogEntities.value} delta={data.growth.newCatalogEntities.deltaPct}
-                hint="imported/enriched — not necessarily a real account" />
+                hint="imported/enriched — not necessarily a real account"
+                onClick={() => setDrillDown({ title: 'Catalog entities added', series: [{ path: 'growth.newCatalogEntities.value', label: 'Catalog entities', color: '#7c3aed' }] })} />
               <Stat label="Investor accounts registered" value={data.growth.newRegisteredInvestorAccounts.value} delta={data.growth.newRegisteredInvestorAccounts.deltaPct}
-                hint="a real person actually signed in" />
-              <Stat label="Startups activated" value={data.growth.activatedStartups} />
-              <Stat label="Startups with active round" value={data.growth.activeFundraisingStartups} />
-              <Stat label="Relevant activity" value={data.growth.startupsWithRelevantActivity} hint="in the selected period" />
-              <Stat label="7-day activation rate" value={data.growth.activationRate7d != null ? `${data.growth.activationRate7d}%` : '—'} />
-              <Stat label="30-day retention" value={data.growth.retention30d != null ? `${data.growth.retention30d}%` : '—'} />
+                hint="a real person actually signed in"
+                onClick={() => setDrillDown({ title: 'Investor accounts registered', series: [{ path: 'growth.newRegisteredInvestorAccounts.value', label: 'Registered accounts', color: '#2563eb' }] })} />
+              <Stat label="Startups activated" value={data.growth.activatedStartups}
+                onClick={() => setDrillDown({ title: 'Startups activated', series: [{ path: 'growth.activatedStartups', label: 'Activated', color: '#16a34a' }] })} />
+              <Stat label="Startups with active round" value={data.growth.activeFundraisingStartups}
+                onClick={() => setDrillDown({
+                  title: 'Startups with active round', period,
+                  series: [{ path: 'growth.activeFundraisingStartups', label: 'Active round', color: '#d97706' }],
+                  entitiesMetric: 'activeFundraisingStartups',
+                })} />
+              <Stat label="Relevant activity" value={data.growth.startupsWithRelevantActivity} hint="in the selected period"
+                onClick={() => setDrillDown({ title: 'Relevant activity', series: [{ path: 'growth.startupsWithRelevantActivity', label: 'Relevant activity', color: '#db2777' }] })} />
+              <Stat label="7-day activation rate" value={data.growth.activationRate7d != null ? `${data.growth.activationRate7d}%` : '—'}
+                onClick={() => setDrillDown({ title: '7-day activation rate', series: [{ path: 'growth.activationRate7d', label: 'Activation rate', color: '#0E7490', formatValue: (v) => `${v}%` }] })} />
+              <Stat label="30-day retention" value={data.growth.retention30d != null ? `${data.growth.retention30d}%` : '—'}
+                onClick={() => setDrillDown({ title: '30-day retention', series: [{ path: 'growth.retention30d', label: 'Retention', color: '#64748b', formatValue: (v) => `${v}%` }] })} />
             </div>
           </div>
 
           <div>
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Revenue</h2>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <Stat label="MRR" value={`€${data.revenue.mrr.toLocaleString()}`} />
-              <Stat label="Net New MRR" value={`€${data.revenue.netNewMrr.toLocaleString()}`} />
+              <Stat
+                label="MRR — real · potencial"
+                value={`${fmtEurReal(data.revenue.mrr)} real · ${fmtEurReal(data.revenue.mrrPotential)} tabela`}
+                onClick={() => setDrillDown({
+                  title: 'MRR — real vs. potencial',
+                  series: [
+                    { path: 'revenue.mrr', label: 'Real (efetivo)', color: '#0E7490', formatValue: fmtEurReal },
+                    { path: 'revenue.mrrPotential', label: 'Potencial (preço de tabela)', color: '#CBD5E1', formatValue: fmtEurReal },
+                  ],
+                })}
+              />
+              <Stat label="Net New MRR" value={`€${data.revenue.netNewMrr.toLocaleString()}`}
+                onClick={() => setDrillDown({ title: 'Net New MRR', series: [{ path: 'revenue.netNewMrr', label: 'Net New MRR', color: '#16a34a', formatValue: fmtEurReal }] })} />
               <Stat label="Free → Paid conversion" value={data.revenue.freeToPaidConversion.rate != null ? `${data.revenue.freeToPaidConversion.rate}%` : '—'}
-                hint={`${data.revenue.freeToPaidConversion.normal} at list price · ${data.revenue.freeToPaidConversion.promo} via promo`} />
-              <Stat label="Monthly revenue churn" value={data.revenue.monthlyRevenueChurnPct != null ? `${data.revenue.monthlyRevenueChurnPct}%` : '—'} />
+                hint={`${data.revenue.freeToPaidConversion.normal} at list price · ${data.revenue.freeToPaidConversion.promo} via promo`}
+                onClick={() => setDrillDown({ title: 'Free → Paid conversion', series: [{ path: 'revenue.freeToPaidConversion.rate', label: 'Conversion rate', color: '#7c3aed', formatValue: (v) => `${v}%` }] })} />
+              <Stat label="Monthly revenue churn" value={data.revenue.monthlyRevenueChurnPct != null ? `${data.revenue.monthlyRevenueChurnPct}%` : '—'}
+                onClick={() => setDrillDown({ title: 'Monthly revenue churn', series: [{ path: 'revenue.monthlyRevenueChurnPct', label: 'Churn', color: '#B00000', formatValue: (v) => `${v}%` }] })} />
             </div>
+            {data.revenue.discountsValue > 0 && (
+              <p className="mt-2 text-[11px] text-gray-400">
+                €{data.revenue.discountsValue.toLocaleString()}/mo of the potential total is currently being discounted by active promo codes.
+              </p>
+            )}
           </div>
 
           <div>
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Proof of value</h2>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Stat label="Qualified conversations / active round" value={data.valueProof.qualifiedConversations}
-                hint="relations that reached In conversation, Diligence, or Invested" />
-              <Stat label="Median days to first response" value={data.valueProof.medianDaysToFirstResponse ?? '—'} />
+                hint="relations that reached In conversation, Diligence, or Invested"
+                onClick={() => setDrillDown({ title: 'Qualified conversations', series: [{ path: 'valueProof.qualifiedConversations', label: 'Conversations', color: '#0E7490' }] })} />
+              <Stat label="Median days to first response" value={data.valueProof.medianDaysToFirstResponse ?? '—'}
+                onClick={() => setDrillDown({ title: 'Median days to first response', series: [{ path: 'valueProof.medianDaysToFirstResponse', label: 'Median days', color: '#d97706' }] })} />
             </div>
             <HistoricalDataNotice />
           </div>
@@ -262,6 +356,42 @@ function OverviewTab() {
 
           <AuditLogPanel />
         </>
+      )}
+
+      {showStalenessPopup && staleness && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-base font-bold text-gray-900">Atualizar os dados?</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              {staleness.lastSnapshotAt
+                ? `Houve ${staleness.eventsSinceSnapshot} eventos registados desde a última captura (${new Date(staleness.lastSnapshotAt).toLocaleString('pt-PT')}). Os números abaixo podem já não refletir isso.`
+                : 'Ainda não existe nenhuma captura guardada — a mostrar um cálculo em tempo real.'}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button onClick={refreshNow} disabled={refreshing}
+                className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
+                {refreshing ? 'A atualizar…' : 'Atualizar agora'}
+              </button>
+              <button onClick={() => setShowStalenessPopup(false)}
+                className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                Manter os dados actuais
+              </button>
+              <button onClick={() => setShowStalenessPopup(false)} className="rounded-lg px-3 py-1.5 text-xs text-gray-400 hover:underline">
+                Adiar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {drillDown && (
+        <MetricDrillDown
+          title={drillDown.title}
+          series={drillDown.series}
+          entitiesMetric={drillDown.entitiesMetric}
+          period={drillDown.period}
+          onClose={() => setDrillDown(null)}
+        />
       )}
     </div>
   );
@@ -304,6 +434,7 @@ export default function MetricsPage() {
           {appTab === 'fundraising' && <FundraisingOutcomesTab />}
           {appTab === 'organizations' && <OrganizationsTab />}
           {appTab === 'matchdeal' && <MatchDealTab />}
+          {appTab === 'usage' && <UsageRankingTab />}
         </>
       ) : (
         <>

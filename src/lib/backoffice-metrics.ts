@@ -223,7 +223,14 @@ export async function retention30d(admin: SupabaseClient): Promise<number | null
 // orgs.plan itself, not Stripe subscription presence — since that's what's
 // actually billed today regardless of mechanism (manual, promo, or a real
 // future Stripe checkout).
-export async function mrr(admin: SupabaseClient): Promise<{ total: number; startups: number; investors: number }> {
+// Prompt 296 §3 — "real vs potencial", one computation, everywhere. total is
+// what's actually being collected (post-discount); totalPotential is the
+// same org set at full list price (what discountsValue is silently costing
+// today). Computed in the SAME loop over the SAME payingOrgs/discount lookup
+// mrr() already does — never a second, separately-filtered pass (that
+// second pass is exactly what revenueBreakdown() used to do below, and it
+// had drifted onto a different "paying" definition; see the comment there).
+export async function mrr(admin: SupabaseClient): Promise<{ total: number; totalPotential: number; discountsValue: number; startups: number; investors: number }> {
   const orgs = await realOrgs(admin);
   const payingOrgs = orgs.filter((o) => (o.plan as PlanTier) !== 'idea');
   const { data: redemptions } = payingOrgs.length
@@ -238,17 +245,23 @@ export async function mrr(admin: SupabaseClient): Promise<{ total: number; start
   }
 
   let startups = 0;
+  let startupsPotential = 0;
   for (const o of payingOrgs) {
     const row = PLANS.find((p) => p.tier === (o.plan as PlanTier));
     if (!row) continue;
     const listPrice = o.stripe_billing_period === 'annual' ? (row.annualPerMonthEur ?? row.monthlyEur) : row.monthlyEur;
     const discount = activeDiscountByOrg.get(o.id) ?? 0;
+    startupsPotential += listPrice;
     startups += discount > 0 ? discountedPriceEur(listPrice, discount) : listPrice;
   }
   // Investor-side plans have no live Stripe wiring yet (Prompt 74's own
   // finding: "Investor plans have no DB column or gate yet" beyond the
   // request-only path) — 0 until that exists, not a fabricated estimate.
-  return { total: Math.round(startups), startups: Math.round(startups), investors: 0 };
+  return {
+    total: Math.round(startups), totalPotential: Math.round(startupsPotential),
+    discountsValue: Math.round(startupsPotential - startups),
+    startups: Math.round(startups), investors: 0,
+  };
 }
 
 export async function freeToPaidConversion(admin: SupabaseClient, range: DateRange): Promise<{ rate: number | null; normal: number; promo: number }> {
@@ -448,38 +461,31 @@ export async function plansAndSubscriptions(admin: SupabaseClient, range: DateRa
 }
 
 export interface RevenueBreakdown {
-  mrr: number; arr: number; netNewMrr: number; startupRevenue: number; investorRevenue: number;
-  arpa: number; discountsValue: number;
+  mrr: number; mrrPotential: number; arr: number; arrPotential: number; netNewMrr: number;
+  startupRevenue: number; investorRevenue: number; arpa: number; discountsValue: number;
 }
 
 export async function revenueBreakdown(admin: SupabaseClient, range: DateRange): Promise<RevenueBreakdown> {
-  const { total, startups, investors } = await mrr(admin);
+  const { total, totalPotential, discountsValue, startups, investors } = await mrr(admin);
   const netNew = await netNewMrr(admin, range);
   const orgs = await realOrgs(admin);
-  const payingCount = orgs.filter((o) => !!o.stripe_subscription_id).length;
+  // ARPA must count the SAME "paying" org set mrr() itself summed over
+  // (plan !== 'idea' — the actual billed ground truth, per the comment on
+  // mrr() above) rather than Stripe-subscription presence. Confirmed
+  // 2026-08-21 (Prompt 296 §3 verification): this line and discountsValue
+  // above used to each run their OWN redemptions query filtered by
+  // stripe_subscription_id — a second, divergent "paying" definition on the
+  // same screen, exactly what Section 13.2 at the top of this file warns
+  // against. discountsValue is no longer recomputed here at all — it's
+  // mrr()'s own totalPotential-minus-total, from the SAME loop, so the two
+  // numbers can never drift apart again.
+  const payingCount = orgs.filter((o) => (o.plan as PlanTier) !== 'idea').length;
   const arpa = payingCount > 0 ? Math.round(total / payingCount) : 0;
 
-  // discountsValue — sum of (list price - discounted price) for every org
-  // with an active promo redemption right now, i.e. what MRR is NOT
-  // collecting because of the campaign, not a lifetime total.
-  const payingOrgs = orgs.filter((o) => !!o.stripe_subscription_id);
-  const { data: redemptions } = payingOrgs.length
-    ? await admin.from('promo_redemptions').select('org_id, benefit_ends_at, promo_codes(discount_pct)').in('org_id', payingOrgs.map((o) => o.id))
-    : { data: [] };
-  const now = new Date();
-  let discountsValue = 0;
-  for (const r of redemptions ?? []) {
-    if (!benefitStillActive(r.benefit_ends_at as string | null, now)) continue;
-    const org = payingOrgs.find((o) => o.id === r.org_id);
-    if (!org) continue;
-    const row = PLANS.find((p) => p.tier === (org.plan as PlanTier));
-    if (!row) continue;
-    const listPrice = org.stripe_billing_period === 'annual' ? (row.annualPerMonthEur ?? row.monthlyEur) : row.monthlyEur;
-    const pct = (r.promo_codes as unknown as { discount_pct: number } | null)?.discount_pct ?? 0;
-    discountsValue += listPrice - discountedPriceEur(listPrice, pct);
-  }
-
-  return { mrr: total, arr: total * 12, netNewMrr: netNew, startupRevenue: startups, investorRevenue: investors, arpa, discountsValue: Math.round(discountsValue) };
+  return {
+    mrr: total, mrrPotential: totalPotential, arr: total * 12, arrPotential: totalPotential * 12,
+    netNewMrr: netNew, startupRevenue: startups, investorRevenue: investors, arpa, discountsValue,
+  };
 }
 
 export interface PromoBreakdown {

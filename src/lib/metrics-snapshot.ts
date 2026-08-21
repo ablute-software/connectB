@@ -10,6 +10,7 @@ import {
   resolvePeriod, pctDelta, newStartups, newInvestors, newRegisteredInvestorAccounts, activatedStartups, activeFundraisingStartups,
   startupsWithRelevantActivity, activationRate7d, retention30d, mrr, netNewMrr, freeToPaidConversion,
   monthlyRevenueChurn, qualifiedConversationsPerActiveFundraisingStartup, medianTimeToFirstResponse, overviewAlerts,
+  acquisitionBreakdown, plansAndSubscriptions, revenueBreakdown, promoBreakdown,
 } from './backoffice-metrics';
 import { metricsSnapshotsAvailable } from './usage-sessions-capability';
 
@@ -27,6 +28,7 @@ export async function computeOverviewPayload(admin: SupabaseClient) {
     newRegisteredInvestorAccountsNow, newRegisteredInvestorAccountsPrev,
     activated, activeFundraising, relevantActivity, activation7d, retention,
     mrrNow, netNew, freeToPaid, conversations, timeToFirstResponse, alerts,
+    acquisition, plans, revenue, promo,
   ] = await Promise.all([
     newStartups(admin, current), newStartups(admin, previous),
     newInvestors(admin, current), newInvestors(admin, previous),
@@ -36,6 +38,13 @@ export async function computeOverviewPayload(admin: SupabaseClient) {
     mrr(admin), netNewMrr(admin, current), freeToPaidConversion(admin, current),
     qualifiedConversationsPerActiveFundraisingStartup(admin), medianTimeToFirstResponse(admin),
     overviewAlerts(admin, { from: new Date(Date.now() - 30 * 86400000), to: new Date() }),
+    // Prompt 296 §2/§3 — the SAME functions /api/backoffice/metrics/growth
+    // already calls, captured into the SAME snapshot as Overview. One daily
+    // snapshot, both tabs' history — not a second, separately-scheduled
+    // capture. This is what lets every Growth & Revenue MiniStat (not just
+    // Overview's own Stat cards) have a real trend to draw, per §2's "every
+    // stat card becomes clickable" ask.
+    acquisitionBreakdown(admin, current), plansAndSubscriptions(admin, current), revenueBreakdown(admin, current), promoBreakdown(admin, current),
   ]);
   const churn = await monthlyRevenueChurn(admin, current, mrrNow.total);
 
@@ -53,6 +62,8 @@ export async function computeOverviewPayload(admin: SupabaseClient) {
     },
     revenue: {
       mrr: mrrNow.total,
+      mrrPotential: mrrNow.totalPotential,
+      discountsValue: mrrNow.discountsValue,
       netNewMrr: netNew,
       freeToPaidConversion: freeToPaid,
       monthlyRevenueChurnPct: churn,
@@ -62,6 +73,11 @@ export async function computeOverviewPayload(admin: SupabaseClient) {
       medianDaysToFirstResponse: timeToFirstResponse,
     },
     alerts,
+    // Prompt 296 §2/§3 — Growth & Revenue tab's own fields, unmodified shape
+    // from /api/backoffice/metrics/growth, kept under their own key so the
+    // history endpoint can address them by the exact same dot-path the tab
+    // itself already uses (growthDetail.revenue.arr, growthDetail.plans.paid, …).
+    growthDetail: { acquisition, plans, revenue, promo },
   };
 }
 
