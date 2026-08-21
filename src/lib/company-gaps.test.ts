@@ -3,7 +3,7 @@
 // só-Carla) a disparar exatamente o que o 219 diz que disparam.
 import { describe, expect, it } from 'vitest';
 import {
-  detectGaps, ruleG1, ruleG2, ruleG3, ruleG3b, ruleG3c, ruleG4, ruleG5, ruleG6,
+  detectGaps, ruleG1, ruleG2, ruleG3, ruleG3b, ruleG3c, ruleG4, ruleG5, ruleG6, ruleG7,
   templateFor, QUESTION_TEMPLATES, type GapContext,
 } from './company-gaps';
 import { normalizeAtom } from './company-claims';
@@ -171,6 +171,45 @@ describe('G6 — mecanismo da ronda', () => {
   });
 });
 
+describe('G7 — claim central isolado (Prompt 299 §2)', () => {
+  it('dispara quando forte+específico e sem nome extraível — confiança high', () => {
+    const gaps = ruleG7([claim('c-iso1', 'solucao', 'In 2026, we signed a contract worth €50,000 for the pilot deployment')]);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toMatchObject({ rule: 'G7', severity: 'high', detectionConfidence: 'high', relatedClaimIds: ['c-iso1'] });
+  });
+
+  it('dispara quando forte+específico com nome extraível e sem corroboração — confiança low, severity reduzida', () => {
+    const gaps = ruleG7([VISITA_RESPONDIDA]);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toMatchObject({ rule: 'G7', severity: 'medium', detectionConfidence: 'low' });
+  });
+
+  it('não dispara quando há outro claim aceite na MESMA categoria (nível 1)', () => {
+    const gaps = ruleG7([
+      VISITA_RESPONDIDA,
+      claim('c-other', 'validacao_externa', 'Beta Ltd signed a paid pilot with us in 2026, contract worth €20,000'),
+    ]);
+    expect(gaps).toEqual([]);
+  });
+
+  it('não dispara quando o MESMO NOME aparece noutro claim aceite (nível 2)', () => {
+    const gaps = ruleG7([
+      VISITA_RESPONDIDA,
+      claim('c-other', 'equipa', 'Acme Corp introduced us to their CTO, who now advises our team since 2026'),
+    ]);
+    expect(gaps).toEqual([]);
+  });
+
+  it('não dispara sobre claims propostos (só claims aceites contam)', () => {
+    expect(ruleG7([{ ...VISITA_RESPONDIDA, status: 'proposed' }])).toEqual([]);
+  });
+
+  it('não dispara sobre classe 4/5 fora de problema/solucao — mecanismo/decoração não pretendem ser "a" alegação central', () => {
+    expect(ruleG7([PREMIO])).toEqual([]); // PREMIO é classe 5 (decoração)
+    expect(ruleG7([claim('c-mkt', 'mercado_timing', 'the EU regulation window opens in Q1 2027 for certified devices')])).toEqual([]);
+  });
+});
+
 describe('detectGaps — agregação', () => {
   it('a ablute_ de hoje (prémio + visita vaga) dispara exatamente o esperado', () => {
     const gaps = detectGaps([PREMIO, VISITA_VAGA], ctx({ founders: [{ name: 'Carla Dias' }, { name: 'Rui Almeida' }] }));
@@ -193,7 +232,7 @@ describe('detectGaps — agregação', () => {
 
 describe('templateFor — os templates são dados, preenchidos por meta', () => {
   it('há exatamente uma template por regra', () => {
-    expect(QUESTION_TEMPLATES.map((t) => t.rule).sort()).toEqual(['G1', 'G2', 'G3', 'G3b', 'G3c', 'G4', 'G5', 'G6']);
+    expect(QUESTION_TEMPLATES.map((t) => t.rule).sort()).toEqual(['G1', 'G2', 'G3', 'G3b', 'G3c', 'G4', 'G5', 'G6', 'G7']);
   });
 
   it('G2 injeta o statement do claim vago', () => {

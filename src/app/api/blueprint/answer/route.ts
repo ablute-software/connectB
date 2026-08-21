@@ -21,6 +21,11 @@ import type { ClaimCategory } from '@/lib/types';
 // A categoria em que a resposta aterra, por regra. É o assunto da PERGUNTA,
 // não uma escolha do founder — quem responde "quem lidera a técnica" está a
 // falar de equipa, esteja o texto como estiver.
+const CATEGORIES: ClaimCategory[] = [
+  'problema', 'solucao', 'prova_tecnica', 'validacao_externa',
+  'tracao_gtm', 'equipa', 'mercado_timing', 'funding', 'ask',
+];
+
 const CATEGORY_BY_RULE: Record<string, ClaimCategory> = {
   G1: 'tracao_gtm',
   G2: 'validacao_externa',
@@ -46,7 +51,7 @@ export async function POST(req: Request) {
   if (!(await claimsAvailable())) return NextResponse.json({ ok: false, error: 'not configured' });
 
   const body = await req.json().catch(() => ({})) as {
-    gapKey?: string; rule?: string; answer?: string; option?: string; analysisId?: string; dismissed?: boolean;
+    gapKey?: string; rule?: string; answer?: string; option?: string; category?: string; analysisId?: string; dismissed?: boolean;
   };
   if (!body.gapKey || !body.rule) return NextResponse.json({ ok: false, error: 'gapKey and rule are required.' }, { status: 400 });
 
@@ -64,8 +69,15 @@ export async function POST(req: Request) {
 
   if (!body.dismissed) {
     if (!statement) return NextResponse.json({ ok: false, error: 'An answer is required.' }, { status: 400 });
+    // Prompt 299 §2 — G7 spans several categories, so its gap carries the
+    // ORIGINAL claim's own category through (gap.meta.category) rather than
+    // relying on the one-category-per-rule map below, which can't express
+    // "depends which claim this gap was about." Validated against the same
+    // allowlist as every other category input in this codebase.
+    const category = (body.category && (CATEGORIES as string[]).includes(body.category)
+      ? body.category as ClaimCategory : (CATEGORY_BY_RULE[body.rule] ?? 'solucao'));
     const n = normalizeAtom({
-      category: CATEGORY_BY_RULE[body.rule] ?? 'solucao',
+      category,
       statement,
       sourceKind: 'founder_answer',
       // O sourceRef amarra a resposta à lacuna que a provocou — é assim

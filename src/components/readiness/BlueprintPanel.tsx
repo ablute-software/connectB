@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
 import type { CompanyClaim, ClaimCategory } from '@/lib/types';
 import { GapInterrogation, type GapView } from './GapInterrogation';
+import { isWastedStrongClaim } from '@/lib/company-claims';
 
 interface BlueprintState {
   available: boolean;
@@ -40,17 +41,43 @@ const CLASS_STYLE: Record<number, string> = {
   5: 'bg-amber-100 text-amber-800',
 };
 
+// Prompt 299 §1 — "safe to accept in bulk", never "accept everything".
+// specificity high + a verifiable source (already linked to a document, or
+// an already-confirmed company_facts row elsewhere — knowledgeToAtoms only
+// ever turns a CONFIRMED fact into a 'fact'-sourced atom, so sourceKind
+// alone already carries that guarantee, never re-checked here). The
+// isWastedStrongClaim exclusion is redundant with specificity==='high' on
+// its own, but stated explicitly per the prompt's own emphasis — exactly
+// what G2 already flags as wasted strength must never be pre-marked.
+function isSafeBulkCandidate(c: CompanyClaim): boolean {
+  return c.specificity === 'high' && (c.sourceKind === 'vault_doc' || c.sourceKind === 'fact') && !isWastedStrongClaim(c);
+}
+
 export function BlueprintPanel() {
   const [state, setState] = useState<BlueprintState | null>(null);
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<{ statement: string; category: string }>({ statement: '', category: 'solucao' });
   const [error, setError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   function load() {
     fetch('/api/blueprint').then((r) => r.json()).then(setState).catch(() => setState(null));
   }
   useEffect(load, []);
+
+  // Prompt 299 §1 — pre-select the safe candidates whenever the proposed
+  // queue changes (a fresh analysis run, or a claim leaving the queue via
+  // accept/reject/edit) — always still editable before confirming, never
+  // auto-submitted. Keyed on the actual proposed ids so re-selecting only
+  // happens when the SET changes, not on every unrelated re-render.
+  const proposedIdsKey = (state?.claims ?? []).filter((c) => c.status === 'proposed').map((c) => c.id).join(',');
+  useEffect(() => {
+    const proposedNow = (state?.claims ?? []).filter((c) => c.status === 'proposed');
+    setSelectedIds(new Set(proposedNow.filter(isSafeBulkCandidate).map((c) => c.id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposedIdsKey]);
 
   async function runAnalysis() {
     setBusy(true); setError(null);
@@ -64,14 +91,14 @@ export function BlueprintPanel() {
 
   const gap = state?.gaps?.[0];
 
-  async function submitAnswer(opts: { option?: string; answer?: string; dismissed: boolean }) {
+  async function submitAnswer(opts: { option?: string; answer?: string; dismissed: boolean; category?: string }) {
     if (!gap) return;
     setBusy(true); setError(null);
     try {
       const res = await fetch('/api/blueprint/answer', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          gapKey: gap.key, rule: gap.rule, option: opts.option, answer: opts.answer,
+          gapKey: gap.key, rule: gap.rule, option: opts.option, answer: opts.answer, category: opts.category,
           analysisId: state?.analysis?.id, dismissed: opts.dismissed,
         }),
       });
@@ -95,6 +122,28 @@ export function BlueprintPanel() {
       setEditingId(null);
       load();
     } finally { setBusy(false); }
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function bulkAction(action: 'accept' | 'reject', ids: string[]) {
+    if (ids.length === 0) return;
+    setBulkBusy(true); setError(null);
+    try {
+      const res = await fetch('/api/blueprint/claim', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids, action }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (body.ok === false) { setError(body.error ?? 'Something went wrong.'); return; }
+      load();
+    } finally { setBulkBusy(false); }
   }
 
   if (state === null) return <p className="text-sm text-gray-400">Loading…</p>;
@@ -144,15 +193,43 @@ export function BlueprintPanel() {
         </Card>
       )}
 
-      {/* §4 — aceitação dos claims propostos. */}
+      {/* §4 — aceitação dos claims propostos. Prompt 299 §1 — bulk COM
+          critério: seleção múltipla sempre disponível, mas as claims
+          "seguras" (specificity alta + fonte verificável) vêm pré-marcadas
+          — nunca "aceitar tudo" com um clique só. */}
       {proposed.length > 0 && (
         <Card title={`To review (${proposed.length})`}>
           <p className="mb-2 text-xs text-gray-500">
-            Nothing here reaches any investor-facing surface until you accept it.
+            Nothing here reaches any investor-facing surface until you accept it. Pre-checked items are high-specificity
+            claims already backed by a document or a confirmed fact — still yours to uncheck before confirming.
           </p>
+          <div className="mb-2 flex flex-wrap items-center gap-2 border-b border-gray-100 pb-2">
+            <button onClick={() => setSelectedIds(new Set(proposed.map((c) => c.id)))} className="text-xs text-[#0E7490] hover:underline">
+              Select all
+            </button>
+            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-400 hover:underline">
+              Select none
+            </button>
+            <span className="text-xs text-gray-400">{selectedIds.size} selected</span>
+            <div className="ml-auto flex gap-1.5">
+              <button onClick={() => bulkAction('accept', [...selectedIds])} disabled={bulkBusy || selectedIds.size === 0}
+                className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
+                {bulkBusy ? 'Working…' : `Accept selected (${selectedIds.size})`}
+              </button>
+              <button onClick={() => bulkAction('reject', [...selectedIds])} disabled={bulkBusy || selectedIds.size === 0}
+                className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                Reject selected
+              </button>
+            </div>
+          </div>
           <ul className="space-y-2">
             {proposed.map((c) => (
-              <li key={c.id} className="rounded-lg border border-gray-100 p-2.5">
+              <li key={c.id} className="flex gap-2 rounded-lg border border-gray-100 p-2.5">
+                {editingId !== c.id && (
+                  <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelected(c.id)}
+                    className="mt-1 shrink-0" />
+                )}
+                <div className="flex-1">
                 {editingId === c.id ? (
                   <>
                     <textarea value={editDraft.statement} onChange={(e) => setEditDraft({ ...editDraft, statement: e.target.value })}
@@ -192,6 +269,7 @@ export function BlueprintPanel() {
                     </div>
                   </>
                 )}
+                </div>
               </li>
             ))}
           </ul>

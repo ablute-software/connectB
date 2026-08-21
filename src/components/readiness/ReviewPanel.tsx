@@ -134,14 +134,14 @@ export function ReviewPanel() {
   }
   useEffect(loadGaps, []);
 
-  async function submitGapAnswer(opts: { option?: string; answer?: string; dismissed: boolean }) {
+  async function submitGapAnswer(opts: { option?: string; answer?: string; dismissed: boolean; category?: string }) {
     const gap = gaps[0];
     if (!gap) return;
     setGapBusy(true);
     try {
       await fetch('/api/blueprint/answer', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ gapKey: gap.key, rule: gap.rule, option: opts.option, answer: opts.answer, analysisId: gapAnalysisId, dismissed: opts.dismissed }),
+        body: JSON.stringify({ gapKey: gap.key, rule: gap.rule, option: opts.option, answer: opts.answer, category: opts.category, analysisId: gapAnalysisId, dismissed: opts.dismissed }),
       });
       loadGaps();
     } finally { setGapBusy(false); }

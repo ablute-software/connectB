@@ -22,6 +22,10 @@ import { logAiCall } from '@/lib/ai-cost-log';
 
 const AI_ROLE: Record<GapRule, 'draft' | 'polish'> = {
   G1: 'polish', G2: 'polish', G3: 'draft', G3b: 'polish', G3c: 'polish', G4: 'draft', G5: 'polish', G6: 'draft',
+  // G7 fires exactly when nothing else in the corpus corroborates this
+  // claim — there's nothing to draft FROM by definition, only the
+  // founder's own elaboration to help phrase.
+  G7: 'polish',
 };
 
 async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {

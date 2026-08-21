@@ -18,6 +18,10 @@ const SEVERITY_STYLE: Record<string, string> = { critical: 'bg-red-100 text-red-
 export interface GapView {
   rule: string; key: string; severity: string; message: string;
   prompt: { question: string; options: string[]; freeTextLabel: string };
+  // Prompt 299 §2 — G7 spans several categories (unlike every other rule),
+  // so its answer needs to carry the ORIGINAL claim's category through
+  // rather than fall back to the answer route's one-category-per-rule map.
+  meta?: Record<string, string>;
 }
 
 export function GapInterrogation({
@@ -26,7 +30,7 @@ export function GapInterrogation({
   gap: GapView;
   remaining: number;
   busy: boolean;
-  onSubmit: (opts: { option?: string; answer?: string; dismissed: boolean }) => void | Promise<void>;
+  onSubmit: (opts: { option?: string; answer?: string; dismissed: boolean; category?: string }) => void | Promise<void>;
 }) {
   const [option, setOption] = useState('');
   const [answer, setAnswer] = useState('');
@@ -76,7 +80,7 @@ export function GapInterrogation({
         className="mt-2 w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm" />
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <button onClick={() => onSubmit({ option: option || undefined, answer: answer || undefined, dismissed: false })}
+        <button onClick={() => onSubmit({ option: option || undefined, answer: answer || undefined, dismissed: false, category: gap.meta?.category })}
           disabled={busy || (!option && !answer.trim())}
           className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
           Save answer

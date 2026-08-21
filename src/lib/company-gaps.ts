@@ -10,7 +10,7 @@
 import type { CompanyClaim, ClaimCategory } from './types';
 import { isWastedStrongClaim, measureSpecificity } from './company-claims';
 
-export type GapRule = 'G1' | 'G2' | 'G3' | 'G3b' | 'G3c' | 'G4' | 'G5' | 'G6';
+export type GapRule = 'G1' | 'G2' | 'G3' | 'G3b' | 'G3c' | 'G4' | 'G5' | 'G6' | 'G7';
 export type GapSeverity = 'critical' | 'high' | 'medium';
 
 export interface Gap {
@@ -21,6 +21,13 @@ export interface Gap {
   // Dados que o template da pergunta precisa de preencher (nome do founder
   // no G3b, função no G3c, statement no G2/G4/G5…).
   meta?: Record<string, string>;
+  // Prompt 299 §3 — só o G7 usa isto. As outras sete regras são contagens/
+  // presença exatas (sem ambiguidade a registar); o G7 é a primeira a fazer
+  // um julgamento mais nebuloso ("nada mais desenvolve isto"), e a
+  // confiança dessa deteção fica explícita em vez de escondida atrás da
+  // mesma severity das outras. 'low' já reduz a severity nesta mesma regra
+  // — ver o comentário junto a ruleG7.
+  detectionConfidence?: 'high' | 'low';
 }
 
 export interface GapContext {
@@ -188,6 +195,72 @@ export function ruleG6(claims: CompanyClaim[]): Gap[] {
   }];
 }
 
+// G7 (Prompt 299 §2) — claim central mencionado uma única vez: forte e de
+// alta especificidade, mas sem nada mais no corpus a corroborar ou
+// desenvolver. As outras seis regras (G1-G6, G3b à parte) olham para
+// ausência, fraqueza ou idade; nenhuma olha para ISOLAMENTO — um claim pode
+// passar em todas elas e ainda ser a única frase que sustenta uma alegação
+// central ao pitch.
+//
+// (a) evidenceClass 1-3 (as três classes fortes) OU categoria
+//     problema/solucao (o núcleo do pitch) — nunca claims de classe 4/5,
+//     que já são mecanismo/decoração e não pretendem ser "a" alegação central.
+// (b) specificity 'high' — um claim vago não tem nada de "central e
+//     verificável" para se preocupar em não estar corroborado.
+// (c) "nada mais o desenvolve" — critério mecânico em DOIS níveis, coerente
+//     com a mesma grosseria que o G4 já aceita para "documentado":
+//       nível 1 (grosseiro, sempre fiável): existe outro claim ACEITE na
+//         MESMA categoria? Presença por categoria, não claim-a-claim — a
+//         mesma unidade de análise do G4's vaultByCategory.
+//       nível 2 (mais fino, e por isso mais falível): se o próprio claim
+//         nomeia uma entidade (NAMED_ENTITY), existe outro claim aceite
+//         (de qualquer categoria) que menciona o MESMO nome? Um match de
+//         substring não prova nem desmente desenvolvimento real — um claim
+//         relacionado pode usar outra palavra para a mesma pessoa/empresa.
+// Isolado = nem o nível 1 nem o nível 2 encontram nada. Quando o nível 2 é
+// que decidiu (havia nome para verificar, e não apareceu em mais lado
+// nenhum), a deteção fica marcada 'low' confidence e a severity desce de
+// 'high' para 'medium' — ver o comentário do Gap.detectionConfidence.
+const NAMED_ENTITY_G7 = /(?!^)\b[A-Z][a-zA-Z]{2,}(?:\s[A-Z][a-zA-Z]+)*/;
+const STRONG_OR_CORE = new Set<ClaimCategory>(['problema', 'solucao']);
+
+export function ruleG7(claims: CompanyClaim[]): Gap[] {
+  const accepted = claims.filter((c) => c.status === 'accepted');
+  const candidates = accepted.filter((c) =>
+    (c.evidenceClass <= 3 || STRONG_OR_CORE.has(c.category)) && c.specificity === 'high');
+
+  const gaps: Gap[] = [];
+  for (const c of candidates) {
+    const sameCategoryElsewhere = accepted.some((o) => o.id !== c.id && o.category === c.category);
+    if (sameCategoryElsewhere) continue; // nível 1 já encontrou corroboração
+
+    const nameMatch = c.statement.match(NAMED_ENTITY_G7);
+    const name = nameMatch?.[0];
+    const nameElsewhere = name
+      ? accepted.some((o) => o.id !== c.id && o.statement.toLowerCase().includes(name.toLowerCase()))
+      : false;
+    if (nameElsewhere) continue; // nível 2 encontrou o mesmo nome noutro claim
+
+    // Isolado. Confiança 'low' especificamente quando foi o nível 2 (o
+    // matching de nome, o passo mais falível) que decidiu — havia um nome
+    // para verificar e ele não reapareceu; sem nome nenhum para checar, o
+    // nível 1 (categoria, sempre fiável) já chega sozinho.
+    const confidence: 'high' | 'low' = name ? 'low' : 'high';
+    gaps.push({
+      rule: 'G7', severity: confidence === 'low' ? 'medium' : 'high',
+      message: `Isolated central claim: "${c.statement}" is strong and specific but nothing else corroborates or develops it.`,
+      relatedClaimIds: [c.id],
+      // category carried through so an answer to THIS gap lands back in the
+      // same category as the claim it's about — G7 spans several categories
+      // (unlike every other rule, which maps to exactly one), so the static
+      // CATEGORY_BY_RULE fallback in /api/blueprint/answer isn't right here.
+      meta: { statement: c.statement, category: c.category },
+      detectionConfidence: confidence,
+    });
+  }
+  return gaps;
+}
+
 // ---------------------------------------------------------------------------
 // detectGaps — corre as oito e agrega.
 //
@@ -207,6 +280,7 @@ export function detectGaps(claims: CompanyClaim[], context: GapContext): Gap[] {
     ...ruleG4(claims),
     ...ruleG5(claims, context),
     ...ruleG6(claims),
+    ...ruleG7(claims),
   ];
 }
 
@@ -290,6 +364,12 @@ export const QUESTION_TEMPLATES: QuestionTemplate[] = [
     question: 'What will this round’s money be used for — and why is NOW the moment?',
     options: ['Hiring', 'Product / certification', 'Go-to-market'],
     freeTextLabel: 'Use of funds + why now',
+  },
+  {
+    rule: 'G7',
+    question: 'You said: "{statement}". This is central to your pitch but doesn\'t appear anywhere else — want to clarify/develop it, or confirm it stays as-is?',
+    options: ['Vou desenvolver isto', 'Confirmo que fica só assim', 'Na verdade não é assim tão central'],
+    freeTextLabel: 'Add detail, or say why it stands fine alone',
   },
 ];
 

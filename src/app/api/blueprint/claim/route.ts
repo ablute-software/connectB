@@ -35,9 +35,11 @@ export async function POST(req: Request) {
   if (!(await claimsAvailable())) return NextResponse.json({ ok: false, error: 'not configured' });
 
   const body = await req.json().catch(() => ({})) as {
-    id?: string; action?: 'accept' | 'reject' | 'edit'; statement?: string; category?: string;
+    id?: string; ids?: string[]; action?: 'accept' | 'reject' | 'edit'; statement?: string; category?: string;
   };
-  if (!body.id) return NextResponse.json({ ok: false, error: 'id is required.' }, { status: 400 });
+  if (!body.id && !(Array.isArray(body.ids) && body.ids.length > 0)) {
+    return NextResponse.json({ ok: false, error: 'id or ids is required.' }, { status: 400 });
+  }
   if (body.action !== 'accept' && body.action !== 'reject' && body.action !== 'edit') {
     return NextResponse.json({ ok: false, error: 'action must be accept, reject or edit.' }, { status: 400 });
   }
@@ -47,6 +49,19 @@ export async function POST(req: Request) {
   const orgId = member.org_id as string;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+
+  // Prompt 299 §1 — bulk accept/reject, trivial generalization of the same
+  // UPDATE. Edit stays one-at-a-time (a single `id`): each claim has its own
+  // text, there's no meaningful "bulk edit". ids takes priority over a
+  // stray id+ids combination — the caller means the batch.
+  if (Array.isArray(body.ids) && body.ids.length > 0 && body.action !== 'edit') {
+    const { error } = await admin.from('company_claims')
+      .update({ status: body.action === 'accept' ? 'accepted' : 'rejected', updated_at: new Date().toISOString() })
+      .in('id', body.ids).eq('org_id', orgId);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, count: body.ids.length });
+  }
+
   const { data: existing } = await admin.from('company_claims')
     .select('id, category, statement, source_kind').eq('id', body.id).eq('org_id', orgId).maybeSingle();
   if (!existing) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
