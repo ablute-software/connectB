@@ -85,10 +85,26 @@ export async function logEvent(admin: SupabaseClient, e: AnalyticsEvent): Promis
 // "Built for ablute_ ... but designed as multi-tenant"), not test data.
 // Applied at READ time only (metrics queries), never at write time — the
 // event log itself keeps everything, per Section 0's "recolher tudo".
+//
+// Prompt 303 — the comparison itself must be case-insensitive, not just
+// this constant's own casing. CLAUDE.md documents the real convention as
+// lowercase "zz-test-" and says so explicitly ("case-insensitive"), and the
+// server-side enforcement this same convention has elsewhere (migration
+// 0183's verification_* functions, scripts/_lib/verification-write.mjs)
+// already uses ilike/~*/a /i regex — case-insensitive by construction. This
+// function was the one place still comparing case-sensitively
+// (String.prototype.startsWith), so a fixture named with the lowercase
+// prefix the convention itself asks for silently was NOT excluded here,
+// even though every other layer already treated it as a test fixture.
+// Confirmed empirically (2026-08-21) that this was a latent defect, not yet
+// a live incident: no org or catalog_entity in production matches
+// "zz-test" in any capitalization today, so nothing has actually leaked
+// into a real aggregate — but the next verification fixture created under
+// the documented convention would have, silently.
 export const TEST_ORG_NAME_PREFIX = 'ZZ-TEST';
 export const QA_FIXTURE_ENTITY_NAME = 'ablute_ — Internal QA';
 
 export function isExcludedOrgName(name: string | null | undefined): boolean {
   if (!name) return false;
-  return name.startsWith(TEST_ORG_NAME_PREFIX) || name === QA_FIXTURE_ENTITY_NAME;
+  return name.toLowerCase().startsWith(TEST_ORG_NAME_PREFIX.toLowerCase()) || name === QA_FIXTURE_ENTITY_NAME;
 }
