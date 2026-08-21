@@ -86,6 +86,10 @@ export function ReviewPanel() {
   const [docResult, setDocResult] = useState<StructuredReport | null>(null);
   const [docErr, setDocErr] = useState('');
   const [docLoading, setDocLoading] = useState(false);
+  // Prompt 302 §2 — which real Vault document this review is about, so the
+  // Action Plan can later point back at it. Optional: a founder can still
+  // paste text with no file picked, same as before this prompt.
+  const [docVaultId, setDocVaultId] = useState('');
 
   const [marketResult, setMarketResult] = useState('');
   const [marketLoading, setMarketLoading] = useState(false);
@@ -238,7 +242,7 @@ export function ReviewPanel() {
     try {
       const res = await fetch('/api/ai-review', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: docKind, draft: docText, context: { ...companyContext, facts: confirmedFacts } }),
+        body: JSON.stringify({ kind: docKind, draft: docText, context: { ...companyContext, facts: confirmedFacts }, documentId: docVaultId || undefined }),
       });
       const data = await res.json();
       if (data.error) { setDocErr(data.error); return; }
@@ -523,9 +527,19 @@ export function ReviewPanel() {
         </p>
         {!caps?.ai ? <ComingSoon /> : (
           <>
-            <select value={docKind} onChange={(e) => setDocKind(e.target.value as DocKind)} className="mb-2 rounded border border-gray-300 px-2 py-1.5 text-sm">
-              {DOC_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
-            </select>
+            <div className="mb-2 flex flex-wrap gap-2">
+              <select value={docKind} onChange={(e) => setDocKind(e.target.value as DocKind)} className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+                {DOC_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+              </select>
+              {/* Prompt 302 §2 — optional: which real Vault file this text was
+                  pasted from, so the review can point back at it later. */}
+              <select value={docVaultId} onChange={(e) => setDocVaultId(e.target.value)} className="rounded border border-gray-300 px-2 py-1.5 text-sm">
+                <option value="">Not linked to a Vault document</option>
+                {db.documents.filter((d) => d.storage_path || d.external_url).map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}{d.version ? ` (${d.version})` : ''}</option>
+                ))}
+              </select>
+            </div>
             <textarea value={docText} onChange={(e) => setDocText(e.target.value)} rows={6}
               placeholder="Paste the document text content…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
             <button disabled={!docText || docLoading} onClick={reviewDocument}

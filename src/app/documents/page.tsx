@@ -11,6 +11,7 @@ import {
   dueDiligenceUnderFolders, normalizeDocumentUrl, reorderByDrag, sanitizeStorageKey, type GrantState,
 } from '@/lib/data-room';
 import { grantStatus } from '@/lib/access-grants';
+import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
 import { entityStatusChip, passedNote, everyoneDncWarning } from '@/lib/grantee-warnings';
 import { PeopleAccessPanel } from '@/components/documents/PeopleAccessPanel';
 import { WhoHasAccessPanel } from '@/components/documents/WhoHasAccessPanel';
@@ -530,24 +531,11 @@ function DocumentsPageInner() {
     });
   }, [db.org.id, db.documents.length]);
 
-  // Prompt 301 §3 — verify-then-confirm: the upload itself still goes
-  // straight to Storage (unchanged), but the document row is only ever
-  // created after /api/data-room/verify-upload clears it (magic-byte
-  // allowlist + malware scan). A rejected file never becomes a Vault entry
-  // — the route itself deletes the Storage object on rejection.
-  async function verifyUpload(path: string, fileName: string): Promise<{ status?: string; provider?: string | null; sha256?: string }> {
-    const res = await fetch('/api/data-room/verify-upload', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ storagePath: path, fileName }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!body.ok) throw new Error(body.error ?? 'File could not be verified.');
-    return { status: body.malwareScanStatus, provider: body.provider, sha256: body.sha256 };
-  }
-
   // F2: multiple files upload sequentially (one Storage round-trip each),
   // with per-file progress and a failed-file list — one bad file shouldn't
-  // silently drop the rest of the batch.
+  // silently drop the rest of the batch. Prompt 301 §3 — verify-then-
+  // confirm via the shared uploadAndVerifyFile helper: the document row is
+  // only ever created after /api/data-room/verify-upload clears it.
   async function uploadFiles(files: File[]) {
     setUploadErr(''); setUploading(true);
     setUploadProgress({ done: 0, total: files.length, failed: [] });
@@ -555,15 +543,11 @@ function DocumentsPageInner() {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       try {
-        const sb = browserClient();
-        const path = `${db.org.id}/${crypto.randomUUID()}-${sanitizeStorageKey(file.name)}`;
-        const { error } = await sb.storage.from('data-room').upload(path, file);
-        if (error) throw error;
-        const scan = await verifyUpload(path, file.name);
+        const verified = await uploadAndVerifyFile(db.org.id, file);
         addDocument({
-          folder_id: selFolder, name: file.name, storage_path: path,
+          folder_id: selFolder, name: file.name, storage_path: verified.storagePath,
           is_view_only: true, visibility: docVisibility, watermark: false, downloadable: false,
-          malware_scan_status: scan.status as 'not_scanned' | 'pending' | 'clean' | 'flagged' | undefined,
+          malware_scan_status: verified.malwareScanStatus as 'not_scanned' | 'pending' | 'clean' | 'flagged' | undefined,
         });
       } catch (e) {
         failed.push(`${file.name}: ${(e as Error).message}`);
@@ -654,13 +638,10 @@ function DocumentsPageInner() {
   async function newVersion(docId: string, file: File) {
     setReplacingDocId(docId);
     try {
-      const sb = browserClient();
-      const path = `${db.org.id}/${crypto.randomUUID()}-${sanitizeStorageKey(file.name)}`;
-      const { error } = await sb.storage.from('data-room').upload(path, file);
-      if (error) throw error;
-      const scan = await verifyUpload(path, file.name);
-      if (documentVersionsAvailable) addDocumentVersion(docId, path, file.size, scan);
-      else replaceDocumentFile(docId, path);
+      const verified = await uploadAndVerifyFile(db.org.id, file);
+      const scan = { status: verified.malwareScanStatus, provider: verified.provider, sha256: verified.sha256 };
+      if (documentVersionsAvailable) addDocumentVersion(docId, verified.storagePath, verified.size, scan);
+      else replaceDocumentFile(docId, verified.storagePath);
     } catch (e) {
       alert(`Upload failed: ${(e as Error).message}`);
     } finally {

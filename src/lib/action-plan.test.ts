@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   jaccard, tokenize, clusterActions, clusterPriority, extractActions, dataroomChecklist, latestPerKind, joinNatural,
-  genuineContradictions, type Action, type AiReviewRow, type Contradiction,
+  genuineContradictions, findMatchingSolution, type Action, type AiReviewRow, type Contradiction,
 } from './action-plan';
 
 describe('jaccard / tokenize', () => {
@@ -199,5 +199,33 @@ describe('dataroomChecklist', () => {
   it('flags a document present by folder keyword match', () => {
     const checklist = dataroomChecklist([{ name: 'Corporate & Governance' }], []);
     expect(checklist.find((c) => c.label === 'Corporate / governance documents')?.present).toBe(true);
+  });
+});
+
+describe('findMatchingSolution — Prompt 302 §1, problem/solution pairing', () => {
+  it('pairs a weakness with a same-category recommendation that shares real overlap', () => {
+    const problem = { items: [action({ text: 'Go-to-market plan has no named channel partners or pricing.', category: 'traction' })] };
+    const all: Action[] = [
+      action({ type: 'recommendation', category: 'traction', text: 'Add named channel partners and a clear pricing model to the go-to-market section.' }),
+      action({ type: 'recommendation', category: 'team', text: 'Hire a technical co-founder.' }),
+    ];
+    const match = findMatchingSolution(problem, all);
+    expect(match?.text).toBe('Add named channel partners and a clear pricing model to the go-to-market section.');
+  });
+
+  it('never pairs across categories even with high text overlap', () => {
+    const problem = { items: [action({ text: 'Team lacks a technical co-founder.', category: 'team' })] };
+    const all: Action[] = [
+      action({ type: 'recommendation', category: 'traction', text: 'Team lacks a technical co-founder — add one.' }),
+    ];
+    expect(findMatchingSolution(problem, all)).toBeNull();
+  });
+
+  it('returns null (honest "no suggestion yet") when nothing clears the similarity bar', () => {
+    const problem = { items: [action({ text: 'Cap table shows an unusual liquidation preference stack.', category: 'other' })] };
+    const all: Action[] = [
+      action({ type: 'recommendation', category: 'other', text: 'Hire a marketing lead.' }),
+    ];
+    expect(findMatchingSolution(problem, all)).toBeNull();
   });
 });

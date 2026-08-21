@@ -11,7 +11,11 @@
 // entirely (the tempting-but-wrong fix).
 import type { CompanyFactCategory } from './types';
 
-export interface Finding { text: string; category: CompanyFactCategory }
+// Prompt 302 §2 — quote is optional: every review made before this existed
+// has none (never invent one retroactively — see the migration's own
+// comment), and only weaknesses/risks ask the model for it (recommendations
+// are the suggested FIX, not a point traceable to one source sentence).
+export interface Finding { text: string; category: CompanyFactCategory; quote?: string }
 export interface SeverityFinding extends Finding { severity: 'low' | 'medium' | 'high' }
 export interface StructuredReport {
   score: number; summary: string;

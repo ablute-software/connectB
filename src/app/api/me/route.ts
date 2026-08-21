@@ -30,6 +30,7 @@ import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, WATSON_DRAFT_QUOTA, REVIEW_QUOTA } from '@/lib/plans';
 import { stripeConfigured } from '@/lib/stripe-env';
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
+import { aiReviewDocumentLinkAvailable } from '@/lib/ai-review-document-link-capability';
 
 export async function GET(req: NextRequest) {
   const capabilities = {
@@ -45,6 +46,7 @@ export async function GET(req: NextRequest) {
     permissionMatrix: await permissionMatrixAvailable(),
     documentOrdering: await documentOrderingAvailable(),
     documentVersions: await documentVersionsAvailable(),
+    aiReviewDocumentLink: await aiReviewDocumentLinkAvailable(),
     reawakening: await reawakeningAvailable(),
     planAccounts: await planAccountsAvailable(),
     billing: stripeConfigured(),

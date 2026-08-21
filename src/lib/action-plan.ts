@@ -4,13 +4,23 @@
 import type { CompanyFactCategory } from './types';
 
 export type Severity = 'low' | 'medium' | 'high';
-export interface Finding { text: string; category: CompanyFactCategory }
+// Prompt 302 §2 — quote mirrors ai-review-shape.ts's own Finding (this file
+// keeps a structurally-identical, separately-declared copy of that shape,
+// pre-existing before this prompt — not introduced by it).
+export interface Finding { text: string; category: CompanyFactCategory; quote?: string }
 export interface SeverityFinding extends Finding { severity: Severity }
 export interface StructuredReport {
   score: number; summary: string;
   strengths: string[]; weaknesses: SeverityFinding[]; risks: SeverityFinding[]; recommendations: Finding[];
 }
-export interface AiReviewRow { id: string; kind: string; result: StructuredReport | null; created_at: string }
+// Prompt 302 §2 — document_id/document_version are null for every review
+// made before this existed (retroactive linking isn't possible — a review
+// never knew which file it came from) and for review kinds with no single
+// target file (message_review, market_data, cross_document_review).
+export interface AiReviewRow {
+  id: string; kind: string; result: StructuredReport | null; created_at: string;
+  document_id?: string | null; document_version?: string | null;
+}
 
 export interface Contradiction {
   text: string; category: CompanyFactCategory; severity: Severity;
@@ -29,6 +39,9 @@ export type ActionType = 'weakness' | 'risk' | 'recommendation';
 export interface Action {
   text: string; category: CompanyFactCategory; type: ActionType; severity: Severity | null;
   sourceKind: string; sourceReviewId: string; createdAt: string;
+  // Prompt 302 §2 — exact quote (weaknesses/risks only) + which real Vault
+  // document/version this came from, when the review was linked to one.
+  quote?: string; documentId?: string | null; documentVersion?: string | null;
 }
 export interface ActionCluster { items: Action[] }
 
@@ -128,15 +141,39 @@ export function extractActions(reviews: AiReviewRow[]): Action[] {
   for (const row of reviews) {
     if (!row.result) continue;
     const kindLabel = DOC_KIND_LABEL[row.kind] ?? row.kind;
+    const common = { sourceKind: kindLabel, sourceReviewId: row.id, createdAt: row.created_at, documentId: row.document_id, documentVersion: row.document_version };
     for (const w of row.result.weaknesses ?? []) {
-      out.push({ text: w.text, category: w.category, type: 'weakness', severity: w.severity, sourceKind: kindLabel, sourceReviewId: row.id, createdAt: row.created_at });
+      out.push({ text: w.text, category: w.category, type: 'weakness', severity: w.severity, quote: w.quote, ...common });
     }
     for (const r of row.result.risks ?? []) {
-      out.push({ text: r.text, category: r.category, type: 'risk', severity: r.severity, sourceKind: kindLabel, sourceReviewId: row.id, createdAt: row.created_at });
+      out.push({ text: r.text, category: r.category, type: 'risk', severity: r.severity, quote: r.quote, ...common });
     }
     for (const r of row.result.recommendations ?? []) {
-      out.push({ text: r.text, category: r.category, type: 'recommendation', severity: null, sourceKind: kindLabel, sourceReviewId: row.id, createdAt: row.created_at });
+      out.push({ text: r.text, category: r.category, type: 'recommendation', severity: null, ...common });
     }
   }
   return out;
+}
+
+// Prompt 302 §1 — pairs a problem (weakness/risk) cluster with the closest
+// matching recommendation cluster from the SAME underlying pool of actions,
+// when one exists. This is a text-similarity match, not a real link the AI
+// declared (ai_reviews has no field connecting a weakness to "the
+// recommendation that addresses it") — deliberately approximate, same
+// jaccard technique already used for clustering, with a lower bar than
+// clusterActions' own 0.6 (a fix is rarely phrased with the same words as
+// the problem it fixes) plus a category-match requirement so an unrelated
+// but textually-similar recommendation doesn't get paired by accident.
+const SOLUTION_MATCH_MIN_JACCARD = 0.12;
+
+export function findMatchingSolution(problem: ActionCluster, allActions: Action[]): Action | null {
+  const lead = problem.items[0];
+  const problemTokens = tokenize(lead.text);
+  const candidates = allActions.filter((a) => a.type === 'recommendation' && a.category === lead.category);
+  let best: { action: Action; score: number } | null = null;
+  for (const c of candidates) {
+    const score = jaccard(problemTokens, tokenize(c.text));
+    if (score >= SOLUTION_MATCH_MIN_JACCARD && (!best || score > best.score)) best = { action: c, score };
+  }
+  return best?.action ?? null;
 }

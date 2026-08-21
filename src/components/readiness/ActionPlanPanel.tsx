@@ -25,15 +25,39 @@ import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import {
   DOC_KIND_LABEL, SEVERITY_WEIGHT, dataroomChecklist, clusterActions, clusterPriority, extractActions, latestPerKind, joinNatural,
-  genuineContradictions, type Severity, type AiReviewRow, type ActionCluster, type Contradiction,
+  genuineContradictions, findMatchingSolution, type Severity, type Action, type AiReviewRow, type ActionCluster, type Contradiction,
 } from '@/lib/action-plan';
+import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
 
 interface ReviewRunRow { id: string; score: number | null; created_at: string }
 
 const TYPE_LABEL: Record<'weakness' | 'risk' | 'recommendation', string> = { weakness: 'Weakness', risk: 'Risk', recommendation: 'Recommendation' };
 const SEVERITY_COLOR: Record<Severity, string> = { high: 'text-[#B00000]', medium: 'text-amber-600', low: 'text-gray-500' };
 
-function ClusterRow({ cluster }: { cluster: ActionCluster }) {
+// Prompt 302 §1 — same visual bubble language as SwotVisualCard.tsx, mirrored
+// into two columns: the problem raised (red, left) and its suggested fix
+// (green, right) side by side, same shape, different tone.
+function Bubble({ tone, children }: { tone: 'problem' | 'solution'; children: React.ReactNode }) {
+  const style = tone === 'problem' ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50';
+  const dot = tone === 'problem' ? 'bg-red-500' : 'bg-emerald-500';
+  return (
+    <div className={`flex items-start gap-2 rounded-2xl border px-3 py-2 text-xs text-gray-800 ${style}`}>
+      <span aria-hidden="true" className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+      <div className="flex-1">{children}</div>
+    </div>
+  );
+}
+
+function ClusterRow({ cluster, allActions, docsById, existingVersions, documentVersionsAvailable, addDocumentVersion, orgId, onUploaded }: {
+  cluster: ActionCluster;
+  allActions: Action[];
+  docsById: Map<string, { id: string; name: string; storage_path?: string; version?: string }>;
+  existingVersions: { document_id: string; version: number }[];
+  documentVersionsAvailable: boolean;
+  addDocumentVersion: (docId: string, storagePath: string, size?: number, scan?: { status?: string; provider?: string | null; sha256?: string }) => void;
+  orgId: string;
+  onUploaded: (msg: string) => void;
+}) {
   const lead = cluster.items[0];
   const distinctDocs = Array.from(new Set(cluster.items.map((i) => i.sourceKind)));
   const worstSeverity = cluster.items.reduce<Severity | null>((worst, i) => {
@@ -41,16 +65,72 @@ function ClusterRow({ cluster }: { cluster: ActionCluster }) {
     if (!worst || SEVERITY_WEIGHT[i.severity] > SEVERITY_WEIGHT[worst]) return i.severity;
     return worst;
   }, null);
+  // Prompt 302 §1 — an on-demand solution, when the same review already
+  // made one (matched by text similarity — see findMatchingSolution's own
+  // header for why this is approximate, not a real declared link).
+  const solution = findMatchingSolution(cluster, allActions);
+  // Prompt 302 §2 — only the LEAD item's own document link is shown (a
+  // cluster can merge findings from several documents; the lead is the
+  // one the priority ranking is actually sorted on).
+  const linkedDoc = lead.documentId ? docsById.get(lead.documentId) : undefined;
+  const [uploading, setUploading] = useState(false);
+
+  async function uploadCorrectedVersion(file: File) {
+    if (!linkedDoc) return;
+    setUploading(true);
+    try {
+      const verified = await uploadAndVerifyFile(orgId, file);
+      // Same nextNum computation addDocumentVersion itself uses internally —
+      // computed here so the confirmation message names the real version
+      // number without waiting on a re-render to read it back.
+      const docVersions = existingVersions.filter((v) => v.document_id === linkedDoc.id);
+      const priorNum = docVersions.length ? Math.max(...docVersions.map((v) => v.version)) : (linkedDoc.storage_path ? 1 : 0);
+      const nextNum = priorNum + 1;
+      addDocumentVersion(linkedDoc.id, verified.storagePath, verified.size, { status: verified.malwareScanStatus, provider: verified.provider, sha256: verified.sha256 });
+      onUploaded(`New version (v${nextNum}) uploaded to the Vault, replaces v${priorNum} — the previous one stays in history, recoverable.`);
+    } catch (e) {
+      onUploaded(`Upload failed: ${(e as Error).message}`);
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <li className="rounded-lg border border-gray-200 bg-white p-3">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm text-gray-800">{lead.text}</p>
-        {worstSeverity && <span className={`shrink-0 text-xs font-semibold uppercase ${SEVERITY_COLOR[worstSeverity]}`}>{worstSeverity}</span>}
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Bubble tone="problem">
+          <p className="text-gray-800">{lead.text}</p>
+          {lead.quote && <p className="mt-1 text-[11px] italic text-gray-500">&ldquo;{lead.quote}&rdquo;</p>}
+        </Bubble>
+        <Bubble tone="solution">
+          {solution ? <p className="text-gray-800">{solution.text}</p> : <p className="text-gray-400">No suggestion yet — the AI hasn&apos;t proposed a matching fix for this one.</p>}
+        </Bubble>
       </div>
-      <p className="mt-1 text-xs text-gray-400">
-        {TYPE_LABEL[lead.type]} · {lead.category}
-        {distinctDocs.length > 1 ? ` · appears in ${joinNatural(distinctDocs)}` : ` · from ${distinctDocs[0]}`}
-      </p>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          {worstSeverity && <span className={`shrink-0 text-xs font-semibold uppercase ${SEVERITY_COLOR[worstSeverity]}`}>{worstSeverity}</span>}
+          <p className="text-xs text-gray-400">
+            {TYPE_LABEL[lead.type]} · {lead.category}
+            {distinctDocs.length > 1 ? ` · appears in ${joinNatural(distinctDocs)}` : ` · from ${distinctDocs[0]}`}
+          </p>
+        </div>
+        {linkedDoc ? (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-gray-400">{linkedDoc.name}{lead.documentVersion ? ` (reviewed at ${lead.documentVersion})` : ''}</span>
+            {documentVersionsAvailable && authEnabled && (
+              <label className={`cursor-pointer rounded-lg border border-gray-200 px-2 py-1 text-gray-600 hover:bg-gray-50 ${uploading ? 'opacity-50' : ''}`}>
+                {uploading ? 'Uploading…' : 'Upload corrected version'}
+                <input type="file" className="hidden" disabled={uploading}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadCorrectedVersion(f); e.target.value = ''; }} />
+              </label>
+            )}
+          </div>
+        ) : (
+          <span className="text-[11px] text-gray-400" title="This review was made before document linking existed, or wasn't linked to a Vault file.">
+            No Vault document linked
+          </span>
+        )}
+      </div>
     </li>
   );
 }
@@ -81,17 +161,25 @@ function InvestabilityChart({ runs }: { runs: ReviewRunRow[] }) {
 }
 
 export function ActionPlanPanel() {
-  const { db } = useStore();
+  const { db, addDocumentVersion } = useStore();
   const [reviews, setReviews] = useState<AiReviewRow[]>([]);
   const [runs, setRuns] = useState<ReviewRunRow[]>([]);
   const [contradictions, setContradictions] = useState<Contradiction[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [documentVersionsAvailable, setDocumentVersionsAvailable] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState('');
+
+  useEffect(() => {
+    fetch('/api/me').then((r) => r.json()).then((me) => setDocumentVersionsAvailable(!!me.capabilities?.documentVersions)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!authEnabled || !db.org.id) { setLoading(false); return; }
     Promise.all([
-      browserClient().from('ai_reviews').select('id, kind, result, created_at')
+      // Prompt 302 §2 — document_id/document_version travel alongside the
+      // rest of the row; both are null for a review made before this existed.
+      browserClient().from('ai_reviews').select('id, kind, result, created_at, document_id, document_version')
         .eq('org_id', db.org.id).eq('status', 'completed')
         .in('kind', Object.keys(DOC_KIND_LABEL))
         .order('created_at', { ascending: false }),
@@ -113,6 +201,7 @@ export function ActionPlanPanel() {
   const clusters = clusterActions(actions).sort((a, b) => clusterPriority(b) - clusterPriority(a));
   const top5 = clusters.slice(0, 5);
   const rest = clusters.slice(5);
+  const docsById = new Map(db.documents.map((d) => [d.id, d]));
 
   const checklist = dataroomChecklist(db.folders, db.documents);
   const missingCount = checklist.filter((c) => !c.present).length;
@@ -169,14 +258,23 @@ export function ActionPlanPanel() {
 
       {top5.length > 0 && (
         <Card title="Top priorities">
+          {uploadMsg && <p className="mb-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">{uploadMsg}</p>}
           <ul className="space-y-2">
-            {top5.map((cluster, i) => <ClusterRow key={i} cluster={cluster} />)}
+            {top5.map((cluster, i) => (
+              <ClusterRow key={i} cluster={cluster} allActions={actions} docsById={docsById} existingVersions={db.documentVersions}
+                documentVersionsAvailable={documentVersionsAvailable} addDocumentVersion={addDocumentVersion}
+                orgId={db.org.id} onUploaded={setUploadMsg} />
+            ))}
           </ul>
           {rest.length > 0 && (
             <details className="mt-2" open={showAll} onToggle={(e) => setShowAll((e.target as HTMLDetailsElement).open)}>
               <summary className="cursor-pointer text-xs text-gray-400">Show all {clusters.length} ({rest.length} more)</summary>
               <ul className="mt-2 space-y-2">
-                {rest.map((cluster, i) => <ClusterRow key={i} cluster={cluster} />)}
+                {rest.map((cluster, i) => (
+                  <ClusterRow key={i} cluster={cluster} allActions={actions} docsById={docsById} existingVersions={db.documentVersions}
+                    documentVersionsAvailable={documentVersionsAvailable} addDocumentVersion={addDocumentVersion}
+                    orgId={db.org.id} onUploaded={setUploadMsg} />
+                ))}
               </ul>
             </details>
           )}

@@ -21,6 +21,7 @@ import { serverClient, resolveRole, authEnabled } from '@/lib/supabase-server';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, planName } from '@/lib/plans';
 import { aiReviewHistoryFieldsAvailable } from '@/lib/ai-review-history-capability';
+import { aiReviewDocumentLinkAvailable } from '@/lib/ai-review-document-link-capability';
 import { coerceReport, type StructuredReport } from '@/lib/ai-review-shape';
 import { recordAiReviewFacts } from '@/lib/ecosystem-facts';
 import { assertNotViewer } from '@/lib/developer-viewer';
@@ -122,8 +123,13 @@ const SEVERITY_FINDING_SCHEMA = {
     text: { type: 'string' },
     category: { type: 'string', enum: CATEGORIES as unknown as string[] },
     severity: { type: 'string', enum: ['low', 'medium', 'high'] },
+    // Prompt 302 §2 — the exact original sentence/paragraph this point came
+    // from, same discipline as the cross-document check's own sideA/sideB
+    // quotes: the founder uses this to find the right section in the real
+    // document, since pasted text has no page number to point at instead.
+    quote: { type: 'string', description: 'The exact original sentence or paragraph from the document that this point is based on — a literal quote, not a paraphrase.' },
   },
-  required: ['text', 'category', 'severity'],
+  required: ['text', 'category', 'severity', 'quote'],
 };
 const REPORT_TOOL = {
   name: 'report_review',
@@ -173,9 +179,12 @@ const CONTRADICTION_TOOL = {
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { kind, draft, context, kindA, draftA, kindB, draftB } = body as {
+  const { kind, draft, context, kindA, draftA, kindB, draftB, documentId } = body as {
     kind: ReviewKind; draft?: string; context?: CompanyContext;
     kindA?: string; draftA?: string; kindB?: string; draftB?: string;
+    // Prompt 302 §2 — which real Vault document this review is about, when
+    // the founder picked one in ReviewPanel.tsx's "Document reviews" card.
+    documentId?: string;
   };
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -190,6 +199,18 @@ export async function POST(req: Request) {
   if (viewerBlock) return viewerBlock;
   const { data: { user } } = await sb.auth.getUser();
   const { data: member } = user ? await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle() : { data: null };
+
+  // Prompt 302 §2 — never trust a client-supplied documentId at face value:
+  // re-resolve it against the caller's own org (RLS-scoped `sb`, not the
+  // service-role client) and snapshot its CURRENT version string — the
+  // document may be versioned again after this review, and the review
+  // should still say what it was actually reviewing at the time.
+  let linkedDocumentId: string | null = null;
+  let linkedDocumentVersion: string | null = null;
+  if (documentId && member) {
+    const { data: doc } = await sb.from('documents').select('id, version').eq('id', documentId).eq('org_id', member.org_id).maybeSingle();
+    if (doc) { linkedDocumentId = doc.id as string; linkedDocumentVersion = (doc.version as string | null) ?? null; }
+  }
 
   // Prompt 117 Bloco G — Cross-document check and Market data are
   // motherfunding-only. Enforced HERE, not just the PlanBadge/TopTierLocked
@@ -459,12 +480,16 @@ export async function POST(req: Request) {
         const historyFields = (await aiReviewHistoryFieldsAvailable())
           ? { title: KIND_TITLE[kind], input_text: draft ?? null, created_by: user?.id ?? null, source: 'paste' }
           : {};
+        const documentLinkFields = (linkedDocumentId && await aiReviewDocumentLinkAvailable())
+          ? { document_id: linkedDocumentId, document_version: linkedDocumentVersion }
+          : {};
         const { data: inserted } = await admin.from('ai_reviews').insert({
           org_id: member.org_id, kind, status: 'completed',
           result: structured ? report : { review },
           model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
           interaction_draft: kind === 'message_review' ? draft ?? null : null,
           ...historyFields,
+          ...documentLinkFields,
         }).select('id').single();
         // Prompt 122 Block B (F1) §2.1 — only the structured-report kinds
         // carry a score + weaknesses/risks; message_review/market_data
