@@ -22,20 +22,13 @@ import { browserClient } from '@/lib/supabase';
 import { MatchDealShell } from '@/components/matchdeal/MatchDealShell';
 import { InstallPrompt } from '@/components/matchdeal/InstallPrompt';
 import { detectMobileClient } from '@/lib/is-mobile-client';
+import { getOrCreateDeviceId } from '@/lib/matchdeal-device-id';
 
 type Stage = 'checking' | 'need_login' | 'launch_gate' | 'consuming' | 'paired' | 'error';
 // Prompt 82 — checked before anything else on this route. UX gate only
 // (see is-mobile-client.ts's own header) — a spoofed UA still reaches the
 // deck, and that's an accepted, explicitly-scoped gap, not an oversight.
 type DeviceCheck = 'checking' | 'mobile' | 'desktop';
-
-const DEVICE_ID_KEY = 'sherlockdeal_pwa_device_id';
-
-function getOrCreateDeviceId(): string {
-  let id = localStorage.getItem(DEVICE_ID_KEY);
-  if (!id) { id = crypto.randomUUID(); localStorage.setItem(DEVICE_ID_KEY, id); }
-  return id;
-}
 
 function Wordmark({ compact = false }: { compact?: boolean }) {
   return (

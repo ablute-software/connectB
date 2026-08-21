@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { BRAND_NAME } from '@/lib/brand';
+import { useUsageHeartbeat } from '@/lib/use-usage-heartbeat';
 
 const NAV = [
   { href: '/backoffice', label: 'Today' },
@@ -33,6 +34,11 @@ export default function BackofficeLayout({ children }: { children: React.ReactNo
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false, role: 'none' }));
   }, []);
+
+  // Prompt 295 §1 — separate context from the founder shell's own 'crm'
+  // heartbeat: a dual-role account (Nuno) genuinely uses two different
+  // shells, and this table should be able to tell them apart.
+  useUsageHeartbeat({ context: 'backoffice', enabled: me?.authEnabled === true && me?.role === 'developer' });
 
   useEffect(() => {
     if (me?.authEnabled === false || me?.role !== 'developer') return;
