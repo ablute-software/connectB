@@ -10,6 +10,7 @@ import { classifyConflict, type ConflictClass } from '@/lib/contribution-diff';
 import { SuspiciousAccountsTab } from '@/components/backoffice/SuspiciousAccountsTab';
 import { FraudFlagsTab } from '@/components/backoffice/FraudFlagsTab';
 import { DomainMismatchTab } from '@/components/backoffice/DomainMismatchTab';
+import { CompetitorIntelTab } from '@/components/backoffice/CompetitorIntelTab';
 import { ENTITY_ENRICHMENT_FIELD_LABELS, isKnownEntityField } from '@/lib/entity-enrichment';
 import { manualEntityCompleteness, type CompletenessGrade } from '@/lib/completeness';
 
@@ -20,7 +21,7 @@ import { manualEntityCompleteness, type CompletenessGrade } from '@/lib/complete
 // backoffice/catalog/page.tsx (the CatalogCandidatesTab/AddedByStartupsTab/
 // QualityPanel section below) — no logic changes, per the prompt's own
 // scope.
-type Tab = 'contributions' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious' | 'fraud' | 'key_people' | 'community' | 'domain_mismatch';
+type Tab = 'contributions' | 'candidates' | 'submissions' | 'claims' | 'identity' | 'gdpr' | 'suspicious' | 'fraud' | 'key_people' | 'community' | 'domain_mismatch' | 'competitor_intel';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'contributions', label: 'Contributions' },
@@ -49,6 +50,11 @@ const TABS: { key: Tab; label: string }[] = [
   // orgs independently agreeing on the same still-blank field — its own
   // review surface (catalog_field_consensus, not contributions).
   { key: 'community', label: 'Contributions — by users' },
+  // Prompt 292 §Fase 1 — manual/admin path to feed the shared
+  // investor_investments library (0201), see CompetitorIntelTab.tsx. Not
+  // a review queue like the others above — a data-entry tool, but
+  // platform-admin-only same as everything else here.
+  { key: 'competitor_intel', label: 'Competitor intel' },
 ];
 
 type Contribution = {
@@ -1491,6 +1497,7 @@ export default function BackofficeQueuePage() {
       {tab === 'key_people' && <KeyPeoplePromoteTab />}
       {tab === 'community' && <ContributionsByUsersTab />}
       {tab === 'domain_mismatch' && <DomainMismatchTab />}
+      {tab === 'competitor_intel' && <CompetitorIntelTab />}
     </div>
   );
 }

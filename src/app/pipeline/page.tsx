@@ -20,6 +20,7 @@ import { nextMonthlyDeliveryDate } from '@/lib/catalog-monthly-delivery';
 import { classifyEntityFrozenState, type EntityFrozenState } from '@/lib/frozen-classifier';
 import { viewForFrozenState, pillLabelForFrozenState } from '@/lib/frozen-view-grouping';
 import type { NeglectOutcome } from '@/lib/neglect-evaluation';
+import { competitorInvestmentSummary, type CompetitorInvestmentItem } from '@/lib/competitor-investment-copy';
 import type { Db, Entity, Interaction, TaskItem } from '@/lib/types';
 
 const fitOrder = { high: 0, medium_high: 1, medium: 2, low: 3 };
@@ -442,6 +443,22 @@ export default function PipelinePage() {
     fetch('/api/founder/messages', { cache: 'no-store' }).then((r) => r.json())
       .then((b) => setActiveThreadEntityIds(new Set((b.threads ?? []).map((t: { entityId: string | null }) => t.entityId).filter(Boolean))))
       .catch(() => {});
+  }, []);
+  // Prompt 292 §Fase 1 (Pedido 6) — same batched-once-on-mount pattern as
+  // the two fetches above; keyed by entityId -> its most recent recorded
+  // investment (the route already orders by invested_at desc), since a
+  // row only has room for one badge regardless of how many are on file.
+  const [competitorInvestmentByEntityId, setCompetitorInvestmentByEntityId] = useState<Map<string, CompetitorInvestmentItem>>(new Map());
+  useEffect(() => {
+    if (!authEnabled) return;
+    fetch('/api/founder/competitor-investments', { cache: 'no-store' }).then((r) => r.json())
+      .then((b) => {
+        const map = new Map<string, CompetitorInvestmentItem>();
+        for (const item of (b.items ?? []) as CompetitorInvestmentItem[]) {
+          if (item.entityId && !map.has(item.entityId)) map.set(item.entityId, item);
+        }
+        setCompetitorInvestmentByEntityId(map);
+      }).catch(() => {});
   }, []);
   // How many catalog-sourced investors are blocked by the plan's accumulated
   // quota — a COUNT only, via the catalog_blocked_count() RPC (migration
@@ -953,6 +970,17 @@ export default function PipelinePage() {
                     {isUnverifiedStub(e) && (
                       <span className="ml-1.5 inline-block rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" title="No independent proof this entity exists yet — website, domain, phone, address, or a source specific to it.">
                         not yet verified
+                      </span>
+                    )}
+                    {/* Prompt 292 §Fase 1 (Pedido 6) — "um dos sinais mais
+                        fortes que existem" per Nuno's own framing: this
+                        investor has real recorded money in a company from
+                        the shared library. Full detail is a tooltip, not
+                        inline text, so a dense row doesn't grow further. */}
+                    {competitorInvestmentByEntityId.has(e.id) && (
+                      <span className="ml-1.5 inline-block rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
+                        title={competitorInvestmentSummary(competitorInvestmentByEntityId.get(e.id)!)}>
+                        💰 Portfolio signal
                       </span>
                     )}
                     <RelationshipCompactLine entityId={e.id} neutral={frozenView !== 'none'} />

@@ -13,6 +13,7 @@ import { ContributionBox } from '@/components/ContributionBox';
 import { CommunityConsensusPanel } from '@/components/CommunityConsensusPanel';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
 import { EntityPeoplePanel } from '@/components/EntityPeoplePanel';
+import { CompetitorInvestmentCard } from '@/components/CompetitorInvestmentCard';
 import { entityCompleteness, qualifiesForContactEnrichment } from '@/lib/completeness';
 import { isPersonCandidate, isUnverifiedStub, relatedContacts } from '@/lib/relationship';
 import { computeAlignment } from '@/lib/company-canon-logic';
@@ -248,6 +249,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           onCancel={() => setReportingFraud(false)}
           onReported={() => { setReportingFraud(false); resolveHardFilter(entity.id, 'resolved_blocked'); }} />
       )}
+      <CompetitorInvestmentCard entityId={entity.id} />
       {alignment && alignment.status !== 'aligned' && (
         <div className={`rounded-lg border-l-4 px-4 py-3 ${alignment.status === 'misaligned' ? 'border-[#B00000] bg-red-50' : 'border-amber-400 bg-amber-50'}`}>
           <div className={`text-sm font-semibold ${alignment.status === 'misaligned' ? 'text-[#B00000]' : 'text-amber-900'}`}>
