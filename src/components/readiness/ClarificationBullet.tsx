@@ -35,6 +35,16 @@ export function ClarificationBullet({ orgId, reviewRunId, category, itemIndex, i
     setOpen((o) => !o);
   }
 
+  // Prompt 300 — explicit close inside the opened panel itself: the only
+  // way to close it used to be the small 💬/🗨️ icon again, visually far
+  // from the panel and not obviously the close control (confirmed via
+  // screenshot). Same reset toggle() already does on open, so cancelling
+  // never leaves a stray unsaved draft lingering for next time it's opened.
+  function cancel() {
+    setDraft(existing?.clarification_text ?? ''); setVisible(existing?.visible_to_investors ?? true); setErr('');
+    setOpen(false);
+  }
+
   async function save() {
     if (!draft.trim()) return;
     setSaving(true); setErr('');
@@ -72,10 +82,17 @@ export function ClarificationBullet({ orgId, reviewRunId, category, itemIndex, i
               <input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} />
               Visible to investors
             </label>
-            <button disabled={!draft.trim() || saving} onClick={save}
-              className="rounded bg-[#0E7490] px-2 py-1 text-[11px] font-medium text-white disabled:opacity-40">
-              {saving ? 'Saving…' : 'Save'}
-            </button>
+            <span className="flex items-center gap-1.5">
+              <button type="button" onClick={cancel} disabled={saving}
+                title="Close without saving" aria-label="Close without saving"
+                className="rounded border border-gray-300 px-2 py-1 text-[11px] text-gray-500 hover:bg-gray-50 disabled:opacity-40">
+                Cancel
+              </button>
+              <button disabled={!draft.trim() || saving} onClick={save}
+                className="rounded bg-[#0E7490] px-2 py-1 text-[11px] font-medium text-white disabled:opacity-40">
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </span>
           </div>
           {err && <p className="mt-1 text-[11px] text-[#B00000]">{err}</p>}
         </div>
