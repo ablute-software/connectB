@@ -19,6 +19,7 @@ import { softCircledThisRound } from '@/lib/round-capital';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import type { Contradiction } from '@/lib/action-plan';
 import { ReportView, type StructuredReport } from './ReportView';
+import { GapInterrogation, type GapView } from './GapInterrogation';
 import { PlanBadge } from '@/components/PlanBadge';
 import { planName, REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
 import { can, type OrgRole } from '@/lib/permissions';
@@ -101,6 +102,51 @@ export function ReviewPanel() {
   const [runLoading, setRunLoading] = useState(false);
   const [runErr, setRunErr] = useState('');
 
+  // Prompt 298 §1/§2 — the SAME gap-detection engine Pitch Blueprint already
+  // uses (company-gaps.ts, via /api/blueprint), wired here so Review warns
+  // before running on thin data instead of silently producing an imprecise
+  // report. gapAnalysisId lets a Review-flow answer register against the
+  // same blueprint_analyses row Blueprint itself would use, if one exists.
+  const [gaps, setGaps] = useState<GapView[]>([]);
+  const [gapAnalysisId, setGapAnalysisId] = useState<string | undefined>(undefined);
+  // Prompt 298 §3 — accepted claims (including gap answers, source_kind
+  // 'founder_answer') merged into what Run review actually sends, alongside
+  // db.companyFacts. Without this, answering a gap here would satisfy the
+  // alert but never reach the report itself — the exact "no extra friction"
+  // requirement the prompt asks to confirm, which direct reading showed did
+  // NOT already hold (company_claims and company_facts are separate tables;
+  // /api/review/investability only ever received the latter).
+  const [acceptedClaimStatements, setAcceptedClaimStatements] = useState<string[]>([]);
+  const [showInterrogation, setShowInterrogation] = useState(false);
+  const [gapBusy, setGapBusy] = useState(false);
+
+  function loadGaps() {
+    fetch('/api/blueprint').then((r) => r.json()).then((body) => {
+      if (body.available) {
+        setGaps(body.gaps ?? []);
+        setGapAnalysisId(body.analysis?.id);
+        setAcceptedClaimStatements(
+          ((body.claims ?? []) as { status: string; statement: string }[])
+            .filter((c) => c.status === 'accepted').map((c) => c.statement),
+        );
+      }
+    }).catch(() => {});
+  }
+  useEffect(loadGaps, []);
+
+  async function submitGapAnswer(opts: { option?: string; answer?: string; dismissed: boolean }) {
+    const gap = gaps[0];
+    if (!gap) return;
+    setGapBusy(true);
+    try {
+      await fetch('/api/blueprint/answer', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ gapKey: gap.key, rule: gap.rule, option: opts.option, answer: opts.answer, analysisId: gapAnalysisId, dismissed: opts.dismissed }),
+      });
+      loadGaps();
+    } finally { setGapBusy(false); }
+  }
+
   // Prompt 168 §B — org-wide, not per-run: the same lookup covers the latest
   // run's inline risks/recommendations below AND SwotVisualCard's four
   // categories, without a second fetch.
@@ -134,7 +180,14 @@ export function ReviewPanel() {
       .then(({ data }) => setClarifications((data as ReviewClarification[] | null) ?? []));
   }, [caps?.reviewClarifications, db.org.id]);
 
-  const confirmedFacts = db.companyFacts.filter((f) => f.status === 'confirmed').map((f) => f.statement);
+  // Prompt 298 §3 — merges db.companyFacts (existing) with accepted
+  // company_claims (Blueprint's engine, incl. this tab's own gap answers)
+  // so resolving a gap here changes the very next Run review, not just the
+  // alert above. Deduped by exact text — a claim can restate a fact.
+  const confirmedFacts = [...new Set([
+    ...db.companyFacts.filter((f) => f.status === 'confirmed').map((f) => f.statement),
+    ...acceptedClaimStatements,
+  ])];
   const companyContext = {
     name: db.org.name, sector: db.org.sector, stage: db.org.stage,
     round_target_eur: db.org.round_target_eur, country: db.org.country, one_liner: db.org.one_liner,
@@ -269,8 +322,44 @@ export function ReviewPanel() {
   // no array completo de weaknesses.
   const weaknessSplit = splitFundraisingExecution(latest?.report?.weaknesses ?? []);
 
+  const criticalGaps = gaps.filter((g) => g.severity === 'critical' || g.severity === 'high');
+
   return (
     <>
+      {/* Prompt 298 §1 — critical/high gaps block review PRECISION, not
+          access: the founder can still run a review on thin data if they
+          choose, but not without knowing what it'll cost them. */}
+      {criticalGaps.length > 0 && !showInterrogation && (
+        <Card title={<span className="text-[#B00000]">Missing information will make this review imprecise</span>}>
+          <p className="text-sm text-gray-700">
+            {criticalGaps.length} crucial question{criticalGaps.length === 1 ? ' is' : 's are'} still unanswered about your
+            company. Without {criticalGaps.length === 1 ? 'it' : 'them'}, the Action Plan will be imprecise, Train will
+            drill the wrong questions, this dossier may reach the wrong (or less-precise) investors, and your History
+            won&apos;t reflect the truth.
+          </p>
+          <button onClick={() => setShowInterrogation(true)}
+            className="mt-2 rounded-lg bg-[#B00000] px-3 py-1.5 text-sm font-medium text-white">
+            Começar agora
+          </button>
+        </Card>
+      )}
+      {showInterrogation && gaps[0] && (
+        <Card title={<span className="text-[#0E7490]">What&apos;s missing ({gaps.length} left)</span>}>
+          <GapInterrogation gap={gaps[0]} remaining={gaps.length} busy={gapBusy} onSubmit={submitGapAnswer} />
+          <button onClick={() => setShowInterrogation(false)} className="mt-2 text-xs text-gray-400 hover:underline">
+            Close — I&apos;ll finish this later
+          </button>
+        </Card>
+      )}
+      {showInterrogation && !gaps[0] && (
+        <Card title={<span className="text-emerald-700">All caught up</span>}>
+          <p className="text-sm text-gray-600">No pending questions right now. Run review below to see the updated result.</p>
+          <button onClick={() => setShowInterrogation(false)} className="mt-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50">
+            Close
+          </button>
+        </Card>
+      )}
+
       <SwotVisualCard
         data={latest?.report ? {
           strengths: latest.report.strengths ?? [], weaknesses: weaknessSplit.business.map((b) => b.text),
