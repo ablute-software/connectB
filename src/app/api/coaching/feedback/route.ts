@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { logAiCall } from '@/lib/ai-cost-log';
 
 interface Question { text: string; category: string; source: 'fixed' | 'derived' | 'diligence' }
 interface QA { question: Question; answer: string }
@@ -76,6 +77,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Feedback failed — try again in a moment.' }, { status: 502 });
     }
     const data = await res.json();
+    void logAiCall({ route: '/api/coaching/feedback', purpose: 'coaching_feedback', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId: member.org_id });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const feedback = toolUse?.input as { per_question: { note: string }[]; strengths_to_keep: string[]; top_adjustments: string[] } | undefined;
     if (!feedback) return NextResponse.json({ ok: false, error: 'Feedback failed — try again in a moment.' }, { status: 502 });

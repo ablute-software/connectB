@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { serverClient, resolveRole, authEnabled } from '@/lib/supabase-server';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
+import { logAiCall } from '@/lib/ai-cost-log';
 import type { FormAssistContext } from '@/lib/form-assist';
 
 const NOT_CONFIGURED_MSG =
@@ -64,7 +65,7 @@ const TOOL_SCHEMA = {
   required: ['answers'],
 };
 
-async function callClaude(apiKey: string, model: string, prompt: string): Promise<FormAssistToolOutput> {
+async function callClaude(apiKey: string, model: string, prompt: string, orgId: string | null): Promise<FormAssistToolOutput> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
@@ -82,6 +83,7 @@ async function callClaude(apiKey: string, model: string, prompt: string): Promis
     throw new Error('Form Assist draft failed — try again in a moment.');
   }
   const data = await res.json();
+  void logAiCall({ route: '/api/form-assist', purpose: 'form_assist_draft', model, usage: data.usage, orgId });
   const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
   if (!toolUse) throw new Error('Form Assist draft failed — try again in a moment.');
   return toolUse.input as FormAssistToolOutput;
@@ -98,14 +100,16 @@ export async function POST(req: NextRequest) {
   // Same plan gate as /api/compose — Form Assist is part of the AI-drafting
   // entitlement, not a separate one; a workspace that can't AI-draft
   // messages shouldn't get AI-drafted form answers either.
+  let formAssistOrgId: string | null = null;
   if (authEnabled) {
     const sb = await serverClient();
     const { data: { user } } = await sb.auth.getUser();
     if (user) {
-      const [role, { plan }] = await Promise.all([
+      const [role, { orgId, plan }] = await Promise.all([
         resolveRole(user.id, user.email, sb, user.email_confirmed_at),
         resolveUserPlan(user.id, sb),
       ]);
+      formAssistOrgId = orgId ?? null;
       if (!planEntitlements(plan, role === 'developer').aiComposer) {
         return NextResponse.json({ configured: false, locked: true, message: AI_COMPOSER_LOCKED_COPY }, { status: 200 });
       }
@@ -114,7 +118,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
-    const draft = await callClaude(apiKey, model, buildPrompt(context, pastedQuestions?.trim() || undefined));
+    const draft = await callClaude(apiKey, model, buildPrompt(context, pastedQuestions?.trim() || undefined), formAssistOrgId);
     return NextResponse.json({ configured: true, answers: draft.answers });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 502 });

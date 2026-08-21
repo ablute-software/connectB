@@ -13,6 +13,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { communityConsensusAvailable } from '@/lib/community-consensus-capability';
 import { catalogFieldIsBlank, isCommunityEligibleField, normalizedValuesMatch, orderedArbitrationPair } from '@/lib/community-consensus';
+import { logAiCall } from '@/lib/ai-cost-log';
 
 // §4 — "mesmo facto, escrito diferente?" (e.g. "Managing Partner: J. Smith"
 // vs "John Smith (Managing Partner)"; "€1M-5M" vs "1-5 milhoes"). One
@@ -21,7 +22,7 @@ import { catalogFieldIsBlank, isCommunityEligibleField, normalizedValuesMatch, o
 // exact-match (normalizedValuesMatch) always runs FIRST; this only fires
 // when that already said "different" (§4's own "determinístico primeiro,
 // AI como 2º filtro").
-async function arbitrateEquality(apiKey: string, model: string, field: string, a: string, b: string): Promise<{ sameValue: boolean; canonicalValue: string | null }> {
+async function arbitrateEquality(apiKey: string, model: string, field: string, a: string, b: string, catalogId: string): Promise<{ sameValue: boolean; canonicalValue: string | null }> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
@@ -51,6 +52,12 @@ async function arbitrateEquality(apiKey: string, model: string, field: string, a
   });
   if (!res.ok) throw new Error(`Anthropic API error: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
+  // Prompt 293 §1 — arbitrating between two orgs' independent submissions
+  // about the SAME shared catalog record benefits the catalog itself
+  // (cached, reused by any future comparison), not one org — orgId stays
+  // null, same shared-catalog convention as enrichment-worker/catalog
+  // research calls.
+  void logAiCall({ route: '/api/community-consensus/register', purpose: 'field_arbitration', model, usage: data.usage, orgId: null, targetType: 'catalog_entities', targetId: catalogId });
   const toolUse = (data.content as { type: string; name?: string; input?: unknown }[]).find((b) => b.type === 'tool_use' && b.name === 'judge_equality');
   const input = (toolUse?.input ?? {}) as { same_value?: boolean; canonical_value?: string };
   return { sameValue: !!input.same_value, canonicalValue: input.canonical_value ?? null };
@@ -77,7 +84,7 @@ async function arbitratedMatch(admin: SupabaseClient, catalogId: string, field: 
 
   const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
   try {
-    const verdict = await arbitrateEquality(apiKey, model, field, valueA, valueB);
+    const verdict = await arbitrateEquality(apiKey, model, field, valueA, valueB, catalogId);
     await admin.from('catalog_field_arbitration_cache').insert({
       catalog_id: catalogId, field, value_a: valueA, value_b: valueB,
       same_value: verdict.sameValue, canonical_value: verdict.canonicalValue,

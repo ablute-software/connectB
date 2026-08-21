@@ -46,6 +46,7 @@ import { serverClient, resolveRole } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { REVIEW_QUOTA, REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
+import { logAiCall } from '@/lib/ai-cost-log';
 import type { SwotData } from '@/lib/types';
 
 interface Report extends SwotData {
@@ -198,6 +199,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'AI review failed — try again in a moment.' }, { status: 502 });
     }
     const data = await res.json();
+    void logAiCall({ route: '/api/review/investability', purpose: 'investability_report', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const report = toolUse?.input as Report | undefined;
     if (!report) return NextResponse.json({ ok: false, error: 'AI review failed — try again in a moment.' }, { status: 502 });
@@ -207,7 +209,7 @@ export async function POST(req: Request) {
     // filtrado no fim, e gerado de outra coisa. Se falhar, investor_safe
     // fica ausente e o portal nao mostra SWOT nenhum (fail-closed) -- a
     // ausencia e melhor do que a fuga.
-    const investorSafe = await generateInvestorSafeSwot(apiKey, company, facts);
+    const investorSafe = await generateInvestorSafeSwot(apiKey, company, facts, orgId);
 
     const admin = createClient(url, service, { auth: { persistSession: false } });
     const { data: row, error } = await admin.from('review_runs').insert({
@@ -229,7 +231,7 @@ export async function POST(req: Request) {
 // fail-closed, portanto "nao consegui gerar" mostra nada em vez de cair no
 // report completo. Um SWOT em falta e um inconveniente; o outro e a fuga.
 async function generateInvestorSafeSwot(
-  apiKey: string, company: Record<string, unknown> | undefined, facts: string[] | undefined,
+  apiKey: string, company: Record<string, unknown> | undefined, facts: string[] | undefined, orgId: string,
 ): Promise<{ strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] } | undefined> {
   const prompt = 'You are writing a SWOT about a startup, for investors evaluating it.\n\n'
     + `COMPANY:\n${JSON.stringify(company ?? {}, null, 2)}\n\n`
@@ -270,6 +272,7 @@ async function generateInvestorSafeSwot(
       return undefined;
     }
     const data = await res.json();
+    void logAiCall({ route: '/api/review/investability', purpose: 'investor_safe_swot', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     if (!toolUse?.input) return undefined;
 

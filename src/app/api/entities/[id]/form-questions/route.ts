@@ -30,12 +30,13 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { catalogFormQuestionsAvailable } from '@/lib/form-questions-capability';
+import { logAiCall } from '@/lib/ai-cost-log';
 
 const NOT_CONFIGURED_MSG = 'Form question extraction isn’t available in your workspace yet — paste the questions yourself instead.';
 
 interface ExtractedQuestion { label: string; type?: string }
 
-async function anthropicCall(apiKey: string, model: string, body: Record<string, unknown>) {
+async function anthropicCall(apiKey: string, model: string, body: Record<string, unknown>, orgId: string | null) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -45,7 +46,9 @@ async function anthropicCall(apiKey: string, model: string, body: Record<string,
     body: JSON.stringify({ model, max_tokens: 2000, ...body }),
   });
   if (!res.ok) throw new Error(`Anthropic API error: ${(await res.text()).slice(0, 300)}`);
-  return res.json();
+  const data = await res.json();
+  void logAiCall({ route: '/api/entities/[id]/form-questions', purpose: 'form_questions_extract', model, usage: data.usage, orgId });
+  return data;
 }
 
 const EXTRACT_SYSTEM = 'You extract the list of distinct question/field labels from an investor submission web form, '
@@ -56,13 +59,13 @@ const EXTRACT_SYSTEM = 'You extract the list of distinct question/field labels f
   + 'not present in the fetched text, you will not be able to see them — never guess or invent generic fields as a '
   + 'substitute for what you couldn\'t read.';
 
-async function extractFormQuestions(apiKey: string, model: string, url: string): Promise<{ questions: ExtractedQuestion[]; note?: string }> {
+async function extractFormQuestions(apiKey: string, model: string, url: string, orgId: string | null): Promise<{ questions: ExtractedQuestion[]; note?: string }> {
   const step1 = await anthropicCall(apiKey, model, {
     system: EXTRACT_SYSTEM,
     messages: [{ role: 'user', content: `Investigate this form URL and its content: ${url}` }],
     tools: [{ type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 5 }],
     tool_choice: { type: 'any' },
-  });
+  }, orgId);
 
   const toolSchema = {
     type: 'object',
@@ -93,7 +96,7 @@ async function extractFormQuestions(apiKey: string, model: string, url: string):
     ],
     tools: [{ name: 'extract_form_questions', description: 'Report the extracted form questions.', input_schema: toolSchema }],
     tool_choice: { type: 'tool', name: 'extract_form_questions' },
-  });
+  }, orgId);
 
   const toolUse = (step2.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
   if (!toolUse) return { questions: [], note: 'Extraction failed — try again in a moment.' };
@@ -176,7 +179,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   try {
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
-    const { questions, note } = await extractFormQuestions(apiKey, model, effectiveUrl);
+    // Prompt 293 §1 — null (shared-catalog) when this result gets cached
+    // for every future org via catalog_form_questions; this org's own id
+    // otherwise (a manually-typed, non-catalog entity never shares).
+    const { questions, note } = await extractFormQuestions(apiKey, model, effectiveUrl, catalogId ? null : (entity.org_id as string));
 
     if (questions.length > 0 && catalogId) {
       await admin.from('catalog_form_questions').upsert(

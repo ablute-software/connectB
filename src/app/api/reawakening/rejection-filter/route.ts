@@ -19,8 +19,9 @@ import { serverClient } from '@/lib/supabase-server';
 import { reawakeningAiFilterAvailable } from '@/lib/reawakening-ai-filter-capability';
 import { buildRejectionFilterPrompt, type FilterCase, type RawFilterVerdict } from '@/lib/reawakening-ai-filter';
 import { chunk } from '@/lib/reawakening';
+import { logAiCall } from '@/lib/ai-cost-log';
 
-async function callFilter(apiKey: string, model: string, cases: FilterCase[]): Promise<RawFilterVerdict[]> {
+async function callFilter(apiKey: string, model: string, cases: FilterCase[], orgId: string): Promise<RawFilterVerdict[]> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
@@ -60,6 +61,7 @@ async function callFilter(apiKey: string, model: string, cases: FilterCase[]): P
   });
   if (!res.ok) throw new Error(`Anthropic API error: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
+  void logAiCall({ route: '/api/reawakening/rejection-filter', purpose: 'rejection_filter', model, usage: data.usage, orgId });
   const input = data.content?.find((b: { type: string }) => b.type === 'tool_use')?.input as { verdicts?: RawFilterVerdict[] } | undefined;
   return input?.verdicts ?? [];
 }
@@ -124,7 +126,7 @@ export async function POST(req: NextRequest) {
     try {
       const fresh: RawFilterVerdict[] = [];
       for (const group of chunk(uncached)) {
-        const verdicts = await callFilter(apiKey, model, group);
+        const verdicts = await callFilter(apiKey, model, group, body.orgId as string);
         for (const v of verdicts) if (group.some((c) => c.rejectionCodeId === v.rejection_code_id)) fresh.push(v);
       }
       if (fresh.length > 0) {

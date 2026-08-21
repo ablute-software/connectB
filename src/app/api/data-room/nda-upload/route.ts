@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import type { NdaMatchStatus } from '@/lib/types';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { logAiCall } from '@/lib/ai-cost-log';
 
 export async function POST(req: NextRequest) {
   const { storagePath, fileName, personId, entityId, granteeEmail } = await req.json() as {
@@ -92,6 +93,7 @@ export async function POST(req: NextRequest) {
       });
       if (res.ok) {
         const data = await res.json();
+        void logAiCall({ route: '/api/data-room/nda-upload', purpose: 'nda_cross_check', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId });
         const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
         const result = toolUse?.input as { match_status?: NdaMatchStatus; notes?: string } | undefined;
         if (result?.match_status) { match_status = result.match_status; match_notes = result.notes; }

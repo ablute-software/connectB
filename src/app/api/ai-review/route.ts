@@ -24,6 +24,7 @@ import { aiReviewHistoryFieldsAvailable } from '@/lib/ai-review-history-capabili
 import { coerceReport, type StructuredReport } from '@/lib/ai-review-shape';
 import { recordAiReviewFacts } from '@/lib/ecosystem-facts';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { logAiCall } from '@/lib/ai-cost-log';
 
 type ReviewKind =
   | 'message_review' | 'deck_review' | 'one_pager_review' | 'market_data'
@@ -250,6 +251,11 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 502 });
       }
       const data = await res.json();
+      void logAiCall({
+        route: '/api/ai-review', purpose: 'cross_document_review',
+        model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage,
+        orgId: member?.org_id ?? null,
+      });
       const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
       const parsed = toolUse?.input as { contradictions?: unknown } | undefined;
       if (!parsed) return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 502 });
@@ -395,6 +401,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 502 });
     }
     const data = await res.json();
+    void logAiCall({
+      route: '/api/ai-review', purpose: `review:${kind}`,
+      model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage,
+      orgId: member?.org_id ?? null,
+    });
 
     let review: string | undefined;
     let report: StructuredReport | undefined;

@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { logAiCall } from '@/lib/ai-cost-log';
 import type { Channel, Classification, Direction } from '@/lib/types';
 
 interface InputInteraction { id: string; direction: Direction; channel: Channel; content: string; occurredAt: string }
@@ -101,6 +102,7 @@ export async function POST(req: NextRequest) {
       throw new Error('AI pre-classification failed for this entity — try again in a moment.');
     }
     const data = await res.json();
+    void logAiCall({ route: '/api/needs-review/classify-entity', purpose: 'needs_review_classify', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId: entity.org_id as string });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const proposals = (toolUse?.input as { proposals?: AiProposal[] } | undefined)?.proposals ?? [];
     return NextResponse.json({ ok: true, configured: true, proposals });

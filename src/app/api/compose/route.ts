@@ -7,6 +7,7 @@ import { serverClient, resolveRole, authEnabled } from '@/lib/supabase-server';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, AI_COMPOSER_LOCKED_COPY, WATSON_DRAFT_QUOTA } from '@/lib/plans';
 import { recordWatsonDraft } from '@/lib/watson-draft-record';
+import { logAiCall } from '@/lib/ai-cost-log';
 import type { ComposerContext, ComposerIntent } from '@/lib/composer';
 import type { Channel, Entity, Person } from '@/lib/types';
 
@@ -155,7 +156,7 @@ function toolSchema(canonGated: boolean) {
   };
 }
 
-async function callClaude(apiKey: string, model: string, prompt: string, canonGated: boolean): Promise<ComposerToolOutput> {
+async function callClaude(apiKey: string, model: string, prompt: string, canonGated: boolean, orgId: string | null): Promise<ComposerToolOutput> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
@@ -173,6 +174,7 @@ async function callClaude(apiKey: string, model: string, prompt: string, canonGa
     throw new Error('AI draft failed — try again in a moment.');
   }
   const data = await res.json();
+  void logAiCall({ route: '/api/compose', purpose: 'compose_outreach', model, usage: data.usage, orgId });
   const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
   if (!toolUse) throw new Error('AI draft failed — try again in a moment.');
   return toolUse.input as ComposerToolOutput;
@@ -199,6 +201,11 @@ export async function POST(req: NextRequest) {
   let watsonOrgId: string | null = null;
   let watsonQuota = 0;
   let watsonSb: Awaited<ReturnType<typeof serverClient>> | null = null;
+  // Prompt 293 §1 — separate from watsonOrgId on purpose: that one is
+  // scoped to the watson-quota exemption (null for developer role even
+  // though developer DOES have a real org), but AI cost logging needs the
+  // caller's actual org regardless of quota exemption.
+  let composeOrgId: string | null = null;
   if (authEnabled) {
     const sb = await serverClient();
     watsonSb = sb;
@@ -208,6 +215,7 @@ export async function POST(req: NextRequest) {
         resolveRole(user.id, user.email, sb, user.email_confirmed_at),
         resolveUserPlan(user.id, sb),
       ]);
+      composeOrgId = orgId ?? null;
       if (!planEntitlements(plan, role === 'developer').aiComposer) {
         return NextResponse.json({ configured: false, locked: true, message: AI_COMPOSER_LOCKED_COPY }, { status: 200 });
       }
@@ -240,13 +248,13 @@ export async function POST(req: NextRequest) {
 
   try {
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
-    let draft = await callClaude(apiKey, model, buildPrompt(context, channel, intent), canonGated);
+    let draft = await callClaude(apiKey, model, buildPrompt(context, channel, intent), canonGated, composeOrgId);
     let findings = lintMessage(draft.body, personLike, entityLike, channel);
 
     if (findings.some((f) => f.severity === 'error')) {
       const retryPrompt = buildPrompt(context, channel, intent) +
         `\n\nYour previous attempt failed these checks — fix them:\n${findings.filter((f) => f.severity === 'error').map((f) => `- ${f.message}`).join('\n')}`;
-      draft = await callClaude(apiKey, model, retryPrompt, canonGated);
+      draft = await callClaude(apiKey, model, retryPrompt, canonGated, composeOrgId);
       findings = lintMessage(draft.body, personLike, entityLike, channel);
     }
 

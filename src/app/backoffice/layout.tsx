@@ -18,6 +18,8 @@ const NAV = [
   { href: '/backoffice/investors', label: 'Investors' },
   { href: '/backoffice/startups', label: 'Startups' },
   { href: '/backoffice/support', label: 'Customer Support' },
+  // Prompt 293 §2/§3 — new AI Costs tab, single source ai_call_log (0202).
+  { href: '/backoffice/costs', label: 'AI Costs' },
   { href: '/backoffice/promo-codes', label: 'Promo Codes & Offers' },
   { href: '/backoffice/plan-requests', label: 'Plan Requests' },
 ];
@@ -55,7 +57,6 @@ export default function BackofficeLayout({ children }: { children: React.ReactNo
             <div className="text-[17px] font-bold leading-none tracking-tight text-white" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
               {BRAND_NAME}
             </div>
-            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-gray-300">Platform</span>
           </div>
           <nav className="flex items-center gap-1">
             {NAV.map((n) => {

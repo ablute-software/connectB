@@ -11,6 +11,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { buildClassifyPrompt, parseClassifyResponse, CLASSIFY_MODEL_DEFAULT } from '@/lib/classify-ai';
 import { serverClient, authEnabled } from '@/lib/supabase-server';
+import { logAiCall } from '@/lib/ai-cost-log';
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -20,10 +21,17 @@ export async function POST(req: NextRequest) {
 
   // Só um utilizador autenticado gasta a nossa chave. Sem isto, a rota era
   // um proxy aberto para a API do Anthropic à conta do projecto.
+  // Prompt 293 §1 — org_id also resolved here now (it wasn't before): this
+  // is a per-org call (classifying THIS founder's own interaction), never
+  // shared-catalog work, so it must never log as org_id=null (that would
+  // misreport it as platform-shared cost in the AI Costs tab).
+  let orgId: string | null = null;
   if (authEnabled) {
     const sb = await serverClient();
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Not signed in.' }, { status: 401 });
+    const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
+    orgId = (member?.org_id as string | undefined) ?? null;
   }
 
   const body = await req.json().catch(() => ({})) as { content?: string };
@@ -48,6 +56,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ configured: true, suggestion: null });
     }
     const data = await res.json();
+    void logAiCall({ route: '/api/classify-interaction', purpose: 'classify_interaction', model, usage: data.usage, orgId });
     const text = (data.content as { type: string; text?: string }[] | undefined)
       ?.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('') ?? '';
     return NextResponse.json({ configured: true, suggestion: parseClassifyResponse(text) });

@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { logAiCall } from '@/lib/ai-cost-log';
 
 interface ProposedPerson { name: string; role?: string; confidence: number; evidence: string }
 
@@ -81,6 +82,7 @@ export async function POST(req: NextRequest) {
       throw new Error('AI-assisted people detection failed for this section — try again in a moment.');
     }
     const data = await res.json();
+    void logAiCall({ route: '/api/import/md/extract-people', purpose: 'import_extract_people', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId: batch.org_id as string });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const proposedPeople = (toolUse?.input as { people?: ProposedPerson[] } | undefined)?.people ?? [];
 

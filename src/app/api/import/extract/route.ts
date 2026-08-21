@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { logAiCall } from '@/lib/ai-cost-log';
 
 const MAX_CHARS = 20_000; // token-budget guard; chunking is a future enhancement
 
@@ -105,6 +106,7 @@ export async function POST(req: NextRequest) {
       throw new Error('AI extraction failed — try again in a moment.');
     }
     const data = await res.json();
+    void logAiCall({ route: '/api/import/extract', purpose: 'import_extract_history', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId: batch.org_id as string });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     if (!toolUse) throw new Error('AI extraction failed — try again in a moment.');
 

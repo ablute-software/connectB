@@ -30,6 +30,7 @@ import {
   type NeglectCase, type NeglectOutcome, type NeglectVerdict,
 } from '@/lib/neglect-evaluation';
 import { chunk } from '@/lib/reawakening';
+import { logAiCall } from '@/lib/ai-cost-log';
 import type { Entity, Interaction, Person } from '@/lib/types';
 
 interface RawVerdict {
@@ -40,7 +41,7 @@ interface RawVerdict {
 
 async function callSherlock(
   apiKey: string, model: string, cases: NeglectCase[], now: Date,
-  companyFacts: { id: string; statement: string; category: string }[],
+  companyFacts: { id: string; statement: string; category: string }[], orgId: string,
 ): Promise<RawVerdict[]> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -93,6 +94,7 @@ async function callSherlock(
   });
   if (!res.ok) throw new Error(`Anthropic API error: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
+  void logAiCall({ route: '/api/reawakening/neglect-evaluate', purpose: 'neglect_evaluate', model, usage: data.usage, orgId });
   const input = data.content?.find((b: { type: string }) => b.type === 'tool_use')?.input as { verdicts?: RawVerdict[] } | undefined;
   return input?.verdicts ?? [];
 }
@@ -189,7 +191,7 @@ export async function POST(req: NextRequest) {
   for (const group of chunk(cases)) {
     let verdicts: RawVerdict[];
     try {
-      verdicts = await callSherlock(apiKey, model, group, now, companyFacts);
+      verdicts = await callSherlock(apiKey, model, group, now, companyFacts, orgId);
     } catch {
       // Fail-open, same as every other AI step in this reawakening family:
       // a flaky call just means these cases weren't evaluated this time —

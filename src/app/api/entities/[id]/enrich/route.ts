@@ -21,10 +21,11 @@ import { buildEntityEnrichmentPrompt, knownEnrichmentValues, prepareEnrichmentPr
 import { fieldsAlreadyProposed, fetchRejectedAiContributions } from '@/lib/contribution-promotion';
 import type { Entity } from '@/lib/types';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { logAiCall } from '@/lib/ai-cost-log';
 
 const NOT_CONFIGURED_MSG = 'AI-assisted enrichment isn’t available in your workspace yet.';
 
-async function callClaude(apiKey: string, model: string, prompt: string) {
+async function callClaude(apiKey: string, model: string, prompt: string, orgId: string) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
@@ -67,6 +68,7 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
   });
   if (!res.ok) throw new Error(`Anthropic API error: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
+  void logAiCall({ route: '/api/entities/[id]/enrich', purpose: 'entity_enrich', model, usage: data.usage, orgId });
   const toolUse = (data.content as { type: string; name?: string; input?: unknown }[])
     .filter((b) => b.type === 'tool_use' && b.name === 'propose_fields').pop();
   if (!toolUse) return [] as RawProposal[];
@@ -99,7 +101,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
     const known = knownEnrichmentValues(entity as Entity);
     const rejected = await fetchRejectedAiContributions(admin, 'entity', entity.id as string);
-    const raw = await callClaude(apiKey, model, buildEntityEnrichmentPrompt(entity.name as string, known, rejected));
+    const raw = await callClaude(apiKey, model, buildEntityEnrichmentPrompt(entity.name as string, known, rejected), entity.org_id as string);
     const alreadyProposed = await fieldsAlreadyProposed(admin, 'entity', entity.id as string);
     // alreadyProposed also catches fields a previous run proposed that are
     // still 'submitted' (not yet reviewed) or already 'verified' — entityHasValue

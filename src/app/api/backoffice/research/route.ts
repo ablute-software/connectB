@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, resolveRole } from '@/lib/supabase-server';
 import { logAdminAction } from '@/lib/audit';
+import { logAiCall } from '@/lib/ai-cost-log';
 
 const NOT_CONFIGURED_MSG = 'Set ANTHROPIC_API_KEY in the environment to enable AI-assisted research.';
 
@@ -76,6 +77,11 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
   });
   if (!res.ok) throw new Error(`Anthropic API error: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
+  // Prompt 293 §1 — platform-admin research applied across every org that
+  // independently owns a matching name (see the `rows.flatMap` below) —
+  // never one org's cost, orgId stays null (same shared-catalog
+  // convention as enrichment-worker/community-consensus arbitration).
+  void logAiCall({ route: '/api/backoffice/research', purpose: 'admin_research', model, usage: data.usage, orgId: null });
   const toolUse = (data.content as { type: string; name?: string; input?: unknown }[])
     .filter((b) => b.type === 'tool_use' && b.name === 'propose_fields').pop();
   if (!toolUse) return { proposals: [] as ProposedField[], raw: data };

@@ -154,7 +154,7 @@ function addUsage(t: Telemetry, model: string, usage: any) {
   t.models.add(model);
 }
 
-async function flushTelemetry(jobId: string, t: Telemetry, extra: Record<string, unknown> = {}) {
+async function flushTelemetry(jobId: string, t: Telemetry, extra: Record<string, unknown> = {}, target?: { targetType: string; targetId: string }) {
   const { data: current } = await supabase
     .from('enrichment_jobs')
     .select('tokens_in, tokens_out, web_calls, cost_eur, model')
@@ -175,6 +175,30 @@ async function flushTelemetry(jobId: string, t: Telemetry, extra: Record<string,
       ...extra,
     })
     .eq('id', jobId);
+
+  // Prompt 293 §1 — mirror THIS flush's own delta into ai_call_log too, so
+  // the Next app's "AI Costs" tab has one single table to read instead of
+  // also having to special-case enrichment_jobs. Deliberately never
+  // duplicated the running total above (that's still enrichment_jobs'
+  // own job, unchanged) — one ai_call_log row per flush, org_id always
+  // null: enrichment benefits every org that has or will have this
+  // catalog record, never the one org that happened to trigger the job.
+  // Skipped when this flush did no real AI work (e.g. a job that ended
+  // 'skipped' before ever calling the model) — nothing to log.
+  if (t.tokensIn > 0 || t.tokensOut > 0) {
+    try {
+      await supabase.from('ai_call_log').insert({
+        route: 'enrichment-worker', purpose: `enrichment:${target?.targetType ?? 'unknown'}`,
+        model: [...t.models].join(',') || 'unknown',
+        tokens_in: t.tokensIn, tokens_out: t.tokensOut, cost_eur: Number(t.costEur.toFixed(5)),
+        org_id: null, target_type: target?.targetType ?? null, target_id: target?.targetId ?? null,
+      });
+    } catch (e) {
+      // ai_call_log may not exist yet (migration 0202 not applied) — never
+      // let cost-observability mirroring break the actual enrichment job.
+      console.error('[ai_call_log mirror] failed', e);
+    }
+  }
 }
 
 // ============================================================
@@ -1286,11 +1310,12 @@ Deno.serve(async (req) => {
       continue;
     }
 
+    const jobTarget = { targetType: job.target_type as string, targetId: job.target_id as string };
     if (outcome.status === 'done') {
-      await flushTelemetry(job.id, telemetry, { status: 'done', finished_at: new Date().toISOString() });
+      await flushTelemetry(job.id, telemetry, { status: 'done', finished_at: new Date().toISOString() }, jobTarget);
     } else if (outcome.status === 'skipped') {
       // Nunca entra no ciclo de repeticoes — nao incrementa attempts.
-      await flushTelemetry(job.id, telemetry, { status: 'skipped', last_error: outcome.reason, finished_at: new Date().toISOString() });
+      await flushTelemetry(job.id, telemetry, { status: 'skipped', last_error: outcome.reason, finished_at: new Date().toISOString() }, jobTarget);
     } else {
       const attempts = (job.attempts ?? 0) + 1;
       const terminal = attempts >= 3;
@@ -1300,7 +1325,7 @@ Deno.serve(async (req) => {
         last_error: outcome.reason,
         finished_at: terminal ? new Date().toISOString() : null,
         started_at: null,
-      });
+      }, jobTarget);
     }
 
     results.push({ jobId: job.id, targetType: job.target_type, targetId: job.target_id, status: outcome.status, reason: outcome.reason ?? null });

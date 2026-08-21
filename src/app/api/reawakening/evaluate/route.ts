@@ -15,6 +15,7 @@ import { prefilterEntities, priorPassInfo, chunk, proposalStatusForVerdict } fro
 import type { Entity, FitScore, Interaction } from '@/lib/types';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { reawakeningNeglectAvailable } from '@/lib/reawakening-neglect-capability';
+import { logAiCall } from '@/lib/ai-cost-log';
 
 const FITS: FitScore[] = ['high', 'medium_high', 'medium', 'low'];
 
@@ -129,6 +130,7 @@ export async function POST(req: Request) {
     });
     if (!res.ok) return NextResponse.json({ ok: false, error: 'AI evaluation failed.' }, { status: 502 });
     const data = await res.json();
+    void logAiCall({ route: '/api/reawakening/evaluate', purpose: 'reawakening_evaluate', model, usage: data.usage, orgId, targetType: 'company_facts', targetId: factId });
     const input = data.content?.find((b: { type: string }) => b.type === 'tool_use')?.input as { verdicts?: Verdict[] } | undefined;
     for (const v of input?.verdicts ?? []) if (group.some((e) => e.id === v.entity_id)) verdicts.push(v);
   }
