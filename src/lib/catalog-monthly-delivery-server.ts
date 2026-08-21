@@ -115,6 +115,12 @@ export async function deliverMonthlyForOrg(
   for (const c of (catalogRows ?? []) as Record<string, unknown>[]) {
     const name = c.name as string;
     if (ownedNames.has(name.toLowerCase())) continue;
+    // Prompt 285 §3 — a suspended/deleted catalog entity (manual checkbox
+    // or the cross-org threshold, moderation-actions.ts) must not reach a
+    // new org's pipeline. Confirmed by grep before this prompt: this
+    // column was read nowhere in this file.
+    const moderationStatus = c.moderation_status as string | null | undefined;
+    if (moderationStatus && moderationStatus !== 'active') continue;
     const id = crypto.randomUUID();
     deliveredIds.push(c.id as string);
     newEntities.push({

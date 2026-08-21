@@ -25,9 +25,14 @@ interface FraudFlag {
   // prior admin decision — reviewedBy/reviewedAt/outcome above stay as
   // that decision's own history, untouched, right alongside the dispute.
   disputeReason: string | null; disputedAt: string | null; disputedBy: string | null;
+  // Prompt 285 §3 — distinct orgs with a CONFIRMED flag for the same
+  // catalog_id (null when this flag isn't catalog-linked at all). Purely
+  // informational here — the actual threshold check and any resulting
+  // action run server-side in resolve/route.ts, never client-driven.
+  crossOrgConfirmedCount: number | null;
 }
 
-function FlagRow({ flag, onResolved }: { flag: FraudFlag; onResolved: () => void }) {
+function FlagRow({ flag, threshold, onResolved }: { flag: FraudFlag; threshold: number; onResolved: () => void }) {
   const [open, setOpen] = useState(false);
   const [notes, setNotes] = useState('');
   const [suspendCatalogEntity, setSuspendCatalogEntity] = useState(true);
@@ -65,6 +70,19 @@ function FlagRow({ flag, onResolved }: { flag: FraudFlag; onResolved: () => void
         {flag.disputedAt && (
           <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-blue-700" title="The founder says this may have been a mistake — see the dispute below.">
             🔔 disputed
+          </span>
+        )}
+        {/* Prompt 285 §3 — how many independent orgs have already
+            confirmed this same catalog entity; red once it reaches the
+            threshold (platform-wide action already ran), amber while the
+            pattern is still building. */}
+        {!!flag.crossOrgConfirmedCount && (
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+            flag.crossOrgConfirmedCount >= threshold ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}
+            title={flag.crossOrgConfirmedCount >= threshold
+              ? 'Cross-org threshold reached — the catalog entity was suspended and blocked in every linked org automatically.'
+              : `${flag.crossOrgConfirmedCount} of ${threshold} independent orgs needed to trigger a platform-wide action.`}>
+            🌐 {flag.crossOrgConfirmedCount}/{threshold} orgs confirmed
           </span>
         )}
         <span className="ml-auto text-xs text-gray-400">reported by {flag.flaggedBy} · {new Date(flag.flaggedAt).toLocaleString()}</span>
@@ -122,12 +140,14 @@ function FlagRow({ flag, onResolved }: { flag: FraudFlag; onResolved: () => void
 
 export function FraudFlagsTab() {
   const [flags, setFlags] = useState<FraudFlag[] | null>(null);
+  const [threshold, setThreshold] = useState(3);
   const [err, setErr] = useState('');
 
   function refresh() {
     fetch('/api/backoffice/fraud-flags').then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
       setFlags(body.flags);
+      if (typeof body.crossOrgThreshold === 'number') setThreshold(body.crossOrgThreshold);
     });
   }
   useEffect(refresh, []);
@@ -142,12 +162,12 @@ export function FraudFlagsTab() {
         {!flags ? <p className="text-sm text-gray-400">Loading…</p> : pending.length === 0 ? (
           <p className="text-sm text-gray-400">Nothing pending review.</p>
         ) : (
-          <ul className="space-y-2">{pending.map((f) => <FlagRow key={f.id} flag={f} onResolved={refresh} />)}</ul>
+          <ul className="space-y-2">{pending.map((f) => <FlagRow key={f.id} flag={f} threshold={threshold} onResolved={refresh} />)}</ul>
         )}
       </Card>
       {actioned.length > 0 && (
         <Card title={`Reviewed (${actioned.length})`}>
-          <ul className="space-y-2">{actioned.map((f) => <FlagRow key={f.id} flag={f} onResolved={refresh} />)}</ul>
+          <ul className="space-y-2">{actioned.map((f) => <FlagRow key={f.id} flag={f} threshold={threshold} onResolved={refresh} />)}</ul>
         </Card>
       )}
     </div>

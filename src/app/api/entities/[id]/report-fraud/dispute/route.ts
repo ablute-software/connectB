@@ -11,6 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { entityFraudDisputeAvailable } from '@/lib/entity-fraud-dispute-capability';
+import { crossOrgFraudBlockSourceAvailable } from '@/lib/cross-org-fraud-capability';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -28,7 +29,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const admin = createClient(url, service, { auth: { persistSession: false } });
   if (!(await entityFraudDisputeAvailable())) return NextResponse.json({ ok: false, error: 'not available yet' }, { status: 200 });
 
-  const { data: entity, error: entityErr } = await admin.from('entities').select('id, org_id, hard_filter_status').eq('id', id).maybeSingle();
+  const { data: entity, error: entityErr } = await admin.from('entities')
+    .select('id, org_id, hard_filter_status').eq('id', id).maybeSingle();
   if (entityErr || !entity) return NextResponse.json({ ok: false, error: entityErr?.message ?? 'Entity not found.' }, { status: 404 });
   const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).eq('org_id', entity.org_id).maybeSingle();
   if (!member) return NextResponse.json({ ok: false, error: 'Not a member of this org.' }, { status: 403 });
@@ -48,14 +50,42 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // would actually want reconsidered; a 'dismissed' flag already released
   // the entity back to 'open', so hard_filter_status wouldn't be
   // resolved_blocked in that case at all).
-  const { data: flag, error: flagErr } = await admin.from('entity_fraud_flags')
-    .select('id, status, outcome')
-    .eq('entity_id', id)
-    .or('status.eq.pending,and(status.eq.actioned,outcome.eq.confirmed)')
-    .order('flagged_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (flagErr) return NextResponse.json({ ok: false, error: flagErr.message }, { status: 500 });
+  let flag: { id: string } | null = null;
+  {
+    const { data, error: flagErr } = await admin.from('entity_fraud_flags')
+      .select('id, status, outcome')
+      .eq('entity_id', id)
+      .or('status.eq.pending,and(status.eq.actioned,outcome.eq.confirmed)')
+      .order('flagged_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (flagErr) return NextResponse.json({ ok: false, error: flagErr.message }, { status: 500 });
+    flag = data;
+  }
+
+  // Prompt 285 §3 — a platform_action block (cross-org threshold) has no
+  // flag on THIS org's own entity_id — this org never reported anything;
+  // the flags live on the reporting orgs' own entity_id, all sharing this
+  // entity's catalog_id. Fall back to the most recently confirmed flag for
+  // that same catalog_id so the dispute still reaches a human, attached to
+  // the case it actually concerns.
+  if (!flag && (await crossOrgFraudBlockSourceAvailable())) {
+    const { data: entityWithSource } = await admin.from('entities').select('hard_filter_block_source').eq('id', id).maybeSingle();
+    if (entityWithSource?.hard_filter_block_source === 'platform_action') {
+      const { data: delivery } = await admin.from('catalog_deliveries').select('catalog_id').eq('entity_id', id).maybeSingle();
+      if (delivery?.catalog_id) {
+        const { data, error: catalogFlagErr } = await admin.from('entity_fraud_flags')
+          .select('id, status, outcome')
+          .eq('catalog_id', delivery.catalog_id)
+          .eq('status', 'actioned').eq('outcome', 'confirmed')
+          .order('flagged_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (catalogFlagErr) return NextResponse.json({ ok: false, error: catalogFlagErr.message }, { status: 500 });
+        flag = data;
+      }
+    }
+  }
   if (!flag) return NextResponse.json({ ok: false, error: 'No matching fraud report found for this entity.' }, { status: 404 });
 
   const { error: updateErr } = await admin.from('entity_fraud_flags').update({

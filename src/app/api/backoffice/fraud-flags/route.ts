@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { entityFraudFlagsAvailable } from '@/lib/entity-fraud-flags-capability';
+import { CROSS_ORG_FRAUD_THRESHOLD } from '@/lib/cross-org-fraud-threshold';
 
 export async function GET() {
   const auth = await requirePlatformAdmin();
@@ -40,8 +41,28 @@ export async function GET() {
     if (data?.user?.email) emailById.set(id, data.user.email);
   }
 
+  // Prompt 285 §3 — the cross-org aggregate for the badge: how many
+  // DISTINCT orgs have a confirmed flag on the same catalog_id, so an
+  // admin can see the pattern building before the threshold is reached
+  // (which is applied automatically by resolve/route.ts, not decided
+  // here — this is read-only).
+  const catalogConfirmedOrgCount = new Map<string, number>();
+  const catalogIds = Array.from(new Set((rows ?? []).map((r) => r.catalog_id as string | null).filter((v): v is string => !!v)));
+  if (catalogIds.length) {
+    const { data: confirmedFlags } = await admin.from('entity_fraud_flags')
+      .select('catalog_id, org_id').in('catalog_id', catalogIds).eq('status', 'actioned').eq('outcome', 'confirmed');
+    const orgsByCatalog = new Map<string, Set<string>>();
+    for (const f of confirmedFlags ?? []) {
+      const cid = f.catalog_id as string;
+      if (!orgsByCatalog.has(cid)) orgsByCatalog.set(cid, new Set());
+      orgsByCatalog.get(cid)!.add(f.org_id as string);
+    }
+    for (const [cid, orgSet] of orgsByCatalog) catalogConfirmedOrgCount.set(cid, orgSet.size);
+  }
+
   return NextResponse.json({
     ok: true,
+    crossOrgThreshold: CROSS_ORG_FRAUD_THRESHOLD,
     flags: (rows ?? []).map((r) => {
       const entity = entityById.get(r.entity_id as string);
       return {
@@ -60,6 +81,7 @@ export async function GET() {
         disputedBy: (r as Record<string, unknown>).disputed_by
           ? (emailById.get((r as Record<string, unknown>).disputed_by as string) ?? (r as Record<string, unknown>).disputed_by)
           : null,
+        crossOrgConfirmedCount: r.catalog_id ? (catalogConfirmedOrgCount.get(r.catalog_id as string) ?? 0) : null,
       };
     }),
   });

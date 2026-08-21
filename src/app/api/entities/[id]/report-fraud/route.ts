@@ -19,6 +19,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { entityFraudFlagsAvailable } from '@/lib/entity-fraud-flags-capability';
+import { crossOrgFraudBlockSourceAvailable } from '@/lib/cross-org-fraud-capability';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -61,9 +62,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (flagErr) return NextResponse.json({ ok: false, error: flagErr.message }, { status: 500 });
 
   const now = new Date().toISOString();
-  const { error: updateErr } = await admin.from('entities').update({
+  const updatePayload: Record<string, unknown> = {
     hard_filter_status: 'resolved_blocked', hard_filter_resolved_at: now, hard_filter_resolved_by: user.id,
-  }).eq('id', entity.id);
+  };
+  // Prompt 285 §3 — distinguishes this from a future cross-org
+  // platform_action block (migration 0200); only set once that column
+  // actually exists, same additive-migration caution as everywhere else.
+  if (await crossOrgFraudBlockSourceAvailable()) updatePayload.hard_filter_block_source = 'self_report';
+
+  const { error: updateErr } = await admin.from('entities').update(updatePayload).eq('id', entity.id);
   if (updateErr) return NextResponse.json({ ok: false, error: updateErr.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });

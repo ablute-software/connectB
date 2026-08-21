@@ -285,14 +285,22 @@ export function HardFilterBanner({ entity }: { entity: Entity }) {
   // plataforma decide" — a founder who reported by mistake reaches a human
   // through support, the same as any other irreversible-by-design action.
   if (entity.hard_filter_status === 'resolved_blocked') {
+    // Prompt 285 §3 — 'platform_action' means several OTHER independent
+    // orgs confirmed reports on this same investor; this org's own
+    // founder never filed one, so "Reported by you" would be false.
+    // Undefined (every pre-migration-0200 row, and every self-report
+    // before this prompt) reads the same as 'self_report' on purpose.
+    const isPlatformAction = entity.hard_filter_block_source === 'platform_action';
     return (
       <div className="flex flex-col gap-3 rounded-lg border-l-4 border-amber-500 bg-amber-50 px-4 py-3">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-sm font-semibold text-amber-800">🚨 Reported — pending review</div>
+            <div className="text-sm font-semibold text-amber-800">🚨 {isPlatformAction ? 'Blocked — flagged by the platform' : 'Reported — pending review'}</div>
             {entity.hard_filter && <div className="text-sm text-gray-800">{entity.hard_filter}</div>}
             <div className="mt-1 text-xs text-gray-500">
-              Reported by you{entity.hard_filter_resolved_at ? ` on ${entity.hard_filter_resolved_at.slice(0, 10)}` : ''} — a platform admin will review it.
+              {isPlatformAction
+                ? `Several other startups independently reported this investor as fraud/scam${entity.hard_filter_resolved_at ? ` — flagged on ${entity.hard_filter_resolved_at.slice(0, 10)}` : ''}.`
+                : `Reported by you${entity.hard_filter_resolved_at ? ` on ${entity.hard_filter_resolved_at.slice(0, 10)}` : ''} — a platform admin will review it.`}
             </div>
           </div>
           {/* Prompt 285 §2 — deliberately not an "undo": it doesn't touch

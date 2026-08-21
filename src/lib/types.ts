@@ -322,6 +322,13 @@ export interface Entity {
   // a real auth.users id when Supabase-backed. Migration 0194.
   hard_filter_resolved_at?: string;
   hard_filter_resolved_by?: string;
+  // Prompt 285 §3 — migration 0200. Undefined on every row predating that
+  // migration and on every self-report before this prompt; the app treats
+  // missing the same as 'self_report' (the only thing that could have set
+  // resolved_blocked before cross-org aggregation existed). Only
+  // 'platform_action' changes HardFilterBanner's copy — this org's founder
+  // never filed the report that landed on their own entities row.
+  hard_filter_block_source?: 'self_report' | 'platform_action';
   network_cluster_notes?: string;
   // General freeform entity notes — distinct from network_cluster_notes
   // (which is specifically dedup/network-clustering commentary). Migration
@@ -820,6 +827,12 @@ export interface CatalogEntity {
   verified_at?: string;
   source: 'team' | 'user_submission';
   notes?: string;
+  // Prompt 123 Block C.2 (account_moderation) — 'active' | 'suspended' |
+  // 'deleted'. Prompt 285 §3 is the first reader in either delivery path
+  // (unlockPack here, deliverMonthlyForOrg server-side): a suspended/
+  // deleted catalog entity must stop reaching NEW orgs, confirmed by grep
+  // that neither path read this column before.
+  moderation_status?: string;
 }
 
 export interface Pack {

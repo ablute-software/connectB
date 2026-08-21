@@ -1585,6 +1585,10 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       for (const row of (catalogRows ?? []) as Record<string, unknown>[]) {
         const c = fromRow<CatalogEntity>(row);
         if (ownedNames.has(c.name.toLowerCase())) continue;
+        // Prompt 285 §3 — same guard as deliverMonthlyForOrg(): a
+        // suspended/deleted catalog entity must not reach a new org via
+        // manual pack unlock either.
+        if (c.moderation_status && c.moderation_status !== 'active') continue;
         deliveredIds.push(c.id);
         newEntities.push({
           id: uuid(), name: c.name, type: c.type, hq_city: c.hq_city, hq_country: c.hq_country,

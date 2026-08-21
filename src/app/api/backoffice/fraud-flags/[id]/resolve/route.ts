@@ -21,6 +21,8 @@ import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { entityFraudFlagsAvailable } from '@/lib/entity-fraud-flags-capability';
 import { applyModerationAction } from '@/lib/moderation-actions';
+import { applyCrossOrgFraudThresholdIfReached } from '@/lib/cross-org-fraud-threshold';
+import { crossOrgFraudBlockSourceAvailable } from '@/lib/cross-org-fraud-capability';
 import { logAdminAction } from '@/lib/audit';
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
@@ -46,23 +48,38 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }).eq('id', params.id);
   if (updateFlagErr) return NextResponse.json({ ok: false, error: updateFlagErr.message }, { status: 500 });
 
+  let crossOrgThreshold: { triggered: boolean; confirmedOrgCount: number; blockedEntityCount: number } | null = null;
+
   if (body.outcome === 'dismissed') {
     const { error: revertErr } = await admin.from('entities').update({
       hard_filter_status: 'open', hard_filter_resolved_at: null, hard_filter_resolved_by: null,
     }).eq('id', flag.entity_id);
     if (revertErr) return NextResponse.json({ ok: false, error: revertErr.message }, { status: 500 });
-  } else if (body.outcome === 'confirmed' && body.suspendCatalogEntity && flag.catalog_id) {
-    const result = await applyModerationAction(admin, {
-      targetType: 'investor', targetId: flag.catalog_id as string, action: 'suspend',
-      justification: body.notes?.trim() || `Confirmed fraud/scam report (flag ${flag.id}).`, actorId: userId,
-    });
-    if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
+  } else if (body.outcome === 'confirmed') {
+    if (body.suspendCatalogEntity && flag.catalog_id) {
+      const result = await applyModerationAction(admin, {
+        targetType: 'investor', targetId: flag.catalog_id as string, action: 'suspend',
+        justification: body.notes?.trim() || `Confirmed fraud/scam report (flag ${flag.id}).`, actorId: userId,
+      });
+      if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
+    }
+    // Prompt 285 §3 — independent of the manual checkbox above: runs on
+    // EVERY confirmed outcome for a catalog-linked flag, whether or not
+    // this admin ticked suspendCatalogEntity, since the threshold is
+    // about the pattern across orgs, not this one admin's call.
+    if (flag.catalog_id && (await crossOrgFraudBlockSourceAvailable())) {
+      const thresholdResult = await applyCrossOrgFraudThresholdIfReached(admin, {
+        catalogId: flag.catalog_id as string, actorId: userId,
+      });
+      if (thresholdResult.error) return NextResponse.json({ ok: false, error: thresholdResult.error }, { status: 500 });
+      crossOrgThreshold = thresholdResult;
+    }
   }
 
   await logAdminAction(admin, {
     adminUserId: userId, action: 'entity_fraud_flag_resolved', subjectType: 'entity_fraud_flag',
-    subjectId: params.id, detail: { outcome: body.outcome, entityId: flag.entity_id, catalogId: flag.catalog_id },
+    subjectId: params.id, detail: { outcome: body.outcome, entityId: flag.entity_id, catalogId: flag.catalog_id, crossOrgThreshold },
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, crossOrgThreshold });
 }
