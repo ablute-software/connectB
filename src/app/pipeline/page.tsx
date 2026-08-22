@@ -40,11 +40,18 @@ const PIPELINE_LIST_MAX_HEIGHT_PX = 888; // 32.5 (thead) + 15 * 57 (row), rounde
 // the container's width at every "wave" filter setting instead of growing
 // with content and forcing horizontal scroll. Cell text wraps instead of
 // truncating (see the td classes below) so nothing gets cut off silently.
+// Prompt 304 §2 — reallocated: Type/HQ/Check/Fit/Wave carry short, mostly-
+// fixed-format text ("W1", "Med-High", "€250K–€1M") and can afford to give
+// up space; Entity and Sectors carry the most real content (name + up to 6
+// badges + RelationshipCompactLine; 2 sector chips + "+N") and get it.
+// Verified against a worst-case row (Overdue + 2 long sector names + an
+// extra badge) at both 1440px and 1280px — see the verification note above
+// the table's own render for what was actually checked, not just eyeballed.
 const SORT_COLUMNS = [
-  { key: 'name', label: 'Entity', width: '22%' }, { key: 'type', label: 'Type', width: '8%' },
-  { key: 'hq', label: 'HQ', width: '10%' }, { key: 'check', label: 'Check', width: '10%' },
-  { key: 'sectors', label: 'Sectors', width: '14%' }, { key: 'fit', label: 'Fit', width: '7%' },
-  { key: 'wave', label: 'Wave', width: '6%' }, { key: 'status', label: 'Status', width: '10%' },
+  { key: 'name', label: 'Entity', width: '27%' }, { key: 'type', label: 'Type', width: '7%' },
+  { key: 'hq', label: 'HQ', width: '9%' }, { key: 'check', label: 'Check', width: '8%' },
+  { key: 'sectors', label: 'Sectors', width: '18%' }, { key: 'fit', label: 'Fit', width: '5%' },
+  { key: 'wave', label: 'Wave', width: '4%' }, { key: 'status', label: 'Status', width: '9%' },
   { key: 'next_action', label: 'Next action', width: '13%' },
 ] as const;
 type SortKey = typeof SORT_COLUMNS[number]['key'];
@@ -907,7 +914,7 @@ export default function PipelinePage() {
                   </Tooltip>
                 );
                 return (
-                  <th key={c.key} className="px-3 py-2">
+                  <th key={c.key} className="px-2 py-1.5">
                     {c.key === 'wave' ? <CoachMark itemKey="waves">{headerButton}</CoachMark> : headerButton}
                   </th>
                 );
@@ -939,7 +946,7 @@ export default function PipelinePage() {
               return (
                 <tr key={e.id}
                   className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${zebra} ${suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''}`}>
-                  <td className="break-words px-3 py-2 font-medium">
+                  <td className="break-words px-2 py-1.5 font-medium">
                     <Link href={`/entities/${e.id}`} className="text-gray-900 hover:text-[#0E7490]">
                       {e.name} {hf && <span title={e.hard_filter} className="text-[#B00000]">⚑</span>}
                     </Link>
@@ -1019,19 +1026,19 @@ export default function PipelinePage() {
                       )
                     )}
                   </td>
-                  <td className="break-words px-3 py-2 text-gray-500">{e.type.replace('_', ' ')}</td>
-                  <td className="break-words px-3 py-2 text-gray-500">{e.hq_city ? `${e.hq_city}, ` : ''}{e.hq_country}</td>
-                  <td className="break-words px-3 py-2 text-gray-500">{fmtEur(e.check_min_eur)}–{fmtEur(e.check_max_eur)}</td>
-                  <td className="px-3 py-2">
+                  <td className="break-words px-2 py-1.5 text-gray-500">{e.type.replace('_', ' ')}</td>
+                  <td className="break-words px-2 py-1.5 text-gray-500">{e.hq_city ? `${e.hq_city}, ` : ''}{e.hq_country}</td>
+                  <td className="break-words px-2 py-1.5 text-gray-500">{fmtEur(e.check_min_eur)}–{fmtEur(e.check_max_eur)}</td>
+                  <td className="px-2 py-1.5">
                     {e.sectors.slice(0, 2).map((s) => (
                       <span key={s} className="mb-1 mr-1 inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">{s}</span>
                     ))}
                     {e.sectors.length > 2 && <span className="text-[11px] text-gray-400">+{e.sectors.length - 2}</span>}
                   </td>
-                  <td className="px-3 py-2"><FitTag fit={e.fit_score} /></td>
-                  <td className="px-3 py-2"><WaveTag wave={e.wave} /></td>
-                  <td className="px-3 py-2"><StatusPill status={e.status} labelOverride={frozenPillLabel(e)} /></td>
-                  <td className="break-words px-3 py-2">
+                  <td className="px-2 py-1.5"><FitTag fit={e.fit_score} /></td>
+                  <td className="px-2 py-1.5"><WaveTag wave={e.wave} /></td>
+                  <td className="px-2 py-1.5"><StatusPill status={e.status} labelOverride={frozenPillLabel(e)} /></td>
+                  <td className="break-words px-2 py-1.5">
                     {task ? (
                       <span className="text-xs">
                         <span className="text-gray-700">{task.title}</span>
@@ -1105,14 +1112,15 @@ export default function PipelinePage() {
             <div aria-hidden className="divide-y divide-gray-100">
               {Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-4 px-3 py-3">
-                  <div className="h-3 w-[22%] rounded bg-gray-100" />
-                  <div className="h-3 w-[8%] rounded bg-gray-100" />
-                  <div className="h-3 w-[10%] rounded bg-gray-100" />
-                  <div className="h-3 w-[10%] rounded bg-gray-100" />
-                  <div className="h-3 w-[14%] rounded bg-gray-100" />
+                  {/* Prompt 304 §2 — kept in sync with SORT_COLUMNS' own widths above. */}
+                  <div className="h-3 w-[27%] rounded bg-gray-100" />
                   <div className="h-3 w-[7%] rounded bg-gray-100" />
-                  <div className="h-3 w-[6%] rounded bg-gray-100" />
-                  <div className="h-3 w-[10%] rounded bg-gray-100" />
+                  <div className="h-3 w-[9%] rounded bg-gray-100" />
+                  <div className="h-3 w-[8%] rounded bg-gray-100" />
+                  <div className="h-3 w-[18%] rounded bg-gray-100" />
+                  <div className="h-3 w-[5%] rounded bg-gray-100" />
+                  <div className="h-3 w-[4%] rounded bg-gray-100" />
+                  <div className="h-3 w-[9%] rounded bg-gray-100" />
                 </div>
               ))}
             </div>

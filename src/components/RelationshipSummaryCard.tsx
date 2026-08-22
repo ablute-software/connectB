@@ -89,8 +89,14 @@ export function HealthDot({ entityId, dealMessageTouches = [] }: { entityId: str
 export function WhoseTurnChip({ entityId, dealMessageTouches = [], neutral = false }: { entityId: string; dealMessageTouches?: DealMessageTouch[]; neutral?: boolean }) {
   const { db } = useStore();
   const s = relationshipSummary(db, entityId, new Date(), dealMessageTouches);
+  // Prompt 304 — dropped whitespace-nowrap: Prompt 286 already diagnosed
+  // this exact mechanism for StatusPill (a non-wrapping span forces its
+  // table-fixed column past its allotted percentage) but its own grep was
+  // scoped to one file and missed this second site, in the pipeline row's
+  // Entity cell via RelationshipCompactLine. Let the label wrap inside the
+  // pill instead of stretching the column.
   return (
-    <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ${neutral ? 'bg-gray-100 text-gray-400' : WHOSE_TURN_STYLE[s.whoseTurn]}`}>
+    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${neutral ? 'bg-gray-100 text-gray-400' : WHOSE_TURN_STYLE[s.whoseTurn]}`}>
       {WHOSE_TURN_LABEL[s.whoseTurn]}
     </span>
   );
