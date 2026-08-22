@@ -20,6 +20,7 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import type { Contradiction } from '@/lib/action-plan';
 import { ReportView, type StructuredReport } from './ReportView';
 import { GapInterrogation, type GapView } from './GapInterrogation';
+import { pickCurrentGap } from '@/lib/gap-rotation';
 import { PlanBadge } from '@/components/PlanBadge';
 import { planName, REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
 import { can, type OrgRole } from '@/lib/permissions';
@@ -123,6 +124,15 @@ export function ReviewPanel() {
   const [acceptedClaimStatements, setAcceptedClaimStatements] = useState<string[]>([]);
   const [showInterrogation, setShowInterrogation] = useState(false);
   const [gapBusy, setGapBusy] = useState(false);
+  // Prompt 309 — "Skip this one" bug: dismissing never writes a claim (by
+  // design, per blueprint/answer/route.ts's own comment — not answering
+  // isn't new knowledge), so the exact same gap came right back as gaps[0]
+  // on the next loadGaps(), reading as "Skip did nothing." This is
+  // presentation-only rotation for THIS screen visit, never a persisted
+  // dismissal — reloading the page (or a later visit) starts empty again,
+  // and a skipped gap is still real and comes back once the others are
+  // dealt with, exactly as the product decision requires.
+  const [skippedKeys, setSkippedKeys] = useState<Set<string>>(new Set());
 
   function loadGaps() {
     fetch('/api/blueprint').then((r) => r.json()).then((body) => {
@@ -138,9 +148,12 @@ export function ReviewPanel() {
   }
   useEffect(loadGaps, []);
 
+  const currentGap = pickCurrentGap(gaps, skippedKeys);
+
   async function submitGapAnswer(opts: { option?: string; answer?: string; dismissed: boolean; category?: string }) {
-    const gap = gaps[0];
+    const gap = currentGap;
     if (!gap) return;
+    if (opts.dismissed) setSkippedKeys((prev) => new Set(prev).add(gap.key));
     setGapBusy(true);
     try {
       await fetch('/api/blueprint/answer', {
@@ -347,15 +360,15 @@ export function ReviewPanel() {
           </button>
         </Card>
       )}
-      {showInterrogation && gaps[0] && (
+      {showInterrogation && currentGap && (
         <Card title={<span className="text-[#0E7490]">What&apos;s missing ({gaps.length} left)</span>}>
-          <GapInterrogation gap={gaps[0]} remaining={gaps.length} busy={gapBusy} onSubmit={submitGapAnswer} />
+          <GapInterrogation key={currentGap.key} gap={currentGap} remaining={gaps.length} busy={gapBusy} onSubmit={submitGapAnswer} />
           <button onClick={() => setShowInterrogation(false)} className="mt-2 text-xs text-gray-400 hover:underline">
             Close — I&apos;ll finish this later
           </button>
         </Card>
       )}
-      {showInterrogation && !gaps[0] && (
+      {showInterrogation && !currentGap && (
         <Card title={<span className="text-emerald-700">All caught up</span>}>
           <p className="text-sm text-gray-600">No pending questions right now. Run review below to see the updated result.</p>
           <button onClick={() => setShowInterrogation(false)} className="mt-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50">

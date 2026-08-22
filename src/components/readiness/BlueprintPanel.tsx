@@ -15,6 +15,7 @@ import { Card } from '@/components/ui';
 import type { CompanyClaim, ClaimCategory } from '@/lib/types';
 import { GapInterrogation, type GapView } from './GapInterrogation';
 import { isWastedStrongClaim } from '@/lib/company-claims';
+import { pickCurrentGap } from '@/lib/gap-rotation';
 
 interface BlueprintState {
   available: boolean;
@@ -61,6 +62,11 @@ export function BlueprintPanel() {
   const [error, setError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  // Prompt 309 — same "Skip this one" fix as ReviewPanel.tsx (shares this
+  // exact GapInterrogation flow): dismissing never writes a claim, so
+  // without this the same gap just came right back as gaps[0]. Session-
+  // local rotation only — never a persisted dismissal.
+  const [skippedKeys, setSkippedKeys] = useState<Set<string>>(new Set());
 
   function load() {
     fetch('/api/blueprint').then((r) => r.json()).then(setState).catch(() => setState(null));
@@ -89,10 +95,11 @@ export function BlueprintPanel() {
     } finally { setBusy(false); }
   }
 
-  const gap = state?.gaps?.[0];
+  const gap = state?.gaps ? pickCurrentGap(state.gaps, skippedKeys) : undefined;
 
   async function submitAnswer(opts: { option?: string; answer?: string; dismissed: boolean; category?: string }) {
     if (!gap) return;
+    if (opts.dismissed) setSkippedKeys((prev) => new Set(prev).add(gap.key));
     setBusy(true); setError(null);
     try {
       const res = await fetch('/api/blueprint/answer', {
@@ -189,7 +196,7 @@ export function BlueprintPanel() {
           shared with ReviewPanel.tsx — Prompt 298 §1). */}
       {gap && (
         <Card title={<span className="text-[#0E7490]">What&apos;s missing ({state.gaps.length} left)</span>}>
-          <GapInterrogation gap={gap} remaining={state.gaps.length} busy={busy} onSubmit={submitAnswer} />
+          <GapInterrogation key={gap.key} gap={gap} remaining={state.gaps.length} busy={busy} onSubmit={submitAnswer} />
         </Card>
       )}
 
