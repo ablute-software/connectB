@@ -29,11 +29,24 @@ import 'server-only';
 import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type AllowedFileKind = 'pdf' | 'docx' | 'xlsx' | 'pptx' | 'doc' | 'xls' | 'ppt' | 'jpg' | 'png' | 'csv' | 'txt';
+// Prompt 305 §A — gif/webp added alongside jpg/png: support-attachment and
+// matchdeal-photo uploads both accepted any `image/*` MIME type before this
+// (client-supplied, trivially spoofable), which in practice meant common
+// screenshot/photo formats beyond jpg/png. Deliberately still NO svg — an
+// SVG is XML that CAN embed <script>; the app's own renderers only ever use
+// it via <img src> (confirmed by grep — sandboxed, scripts don't execute
+// there), but the signed URL Storage hands back is a plain HTTPS link
+// nothing stops someone from opening directly, where a top-level SVG
+// document's script WOULD run. Building a real SVG sanitizer (strip
+// <script>, on*= handlers, external entities, <foreignObject>) is a
+// separate, easy-to-get-wrong undertaking; a profile photo has no genuine
+// need to be a vector graphic, so the simplest correct fix is to just not
+// allow it through this allowlist at all, for every caller.
+export type AllowedFileKind = 'pdf' | 'docx' | 'xlsx' | 'pptx' | 'doc' | 'xls' | 'ppt' | 'jpg' | 'png' | 'gif' | 'webp' | 'csv' | 'txt' | 'md';
 
 const EXT_KIND: Record<string, AllowedFileKind> = {
   pdf: 'pdf', docx: 'docx', xlsx: 'xlsx', pptx: 'pptx', doc: 'doc', xls: 'xls', ppt: 'ppt',
-  jpg: 'jpg', jpeg: 'jpg', png: 'png', csv: 'csv', txt: 'txt',
+  jpg: 'jpg', jpeg: 'jpg', png: 'png', gif: 'gif', webp: 'webp', csv: 'csv', txt: 'txt', md: 'md',
 };
 
 function extOf(filename: string): string {
@@ -72,7 +85,12 @@ export function detectAllowedKind(bytes: Buffer, filename: string): AllowedFileK
   }
   if (bytesStartWith(bytes, [0xff, 0xd8, 0xff])) return expectedKind === 'jpg' ? 'jpg' : null;
   if (bytesStartWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return expectedKind === 'png' ? 'png' : null;
-  if ((expectedKind === 'csv' || expectedKind === 'txt') && looksLikeText(bytes)) return expectedKind;
+  if (bytesStartWith(bytes, [0x47, 0x49, 0x46, 0x38])) return expectedKind === 'gif' ? 'gif' : null; // GIF8(7a|9a)
+  if (bytesStartWith(bytes, [0x52, 0x49, 0x46, 0x46]) && bytes.length >= 12
+    && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+    return expectedKind === 'webp' ? 'webp' : null; // RIFF....WEBP — bytes 4-7 are a file-size field, skipped
+  }
+  if ((expectedKind === 'csv' || expectedKind === 'txt' || expectedKind === 'md') && looksLikeText(bytes)) return expectedKind;
   return null;
 }
 
@@ -140,6 +158,91 @@ export async function recheckPendingScan(sha256: string): Promise<ScanVerdict | 
 
 export function sha256Hex(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+// Prompt 305 §A — generic version of the same sweep for the four secondary
+// upload paths (investor_verification_documents, ndas, matchdeal_profiles'
+// single photo, support_attachment_scans), each with its own table/column
+// names but identical status semantics. Kept separate from
+// recheckPendingMalwareScans (document_versions) rather than generalizing
+// that one too — its "mirror onto documents" step has no equivalent here.
+export interface ScanColumnConfig {
+  table: string;
+  idColumn: string;
+  hashColumn: string;
+  statusColumn: string;
+  checkedAtColumn: string;
+  // Extra columns to select for logging/context only — never required.
+  extraSelect?: string[];
+}
+
+// matchdeal_profiles is a special case among the four: photo_url is a raw,
+// long-lived (10-year) signed URL, stored verbatim and read DIRECTLY by
+// client components (MatchDealDeck/MatchesPanel/InstantMessagePanel) via
+// RLS — there's no backoffice route in the middle to gate a signed-url
+// generation the way the other three secondary paths (and the Vault's own
+// document-serving routes) have. So when this one resolves to 'flagged'
+// after the fact, the mitigation is different: delete the Storage object
+// (the existing signed URL 404s) and clear photo_url so the profile falls
+// back to its initials/gradient placeholder, same as "no photo set".
+// Known limitation, stated plainly: matchdeal_profiles tracks only the
+// CURRENT photo's hash/path (no version history) — if a founder/investor
+// uploads a second photo before the first one's VT verdict resolves, the
+// first upload's tracking is silently overwritten and this sweep can no
+// longer find or act on it. Accepted rather than building a version-history
+// table for a profile photo; the synchronous magic-byte + known-malicious
+// checks at upload time are what carry the real weight here regardless.
+export async function recheckMatchdealPhotoScans(admin: SupabaseClient): Promise<{ checked: number; resolved: number; flagged: number }> {
+  const apiKey = process.env.VIRUSTOTAL_API_KEY;
+  if (!apiKey) return { checked: 0, resolved: 0, flagged: 0 };
+
+  const { data: pending } = await admin.from('matchdeal_profiles')
+    .select('id, photo_content_sha256, photo_storage_path').eq('photo_malware_scan_status', 'pending').limit(200);
+  let resolved = 0, flagged = 0;
+  const now = new Date().toISOString();
+  for (const row of pending ?? []) {
+    const hash = row.photo_content_sha256 as string | null;
+    if (!hash) continue;
+    const verdict = await recheckPendingScan(hash);
+    if (!verdict || verdict.status === 'pending') continue;
+    resolved++;
+    if (verdict.status === 'flagged') {
+      flagged++;
+      const storagePath = row.photo_storage_path as string | null;
+      if (storagePath) await admin.storage.from('data-room').remove([storagePath]);
+      await admin.from('matchdeal_profiles').update({
+        photo_malware_scan_status: 'flagged', photo_scan_checked_at: now, photo_url: null, photo_storage_path: null,
+      }).eq('id', row.id as string);
+    } else {
+      await admin.from('matchdeal_profiles').update({
+        photo_malware_scan_status: verdict.status, photo_scan_checked_at: now,
+      }).eq('id', row.id as string);
+    }
+  }
+  return { checked: (pending ?? []).length, resolved, flagged };
+}
+
+export async function recheckPendingScansGeneric(admin: SupabaseClient, config: ScanColumnConfig): Promise<{ checked: number; resolved: number; flagged: number }> {
+  const apiKey = process.env.VIRUSTOTAL_API_KEY;
+  if (!apiKey) return { checked: 0, resolved: 0, flagged: 0 };
+
+  const selectCols = [config.idColumn, config.hashColumn, ...(config.extraSelect ?? [])].join(', ');
+  const { data: pending } = await admin.from(config.table)
+    .select(selectCols).eq(config.statusColumn, 'pending').limit(200);
+  let resolved = 0, flagged = 0;
+  const now = new Date().toISOString();
+  for (const row of (pending ?? []) as unknown as Record<string, unknown>[]) {
+    const hash = row[config.hashColumn] as string | null;
+    if (!hash) continue;
+    const verdict = await recheckPendingScan(hash);
+    if (!verdict || verdict.status === 'pending') continue;
+    resolved++;
+    if (verdict.status === 'flagged') flagged++;
+    await admin.from(config.table).update({
+      [config.statusColumn]: verdict.status, [config.checkedAtColumn]: now,
+    }).eq(config.idColumn, row[config.idColumn] as string);
+  }
+  return { checked: (pending ?? []).length, resolved, flagged };
 }
 
 // Prompt 301 §3 — daily cron sweep (piggybacked on /api/automations, same

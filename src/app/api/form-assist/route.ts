@@ -9,6 +9,7 @@ import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements, AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
 import { logAiCall } from '@/lib/ai-cost-log';
 import type { FormAssistContext } from '@/lib/form-assist';
+import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 
 const NOT_CONFIGURED_MSG =
   'Form Assist isn’t available in your workspace yet — fill the form yourself using the Company tab and Round card for reference.';
@@ -25,10 +26,13 @@ function buildPrompt(context: FormAssistContext, pastedQuestions?: string) {
     `Draft answers a founder can copy into an investor web-form submission (e.g. a Typeform) for ${context.startup.name}, applying to ${context.investor.entityName}.`,
     '',
     'CONTEXT (ground truth — do not invent beyond this):',
-    JSON.stringify(context, null, 2),
+    // Prompt 305 §B — context can carry investor.thesis, a third party's own
+    // text; pastedQuestions is founder-pasted, often copied straight off a
+    // third-party form. Both wrapped as data.
+    wrapDocumentContent(JSON.stringify(context, null, 2)),
     '',
     pastedQuestions
-      ? `The founder pasted these exact questions from the real form — answer EACH one, in the same order, using its exact text as the "label" in your output:\n${pastedQuestions}`
+      ? `The founder pasted these exact questions from the real form — answer EACH one, in the same order, using its exact text as the "label" in your output:\n${wrapDocumentContent(pastedQuestions)}`
       : `No real form questions were provided — answer these generic sections instead, using each verbatim as the "label":\n${DEFAULT_SECTIONS.map((s) => `- ${s}`).join('\n')}`,
     '',
     'HARD RULES:',
@@ -72,7 +76,8 @@ async function callClaude(apiKey: string, model: string, prompt: string, orgId: 
     body: JSON.stringify({
       model,
       max_tokens: 2000,
-      system: 'You are helping a startup founder fill out an investor web-form submission. You produce ONE structured answer pack per call via the form_assist tool. Be specific and grounded, never generic filler, never invent facts beyond the given context.',
+      system: 'You are helping a startup founder fill out an investor web-form submission. You produce ONE structured answer pack per call via the form_assist tool. Be specific and grounded, never generic filler, never invent facts beyond the given context. '
+        + DOCUMENT_CONTENT_INSTRUCTION,
       messages: [{ role: 'user', content: prompt }],
       tools: [{ name: 'form_assist', description: 'Return the drafted form answers.', input_schema: TOOL_SCHEMA }],
       tool_choice: { type: 'tool', name: 'form_assist' },

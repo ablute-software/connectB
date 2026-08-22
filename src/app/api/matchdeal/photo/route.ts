@@ -18,6 +18,10 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { detectAllowedKind, scanWithVirusTotal, sha256Hex } from '@/lib/upload-security';
+import { matchdealPhotoScanAvailable } from '@/lib/upload-security-capability';
+
+export const maxDuration = 30;
 
 const SIGNED_URL_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 
@@ -40,6 +44,27 @@ export async function POST(req: Request) {
   }
   if (!file.type.startsWith('image/')) return NextResponse.json({ ok: false, error: 'Only images are accepted.' }, { status: 400 });
   if (file.size > 10 * 1024 * 1024) return NextResponse.json({ ok: false, error: 'File too large (10MB max).' }, { status: 400 });
+
+  // Prompt 305 §A — real content validation, not just the client-supplied
+  // file.type checked above (as spoofable as a filename extension).
+  // detectAllowedKind's allowlist has no 'svg' entry at all — deliberate:
+  // an SVG can embed <script>, and while every renderer of this photo_url
+  // in this codebase only ever uses <img src> (sandboxed, confirmed by
+  // grep), the signed URL below is a plain HTTPS link nothing stops
+  // someone from opening directly, where a top-level SVG document's script
+  // WOULD run. See upload-security.ts's own header for the full reasoning.
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const kind = detectAllowedKind(bytes, file.name);
+  if (!kind) {
+    return NextResponse.json({
+      ok: false,
+      error: 'This image type isn’t allowed (jpg/png/gif/webp only — no SVG), or its content doesn’t match its extension.',
+    }, { status: 400 });
+  }
+  const verdict = await scanWithVirusTotal(bytes, file.name);
+  if (verdict.status === 'flagged') {
+    return NextResponse.json({ ok: false, error: `Upload blocked — ${verdict.detail}` }, { status: 400 });
+  }
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -64,8 +89,19 @@ export async function POST(req: Request) {
 
   const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
   const storagePath = `_matchdeal_photos/${profile.id}/${crypto.randomUUID()}-${safeName}`;
-  const { error: uploadError } = await admin.storage.from('data-room').upload(storagePath, file);
+  const { error: uploadError } = await admin.storage.from('data-room').upload(storagePath, bytes, { contentType: file.type || undefined });
   if (uploadError) return NextResponse.json({ ok: false, error: uploadError.message }, { status: 500 });
+
+  // Prompt 305 §A — written here (not client-side, where photo_url itself
+  // gets saved) since this route already has the service-role client and
+  // the real verdict; a photo uploaded but never actually Saved by the
+  // founder just leaves a harmless orphaned status, never a security gap.
+  if (await matchdealPhotoScanAvailable()) {
+    await admin.from('matchdeal_profiles').update({
+      photo_malware_scan_status: verdict.status, photo_scan_checked_at: new Date().toISOString(),
+      photo_content_sha256: sha256Hex(bytes), photo_storage_path: storagePath,
+    }).eq('id', profile.id);
+  }
 
   const { data: signed, error: signError } = await admin.storage.from('data-room')
     .createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS);

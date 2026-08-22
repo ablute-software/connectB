@@ -27,15 +27,21 @@ export async function GET() {
   const pendingEntities = (addedEntities ?? []).filter((e) => (e.catalog_entities as unknown as { verification_status: string })?.verification_status === 'pending');
 
   const { data: documents } = await admin.from('investor_verification_documents')
-    .select('id, investor_email, catalog_entity_id, file_name, storage_path, status, created_at, catalog_entities(name)')
+    .select('id, investor_email, catalog_entity_id, file_name, storage_path, status, created_at, malware_scan_status, catalog_entities(name)')
     .eq('status', 'pending_review').order('created_at', { ascending: false });
 
+  // Prompt 305 §A — same defense-in-depth as the portal's own signed-url
+  // gates: a file the async VT sweep later flagged (uploaded before it had
+  // a verdict, per upload-security.ts's own documented 'pending' window)
+  // never gets a signed URL, even to a platform admin — the admin still
+  // sees the queue entry and the flagged status, just not a link to open it.
   const documentsWithUrls = await Promise.all((documents ?? []).map(async (d) => {
-    const { data: signed } = await admin.storage.from('data-room').createSignedUrl(d.storage_path as string, 300);
+    const flagged = d.malware_scan_status === 'flagged';
+    const { data: signed } = flagged ? { data: null } : await admin.storage.from('data-room').createSignedUrl(d.storage_path as string, 300);
     return {
       id: d.id, investorEmail: d.investor_email, catalogEntityId: d.catalog_entity_id, fileName: d.file_name,
       createdAt: d.created_at, entityName: (d.catalog_entities as unknown as { name: string })?.name ?? 'Unknown',
-      url: signed?.signedUrl ?? null,
+      url: signed?.signedUrl ?? null, malwareFlagged: flagged,
     };
   }));
 

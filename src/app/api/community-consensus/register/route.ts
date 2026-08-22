@@ -14,6 +14,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { communityConsensusAvailable } from '@/lib/community-consensus-capability';
 import { catalogFieldIsBlank, isCommunityEligibleField, normalizedValuesMatch, orderedArbitrationPair } from '@/lib/community-consensus';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 
 // §4 — "mesmo facto, escrito diferente?" (e.g. "Managing Partner: J. Smith"
 // vs "John Smith (Managing Partner)"; "€1M-5M" vs "1-5 milhoes"). One
@@ -33,8 +34,9 @@ async function arbitrateEquality(apiKey: string, model: string, field: string, a
         + 'the same investor, describe the SAME underlying fact just worded differently — e.g. "Managing Partner: J. Smith" '
         + 'and "John Smith (Managing Partner)" are the same fact; "€1M-5M" and "1-5 milhoes" are the same fact (currency/'
         + 'language differ, the range itself doesn’t). A genuinely different name, role, range or number is NOT the same '
-        + 'fact even if superficially similar — when in doubt, say they differ. Always finish by calling judge_equality.',
-      messages: [{ role: 'user', content: `Field: ${field}\nValue A: ${a}\nValue B: ${b}` }],
+        + 'fact even if superficially similar — when in doubt, say they differ. Always finish by calling judge_equality. '
+        + DOCUMENT_CONTENT_INSTRUCTION,
+      messages: [{ role: 'user', content: `Field: ${field}\nValue A: ${wrapDocumentContent(a)}\nValue B: ${wrapDocumentContent(b)}` }],
       tools: [{
         name: 'judge_equality',
         description: 'Report whether the two values describe the same underlying fact.',

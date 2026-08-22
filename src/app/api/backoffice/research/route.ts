@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient, resolveRole } from '@/lib/supabase-server';
 import { logAdminAction } from '@/lib/audit';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 
 const NOT_CONFIGURED_MSG = 'Set ANTHROPIC_API_KEY in the environment to enable AI-assisted research.';
 
@@ -22,7 +23,7 @@ function buildPrompt(subjectType: 'entity' | 'person', name: string, known: Reco
     `Research the ${subjectType === 'entity' ? 'investment fund/firm' : 'person'} "${name}" using public web sources only`,
     '(fund/firm website, news coverage, interviews, podcasts, portfolio pages, public LinkedIn profile page).',
     '',
-    `Already known (don't just repeat this back — fill gaps): ${JSON.stringify(known)}`,
+    `Already known (don't just repeat this back — fill gaps): ${wrapDocumentContent(JSON.stringify(known))}`,
     '',
     `Propose values for any of these fields you can find with reasonable confidence: ${fields.join(', ')}.`,
     subjectType === 'person'
@@ -44,7 +45,8 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
       max_tokens: 2000,
       system: 'You are a research assistant for a venture/angel investor database. You search the public web and propose '
         + 'factual field values with sources — you never fabricate, never scrape gated/private content, and never treat '
-        + 'inference as fact. You finish every research task by calling the propose_fields tool.',
+        + 'inference as fact. You finish every research task by calling the propose_fields tool. '
+        + DOCUMENT_CONTENT_INSTRUCTION,
       messages: [{ role: 'user', content: prompt }],
       tools: [
         { type: 'web_search_20250305', name: 'web_search', max_uses: 5 },

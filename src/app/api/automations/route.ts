@@ -26,8 +26,11 @@ import { deliverMonthlyForOrg, type MonthlyDeliveryOrgRow, type MonthlyDeliveryR
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { runPioneerExpiryJob } from '@/lib/pioneer-server';
 import { computeAndStoreOverviewSnapshot } from '@/lib/metrics-snapshot';
-import { recheckPendingMalwareScans } from '@/lib/upload-security';
-import { malwareScanAvailable } from '@/lib/upload-security-capability';
+import { recheckPendingMalwareScans, recheckPendingScansGeneric, recheckMatchdealPhotoScans } from '@/lib/upload-security';
+import {
+  malwareScanAvailable, investorVerificationScanAvailable, ndaScanAvailable,
+  matchdealPhotoScanAvailable, supportAttachmentScanAvailable,
+} from '@/lib/upload-security-capability';
 
 // Prompt 201 §3 — limiar de sinal, não de aborto.
 const MONTHLY_DELIVERY_ALERT_THRESHOLD = 100;
@@ -105,6 +108,40 @@ export async function GET() {
     console.error('[automations] daily malware-scan sweep failed:', e);
   }
 
+  // Prompt 305 §A — same daily re-check, for the four secondary upload
+  // paths Prompt 301's original sweep never covered.
+  //
+  // Adversarial-review follow-up: this used to run all four inside ONE
+  // Promise.all + one shared try/catch — a real exception in any single
+  // sweep (not just a capability probe returning false, which never
+  // throws) would reject the whole Promise.all and silently blank out the
+  // other three results too, contradicting this comment's own claim of
+  // independence. Each sweep now gets its own try/catch so one failure is
+  // reported as exactly that — one failure — never mistaken for "nothing
+  // ran" on the other three.
+  async function runSecondarySweep(label: string, fn: () => Promise<{ checked: number; resolved: number; flagged: number }>) {
+    try {
+      return await fn();
+    } catch (e) {
+      console.error(`[automations] daily secondary malware-scan sweep (${label}) failed:`, e);
+      return null;
+    }
+  }
+  const [investorDocs, ndas, matchdealPhotos, supportAttachments] = await Promise.all([
+    runSecondarySweep('investorVerificationDocuments', async () => (await investorVerificationScanAvailable())
+      ? recheckPendingScansGeneric(admin, { table: 'investor_verification_documents', idColumn: 'id', hashColumn: 'content_sha256', statusColumn: 'malware_scan_status', checkedAtColumn: 'malware_scan_checked_at' })
+      : { checked: 0, resolved: 0, flagged: 0 }),
+    runSecondarySweep('ndas', async () => (await ndaScanAvailable())
+      ? recheckPendingScansGeneric(admin, { table: 'ndas', idColumn: 'id', hashColumn: 'content_sha256', statusColumn: 'malware_scan_status', checkedAtColumn: 'malware_scan_checked_at' })
+      : { checked: 0, resolved: 0, flagged: 0 }),
+    runSecondarySweep('matchdealPhotos', async () => (await matchdealPhotoScanAvailable())
+      ? recheckMatchdealPhotoScans(admin) : { checked: 0, resolved: 0, flagged: 0 }),
+    runSecondarySweep('supportAttachments', async () => (await supportAttachmentScanAvailable())
+      ? recheckPendingScansGeneric(admin, { table: 'support_attachment_scans', idColumn: 'id', hashColumn: 'content_sha256', statusColumn: 'malware_scan_status', checkedAtColumn: 'malware_scan_checked_at' })
+      : { checked: 0, resolved: 0, flagged: 0 }),
+  ]);
+  const secondaryMalwareScanSweep = { investorVerificationDocuments: investorDocs, ndas, matchdealPhotos, supportAttachments };
+
   // TODO: implement server-side automation-rules tick — see src/lib/rules.ts
   // (pure functions, ready to reuse). Unchanged scope from before this prompt.
   return NextResponse.json({
@@ -114,5 +151,6 @@ export async function GET() {
     pioneerBadges,
     metricsSnapshot,
     malwareScanSweep,
+    secondaryMalwareScanSweep,
   });
 }

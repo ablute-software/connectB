@@ -17,6 +17,7 @@
 // with a concrete "go create this first" instead of silence.
 import type { Entity, Interaction, NeglectAdvice } from './types';
 import { lastInteractionSummary } from './frozen-classifier';
+import { wrapDocumentContent } from './prompt-injection-defense';
 
 export type NeglectOutcome = 'reactivate' | 'hold_for_hook' | 'not_worth_it';
 
@@ -74,7 +75,9 @@ export function buildNeglectEvaluationPrompt(
   const list = cases.map((c, i) =>
     `${i + 1}. entity_id=${c.entityId} · ${c.entityName}\n`
     + `   ${c.touchCount} touch${c.touchCount === 1 ? '' : 'es'}, last message ${c.lastInteractionDirection === 'in' ? 'FROM them' : 'FROM us'} on ${c.lastInteractionAt.slice(0, 10)}\n`
-    + `   last message: "${c.lastInteractionContent.slice(0, 500)}"`,
+    // Prompt 305 §B — an inbound last message is investor-authored
+    // (third-party) content; wrap it as data, not instructions.
+    + `   last message: ${wrapDocumentContent(c.lastInteractionContent.slice(0, 500))}`,
   ).join('\n');
   const factsBlock = companyFacts.length
     ? `\n\nCONFIRMED COMPANY FACTS (the ONLY facts you may cite as the "new hook" — quote/paraphrase one, never invent one):\n${companyFacts.map((f) => `[${f.id}] (${f.category}) ${f.statement}`).join('\n')}`

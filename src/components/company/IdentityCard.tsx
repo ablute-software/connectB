@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { browserClient } from '@/lib/supabase';
+import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
 import { CompletenessField } from './CompletenessField';
 import { SectorPicker, type SectorValue } from './SectorPicker';
 import { ALL_SECTOR_NAMES } from '@/lib/sector-taxonomy';
@@ -95,14 +96,29 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
     setEditing(false);
   }
 
+  // Prompt 305 §A (follow-up finding, adversarial review) — this upload had
+  // NO server-side validation at all: a raw client upload straight to
+  // Storage, with org.logo_url set from whatever path the browser chose.
+  // The most exposed of the gaps this prompt found — the resulting signed
+  // URL isn't just shown on this founder's own Company tab, it's rendered
+  // to INVESTORS via ProfilePanel.tsx/MatchDealDeck.tsx's "Use your
+  // Sherlock Deal logo" path. Now reuses the exact same
+  // uploadAndVerifyFile helper (magic-byte allowlist + VirusTotal,
+  // reject-and-delete on failure) the Vault's own upload path uses —
+  // never a second, less-secure upload mechanism.
+  //
+  // Known, accepted limitation: orgs has no per-field scan-status tracking
+  // (unlike documents/matchdeal_profiles), so a genuinely new file that
+  // comes back 'pending' isn't re-checked by the daily cron the way the
+  // other five paths are — same residual window every 'pending' verdict in
+  // this app already carries, just without a dedicated sweep for THIS one
+  // field. The synchronous checks (type allowlist + known-malicious
+  // rejection) still apply in full before logo_url is ever set.
   async function uploadLogo(file: File) {
     setUploadErr(''); setUploading(true);
     try {
-      const sb = browserClient();
-      const path = `${org.id}/logo/${crypto.randomUUID()}-${file.name}`;
-      const { error } = await sb.storage.from('data-room').upload(path, file, { upsert: true });
-      if (error) throw error;
-      updateOrg({ logo_url: path });
+      const verified = await uploadAndVerifyFile(org.id, file);
+      updateOrg({ logo_url: verified.storagePath });
     } catch (e) {
       setUploadErr((e as Error).message);
     } finally {

@@ -12,7 +12,7 @@ interface Ticket {
   status: string; priority: string; last_activity_at: string; first_response_at: string | null; resolved_at: string | null;
 }
 interface Event { id: string; created_at: string; author: string; kind: string; body: string | null }
-interface Attachment { path: string; url: string | null }
+interface Attachment { path: string; url: string | null; malwareFlagged?: boolean }
 
 const STATUS_LABEL: Record<string, string> = { new: 'New', open: 'Open', waiting_user: 'Waiting on user', resolved: 'Resolved', closed: 'Closed' };
 const CATEGORY_LABEL: Record<string, string> = {
@@ -80,6 +80,10 @@ export default function SupportTicketPage() {
                 <a key={a.path} href={a.url} target="_blank" rel="noreferrer" className="block">
                   <img src={a.url} alt="Attachment" className="h-20 w-20 rounded-lg border border-gray-200 object-cover" />
                 </a>
+              ) : a.malwareFlagged ? (
+                <span key={a.path} className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-bold text-[#B00000]" title="VirusTotal flagged this file as malicious — withheld from preview.">
+                  ⚠ flagged as malware
+                </span>
               ) : (
                 <span key={a.path} className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-400">Unavailable</span>
               ))}

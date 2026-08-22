@@ -10,6 +10,7 @@
 // pela mesma razão — contar isto contra a quota de *drafts* do founder
 // misturava duas coisas diferentes no mesmo contador.
 import type { Classification, PassReasonCategory } from './types';
+import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from './prompt-injection-defense';
 
 export const CLASSIFY_MODEL_DEFAULT = 'claude-haiku-4-5';
 
@@ -43,10 +44,18 @@ export function buildClassifyPrompt(content: string): string {
     '  "unclear" = you read it and genuinely cannot tell.',
     '  "pass" = they are declining to invest, however politely it is written.',
     '',
+    // Prompt 305 §B — this content is a message from an INVESTOR, outside
+    // the founder's control by default (not just pasted by accident) —
+    // priority case for this defense, per the prompt's own framing. The
+    // classification fields above are the only output this call ever
+    // produces (no free-text field an injected instruction could hijack
+    // into something investor-facing), but the delimiter + instruction
+    // still apply, same as everywhere else document/message content
+    // reaches a prompt.
+    DOCUMENT_CONTENT_INSTRUCTION,
+    '',
     'The reply:',
-    '---',
-    content,
-    '---',
+    wrapDocumentContent(content),
   ].join('\n');
 }
 

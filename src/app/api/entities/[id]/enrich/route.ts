@@ -22,6 +22,7 @@ import { fieldsAlreadyProposed, fetchRejectedAiContributions } from '@/lib/contr
 import type { Entity } from '@/lib/types';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { DOCUMENT_CONTENT_INSTRUCTION } from '@/lib/prompt-injection-defense';
 
 const NOT_CONFIGURED_MSG = 'AI-assisted enrichment isn’t available in your workspace yet.';
 
@@ -35,7 +36,8 @@ async function callClaude(apiKey: string, model: string, prompt: string, orgId: 
       system: 'You are a research assistant for a venture/angel investor database. You search the public web and propose '
         + 'factual field values with sources — you never fabricate, never rely on prior/training knowledge without verifying it '
         + 'via a fresh web search, never scrape gated/private content, and never treat inference as fact. You finish every '
-        + 'research task by calling the propose_fields tool, even if you found nothing (call it with an empty array).',
+        + 'research task by calling the propose_fields tool, even if you found nothing (call it with an empty array). '
+        + DOCUMENT_CONTENT_INSTRUCTION,
       messages: [{ role: 'user', content: prompt }],
       tools: [
         { type: 'web_search_20250305', name: 'web_search', max_uses: 5 },

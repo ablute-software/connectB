@@ -19,6 +19,7 @@ import { claimsAvailable } from '@/lib/blueprint-capability';
 import { readExistingClaims } from '@/lib/company-knowledge-db';
 import { detectGaps, gapKey as computeGapKey, templateFor, type GapRule } from '@/lib/company-gaps';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 
 const AI_ROLE: Record<GapRule, 'draft' | 'polish'> = {
   G1: 'polish', G2: 'polish', G3: 'draft', G3b: 'polish', G3c: 'polish', G4: 'draft', G5: 'polish', G6: 'draft',
@@ -97,8 +98,9 @@ export async function POST(req: Request) {
       const output = await callClaude(
         apiKey, model,
         'You improve a startup founder\'s own answer to an investor-readiness question — clarity and phrasing ONLY. '
-          + 'Never add a fact, name, number, or claim that wasn\'t already in the founder\'s text. If it\'s already clear, return it close to unchanged.',
-        `Question: "${question}"\n\nFounder's own draft answer:\n"${currentAnswer.trim()}"\n\nReturn the same answer, improved for clarity — same facts, better phrasing.`,
+          + 'Never add a fact, name, number, or claim that wasn\'t already in the founder\'s text. If it\'s already clear, return it close to unchanged. '
+          + DOCUMENT_CONTENT_INSTRUCTION,
+        `Question: "${question}"\n\nFounder's own draft answer:\n${wrapDocumentContent(currentAnswer.trim())}\n\nReturn the same answer, improved for clarity — same facts, better phrasing.`,
         { name: 'polish_answer', description: 'Return the polished answer.', input_schema: { type: 'object', properties: { polishedAnswer: { type: 'string' } }, required: ['polishedAnswer'] } },
         orgId, 'blueprint_gap_polish',
       ) as { polishedAnswer: string };
@@ -116,8 +118,9 @@ export async function POST(req: Request) {
       apiKey, model,
       'You draft a candidate answer to an investor-readiness question using ONLY the confirmed facts given. '
         + 'Never invent a name, number, or detail not present in the context. If the context doesn\'t actually answer the '
-        + 'question, set sufficient:false and leave draftAnswer empty — do not guess.',
-      `Question: "${question}"\n\nConfirmed facts already on file for this company:\n${contextClaims || '(none)'}\n\nDraft an answer using ONLY the facts above.`,
+        + 'question, set sufficient:false and leave draftAnswer empty — do not guess. '
+        + DOCUMENT_CONTENT_INSTRUCTION,
+      `Question: "${question}"\n\nConfirmed facts already on file for this company:\n${contextClaims ? wrapDocumentContent(contextClaims) : '(none)'}\n\nDraft an answer using ONLY the facts above.`,
       {
         name: 'draft_answer', description: 'Return the drafted answer or say the context is insufficient.',
         input_schema: { type: 'object', properties: { sufficient: { type: 'boolean' }, draftAnswer: { type: 'string' } }, required: ['sufficient', 'draftAnswer'] },

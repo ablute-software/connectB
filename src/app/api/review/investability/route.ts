@@ -47,6 +47,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { REVIEW_QUOTA, REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import type { SwotData } from '@/lib/types';
 
 interface Report extends SwotData {
@@ -123,15 +124,15 @@ export async function POST(req: Request) {
   const clarificationsBlock = clarificationRows && clarificationRows.length > 0
     ? '\n\nFOUNDER CLARIFICATIONS ON PAST REVIEWS (context — weigh these, but you may still raise a concern again if you '
       + 'believe it\'s still valid; you don\'t need to justify keeping it):\n'
-      + clarificationRows.map((c) => `- [${c.category}] "${c.item_text}" — founder says: "${c.clarification_text}"`).join('\n')
+      + wrapDocumentContent(clarificationRows.map((c) => `- [${c.category}] "${c.item_text}" — founder says: "${c.clarification_text}"`).join('\n'))
     : '';
 
   const prompt =
     'Assess this startup\'s investability (readiness to raise vs the value of the round it wants) using ONLY the '
     + 'confirmed company facts and pipeline stats below — never invent facts not present.\n\n'
-    + `COMPANY:\n${JSON.stringify(company ?? {}, null, 2)}\n\n`
-    + `CONFIRMED FACTS:\n${(facts ?? []).map((f) => `- ${f}`).join('\n') || '(none confirmed yet)'}\n\n`
-    + `PIPELINE STATS:\n${JSON.stringify(pipeline ?? {}, null, 2)}\n\n`
+    + `COMPANY:\n${wrapDocumentContent(JSON.stringify(company ?? {}, null, 2))}\n\n`
+    + `CONFIRMED FACTS:\n${wrapDocumentContent((facts ?? []).map((f) => `- ${f}`).join('\n') || '(none confirmed yet)')}\n\n`
+    + `PIPELINE STATS:\n${wrapDocumentContent(JSON.stringify(pipeline ?? {}, null, 2))}\n\n`
     + 'Score 0-100 (readiness vs round value). Be concrete and specific to what the facts actually say; if the canon '
     + 'is thin, say so and score conservatively. Also identify Opportunities (external, strategic openings this startup '
     + 'could pursue — market timing, a gap a competitor left open, a partnership angle) and Threats (external, '
@@ -153,7 +154,7 @@ export async function POST(req: Request) {
           + 'readiness assessment grounded strictly in the facts given — no invented traction, revenue, or clinical claims. '
           + 'Opportunities and Threats are external/strategic (the market, competitors, timing) — never restate an '
           + 'internal Weakness as a Threat or an internal fix as an Opportunity. Every bullet you write is short: '
-          + `${BULLET_LENGTH_RULE} You never send or mutate anything; you return a report.`,
+          + `${BULLET_LENGTH_RULE} You never send or mutate anything; you return a report. ${DOCUMENT_CONTENT_INSTRUCTION}`,
         messages: [{ role: 'user', content: prompt }],
         tools: [{
           name: 'report_investability',
@@ -234,8 +235,8 @@ async function generateInvestorSafeSwot(
   apiKey: string, company: Record<string, unknown> | undefined, facts: string[] | undefined, orgId: string,
 ): Promise<{ strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] } | undefined> {
   const prompt = 'You are writing a SWOT about a startup, for investors evaluating it.\n\n'
-    + `COMPANY:\n${JSON.stringify(company ?? {}, null, 2)}\n\n`
-    + `CONFIRMED FACTS:\n${(facts ?? []).map((f) => `- ${f}`).join('\n') || '(none confirmed yet)'}\n\n`
+    + `COMPANY:\n${wrapDocumentContent(JSON.stringify(company ?? {}, null, 2))}\n\n`
+    + `CONFIRMED FACTS:\n${wrapDocumentContent((facts ?? []).map((f) => `- ${f}`).join('\n') || '(none confirmed yet)')}\n\n`
     + `${INVESTOR_SAFE_INSTRUCTION}\n\n`
     + `Every bullet: ${BULLET_LENGTH_RULE}\n\n`
     + 'Always finish by calling report_investor_swot.';
@@ -248,7 +249,8 @@ async function generateInvestorSafeSwot(
         model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
         max_tokens: 1000,
         system: 'You write investor-facing company assessments. You are never given fundraising or outreach data, '
-          + 'and you never speculate about it. Only the company, market and product.',
+          + 'and you never speculate about it. Only the company, market and product. '
+          + DOCUMENT_CONTENT_INSTRUCTION,
         messages: [{ role: 'user', content: prompt }],
         tools: [{
           name: 'report_investor_swot',

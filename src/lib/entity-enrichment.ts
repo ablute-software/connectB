@@ -13,6 +13,7 @@
 // survives is written by the caller as an UNCONFIRMED contributions row
 // (source:'ai', status:'submitted') — never applied to the entity directly.
 import type { Entity, Stage } from './types';
+import { wrapDocumentContent } from './prompt-injection-defense';
 
 // The fields the live AI enrichment route actually asks the model to search
 // for (buildEntityEnrichmentPrompt below) — kept as its own constant so
@@ -192,13 +193,13 @@ export function buildEntityEnrichmentPrompt(name: string, known: Partial<Record<
   const rejectedBlock = rejected.length === 0 ? [] : [
     '',
     'Previously suggested and rejected by a human — do not repropose these unless you have new, materially different evidence:',
-    ...rejected.map((r) => `- ${r.field}: "${String(r.value)}"${r.reviewer_notes ? ` (reviewer note: ${r.reviewer_notes})` : ''}`),
+    wrapDocumentContent(rejected.map((r) => `- ${r.field}: "${String(r.value)}"${r.reviewer_notes ? ` (reviewer note: ${r.reviewer_notes})` : ''}`).join('\n')),
   ];
   return [
     `Research the investment fund/firm "${name}" using real public web sources only`,
     "(the fund's own website, news coverage, interviews, portfolio pages). Never use LinkedIn as a source, and never scrape or quote private/gated content.",
     '',
-    `Already known — do not re-propose these, only fill genuine gaps: ${JSON.stringify(known)}`,
+    `Already known — do not re-propose these, only fill genuine gaps: ${wrapDocumentContent(JSON.stringify(known))}`,
     ...rejectedBlock,
     '',
     `Try to find real values for: ${AI_SEARCH_FIELDS.join(', ')}.`,

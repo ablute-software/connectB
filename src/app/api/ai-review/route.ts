@@ -26,6 +26,7 @@ import { coerceReport, type StructuredReport } from '@/lib/ai-review-shape';
 import { recordAiReviewFacts } from '@/lib/ecosystem-facts';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 
 type ReviewKind =
   | 'message_review' | 'deck_review' | 'one_pager_review' | 'market_data'
@@ -251,9 +252,10 @@ export async function POST(req: Request) {
       + 'between what one claims and what the other claims, not merely a difference in emphasis, level of detail, or '
       + 'something one document simply omits. Only report an item if you can quote the exact conflicting phrase from BOTH '
       + 'documents verbatim; if you cannot find a literal quote in both, do not report it. Prefer zero contradictions over '
-      + 'a low-confidence one. You never send or mutate anything; you always return a report.';
+      + 'a low-confidence one. You never send or mutate anything; you always return a report. '
+      + DOCUMENT_CONTENT_INSTRUCTION;
     const crossDocPrompt =
-      `${contextBlock(context)}\n\nDOCUMENT A (${nameA}):\n${draftA}\n\nDOCUMENT B (${nameB}):\n${draftB}\n\n`
+      `${contextBlock(context)}\n\nDOCUMENT A (${nameA}):\n${wrapDocumentContent(draftA)}\n\nDOCUMENT B (${nameB}):\n${wrapDocumentContent(draftB)}\n\n`
       + 'Find genuine contradictions between these two documents. Always finish by calling report_contradictions.';
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -349,7 +351,8 @@ export async function POST(req: Request) {
   const system =
     'You are an investor-readiness reviewer for an early-stage startup founder. You produce a structured, honest report '
     + 'grounded strictly in what is given — never invent traction, revenue, customers, or clinical/regulatory claims not '
-    + 'present in the input. You never send or mutate anything; you always return a report, and you flag rule violations bluntly.';
+    + 'present in the input. You never send or mutate anything; you always return a report, and you flag rule violations bluntly. '
+    + DOCUMENT_CONTENT_INSTRUCTION;
 
   // message_review keeps its original, ablute_-specific system prompt
   // untouched (Prompt 99 §3.4 — flagged, not fixed: generalizing this one
@@ -359,18 +362,19 @@ export async function POST(req: Request) {
     + 'Hard rules you enforce in every review: line 1 must be a specific/recent/true hook; one small ask only; '
     + 'never claim traction, revenue or clinical results (the pilot is starting, not showing); respect the person\'s kill words; '
     + 'LinkedIn DMs under 900 characters; links only, never attachments; the product is positioned as wellness, never diagnostic. '
-    + 'You produce a report — you never draft-and-send, and you flag rule violations bluntly.';
+    + 'You produce a report — you never draft-and-send, and you flag rule violations bluntly. '
+    + DOCUMENT_CONTENT_INSTRUCTION;
 
   const prompts: Record<Exclude<ReviewKind, 'cross_document_review'>, string> = {
     message_review:
-      `Review this outreach draft.\n\nDRAFT:\n${draft}\n\nCRM CONTEXT (ground truth):\n${JSON.stringify(context, null, 2)}\n\n`
+      `Review this outreach draft.\n\nDRAFT:\n${wrapDocumentContent(draft)}\n\nCRM CONTEXT (ground truth):\n${JSON.stringify(context, null, 2)}\n\n`
       + 'Return: 1) verdict (send / fix first / do not send), 2) hook strength 0-10 with why, 3) risks (kill words, framing, claims), '
       + '4) ask check, 5) a tightened rewrite.',
     deck_review:
-      `${contextBlock(context)}\n\nReview this investor deck content, from an investor's point of view.\n\n${draft}\n\n`
+      `${contextBlock(context)}\n\nReview this investor deck content, from an investor's point of view.\n\n${wrapDocumentContent(draft)}\n\n`
       + 'Assess problem clarity, traction evidence, number credibility, and narrative. Always finish by calling report_review.',
     one_pager_review:
-      `${contextBlock(context)}\n\nReview this one-pager content, from an investor's point of view.\n\n${draft}\n\n`
+      `${contextBlock(context)}\n\nReview this one-pager content, from an investor's point of view.\n\n${wrapDocumentContent(draft)}\n\n`
       + 'Same lens as a deck review, adapted to a single page. Always finish by calling report_review.',
     market_data:
       `Market/sector benchmarking for our own company (the startup raising the round):\n${JSON.stringify(context, null, 2)}\n\n`
@@ -379,26 +383,26 @@ export async function POST(req: Request) {
       + '4) comparable/adjacent companies worth knowing (only if you are confident). Mark anything you are not certain about '
       + 'as needing verification, and never invent specific figures.',
     business_plan_review:
-      `${contextBlock(context)}\n\nReview this business plan, from a seed/pre-seed investor's point of view.\n\n${draft}\n\n`
+      `${contextBlock(context)}\n\nReview this business plan, from a seed/pre-seed investor's point of view.\n\n${wrapDocumentContent(draft)}\n\n`
       + 'What an investor actually checks here: does the stated strategy match the unit economics a financial plan would show '
       + '(they must not contradict each other); is the go-to-market sequence credible for the sector (not "we will scale" '
       + 'without saying how); does the competitive differentiation survive a direct question ("why doesn\'t an incumbent do '
       + 'this tomorrow") rather than reading as a feature list; clear awareness of regulatory risk/moat when the sector is '
       + 'regulated. Always finish by calling report_review.',
     financial_plan_review:
-      `${contextBlock(context)}\n\nReview this financial plan, from an investor's point of view.\n\n${draft}\n\n`
+      `${contextBlock(context)}\n\nReview this financial plan, from an investor's point of view.\n\n${wrapDocumentContent(draft)}\n\n`
       + 'What an investor actually checks here: burn rate vs runway honesty (does it match what is stated elsewhere); '
       + 'revenue assumptions traceable to named growth engines, not an unexplained top-down percentage; unit economics '
       + 'actually calculated (CAC/LTV or equivalent), not assumed; use of funds specific and tied to milestones, not generic '
       + '("growth", "team"); a simple read of cap table cleanliness (dilution, liquidation preferences). Always finish by calling report_review.',
     marketing_plan_review:
-      `${contextBlock(context)}\n\nReview this commercial/marketing plan, from an investor's point of view.\n\n${draft}\n\n`
+      `${contextBlock(context)}\n\nReview this commercial/marketing plan, from an investor's point of view.\n\n${wrapDocumentContent(draft)}\n\n`
       + 'What an investor actually checks here: channel realism (not "we will go viral"); CAC assumptions anchored to sector '
       + 'comparables, not invented; honesty about sales-cycle length; evidence of conversion from partnerships/pilots already '
       + 'run, not just planned. Always finish by calling report_review.',
     cap_table_review:
       `${contextBlock(context)}\n\nQuick cap-table & terms read, from an investor's point of view — this is a lighter `
-      + `mini-review, not a full document review.\n\n${draft}\n\n`
+      + `mini-review, not a full document review.\n\n${wrapDocumentContent(draft)}\n\n`
       + 'Is the round structured in a way an investor will find clean — reasonable dilution, no obvious red flags carried '
       + 'over from prior terms? Always finish by calling report_review.',
   };

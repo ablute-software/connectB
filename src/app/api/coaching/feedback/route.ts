@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 
 interface Question { text: string; category: string; source: 'fixed' | 'derived' | 'diligence' }
 interface QA { question: Question; answer: string }
@@ -34,8 +35,8 @@ export async function POST(req: Request) {
   const prompt =
     'You just role-played an investor asking a founder these questions in a diligence session. Grade each answer — what it '
     + 'covered well, what it missed — and give a short overall summary. Never invent facts about the company beyond what the '
-    + `answers themselves say.\n\nCOMPANY CONTEXT:\n${JSON.stringify(context ?? {}, null, 2)}\n\n`
-    + qas.map((qa, i) => `Q${i + 1} [${qa.question.category}]: ${qa.question.text}\nA${i + 1}: ${qa.answer}`).join('\n\n')
+    + `answers themselves say.\n\nCOMPANY CONTEXT:\n${wrapDocumentContent(JSON.stringify(context ?? {}, null, 2))}\n\n`
+    + wrapDocumentContent(qas.map((qa, i) => `Q${i + 1} [${qa.question.category}]: ${qa.question.text}\nA${i + 1}: ${qa.answer}`).join('\n\n'))
     + '\n\nAlways finish by calling report_coaching.';
 
   try {
@@ -46,7 +47,8 @@ export async function POST(req: Request) {
         model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
         max_tokens: 1800,
         system: 'You are an investor-pitch coach for an early-stage founder. You never invent facts, you never send or '
-          + 'mutate anything — you only give per-answer feedback and an overall summary, always via the report_coaching tool.',
+          + 'mutate anything — you only give per-answer feedback and an overall summary, always via the report_coaching tool. '
+          + DOCUMENT_CONTENT_INSTRUCTION,
         messages: [{ role: 'user', content: prompt }],
         tools: [{
           name: 'report_coaching',

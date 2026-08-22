@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import type { Channel, Classification, Direction } from '@/lib/types';
 
 interface InputInteraction { id: string; direction: Direction; channel: Channel; content: string; occurredAt: string }
@@ -53,6 +54,10 @@ export async function POST(req: NextRequest) {
     .map((i) => `[${i.id}] (${i.direction === 'out' ? 'outbound' : 'inbound'}, ${i.channel}, ${i.occurredAt.slice(0, 10)}) ${i.content}`.slice(0, 1200))
     .join('\n---\n')
     .slice(0, 8000);
+  // Prompt 305 §B (adversarial-review follow-up) — inbound interaction
+  // content here can be investor-authored (third-party), same as
+  // classify-interaction. Wrap it as data, not instructions.
+  const wrappedText = wrapDocumentContent(text);
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -66,8 +71,9 @@ export async function POST(req: NextRequest) {
           + `For each, decide "kind": "metadata_card" or "interaction". For "interaction", propose the most likely classification from: ${CLASSIFICATIONS.join(', ')}. `
           + 'Only mark confidence "high" when you are quite sure — a wrong auto-applied classification is worse than leaving it for human review; default to "low" whenever the text is ambiguous, off-topic, or too short to tell. '
           + 'Only propose directionCorrection/channelCorrection when the given value looks evidently wrong given the text. Never invent facts not in the text. '
-          + 'Always finish by calling propose_classifications, with exactly one entry per interaction id given, using the exact ids provided.',
-        messages: [{ role: 'user', content: text }],
+          + 'Always finish by calling propose_classifications, with exactly one entry per interaction id given, using the exact ids provided. '
+          + DOCUMENT_CONTENT_INSTRUCTION,
+        messages: [{ role: 'user', content: wrappedText }],
         tools: [{
           name: 'propose_classifications',
           description: 'Return one classification proposal per interaction id.',

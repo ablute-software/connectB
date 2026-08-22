@@ -61,4 +61,29 @@ describe('detectAllowedKind', () => {
   it('rejeita um ficheiro sem extensão nenhuma', () => {
     expect(detectAllowedKind(bytes(0x25, 0x50, 0x44, 0x46), 'deck')).toBeNull();
   });
+
+  // Prompt 305 §A — gif/webp added for support-attachment/matchdeal-photo,
+  // which previously accepted any client-supplied image/* MIME type.
+  it('aceita GIF pela assinatura GIF8', () => {
+    expect(detectAllowedKind(bytes(0x47, 0x49, 0x46, 0x38, 0x39, 0x61), 'photo.gif')).toBe('gif');
+  });
+
+  it('aceita WEBP pela assinatura RIFF....WEBP', () => {
+    const webp = bytes(0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50);
+    expect(detectAllowedKind(webp, 'photo.webp')).toBe('webp');
+  });
+
+  it('rejeita um RIFF que não é WEBP (ex. um .wav renomeado)', () => {
+    const wav = bytes(0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45); // RIFF....WAVE
+    expect(detectAllowedKind(wav, 'sound.webp')).toBeNull();
+  });
+
+  // Prompt 305 §A — SVG is deliberately absent from the allowlist entirely
+  // (can embed <script>; see upload-security.ts's own header for why this
+  // is the chosen mitigation over building a sanitizer). No magic-byte
+  // check exists for it, so any .svg extension is rejected outright.
+  it('NUNCA aceita .svg — não está no allowlist, seja qual for o conteúdo', () => {
+    const svgXml = Buffer.from('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    expect(detectAllowedKind(svgXml, 'photo.svg')).toBeNull();
+  });
 });

@@ -12,6 +12,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 
 interface ProposedPerson { name: string; role?: string; confidence: number; evidence: string }
 
@@ -58,8 +59,9 @@ export async function POST(req: NextRequest) {
         max_tokens: 1000,
         system: `You extract named individuals mentioned in messy Portuguese founder outreach notes about the fund "${section.name}". `
           + 'Only real personal names (not company names, not generic titles) — skip anyone you are not reasonably confident about. '
-          + 'Never invent a name not in the text. Always finish by calling propose_people, with an empty array if none.',
-        messages: [{ role: 'user', content: text }],
+          + 'Never invent a name not in the text. Always finish by calling propose_people, with an empty array if none. '
+          + DOCUMENT_CONTENT_INSTRUCTION,
+        messages: [{ role: 'user', content: wrapDocumentContent(text) }],
         tools: [{
           name: 'propose_people',
           description: 'Return the people mentioned in this text.',

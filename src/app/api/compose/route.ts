@@ -9,6 +9,7 @@ import { planEntitlements, AI_COMPOSER_LOCKED_COPY, WATSON_DRAFT_QUOTA } from '@
 import { recordWatsonDraft } from '@/lib/watson-draft-record';
 import { logAiCall } from '@/lib/ai-cost-log';
 import type { ComposerContext, ComposerIntent } from '@/lib/composer';
+import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import type { Channel, Entity, Person } from '@/lib/types';
 
 const NOT_CONFIGURED_MSG =
@@ -93,7 +94,9 @@ function buildPrompt(context: ComposerContext, channel: Channel, intent: Compose
     context.person.preferredLanguage === 'pt' ? 'Write in European Portuguese.' : 'Write in English.',
     '',
     'CONTEXT (ground truth — do not invent beyond this):',
-    JSON.stringify(context, null, 2),
+    // Prompt 305 §B — priorThread[].snippet can be investor-authored
+    // (third-party) content; wrap the whole context blob as data.
+    wrapDocumentContent(JSON.stringify(context, null, 2)),
     ...canonBlock,
     ...reopenBlock,
     ...sherlockBlock,
@@ -163,7 +166,8 @@ async function callClaude(apiKey: string, model: string, prompt: string, canonGa
     body: JSON.stringify({
       model,
       max_tokens: 1200,
-      system: 'You are an investor-outreach copywriter for a startup founder. You produce ONE structured draft per call via the compose_outreach tool — you never send anything, you only draft. Be specific, never generic; respect every hard rule given.',
+      system: 'You are an investor-outreach copywriter for a startup founder. You produce ONE structured draft per call via the compose_outreach tool — you never send anything, you only draft. Be specific, never generic; respect every hard rule given. '
+        + DOCUMENT_CONTENT_INSTRUCTION,
       messages: [{ role: 'user', content: prompt }],
       tools: [{ name: 'compose_outreach', description: 'Return the composed outreach draft.', input_schema: toolSchema(canonGated) }],
       tool_choice: { type: 'tool', name: 'compose_outreach' },

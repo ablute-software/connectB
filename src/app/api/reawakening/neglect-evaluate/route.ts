@@ -30,6 +30,7 @@ import {
   type NeglectCase, type NeglectOutcome, type NeglectVerdict,
 } from '@/lib/neglect-evaluation';
 import { chunk } from '@/lib/reawakening';
+import { DOCUMENT_CONTENT_INSTRUCTION } from '@/lib/prompt-injection-defense';
 import { logAiCall } from '@/lib/ai-cost-log';
 import type { Entity, Interaction, Person } from '@/lib/types';
 
@@ -51,7 +52,8 @@ async function callSherlock(
       system: 'You are a startup fundraising adviser, evaluating investor threads that went cold for a founder\'s CRM — cases where nobody ever passed '
         + 'and no reopen condition was ever set, the conversation just went quiet. You never invent facts about what was said or about the company; you '
         + 'only reason from the exact last message given and the confirmed company facts provided. Real advice always acknowledges the gap honestly, '
-        + 'answers what is actually pending, and only proposes reopening now when there is a genuine new reason to — otherwise it says so plainly.',
+        + 'answers what is actually pending, and only proposes reopening now when there is a genuine new reason to — otherwise it says so plainly. '
+        + DOCUMENT_CONTENT_INSTRUCTION,
       messages: [{ role: 'user', content: buildNeglectEvaluationPrompt(cases, now, companyFacts) }],
       tools: [{
         name: 'evaluate_neglect',

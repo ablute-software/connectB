@@ -689,7 +689,7 @@ function GdprTab() {
 // firm (Bloco 1), or an uploaded document against an existing/new firm
 // (Bloco 3). Same Card/Tooltip/Approve-Reject shape as SubmissionsTab above.
 interface PendingEntity { id: string; catalogEntityId: string; addedByEmail: string; createdAt: string; entityName: string; website: string | null }
-interface PendingDocument { id: string; investorEmail: string; catalogEntityId: string; fileName: string; createdAt: string; entityName: string; url: string | null }
+interface PendingDocument { id: string; investorEmail: string; catalogEntityId: string; fileName: string; createdAt: string; entityName: string; url: string | null; malwareFlagged?: boolean }
 
 function InvestorIdentityTab() {
   const [pendingEntities, setPendingEntities] = useState<PendingEntity[] | null>(null);
@@ -756,6 +756,14 @@ function InvestorIdentityTab() {
                 <span className="font-medium">{d.entityName}</span>
                 <span className="text-xs text-gray-500">{d.investorEmail}</span>
                 {d.url ? <a href={d.url} target="_blank" rel="noreferrer" className="text-xs text-[#0E7490] hover:underline">{d.fileName}</a> : <span className="text-xs text-gray-400">{d.fileName}</span>}
+                {/* Prompt 305 §A — the file was withheld because the daily
+                    malware sweep flagged it after upload; say so instead of
+                    a silent missing link. Reject is still the right action. */}
+                {d.malwareFlagged && (
+                  <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-[#B00000]" title="VirusTotal flagged this file as malicious — withheld from preview.">
+                    ⚠ flagged as malware
+                  </span>
+                )}
                 <span className="text-xs text-gray-400">{d.createdAt.slice(0, 10)}</span>
                 <div className="ml-auto flex gap-2">
                   <button onClick={() => reviewDocument(d.id, 'approved')} className="rounded bg-green-700 px-2 py-1 text-xs font-medium text-white hover:bg-green-800">Verify</button>

@@ -9,6 +9,10 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
+import { detectAllowedKind, scanWithVirusTotal } from '@/lib/upload-security';
+
+export const maxDuration = 30;
 
 const MAX_CHARS = 20_000; // token-budget guard; chunking is a future enhancement
 
@@ -49,15 +53,32 @@ export async function POST(req: NextRequest) {
   try {
     const { data: fileBlob, error: dlErr } = await admin.storage.from('data-room').download(batch.storage_path);
     if (dlErr || !fileBlob) throw new Error(dlErr?.message ?? 'download failed');
-    const text = (await fileBlob.text()).slice(0, MAX_CHARS);
+    const bytes = Buffer.from(await fileBlob.arrayBuffer());
+
+    // Prompt 305 §A (adversarial-review follow-up) — same gap as
+    // import/md/extract/route.ts: the browser uploads straight to Storage
+    // before this route runs. Same accepted scope limit: import_batches is
+    // a transient staging row, no persisted scan-status/cron sweep for it.
+    if (!detectAllowedKind(bytes, batch.file_name as string)) {
+      await admin.storage.from('data-room').remove([batch.storage_path as string]);
+      throw new Error('This file\'s content doesn\'t match its extension, or isn\'t an allowed type.');
+    }
+    const uploadVerdict = await scanWithVirusTotal(bytes, batch.file_name as string);
+    if (uploadVerdict.status === 'flagged') {
+      await admin.storage.from('data-room').remove([batch.storage_path as string]);
+      throw new Error(`Upload blocked — ${uploadVerdict.detail}`);
+    }
+    const text = bytes.toString('utf-8').slice(0, MAX_CHARS);
 
     const prompt = [
       'Extract structured investor-outreach history from this file. Never silently guess identities — if you are',
       'not confident who a person/entity is, still include them but with a low confidence score and a short note',
       'explaining the ambiguity (e.g. "only first name \'David\' mentioned, no company given").',
       '',
+      DOCUMENT_CONTENT_INSTRUCTION,
+      '',
       'FILE CONTENT:',
-      text,
+      wrapDocumentContent(text),
       '',
       'Return people[] (name, role, entity_name — which fund/company they belong to, phones[], emails[], linkedin_url),',
       'entities[] (name, website, emails[]), and interactions[] (date ISO8601 if possible, channel',
@@ -71,7 +92,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5',
         max_tokens: 4000,
-        system: 'You extract structured records from messy founder-kept investor-outreach notes. You never invent facts not in the text. You always finish by calling extract_history.',
+        system: 'You extract structured records from messy founder-kept investor-outreach notes. You never invent facts not in the text. You always finish by calling extract_history. ' + DOCUMENT_CONTENT_INSTRUCTION,
         messages: [{ role: 'user', content: prompt }],
         tools: [{
           name: 'extract_history',
