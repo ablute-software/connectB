@@ -649,7 +649,9 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
         </div>
       )}
     <Card title={<span className="inline-flex items-center gap-1">Roadmap <TermHint text="Key milestones and goals for the journey ahead." /></span>}>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+      {/* id targeted by the "Turn on →" link on the founder-only dossier
+          preview page (Prompt 306) when this toggle is off. */}
+      <div id="roadmap-visibility-toggle" className="mb-2 flex scroll-mt-16 flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-gray-400">Key milestones and goals for the journey ahead.</p>
         {canEdit && (
           <Toggle checked={db.org.roadmap_visible_to_investors ?? true}

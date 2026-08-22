@@ -26,19 +26,15 @@
 // level >= 1 AND orgs.roadmap_visible_to_investors, projected to only
 // period_kind/period_year/period_quarter/items (migration 0161).
 import { NextResponse } from 'next/server';
-import { sanitizeInvestorSwot } from '@/lib/investor-safe-swot';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
-import { currentInterestLevel, projectDossier, type FullDossierData, type FounderClarificationFull, type RoadmapMilestoneFull, type RoadmapCategoryFull } from '@/lib/investor-interest-level';
+import { currentInterestLevel, projectDossier } from '@/lib/investor-interest-level';
 import { getInterestLevelRows, toInvestorFacingLevelRows } from '@/lib/investor-interest-level-db';
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
-import { getInteractionTimeline } from '@/lib/investor-interaction-log';
+import { fetchDossierRawData } from '@/lib/dossier-fetch';
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
-import { vaultFrozenForOrg } from '@/lib/data-room-server';
-import type { SwotData } from '@/lib/types';
-import type { ReviewCategory } from '@/lib/review-clarifications';
 
 export async function GET(req: Request, { params }: { params: { orgId: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -77,146 +73,14 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   const level = currentInterestLevel(decisionForLevel, levelRows);
   const shareEmail = levelRows.some((r) => r.level === 3 && r.status === 'granted' && r.shareDirectEmail);
 
-  // Overview body — deliberately the SAME data surface matchdeal_startup_pitch_data
-  // already exposes to investors browsing the MatchDeal deck (Prompt 98's
-  // own SECURITY DEFINER RPC): no new private-data surface, just a second
-  // place that reads it. Only fetched at all once level >= 1 unlocks it —
-  // not fetched-then-hidden.
-  let overview: Record<string, unknown> | null = null;
-  if (level >= 1) {
-    const { data: startupProfile } = await admin.from('matchdeal_profiles')
-      .select('id, team_summary, representative_name, representative_linkedin')
-      .eq('kind', 'startup').eq('membership_id', params.orgId).maybeSingle();
-    if (startupProfile) {
-      const { data: pitch } = await admin.rpc('matchdeal_startup_pitch_data', { p_profile_id: startupProfile.id });
-      overview = pitch?.[0] ? {
-        ...pitch[0], team_summary: startupProfile.team_summary,
-        representative_name: startupProfile.representative_name, representative_linkedin: startupProfile.representative_linkedin,
-      } : null;
-    }
-  }
-
-  // Everything below is only ever FETCHED at level >= 2 — not fetched-then-
-  // hidden, genuinely not read, so a bug in projectDossier could at worst
-  // leak an already-fetched (level 1) overview, never team/traction/
-  // contacts/documents a level-0/1 investor was never supposed to see.
-  let team: FullDossierData['team'] = [];
-  let contactHistory: FullDossierData['contactHistory'] = [];
-  let documentTitles: FullDossierData['documentTitles'] = [];
-  let tractionDetailed: Record<string, unknown> = {};
-  if (level >= 2) {
-    const { data: people } = await admin.from('company_people')
-      .select('id, full_name, title, is_founder, linkedin_url, email').eq('org_id', params.orgId).order('sort_order', { ascending: true });
-    team = (people ?? []).map((p) => ({
-      id: p.id as string, fullName: p.full_name as string, title: p.title as string | null,
-      isFounder: p.is_founder as boolean, linkedinUrl: p.linkedin_url as string | null, email: p.email as string | null,
-    }));
-    tractionDetailed = (overview?.traction_metrics as Record<string, unknown> | null) ?? {};
-    if (investorCatalogEntityId) {
-      const timeline = await getInteractionTimeline(admin, { investorCatalogEntityId, email, orgId: params.orgId });
-      contactHistory = timeline.map((t) => ({ id: t.id, at: t.at, content: t.content, channel: t.channel }));
-    }
-    // Prompt 278 §4 — the kill switch, explicitly confirmed to cover this
-    // route too: documentTitles is its OWN gate here (level >= 2), entirely
-    // separate from access_grants/resolveDocumentAccess — this route reads
-    // `documents` directly, with no grant check at all otherwise. Not
-    // fetched-then-hidden: skipped entirely while frozen, same "not fetched
-    // below its level" discipline this route already applies everywhere
-    // else.
-    if (!(await vaultFrozenForOrg(admin, params.orgId))) {
-      const { data: docs } = await admin.from('documents').select('id, name').eq('org_id', params.orgId);
-      documentTitles = (docs ?? []).map((d) => ({ id: d.id as string, name: d.name as string }));
-    }
-  }
-
-  // Prompt 166 §D — SWOT snapshot. Only ever fetched at level >= 1 (same
-  // "not fetched-then-hidden" discipline as `overview` above), and only
-  // when the founder's own toggle is on — no point reading review_runs at
-  // all if the answer is going to be withheld anyway. Explicit projection
-  // to SwotData's 4 arrays only: never the raw review_runs.report row (no
-  // score/summary/risks/recommendations reaches this route's own local
-  // scope beyond what's needed to build `swot`, let alone the client) —
-  // the "never a silent join" discipline migration 0158 documents.
-  let swot: { visible: boolean; data: SwotData } | null = null;
-  if (level >= 1) {
-    const { data: orgRow } = await admin.from('orgs').select('swot_visible_to_investors').eq('id', params.orgId).maybeSingle();
-    const visible = (orgRow?.swot_visible_to_investors as boolean | null | undefined) ?? true;
-    if (visible) {
-      const { data: latestRun } = await admin.from('review_runs').select('report')
-        .eq('org_id', params.orgId).order('created_at', { ascending: false }).limit(1).maybeSingle();
-      // Prompt 211 §B — SO `report.investor_safe`, gerado por um prompt que
-      // nunca viu o pipeline. Sem esse campo (runs anteriores a 211), o
-      // SWOT e null: NUNCA cair para o report completo, que e o do founder
-      // e carrega passes, contactos e progresso do round.
-      //
-      // Fail-closed, ao contrario do resto da app: aqui a ausencia e um
-      // inconveniente e a fuga e uma traicao a startup.
-      const report = latestRun?.report as { investor_safe?: Partial<SwotData> } | null | undefined;
-      if (report?.investor_safe) {
-        // Sanitizado outra vez na leitura: barato, e cobre um run gravado
-        // por uma versao anterior deste guarda.
-        const { data: safe } = sanitizeInvestorSwot(report.investor_safe);
-        swot = { visible: true, data: safe };
-      }
-    }
-  }
-
-  // Prompt 167 §C — roadmap. Only ever fetched at level >= 1, only when the
-  // founder's own toggle is on — same "not fetched-then-hidden" discipline
-  // as swot/overview above. Selects only period_kind/period_year/
-  // period_quarter/items (§C.5 — never created_at/updated_at/sort_order),
-  // ordered by year so the client doesn't have to — RoadmapTimeline still
-  // re-sorts defensively (sortRoadmapPeriods), same as every other reader.
-  let roadmap: { visible: boolean; milestones: RoadmapMilestoneFull[]; categories?: RoadmapCategoryFull[] } | null = null;
-  if (level >= 1) {
-    const { data: orgRow } = await admin.from('orgs').select('roadmap_visible_to_investors').eq('id', params.orgId).maybeSingle();
-    const visible = (orgRow?.roadmap_visible_to_investors as boolean | null | undefined) ?? true;
-    if (visible) {
-      // Prompt 213 §D (3/3) — items_v2 e as categorias viajam juntos, sob o
-      // mesmo gate. Conteudo escrito pelo founder para mostrar; nada aqui e
-      // derivado pela plataforma.
-      const [{ data: milestoneRows }, { data: categoryRows }] = await Promise.all([
-        admin.from('company_roadmap_milestones')
-          .select('period_kind, period_year, period_quarter, items, items_v2').eq('org_id', params.orgId).order('period_year', { ascending: true }),
-        admin.from('roadmap_categories')
-          .select('id, label, color, shape').eq('org_id', params.orgId).order('created_at', { ascending: true }),
-      ]);
-      roadmap = {
-        visible: true,
-        milestones: (milestoneRows ?? []).map((r) => ({
-          period_kind: r.period_kind as RoadmapMilestoneFull['period_kind'], period_year: r.period_year as number,
-          period_quarter: (r.period_quarter as number | null) ?? undefined, items: (r.items as string[] | null) ?? [],
-          items_v2: (r.items_v2 as { text: string; category_id: string | null }[] | null) ?? undefined,
-        })),
-        categories: (categoryRows ?? []).map((c) => ({
-          id: c.id as string, label: c.label as string, color: c.color as string, shape: c.shape as string,
-        })),
-      };
-    }
-  }
-
-  // Prompt 168 §D — founder clarifications. `.eq('visible_to_investors',
-  // true)` in the query itself, not a JS filter after the fact — a hidden
-  // clarification (including every clarification on a weaknesses/risks/
-  // threats bullet, per Nuno's own decision that those stay fully out of
-  // view even via a clarification) never leaves the database. Selects
-  // ONLY category + clarification_text — never item_text or any other
-  // column — the same explicit field-by-field projection §D.5 asks for,
-  // matching the SWOT projection above rather than ever forwarding a raw row.
-  let founderClarifications: FounderClarificationFull[] = [];
-  if (level >= 1) {
-    const { data: clarificationRows } = await admin.from('review_clarifications')
-      .select('category, clarification_text').eq('org_id', params.orgId).eq('visible_to_investors', true);
-    founderClarifications = (clarificationRows ?? []).map((r) => ({
-      category: r.category as ReviewCategory, text: r.clarification_text as string,
-    }));
-  }
-
-  const full: FullDossierData = {
-    overview: (overview ?? {}) as FullDossierData['overview'],
-    tractionDetailed, team, contactHistory, documentTitles,
-  };
-  const dossier = projectDossier(level, full, shareEmail, swot, founderClarifications, roadmap);
+  // Prompt 306 — the read sequence itself now lives in dossier-fetch.ts,
+  // shared with the founder-only "see it like an investor" preview so the
+  // two never drift into two different filters over the same data.
+  const raw = await fetchDossierRawData(
+    admin, params.orgId, level,
+    investorCatalogEntityId ? { investorCatalogEntityId, email } : null,
+  );
+  const dossier = projectDossier(level, raw.full, shareEmail, raw.swot, raw.founderClarifications, raw.roadmap);
 
   // Bug fix (relatorio_verificacao_..._8143c75_p136 §3) — this used to
   // forward `levelRows` in full, `note` included: the founder's own

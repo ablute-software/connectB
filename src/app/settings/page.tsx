@@ -9,6 +9,7 @@
 // (useTabParam), never component state alone.
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, Tabs } from '@/components/ui';
 import { useTabParam } from '@/lib/use-tab';
@@ -390,8 +391,14 @@ function SettingsInner() {
 
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-bold">About {db.org.name || 'your company'}</h1>
+        {/* Prompt 306 — persistent entry point into the read-only "see how
+            investors see this profile" preview. */}
+        <Link href="/settings/preview"
+          className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+          👁 See how investors see this profile
+        </Link>
       </div>
       <VisibilityToggle kind="startup" />
       <Tabs items={tabs} active={effectiveTab} onChange={setTab} />

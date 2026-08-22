@@ -414,7 +414,9 @@ export function ReviewPanel() {
           swap (both were plain checkboxes; no reusable toggle existed
           anywhere in the app before that prompt built one). */}
       {caps?.orgRole && can(caps.orgRole, 'manage_org_settings') && (
-        <div className="-mt-2 px-1">
+        // id targeted by the "Turn on →" link on the founder-only dossier
+        // preview page (Prompt 306) when this toggle is off.
+        <div id="swot-visibility-toggle" className="-mt-2 scroll-mt-16 px-1">
           <Toggle checked={db.org.swot_visible_to_investors ?? true}
             onChange={(v) => updateOrg({ swot_visible_to_investors: v })}
             label={<span className="text-xs text-gray-500">Let investors you&apos;re in contact with see this SWOT</span>} />
