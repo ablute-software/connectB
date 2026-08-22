@@ -96,7 +96,7 @@ export function GapInterrogation({
       </div>
       <p className="mt-1.5 text-[11px] text-gray-400">
         {assistRole === 'polish' && 'AI improved your own wording — no new facts were added.'}
-        {assistRole === 'draft' && 'AI drafted this from your already-confirmed facts — check it before saving.'}
+        {assistRole === 'draft' && 'AI drafted this from what\'s already on file (facts, team profiles, Vault documents) — check it before saving.'}
         {!assistRole && 'Your answer becomes a claim in your own words. Its strength is measured from what you write — never chosen.'}
       </p>
       {assistErr && <p className="mt-1 text-[11px] text-amber-700">{assistErr}</p>}

@@ -116,11 +116,14 @@ export function ruleG3b(claims: CompanyClaim[], context: GapContext): Gap[] {
 // quando o estágio pede (seed em diante — há uma ronda a sério para gerir).
 // Cobertura = um claim (equipa ou prova_tecnica) que nomeia alguém E fala
 // da função — "quem lidera isto" respondido.
-const FUNCTION_PATTERNS: Record<string, RegExp> = {
+// Exported (Prompt 308) — gap-assist's G3c draft reuses the EXACT same
+// patterns to match a company_people.title against a function, rather than
+// a second, potentially drifting regex.
+export const FUNCTION_PATTERNS: Record<string, RegExp> = {
   technical: /\b(cto|technical|engineer|engineering|hardware|software|tech lead|t[eé]cnic\w*|engenh\w*)\b/i,
   financial: /\b(cfo|financ\w*|finance)\b/i,
 };
-const FUNCTION_LABEL: Record<string, string> = { technical: 'technical', financial: 'financial' };
+export const FUNCTION_LABEL: Record<string, string> = { technical: 'technical', financial: 'financial' };
 
 // "seed" ou "series X" pedem dono financeiro; PRE-seed não — e a distinção
 // precisa de ser explícita, porque um /seed/ ingénuo casa dentro de
