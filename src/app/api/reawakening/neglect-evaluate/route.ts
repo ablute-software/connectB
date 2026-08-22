@@ -31,6 +31,7 @@ import {
 } from '@/lib/neglect-evaluation';
 import { chunk } from '@/lib/reawakening';
 import { DOCUMENT_CONTENT_INSTRUCTION } from '@/lib/prompt-injection-defense';
+import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { logAiCall } from '@/lib/ai-cost-log';
 import type { Entity, Interaction, Person } from '@/lib/types';
 
@@ -94,7 +95,7 @@ async function callSherlock(
       tool_choice: { type: 'tool', name: 'evaluate_neglect' },
     }),
   });
-  if (!res.ok) throw new Error(`Anthropic API error: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(providerErrorMessage('[reawakening/neglect-evaluate]', await res.text()));
   const data = await res.json();
   void logAiCall({ route: '/api/reawakening/neglect-evaluate', purpose: 'neglect_evaluate', model, usage: data.usage, orgId });
   const input = data.content?.find((b: { type: string }) => b.type === 'tool_use')?.input as { verdicts?: RawVerdict[] } | undefined;
@@ -194,10 +195,12 @@ export async function POST(req: NextRequest) {
     let verdicts: RawVerdict[];
     try {
       verdicts = await callSherlock(apiKey, model, group, now, companyFacts, orgId);
-    } catch {
+    } catch (e) {
       // Fail-open, same as every other AI step in this reawakening family:
       // a flaky call just means these cases weren't evaluated this time —
       // no proposal written, nothing surfaced, the founder can ask again.
+      // Prompt 307 §A — still logged (was silently swallowed before).
+      console.error('[reawakening/neglect-evaluate] AI evaluation failed (fail-open):', (e as Error).message);
       continue;
     }
     for (const v of verdicts) {

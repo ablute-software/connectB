@@ -10,6 +10,7 @@ import { recordWatsonDraft } from '@/lib/watson-draft-record';
 import { logAiCall } from '@/lib/ai-cost-log';
 import type { ComposerContext, ComposerIntent } from '@/lib/composer';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
+import { providerErrorMessage } from '@/lib/ai-provider-error';
 import type { Channel, Entity, Person } from '@/lib/types';
 
 const NOT_CONFIGURED_MSG =
@@ -173,10 +174,7 @@ async function callClaude(apiKey: string, model: string, prompt: string, canonGa
       tool_choice: { type: 'tool', name: 'compose_outreach' },
     }),
   });
-  if (!res.ok) {
-    console.error('AI compose provider error:', (await res.text()).slice(0, 300));
-    throw new Error('AI draft failed — try again in a moment.');
-  }
+  if (!res.ok) throw new Error(providerErrorMessage('[compose]', await res.text(), 'AI draft failed — try again in a moment.'));
   const data = await res.json();
   void logAiCall({ route: '/api/compose', purpose: 'compose_outreach', model, usage: data.usage, orgId });
   const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');

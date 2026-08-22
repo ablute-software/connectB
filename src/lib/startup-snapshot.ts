@@ -2,6 +2,7 @@
 // "Now" AI summary. Server-only (uses the service-role client passed in).
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { roundValuationBasisAvailable } from './round-valuation-basis-capability';
+import { providerErrorMessage } from './ai-provider-error';
 
 export interface SnapshotData {
   stage: string | null; sectors: string[]; one_liner: string | null; description: string | null;
@@ -86,7 +87,14 @@ export async function regenerateNowSummary(admin: SupabaseClient, orgId: string)
       messages: [{ role: 'user', content: `Current state of this startup:\n${describeSnapshot(current)}\n\nWrite the "Now" line.` }],
     }),
   });
-  if (!res.ok) return { skipped: 'ai_call_failed' };
+  if (!res.ok) {
+    // Prompt 307 §A — fire-and-forget background regeneration, no client
+    // ever sees this; still logged (was silently swallowed before) so a
+    // sustained provider outage is visible server-side. Routed through the
+    // shared helper purely for consistent logging/truncation.
+    providerErrorMessage('[startup-snapshot]', await res.text());
+    return { skipped: 'ai_call_failed' };
+  }
   const body = await res.json();
   const text = body?.content?.[0]?.text?.trim();
   if (!text) return { skipped: 'ai_empty_response' };

@@ -27,6 +27,7 @@ import { recordAiReviewFacts } from '@/lib/ecosystem-facts';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
+import { providerErrorMessage } from '@/lib/ai-provider-error';
 
 type ReviewKind =
   | 'message_review' | 'deck_review' | 'one_pager_review' | 'market_data'
@@ -270,8 +271,8 @@ export async function POST(req: Request) {
         }),
       });
       if (!res.ok) {
-        console.error('AI review provider error:', (await res.text()).slice(0, 300));
-        return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 502 });
+        const message = providerErrorMessage('[ai-review/cross-doc]', await res.text(), 'AI review failed — try again in a moment.');
+        return NextResponse.json({ error: message }, { status: 502 });
       }
       const data = await res.json();
       void logAiCall({
@@ -422,8 +423,8 @@ export async function POST(req: Request) {
       }),
     });
     if (!res.ok) {
-      console.error('AI review provider error:', (await res.text()).slice(0, 300));
-      return NextResponse.json({ error: 'AI review failed — try again in a moment.' }, { status: 502 });
+      const message = providerErrorMessage('[ai-review]', await res.text(), 'AI review failed — try again in a moment.');
+      return NextResponse.json({ error: message }, { status: 502 });
     }
     const data = await res.json();
     void logAiCall({

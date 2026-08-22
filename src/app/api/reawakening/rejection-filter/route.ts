@@ -20,6 +20,7 @@ import { reawakeningAiFilterAvailable } from '@/lib/reawakening-ai-filter-capabi
 import { buildRejectionFilterPrompt, type FilterCase, type RawFilterVerdict } from '@/lib/reawakening-ai-filter';
 import { chunk } from '@/lib/reawakening';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { providerErrorMessage } from '@/lib/ai-provider-error';
 
 async function callFilter(apiKey: string, model: string, cases: FilterCase[], orgId: string): Promise<RawFilterVerdict[]> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -59,7 +60,7 @@ async function callFilter(apiKey: string, model: string, cases: FilterCase[], or
       tool_choice: { type: 'tool', name: 'filter_reactivations' },
     }),
   });
-  if (!res.ok) throw new Error(`Anthropic API error: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(providerErrorMessage('[reawakening/rejection-filter]', await res.text()));
   const data = await res.json();
   void logAiCall({ route: '/api/reawakening/rejection-filter', purpose: 'rejection_filter', model, usage: data.usage, orgId });
   const input = data.content?.find((b: { type: string }) => b.type === 'tool_use')?.input as { verdicts?: RawFilterVerdict[] } | undefined;
@@ -139,10 +140,14 @@ export async function POST(req: NextRequest) {
         );
       }
       out.push(...fresh);
-    } catch {
+    } catch (e) {
       // Fail-open (§4): a flaky/erroring call never caches anything and
       // never blocks the caller — the uncached cases simply come back
       // without a verdict, which applyFilterVerdicts treats as 'pass'.
+      // Prompt 307 §A — still logged (was silently swallowed before), so a
+      // sustained provider outage is visible server-side even though the
+      // caller never sees it.
+      console.error('[reawakening/rejection-filter] AI filter failed (fail-open):', (e as Error).message);
     }
   }
 

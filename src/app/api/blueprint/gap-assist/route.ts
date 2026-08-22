@@ -20,6 +20,7 @@ import { readExistingClaims } from '@/lib/company-knowledge-db';
 import { detectGaps, gapKey as computeGapKey, templateFor, type GapRule } from '@/lib/company-gaps';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
+import { providerErrorMessage } from '@/lib/ai-provider-error';
 
 const AI_ROLE: Record<GapRule, 'draft' | 'polish'> = {
   G1: 'polish', G2: 'polish', G3: 'draft', G3b: 'polish', G3c: 'polish', G4: 'draft', G5: 'polish', G6: 'draft',
@@ -56,7 +57,7 @@ async function callClaude(apiKey: string, model: string, system: string, prompt:
       tools: [tool], tool_choice: { type: 'tool', name: tool.name },
     }),
   });
-  if (!res.ok) throw new Error(`Provider error: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(providerErrorMessage('[gap-assist]', await res.text()));
   const data = await res.json();
   void logAiCall({ route: '/api/blueprint/gap-assist', purpose, model, usage: data.usage, orgId });
   const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');

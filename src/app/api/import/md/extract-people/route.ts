@@ -13,6 +13,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
+import { providerErrorMessage } from '@/lib/ai-provider-error';
 
 interface ProposedPerson { name: string; role?: string; confidence: number; evidence: string }
 
@@ -79,10 +80,7 @@ export async function POST(req: NextRequest) {
         tool_choice: { type: 'tool', name: 'propose_people' },
       }),
     });
-    if (!res.ok) {
-      console.error('AI people-detection provider error:', (await res.text()).slice(0, 300));
-      throw new Error('AI-assisted people detection failed for this section — try again in a moment.');
-    }
+    if (!res.ok) throw new Error(providerErrorMessage('[import/md/extract-people]', await res.text(), 'AI-assisted people detection failed for this section — try again in a moment.'));
     const data = await res.json();
     void logAiCall({ route: '/api/import/md/extract-people', purpose: 'import_extract_people', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId: batch.org_id as string });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');

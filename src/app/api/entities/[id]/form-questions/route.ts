@@ -31,6 +31,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { catalogFormQuestionsAvailable } from '@/lib/form-questions-capability';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { providerErrorMessage } from '@/lib/ai-provider-error';
 
 const NOT_CONFIGURED_MSG = 'Form question extraction isn’t available in your workspace yet — paste the questions yourself instead.';
 
@@ -45,7 +46,7 @@ async function anthropicCall(apiKey: string, model: string, body: Record<string,
     },
     body: JSON.stringify({ model, max_tokens: 2000, ...body }),
   });
-  if (!res.ok) throw new Error(`Anthropic API error: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(providerErrorMessage('[entities/form-questions]', await res.text()));
   const data = await res.json();
   void logAiCall({ route: '/api/entities/[id]/form-questions', purpose: 'form_questions_extract', model, usage: data.usage, orgId });
   return data;

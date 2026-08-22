@@ -28,8 +28,11 @@ import {
   genuineContradictions, findMatchingSolution, type Severity, type Action, type AiReviewRow, type ActionCluster, type Contradiction,
 } from '@/lib/action-plan';
 import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
+import { weakClaimCoachingNote, CATEGORY_LABEL } from '@/lib/company-claims';
+import type { ClaimCategory, ClaimSpecificity } from '@/lib/types';
 
 interface ReviewRunRow { id: string; score: number | null; created_at: string }
+interface WeakClaimRow { id: string; category: ClaimCategory; statement: string; note: string }
 
 const TYPE_LABEL: Record<'weakness' | 'risk' | 'recommendation', string> = { weakness: 'Weakness', risk: 'Risk', recommendation: 'Recommendation' };
 const SEVERITY_COLOR: Record<Severity, string> = { high: 'text-[#B00000]', medium: 'text-amber-600', low: 'text-gray-500' };
@@ -165,6 +168,7 @@ export function ActionPlanPanel() {
   const [reviews, setReviews] = useState<AiReviewRow[]>([]);
   const [runs, setRuns] = useState<ReviewRunRow[]>([]);
   const [contradictions, setContradictions] = useState<Contradiction[]>([]);
+  const [weakClaims, setWeakClaims] = useState<WeakClaimRow[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [loading, setLoading] = useState(true);
   const [documentVersionsAvailable, setDocumentVersionsAvailable] = useState(false);
@@ -195,6 +199,25 @@ export function ActionPlanPanel() {
       setContradictions(genuineContradictions(latestCrossDoc?.result?.contradictions ?? []));
       setLoading(false);
     });
+  }, [db.org.id]);
+
+  // Prompt 307 §B2 — a claim de baixa especificidade vira coaching AQUI (o
+  // founder já vem a esta aba por recomendações), nunca no material do
+  // investidor. RLS scoped (company_claims_org_members, migração 0176),
+  // mesmo padrão de leitura directa que ai_reviews/review_runs acima —
+  // um erro (tabela ainda não aplicada nalgum ambiente) degrada para [],
+  // nunca rebenta a aba.
+  useEffect(() => {
+    if (!authEnabled || !db.org.id) return;
+    browserClient().from('company_claims').select('id, category, statement, specificity')
+      .eq('org_id', db.org.id).eq('status', 'accepted')
+      .then(({ data }) => {
+        const rows = (data ?? []) as { id: string; category: ClaimCategory; statement: string; specificity: ClaimSpecificity }[];
+        const withNotes = rows
+          .map((c) => ({ id: c.id, category: c.category, statement: c.statement, note: weakClaimCoachingNote(c) }))
+          .filter((c): c is WeakClaimRow => c.note !== null);
+        setWeakClaims(withNotes);
+      });
   }, [db.org.id]);
 
   const actions = extractActions(reviews);
@@ -278,6 +301,25 @@ export function ActionPlanPanel() {
               </ul>
             </details>
           )}
+        </Card>
+      )}
+
+      {weakClaims.length > 0 && (
+        <Card title="Strengthen your claims">
+          <p className="text-xs text-gray-500">
+            These claims are written broadly, so they carry less weight than they could — the fix is yours: add a
+            name, a date, or the outcome, or point to a different example instead. This never changes what
+            investors see on its own; it&apos;s just for you.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {weakClaims.map((c) => (
+              <li key={c.id} className="rounded-lg border border-gray-200 bg-white p-3">
+                <p className="text-xs font-medium text-gray-400">{CATEGORY_LABEL[c.category]}</p>
+                <p className="mt-0.5 text-sm text-gray-800">&ldquo;{c.statement}&rdquo;</p>
+                <p className="mt-1 text-xs text-gray-500">{c.note}</p>
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
 

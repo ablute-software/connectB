@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { violatesInvestorSafety, sanitizeInvestorSwot, INVESTOR_SAFE_INSTRUCTION } from './investor-safe-swot';
+import { normalizeAtom, weakClaimCoachingNote } from './company-claims';
 
 // Prompt 211 — as frases LITERAIS que fugiram para investidores em produção
 // a 2026-08-16. Se alguma delas voltar a passar, este ficheiro cai.
@@ -76,5 +77,71 @@ describe('INVESTOR_SAFE_INSTRUCTION', () => {
 
   it('proibe INFERIR, nao so citar', () => {
     expect(INVESTOR_SAFE_INSTRUCTION.toLowerCase()).toContain('must not infer or estimate');
+  });
+});
+
+// Prompt 307 §B1 — factos desfavoraveis nao devem dominar o material do
+// investidor: a instrucao deve pedir para liderar com os factos mais fortes,
+// nunca promover um facto fraco/desfavoravel a manchete, mas tambem nunca
+// pedir para inventar ou OMITIR um facto real so por ser desfavoravel.
+describe('INVESTOR_SAFE_INSTRUCTION — enfase nos factos mais fortes (Prompt 307 SB1)', () => {
+  it('pede para liderar com os factos confirmados mais fortes', () => {
+    const t = INVESTOR_SAFE_INSTRUCTION.toLowerCase();
+    expect(t).toContain('lead');
+    expect(t).toContain('strongest confirmed facts');
+  });
+
+  it('proibe promover um facto fraco/desfavoravel a manchete ou repeti-lo em varias seccoes', () => {
+    const t = INVESTOR_SAFE_INSTRUCTION.toLowerCase();
+    expect(t).toContain('must never be promoted to a headline');
+    expect(t).toContain('must never be repeated across multiple sections');
+  });
+
+  it('continua a exigir weaknesses/threats reais, so formuladas de forma construtiva', () => {
+    const t = INVESTOR_SAFE_INSTRUCTION.toLowerCase();
+    expect(t).toContain('still include real weaknesses and threats');
+    expect(t).toContain('constructively');
+  });
+
+  it('nunca pede para inventar ou omitir um facto real', () => {
+    const t = INVESTOR_SAFE_INSTRUCTION.toLowerCase();
+    expect(t).toContain('never invent a fact');
+    expect(t).toContain('never omit a confirmed fact');
+  });
+});
+
+// Prompt 307 §B3 — o caso concreto do pedido: canon com um facto forte
+// (award da founder) + um fraco (NDA parado). O limite de uso da API
+// (activo ate 01/09) impede uma chamada real ao modelo aqui — o que segue e
+// exactamente o que se consegue confirmar SEM provider: a classificacao
+// mecanica de cada facto (que e o que alimenta tanto a instrucao dada ao
+// modelo como a sugestao ao founder) e o texto da propria instrucao.
+// Confirmar que o SWOT gerado de facto lidera com o award e nao com a NDA
+// exige uma chamada real e fica registado como pendente no relatorio desta
+// prompt, nao fabricado aqui.
+describe('Prompt 307 SB3 — caso concreto: award forte + NDA fraca', () => {
+  const AWARD = { category: 'equipa' as const, statement: 'Carla Dias won the WomenTechEU prize, €75,000 non-dilutive, 2022', sourceKind: 'roadmap' as const };
+  const NDA_PARADA = { category: 'tracao_gtm' as const, statement: 'NDA signed, no further negotiations', sourceKind: 'fact' as const };
+
+  it('o award classifica-se como alta especificidade — nao dispara coaching', () => {
+    const claim = normalizeAtom(AWARD);
+    expect(claim.specificity).toBe('high');
+    expect(weakClaimCoachingNote(claim)).toBeNull();
+  });
+
+  it('a NDA parada classifica-se como baixa especificidade — dispara coaching founder-only', () => {
+    const claim = normalizeAtom(NDA_PARADA);
+    expect(claim.specificity).toBe('low');
+    const note = weakClaimCoachingNote(claim);
+    expect(note).not.toBeNull();
+    expect(note).toContain('traction');
+  });
+
+  it('a instrucao investor-safe, dada este canon, pede para liderar pelo award e nunca pela NDA', () => {
+    // Nao chama o modelo (limite de uso activo ate 01/09) -- confirma apenas
+    // que a instrucao textual que o acompanharia contem a regra certa.
+    const t = INVESTOR_SAFE_INSTRUCTION.toLowerCase();
+    expect(t).toContain('lead');
+    expect(t).toContain('must never be promoted to a headline');
   });
 });

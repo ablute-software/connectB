@@ -67,10 +67,26 @@ export function sanitizeInvestorSwot(swot: Partial<SwotBullets> | null | undefin
 // A instrução dada ao modelo na segunda chamada. Exportada para o teste
 // poder afirmar que as proibições estão lá — se alguém a suavizar, o teste
 // cai.
+//
+// Prompt 307 §B1 — o parágrafo de ênfase abaixo é uma decisão de PRODUTO
+// distinta da privacidade acima: a fronteira do CLAUDE.md ("Startup-
+// performance privacy") é análise derivada (proibida) vs. conteúdo declarado
+// (pitch do founder); dentro do conteúdo declarado, escolher o que se
+// destaca é prerrogativa normal de quem apresenta — não é esconder nem
+// inventar. Um facto desfavorável/neutro (ex. "NDA signed, no further
+// negotiations") continua a poder aparecer, só não pode liderar nem repetir-
+// se em várias secções. Regra dura inalterada: nunca inventar factos.
 export const INVESTOR_SAFE_INSTRUCTION =
   'This SWOT will be shown to INVESTORS looking at this startup. Use only the company facts given above. '
   + 'NEVER reference fundraising progress, investor outreach, pass or decline history, how many investors were '
   + 'contacted, response rates, amounts soft-circled or committed, funding gaps, or any platform activity — '
   + 'you have not been given that data and must not infer or estimate it. '
   + 'Positive qualitative statements about the company are welcome; numbers about fundraising are not. '
-  + 'Weaknesses and threats must be about the business, market or product — never about the raise.';
+  + 'Weaknesses and threats must be about the business, market or product — never about the raise. '
+  + 'This is the company\'s own presentation to investors: LEAD with the strongest confirmed facts given — the ones '
+  + 'with the most concrete evidence — and put them first. A confirmed fact that is weak, vague, or unfavorable as '
+  + 'stated must never be promoted to a headline (the summary or the first bullet of any section) and must never be '
+  + 'repeated across multiple sections. Still include real weaknesses and threats — a SWOT with none reads as false '
+  + 'and undermines credibility — but phrase them constructively and proportionately, never as the headline finding. '
+  + 'Never invent a fact, and never omit a confirmed fact just because it is unflattering — only its prominence and '
+  + 'phrasing change, never its existence.';

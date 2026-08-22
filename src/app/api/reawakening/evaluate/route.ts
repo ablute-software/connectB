@@ -16,6 +16,7 @@ import type { Entity, FitScore, Interaction } from '@/lib/types';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { reawakeningNeglectAvailable } from '@/lib/reawakening-neglect-capability';
 import { logAiCall } from '@/lib/ai-cost-log';
+import { providerErrorMessage } from '@/lib/ai-provider-error';
 
 const FITS: FitScore[] = ['high', 'medium_high', 'medium', 'low'];
 
@@ -128,7 +129,10 @@ export async function POST(req: Request) {
         tool_choice: { type: 'tool', name: 'evaluate_reawakening' },
       }),
     });
-    if (!res.ok) return NextResponse.json({ ok: false, error: 'AI evaluation failed.' }, { status: 502 });
+    if (!res.ok) {
+      const message = providerErrorMessage('[reawakening/evaluate]', await res.text(), 'AI evaluation failed.');
+      return NextResponse.json({ ok: false, error: message }, { status: 502 });
+    }
     const data = await res.json();
     void logAiCall({ route: '/api/reawakening/evaluate', purpose: 'reawakening_evaluate', model, usage: data.usage, orgId, targetType: 'company_facts', targetId: factId });
     const input = data.content?.find((b: { type: string }) => b.type === 'tool_use')?.input as { verdicts?: Verdict[] } | undefined;

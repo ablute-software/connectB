@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
+import { providerErrorMessage } from '@/lib/ai-provider-error';
 import type { Channel, Classification, Direction } from '@/lib/types';
 
 interface InputInteraction { id: string; direction: Direction; channel: Channel; content: string; occurredAt: string }
@@ -103,10 +104,7 @@ export async function POST(req: NextRequest) {
         tool_choice: { type: 'tool', name: 'propose_classifications' },
       }),
     });
-    if (!res.ok) {
-      console.error('AI needs-review classification provider error:', (await res.text()).slice(0, 300));
-      throw new Error('AI pre-classification failed for this entity — try again in a moment.');
-    }
+    if (!res.ok) throw new Error(providerErrorMessage('[needs-review/classify-entity]', await res.text(), 'AI pre-classification failed for this entity — try again in a moment.'));
     const data = await res.json();
     void logAiCall({ route: '/api/needs-review/classify-entity', purpose: 'needs_review_classify', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId: entity.org_id as string });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');

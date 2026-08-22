@@ -13,6 +13,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { detectAllowedKind, scanWithVirusTotal, sha256Hex } from '@/lib/upload-security';
 import { ndaScanAvailable } from '@/lib/upload-security-capability';
+import { providerErrorMessage } from '@/lib/ai-provider-error';
 
 export const maxDuration = 30;
 
@@ -132,7 +133,11 @@ export async function POST(req: NextRequest) {
         const result = toolUse?.input as { match_status?: NdaMatchStatus; notes?: string } | undefined;
         if (result?.match_status) { match_status = result.match_status; match_notes = result.notes; }
       } else {
-        console.error('AI NDA cross-check provider error:', (await res.text()).slice(0, 300));
+        // match_status simply stays at its default — never blocks, only
+        // flags for the founder to double-check (see this route's own
+        // header). Routed through the shared helper (Prompt 307 §A) purely
+        // for consistent logging/truncation; nothing here reaches a client.
+        providerErrorMessage('[data-room/nda-upload]', await res.text());
       }
     } catch (e) {
       console.error('AI NDA cross-check failed:', (e as Error).message);

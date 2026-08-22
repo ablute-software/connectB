@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  classifyEvidence, measureSpecificity, normalizeAtom, isWastedStrongClaim, rankForNarrative,
+  classifyEvidence, measureSpecificity, normalizeAtom, isWastedStrongClaim, rankForNarrative, weakClaimCoachingNote,
   type RawAtom,
 } from './company-claims';
 
@@ -103,5 +103,37 @@ describe('rankForNarrative — a ordem que o pitch deve seguir', () => {
     const before = input.map((c) => c.statement);
     rankForNarrative(input);
     expect(input.map((c) => c.statement)).toEqual(before);
+  });
+});
+
+// Prompt 307 §B2 — o "NDA signed, no further negotiations" do Nuno é
+// exactamente a forma de VISITA_VAGA: outcome presente, sem nome, sem data —
+// a mesma baixa especificidade que já existia, agora com uma ilação.
+describe('weakClaimCoachingNote — a ilação para o founder, nunca para o investidor', () => {
+  it('dispara para especificidade baixa', () => {
+    const note = weakClaimCoachingNote(normalizeAtom(VISITA_VAGA));
+    expect(note).not.toBeNull();
+    expect(note).toContain('external validation');
+  });
+
+  it('não dispara para especificidade alta', () => {
+    expect(weakClaimCoachingNote(normalizeAtom(VISITA_RESPONDIDA))).toBeNull();
+  });
+
+  it('não dispara para especificidade média', () => {
+    // 2 sinais (nome + numero, sem data nem outcome) = média.
+    const claim = normalizeAtom({ category: 'tracao_gtm', statement: 'Hospital de Braga mentioned interest in 3 units', sourceKind: 'fact' });
+    expect(claim.specificity).toBe('medium');
+    expect(weakClaimCoachingNote(claim)).toBeNull();
+  });
+
+  it('nunca menciona investidores, pipeline, ou linguagem de fundraising', () => {
+    const note = weakClaimCoachingNote(normalizeAtom(VISITA_VAGA))!;
+    expect(note.toLowerCase()).not.toMatch(/investor|pipeline|pass|contacted/);
+  });
+
+  it('nomeia a categoria certa em cada caso', () => {
+    expect(weakClaimCoachingNote(normalizeAtom({ category: 'equipa', statement: 'a strong team', sourceKind: 'fact' }))).toContain('team');
+    expect(weakClaimCoachingNote(normalizeAtom({ category: 'funding', statement: 'talking to investors', sourceKind: 'fact' }))).toContain('funding');
   });
 });

@@ -15,6 +15,7 @@ import { communityConsensusAvailable } from '@/lib/community-consensus-capabilit
 import { catalogFieldIsBlank, isCommunityEligibleField, normalizedValuesMatch, orderedArbitrationPair } from '@/lib/community-consensus';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
+import { providerErrorMessage } from '@/lib/ai-provider-error';
 
 // §4 — "mesmo facto, escrito diferente?" (e.g. "Managing Partner: J. Smith"
 // vs "John Smith (Managing Partner)"; "€1M-5M" vs "1-5 milhoes"). One
@@ -52,7 +53,7 @@ async function arbitrateEquality(apiKey: string, model: string, field: string, a
       tool_choice: { type: 'tool', name: 'judge_equality' },
     }),
   });
-  if (!res.ok) throw new Error(`Anthropic API error: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(providerErrorMessage('[community-consensus/register]', await res.text()));
   const data = await res.json();
   // Prompt 293 §1 — arbitrating between two orgs' independent submissions
   // about the SAME shared catalog record benefits the catalog itself
@@ -92,7 +93,12 @@ async function arbitratedMatch(admin: SupabaseClient, catalogId: string, field: 
       same_value: verdict.sameValue, canonical_value: verdict.canonicalValue,
     });
     return verdict;
-  } catch {
+  } catch (e) {
+    // Fire-and-forget (see this function's own header) — a flaky/erroring
+    // call degrades to "still disagreement", never blocks the founder's
+    // contribution. Prompt 307 §A — still logged (was silently swallowed
+    // before).
+    console.error('[community-consensus/register] AI arbitration failed:', (e as Error).message);
     return null;
   }
 }

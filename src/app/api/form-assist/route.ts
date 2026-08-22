@@ -10,6 +10,7 @@ import { planEntitlements, AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
 import { logAiCall } from '@/lib/ai-cost-log';
 import type { FormAssistContext } from '@/lib/form-assist';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
+import { providerErrorMessage } from '@/lib/ai-provider-error';
 
 const NOT_CONFIGURED_MSG =
   'Form Assist isn’t available in your workspace yet — fill the form yourself using the Company tab and Round card for reference.';
@@ -83,10 +84,7 @@ async function callClaude(apiKey: string, model: string, prompt: string, orgId: 
       tool_choice: { type: 'tool', name: 'form_assist' },
     }),
   });
-  if (!res.ok) {
-    console.error('Form Assist provider error:', (await res.text()).slice(0, 300));
-    throw new Error('Form Assist draft failed — try again in a moment.');
-  }
+  if (!res.ok) throw new Error(providerErrorMessage('[form-assist]', await res.text(), 'Form Assist draft failed — try again in a moment.'));
   const data = await res.json();
   void logAiCall({ route: '/api/form-assist', purpose: 'form_assist_draft', model, usage: data.usage, orgId });
   const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');

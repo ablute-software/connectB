@@ -142,3 +142,27 @@ export function rankForNarrative(claims: NormalizedClaim[]): NormalizedClaim[] {
   return [...claims].sort((a, b) =>
     a.evidenceClass - b.evidenceClass || specRank[a.specificity] - specRank[b.specificity]);
 }
+
+// ---------------------------------------------------------------------------
+// Prompt 307 §B2 — a UI já promete "Its strength is measured from what you
+// write" (GapInterrogation.tsx); measureSpecificity acima É essa avaliação,
+// mas nada agia sobre um resultado fraco. Isto fecha o ciclo: 'low'
+// specificity é o mesmo sinal mecânico que faz rankForNarrative pôr um claim
+// no fim da fila (nunca "vibes" — ver o cabeçalho do ficheiro) — aqui vira
+// uma sugestão para o founder, no estilo do exemplo do Nuno (aprofundar OU
+// arranjar alternativa), nunca investor-facing. O claim em si (categoria,
+// texto, classe de evidência) fica intocado — só passa a existir, a par
+// dele, esta ilação para quem o escreveu.
+export const CATEGORY_LABEL: Record<ClaimCategory, string> = {
+  problema: 'problem', solucao: 'solution', prova_tecnica: 'technical proof',
+  validacao_externa: 'external validation', tracao_gtm: 'traction', equipa: 'team',
+  mercado_timing: 'market timing', funding: 'funding', ask: 'ask',
+};
+
+export function weakClaimCoachingNote(claim: Pick<NormalizedClaim, 'category' | 'specificity'>): string | null {
+  if (claim.specificity !== 'low') return null;
+  const label = CATEGORY_LABEL[claim.category];
+  return `This ${label} claim is written broadly — naming who was involved, a date, or the concrete outcome would `
+    + `make it verifiable. If this specific one has stalled, finding an alternative to point to instead would `
+    + `strengthen your ${label} story just as much.`;
+}

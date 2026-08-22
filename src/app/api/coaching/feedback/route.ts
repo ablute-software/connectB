@@ -9,6 +9,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
+import { providerErrorMessage } from '@/lib/ai-provider-error';
 
 interface Question { text: string; category: string; source: 'fixed' | 'derived' | 'diligence' }
 interface QA { question: Question; answer: string }
@@ -75,8 +76,8 @@ export async function POST(req: Request) {
       }),
     });
     if (!res.ok) {
-      console.error('Coaching feedback provider error:', (await res.text()).slice(0, 300));
-      return NextResponse.json({ ok: false, error: 'Feedback failed — try again in a moment.' }, { status: 502 });
+      const message = providerErrorMessage('[coaching/feedback]', await res.text(), 'Feedback failed — try again in a moment.');
+      return NextResponse.json({ ok: false, error: message }, { status: 502 });
     }
     const data = await res.json();
     void logAiCall({ route: '/api/coaching/feedback', purpose: 'coaching_feedback', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId: member.org_id });
