@@ -53,6 +53,10 @@ const AI_ROLE: Record<GapRule, 'draft' | 'polish'> = {
   // claim — there's nothing to draft FROM by definition, only the
   // founder's own elaboration to help phrase.
   G7: 'polish',
+  // G8 (Prompt 310 §B) — a round-value incongruence: two claims already ON
+  // FILE disagree. There's nothing to "draft" — the platform can't guess
+  // which number is right, only the founder can resolve it.
+  G8: 'polish',
 };
 
 // Prompt 308 — bounds on the three new sources, so a team-gap draft stays

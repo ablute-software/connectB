@@ -35,6 +35,9 @@ const CATEGORY_BY_RULE: Record<string, ClaimCategory> = {
   G4: 'prova_tecnica',
   G5: 'solucao',
   G6: 'funding',
+  // G8 (Prompt 310 §B) — a round-value clarification is itself a statement
+  // about the round's own terms.
+  G8: 'ask',
 };
 
 export async function POST(req: Request) {
@@ -72,8 +75,10 @@ export async function POST(req: Request) {
     // Prompt 299 §2 — G7 spans several categories, so its gap carries the
     // ORIGINAL claim's own category through (gap.meta.category) rather than
     // relying on the one-category-per-rule map below, which can't express
-    // "depends which claim this gap was about." Validated against the same
-    // allowlist as every other category input in this codebase.
+    // "depends which claim this gap was about." Prompt 310 §A gave G4 the
+    // same treatment once it started spanning four categories instead of
+    // one. Validated against the same allowlist as every other category
+    // input in this codebase.
     const category = (body.category && (CATEGORIES as string[]).includes(body.category)
       ? body.category as ClaimCategory : (CATEGORY_BY_RULE[body.rule] ?? 'solucao'));
     const n = normalizeAtom({

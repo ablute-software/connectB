@@ -3,7 +3,7 @@
 // só-Carla) a disparar exatamente o que o 219 diz que disparam.
 import { describe, expect, it } from 'vitest';
 import {
-  detectGaps, ruleG1, ruleG2, ruleG3, ruleG3b, ruleG3c, ruleG4, ruleG5, ruleG6, ruleG7,
+  detectGaps, ruleG1, ruleG2, ruleG3, ruleG3b, ruleG3c, ruleG4, ruleG5, ruleG6, ruleG7, ruleG8,
   templateFor, QUESTION_TEMPLATES, type GapContext,
 } from './company-gaps';
 import { normalizeAtom } from './company-claims';
@@ -137,7 +137,56 @@ describe('G4 — claim aceite sem documento no Vault', () => {
   });
 
   it('claims propostos (ainda não aceites) não são lacuna documental', () => {
-    expect(ruleG4([claim('p1', 'solucao', 'the device sanitises in 90 seconds', { status: 'proposed' })])).toEqual([]);
+    // categoria elegível (prova_tecnica) para que este teste continue a
+    // exercitar a exclusão por STATUS, não a acabar a passar só por a
+    // categoria já estar de fora (Prompt 310 §A moveu 'solucao' para fora
+    // do âmbito do G4).
+    expect(ruleG4([claim('p1', 'prova_tecnica', 'the device is CE certified', { status: 'proposed' })])).toEqual([]);
+  });
+
+  // Prompt 310 §A — categorias onde "há documento?" não é uma pergunta com
+  // sentido deixam de gerar G4, mesmo aceites e sem vault_doc.
+  it.each(['mercado_timing', 'solucao', 'problema', 'funding', 'ask'] as const)(
+    'nunca dispara para %s — "documento que o comprove" não tem resposta útil possível',
+    (category) => {
+      expect(ruleG4([claim('x1', category, 'some accepted statement with plenty of specificity, 2026')])).toEqual([]);
+    },
+  );
+
+  it('continua a disparar para equipa — um CV/portefólio real costuma existir e fazer sentido pedir', () => {
+    const gaps = ruleG4([claim('team1', 'equipa', 'Jane Doe, CTO (founder). Ex-Google, 8 years in ML.')]);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toMatchObject({ rule: 'G4', relatedClaimIds: ['team1'] });
+  });
+
+  // Apanhado pela revisão adversarial (Prompt 310): G4 agora abrange QUATRO
+  // categorias, não uma — sem meta.category, /api/blueprint/answer
+  // ficava sempre a arquivar a resposta sob CATEGORY_BY_RULE.G4
+  // ('prova_tecnica'), mesmo quando a lacuna era de equipa/tracao_gtm/
+  // validacao_externa. Mesmo tratamento que o G7 já tinha.
+  it('carrega a categoria ORIGINAL do claim em meta.category, para as 4 categorias que ainda dispara', () => {
+    for (const category of ['prova_tecnica', 'validacao_externa', 'tracao_gtm', 'equipa'] as const) {
+      const gaps = ruleG4([claim(`x-${category}`, category, 'some accepted statement with plenty of specificity, 2026')]);
+      expect(gaps[0]?.meta?.category).toBe(category);
+    }
+  });
+
+  // Prompt 310 — os dois exemplos REAIS que o Nuno mostrou no bug report,
+  // palavra por palavra (orgProfileToAtoms produz exactamente estas frases).
+  it('cenário real ablute_: nem o posicionamento nem o ask geram G4 — "Resultado esperado" do prompt', () => {
+    const claims = [
+      claim('mkt1', 'mercado_timing', 'Operating in Digital Health, MedTech & Medical Devices from Portugal.', { sourceKind: 'profile' }),
+      claim('ask1', 'ask', 'Raising €300k via equity/convertible_note/grant/safe, at a €4.5M valuation.', { sourceKind: 'profile' }),
+      // Um par documentável, para confirmar que baixar a contagem não é
+      // "G4 parou de funcionar de todo" — só deixou de disparar onde não
+      // fazia sentido.
+      claim('proof1', 'prova_tecnica', 'CE-marked as a Class IIa medical device since 2025.'),
+    ];
+    const gaps = ruleG4(claims);
+    expect(gaps.map((g) => g.relatedClaimIds[0])).toEqual(['proof1']);
+    expect(gaps.every((g) => ['prova_tecnica', 'validacao_externa', 'tracao_gtm', 'equipa'].includes(
+      claims.find((c) => c.id === g.relatedClaimIds[0])?.category ?? '',
+    ))).toBe(true);
   });
 });
 
@@ -210,6 +259,168 @@ describe('G7 — claim central isolado (Prompt 299 §2)', () => {
   });
 });
 
+describe('G8 — incongruência no valor da ronda (Prompt 310 §B)', () => {
+  it('dispara quando o montante alvo difere entre dois claims da ronda actual', () => {
+    const gaps = ruleG8([
+      claim('ask1', 'ask', 'Raising €300k via equity/convertible_note/grant/safe, at a €4.5M valuation.', { sourceKind: 'profile' }),
+      claim('fact1', 'funding', 'We are targeting €250k for this pre-seed round.', { sourceKind: 'fact' }),
+    ]);
+    const targetGap = gaps.find((g) => g.meta?.field === 'target amount');
+    expect(targetGap).toMatchObject({ rule: 'G8', severity: 'high' });
+    expect(targetGap?.relatedClaimIds).toEqual(['ask1', 'fact1']);
+    expect(targetGap?.message).toContain('€300k');
+    expect(targetGap?.message).toContain('€250k');
+    expect(targetGap?.message).not.toContain('anexa'); // nunca "anexa um documento" — pedido explícito
+  });
+
+  it('dispara quando a valuation difere entre dois claims', () => {
+    const gaps = ruleG8([
+      claim('ask1', 'ask', 'Raising €300k via safe, at a €4.5M valuation.', { sourceKind: 'profile' }),
+      claim('fact1', 'funding', 'Seeking investment at a valuation of €3M.', { sourceKind: 'fact' }),
+    ]);
+    const valGap = gaps.find((g) => g.meta?.field === 'valuation');
+    expect(valGap).toBeTruthy();
+    expect(valGap?.message).toContain('€4.5M');
+    expect(valGap?.message).toContain('€3M');
+  });
+
+  it('dispara quando o instrumento é completamente disjunto entre dois claims', () => {
+    const gaps = ruleG8([
+      claim('a1', 'ask', 'Raising €300k via equity only.', { sourceKind: 'profile' }),
+      claim('a2', 'funding', 'We are raising this round exclusively via SAFE.', { sourceKind: 'fact' }),
+    ]);
+    const instrGap = gaps.find((g) => g.meta?.field === 'instrument');
+    expect(instrGap).toMatchObject({ rule: 'G8', severity: 'high' });
+  });
+
+  it('NÃO dispara quando um claim lista o menu inteiro e outro só refere um instrumento já incluído nesse menu', () => {
+    const gaps = ruleG8([
+      claim('ask1', 'ask', 'Raising €300k via equity/convertible_note/grant/safe, at a €4.5M valuation.', { sourceKind: 'profile' }),
+      claim('a2', 'funding', 'We would be raising via safe for simplicity.', { sourceKind: 'fact' }),
+    ]);
+    expect(gaps.filter((g) => g.meta?.field === 'instrument')).toEqual([]);
+  });
+
+  it('NÃO dispara quando só há um claim de funding/ask (nada para comparar)', () => {
+    expect(ruleG8([claim('ask1', 'ask', 'Raising €300k, at a €4.5M valuation.', { sourceKind: 'profile' })])).toEqual([]);
+  });
+
+  it('NÃO dispara quando os dois claims dizem o MESMO valor', () => {
+    expect(ruleG8([
+      claim('ask1', 'ask', 'Raising €300k.', { sourceKind: 'profile' }),
+      claim('fact1', 'funding', 'Target: €300k for this round.', { sourceKind: 'fact' }),
+    ])).toEqual([]);
+  });
+
+  it('exclui uma ronda ANTERIOR fechada — não é o ask actual, comparar seria uma falsa incongruência', () => {
+    const gaps = ruleG8([
+      claim('ask1', 'ask', 'Raising €300k, at a €4.5M valuation.', { sourceKind: 'profile' }),
+      claim('fr1', 'funding', 'Seed of €500k closed in 2023.', { sourceKind: 'funding_round' }),
+    ]);
+    expect(gaps).toEqual([]);
+  });
+
+  it('nunca dispara sobre categorias fora de funding/ask, mesmo com números diferentes', () => {
+    expect(ruleG8([
+      claim('t1', 'tracao_gtm', 'Raising awareness with 300 leads generated.'),
+      claim('t2', 'tracao_gtm', 'Raising awareness with 250 leads generated.'),
+    ])).toEqual([]);
+  });
+
+  it('claims propostos (não aceites) não entram na comparação', () => {
+    expect(ruleG8([
+      claim('ask1', 'ask', 'Raising €300k.', { sourceKind: 'profile', status: 'accepted' }),
+      claim('a2', 'funding', 'Targeting €250k.', { sourceKind: 'fact', status: 'proposed' }),
+    ])).toEqual([]);
+  });
+
+  it('uma frase sem valor extraível fica de fora da comparação — nunca tratada como discordância (mecânico, nunca "vibes")', () => {
+    expect(ruleG8([
+      claim('ask1', 'ask', 'Raising €300k.', { sourceKind: 'profile' }),
+      claim('a2', 'funding', 'We are raising a substantial amount for growth.', { sourceKind: 'fact' }),
+    ])).toEqual([]);
+  });
+
+  it('é puramente mecânico — mesmo input dá sempre a mesma saída', () => {
+    const claims = [
+      claim('ask1', 'ask', 'Raising €300k, at a €4.5M valuation.', { sourceKind: 'profile' }),
+      claim('fact1', 'funding', 'Targeting €250k.', { sourceKind: 'fact' }),
+    ];
+    expect(ruleG8(claims)).toEqual(ruleG8(claims));
+  });
+
+  // ---------------------------------------------------------------------
+  // Casos apanhados pela revisão adversarial (Prompt 310) — cada um é um
+  // falso positivo REAL que o mecanismo anterior teria disparado.
+  describe('falsos positivos apanhados pela revisão adversarial', () => {
+    it('F1 — a frase "Use of funds" (gerada a par do ask pelos MESMOS campos de Settings) nunca entra na comparação de montante', () => {
+      const gaps = ruleG8([
+        claim('ask1', 'ask', 'Raising €300k.', { sourceKind: 'profile' }),
+        claim('funds1', 'funding', 'Use of funds: Hiring two engineers and targeting our first paid pilot worth €15k in Q2.', { sourceKind: 'profile' }),
+      ]);
+      expect(gaps).toEqual([]);
+    });
+
+    it('F2 — uma ronda anterior sem a palavra "closed" no texto (ex. sem closed_year) continua excluída, por sourceKind estrutural', () => {
+      const gaps = ruleG8([
+        claim('ask1', 'ask', 'Raising €300k.', { sourceKind: 'profile' }),
+        claim('fr1', 'funding', 'Bridge of €150k. Verbal commitment from an angel, still targeting a formal close before Q3.', { sourceKind: 'funding_round' }),
+      ]);
+      expect(gaps).toEqual([]);
+    });
+
+    it('F3 — uma menção NEGADA de instrumento ("not raising via debt") nunca conta como nomear esse instrumento', () => {
+      const gaps = ruleG8([
+        claim('a1', 'ask', 'Raising €300k via equity only.', { sourceKind: 'profile' }),
+        claim('a2', 'funding', 'We are not raising via debt for this round.', { sourceKind: 'fact' }),
+      ]);
+      expect(gaps.filter((g) => g.meta?.field === 'instrument')).toEqual([]);
+    });
+
+    it('F4 — uma frase com DUAS palavras-chave de montante (tranche/frase ambígua) fica de fora em vez de a heurística "mais próximo" adivinhar mal', () => {
+      const gaps = ruleG8([
+        claim('a1', 'ask', 'We considered targeting €1M as a stretch amount, but are actually raising just €300k for this round.', { sourceKind: 'fact' }),
+        claim('a2', 'ask', 'Raising €300k.', { sourceKind: 'profile' }),
+      ]);
+      expect(gaps).toEqual([]);
+    });
+
+    it('F5a — "€300.000" (separador de milhares ao estilo europeu, sem sufixo) não é lido 1000x mais pequeno', () => {
+      const gaps = ruleG8([
+        claim('a1', 'ask', 'Raising €300k.', { sourceKind: 'profile' }),
+        claim('a2', 'funding', 'Confirming the round target is €300.000, same as before.', { sourceKind: 'fact' }),
+      ]);
+      expect(gaps).toEqual([]);
+    });
+
+    it('F5b — "€0,3M" (vírgula decimal ao estilo europeu, com sufixo) não é lido 10x maior', () => {
+      const gaps = ruleG8([
+        claim('a1', 'ask', 'Raising this round at a €0,3M valuation.', { sourceKind: 'profile' }),
+        claim('a2', 'funding', 'Seeking investment at a valuation of €300k.', { sourceKind: 'fact' }),
+      ]);
+      // €0,3M == €300k — não deve disparar por causa da vírgula decimal.
+      expect(gaps.filter((g) => g.meta?.field === 'valuation')).toEqual([]);
+    });
+
+    it('F6 — moedas diferentes nunca são comparadas entre si (nem concordam, nem discordam)', () => {
+      const gaps = ruleG8([
+        claim('a1', 'ask', 'Raising $300k.', { sourceKind: 'profile' }),
+        claim('a2', 'funding', 'Targeting €300k.', { sourceKind: 'fact' }),
+      ]);
+      expect(gaps).toEqual([]);
+    });
+
+    it('F7 — instrumentos no PLURAL (SAFEs, convertible notes, grants) são reconhecidos, não silenciosamente ignorados', () => {
+      const gaps = ruleG8([
+        claim('a1', 'ask', 'Raising €300k exclusively via SAFEs.', { sourceKind: 'profile' }),
+        claim('a2', 'funding', 'We are raising this round exclusively via convertible notes.', { sourceKind: 'fact' }),
+      ]);
+      const instrGap = gaps.find((g) => g.meta?.field === 'instrument');
+      expect(instrGap).toBeTruthy();
+    });
+  });
+});
+
 describe('detectGaps — agregação', () => {
   it('a ablute_ de hoje (prémio + visita vaga) dispara exatamente o esperado', () => {
     const gaps = detectGaps([PREMIO, VISITA_VAGA], ctx({ founders: [{ name: 'Carla Dias' }, { name: 'Rui Almeida' }] }));
@@ -232,7 +443,7 @@ describe('detectGaps — agregação', () => {
 
 describe('templateFor — os templates são dados, preenchidos por meta', () => {
   it('há exatamente uma template por regra', () => {
-    expect(QUESTION_TEMPLATES.map((t) => t.rule).sort()).toEqual(['G1', 'G2', 'G3', 'G3b', 'G3c', 'G4', 'G5', 'G6', 'G7']);
+    expect(QUESTION_TEMPLATES.map((t) => t.rule).sort()).toEqual(['G1', 'G2', 'G3', 'G3b', 'G3c', 'G4', 'G5', 'G6', 'G7', 'G8']);
   });
 
   it('G2 injeta o statement do claim vago', () => {
