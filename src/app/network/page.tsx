@@ -45,6 +45,9 @@ interface ReferralView {
 interface FollowOnStatusView { investorCatalogEntityId: string; investorName: string; active: boolean; visibility: 'named' | 'anonymous' | null; signaledAt: string | null; expiresAt: string | null }
 interface FollowOnRelationshipView { orgId: string; orgName: string; investorCatalogEntityId: string; hasActiveSignal: boolean; visibility: 'named' | 'anonymous' | null }
 interface FollowOnRequestView { orgId: string; orgName: string; requestedAt: string }
+
+// Prompt 320 — Pathfinder asks received (someone wants me to refer them).
+interface PathfinderAskView { id: string; requesterOrgId: string; requesterName: string; targetActorId: string; targetName: string; requestedAt: string }
 interface ReferralCandidate { actorId: string; orgId: string | null; name: string; kind: 'founder' | 'investor' }
 interface ReferralBootstrap {
   ok: boolean; referrals?: ReferralView[]; reputation?: { sent: number; accepted: number };
@@ -111,6 +114,7 @@ export default function NetworkPage() {
   const [referralDraft, setReferralDraft] = useState<{ referredOrgId: string; targetActorId: string; message: string } | null>(null);
   const [founderSignals, setFounderSignals] = useState<FollowOnStatusView[] | null>(null);
   const [investorFollowOn, setInvestorFollowOn] = useState<{ relationships: FollowOnRelationshipView[]; requests: FollowOnRequestView[] } | null>(null);
+  const [pathfinderAsks, setPathfinderAsks] = useState<PathfinderAskView[]>([]);
 
   function load() {
     fetch('/api/network').then((r) => r.json()).then(setState).catch(() => setState(null));
@@ -120,6 +124,7 @@ export default function NetworkPage() {
     fetch('/api/network/followon/investor').then((r) => r.json())
       .then((b) => setInvestorFollowOn(b.ok ? { relationships: b.relationships ?? [], requests: b.requests ?? [] } : null))
       .catch(() => setInvestorFollowOn(null));
+    fetch('/api/network/pathfinder/asks').then((r) => r.json()).then((b) => setPathfinderAsks(b.asks ?? [])).catch(() => setPathfinderAsks([]));
   }
   useEffect(load, []);
 
@@ -209,6 +214,13 @@ export default function NetworkPage() {
     setBusy(true); setError(null);
     fetch('/api/network/followon/investor', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId, action, visibility }),
+    }).then((r) => r.json()).then((b) => { if (!b.ok) setError(b.error); load(); }).finally(() => setBusy(false));
+  }
+
+  function dismissPathfinderAsk(id: string) {
+    setBusy(true); setError(null);
+    fetch('/api/network/pathfinder/asks', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }),
     }).then((r) => r.json()).then((b) => { if (!b.ok) setError(b.error); load(); }).finally(() => setBusy(false));
   }
 
@@ -479,6 +491,26 @@ export default function NetworkPage() {
           </ul>
         )}
       </Card>
+
+      {pathfinderAsks.length > 0 && (
+        <Card title={`Pathfinder — asked to refer someone (${pathfinderAsks.length})`}>
+          <ul className="space-y-2">
+            {pathfinderAsks.map((a) => (
+              <li key={a.id} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 p-2.5">
+                <span className="text-sm text-gray-700">{a.requesterName} would like an intro to {a.targetName}</span>
+                <div className="flex shrink-0 gap-1.5">
+                  <button onClick={() => { setReferralDraft({ referredOrgId: a.requesterOrgId, targetActorId: a.targetActorId, message: '' }); dismissPathfinderAsk(a.id); }}
+                    className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">
+                    Compose referral
+                  </button>
+                  <button onClick={() => dismissPathfinderAsk(a.id)} disabled={busy}
+                    className="rounded-full border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600">Dismiss</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <Card title={`Referrals${referralData?.reputation ? ` (${referralData.reputation.sent}/5 sent this month, ${referralData.reputation.accepted} accepted)` : ''}`} right={
         <button onClick={() => setReferralDraft({ referredOrgId: '', targetActorId: '', message: '' })}

@@ -467,6 +467,16 @@ export default function PipelinePage() {
         setCompetitorInvestmentByEntityId(map);
       }).catch(() => {});
   }, []);
+  // Prompt 320 — Pathfinder's own discreet row indicator: which entities
+  // have at least one connection with a verified invested relationship.
+  // One batched query for the whole table (getPathfinderEntityIdsWithMatch),
+  // same pattern as the two fetches above — never a per-row request.
+  const [pathfinderEntityIds, setPathfinderEntityIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!authEnabled) return;
+    fetch('/api/network/pathfinder?summary=1', { cache: 'no-store' }).then((r) => r.json())
+      .then((b) => { if (b.ok) setPathfinderEntityIds(new Set(b.entityIds)); }).catch(() => {});
+  }, []);
   // How many catalog-sourced investors are blocked by the plan's accumulated
   // quota — a COUNT only, via the catalog_blocked_count() RPC (migration
   // 0042). Blocked rows themselves never reach this client at all: the
@@ -949,6 +959,9 @@ export default function PipelinePage() {
                   <td className="break-words px-2 py-1.5 font-medium">
                     <Link href={`/entities/${e.id}`} className="text-gray-900 hover:text-[#0E7490]">
                       {e.name} {hf && <span title={e.hard_filter} className="text-[#B00000]">⚑</span>}
+                      {pathfinderEntityIds.has(e.id) && (
+                        <span title="You have a path to this investor" className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle" />
+                      )}
                     </Link>
                     {inBand1 && (
                       <span className="ml-1.5 inline-block rounded-full border border-[#0E7490]/30 bg-[#E8F4F8] px-1.5 py-0.5 text-[10px] font-semibold text-[#0E7490]"

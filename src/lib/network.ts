@@ -196,8 +196,11 @@ export type NetworkReferralState = 'pending_referred_consent' | 'pending_target_
 // trigger exists alongside canSendInvite: the DB is the real guarantee, this
 // is the same rule made independently testable.
 const LIVE_REFERRAL_STATES: NetworkReferralState[] = ['pending_referred_consent', 'pending_target_decision', 'accepted'];
+export function isLiveReferralState(state: NetworkReferralState): boolean {
+  return LIVE_REFERRAL_STATES.includes(state);
+}
 export function isDuplicateReferral(existingStatesForSamePair: NetworkReferralState[]): boolean {
-  return existingStatesForSamePair.some((s) => LIVE_REFERRAL_STATES.includes(s));
+  return existingStatesForSamePair.some(isLiveReferralState);
 }
 
 export const MAX_REFERRALS_PER_MONTH = 5;
@@ -302,6 +305,28 @@ export function referralCarriesFollowOnBadge(params: {
 }): boolean {
   if (!params.referrerInvestorCatalogEntityId) return false;
   return params.activeSignals.some((s) => s.investorCatalogEntityId === params.referrerInvestorCatalogEntityId && s.orgId === params.referredOrgId);
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 320 — Pathfinder ("who opens this door for me"). Which of MY
+// connections already has a verified invested relationship with the
+// investor I'm looking at, so I can ask them for an intro instead of
+// cold-approaching. Deliberately calls canCreateReferral directly rather
+// than re-deriving the check — the prompt's own explicit requirement is
+// that Pathfinder and 318's referral composer NEVER disagree about who's
+// eligible, since one leads straight into the other.
+export interface PathfinderConnectionRow {
+  actorId: string;
+  isDiscoverable: boolean; // Pedido C — same network_discoverable opt-in guard as 316's own suggestions.
+  hasInvestedRelationshipWithTarget: boolean;
+  hasLiveReferralForThisAsk: boolean;
+}
+export interface PathfinderMatch { actorId: string; alreadyRequested: boolean }
+
+export function computePathfinderMatches(connections: PathfinderConnectionRow[]): PathfinderMatch[] {
+  return connections
+    .filter((c) => c.isDiscoverable && canCreateReferral({ referrerHasInvestedRelationship: c.hasInvestedRelationshipWithTarget, otherPartyIsActiveConnection: true }))
+    .map((c) => ({ actorId: c.actorId, alreadyRequested: c.hasLiveReferralForThisAsk }));
 }
 
 // Reputation (Pedido D) — live-computed from network_referrals alone, no

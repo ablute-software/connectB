@@ -5,6 +5,7 @@ import {
   canCreateReferral, isDuplicateReferral, canSendReferral, isReferralVisibleToTarget, effectiveReferralState, referralReputation,
   referralsVisibleToTarget, MAX_REFERRALS_PER_MONTH,
   canSignalFollowOn, isFollowOnActive, shapeFollowOnPayload, referralCarriesFollowOnBadge, FOLLOWON_VALIDITY_MONTHS,
+  computePathfinderMatches,
 } from './network';
 
 describe('canonicalPair — ordem canónica para a chave única de network_connections', () => {
@@ -435,5 +436,46 @@ describe('referralCarriesFollowOnBadge — propaga só para a mesma startup e o 
   it('referrer sem identidade de investidor (fundador) nunca propaga', () => {
     const activeSignals = [{ investorCatalogEntityId: acmeVc, orgId: abluteOrg }];
     expect(referralCarriesFollowOnBadge({ referrerInvestorCatalogEntityId: null, referredOrgId: abluteOrg, activeSignals })).toBe(false);
+  });
+});
+
+describe('computePathfinderMatches — mesma verificação do Pedido A do 318, nunca uma segunda', () => {
+  it('paridade: canCreateReferral e computePathfinderMatches concordam sobre o mesmo fixture', () => {
+    // O mesmo fixture visto pelas duas perspectivas: uma ligação C com
+    // relação invested verificada com o alvo, e eu (o founder a ver o
+    // ecrã) já somos ligação activa um do outro — exactamente o par que o
+    // 318 usa para canCreateReferral(referrer=C).
+    const connection = { actorId: 'c1', isDiscoverable: true, hasInvestedRelationshipWithTarget: true, hasLiveReferralForThisAsk: false };
+    const eligibleViaReferralRule = canCreateReferral({ referrerHasInvestedRelationship: connection.hasInvestedRelationshipWithTarget, otherPartyIsActiveConnection: true });
+    const matches = computePathfinderMatches([connection]);
+    expect(matches.length > 0).toBe(eligibleViaReferralRule);
+  });
+
+  it('sem relação invested verificada, não aparece como match', () => {
+    const connection = { actorId: 'c1', isDiscoverable: true, hasInvestedRelationshipWithTarget: false, hasLiveReferralForThisAsk: false };
+    expect(computePathfinderMatches([connection])).toEqual([]);
+  });
+
+  it('sem opt-in (network_discoverable), não aparece mesmo com relação invested verificada', () => {
+    const connection = { actorId: 'c1', isDiscoverable: false, hasInvestedRelationshipWithTarget: true, hasLiveReferralForThisAsk: false };
+    expect(computePathfinderMatches([connection])).toEqual([]);
+  });
+
+  it('"já pedido" marcado correctamente quando existe referência activa para o par', () => {
+    const connection = { actorId: 'c1', isDiscoverable: true, hasInvestedRelationshipWithTarget: true, hasLiveReferralForThisAsk: true };
+    expect(computePathfinderMatches([connection])).toEqual([{ actorId: 'c1', alreadyRequested: true }]);
+  });
+
+  it('filtra e mapeia múltiplas ligações independentemente', () => {
+    const connections = [
+      { actorId: 'c1', isDiscoverable: true, hasInvestedRelationshipWithTarget: true, hasLiveReferralForThisAsk: false },
+      { actorId: 'c2', isDiscoverable: false, hasInvestedRelationshipWithTarget: true, hasLiveReferralForThisAsk: false },
+      { actorId: 'c3', isDiscoverable: true, hasInvestedRelationshipWithTarget: false, hasLiveReferralForThisAsk: false },
+      { actorId: 'c4', isDiscoverable: true, hasInvestedRelationshipWithTarget: true, hasLiveReferralForThisAsk: true },
+    ];
+    expect(computePathfinderMatches(connections)).toEqual([
+      { actorId: 'c1', alreadyRequested: false },
+      { actorId: 'c4', alreadyRequested: true },
+    ]);
   });
 });
