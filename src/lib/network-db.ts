@@ -133,6 +133,26 @@ function mapInvite(row: Record<string, unknown>): NetworkInvite {
   };
 }
 
+// Prompt 330 §B — "does an account already exist for this email". Reads
+// through find_org_by_member_email (migration 0222), a narrow SECURITY
+// DEFINER function limited to a single indexed auth.users.email lookup —
+// never an unbounded listUsers() scan (the JS admin SDK has no
+// getUserByEmail; see deal-messages.ts's own comment on why that scan was
+// declined elsewhere). Returns null on no match — the caller's job is to
+// say so honestly, never to invent a contact or send an invite anyway.
+export async function findOrgByMemberEmail(admin: SupabaseClient, email: string): Promise<{ orgId: string; orgName: string } | null> {
+  const { data } = await admin.rpc('find_org_by_member_email', { p_email: email.trim().toLowerCase() });
+  const row = (data as { org_id: string; org_name: string }[] | null)?.[0];
+  return row ? { orgId: row.org_id, orgName: row.org_name } : null;
+}
+
+// Every org gets a network_actors row automatically (trigger, migration
+// 0209) the moment it's created, so this is a plain lookup, never a create.
+export async function findActorIdByOrgId(admin: SupabaseClient, orgId: string): Promise<string | null> {
+  const { data } = await admin.from('network_actors').select('id').eq('org_id', orgId).maybeSingle();
+  return (data?.id as string | undefined) ?? null;
+}
+
 export async function readConnectionsForActor(admin: SupabaseClient, actorId: string): Promise<NetworkConnection[]> {
   const { data } = await admin.from('network_connections')
     .select('*').or(`actor_low_id.eq.${actorId},actor_high_id.eq.${actorId}`).order('created_at', { ascending: false });

@@ -1039,8 +1039,11 @@ export interface NetworkConnection {
 export type NetworkInviteStatus = 'pending' | 'accepted' | 'declined' | 'expired';
 // Prompt 316 only ever produces 'shared_investor'; later prompts in the
 // series (317 groups, 318 referrals) add more without touching this type's
-// existing members.
-export type NetworkInviteContextKind = 'shared_investor' | 'shared_group' | 'referral';
+// existing members. Prompt 330 adds 'direct_known' — the one value with no
+// automatically-verifiable signal behind it; the required `message` field
+// below carries the founder's own human explanation instead, always shown
+// to the recipient before they accept (see migration 0222's own comment).
+export type NetworkInviteContextKind = 'shared_investor' | 'shared_group' | 'referral' | 'direct_known';
 
 export interface NetworkInvite {
   id: string;

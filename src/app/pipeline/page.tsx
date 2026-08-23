@@ -11,6 +11,7 @@ import { MatchDealVisibilityBanner } from '@/components/dashboard/MatchDealVisib
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 import { AddInvestorModal } from '@/components/AddInvestorModal';
+import { PartnersColleaguesPanel } from '@/components/pipeline/PartnersColleaguesPanel';
 import { isPersonCandidate, isUnverifiedStub, relationshipSummary } from '@/lib/relationship';
 import { CoachMark } from '@/components/onboarding/CoachMark';
 import { PageTour } from '@/components/onboarding/PageTour';
@@ -877,6 +878,22 @@ export default function PipelinePage() {
         <button data-tour-id="pipeline-import" onClick={() => setAddInvestorOpen(true)} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-[#0E7490] hover:bg-[#E8F4F8]">+ Add investor</button>
       </div>
 
+      {/* Prompt 330 §C — the table + "Partners & colleagues" panel as a
+          two-column row from md up, in the real estate max-w-[1600px]
+          (shell.tsx, /pipeline only) leaves empty next to the table on wide
+          screens. This wrapper takes over the "absorb remaining height"
+          role the table div played directly against the root flex column
+          (Prompt 257 §5) — md:flex-1/md:min-h-0 here, md:flex-1 unchanged
+          on the table div itself one level down, so that fix is untouched,
+          just nested one level deeper. Below md the row becomes a column
+          (panel stacks under the table) — never a fourth thing competing
+          for horizontal space, never a reason to reopen the horizontal
+          scroll Prompt 286/304/315 closed. */}
+      <div className="flex flex-col gap-4 md:min-h-0 md:flex-1 md:flex-row">
+      {/* No gap here (unlike the row above) — the table and the blocked-by-
+          plan panel below it are meant to read as ONE continuous shape,
+          flush against each other (see that panel's own comment). */}
+      <div className="flex min-w-0 flex-col md:min-h-0 md:flex-1">
       {/* Prompt 188 §1 — own vertical scroll capped at ~15 rows so the
           list doesn't grow the whole page; max-height (not a hard height)
           so a short pipeline still shrinks to fit instead of leaving dead
@@ -1163,6 +1180,12 @@ export default function PipelinePage() {
           </div>
         );
       })()}
+      </div>
+
+      <div className="md:w-80 md:shrink-0">
+        <PartnersColleaguesPanel />
+      </div>
+      </div>
 
       {addInvestorOpen && <AddInvestorModal onClose={() => setAddInvestorOpen(false)} />}
     </div>
