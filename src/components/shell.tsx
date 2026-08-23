@@ -89,7 +89,11 @@ type Me = {
 //   2. Pipeline · Tasks · Agenda
 //   3. My Network (new, Prompt 314 §C) · Messages
 //   4. Dashboard · Readiness & Train
-//   5. Plans & billing (Help & support already follows via afterItems below)
+//   5. Plans & billing, Help & support (Prompt 331 — Help & support is a
+//      real sidebarItems entry now, appended after this array is mapped,
+//      not a separately-styled afterItems block; kept OUT of this NAV
+//      array itself so it never reaches mobileNavItems, which is built from
+//      the same array — see sidebarItems' own construction below)
 const NAV: { href: string; label: string; icon: string; requiresCapability?: 'companyCanon'; group: number }[] = [
   { href: '/settings', label: 'about your company', icon: '⋯', group: 1 },
   { href: '/documents', label: 'Vault Data Room', icon: '▣', group: 1 },
@@ -110,6 +114,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const pendingRuns = db.runs.filter((r) => r.status === 'pending_review').length;
   const needsReviewCount = db.interactions.filter((i) => i.needs_review).length;
   const [me, setMe] = useState<Me | null>(null);
+  // Prompt 331 — "Help & support" now renders as a real Grupo 5 sidebar
+  // item (WorkspaceNavItem, no href -> onSelect), not a smaller, separately-
+  // styled afterItems block. This state is the "onSelect" side of the
+  // controlled HelpSupportWidget mounted below, alongside sidebarItems.
+  const [helpOpen, setHelpOpen] = useState(false);
   // P134-C — unread Sherlock messaging threads, for the Messages nav badge.
   // Prompt 182 — was a one-shot fetch-on-mount local state that never
   // refetched after a thread was read, unlike Support's own badge; now the
@@ -223,7 +232,20 @@ export function Shell({ children }: { children: React.ReactNode }) {
       label: isAbout ? aboutLabel : n.label, group: n.group,
     };
   };
-  const sidebarItems = visibleNav.map((n) => navItem(n, n.href === '/' ? path === '/' : !!path?.startsWith(n.href)));
+  // Prompt 331 — inserted into sidebarItems only, never into NAV/visibleNav:
+  // NAV feeds mobileNavItems too, and Prompt 314 was explicit that the
+  // mobile bottom nav takes neither dividers nor (implicitly) this item.
+  // group: 5 matches Plans & billing's own group exactly, so
+  // WorkspaceSidebar draws no divider between them — same Grupo 5, one item
+  // after the other, exactly as 314's own mockup showed.
+  const helpSupportNavItem: WorkspaceNavItem = {
+    key: 'help-support', label: 'Help & support', icon: '◈', active: false, group: 5,
+    onSelect: () => setHelpOpen(true),
+  };
+  const sidebarItems = [
+    ...visibleNav.map((n) => navItem(n, n.href === '/' ? path === '/' : !!path?.startsWith(n.href))),
+    helpSupportNavItem,
+  ];
   const mobileNavItems = visibleNav.map((n) => navItem(n, path === n.href));
 
   return (
@@ -236,9 +258,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
         items={sidebarItems}
         afterItems={
           <>
-            <div className="px-3 pt-3">
-              <HelpSupportWidget source="founder_app" />
-            </div>
+            {/* Prompt 331 — the visible trigger is now helpSupportNavItem
+                above (a real Grupo 5 sidebar item); this controlled instance
+                only ever renders its modal (isControlled -> no button of its
+                own), driven by helpOpen/setHelpOpen. */}
+            <HelpSupportWidget source="founder_app" open={helpOpen} onOpenChange={setHelpOpen} />
             {showBackofficeSwitcher && (
               <>
                 <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-gray-300">Platform</div>

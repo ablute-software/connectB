@@ -24,8 +24,21 @@ import { createPortal } from 'react-dom';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { ContactForm, type SupportSource } from './ContactForm';
 
-export function HelpSupportWidget({ source, className }: { source: SupportSource; className?: string }) {
-  const [open, setOpen] = useState(false);
+// Prompt 331 — optional controlled mode, so a caller that already renders
+// its OWN trigger (the founder sidebar's Grupo 5 nav item, styled and
+// positioned like every other item there) can drive this same modal/
+// ContactForm without a second copy of either. Uncontrolled (both props
+// omitted) is the exact, unchanged default every other call site
+// (LampButton.tsx, portal/page.tsx, and this component's own prior sidebar
+// use) keeps using — this widget draws its own trigger button then, same
+// as always.
+export function HelpSupportWidget({ source, className, open: controlledOpen, onOpenChange }: {
+  source: SupportSource; className?: string; open?: boolean; onOpenChange?: (open: boolean) => void;
+}) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (v: boolean) => { if (isControlled) onOpenChange?.(v); else setInternalOpen(v); };
   const [defaultName, setDefaultName] = useState('');
   const [defaultEmail, setDefaultEmail] = useState('');
 
@@ -40,10 +53,12 @@ export function HelpSupportWidget({ source, className }: { source: SupportSource
 
   return (
     <>
-      <button onClick={() => setOpen(true)}
-        className={className ?? 'flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600'}>
-        <span aria-hidden="true">◈</span> Help &amp; support
-      </button>
+      {!isControlled && (
+        <button onClick={() => setOpen(true)}
+          className={className ?? 'flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600'}>
+          <span aria-hidden="true">◈</span> Help &amp; support
+        </button>
+      )}
       {open && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setOpen(false)}>
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
