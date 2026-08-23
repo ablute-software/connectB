@@ -81,7 +81,6 @@ export function InteractionLogTimeline({ orgId, journey }: { orgId: string; jour
   const [draftLinks, setDraftLinks] = useState<{ label: string; url: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [qaToast, setQaToast] = useState<string | null>(null);
 
   function load() {
     fetch(`/api/portal/interaction-log?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => {
@@ -105,7 +104,7 @@ export function InteractionLogTimeline({ orgId, journey }: { orgId: string; jour
 
   async function submit() {
     if (!content.trim()) return;
-    setSaving(true); setError(null); setQaToast(null);
+    setSaving(true); setError(null);
     try {
       const res = await fetch('/api/portal/interaction-log', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -123,7 +122,6 @@ export function InteractionLogTimeline({ orgId, journey }: { orgId: string; jour
       } else {
         setContent(''); setDraftLinks([]); setPersonId(''); setPersonNameOther(''); setDocumentId('');
         setOccurredAt(toLocalInputValue(new Date()));
-        if (body.qa) setQaToast('QA session — action simulated, nothing recorded.');
         load();
       }
     } finally { setSaving(false); }
@@ -213,7 +211,6 @@ export function InteractionLogTimeline({ orgId, journey }: { orgId: string; jour
           </button>
         </div>
         {error && <p className="mt-1.5 text-[11px] text-[#B00000]">{error}</p>}
-        {qaToast && <p className="mt-1.5 text-[11px] text-amber-800">{qaToast}</p>}
       </div>
 
       <div className="mt-4 space-y-2">

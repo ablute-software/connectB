@@ -116,13 +116,8 @@ function LockedWave({ hiddenCount, onReview }: { hiddenCount: number; onReview: 
 }
 
 export function PipelinePanel({
-  onOpenStartup, onGoToArchive, compareIds, setCompareIds, showComparison, setShowComparison, qaAccess,
+  onOpenStartup, onGoToArchive, compareIds, setCompareIds, showComparison, setShowComparison,
 }: {
-  // Prompt 214 §B (remate) — conhecido a entrada, vindo do /api/portal/access.
-  // Continua a ligar-se sozinho se uma accao voltar marcada `qa`, para o caso
-  // de a flag faltar por alguma razao: os dois caminhos convergem no mesmo
-  // estado, e o segundo e a rede do primeiro.
-  qaAccess?: boolean;
   onOpenStartup: (orgId: string) => void;
   // Item 8 — the archive success toast's "Go to Archive" link.
   onGoToArchive: () => void;
@@ -154,22 +149,6 @@ export function PipelinePanel({
   const [confirming, setConfirming] = useState<{ orgId: string; action: 'pass' | 'interest' } | null>(null);
   const [reasonDraft, setReasonDraft] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
-  // P131-C — the server already short-circuits @ablute.pt QA sessions
-  // (is_ablute_developer() in /api/portal/pipeline) so their clicks never
-  // write a real signal, but it never told the person clicking that —
-  // "I tested it and nothing happened" was the exact confusion this exists
-  // to prevent. The server already returns { qa: true } for this case; this
-  // just surfaces it instead of silently doing nothing differently.
-  const [qaToast, setQaToast] = useState<string | null>(null);
-  // Prompt 214 §B — uma sessao QA tem de ser inconfundivel DURANTE toda a
-  // sessao, nao so depois do clique. Ontem houve 5 "express interest" na
-  // ablute_ e ZERO chegaram ao founder: todas curto-circuitadas no gate QA,
-  // e o unico sinal era um toast amarelo que desaparecia. O gate estava
-  // certo; a comunicacao e que faltou.
-  //
-  // Fica true assim que UMA accao volte marcada como qa: a partir dai
-  // sabe-se com certeza, sem inventar uma segunda deteccao de sessao.
-  const [qaSession, setQaSession] = useState(!!qaAccess);
   // Item 8 — archiving worked (the entry landed in the Archive tab fine)
   // but gave zero feedback where the click happened: same card, same
   // buttons, nothing. The persistent "Archived" badge (isArchived, from the
@@ -267,7 +246,6 @@ export function PipelinePanel({
   async function act(orgId: string, action: 'pass' | 'interest', reason?: string) {
     setBusyOrgId(orgId);
     setActionError(null);
-    setQaToast(null);
     try {
       const res = await fetch('/api/portal/pipeline', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -281,7 +259,6 @@ export function PipelinePanel({
       } else {
         setConfirming(null);
         setReasonDraft('');
-        if (body.qa) { setQaToast('QA session — action simulated, nothing recorded.'); setQaSession(true); }
       }
       load();
     } finally { setBusyOrgId(null); }
@@ -439,15 +416,6 @@ export function PipelinePanel({
       </div>
       {data.usualCoInvestors && <p className="text-xs text-gray-400">Usually co-invests with: {data.usualCoInvestors}</p>}
       {actionError && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
-      {/* Prompt 214 §B.1 — persistente, nao um toast: fica enquanto a sessao
-          durar. O toast em baixo continua como reforco imediato (§B.3), mas
-          deixou de ser o UNICO sinal. */}
-      {qaSession && (
-        <div className="sticky top-0 z-20 -mx-1 mb-2 rounded-lg border border-amber-300 bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900">
-          QA session — actions are simulated and nothing is recorded.
-        </div>
-      )}
-      {qaToast && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{qaToast}</p>}
 
       {/* Prompt 127 §3 — before this, the only hint that comparison existed
           at all was the per-card checkbox itself, with zero invitation to
@@ -656,7 +624,7 @@ export function PipelinePanel({
                         </button>
                         <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId}
                           className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
-                          Archive{qaSession ? ' (QA)' : ''}
+                          Archive
                         </button>
                       </div>
                     ) : wave.unlocked && confirming?.orgId === c.orgId ? (
@@ -714,7 +682,7 @@ export function PipelinePanel({
                         )}
                         <button onClick={() => startConfirm(c.orgId, 'interest')} disabled={busyOrgId === c.orgId}
                           className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-                          Express interest{qaSession ? ' (QA)' : ''}
+                          Express interest
                         </button>
                         {remindedOrgId === c.orgId ? (
                           <span className="text-xs text-gray-400">Reminder set for 2 weeks</span>
@@ -730,14 +698,14 @@ export function PipelinePanel({
                             corresponder ao peso da consequencia. */}
                         <button onClick={() => startConfirm(c.orgId, 'pass')}
                           className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-[#B00000] hover:border-[#B00000] hover:bg-red-50">
-                          Pass{qaSession ? ' (QA)' : ''}
+                          Pass
                         </button>
                         <button onClick={() => setInteractionLogOrgId(c.orgId)} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
                           🗂 Interaction log
                         </button>
                         <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId}
                           className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
-                          Archive{qaSession ? ' (QA)' : ''}
+                          Archive
                         </button>
                       </div>
                     ) : (

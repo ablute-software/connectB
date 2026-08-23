@@ -364,37 +364,20 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       newlyAdmitted.push({ investor_catalog_entity_id: investorCatalogEntityId, org_id: c.orgId });
       return true;
     });
-    // Prompt 222 §1 — o MESMO gate QA das outras escritas (o padrão do 214),
-    // que faltava aqui: esta era a única escrita real que uma sessão
-    // @ablute.pt ainda fazia. Medido em produção antes de corrigir: a firma
-    // "ablute_ — Internal QA" tinha 4 linhas nesta tabela (ablute_, Sherlock
-    // Deal_ test, Caramel Biscuit, Estojo), a gastar cap real (4/10 do
-    // tier_a). Contaminava duas coisas ao mesmo tempo — o orçamento mensal
-    // de uma firma que não devia ter orçamento nenhum, e a resposta a "desde
-    // quando é que este candidato é visível", que é o que a tabela existe
-    // para responder.
-    //
-    // O gate protege SÓ a persistência: a admissão continua a ser calculada
-    // em memória acima, e por isso a QA vê exactamente o mesmo pipeline que
-    // via antes. É a diferença entre "exercer a UI" e "escrever" — o mesmo
-    // princípio de não-contaminação que o POST desta rota já seguia, e a
-    // razão pela qual isto NÃO devolve `{ok:true,qa:true}` como as rotas de
-    // escrita: aqui a resposta é o pipeline, e recusá-la deixaria a QA sem
-    // nada para testar.
-    //
-    // Vive nesta função partilhada, e não na rota, porque quatro rotas de
-    // leitura chegam aqui (pipeline, startup/[orgId], messages, export) —
-    // uma delas sem o gate reabria a fuga inteira.
+    // Prompt 336 — this used to skip persisting admission for
+    // is_ablute_developer() sessions (measured in production: the
+    // "ablute_ — Internal QA" firm had eaten 4/10 of its tier's monthly
+    // cap from dogfood swipes before that gate existed). Now that these
+    // accounts are real investors, they're meant to have a real monthly
+    // cap like anyone else — the gate is gone, admission persists
+    // unconditionally.
     if (newlyAdmitted.length > 0) {
-      const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-      if (!isAbluteQa) {
-        // Idempotent by the table's own unique(investor_catalog_entity_id,
-        // org_id) constraint — a concurrent call admitting the same
-        // candidate is a harmless no-op, not a double-spend of the budget.
-        await admin.from('investor_pipeline_admissions').upsert(newlyAdmitted, {
-          onConflict: 'investor_catalog_entity_id,org_id', ignoreDuplicates: true,
-        });
-      }
+      // Idempotent by the table's own unique(investor_catalog_entity_id,
+      // org_id) constraint — a concurrent call admitting the same
+      // candidate is a harmless no-op, not a double-spend of the budget.
+      await admin.from('investor_pipeline_admissions').upsert(newlyAdmitted, {
+        onConflict: 'investor_catalog_entity_id,org_id', ignoreDuplicates: true,
+      });
     }
   }
 

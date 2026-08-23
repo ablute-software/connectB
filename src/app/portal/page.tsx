@@ -71,10 +71,6 @@ interface PortalData {
   // render "In preparation" rather than treat a missing key as an error.
   sections?: { key: string; label: string; documents: PortalDoc[] }[];
   pendingConfirmation?: PendingConfirmation[];
-  // Prompt 48 — @ablute.pt QA fallback in /api/portal/access, no real
-  // access_grants behind it. Shown as a banner, not folded into the normal
-  // "signed in as" line, so it can never be mistaken for a real investor.
-  qaAccess?: boolean;
   snapshot?: PortalSnapshot | null;
   orgId?: string;
   currentTicketSignal?: { range_label: string; range_min_eur: number | null; range_max_eur: number | null } | null;
@@ -88,8 +84,8 @@ const TICKET_RANGES: { label: string; min: number | null; max: number | null }[]
   { label: '€100k+', min: 100000, max: null },
 ];
 
-function TicketSelector({ orgId, current, qaAccess }: {
-  orgId: string; current: PortalData['currentTicketSignal']; qaAccess?: boolean;
+function TicketSelector({ orgId, current }: {
+  orgId: string; current: PortalData['currentTicketSignal'];
 }) {
   const [selected, setSelected] = useState<string | null>(current?.range_label ?? null);
   const [otherOpen, setOtherOpen] = useState(false);
@@ -138,7 +134,7 @@ function TicketSelector({ orgId, current, qaAccess }: {
           <button onClick={submitOther} disabled={!otherValue.trim() || saving} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Save</button>
         </div>
       )}
-      {saved && <p className="mt-2 text-xs text-green-700">{qaAccess ? 'Selection updated (QA session — not saved for real).' : 'Saved.'}</p>}
+      {saved && <p className="mt-2 text-xs text-green-700">Saved.</p>}
     </div>
   );
 }
@@ -412,7 +408,7 @@ export default function PortalPage() {
         {authEnabled && real?.orgId && <RoundUpdatesFeed orgId={real.orgId} />}
         {authEnabled && real?.snapshot && <SnapshotCard s={real.snapshot} />}
         {authEnabled && real?.orgId && (
-          <TicketSelector orgId={real.orgId} current={real.currentTicketSignal} qaAccess={real.qaAccess} />
+          <TicketSelector orgId={real.orgId} current={real.currentTicketSignal} />
         )}
         {authEnabled && real?.orgId && <SoftCommitButton orgId={real.orgId} />}
         {authEnabled && real?.orgId && (
@@ -495,7 +491,6 @@ export default function PortalPage() {
         entityName={real?.snapshot?.name ?? orgName ?? null} startupCard={startupCard} sessionLabel={sessionLabel}
         openStartup={openOrgId != null} onOpenStartup={openStartupOrg} onBackToPipeline={backToPipeline}
         initialTab={initialTab} initialEvaluationOrgId={initialEvaluationOrgId}
-        qaAccess={real?.qaAccess}
       />
     );
   }
@@ -594,18 +589,18 @@ export default function PortalPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Prompt 54 Bloco 0 — the "QA access" banner is gone on
-                purpose: the whole point of @ablute.pt QA sessions is to see
-                EXACTLY what a real investor sees, pixel for pixel. The
-                non-contamination guarantee (no document_views row, no
-                ticket-signal row visible to the founder, nothing in any
-                dashboard) still holds — it's just enforced server-side now
-                (is_ablute_developer() checks in each write route) instead
-                of being disclosed here. See DECISIONS.md for the full
-                audit of every write path this covers. */}
+            {/* Prompt 336 — @ablute.pt and nunomarujo@gmail.com are real
+                investors now: every write path this page drives (ticket
+                signal, Q&A, soft commits, document views, …) goes through
+                the same real tables as any other investor. The former
+                "QA access" banner and every server-side no-op-write guard
+                behind it are gone; is_test cohort exclusion (symmetric
+                MatchDeal deck, metrics/hype/top-matches) is what still
+                protects real founders/aggregates from genuinely test-
+                cohort accounts. */}
             {authEnabled && real?.snapshot && <SnapshotCard s={real.snapshot} />}
             {authEnabled && real?.orgId && (
-              <TicketSelector orgId={real.orgId} current={real.currentTicketSignal} qaAccess={real.qaAccess} />
+              <TicketSelector orgId={real.orgId} current={real.currentTicketSignal} />
             )}
             <p className="text-sm text-gray-500">Signed in as <b>{authEnabled ? sessionEmail : email}</b>{orgName ? <> · <b>{orgName}</b></> : ''}. You can see only the items granted to you.</p>
             {pendingNdaCount > 0 && (

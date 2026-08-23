@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { eligiblePipelineOrgIds } from './portal-access';
+import { eligiblePipelineOrgIds, eligibleOrgIds } from './portal-access';
 
 // Prompt 184 — REPLACES the Prompt 120/121 regression test this file used
 // to encode: eligibility used to be pinned to matchdeal_profiles.is_visible
@@ -105,5 +105,34 @@ describe('eligiblePipelineOrgIds', () => {
   it('accepts sectors_other in place of a taxonomy pick, same as isProfileGateComplete itself', async () => {
     const admin = fakeAdmin([completeOrg('org-other-sector', { sectors: [], sectors_other: 'Something niche' })]);
     expect(await eligiblePipelineOrgIds(admin, false)).toEqual(['org-other-sector']);
+  });
+});
+
+// Prompt 336 — @ablute.pt/nunomarujo@gmail.com are real investors now; the
+// domain-keyed "no real grant, fall back to your own org" bypass this
+// function used to have (is_ablute_developer()) is gone outright. With zero
+// active access_grants, the answer is empty for EVERY caller, no exceptions
+// — never a call to any RPC that could resurrect the old fallback.
+describe('eligibleOrgIds — no QA/domain fallback survives (Prompt 336)', () => {
+  function fakeGrantsAdmin(grants: { org_id: string; confirmed_at?: string | null; invited_email?: string | null; revoked_at?: string | null; expires_at?: string | null }[]) {
+    return {
+      from: (table: string) => {
+        if (table === 'access_grants') {
+          return { select: () => ({ is: () => ({ or: () => Promise.resolve({ data: grants }) }) }) };
+        }
+        throw new Error(`unexpected table ${table} — eligibleOrgIds must never touch org_members or rpc('is_ablute_developer') anymore`);
+      },
+      rpc: () => { throw new Error('eligibleOrgIds must never call an RPC anymore'); },
+    } as unknown as SupabaseClient;
+  }
+
+  it('returns empty with zero grants — no org_members fallback, no RPC call', async () => {
+    const admin = fakeGrantsAdmin([]);
+    expect(await eligibleOrgIds(admin, admin, 'user-1', 'someone@ablute.pt', null)).toEqual([]);
+  });
+
+  it('returns real granted orgs exactly like any other investor — same as activeGrantOrgIds alone', async () => {
+    const admin = fakeGrantsAdmin([{ org_id: 'org-real', invited_email: null, revoked_at: null, expires_at: null }]);
+    expect(await eligibleOrgIds(admin, admin, 'user-1', 'nunomarujo@ablute.pt', null)).toEqual(['org-real']);
   });
 });

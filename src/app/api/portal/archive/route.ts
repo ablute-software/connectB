@@ -43,9 +43,6 @@ export async function POST(req: Request) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
-
   const body = await req.json().catch(() => ({})) as { entryId?: string; archiveOrgId?: string; reason?: string };
 
   // Manual archive (Prompt 60 bullet 1's other trigger, alongside pass) —

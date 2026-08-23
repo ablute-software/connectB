@@ -52,9 +52,6 @@ export async function POST(req: Request) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: false, error: 'Test accounts cannot vouch.' }, { status: 403 });
-
   const { token } = await req.json().catch(() => ({})) as { token?: string };
   if (!token) return NextResponse.json({ ok: false, error: 'token is required.' }, { status: 400 });
 

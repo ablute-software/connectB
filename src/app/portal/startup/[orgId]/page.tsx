@@ -59,7 +59,6 @@ export default function StartupDossierPage() {
   const [reasonDraft, setReasonDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [qaToast, setQaToast] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authEnabled) { setSessionEmail(null); return; }
@@ -102,7 +101,7 @@ export default function StartupDossierPage() {
   function cancelConfirm() { setConfirming(null); setReasonDraft(''); }
 
   async function act(action: 'pass' | 'interest', reason?: string) {
-    setBusy(true); setActionError(null); setQaToast(null);
+    setBusy(true); setActionError(null);
     try {
       const res = await fetch('/api/portal/pipeline', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -113,7 +112,6 @@ export default function StartupDossierPage() {
         setActionError(body.error ?? 'Something went wrong — please try again.');
       } else {
         setConfirming(null); setReasonDraft('');
-        if (body.qa) setQaToast('QA session — action simulated, nothing recorded.');
       }
       load();
     } finally { setBusy(false); }
@@ -224,7 +222,6 @@ export default function StartupDossierPage() {
         </div>
 
         {actionError && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
-        {qaToast && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{qaToast}</p>}
 
         <div className="mt-2">
           {card.status === 'passed' ? (

@@ -58,9 +58,6 @@ export async function POST(req: Request) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
-
   const body = await req.json().catch(() => ({})) as { orgId?: string; sectionKey?: string; reviewed?: boolean };
   if (!body.orgId || !body.sectionKey || typeof body.reviewed !== 'boolean') {
     return NextResponse.json({ ok: false, error: 'orgId, sectionKey, and reviewed are required.' }, { status: 400 });
@@ -72,10 +69,7 @@ export async function POST(req: Request) {
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   // BUG-SEG-2 — same missing-grant-check as GET, for the write side: an
   // authenticated investor could otherwise mark checklist sections
-  // reviewed/unreviewed against an org they have no access to. QA already
-  // short-circuited above (isAbluteQa), so plain activeGrantOrgIds (no QA
-  // fallback needed) matches this route's existing POST pattern for other
-  // /api/portal/* write routes (see archive/route.ts).
+  // reviewed/unreviewed against an org they have no access to.
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
   const orgIds = await activeGrantOrgIds(admin, email, person?.id ?? null);
   if (!orgIds.includes(body.orgId)) return NextResponse.json({ ok: false, error: 'No active access to this org.' }, { status: 403 });

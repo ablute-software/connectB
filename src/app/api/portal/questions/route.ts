@@ -33,8 +33,7 @@ export async function GET(req: Request) {
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (!isAbluteQa && !(await hasActiveGrant(admin, orgId, email, person?.id ?? null))) {
+  if (!(await hasActiveGrant(admin, orgId, email, person?.id ?? null))) {
     return NextResponse.json({ error: 'No active access to this org.' }, { status: 403 });
   }
 
@@ -63,9 +62,6 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({})) as { org_id?: string; question?: string };
   const { org_id, question } = body;
   if (!org_id || !question?.trim()) return NextResponse.json({ ok: false, error: 'org_id and question are required.' }, { status: 400 });
-
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();

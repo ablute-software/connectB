@@ -32,9 +32,6 @@ export async function POST(req: Request) {
   const email = user?.email?.trim().toLowerCase();
   if (!user || !email) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
-
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ ok: false, error: 'No linked investor entity yet.' }, { status: 403 });

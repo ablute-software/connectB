@@ -39,9 +39,6 @@ export async function POST(req: Request) {
   const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ ok: false, error: 'No linked investor profile yet.' }, { status: 403 });
 
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
-
   const { error } = await admin.from('matchdeal_profiles')
     .update({ plan_tier_requested: TIER_TO_MATCHDEAL[tier as InvestorPlanTier], plan_tier_requested_at: new Date().toISOString() })
     .eq('membership_id', member.id).eq('kind', 'investor');

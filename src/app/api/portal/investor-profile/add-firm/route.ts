@@ -26,13 +26,6 @@ export async function POST(req: Request) {
   const email = user?.email?.trim().toLowerCase();
   if (!user || !email) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  // @ablute.pt sessions never reach this screen in normal use (Bloco 2's
-  // GET-time bypass links them straight to the QA pseudo-entity) — this is
-  // defense in depth for a direct call, same no-op-write guard every other
-  // portal write route uses.
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
-
   const body = await req.json().catch(() => ({})) as { name?: string; website?: string };
   const name = body.name?.trim();
   const website = body.website?.trim() || null;

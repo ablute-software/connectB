@@ -42,9 +42,6 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({})) as { orgId?: string; note?: string; remindAt?: string };
   if (!body.orgId || !body.remindAt) return NextResponse.json({ ok: false, error: 'orgId and remindAt are required.' }, { status: 400 });
 
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
-
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
   const orgIds = await eligibleOrgIds(sb, admin, user.id, email, person?.id ?? null);
@@ -69,9 +66,6 @@ export async function PATCH(req: Request) {
 
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
-
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
 
   const body = await req.json().catch(() => ({})) as { id?: string };
   if (!body.id) return NextResponse.json({ ok: false, error: 'id is required.' }, { status: 400 });

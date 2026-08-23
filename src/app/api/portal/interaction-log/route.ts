@@ -70,9 +70,6 @@ export async function POST(req: Request) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
-
   if (!(await interactionLogAvailable())) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
 
   const body = await req.json().catch(() => ({})) as {

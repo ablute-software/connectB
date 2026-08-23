@@ -111,12 +111,6 @@ export async function POST(req: Request) {
     organizationId: orgId, organizationType: 'startup', eventType: `matchdeal_pipeline_${action}_selected`, sourceOfAction: 'manual',
   });
 
-  // Same non-contamination principle as every other portal write route:
-  // @ablute.pt QA sessions can exercise the UI but never write a real
-  // signal, swipe, or decision.
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
-
   const investorProfile = await resolveInvestorProfile(admin, user.id);
   if (!investorProfile) return NextResponse.json({ ok: false, error: 'No linked investor entity yet.' }, { status: 403 });
 

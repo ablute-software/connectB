@@ -20,18 +20,10 @@
 // item never reaches this response at all, and the client just shows a
 // count of how many are still pending.
 //
-// Prompt 48 — @ablute.pt QA bypass, so the team can see the Investor
-// Workspace working today without waiting on the real request→approval
-// flow (Prompt 41). Deliberately a FALLBACK, checked only when the normal
-// access_grants lookup finds nothing: a real grant for this email (however
-// that ever comes to exist) always wins, this path never overrides it. No
-// access_grants rows are fabricated — this reads folders/documents directly
-// for the @ablute.pt user's own org, entirely parallel to the grants table.
-// Read-only by construction (this route has no write path at all); the
-// response is flagged `qaAccess: true` so the client can label it and so it
-// stays structurally distinct from a real investor's session — nothing
-// here writes a document_views row either (see /api/portal/view), so it
-// can never surface as investor activity on any founder-facing dashboard.
+// Prompt 336 — the @ablute.pt/nunomarujo@gmail.com "QA bypass" fallback
+// that used to live here (Prompt 48) is gone: those accounts are real
+// investors now and go through the same access_grants lookup as anyone
+// else, no fallback, no `qaAccess` flag.
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
@@ -201,49 +193,12 @@ export async function GET(req: Request) {
     }));
   }
 
+  // Prompt 336 — the @ablute.pt/nunomarujo@gmail.com "no real grant, fall
+  // back to reading your own org's documents directly" bypass is gone:
+  // those accounts are real investors now, so an empty activeGrants list
+  // means exactly what it means for anyone else — nothing has been shared
+  // with them yet.
   if (activeGrants.length === 0) {
-    // QA fallback only when there is genuinely nothing real to show —
-    // .rpc runs on the session-scoped client (`sb`), not `admin`, because
-    // is_ablute_developer() reads auth.uid() and a service-role call has no
-    // user context to check. If this fails/returns false, falls through to
-    // the existing empty response unchanged.
-    const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-    if (isAbluteQa) {
-      const { data: membership } = await admin.from('org_members').select('org_id').eq('user_id', user!.id).limit(1).maybeSingle();
-      if (membership) {
-        const orgId = membership.org_id as string;
-        const { data: org } = await admin.from('orgs').select('name, sender_email').eq('id', orgId).single();
-        // Prompt 278 §4 — the kill switch reaches the QA fallback too: this
-        // branch bypasses resolveDocumentAccess entirely (reads every org
-        // document directly), so it's exactly the escape hatch the research
-        // for this prompt flagged as needing its own explicit guard.
-        if (await vaultFrozenForOrg(admin, orgId)) {
-          const snapshot = await buildSnapshot(admin, orgId);
-          return NextResponse.json({
-            orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
-            pendingNdaCount: 0, folders: [], documents: [], sections: buildSections([], []),
-            pendingConfirmation, qaAccess: true, snapshot, orgId, currentTicketSignal: null,
-          });
-        }
-        const [{ data: allFolders }, { data: allDocs }] = await Promise.all([
-          admin.from('folders').select('id, name, portal_section').eq('org_id', orgId),
-          admin.from('documents').select('*').eq('org_id', orgId),
-        ]);
-        const documents = await Promise.all((allDocs ?? []).map((d) => toPortalDoc(admin, d)));
-        const snapshot = await buildSnapshot(admin, orgId);
-        const sections = buildSections(allFolders ?? [], documents);
-        return NextResponse.json({
-          orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
-          pendingNdaCount: 0, folders: allFolders ?? [], documents, sections,
-          pendingConfirmation, qaAccess: true, snapshot, orgId,
-          // Never populated for QA — the write route itself refuses to
-          // insert for is_ablute_developer() sessions (see
-          // /api/portal/ticket-signal), so there is nothing real to read
-          // back here either.
-          currentTicketSignal: null,
-        });
-      }
-    }
     return NextResponse.json({ orgName: null, pendingNdaCount: 0, folders: [], documents: [], pendingConfirmation });
   }
 

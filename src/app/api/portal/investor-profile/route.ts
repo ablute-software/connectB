@@ -22,28 +22,6 @@ import { countDistinctVoucherEntities } from '@/lib/investor-vouching';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
-// Identity verification Fase A (prompt 63), Bloco 2 — @ablute.pt sessions
-// never see the real "Which firm are you with?" search/match screen at
-// all: they're linked straight to the single fixed "ablute_ — Internal QA"
-// catalog row (migration 0063), clearly marked, pre-verified (it's a known
-// fixture, not a real trust question), never a fabricated real-looking VC.
-const QA_ENTITY_NAME = 'ablute_ — Internal QA';
-
-async function autoLinkQaSession(sb: SupabaseClient, admin: SupabaseClient, userId: string) {
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (!isAbluteQa) return null;
-  const { data: qaEntity } = await admin.from('catalog_entities').select('id').eq('name', QA_ENTITY_NAME).maybeSingle();
-  if (!qaEntity) return null;
-  // domain_verified stays false here on purpose — this isn't a real domain
-  // match, it's an internal bypass. The QA entity's own
-  // verification_status='verified' (migration 0063 seed) is what makes
-  // identity_status compute to 'verified', an honest audit trail either way.
-  const { data: member } = await admin.from('matchdeal_investor_members')
-    .upsert({ user_id: userId, catalog_entity_id: qaEntity.id, status: 'active' }, { onConflict: 'user_id,catalog_entity_id' })
-    .select('id, catalog_entity_id, domain_verified').single();
-  return member ?? null;
-}
-
 const EDITABLE = [
   'sectors', 'geographies', 'stages_invested', 'instruments', 'instrument_other',
   'ticket_min', 'ticket_max', 'lead_or_colead', 'country',
@@ -87,8 +65,7 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  let member = await resolveActiveInvestorMember(admin, user.id);
-  if (!member) member = await autoLinkQaSession(sb, admin, user.id);
+  const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ linked: false });
 
   const { data: entity } = await admin.from('catalog_entities').select('name, verification_status').eq('id', member.catalog_entity_id).maybeSingle();
@@ -135,13 +112,7 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  // Prompt 121 §2.2 — GET has had an autoLinkQaSession fallback since Fase
-  // A; POST never did. A QA session whose membership isn't persisted yet
-  // could load the form (GET auto-links) but got a silent 403 on Save if
-  // anything reset that link between the two requests — parity with GET
-  // closes that gap.
-  let member = await resolveActiveInvestorMember(admin, user.id);
-  if (!member) member = await autoLinkQaSession(sb, admin, user.id);
+  const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ ok: false, error: 'No linked investor entity yet.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;

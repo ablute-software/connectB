@@ -29,8 +29,7 @@ export async function GET(req: Request) {
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (!isAbluteQa && !(await hasActiveGrant(admin, orgId, email, person?.id ?? null))) {
+  if (!(await hasActiveGrant(admin, orgId, email, person?.id ?? null))) {
     return NextResponse.json({ error: 'No active access to this org.' }, { status: 403 });
   }
 

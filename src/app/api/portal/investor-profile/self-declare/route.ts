@@ -31,11 +31,6 @@ export async function POST(req: Request) {
   const email = user?.email?.trim().toLowerCase();
   if (!user || !email) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  // Same no-op-write guard as add-firm/route.ts — QA sessions never
-  // legitimately reach this screen, but defense in depth for a direct call.
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
-
   const body = await req.json().catch(() => ({})) as { ackText?: string };
   // The client must echo back the exact placeholder text it showed —
   // cheap defense against a future UI change silently sending a different

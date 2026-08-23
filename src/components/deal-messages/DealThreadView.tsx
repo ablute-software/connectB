@@ -82,7 +82,6 @@ export function DealThreadView({
   const [showAttach, setShowAttach] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [qaToast, setQaToast] = useState<string | null>(null);
   const listEndRef = useRef<HTMLDivElement>(null);
 
   function load() {
@@ -113,7 +112,7 @@ export function DealThreadView({
 
   async function send() {
     if (!body.trim() || sending) return;
-    setSending(true); setError(null); setQaToast(null);
+    setSending(true); setError(null);
     try {
       const res = await fetch(postUrl, {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -124,7 +123,6 @@ export function DealThreadView({
         setError(resBody.error ?? 'Something went wrong — please try again.');
       } else {
         setBody(''); setDraftLinks([]); setSelectedDocIds([]); setShowAttach(false);
-        if (resBody.qa) setQaToast('QA session — action simulated, nothing recorded.');
         load();
       }
     } finally { setSending(false); }
@@ -198,7 +196,6 @@ export function DealThreadView({
       </div>
 
       {error && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{error}</p>}
-      {qaToast && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{qaToast}</p>}
 
       <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
         <textarea value={body} onChange={(e) => setBody(e.target.value)} onKeyDown={onComposerKeyDown} rows={2}

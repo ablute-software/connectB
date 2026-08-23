@@ -46,12 +46,6 @@ export async function POST(req: Request) {
   const viewerBlock = await assertNotViewer(sb, req);
   if (viewerBlock) return viewerBlock;
 
-  // @ablute.pt sessions never enter the real trust graph, per the prompt's
-  // own non-negotiable — neither requesting nor (see confirm/route.ts)
-  // giving a reference counts for real.
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
-
   const body = await req.json().catch(() => ({})) as { targetEmail?: string };
   const targetEmail = body.targetEmail?.trim().toLowerCase();
   if (!targetEmail) return NextResponse.json({ ok: false, error: 'targetEmail is required.' }, { status: 400 });

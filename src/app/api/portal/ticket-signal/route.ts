@@ -31,14 +31,6 @@ export async function POST(req: Request) {
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-  // Prompt 54 Bloco 0/2 — @ablute.pt QA sessions can use the selector to
-  // test the UI, but the signal must never reach the founder or count in
-  // any metric. Same principle, same is_ablute_developer() check as
-  // /api/portal/view — checked here, at the write, not trusted to the
-  // client to simply not call this endpoint.
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
-
   // Confirm this session actually has active access to this org before
   // writing anything — an investor can only signal a ticket for a startup
   // whose data room they can actually see, not an arbitrary org_id.

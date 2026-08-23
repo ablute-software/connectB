@@ -26,9 +26,6 @@ export async function POST(req: Request) {
   const { org_id, amount_eur } = body;
   if (!org_id || !amount_eur || amount_eur <= 0) return NextResponse.json({ ok: false, error: 'org_id and a positive amount_eur are required.' }, { status: 400 });
 
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (isAbluteQa) return NextResponse.json({ ok: true, qa: true });
-
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
   const orParts = [`grantee_email.eq.${email}`, `invited_email.eq.${email}`];

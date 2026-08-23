@@ -147,11 +147,11 @@ export async function eligiblePipelineOrgIds(admin: SupabaseClient, viewerIsTest
 // for QA while the rest of the shell looks identical to a real investor's.
 // Read-only: falls back to the QA user's own org (org_members), never
 // fabricates a grant — every write route still refuses QA writes on its own.
+// Prompt 336 — the @ablute.pt "no real grant, fall back to your own org's
+// documents" bypass is gone: those accounts (and nunomarujo@gmail.com) are
+// real investors now and go through the same activeGrantOrgIds path as
+// anyone else. `sb`/`userId` stay as params so every call site doesn't need
+// updating, but neither is read here anymore.
 export async function eligibleOrgIds(sb: SupabaseClient, admin: SupabaseClient, userId: string, email: string, personId: string | null) {
-  const granted = await activeGrantOrgIds(admin, email, personId);
-  if (granted.length > 0) return granted;
-  const { data: isAbluteQa } = await sb.rpc('is_ablute_developer');
-  if (!isAbluteQa) return granted;
-  const { data: membership } = await admin.from('org_members').select('org_id').eq('user_id', userId).limit(1).maybeSingle();
-  return membership ? [membership.org_id as string] : [];
+  return activeGrantOrgIds(admin, email, personId);
 }
