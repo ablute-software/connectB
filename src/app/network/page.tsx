@@ -30,6 +30,25 @@ interface GroupListView { id: string; name: string; description: string | null; 
 interface GroupMemberDetailView { actorId: string; status: 'invited' | 'active' | 'left'; name: string; kind: 'founder' | 'investor' }
 interface GroupDetailView { id: string; name: string; description: string | null; kind: GroupListView['kind']; isOwner: boolean; ownerActorId: string; members: GroupMemberDetailView[] }
 
+// Prompt 318 — referrals.
+type ReferralState = 'pending_referred_consent' | 'pending_target_decision' | 'accepted' | 'declined_by_referred' | 'declined_by_target' | 'expired';
+interface ReferralView {
+  id: string; referrerActorId: string; referredOrgId: string; targetActorId: string; message: string;
+  effectiveState: ReferralState; referrerName: string; targetName: string;
+  isMineAsReferrer: boolean; isMineAsTarget: boolean; isMineAsReferred: boolean;
+}
+interface ReferralCandidate { actorId: string; orgId: string | null; name: string; kind: 'founder' | 'investor' }
+interface ReferralBootstrap {
+  ok: boolean; referrals?: ReferralView[]; reputation?: { sent: number; accepted: number };
+  eligibility?: { referredCandidates: ReferralCandidate[]; targetCandidates: ReferralCandidate[] };
+}
+const REFERRAL_STATE_LABEL: Record<ReferralState, string> = {
+  pending_referred_consent: 'Waiting for their consent to be shared',
+  pending_target_decision: 'Waiting for the investor to decide',
+  accepted: 'Accepted', declined_by_referred: 'Declined (by the startup)', declined_by_target: 'Declined',
+  expired: 'Expired',
+};
+
 interface NetworkBootstrap {
   available: boolean;
   myActorKind?: 'founder' | 'investor';
@@ -80,10 +99,13 @@ export default function NetworkPage() {
   const [openGroupId, setOpenGroupId] = useState<string | null>(null);
   const [groupDetail, setGroupDetail] = useState<GroupDetailView | null>(null);
   const [addMemberActorId, setAddMemberActorId] = useState('');
+  const [referralData, setReferralData] = useState<ReferralBootstrap | null>(null);
+  const [referralDraft, setReferralDraft] = useState<{ referredOrgId: string; targetActorId: string; message: string } | null>(null);
 
   function load() {
     fetch('/api/network').then((r) => r.json()).then(setState).catch(() => setState(null));
     fetch('/api/network/group').then((r) => r.json()).then((b) => setGroups(b.groups ?? [])).catch(() => setGroups([]));
+    fetch('/api/network/referral').then((r) => r.json()).then(setReferralData).catch(() => setReferralData(null));
   }
   useEffect(load, []);
 
@@ -147,6 +169,25 @@ export default function NetworkPage() {
       else fetch(`/api/network/group?groupId=${openGroupId}`).then((r) => r.json()).then((d) => setGroupDetail(d.group ?? null));
       setAddMemberActorId('');
       load();
+    }).finally(() => setBusy(false));
+  }
+
+  function respondToReferral(id: string, as: 'referred' | 'target', action: 'accept' | 'decline') {
+    setBusy(true); setError(null);
+    fetch('/api/network/referral/respond', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ referralId: id, as, action }),
+    }).then((r) => r.json()).then((b) => { if (!b.ok) setError(b.error); load(); }).finally(() => setBusy(false));
+  }
+
+  function sendReferral() {
+    if (!referralDraft || !referralDraft.referredOrgId || !referralDraft.targetActorId || !referralDraft.message.trim()) return;
+    setBusy(true); setError(null);
+    fetch('/api/network/referral', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ referredOrgId: referralDraft.referredOrgId, targetActorId: referralDraft.targetActorId, message: referralDraft.message.trim() }),
+    }).then((r) => r.json()).then((b) => {
+      if (!b.ok) { setError(b.error); return; }
+      setReferralDraft(null); load();
     }).finally(() => setBusy(false));
   }
 
@@ -239,6 +280,44 @@ export default function NetworkPage() {
               Create group
             </button>
             <button onClick={() => setCreatingGroup(false)} className="rounded-full border border-gray-300 px-3 py-1.5 text-xs text-gray-600">Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {referralDraft && (
+        <Modal onClose={() => setReferralDraft(null)}>
+          <h2 className="text-sm font-bold text-gray-800">Refer to an investor</h2>
+          <p className="mt-1 text-[11px] text-gray-400">
+            {state.myActorKind === 'founder'
+              ? 'They’ll be asked to consent before the investor sees anything.'
+              : 'The startup gets to decide whether the investor even hears about this, before anything is shared.'}
+          </p>
+          <div className="mt-2 space-y-2">
+            <select value={referralDraft.referredOrgId} onChange={(e) => setReferralDraft((d) => d && ({ ...d, referredOrgId: e.target.value }))}
+              className="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm">
+              <option value="">{state.myActorKind === 'founder' ? 'Which of your contacts…' : 'Which of your portfolio startups…'}</option>
+              {(referralData?.eligibility?.referredCandidates ?? []).map((c) => (
+                <option key={c.actorId} value={c.orgId ?? ''}>{c.name}</option>
+              ))}
+            </select>
+            <select value={referralDraft.targetActorId} onChange={(e) => setReferralDraft((d) => d && ({ ...d, targetActorId: e.target.value }))}
+              className="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm">
+              <option value="">…to which investor?</option>
+              {(referralData?.eligibility?.targetCandidates ?? []).map((c) => (
+                <option key={c.actorId} value={c.actorId}>{c.name}</option>
+              ))}
+            </select>
+            <textarea value={referralDraft.message} onChange={(e) => setReferralDraft((d) => d && ({ ...d, message: e.target.value }))}
+              rows={3} placeholder="Why this intro? (required)" className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+            <p className="text-[11px] text-gray-400">{referralData?.reputation?.sent ?? 0}/5 referrals used this month.</p>
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <button onClick={sendReferral}
+              disabled={busy || !referralDraft.referredOrgId || !referralDraft.targetActorId || !referralDraft.message.trim() || (referralData?.reputation?.sent ?? 0) >= 5}
+              className="rounded-full bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
+              Send referral
+            </button>
+            <button onClick={() => setReferralDraft(null)} className="rounded-full border border-gray-300 px-3 py-1.5 text-xs text-gray-600">Cancel</button>
           </div>
         </Modal>
       )}
@@ -378,6 +457,67 @@ export default function NetworkPage() {
             ))}
           </ul>
         )}
+      </Card>
+
+      <Card title={`Referrals${referralData?.reputation ? ` (${referralData.reputation.sent}/5 sent this month, ${referralData.reputation.accepted} accepted)` : ''}`} right={
+        <button onClick={() => setReferralDraft({ referredOrgId: '', targetActorId: '', message: '' })}
+          disabled={!referralData?.eligibility?.referredCandidates.length || !referralData?.eligibility?.targetCandidates.length}
+          className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
+          + Refer to an investor
+        </button>
+      }>
+        {(() => {
+          const referrals = referralData?.referrals ?? [];
+          const needsMyConsent = referrals.filter((r) => r.isMineAsReferred && r.effectiveState === 'pending_referred_consent');
+          const rest = referrals.filter((r) => !(r.isMineAsReferred && r.effectiveState === 'pending_referred_consent'));
+          return (
+            <div className="space-y-3">
+              {needsMyConsent.length > 0 && (
+                <div className="space-y-2 border-b border-gray-100 pb-3">
+                  <p className="text-[11px] font-medium text-gray-500">Waiting on you to decide what gets shared</p>
+                  {needsMyConsent.map((r) => (
+                    <div key={r.id} className="rounded-lg border border-gray-100 p-2.5">
+                      <p className="text-sm text-gray-800">{r.referrerName} wants to refer you to {r.targetName}</p>
+                      <p className="mt-1 text-xs italic text-gray-600">&ldquo;{r.message}&rdquo;</p>
+                      <p className="mt-1 text-[11px] text-gray-400">
+                        If you accept, {r.targetName} will see this referral (with {r.referrerName}&apos;s note) — nothing is shared until then.
+                      </p>
+                      <div className="mt-1.5 flex gap-1.5">
+                        <button onClick={() => respondToReferral(r.id, 'referred', 'accept')} disabled={busy}
+                          className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">Let it be shared</button>
+                        <button onClick={() => respondToReferral(r.id, 'referred', 'decline')} disabled={busy}
+                          className="rounded-full border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600">Decline</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {rest.length === 0 && needsMyConsent.length === 0 ? (
+                <p className="text-sm text-gray-400">No referrals yet.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {rest.map((r) => (
+                    <li key={r.id} className="rounded-lg border border-gray-100 p-2.5">
+                      <p className="text-sm text-gray-800">
+                        {r.isMineAsTarget ? `${r.referrerName} referred you a startup` : `${r.referrerName} → ${r.targetName}`}
+                      </p>
+                      {r.isMineAsTarget && <p className="mt-1 text-xs italic text-gray-600">&ldquo;{r.message}&rdquo;</p>}
+                      <p className="mt-1 text-[11px] text-gray-400">{REFERRAL_STATE_LABEL[r.effectiveState]}</p>
+                      {r.isMineAsTarget && r.effectiveState === 'pending_target_decision' && (
+                        <div className="mt-1.5 flex gap-1.5">
+                          <button onClick={() => respondToReferral(r.id, 'target', 'accept')} disabled={busy}
+                            className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">Accept</button>
+                          <button onClick={() => respondToReferral(r.id, 'target', 'decline')} disabled={busy}
+                            className="rounded-full border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600">Decline</button>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })()}
       </Card>
 
       <Card title="Suggestions">

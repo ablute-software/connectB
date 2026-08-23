@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   canonicalPair, canSendInvite, effectiveInviteStatus, computeSharedInvestorSuggestions, MAX_PENDING_INVITES_PER_ACTOR,
   computeSharedGroupSuggestions, mergeConnectionSuggestions, canCreateGroup, canAddGroupMember,
+  canCreateReferral, isDuplicateReferral, canSendReferral, isReferralVisibleToTarget, effectiveReferralState, referralReputation,
+  referralsVisibleToTarget, MAX_REFERRALS_PER_MONTH,
 } from './network';
 
 describe('canonicalPair — ordem canónica para a chave única de network_connections', () => {
@@ -200,5 +202,155 @@ describe('canAddGroupMember — só ligações, excepto investor_portfolio com i
   it('investor_portfolio: um founder (não investidor) nunca pode adicionar, mesmo com invested aparente', () => {
     const params = { groupKind: 'investor_portfolio' as const, ownerIsInvestor: false, activeConnectionActorIds: [], investedActorIdsForOwner: ['a3'], candidateActorId: 'a3' };
     expect(canAddGroupMember(params)).toBe(false);
+  });
+});
+
+describe('canCreateReferral — Prompt 318 §A, a mesma regra nas duas direcções', () => {
+  it('founder A → investidor X: precisa de invested COM X e ligação com B', () => {
+    expect(canCreateReferral({ referrerHasInvestedRelationship: true, otherPartyIsActiveConnection: true })).toBe(true);
+  });
+
+  it('sem invested verificado, nunca — mesmo com ligação', () => {
+    expect(canCreateReferral({ referrerHasInvestedRelationship: false, otherPartyIsActiveConnection: true })).toBe(false);
+  });
+
+  it('sem ligação com o outro lado, nunca — mesmo com invested verificado', () => {
+    expect(canCreateReferral({ referrerHasInvestedRelationship: true, otherPartyIsActiveConnection: false })).toBe(false);
+  });
+
+  it('investidor X → investidor Z: a mesma função, só troca quem é "invested" e quem é "ligação"', () => {
+    // X invested B (referrerHasInvestedRelationship), Z é ligação de X (otherPartyIsActiveConnection).
+    expect(canCreateReferral({ referrerHasInvestedRelationship: true, otherPartyIsActiveConnection: true })).toBe(true);
+  });
+});
+
+describe('isDuplicateReferral — um segundo pedido só depois do primeiro terminar', () => {
+  it('bloqueia enquanto existir um pending_referred_consent, pending_target_decision ou accepted para o par', () => {
+    expect(isDuplicateReferral(['pending_referred_consent'])).toBe(true);
+    expect(isDuplicateReferral(['pending_target_decision'])).toBe(true);
+    expect(isDuplicateReferral(['accepted'])).toBe(true);
+  });
+
+  it('permite depois de recusado por qualquer lado', () => {
+    expect(isDuplicateReferral(['declined_by_referred'])).toBe(false);
+    expect(isDuplicateReferral(['declined_by_target'])).toBe(false);
+  });
+
+  it('sem histórico nenhum para o par, nunca é duplicado', () => {
+    expect(isDuplicateReferral([])).toBe(false);
+  });
+});
+
+describe('canSendReferral — tecto mensal', () => {
+  it('permite abaixo do máximo', () => {
+    expect(canSendReferral(0)).toBe(true);
+    expect(canSendReferral(MAX_REFERRALS_PER_MONTH - 1)).toBe(true);
+  });
+
+  it('bloqueia a partir do máximo, inclusive', () => {
+    expect(canSendReferral(MAX_REFERRALS_PER_MONTH)).toBe(false);
+  });
+});
+
+describe('isReferralVisibleToTarget — a garantia central: B nunca visível ao alvo antes do consentimento', () => {
+  it('pending_referred_consent NUNCA é visível ao alvo — nem que a referência existe', () => {
+    expect(isReferralVisibleToTarget('pending_referred_consent')).toBe(false);
+  });
+
+  it('declined_by_referred também nunca é visível — B disse não, o alvo nunca sabe que existiu', () => {
+    expect(isReferralVisibleToTarget('declined_by_referred')).toBe(false);
+  });
+
+  it('pending_target_decision, accepted e declined_by_target são visíveis — o alvo já tem de decidir ou já decidiu', () => {
+    expect(isReferralVisibleToTarget('pending_target_decision')).toBe(true);
+    expect(isReferralVisibleToTarget('accepted')).toBe(true);
+    expect(isReferralVisibleToTarget('declined_by_target')).toBe(true);
+  });
+});
+
+describe('effectiveReferralState — expira por etapa, nunca reabre visibilidade ao alvo', () => {
+  const NOW = new Date('2026-08-23T12:00:00Z');
+
+  it('pending_referred_consent expira aos 14 dias sem resposta de B', () => {
+    const referral = { state: 'pending_referred_consent' as const, createdAt: '2026-08-01T00:00:00Z', referredDecidedAt: null };
+    expect(effectiveReferralState(referral, NOW)).toBe('expired');
+  });
+
+  it('pending_referred_consent dentro do prazo continua pending', () => {
+    const referral = { state: 'pending_referred_consent' as const, createdAt: '2026-08-20T00:00:00Z', referredDecidedAt: null };
+    expect(effectiveReferralState(referral, NOW)).toBe('pending_referred_consent');
+  });
+
+  it('pending_target_decision expira aos 14 dias sem resposta do alvo, a partir de referredDecidedAt', () => {
+    const referral = { state: 'pending_target_decision' as const, createdAt: '2026-07-01T00:00:00Z', referredDecidedAt: '2026-08-01T00:00:00Z' };
+    expect(effectiveReferralState(referral, NOW)).toBe('expired');
+  });
+
+  it('pending_target_decision dentro do prazo (desde referredDecidedAt, não desde createdAt) continua pending', () => {
+    const referral = { state: 'pending_target_decision' as const, createdAt: '2026-07-01T00:00:00Z', referredDecidedAt: '2026-08-20T00:00:00Z' };
+    expect(effectiveReferralState(referral, NOW)).toBe('pending_target_decision');
+  });
+
+  it('accepted/declined nunca são reinterpretados pelo prazo', () => {
+    expect(effectiveReferralState({ state: 'accepted', createdAt: '2026-01-01T00:00:00Z', referredDecidedAt: '2026-01-01T00:00:00Z' }, NOW)).toBe('accepted');
+    expect(effectiveReferralState({ state: 'declined_by_target', createdAt: '2026-01-01T00:00:00Z', referredDecidedAt: '2026-01-01T00:00:00Z' }, NOW)).toBe('declined_by_target');
+  });
+});
+
+describe('referralReputation — reputação simples, nunca comparável entre actores', () => {
+  it('conta só os próprios envios e aceites', () => {
+    const referrals = [
+      { referrerActorId: 'a1', state: 'accepted' as const },
+      { referrerActorId: 'a1', state: 'declined_by_target' as const },
+      { referrerActorId: 'a2', state: 'accepted' as const },
+    ];
+    expect(referralReputation(referrals, 'a1')).toEqual({ sent: 2, accepted: 1 });
+  });
+
+  it('actor sem referrals nenhuns devolve zeros, nunca undefined', () => {
+    expect(referralReputation([], 'a1')).toEqual({ sent: 0, accepted: 0 });
+  });
+});
+
+describe('referralsVisibleToTarget — prova exigida pelo prompt: o alvo NUNCA recebe uma linha pending_referred_consent', () => {
+  // Cenário real de ablute_: ablute_ (A, founder) já foi investida por um VC
+  // (X, o alvo desta referência) e refere a Caramel Biscuit (B) a X. Antes
+  // de B consentir, X não pode ver a linha — nem para provar que existe.
+  const ablute = 'actor-ablute';
+  const vc = 'actor-vc-x';
+  const caramelBiscuit = 'actor-caramel-biscuit';
+
+  it('uma referral ainda pending_referred_consent nunca aparece na vista do alvo', () => {
+    const rows = [{ id: 'r1', referrerActorId: ablute, targetActorId: vc, state: 'pending_referred_consent' as const }];
+    expect(referralsVisibleToTarget(rows, vc)).toEqual([]);
+  });
+
+  it('depois de B consentir (pending_target_decision), accepted, e declined_by_target, o alvo vê', () => {
+    const consented = { id: 'r1', referrerActorId: ablute, targetActorId: vc, state: 'pending_target_decision' as const };
+    const accepted = { id: 'r1', referrerActorId: ablute, targetActorId: vc, state: 'accepted' as const };
+    const declinedByTarget = { id: 'r1', referrerActorId: ablute, targetActorId: vc, state: 'declined_by_target' as const };
+    expect(referralsVisibleToTarget([consented], vc)).toEqual([consented]);
+    expect(referralsVisibleToTarget([accepted], vc)).toEqual([accepted]);
+    expect(referralsVisibleToTarget([declinedByTarget], vc)).toEqual([declinedByTarget]);
+  });
+
+  it('B recusar (declined_by_referred) fica tão invisível ao alvo como se nunca tivesse existido', () => {
+    const rows = [{ id: 'r1', referrerActorId: ablute, targetActorId: vc, state: 'declined_by_referred' as const }];
+    expect(referralsVisibleToTarget(rows, vc)).toEqual([]);
+  });
+
+  it('nunca devolve a linha de outro actor, mesmo que visível em estado', () => {
+    const rows = [{ id: 'r1', referrerActorId: ablute, targetActorId: caramelBiscuit, state: 'accepted' as const }];
+    expect(referralsVisibleToTarget(rows, vc)).toEqual([]);
+  });
+
+  it('filtra um conjunto misto, mantendo só as linhas visíveis deste alvo', () => {
+    const rows = [
+      { id: 'r1', referrerActorId: ablute, targetActorId: vc, state: 'pending_referred_consent' as const },
+      { id: 'r2', referrerActorId: ablute, targetActorId: vc, state: 'pending_target_decision' as const },
+      { id: 'r3', referrerActorId: caramelBiscuit, targetActorId: vc, state: 'accepted' as const },
+      { id: 'r4', referrerActorId: ablute, targetActorId: caramelBiscuit, state: 'accepted' as const },
+    ];
+    expect(referralsVisibleToTarget(rows, vc).map((r) => r.id)).toEqual(['r2', 'r3']);
   });
 });

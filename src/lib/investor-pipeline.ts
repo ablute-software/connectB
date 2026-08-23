@@ -8,6 +8,7 @@ import { activeGrantOrgIds, eligiblePipelineOrgIds, resolveInvestorCatalogEntity
 import { pipelineTestFlagAvailable } from './pipeline-test-flag-capability';
 import { roundValuationBasisAvailable } from './round-valuation-basis-capability';
 import { MATCHDEAL_TIER_TO_INVESTOR_PLAN, investorPlanRow } from './plans';
+import { resolveActorDisplays } from './network-db';
 
 const WAVE_SIZE = 8;
 const TRACKING_WINDOW_DAYS = 30;
@@ -93,22 +94,50 @@ async function testInvestorActorProfileIds(admin: SupabaseClient, actorProfileId
   );
 }
 
+// Prompt 318 — a THIRD relationship source, alongside grants/decisions: an
+// accepted My Network referral (network_referrals, state='accepted') that
+// named this investor as its target. accepted itself is durable consent —
+// no separate admissions-table write, network_referrals already IS the
+// record (Prompt 318's own explicit design preference). Resolves the
+// investor's own network_actors row from their matchdeal_profiles id (the
+// same identity every other My Network read keys off).
+async function acceptedReferralsForInvestor(admin: SupabaseClient, investorMatchdealProfileId: string) {
+  const { data: actorRow } = await admin.from('network_actors').select('id').eq('matchdeal_profile_id', investorMatchdealProfileId).maybeSingle();
+  const investorActorId = actorRow?.id as string | undefined;
+  if (!investorActorId) return { orgIds: [] as string[], referrerNameByOrgId: new Map<string, string>() };
+
+  const { data: accepted } = await admin.from('network_referrals')
+    .select('referred_org_id, referrer_actor_id').eq('target_actor_id', investorActorId).eq('state', 'accepted');
+  const rows = accepted ?? [];
+  const referrerNameByOrgId = new Map<string, string>();
+  if (rows.length > 0) {
+    const displays = await resolveActorDisplays(admin, [...new Set(rows.map((r) => r.referrer_actor_id as string))]);
+    for (const r of rows) {
+      const name = displays.get(r.referrer_actor_id as string)?.name;
+      if (name) referrerNameByOrgId.set(r.referred_org_id as string, name);
+    }
+  }
+  return { orgIds: rows.map((r) => r.referred_org_id as string), referrerNameByOrgId };
+}
+
 // P132-A — the ID-only half of the union, for callers (the POST action
 // route) that just need a membership check, not the full card data
 // getPipelineWaves builds. See that function's own header comment for the
 // full "why a union" reasoning; kept in sync with it deliberately (both
 // read the same three sources), not re-derived independently.
 export async function pipelineEligibleOrgIds(admin: SupabaseClient, userId: string, email: string, personId: string | null): Promise<string[]> {
-  const [granted, investorCatalogEntityId] = await Promise.all([
+  const [granted, investorCatalogEntityId, investorProfile] = await Promise.all([
     activeGrantOrgIds(admin, email, personId),
     resolveInvestorCatalogEntityId(admin, userId),
+    resolveInvestorProfile(admin, userId),
   ]);
   const viewerIsTest = await resolveViewerIsTest(admin, investorCatalogEntityId);
   const published = await eligiblePipelineOrgIds(admin, viewerIsTest);
   const { data: decisions } = investorCatalogEntityId
     ? await admin.from('investor_relationship_decisions').select('org_id').eq('investor_catalog_entity_id', investorCatalogEntityId)
     : { data: [] as { org_id: string }[] };
-  return [...new Set([...published, ...granted, ...(decisions ?? []).map((d) => d.org_id as string)])];
+  const { orgIds: referredOrgIds } = investorProfile ? await acceptedReferralsForInvestor(admin, investorProfile.id as string) : { orgIds: [] as string[] };
+  return [...new Set([...published, ...granted, ...(decisions ?? []).map((d) => d.org_id as string), ...referredOrgIds])];
 }
 
 export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient, userId: string, email: string) {
@@ -148,7 +177,9 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
 
   const viewerIsTest = await resolveViewerIsTest(admin, investorCatalogEntityId);
   const publishedOrgIds = await eligiblePipelineOrgIds(admin, viewerIsTest);
-  const orgIds = [...new Set([...publishedOrgIds, ...grantedOrgIdList, ...decidedOrgIds])];
+  const { orgIds: referredOrgIdsViaReferral, referrerNameByOrgId } = await acceptedReferralsForInvestor(admin, investorProfile.id as string);
+  const referredOrgIdsViaReferralSet = new Set(referredOrgIdsViaReferral);
+  const orgIds = [...new Set([...publishedOrgIds, ...grantedOrgIdList, ...decidedOrgIds, ...referredOrgIdsViaReferral])];
   const usualCoInvestors = (investorProfile as { usual_co_investors: string | null }).usual_co_investors;
   if (orgIds.length === 0) return { linked: true as const, waves: [], usualCoInvestors };
 
@@ -262,6 +293,12 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       // a wave number — deciding that is presentation, not eligibility.
       viaGrant: grantedOrgIds.has(org.id as string),
       viaDecision: decidedOrgIds.has(org.id as string),
+      // Prompt 318 — a My Network referral this investor accepted. Distinct
+      // label from "Invited" on purpose (Pedido C's own stated preference):
+      // this relationship came through a mutual contact, not the founder
+      // reaching out directly.
+      viaReferral: referredOrgIdsViaReferralSet.has(org.id as string),
+      referredByName: referrerNameByOrgId.get(org.id as string) ?? null,
       isArchived: archivedOrgIds.has(org.id as string),
     };
   }).sort((a, b) => b.matchScore - a.matchScore);
@@ -273,8 +310,8 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // Prompt 153 — nor to the monthlyCap admission gate below, same reasoning:
   // a real grant/decision is consent that already happened, not a
   // discovery-quota spend.
-  const relationshipCards = cards.filter((c) => c.viaGrant || c.viaDecision);
-  const discoveryCards = cards.filter((c) => !c.viaGrant && !c.viaDecision);
+  const relationshipCards = cards.filter((c) => c.viaGrant || c.viaDecision || c.viaReferral);
+  const discoveryCards = cards.filter((c) => !c.viaGrant && !c.viaDecision && !c.viaReferral);
 
   // Prompt 153 — monthlyCap (plans.ts, by investor plan tier) now limits
   // how many NEW discovery candidates this investor firm is ever admitted

@@ -176,3 +176,88 @@ export function canAddGroupMember(params: {
   }
   return params.activeConnectionActorIds.includes(params.candidateActorId);
 }
+
+// ---------------------------------------------------------------------------
+// Prompt 318 — referrals, the heart of the feature. Founder A (invested by
+// X) refers startup B (A's own connection) to X; investor X refers a
+// portfolio startup B to another investor Z in X's own network. Both
+// directions reduce to the exact same shape: the referrer has a VERIFIED
+// invested relationship with one side, and a normal active connection with
+// the other — one function, not two nearly-identical ones.
+export function canCreateReferral(params: { referrerHasInvestedRelationship: boolean; otherPartyIsActiveConnection: boolean }): boolean {
+  return params.referrerHasInvestedRelationship && params.otherPartyIsActiveConnection;
+}
+
+export type NetworkReferralState = 'pending_referred_consent' | 'pending_target_decision' | 'accepted' | 'declined_by_referred' | 'declined_by_target';
+
+// A referral for the same (referred org, target) pair is blocked while an
+// earlier one for that exact pair is still live — mirrored by a partial
+// unique DB index (migration 0212) for the same reason 316's pending-cap
+// trigger exists alongside canSendInvite: the DB is the real guarantee, this
+// is the same rule made independently testable.
+const LIVE_REFERRAL_STATES: NetworkReferralState[] = ['pending_referred_consent', 'pending_target_decision', 'accepted'];
+export function isDuplicateReferral(existingStatesForSamePair: NetworkReferralState[]): boolean {
+  return existingStatesForSamePair.some((s) => LIVE_REFERRAL_STATES.includes(s));
+}
+
+export const MAX_REFERRALS_PER_MONTH = 5;
+export function canSendReferral(sentThisCalendarMonth: number): boolean {
+  return sentThisCalendarMonth < MAX_REFERRALS_PER_MONTH;
+}
+
+// The central guarantee of this prompt, made an explicit ALLOWLIST rather
+// than a blocklist on purpose: a blocklist that only excludes
+// 'pending_referred_consent' would (and, mid-implementation, briefly did)
+// let a 'declined_by_referred' row leak to the target too — B saying no
+// must be exactly as invisible to the target as the request never having
+// existed ("controla o que X chega a ver"). Only these three states were
+// ever meant to reach the target's own view.
+const TARGET_VISIBLE_STATES: NetworkReferralState[] = ['pending_target_decision', 'accepted', 'declined_by_target'];
+export function isReferralVisibleToTarget(state: NetworkReferralState): boolean {
+  return TARGET_VISIBLE_STATES.includes(state);
+}
+
+// The route-level version of the same guarantee: given every referral row
+// naming this actor as target (raw, unfiltered — exactly what a bare
+// .eq('target_actor_id', ...) query would return), which of them the target
+// is actually allowed to receive in an API response. Pure — takes and
+// returns plain data, no DB — so this is unit-testable end to end, not just
+// via the underlying predicate: the required proof for this prompt is that
+// a referral still in 'pending_referred_consent' NEVER survives this filter,
+// not even to prove it exists.
+export function referralsVisibleToTarget<T extends { targetActorId: string; state: NetworkReferralState }>(
+  referrals: T[],
+  targetActorId: string,
+): T[] {
+  return referrals.filter((r) => r.targetActorId === targetActorId && isReferralVisibleToTarget(r.state));
+}
+
+// Each of the two stages gets its OWN 14-day clock (referred_decided_at
+// resets the second one) — same "read-time computed, never a stored value,
+// no cron needed" approach as 316's effectiveInviteStatus. Crucially, this
+// is a DISPLAY-only concept: it never changes what's visible to the
+// target (isReferralVisibleToTarget above checks the raw stored state,
+// which a referral stuck in 'pending_referred_consent' keeps forever even
+// once its clock has run out — B never consenting must stay invisible to
+// the target even after the window closes, not flip open on a technicality).
+export function effectiveReferralState(
+  referral: { state: NetworkReferralState; createdAt: string; referredDecidedAt: string | null },
+  now: Date,
+): NetworkReferralState | 'expired' {
+  if (referral.state === 'pending_referred_consent' && daysSince(referral.createdAt, now) >= INVITE_EXPIRY_DAYS) return 'expired';
+  if (referral.state === 'pending_target_decision' && referral.referredDecidedAt && daysSince(referral.referredDecidedAt, now) >= INVITE_EXPIRY_DAYS) return 'expired';
+  return referral.state;
+}
+
+function daysSince(iso: string, now: Date): number {
+  return (now.getTime() - new Date(iso).getTime()) / 86_400_000;
+}
+
+// Reputation (Pedido D) — live-computed from network_referrals alone, no
+// new table, never comparable between actors in the same response (the
+// anti-ranking rule): only ever "MY sent/accepted counts", read one actor
+// at a time.
+export function referralReputation(referrals: { referrerActorId: string; state: NetworkReferralState }[], actorId: string): { sent: number; accepted: number } {
+  const mine = referrals.filter((r) => r.referrerActorId === actorId);
+  return { sent: mine.length, accepted: mine.filter((r) => r.state === 'accepted').length };
+}

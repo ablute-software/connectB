@@ -365,7 +365,10 @@ export async function createGroup(admin: SupabaseClient, params: {
   return { ok: true, group, invited };
 }
 
-async function readInvestedActorIdsForOwnerInvestor(admin: SupabaseClient, ownerActorId: string): Promise<string[]> {
+// Exported for network-referrals-db.ts (Prompt 318): the identical "which
+// founder actors does THIS investor actor count as invested" resolution
+// investor_portfolio groups already needed.
+export async function readInvestedActorIdsForOwnerInvestor(admin: SupabaseClient, ownerActorId: string): Promise<string[]> {
   const { data: actor } = await admin.from('network_actors').select('matchdeal_profile_id').eq('id', ownerActorId).maybeSingle();
   if (!actor?.matchdeal_profile_id) return [];
   const { data: profile } = await admin.from('matchdeal_profiles').select('membership_id').eq('id', actor.matchdeal_profile_id).maybeSingle();

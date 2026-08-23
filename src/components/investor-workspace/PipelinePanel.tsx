@@ -42,6 +42,10 @@ interface Card {
   // published. Drives the "Invited" badge below instead of a wave number —
   // a relationship card was never subject to wave doseamento to begin with.
   viaGrant?: boolean; viaDecision?: boolean;
+  // Prompt 318 — a My Network referral this investor accepted. Its own
+  // badge ("Referred by X"), distinct from "Invited" — the founder never
+  // reached out directly, a mutual contact vouched for the intro.
+  viaReferral?: boolean; referredByName?: string | null;
   // Item 8 — same source of truth the Archive tab itself reads
   // (investor_archive_entries, reopened_at is null), not session-local
   // state, so the badge survives a reload just like everything else here.
@@ -530,6 +534,11 @@ export function PipelinePanel({
                         <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]">
                           Interested{fmtDecidedAt(c.decidedAt, c.decidedByMe)}
                         </span>
+                      ) : c.viaReferral ? (
+                        <span className="rounded-full bg-[#F0EBFA] px-2 py-1 text-[11px] font-medium text-[#6D28D9]"
+                          title={`Referred${c.referredByName ? ` by ${c.referredByName}` : ''} through your network — never wave-gated.`}>
+                          Referred{c.referredByName ? ` by ${c.referredByName}` : ''}
+                        </span>
                       ) : c.viaGrant || c.viaDecision ? (
                         <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]"
                           title="A real relationship already exists here — invited to the data room and/or already decided, never wave-gated.">
@@ -570,6 +579,8 @@ export function PipelinePanel({
                         <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500">Passed</span>
                       ) : c.status === 'interested' ? (
                         <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]">Interested{fmtDecidedAt(c.decidedAt, c.decidedByMe)}</span>
+                      ) : c.viaReferral ? (
+                        <span className="rounded-full bg-[#F0EBFA] px-2 py-1 text-[11px] font-medium text-[#6D28D9]">Referred{c.referredByName ? ` by ${c.referredByName}` : ''}</span>
                       ) : c.viaGrant || c.viaDecision ? (
                         <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]">Invited</span>
                       ) : (

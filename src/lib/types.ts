@@ -368,7 +368,7 @@ export interface Entity {
   // imports) and 'match_deal' (not wired yet) are always unlocked and
   // additional to the quota. Every entity that existed before this
   // migration is 'manual'.
-  source: 'catalog' | 'manual' | 'match_deal';
+  source: 'catalog' | 'manual' | 'match_deal' | 'investor_invite';
   // §1c(ii) — set by human review only, never inferred (prompt 42): this
   // entity has no proof of its own independent existence (no website/
   // email_domain/phone/address, or a source_url that documents something
@@ -1070,4 +1070,21 @@ export interface NetworkGroupMember {
   status: NetworkGroupMemberStatus;
   joinedAt?: string | null;
   createdAt: string;
+}
+
+// Prompt 318 — referrals. See network.ts's NetworkReferralState for the
+// state machine and the central "never visible to target before referred
+// consent" guarantee.
+export type NetworkReferralState = 'pending_referred_consent' | 'pending_target_decision' | 'accepted' | 'declined_by_referred' | 'declined_by_target';
+
+export interface NetworkReferral {
+  id: string;
+  referrerActorId: string;
+  referredOrgId: string;
+  targetActorId: string;
+  message: string;
+  state: NetworkReferralState;
+  createdAt: string;
+  referredDecidedAt?: string | null;
+  targetDecidedAt?: string | null;
 }
