@@ -15,6 +15,7 @@ import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { CompletenessBar } from './CompletenessBar';
 import { RoadmapCard } from './RoadmapCard';
 import { IdentityCard } from './IdentityCard';
+import { BadgesCard } from './BadgesCard';
 import { StartupTeamCard } from './StartupTeamCard';
 import { RoundCard } from './RoundCard';
 import { PreviousFundingCard } from '@/components/PreviousFundingCard';
@@ -64,6 +65,7 @@ export function CompanyPanel() {
           The redesigned Identity/Team/Round profile activates once migration 0037 is applied. Here&apos;s what&apos;s editable today.
         </p>
         <OrganisationCard />
+        <BadgesCard canEdit={canEdit} orgId={db.org.id} />
         <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
         <StartupAxisClassifications />
         <DemoResetCard />
@@ -83,6 +85,7 @@ export function CompanyPanel() {
         <IdentityCard canEdit={canEdit} missing={missing} flashId={flashId} />
       </div>
       <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
+      <BadgesCard canEdit={canEdit} orgId={db.org.id} />
       <div id="settings-round" data-tour-id="settings-round">
         <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
         {/* Prompt 212 §B.3 — logo a seguir a ronda actual, porque a pergunta

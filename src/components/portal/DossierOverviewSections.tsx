@@ -53,6 +53,10 @@ export interface Dossier {
   founderClarifications?: { category: ReviewCategory; text: string }[];
   roadmap?: { period_kind: RoadmapPeriodKind; period_year: number; period_quarter?: number; items: string[]; items_v2?: { text: string; category_id: string | null }[] }[];
   roadmapCategories?: { id: string; label: string; color: string; shape: string }[];
+  // Prompt 326 — already fully masked (projectBadgesForInvestor): disputed
+  // badges and internal fields (verification_note, evidence_document_id)
+  // never reach this shape at all.
+  badges?: { id: string; name: string; description: string | null; year: number | null; verificationStatus: 'unverified' | 'verified' }[];
 }
 
 export const CLARIFICATION_CAPTION: Record<ReviewCategory, string> = {
@@ -127,6 +131,27 @@ export function DossierOverviewSections({
           {overview?.founded_year && <span>Founded {overview.founded_year}</span>}
           {(overview?.hq_city || overview?.country) && <span>{[overview?.hq_city, overview?.country].filter(Boolean).join(', ')}</span>}
         </div>
+        {/* Prompt 326 Pedido E — verified (color) vs unverified (grayscale +
+            reduced opacity) is the whole point: never hide an unverified
+            claim, never invent confidence it hasn't earned. A disputed
+            badge is already absent from this array entirely (server-side,
+            projectBadgesForInvestor) — there is nothing to special-case
+            here for that state. */}
+        {dossier.badges && dossier.badges.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {dossier.badges.map((b) => (
+              <span key={b.id}
+                title={b.verificationStatus === 'verified' ? undefined : 'Not yet verified'}
+                className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                  b.verificationStatus === 'verified'
+                    ? 'border-cyan-200 bg-cyan-50 text-[#0E7490]'
+                    : 'border-gray-200 bg-gray-50 text-gray-400 opacity-60 grayscale'
+                }`}>
+                {b.name}{b.year ? ` (${b.year})` : ''}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Prompt 166 §D.4 — right after the About/summary block, before the

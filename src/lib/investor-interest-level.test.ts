@@ -185,6 +185,25 @@ describe('projectDossier — roadmap', () => {
   });
 });
 
+describe('projectDossier — badges (Prompt 326 Pedido E)', () => {
+  const BADGE = { id: 'b1', name: 'YCombinator W23', description: null, year: 2023, verificationStatus: 'verified' as const };
+
+  it('visible at level 0 — recommendation from the prompt itself, unlike overview/swot/roadmap', () => {
+    const result = projectDossier(0, FULL, false, null, null, null, [BADGE]);
+    expect(result.badges).toEqual([BADGE]);
+  });
+
+  it('absent entirely when there are none — never an empty array key', () => {
+    const result = projectDossier(0, FULL, false, null, null, null, []);
+    expect('badges' in result).toBe(false);
+  });
+
+  it('arg omitted entirely — absent, no throw', () => {
+    const result = projectDossier(1, FULL, false);
+    expect('badges' in result).toBe(false);
+  });
+});
+
 describe('projectIntroPitch — Prompt 325, visible at Discovery, absent key not empty value', () => {
   it('both filled — both keys present, trimmed', () => {
     const result = projectIntroPitch({ introProblem: '  Founders waste months on lists that ignore fit.  ', introSolution: 'We match by sector and stage automatically.' });

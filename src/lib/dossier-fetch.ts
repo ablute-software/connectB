@@ -18,6 +18,7 @@ import type {
 } from './investor-interest-level';
 import type { SwotData } from './types';
 import type { ReviewCategory } from './review-clarifications';
+import { projectBadgesForInvestor, type BadgePublic } from './company-badges';
 
 export interface DossierRawData {
   full: FullDossierData;
@@ -32,6 +33,11 @@ export interface DossierRawData {
   roadmap: { visible: boolean; milestones: RoadmapMilestoneFull[]; categories?: RoadmapCategoryFull[] } | null;
   roadmapToggleOn: boolean;
   founderClarifications: FounderClarificationFull[];
+  // Prompt 326 — fetched and projected regardless of level (Pedido E's own
+  // Level-0 recommendation): already the fully masked, investor-safe shape
+  // (projectBadgesForInvestor) — disputed badges and internal fields never
+  // reach this far.
+  badges: BadgePublic[];
 }
 
 // `investorContext` is null for a caller with no real investor on the other
@@ -171,5 +177,19 @@ export async function fetchDossierRawData(
     tractionDetailed, team, contactHistory, documentTitles,
   };
 
-  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications };
+  // Prompt 326 — fetched at EVERY level, same "not level-gated" treatment
+  // as the intro pitch (Prompt 325): badges are Discovery-visible by
+  // design. Projected through projectBadgesForInvestor immediately, not
+  // left for the caller — verification_note/evidence_document_id/disputed
+  // rows never leave this function at all.
+  const { data: badgeRows } = await admin.from('company_badges')
+    .select('id, name, description, year, verification_status').eq('org_id', orgId);
+  const badges = projectBadgesForInvestor(
+    (badgeRows ?? []).map((b) => ({
+      id: b.id as string, name: b.name as string, description: b.description as string | null,
+      year: b.year as number | null, verificationStatus: b.verification_status as 'unverified' | 'verified' | 'disputed',
+    })),
+  );
+
+  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications, badges };
 }

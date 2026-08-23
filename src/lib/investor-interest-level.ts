@@ -9,6 +9,7 @@
 // disagree). Levels 2/3 live in investor_interest_levels (migration 0131).
 import type { SwotData, RoadmapPeriodKind } from './types';
 import type { ReviewCategory } from './review-clarifications';
+import type { BadgePublic } from './company-badges';
 
 // Prompt 167 §C.5 — explicit field-by-field projection, same discipline as
 // FounderClarificationFull above: period_kind/period_year/period_quarter/
@@ -156,6 +157,15 @@ export function projectDossier(
   // yet still shows the (always-present) founding node, so an empty array
   // is a legitimate, real state to project, not a signal to omit the key.
   roadmap?: { visible: boolean; milestones: RoadmapMilestoneFull[]; categories?: RoadmapCategoryFull[] } | null,
+  // Prompt 326 Pedido E — same shape of exception as swot/roadmap above,
+  // but visible at EVERY level including 0 (the recommendation: badges are
+  // positive, non-sensitive claims, the same "reason to click Interested"
+  // purpose as Prompt 325's intro pitch). Already fully projected by the
+  // caller (projectBadgesForInvestor) BEFORE reaching here — disputed
+  // badges and internal fields (verification_note, evidence_document_id)
+  // never exist in this array at all, so there is nothing for this
+  // function to filter a second time.
+  badges?: BadgePublic[] | null,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { level };
   if (level >= 1) out.overview = full.overview;
@@ -164,6 +174,7 @@ export function projectDossier(
   // call site" discipline as the shareEmail gate below.
   if (level >= 1 && swot?.visible && swot.data) out.swot = swot.data;
   if (level >= 1 && founderClarifications && founderClarifications.length > 0) out.founderClarifications = founderClarifications;
+  if (badges && badges.length > 0) out.badges = badges;
   if (level >= 1 && roadmap?.visible) {
     out.roadmap = roadmap.milestones;
     // So viaja com o roadmap visivel — uma categoria sem marcos que a usem
