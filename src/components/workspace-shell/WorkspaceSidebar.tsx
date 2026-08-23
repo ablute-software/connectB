@@ -5,7 +5,7 @@
 // badge + sessionLabel + logout) are genuinely different content, not worth
 // modeling internals for.
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import type { WorkspaceNavItem } from './types';
 
 export function WorkspaceSidebar({ brandName, subtitle, items, afterItems, footer }: {
@@ -24,7 +24,7 @@ export function WorkspaceSidebar({ brandName, subtitle, items, afterItems, foote
         <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">{subtitle}</div>
       </div>
       <nav className="mt-1 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
-        {items.map((n) => {
+        {items.map((n, i) => {
           const className = `flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] transition ${
             n.active ? 'bg-[#0E7490] font-medium text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`;
           const inner = (
@@ -36,10 +36,21 @@ export function WorkspaceSidebar({ brandName, subtitle, items, afterItems, foote
               )}
             </>
           );
-          return n.href ? (
-            <Link key={n.key} href={n.href} data-tour-id={n.tourId} className={className}>{inner}</Link>
-          ) : (
-            <button key={n.key} onClick={n.onSelect} className={`w-full text-left ${className}`}>{inner}</button>
+          // Prompt 314 §B — a subtle divider wherever `group` changes between
+          // consecutive items. Founder-only in practice: the investor/guest
+          // shells never set `group`, so it stays undefined for every item
+          // there and this never fires (no visual change for them).
+          const prevGroup = i > 0 ? items[i - 1].group : undefined;
+          const showDivider = n.group !== undefined && prevGroup !== undefined && n.group !== prevGroup;
+          return (
+            <Fragment key={n.key}>
+              {showDivider && <div className="my-2 border-t border-gray-100" />}
+              {n.href ? (
+                <Link href={n.href} data-tour-id={n.tourId} className={className}>{inner}</Link>
+              ) : (
+                <button onClick={n.onSelect} className={`w-full text-left ${className}`}>{inner}</button>
+              )}
+            </Fragment>
           );
         })}
         {afterItems}

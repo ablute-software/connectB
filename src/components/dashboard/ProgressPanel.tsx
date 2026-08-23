@@ -1,10 +1,11 @@
 'use client';
-// Readiness & Train — Progress sub-tab (Prompt 312). Split out of Action
-// plan: the investability-over-time chart is the tool's clearest "this is
-// helping you improve, not just reporting where you stand today" signal, so
-// it gets its own tab between Train and History instead of living buried at
-// the bottom of Action plan. Pure relocation — the review_runs query and the
-// chart itself are unchanged from their prior home in ActionPlanPanel.tsx.
+// Dashboard — Progress sub-tab (Prompt 314 §A, supersedes Prompt 312 before
+// it shipped: Nuno moved this from a Readiness & Train sub-tab to the
+// Dashboard). The investability-over-time chart is the app's clearest "this
+// helps you improve with use" signal, so it belongs on the Dashboard, not
+// buried in a Readiness sub-tab. Pure relocation from
+// src/components/readiness/ActionPlanPanel.tsx — the review_runs query and
+// InvestabilityChart itself are unchanged.
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
@@ -16,7 +17,7 @@ function InvestabilityChart({ runs }: { runs: ReviewRunRow[] }) {
   const points = runs.filter((r): r is ReviewRunRow & { score: number } => r.score != null)
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
   if (points.length < 2) {
-    return <p className="text-xs text-gray-400">Run at least 2 investability reviews (Review tab) to see a trend here.</p>;
+    return <p className="text-xs text-gray-400">Run at least 2 investability reviews (Readiness & Train → Review) to see a trend here.</p>;
   }
   const W = 560, H = 120, PAD = 24;
   const xStep = (W - 2 * PAD) / (points.length - 1);

@@ -20,7 +20,6 @@ import { ReviewPanel } from './ReviewPanel';
 import { BlueprintPanel } from './BlueprintPanel';
 import { ActionPlanPanel } from './ActionPlanPanel';
 import { TrainPanel } from './TrainPanel';
-import { ProgressPanel } from './ProgressPanel';
 import { HistoryPanel } from './HistoryPanel';
 
 const TABS = [
@@ -30,10 +29,6 @@ const TABS = [
   { key: 'blueprint', label: 'Pitch Blueprint' },
   { key: 'plan', label: 'Action plan' },
   { key: 'train', label: 'Train' },
-  // Prompt 312 — o gráfico "Investability over time" ganhou separador
-  // próprio (antes vivia dentro de Action plan): é o sinal mais visível de
-  // que a ferramenta ajuda a melhorar com o uso, não só o estado actual.
-  { key: 'progress', label: 'Progress' },
   { key: 'history', label: 'History' },
 ];
 
@@ -85,7 +80,6 @@ function ReadinessInner() {
           {activeTab === 'blueprint' && <BlueprintPanel />}
           {activeTab === 'plan' && <ActionPlanPanel />}
           {activeTab === 'train' && <TrainPanel />}
-          {activeTab === 'progress' && <ProgressPanel />}
           {activeTab === 'history' && <HistoryPanel />}
         </div>
       </div>

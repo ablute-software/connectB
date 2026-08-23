@@ -71,25 +71,36 @@ type Me = {
 // here — see aboutLabel below.
 //
 // Prompt 115 Block B — "Readiness & Train" promoted from a Dashboard
-// separador to its own top-level entry, between Dashboard and Vault Data
-// Room. Gated on the companyCanon capability (the same gate the old
-// Dashboard tab used) via `requiresCapability` below — off means the entry
-// doesn't render at all, same as the tab used to just not appear.
-// P134-C — "Messages" added between Agenda and Dashboard: Sherlock
-// messaging threads with investors on the Pipeline. Its unread badge is
-// computed below from a real fetch (/api/founder/messages), not the local
-// demo store — this feature has no demo-mode equivalent, same as the rest
-// of the investor-workspace/messaging surface this session.
-const NAV: { href: string; label: string; icon: string; requiresCapability?: 'companyCanon' }[] = [
-  { href: '/pipeline', label: 'Pipeline', icon: '▤' },
-  { href: '/tasks', label: 'Tasks', icon: '☀' },
-  { href: '/agenda', label: 'Agenda', icon: '◔' },
-  { href: '/messages', label: 'Messages', icon: '✉' },
-  { href: '/dashboard', label: 'Dashboard', icon: '◈' },
-  { href: '/readiness', label: 'Readiness & Train', icon: '◎', requiresCapability: 'companyCanon' },
-  { href: '/documents', label: 'Vault Data Room', icon: '▣' },
-  { href: '/settings', label: 'about your company', icon: '⋯' },
-  { href: '/plans', label: 'Plans & billing', icon: '◇' },
+// separador to its own top-level entry. Gated on the companyCanon
+// capability (the same gate the old Dashboard tab used) via
+// `requiresCapability` below — off means the entry doesn't render at all,
+// same as the tab used to just not appear.
+// P134-C — "Messages": Sherlock messaging threads with investors on the
+// Pipeline. Its unread badge is computed below from a real fetch
+// (/api/founder/messages), not the local demo store — this feature has no
+// demo-mode equivalent, same as the rest of the investor-workspace/
+// messaging surface this session.
+//
+// Prompt 314 §B — reordered into 5 groups (Nuno's mockup), each rendered
+// with a subtle divider between them (WorkspaceSidebar). `group` is the
+// ONLY thing that changed about ordering here — hrefs/labels/icons/badges/
+// capability gates are all unchanged from before this prompt.
+//   1. about {org} · Vault Data Room
+//   2. Pipeline · Tasks · Agenda
+//   3. My Network (new, Prompt 314 §C) · Messages
+//   4. Dashboard · Readiness & Train
+//   5. Plans & billing (Help & support already follows via afterItems below)
+const NAV: { href: string; label: string; icon: string; requiresCapability?: 'companyCanon'; group: number }[] = [
+  { href: '/settings', label: 'about your company', icon: '⋯', group: 1 },
+  { href: '/documents', label: 'Vault Data Room', icon: '▣', group: 1 },
+  { href: '/pipeline', label: 'Pipeline', icon: '▤', group: 2 },
+  { href: '/tasks', label: 'Tasks', icon: '☀', group: 2 },
+  { href: '/agenda', label: 'Agenda', icon: '◔', group: 2 },
+  { href: '/network', label: 'My Network', icon: '⬡', group: 3 },
+  { href: '/messages', label: 'Messages', icon: '✉', group: 3 },
+  { href: '/dashboard', label: 'Dashboard', icon: '◈', group: 4 },
+  { href: '/readiness', label: 'Readiness & Train', icon: '◎', requiresCapability: 'companyCanon', group: 4 },
+  { href: '/plans', label: 'Plans & billing', icon: '◇', group: 5 },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {
@@ -209,7 +220,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     return {
       key: n.href, href: n.href, icon: n.icon, active, badge,
       emphasize: isAbout, tourId: n.href === '/readiness' ? 'nav-readiness' : undefined,
-      label: isAbout ? aboutLabel : n.label,
+      label: isAbout ? aboutLabel : n.label, group: n.group,
     };
   };
   const sidebarItems = visibleNav.map((n) => navItem(n, n.href === '/' ? path === '/' : !!path?.startsWith(n.href)));

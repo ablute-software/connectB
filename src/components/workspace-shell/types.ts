@@ -25,4 +25,9 @@ export interface WorkspaceNavItem {
   // load-bearing for a tour mounted on a different page entirely, not
   // decorative — see the 'nav-readiness' anchor.
   tourId?: string;
+  // Prompt 314 §B — founder sidebar grouping (WorkspaceSidebar renders a
+  // subtle divider wherever this number changes between consecutive items).
+  // Optional and unused by the investor/guest shells, which never set it —
+  // their sidebars render exactly as before, with no dividers.
+  group?: number;
 }
