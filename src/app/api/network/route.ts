@@ -1,18 +1,21 @@
-// Prompt 316 — My Network 1/9. GET bootstraps everything /network's page
+// Prompt 316/317 — My Network. GET bootstraps everything /network's page
 // needs: my connections/invites (resolved to display names — RLS on
 // network_actors deliberately only lets an actor read their OWN row, so
 // resolving the OTHER side of a connection/invite has to happen here,
-// service-role, not via a direct client select), and — founder actors only,
-// per Pedido B — shared-investor suggestions, gated on this org's own
-// network_discoverable opt-in.
+// service-role, not via a direct client select), and merged connection
+// suggestions from BOTH sources (316's shared-investor, gated on this org's
+// own network_discoverable opt-in; 317's shared-group, which needs no
+// separate opt-in — membership in a group is already consensual and only
+// ever visible to that group's own members).
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { networkAvailable } from '@/lib/network-capability';
 import {
   resolveActorId, resolveActorDisplays, readConnectionsForActor, readInvitesForActor, readSharedInvestorDeliveryRows,
+  readActiveGroupMembershipRows,
 } from '@/lib/network-db';
-import { computeSharedInvestorSuggestions, effectiveInviteStatus } from '@/lib/network';
+import { computeSharedInvestorSuggestions, computeSharedGroupSuggestions, mergeConnectionSuggestions, effectiveInviteStatus } from '@/lib/network';
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -41,22 +44,37 @@ export async function GET() {
   const sentVisible = invites.sent.filter((i) => effectiveInviteStatus(i, now) !== 'expired' || i.status !== 'pending');
   const inviteActorIds = [...receivedPending.map((i) => i.fromActorId), ...sentVisible.map((i) => i.toActorId)];
 
+  // Source 1 (316) — shared investor. Founder-only, and only once this org
+  // has opted into network_discoverable — a suggestion here would otherwise
+  // expose another org's own pipeline data (which investor invested in
+  // them) to someone who never consented to being found this way.
   let discoverable = false;
-  let suggestions: { otherOrgId: string; investorName: string }[] = [];
+  let sharedInvestorByActor: { otherActorId: string; investorName: string }[] = [];
   if (actor.kind === 'founder' && actor.orgId) {
     const { data: org } = await admin.from('orgs').select('network_discoverable').eq('id', actor.orgId).maybeSingle();
     discoverable = !!org?.network_discoverable;
     if (discoverable) {
       const rows = await readSharedInvestorDeliveryRows(admin);
-      suggestions = computeSharedInvestorSuggestions(rows, actor.orgId).map((s) => ({ otherOrgId: s.otherOrgId, investorName: s.investorName }));
+      const byOrg = computeSharedInvestorSuggestions(rows, actor.orgId);
+      const orgIds = byOrg.map((s) => s.otherOrgId);
+      const { data: actorsByOrg } = orgIds.length
+        ? await admin.from('network_actors').select('id, org_id').in('org_id', orgIds)
+        : { data: [] as { id: string; org_id: string }[] };
+      const actorIdByOrgId = new Map((actorsByOrg ?? []).map((a) => [a.org_id, a.id]));
+      sharedInvestorByActor = byOrg
+        .map((s) => ({ otherActorId: actorIdByOrgId.get(s.otherOrgId), investorName: s.investorName }))
+        .filter((s): s is { otherActorId: string; investorName: string } => !!s.otherActorId);
     }
   }
-  const suggestionOrgIds = suggestions.map((s) => s.otherOrgId);
-  const suggestionActors = suggestionOrgIds.length
-    ? await admin.from('network_actors').select('id, org_id').in('org_id', suggestionOrgIds)
-    : { data: [] as { id: string; org_id: string }[] };
-  const actorIdByOrgId = new Map((suggestionActors.data ?? []).map((a) => [a.org_id, a.id]));
-  const suggestionActorIds = [...actorIdByOrgId.values()];
+
+  // Source 2 (317) — shared group. No opt-in needed: belonging to a group
+  // is already something the actor consented to when accepting its invite.
+  const membershipRows = await readActiveGroupMembershipRows(admin);
+  const sharedGroup = computeSharedGroupSuggestions(membershipRows, actor.actorId)
+    .map((s) => ({ otherActorId: s.otherActorId, groupName: s.groupName }));
+
+  const merged = mergeConnectionSuggestions(sharedInvestorByActor, sharedGroup);
+  const suggestionActorIds = merged.map((m) => m.otherActorId);
 
   const displays = await resolveActorDisplays(admin, [...new Set([...otherActorIds, ...inviteActorIds, ...suggestionActorIds])]);
 
@@ -82,12 +100,8 @@ export async function GET() {
       return { id: i.id, toName: to?.name ?? 'Unknown', toKind: to?.kind ?? 'founder', status, expiresAt: i.expiresAt };
     }),
     pendingSentCount: sentVisible.filter((i) => effectiveInviteStatus(i, now) === 'pending').length,
-    suggestions: suggestions
-      .map((s) => {
-        const actorId = actorIdByOrgId.get(s.otherOrgId);
-        if (!actorId) return null;
-        return { actorId, name: displays.get(actorId)?.name ?? 'Unknown', investorName: s.investorName };
-      })
-      .filter((s): s is { actorId: string; name: string; investorName: string } => s !== null),
+    suggestions: merged.map((m) => ({
+      actorId: m.otherActorId, name: displays.get(m.otherActorId)?.name ?? 'Unknown', reasons: m.reasons,
+    })),
   });
 }

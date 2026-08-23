@@ -6,13 +6,20 @@ import 'server-only';
 // company-gaps.ts/company-knowledge-db.ts — no product rule lives here,
 // only reads and writes.
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { NetworkActorKind, NetworkConnection, NetworkInvite, NetworkInviteContextKind } from './types';
-import { canonicalPair, type DeliveryRow } from './network';
+import type { NetworkActorKind, NetworkConnection, NetworkInvite, NetworkInviteContextKind, NetworkGroup, NetworkGroupKind, NetworkGroupMember } from './types';
+import { canonicalPair, canCreateGroup, canAddGroupMember, type DeliveryRow, type GroupMembershipRow } from './network';
 
 export interface ResolvedActor {
   actorId: string;
   kind: NetworkActorKind;
   orgId?: string;
+  // Prompt 317 §B — an investor's catalog_entity_id (matchdeal_investor_members'
+  // own link, migration 0053), the same canonical identity a founder's
+  // catalog_deliveries row points back to. This is what lets
+  // readInvestedActorIdsFor resolve "which founders count THIS investor as
+  // invested", the eligibility signal investor_portfolio groups need —
+  // never populated for a founder actor.
+  investorCatalogEntityId?: string;
 }
 
 // Mirrors matchdeal_current_membership_ids()/matchdeal_current_profile_ids()
@@ -33,13 +40,15 @@ export async function resolveActorId(admin: SupabaseClient, userId: string): Pro
   }
 
   const { data: investorMember } = await admin.from('matchdeal_investor_members')
-    .select('id').eq('user_id', userId).eq('status', 'active').maybeSingle();
+    .select('id, catalog_entity_id').eq('user_id', userId).eq('status', 'active').maybeSingle();
   if (investorMember) {
     const { data: profile } = await admin.from('matchdeal_profiles')
       .select('id').eq('membership_id', investorMember.id).eq('kind', 'investor').maybeSingle();
     if (profile) {
       const { data: actor } = await admin.from('network_actors').select('id').eq('matchdeal_profile_id', profile.id).maybeSingle();
-      if (actor) return { actorId: actor.id as string, kind: 'investor' };
+      if (actor) {
+        return { actorId: actor.id as string, kind: 'investor', investorCatalogEntityId: investorMember.catalog_entity_id as string };
+      }
     }
   }
   return null;
@@ -106,6 +115,7 @@ function mapInvite(row: Record<string, unknown>): NetworkInvite {
     expiresAt: row.expires_at as string,
     createdAt: row.created_at as string,
     respondedAt: (row.responded_at as string | null) ?? null,
+    groupId: (row.group_id as string | null) ?? null,
   };
 }
 
@@ -130,11 +140,11 @@ export async function countPendingInvitesFrom(admin: SupabaseClient, actorId: st
 }
 
 export async function createInvite(admin: SupabaseClient, params: {
-  fromActorId: string; toActorId: string; contextKind: NetworkInviteContextKind; contextRef?: string | null; message: string;
+  fromActorId: string; toActorId: string; contextKind: NetworkInviteContextKind; contextRef?: string | null; message: string; groupId?: string | null;
 }): Promise<{ ok: true; invite: NetworkInvite } | { ok: false; error: string }> {
   const { data, error } = await admin.from('network_invites').insert({
     from_actor_id: params.fromActorId, to_actor_id: params.toActorId,
-    context_kind: params.contextKind, context_ref: params.contextRef ?? null, message: params.message,
+    context_kind: params.contextKind, context_ref: params.contextRef ?? null, message: params.message, group_id: params.groupId ?? null,
   }).select('*').single();
   if (error) {
     // The DB trigger raises this exact message on the 5-pending cap — see
@@ -161,6 +171,19 @@ export async function respondToInvite(
   if (updateError) return { ok: false, error: updateError.message };
 
   if (action === 'decline') return { ok: true };
+
+  // Prompt 317 — a group-join invite (group_id set) accepts into
+  // network_group_members instead of network_connections: joining a group
+  // is membership, never an implicit 1:1 connection with its owner.
+  if (invite.group_id) {
+    const { error: memberError } = await admin.from('network_group_members')
+      .upsert(
+        { group_id: invite.group_id, actor_id: invite.to_actor_id, added_by_actor_id: invite.from_actor_id, status: 'active', joined_at: new Date().toISOString() },
+        { onConflict: 'group_id,actor_id' },
+      );
+    if (memberError) return { ok: false, error: memberError.message };
+    return { ok: true };
+  }
 
   const [actorLowId, actorHighId] = canonicalPair(invite.from_actor_id as string, invite.to_actor_id as string);
   const { data: connection, error: connectionError } = await admin.from('network_connections')
@@ -209,4 +232,200 @@ export async function readSharedInvestorDeliveryRows(admin: SupabaseClient): Pro
       entityStatus: r.entities!.status,
       orgDiscoverable: r.orgs!.network_discoverable,
     }));
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 317 — groups.
+export async function readActiveConnectionActorIds(admin: SupabaseClient, actorId: string): Promise<string[]> {
+  const connections = await readConnectionsForActor(admin, actorId);
+  return connections.filter((c) => c.status === 'active').map((c) => (c.actorLowId === actorId ? c.actorHighId : c.actorLowId));
+}
+
+// The investor_portfolio eligibility signal: which founder actors have THIS
+// investor (by their stable catalog_entity_id -- matchdeal_investor_members'
+// own link) marked as status='invested' in their pipeline. Same
+// catalog_deliveries join 316 already uses for the shared-investor
+// suggestion, read from the investor's own side this time.
+export async function readInvestedActorIdsForInvestor(admin: SupabaseClient, investorCatalogEntityId: string): Promise<string[]> {
+  const { data } = await admin.from('catalog_deliveries')
+    .select('org_id, entity_id, entities(status)')
+    .eq('catalog_id', investorCatalogEntityId).not('entity_id', 'is', null);
+  const investedOrgIds = ((data ?? []) as unknown as { org_id: string; entities: { status: string } | null }[])
+    .filter((r) => r.entities?.status === 'invested')
+    .map((r) => r.org_id);
+  if (investedOrgIds.length === 0) return [];
+  const { data: actors } = await admin.from('network_actors').select('id, org_id').in('org_id', investedOrgIds);
+  return (actors ?? []).map((a) => a.id as string);
+}
+
+function mapGroup(row: Record<string, unknown>): NetworkGroup {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    description: (row.description as string | null) ?? null,
+    kind: row.kind as NetworkGroupKind,
+    ownerActorId: row.owner_actor_id as string,
+    createdAt: row.created_at as string,
+  };
+}
+
+function mapGroupMember(row: Record<string, unknown>): NetworkGroupMember {
+  return {
+    id: row.id as string,
+    groupId: row.group_id as string,
+    actorId: row.actor_id as string,
+    addedByActorId: row.added_by_actor_id as string,
+    status: row.status as NetworkGroupMember['status'],
+    joinedAt: (row.joined_at as string | null) ?? null,
+    createdAt: row.created_at as string,
+  };
+}
+
+// Every group the actor either owns or is an active member of. RLS would
+// already scope this correctly for a direct client select, but this route
+// goes through the service-role admin client (consistent with the rest of
+// this adapter), so the WHERE clause here is what actually does the
+// scoping.
+export async function readGroupsForActor(admin: SupabaseClient, actorId: string): Promise<{ group: NetworkGroup; memberCount: number }[]> {
+  const { data: memberships } = await admin.from('network_group_members').select('group_id').eq('actor_id', actorId).eq('status', 'active');
+  const { data: owned } = await admin.from('network_groups').select('id').eq('owner_actor_id', actorId);
+  const groupIds = [...new Set([...(memberships ?? []).map((m) => m.group_id as string), ...(owned ?? []).map((o) => o.id as string)])];
+  if (groupIds.length === 0) return [];
+  const [{ data: groups }, { data: counts }] = await Promise.all([
+    admin.from('network_groups').select('*').in('id', groupIds),
+    admin.from('network_group_members').select('group_id').in('group_id', groupIds).eq('status', 'active'),
+  ]);
+  const countByGroup = new Map<string, number>();
+  for (const c of counts ?? []) countByGroup.set(c.group_id as string, (countByGroup.get(c.group_id as string) ?? 0) + 1);
+  return (groups ?? []).map((g) => ({ group: mapGroup(g), memberCount: countByGroup.get(g.id as string) ?? 0 }));
+}
+
+export interface GroupMemberView { actorId: string; status: NetworkGroupMember['status']; joinedAt: string | null }
+
+export async function readGroupDetail(admin: SupabaseClient, groupId: string, actorId: string): Promise<{
+  group: NetworkGroup; members: GroupMemberView[]; isOwner: boolean; isActiveMember: boolean;
+} | null> {
+  const { data: groupRow } = await admin.from('network_groups').select('*').eq('id', groupId).maybeSingle();
+  if (!groupRow) return null;
+  const group = mapGroup(groupRow);
+  const { data: memberRows } = await admin.from('network_group_members').select('*').eq('group_id', groupId).neq('status', 'left');
+  const members = (memberRows ?? []).map(mapGroupMember);
+  const isOwner = group.ownerActorId === actorId;
+  const isActiveMember = isOwner || members.some((m) => m.actorId === actorId && m.status === 'active');
+  if (!isOwner && !isActiveMember) return null;
+  return { group, members: members.map((m) => ({ actorId: m.actorId, status: m.status, joinedAt: m.joinedAt ?? null })), isOwner, isActiveMember };
+}
+
+// Creation validates eligibility for EVERY initial member with the exact
+// same canAddGroupMember rule an addition-after-creation uses (network.ts) --
+// one rule, two call sites, per the prompt's own "a mesma regra aplica-se
+// nos dois momentos". The owner becomes an 'active' member immediately
+// (no invite needed for oneself); everyone else gets a real invite through
+// the existing network_invites machine, so creating a group with many
+// members can hit the sender's own 5-pending cap -- a deliberate,
+// anti-spam-consistent consequence of reusing one state machine rather
+// than a silent bulk-add.
+export async function createGroup(admin: SupabaseClient, params: {
+  ownerActorId: string; ownerIsInvestor: boolean; name: string; description?: string | null; kind: NetworkGroupKind; initialMemberActorIds: string[];
+}): Promise<{ ok: true; group: NetworkGroup; invited: number } | { ok: false; error: string }> {
+  if (!canCreateGroup(params.kind, params.ownerIsInvestor)) {
+    return { ok: false, error: 'Only an investor actor can create an investor_portfolio group.' };
+  }
+
+  const activeConnectionActorIds = await readActiveConnectionActorIds(admin, params.ownerActorId);
+  const investedActorIdsForOwner = params.kind === 'investor_portfolio'
+    ? await readInvestedActorIdsForOwnerInvestor(admin, params.ownerActorId)
+    : [];
+
+  const ineligible = params.initialMemberActorIds.filter((candidateActorId) => !canAddGroupMember({
+    groupKind: params.kind, ownerIsInvestor: params.ownerIsInvestor, activeConnectionActorIds, investedActorIdsForOwner, candidateActorId,
+  }));
+  if (ineligible.length > 0) {
+    return { ok: false, error: params.kind === 'investor_portfolio' ? "One of these startups isn't marked invested by you yet." : 'You can only add existing connections.' };
+  }
+
+  const { data: groupRow, error: groupError } = await admin.from('network_groups')
+    .insert({ owner_actor_id: params.ownerActorId, name: params.name, description: params.description ?? null, kind: params.kind })
+    .select('*').single();
+  if (groupError || !groupRow) return { ok: false, error: groupError?.message ?? 'Could not create the group.' };
+  const group = mapGroup(groupRow);
+
+  await admin.from('network_group_members').insert({
+    group_id: group.id, actor_id: params.ownerActorId, added_by_actor_id: params.ownerActorId, status: 'active', joined_at: new Date().toISOString(),
+  });
+
+  let invited = 0;
+  for (const candidateActorId of params.initialMemberActorIds) {
+    const result = await createInvite(admin, {
+      fromActorId: params.ownerActorId, toActorId: candidateActorId, contextKind: 'shared_group',
+      contextRef: group.name, message: `Join ${group.name}`, groupId: group.id,
+    });
+    if (result.ok) invited++;
+  }
+  return { ok: true, group, invited };
+}
+
+async function readInvestedActorIdsForOwnerInvestor(admin: SupabaseClient, ownerActorId: string): Promise<string[]> {
+  const { data: actor } = await admin.from('network_actors').select('matchdeal_profile_id').eq('id', ownerActorId).maybeSingle();
+  if (!actor?.matchdeal_profile_id) return [];
+  const { data: profile } = await admin.from('matchdeal_profiles').select('membership_id').eq('id', actor.matchdeal_profile_id).maybeSingle();
+  if (!profile) return [];
+  const { data: member } = await admin.from('matchdeal_investor_members').select('catalog_entity_id').eq('id', profile.membership_id).maybeSingle();
+  if (!member?.catalog_entity_id) return [];
+  return readInvestedActorIdsForInvestor(admin, member.catalog_entity_id as string);
+}
+
+export async function addGroupMember(admin: SupabaseClient, params: {
+  groupId: string; ownerActorId: string; ownerIsInvestor: boolean; candidateActorId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: groupRow } = await admin.from('network_groups').select('*').eq('id', params.groupId).maybeSingle();
+  if (!groupRow) return { ok: false, error: 'Group not found.' };
+  const group = mapGroup(groupRow);
+  if (group.ownerActorId !== params.ownerActorId) return { ok: false, error: 'Only the group owner can add members.' };
+
+  const activeConnectionActorIds = await readActiveConnectionActorIds(admin, params.ownerActorId);
+  const investedActorIdsForOwner = group.kind === 'investor_portfolio' ? await readInvestedActorIdsForOwnerInvestor(admin, params.ownerActorId) : [];
+  const eligible = canAddGroupMember({
+    groupKind: group.kind, ownerIsInvestor: params.ownerIsInvestor, activeConnectionActorIds, investedActorIdsForOwner,
+    candidateActorId: params.candidateActorId,
+  });
+  if (!eligible) return { ok: false, error: group.kind === 'investor_portfolio' ? "This startup isn't marked invested by you." : 'You can only add an existing connection.' };
+
+  const result = await createInvite(admin, {
+    fromActorId: params.ownerActorId, toActorId: params.candidateActorId, contextKind: 'shared_group',
+    contextRef: group.name, message: `Join ${group.name}`, groupId: group.id,
+  });
+  return result.ok ? { ok: true } : { ok: false, error: result.error };
+}
+
+export async function renameGroup(admin: SupabaseClient, groupId: string, ownerActorId: string, name: string): Promise<{ ok: boolean; error?: string }> {
+  const { data, error } = await admin.from('network_groups').update({ name }).eq('id', groupId).eq('owner_actor_id', ownerActorId).select('id');
+  if (error) return { ok: false, error: error.message };
+  if (!data || data.length === 0) return { ok: false, error: 'Only the group owner can rename it.' };
+  return { ok: true };
+}
+
+export async function removeGroupMember(admin: SupabaseClient, groupId: string, ownerActorId: string, targetActorId: string): Promise<{ ok: boolean; error?: string }> {
+  const { data: group } = await admin.from('network_groups').select('owner_actor_id').eq('id', groupId).maybeSingle();
+  if (!group || group.owner_actor_id !== ownerActorId) return { ok: false, error: 'Only the group owner can remove a member.' };
+  const { error } = await admin.from('network_group_members').update({ status: 'left' }).eq('group_id', groupId).eq('actor_id', targetActorId);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+// Any member can leave, any time, "sem drama e sem notificar ninguém" --
+// no confirmation round-trip beyond the UI's own, no email, no signal to
+// the rest of the group.
+export async function leaveGroup(admin: SupabaseClient, groupId: string, actorId: string): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await admin.from('network_group_members').update({ status: 'left' }).eq('group_id', groupId).eq('actor_id', actorId);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+// The wide, unfiltered read the pure computeSharedGroupSuggestions
+// (network.ts) decides over -- every ACTIVE membership row across every
+// group, never scoped to one group in this query itself.
+export async function readActiveGroupMembershipRows(admin: SupabaseClient): Promise<GroupMembershipRow[]> {
+  const { data } = await admin.from('network_group_members')
+    .select('group_id, actor_id, network_groups(name)').eq('status', 'active');
+  return ((data ?? []) as unknown as { group_id: string; actor_id: string; network_groups: { name: string } | null }[])
+    .map((r) => ({ groupId: r.group_id, actorId: r.actor_id, groupName: r.network_groups?.name ?? 'Unknown group' }));
 }

@@ -30,7 +30,9 @@ export async function POST(req: Request) {
   const actor = await resolveActorId(admin, user.id);
   if (!actor) return NextResponse.json({ ok: false, error: 'No network profile found for your account.' }, { status: 403 });
 
-  const body = await req.json().catch(() => ({})) as { toActorId?: string; message?: string; contextRef?: string };
+  const body = await req.json().catch(() => ({})) as {
+    toActorId?: string; message?: string; contextRef?: string; contextKind?: 'shared_investor' | 'shared_group';
+  };
   const toActorId = body.toActorId?.trim();
   const message = body.message?.trim();
   if (!toActorId) return NextResponse.json({ ok: false, error: 'Missing toActorId.' }, { status: 400 });
@@ -43,7 +45,7 @@ export async function POST(req: Request) {
   }
 
   const result = await createInvite(admin, {
-    fromActorId: actor.actorId, toActorId, contextKind: 'shared_investor', contextRef: body.contextRef ?? null, message,
+    fromActorId: actor.actorId, toActorId, contextKind: body.contextKind ?? 'shared_investor', contextRef: body.contextRef ?? null, message,
   });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error });
   return NextResponse.json({ ok: true, invite: result.invite });

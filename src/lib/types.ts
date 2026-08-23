@@ -1044,4 +1044,30 @@ export interface NetworkInvite {
   expiresAt: string;
   createdAt: string;
   respondedAt?: string | null;
+  // Prompt 317 — set only for a group-join invite; accepting inserts into
+  // network_group_members instead of network_connections. Absent/null for
+  // every ordinary 1:1 connection invite (316).
+  groupId?: string | null;
+}
+
+export type NetworkGroupKind = 'accelerator_batch' | 'investor_portfolio' | 'topic';
+export type NetworkGroupMemberStatus = 'invited' | 'active' | 'left';
+
+export interface NetworkGroup {
+  id: string;
+  name: string;
+  description?: string | null;
+  kind: NetworkGroupKind;
+  ownerActorId: string;
+  createdAt: string;
+}
+
+export interface NetworkGroupMember {
+  id: string;
+  groupId: string;
+  actorId: string;
+  addedByActorId: string;
+  status: NetworkGroupMemberStatus;
+  joinedAt?: string | null;
+  createdAt: string;
 }

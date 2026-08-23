@@ -93,3 +93,86 @@ export function computeSharedInvestorSuggestions(rows: DeliveryRow[], viewingOrg
   }
   return suggestions;
 }
+
+// ---------------------------------------------------------------------------
+// Prompt 317 — groups. Same pure/adapter split: network-db.ts reads every
+// active membership row (wide, unfiltered) and this function decides which
+// pairs share a group.
+export interface GroupMembershipRow { groupId: string; groupName: string; actorId: string }
+export interface SharedGroupSuggestion { otherActorId: string; groupName: string; groupId: string }
+
+export function computeSharedGroupSuggestions(memberships: GroupMembershipRow[], viewingActorId: string): SharedGroupSuggestion[] {
+  const mine = memberships.filter((m) => m.actorId === viewingActorId);
+  if (mine.length === 0) return [];
+
+  const suggestions: SharedGroupSuggestion[] = [];
+  const seen = new Set<string>();
+  for (const my of mine) {
+    for (const other of memberships) {
+      if (other.actorId === viewingActorId || other.groupId !== my.groupId) continue;
+      const key = `${other.actorId}:${my.groupId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      suggestions.push({ otherActorId: other.actorId, groupName: my.groupName, groupId: my.groupId });
+    }
+  }
+  return suggestions;
+}
+
+export interface SuggestionReason { kind: 'shared_investor' | 'shared_group'; label: string }
+export interface MergedConnectionSuggestion { otherActorId: string; reasons: SuggestionReason[] }
+
+// The ONE suggestion engine both sources feed — Prompt 317's own explicit
+// instruction was not to build a second, parallel one. Both inputs must
+// already be actor-keyed by the caller: the shared-investor signal is
+// inherently org-keyed (catalog_deliveries has no other identity), so
+// network-db.ts resolves org id -> actor id before calling this, same as
+// it already does when shaping the API response.
+export function mergeConnectionSuggestions(
+  sharedInvestor: { otherActorId: string; investorName: string }[],
+  sharedGroup: { otherActorId: string; groupName: string }[],
+): MergedConnectionSuggestion[] {
+  const byActor = new Map<string, SuggestionReason[]>();
+  for (const s of sharedInvestor) {
+    const list = byActor.get(s.otherActorId) ?? [];
+    list.push({ kind: 'shared_investor', label: `Shares the investor ${s.investorName}` });
+    byActor.set(s.otherActorId, list);
+  }
+  for (const s of sharedGroup) {
+    const list = byActor.get(s.otherActorId) ?? [];
+    list.push({ kind: 'shared_group', label: `Both in ${s.groupName}` });
+    byActor.set(s.otherActorId, list);
+  }
+  return [...byActor.entries()].map(([otherActorId, reasons]) => ({ otherActorId, reasons }));
+}
+
+// ---------------------------------------------------------------------------
+// Group creation/membership eligibility. Deliberately conservative: for
+// accelerator_batch/topic, a candidate must already be one of the acting
+// actor's own active connections (Nuno's own rule: "cria-se uma vez
+// incorporando entidades já ligadas, e mais tarde podem ser adicionadas
+// novas" — the SAME requirement applies whether it's the founding member
+// list or a later addition, so this one function covers both moments).
+// investor_portfolio replaces that requirement entirely with the verified
+// invested-relationship signal (316's own shared-investor evidence, not a
+// second heuristic) — an investor doesn't need a pre-existing
+// network_connections row with each portfolio company to build this group.
+export type NetworkGroupKind = 'accelerator_batch' | 'investor_portfolio' | 'topic';
+
+export function canCreateGroup(kind: NetworkGroupKind, creatorIsInvestor: boolean): boolean {
+  if (kind === 'investor_portfolio') return creatorIsInvestor;
+  return true;
+}
+
+export function canAddGroupMember(params: {
+  groupKind: NetworkGroupKind;
+  ownerIsInvestor: boolean;
+  activeConnectionActorIds: string[];
+  investedActorIdsForOwner: string[];
+  candidateActorId: string;
+}): boolean {
+  if (params.groupKind === 'investor_portfolio') {
+    return params.ownerIsInvestor && params.investedActorIdsForOwner.includes(params.candidateActorId);
+  }
+  return params.activeConnectionActorIds.includes(params.candidateActorId);
+}
