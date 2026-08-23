@@ -7,6 +7,7 @@ import { Fragment, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ComparisonView } from './ComparisonView';
 import { InteractionLogDrawer } from './InteractionLogDrawer';
+import { ArchivePanel } from './ArchivePanel';
 import { FollowOnBadge } from '../FollowOnBadge';
 import type { FollowOnPayload } from '@/lib/network';
 
@@ -69,8 +70,13 @@ interface PipelineResponse { linked: boolean; waves?: Wave[]; usualCoInvestors?:
 
 const REASON_MAX_LEN = 1000;
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
-const STATUS_FILTERS: { value: 'all' | 'open' | 'interested' | 'passed'; label: string }[] = [
+type StatusFilterValue = 'all' | 'open' | 'interested' | 'passed' | 'archived';
+const STATUS_FILTERS: { value: StatusFilterValue; label: string }[] = [
   { value: 'all', label: 'All' }, { value: 'open', label: 'No decision' }, { value: 'interested', label: 'Interested' }, { value: 'passed', label: 'Passed' },
+  // Prompt 337 — the standalone "Archive" tab is gone; same content
+  // (ArchivePanel, unchanged), same source of truth, reached as a filter
+  // pill here instead — the investor shell no longer has a 9th tab for it.
+  { value: 'archived', label: 'Archived' },
 ];
 
 function fmtEur(n: number | null) {
@@ -116,11 +122,9 @@ function LockedWave({ hiddenCount, onReview }: { hiddenCount: number; onReview: 
 }
 
 export function PipelinePanel({
-  onOpenStartup, onGoToArchive, compareIds, setCompareIds, showComparison, setShowComparison,
+  onOpenStartup, compareIds, setCompareIds, showComparison, setShowComparison,
 }: {
   onOpenStartup: (orgId: string) => void;
-  // Item 8 — the archive success toast's "Go to Archive" link.
-  onGoToArchive: () => void;
   // Prompt 169 §B — lifted up to InvestorWorkspaceShell (was local state
   // here) so a selection made on this tab survives a trip to Evaluation
   // tools and back — that tab's own "Compare startups from your Pipeline →"
@@ -159,7 +163,17 @@ export function PipelinePanel({
   const [interactionLogOrgId, setInteractionLogOrgId] = useState<string | null>(null);
   const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
   const [remindedOrgId, setRemindedOrgId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'interested' | 'passed'>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
+  // Prompt 337 — count for the "Archived" filter pill. A separate small
+  // fetch rather than deriving from `data.waves` cards' own `isArchived`
+  // flag: an archived org can already have dropped out of the Pipeline's
+  // eligible set entirely (a different table, investor_archive_entries,
+  // not a subset of what's currently in waves), so counting only currently-
+  // visible cards would silently undercount.
+  const [archivedCount, setArchivedCount] = useState<number | null>(null);
+  useEffect(() => {
+    fetch('/api/portal/archive').then((r) => r.json()).then((d) => setArchivedCount((d.entries ?? []).length)).catch(() => setArchivedCount(null));
+  }, []);
   // Prompt 121 §2.3 — sector/geography/stage filters, composed with the
   // existing status filter and the wave doseamento: filtering only decides
   // which cards render WITHIN an already-unlocked (or already-locked) wave,
@@ -295,10 +309,19 @@ export function PipelinePanel({
   const waves = data.waves ?? [];
   const firstUnlocked = waves.find((w) => w.unlocked);
 
-  if (waves.length === 0) {
+  // Prompt 337 — an investor with zero active waves can still have real
+  // Archive entries (a different table, not a subset of `waves`); the
+  // Archived filter must stay reachable even in that state, not swallowed
+  // by this early "nothing yet" return.
+  if (waves.length === 0 && statusFilter !== 'archived') {
     return (
       <div className="mx-auto mt-16 max-w-sm rounded-lg border border-gray-200 bg-white p-6 text-center">
         <p className="text-sm text-gray-600">More startups joining — you&apos;ll be notified when a new match arrives.</p>
+        {archivedCount != null && archivedCount > 0 && (
+          <button onClick={() => setStatusFilter('archived')} className="mt-2 text-xs text-[#0E7490] hover:underline">
+            View Archived ({archivedCount}) →
+          </button>
+        )}
       </div>
     );
   }
@@ -383,10 +406,14 @@ export function PipelinePanel({
         {STATUS_FILTERS.map((f) => (
           <button key={f.value} onClick={() => setStatusFilter(f.value)}
             className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${statusFilter === f.value ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-            {f.label}
+            {f.label}{f.value === 'archived' && archivedCount != null ? ` (${archivedCount})` : ''}
           </button>
         ))}
       </div>
+      {statusFilter === 'archived' ? (
+        <ArchivePanel />
+      ) : (
+      <>
       {/* Prompt 121 §2.3 — sector/geography/stage filters. Composed with the
           status filter and the wave doseamento above (passesFilter), never
           bypassing it: a locked wave stays locked no matter what these
@@ -604,7 +631,7 @@ export function PipelinePanel({
                     {archivedToastOrgId === c.orgId && (
                       <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-2.5 py-1.5 text-xs text-gray-600">
                         <span>Archived — you&apos;ll find it in the Archive tab.</span>
-                        <button onClick={onGoToArchive} className="font-medium text-[#0E7490] hover:underline">Go to Archive →</button>
+                        <button onClick={() => setStatusFilter('archived')} className="font-medium text-[#0E7490] hover:underline">Go to Archive →</button>
                       </div>
                     )}
 
@@ -724,6 +751,8 @@ export function PipelinePanel({
       ))}
       </div>
       {!firstUnlocked && <p className="text-xs text-gray-400">All caught up — check back as new matches arrive.</p>}
+      </>
+      )}
       {interactionLogOrgId && (
         <InteractionLogDrawer orgId={interactionLogOrgId}
           orgName={allCards.find((c) => c.orgId === interactionLogOrgId)?.name ?? 'Startup'}

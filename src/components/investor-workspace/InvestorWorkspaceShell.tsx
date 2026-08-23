@@ -8,7 +8,6 @@ import { useEffect, useState } from 'react';
 import { InvestorProfilePanel, type ProfileResponse } from './InvestorProfilePanel';
 import { PipelinePanel } from './PipelinePanel';
 import { InvestorAgendaPanel } from './InvestorAgendaPanel';
-import { ArchivePanel } from './ArchivePanel';
 import { AccessGrantedPanel } from './AccessGrantedPanel';
 import { InvestorPlansPanel } from './InvestorPlansPanel';
 import { EvaluationToolsPanel } from './EvaluationToolsPanel';
@@ -27,7 +26,12 @@ import { SupportTicketsPanel, useSupportUnreadCount } from '@/components/Support
 import { InvestorActionsPanel, useInvestorActions } from '@/components/investor-workspace/InvestorActionsPanel';
 import { InvestorReminderPopup } from '@/components/portal/InvestorReminderPopup';
 
-export type Tab = 'pipeline' | 'actions' | 'about' | 'access' | 'agenda' | 'archive' | 'plans' | 'evaluation' | 'support';
+// Prompt 337 — 'archive' is no longer its own tab: ArchivePanel's content
+// moved into PipelinePanel as an "Archived" filter (same content, same
+// component, just reached a different way — see PipelinePanel's own
+// comment). The Tab union drops it; nothing else references 'archive' as
+// a tab value anymore.
+export type Tab = 'pipeline' | 'actions' | 'about' | 'access' | 'agenda' | 'plans' | 'evaluation' | 'support';
 
 const COMPLETENESS_GATE = 50;
 
@@ -159,20 +163,29 @@ export function InvestorWorkspaceShell({
   // lê count, e o painel recebe o resultado inteiro como prop.
   const investorActions = useInvestorActions();
 
-  const NAV: { key: Tab; label: string; icon: string }[] = [
-    { key: 'pipeline', label: 'Pipeline', icon: '▤' },
-    { key: 'actions', label: 'Actions required', icon: '⚑' },
-    { key: 'about', label: aboutLabel, icon: '⋯' },
-    // Prompt 121 §2.5 — new entry; access to documents used to live only
-    // inside the Pipeline tab's startup card, with no page of its own.
-    { key: 'access', label: 'Access granted', icon: '⚿' },
+  // Prompt 337 — 5 groups, mirroring the founder shell's own grouping
+  // grammar (shell.tsx's NAV, group: 1..5). WorkspaceSidebar already draws
+  // a divider wherever `group` changes between consecutive items — it was
+  // simply never set here before, so it never fired. Group 3 (My Network,
+  // Messages) and part of group 4 (Dashboard) are reserved for Prompt 340;
+  // ordering here already leaves their slots so 340 doesn't reorder
+  // anything else. MatchDeal is deliberately NOT a nav item — it only ever
+  // lives in the QR-pairing header affordance (WorkspaceHeader's
+  // matchDeal prop, below) per Nuno's explicit decision. 'archive' is gone
+  // as a tab — see PipelinePanel's own "Archived" filter.
+  const NAV: { key: Tab; label: string; icon: string; group: number }[] = [
+    { key: 'about', label: aboutLabel, icon: '⋯', group: 1 },
+    // Prompt 337/338 — renamed from "Access granted": grows into the full
+    // read-only mirror of the founder's own Vault Data Room in Prompt 338.
+    { key: 'access', label: 'Data room', icon: '⚿', group: 1 },
+    { key: 'pipeline', label: 'Pipeline', icon: '▤', group: 2 },
+    { key: 'actions', label: 'Actions required', icon: '⚑', group: 2 },
+    { key: 'agenda', label: 'Agenda', icon: '◔', group: 2 },
     // P131-B — Ownership calculator (promoted from a per-card button to a
     // real page) + Equity simulator, structured to grow with more tools.
-    { key: 'evaluation', label: 'Evaluation tools', icon: '⚖' },
-    { key: 'agenda', label: 'Agenda', icon: '◔' },
-    { key: 'archive', label: 'Archive', icon: '▣' },
-    { key: 'support', label: 'Support', icon: '☎' },
-    { key: 'plans', label: 'Plans & billing', icon: '◈' },
+    { key: 'evaluation', label: 'Evaluation tools', icon: '⚖', group: 4 },
+    { key: 'plans', label: 'Plans & billing', icon: '◈', group: 5 },
+    { key: 'support', label: 'Support', icon: '☎', group: 5 },
   ];
 
   const tourKey = TOUR_KEY_BY_TAB[tab];
@@ -181,7 +194,7 @@ export function InvestorWorkspaceShell({
   // `tab === key` regardless of which one is rendering, so there's no need
   // for two separately-computed arrays.
   const navItems: WorkspaceNavItem[] = NAV.map((n) => ({
-    key: n.key, icon: n.icon, label: n.label,
+    key: n.key, icon: n.icon, label: n.label, group: n.group,
     active: tab === n.key, emphasize: n.key === 'about',
     badge: n.key === 'support' && unreadSupport > 0 ? unreadSupport
       : n.key === 'actions' && investorActions.count > 0 ? investorActions.count : undefined,
@@ -288,7 +301,7 @@ export function InvestorWorkspaceShell({
                 </div>
               </div>
             ) : (
-              <PipelinePanel onOpenStartup={onOpenStartup} onGoToArchive={() => setTab('archive')}
+              <PipelinePanel onOpenStartup={onOpenStartup}
                 compareIds={compareIds} setCompareIds={setCompareIds} showComparison={showComparison} setShowComparison={setShowComparison} />
             )
           )}
@@ -297,7 +310,6 @@ export function InvestorWorkspaceShell({
           {tab === 'access' && <AccessGrantedPanel />}
           {tab === 'evaluation' && <EvaluationToolsPanel initialOrgId={evaluationTargetOrgId} onGoToPipelineComparison={goToPipelineComparison} />}
           {tab === 'agenda' && <InvestorAgendaPanel />}
-          {tab === 'archive' && <ArchivePanel />}
           {tab === 'support' && <SupportTicketsPanel />}
           {tab === 'plans' && <InvestorPlansPanel />}
         </main>
