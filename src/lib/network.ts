@@ -402,6 +402,51 @@ export function formatRoundMilestoneText(params: { orgName: string; percent: num
   return `${params.orgName} has secured ${params.percent}% of their ${roundPhrase}.`;
 }
 
+// ---------------------------------------------------------------------------
+// Prompt 323 — reciprocity: office hours + reverse scout. Both follow the
+// same SOFT reciprocity principle as the rest of this series: visibility
+// and reputation, never hard currency — no tradeable points, nothing that
+// looks like payment for favors. Hard currency would make this
+// transactional, exactly what 321's sales prohibition exists to prevent.
+
+// Pedido A — office hours. "Disappears from the feed automatically" on
+// expiry OR on exhausting every slot is the SAME condition, expressed once.
+// The actual atomicity guarantee (never claiming past slots_total under
+// concurrent claims) lives in the DB function network_claim_offer_slot
+// (migration 0217, row-locked with SELECT … FOR UPDATE) — this is the
+// read-side mirror, for feed filtering.
+export type NetworkOfferKind = 'deck_review' | 'intro' | 'advice' | 'other';
+
+export function isOfferActive(offer: { slotsTotal: number; slotsClaimed: number; expiresAt: string }, now: Date): boolean {
+  return offer.slotsClaimed < offer.slotsTotal && new Date(offer.expiresAt).getTime() > now.getTime();
+}
+
+// Pedido B — reverse scout. Eligibility EXCEPTION to 318's canCreateReferral:
+// a referral originating from an investor's own scout request does NOT
+// require the referrer to have a verified `invested` relationship with that
+// investor — the investor's own request already IS the implicit invitation.
+// The other half of 318's rule still applies unchanged: the referred
+// startup must still be the referrer's own active connection, never
+// invented, never from outside the network. This function is intentionally
+// separate from canCreateReferral (never rewritten there) — this is a
+// documented, additional entry point into eligibility, not a modification
+// of the original rule.
+export function canReferViaScoutRequest(referredIsActiveConnectionOfReferrer: boolean): boolean {
+  return referredIsActiveConnectionOfReferrer;
+}
+
+// Pedido C — soft reputation, always read ONE actor at a time (never a
+// ranked/sorted list, never comparable to another actor in the same
+// response) — same anti-ranking discipline as referralReputation (318).
+export function reciprocityReputation(
+  offers: { actorId: string }[], scoutReferrals: { referrerActorId: string }[], actorId: string,
+): { officeHoursOffered: number; startupsReferredViaScout: number } {
+  return {
+    officeHoursOffered: offers.filter((o) => o.actorId === actorId).length,
+    startupsReferredViaScout: scoutReferrals.filter((r) => r.referrerActorId === actorId).length,
+  };
+}
+
 // Reputation (Pedido D) — live-computed from network_referrals alone, no
 // new table, never comparable between actors in the same response (the
 // anti-ranking rule): only ever "MY sent/accepted counts", read one actor

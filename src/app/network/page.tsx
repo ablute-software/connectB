@@ -22,6 +22,7 @@ import { useStore } from '@/lib/store';
 import { Card, Toggle } from '@/components/ui';
 import { FollowOnBadge } from '@/components/FollowOnBadge';
 import type { FollowOnPayload } from '@/lib/network';
+import { ALL_SECTOR_NAMES } from '@/lib/sector-taxonomy';
 
 interface ConnectionView { id: string; otherActorId: string; otherName: string; otherKind: 'founder' | 'investor'; originContext: string | null; createdAt: string }
 interface InviteReceivedView { id: string; fromName: string; fromKind: 'founder' | 'investor'; contextRef: string | null; message: string; expiresAt: string }
@@ -56,6 +57,15 @@ interface PostView {
   structured: UpdateStructuredView | null; target: 'all' | 'group'; groupId: string | null; groupName: string | null; createdAt: string;
 }
 const POST_KIND_LABEL: Record<PostView['kind'], string> = { freeform: '', update: '📋 Update', milestone: '🎯 Milestone' };
+
+// Prompt 323 — reciprocity.
+type OfferKind = 'deck_review' | 'intro' | 'advice' | 'other';
+const OFFER_KIND_LABEL: Record<OfferKind, string> = { deck_review: 'Deck review', intro: 'Intros', advice: 'Advice', other: 'Other' };
+interface OfferView { id: string; actorId: string; actorName: string; kind: OfferKind; description: string; slotsTotal: number; slotsClaimed: number; expiresAt: string }
+interface ScoutRequestView {
+  id: string; investorActorId: string; investorName: string; sectors: string[]; stage: string | null; geography: string | null;
+  description: string; expiresAt: string; receivedReferrals: number | null;
+}
 interface ReferralCandidate { actorId: string; orgId: string | null; name: string; kind: 'founder' | 'investor' }
 interface ReferralBootstrap {
   ok: boolean; referrals?: ReferralView[]; reputation?: { sent: number; accepted: number };
@@ -78,6 +88,7 @@ interface NetworkBootstrap {
   invitesSent?: InviteSentView[];
   pendingSentCount?: number;
   suggestions?: SuggestionView[];
+  reciprocity?: { officeHoursOffered: number; startupsReferredViaScout: number };
 }
 
 const GROUP_KIND_LABEL: Record<GroupListView['kind'], string> = {
@@ -133,6 +144,19 @@ export default function NetworkPage() {
   const [composerGroupId, setComposerGroupId] = useState('');
   const [milestoneAvailable, setMilestoneAvailable] = useState(false);
   const [updateGap, setUpdateGap] = useState<{ shouldNudge: boolean; daysSince: number | null } | null>(null);
+  const [offers, setOffers] = useState<OfferView[]>([]);
+  const [offerComposerOpen, setOfferComposerOpen] = useState(false);
+  const [offerDraft, setOfferDraft] = useState<{ kind: OfferKind; description: string; slotsTotal: number; expiresInDays: number }>({
+    kind: 'advice', description: '', slotsTotal: 3, expiresInDays: 7,
+  });
+  const [claimNoteFor, setClaimNoteFor] = useState<string | null>(null);
+  const [claimNote, setClaimNote] = useState('');
+  const [scoutRequests, setScoutRequests] = useState<ScoutRequestView[]>([]);
+  const [scoutComposerOpen, setScoutComposerOpen] = useState(false);
+  const [scoutDraft, setScoutDraft] = useState<{ sectors: Set<string>; stage: string; geography: string; description: string; expiresInDays: number }>({
+    sectors: new Set(), stage: '', geography: '', description: '', expiresInDays: 14,
+  });
+  const [scoutReferDraft, setScoutReferDraft] = useState<{ scoutRequestId: string; referredActorId: string; message: string } | null>(null);
   const [excludingOpen, setExcludingOpen] = useState(false);
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -151,6 +175,8 @@ export default function NetworkPage() {
     fetch('/api/network/post').then((r) => r.json()).then((b) => setPosts(b.posts ?? null)).catch(() => setPosts(null));
     fetch('/api/network/milestone').then((r) => r.json()).then((b) => setMilestoneAvailable(!!b.available)).catch(() => setMilestoneAvailable(false));
     fetch('/api/network/update-gap').then((r) => r.json()).then((b) => setUpdateGap(b.ok ? { shouldNudge: b.shouldNudge, daysSince: b.daysSince } : null)).catch(() => setUpdateGap(null));
+    fetch('/api/network/offer').then((r) => r.json()).then((b) => setOffers(b.offers ?? [])).catch(() => setOffers([]));
+    fetch('/api/network/scout').then((r) => r.json()).then((b) => setScoutRequests(b.requests ?? [])).catch(() => setScoutRequests([]));
   }
   useEffect(load, []);
 
@@ -283,6 +309,66 @@ export default function NetworkPage() {
       .then((r) => r.json()).then((b) => { if (!b.ok) setError(b.error); load(); }).finally(() => setBusy(false));
   }
 
+  function submitOffer() {
+    if (!offerDraft.description.trim()) return;
+    setBusy(true); setError(null);
+    const expiresAt = new Date(Date.now() + offerDraft.expiresInDays * 86_400_000).toISOString();
+    fetch('/api/network/offer', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: offerDraft.kind, description: offerDraft.description.trim(), slotsTotal: offerDraft.slotsTotal, expiresAt }),
+    }).then((r) => r.json()).then((b) => {
+      if (!b.ok) { setError(b.error); return; }
+      setOfferComposerOpen(false); setOfferDraft({ kind: 'advice', description: '', slotsTotal: 3, expiresInDays: 7 });
+      load();
+    }).finally(() => setBusy(false));
+  }
+
+  function claimSlot(offerId: string) {
+    setBusy(true); setError(null);
+    fetch('/api/network/offer/claim', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ offerId, note: claimNote.trim() || undefined }),
+    }).then((r) => r.json()).then((b) => {
+      if (!b.ok) { setError(b.error); return; }
+      setClaimNoteFor(null); setClaimNote(''); load();
+    }).finally(() => setBusy(false));
+  }
+
+  function submitScoutRequest() {
+    if (!scoutDraft.description.trim()) return;
+    setBusy(true); setError(null);
+    const expiresAt = new Date(Date.now() + scoutDraft.expiresInDays * 86_400_000).toISOString();
+    fetch('/api/network/scout', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sectors: [...scoutDraft.sectors], stage: scoutDraft.stage || undefined, geography: scoutDraft.geography.trim() || undefined,
+        description: scoutDraft.description.trim(), expiresAt,
+      }),
+    }).then((r) => r.json()).then((b) => {
+      if (!b.ok) { setError(b.error); return; }
+      setScoutComposerOpen(false); setScoutDraft({ sectors: new Set(), stage: '', geography: '', description: '', expiresInDays: 14 });
+      load();
+    }).finally(() => setBusy(false));
+  }
+
+  function closeScoutRequest(requestId: string) {
+    setBusy(true); setError(null);
+    fetch('/api/network/scout', {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ requestId }),
+    }).then((r) => r.json()).then((b) => { if (!b.ok) setError(b.error); load(); }).finally(() => setBusy(false));
+  }
+
+  function submitScoutReferral() {
+    if (!scoutReferDraft || !scoutReferDraft.referredActorId || !scoutReferDraft.message.trim()) return;
+    setBusy(true); setError(null);
+    fetch('/api/network/scout/refer', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scoutRequestId: scoutReferDraft.scoutRequestId, referredActorId: scoutReferDraft.referredActorId, message: scoutReferDraft.message.trim() }),
+    }).then((r) => r.json()).then((b) => {
+      if (!b.ok) { setError(b.error); return; }
+      setScoutReferDraft(null); load();
+    }).finally(() => setBusy(false));
+  }
+
   function removePost(postId: string) {
     setBusy(true); setError(null);
     fetch(`/api/network/post?postId=${postId}`, { method: 'DELETE' })
@@ -327,6 +413,11 @@ export default function NetworkPage() {
           Founders and investors helping each other raise — never sales, partnerships, or prospecting. No open people search:
           every connection starts from verified, shared context.
         </p>
+        {state.reciprocity && (
+          <p className="mt-1 text-[11px] text-gray-400">
+            {state.reciprocity.officeHoursOffered} office hours offered · {state.reciprocity.startupsReferredViaScout} startups referred through scout requests
+          </p>
+        )}
       </div>
 
       {error && <p className="text-xs text-[#B00000]">{error}</p>}
@@ -532,6 +623,120 @@ export default function NetworkPage() {
         </Modal>
       )}
 
+      {offerComposerOpen && (
+        <Modal onClose={() => setOfferComposerOpen(false)}>
+          <h2 className="text-sm font-bold text-gray-800">Offer office hours</h2>
+          <p className="mt-1 text-[11px] text-gray-400">Concrete, time-limited help — visible to your connections only.</p>
+          <div className="mt-2 space-y-2">
+            <select value={offerDraft.kind} onChange={(e) => setOfferDraft((d) => ({ ...d, kind: e.target.value as OfferKind }))}
+              className="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm">
+              {(Object.keys(OFFER_KIND_LABEL) as OfferKind[]).map((k) => <option key={k} value={k}>{OFFER_KIND_LABEL[k]}</option>)}
+            </select>
+            <textarea value={offerDraft.description} onChange={(e) => setOfferDraft((d) => ({ ...d, description: e.target.value }))}
+              rows={2} placeholder="e.g. This week I'll review 3 decks" className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-gray-500">Slots
+                <input type="number" min={1} max={20} value={offerDraft.slotsTotal}
+                  onChange={(e) => setOfferDraft((d) => ({ ...d, slotsTotal: Math.max(1, Math.min(20, Number(e.target.value) || 1)) }))}
+                  className="ml-1.5 w-14 rounded border border-gray-300 px-1.5 py-1 text-xs" />
+              </label>
+              <label className="text-xs text-gray-500">Expires in
+                <input type="number" min={1} max={60} value={offerDraft.expiresInDays}
+                  onChange={(e) => setOfferDraft((d) => ({ ...d, expiresInDays: Math.max(1, Number(e.target.value) || 1) }))}
+                  className="ml-1.5 w-14 rounded border border-gray-300 px-1.5 py-1 text-xs" /> days
+              </label>
+            </div>
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <button onClick={submitOffer} disabled={busy || !offerDraft.description.trim()}
+              className="rounded-full bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
+              Publish
+            </button>
+            <button onClick={() => setOfferComposerOpen(false)} className="rounded-full border border-gray-300 px-3 py-1.5 text-xs text-gray-600">Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {claimNoteFor && (
+        <Modal onClose={() => { setClaimNoteFor(null); setClaimNote(''); }}>
+          <h2 className="text-sm font-bold text-gray-800">Claim a slot</h2>
+          <textarea value={claimNote} onChange={(e) => setClaimNote(e.target.value)} rows={2} autoFocus
+            placeholder="Optional note — e.g. what you'd like help with" className="mt-2 w-full rounded-lg border border-gray-300 p-2 text-sm" />
+          <div className="mt-2 flex gap-1.5">
+            <button onClick={() => claimSlot(claimNoteFor)} disabled={busy}
+              className="rounded-full bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
+              Claim
+            </button>
+            <button onClick={() => { setClaimNoteFor(null); setClaimNote(''); }} className="rounded-full border border-gray-300 px-3 py-1.5 text-xs text-gray-600">Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {scoutComposerOpen && (
+        <Modal onClose={() => setScoutComposerOpen(false)}>
+          <h2 className="text-sm font-bold text-gray-800">Scout for a startup</h2>
+          <p className="mt-1 text-[11px] text-gray-400">Visible to your connections only — founders can refer a startup they know.</p>
+          <div className="mt-2 space-y-2">
+            <div className="max-h-28 overflow-y-auto rounded-lg border border-gray-200 p-1.5">
+              {ALL_SECTOR_NAMES.map((s) => (
+                <label key={s} className="flex items-center gap-1.5 text-xs text-gray-700">
+                  <input type="checkbox" checked={scoutDraft.sectors.has(s)}
+                    onChange={(e) => setScoutDraft((d) => {
+                      const next = new Set(d.sectors);
+                      if (e.target.checked) next.add(s); else next.delete(s);
+                      return { ...d, sectors: next };
+                    })} />
+                  {s}
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input value={scoutDraft.stage} onChange={(e) => setScoutDraft((d) => ({ ...d, stage: e.target.value }))}
+                placeholder="Stage (e.g. pre-seed)" className="w-1/2 rounded-lg border border-gray-300 p-2 text-sm" />
+              <input value={scoutDraft.geography} onChange={(e) => setScoutDraft((d) => ({ ...d, geography: e.target.value }))}
+                placeholder="Geography (e.g. Portugal)" className="w-1/2 rounded-lg border border-gray-300 p-2 text-sm" />
+            </div>
+            <textarea value={scoutDraft.description} onChange={(e) => setScoutDraft((d) => ({ ...d, description: e.target.value }))}
+              rows={2} placeholder="What are you looking for?" className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+            <label className="text-xs text-gray-500">Expires in
+              <input type="number" min={1} max={90} value={scoutDraft.expiresInDays}
+                onChange={(e) => setScoutDraft((d) => ({ ...d, expiresInDays: Math.max(1, Number(e.target.value) || 1) }))}
+                className="ml-1.5 w-14 rounded border border-gray-300 px-1.5 py-1 text-xs" /> days
+            </label>
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <button onClick={submitScoutRequest} disabled={busy || !scoutDraft.description.trim()}
+              className="rounded-full bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
+              Publish
+            </button>
+            <button onClick={() => setScoutComposerOpen(false)} className="rounded-full border border-gray-300 px-3 py-1.5 text-xs text-gray-600">Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {scoutReferDraft && (
+        <Modal onClose={() => setScoutReferDraft(null)}>
+          <h2 className="text-sm font-bold text-gray-800">Refer a startup</h2>
+          <p className="mt-1 text-[11px] text-gray-400">Must be one of your own active connections.</p>
+          <div className="mt-2 space-y-2">
+            <select value={scoutReferDraft.referredActorId} onChange={(e) => setScoutReferDraft((d) => d && ({ ...d, referredActorId: e.target.value }))}
+              className="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm">
+              <option value="">Which of your connections?</option>
+              {connections.filter((c) => c.otherKind === 'founder').map((c) => <option key={c.otherActorId} value={c.otherActorId}>{c.otherName}</option>)}
+            </select>
+            <textarea value={scoutReferDraft.message} onChange={(e) => setScoutReferDraft((d) => d && ({ ...d, message: e.target.value }))}
+              rows={3} placeholder="Why this startup? (required)" className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <button onClick={submitScoutReferral} disabled={busy || !scoutReferDraft.referredActorId || !scoutReferDraft.message.trim()}
+              className="rounded-full bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
+              Send referral
+            </button>
+            <button onClick={() => setScoutReferDraft(null)} className="rounded-full border border-gray-300 px-3 py-1.5 text-xs text-gray-600">Cancel</button>
+          </div>
+        </Modal>
+      )}
+
       {openGroupId && groupDetail && (
         <Modal onClose={() => setOpenGroupId(null)}>
           <div className="flex items-start justify-between gap-2">
@@ -621,6 +826,77 @@ export default function NetworkPage() {
                   </div>
                 </div>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{p.body}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card title={`Office hours (${offers.length})`} right={
+        <button onClick={() => setOfferComposerOpen(true)} className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">
+          + Offer office hours
+        </button>
+      }>
+        {offers.length === 0 ? (
+          <p className="text-sm text-gray-400">No office hours offered right now — concrete, time-limited help from your connections shows up here.</p>
+        ) : (
+          <ul className="space-y-2">
+            {offers.map((o) => (
+              <li key={o.id} className="rounded-lg border border-gray-100 p-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">
+                      {o.actorName} <span className="text-[11px] font-normal text-gray-400">· {OFFER_KIND_LABEL[o.kind]}</span>
+                    </p>
+                    <p className="mt-1 text-sm text-gray-700">{o.description}</p>
+                    <p className="mt-1 text-[11px] text-gray-400">{o.slotsTotal - o.slotsClaimed} of {o.slotsTotal} slots left · expires {o.expiresAt.slice(0, 10)}</p>
+                  </div>
+                  {o.actorId !== state.myActorId && (
+                    <button onClick={() => setClaimNoteFor(o.id)} className="shrink-0 rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">
+                      Claim a slot
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card title={`Scout requests (${scoutRequests.length})`} right={
+        state.myActorKind === 'investor' && (
+          <button onClick={() => setScoutComposerOpen(true)} className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">
+            + New scout request
+          </button>
+        )
+      }>
+        {scoutRequests.length === 0 ? (
+          <p className="text-sm text-gray-400">No open scout requests right now.</p>
+        ) : (
+          <ul className="space-y-2">
+            {scoutRequests.map((r) => (
+              <li key={r.id} className="rounded-lg border border-gray-100 p-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">{r.investorName}</p>
+                    <p className="mt-1 text-sm text-gray-700">{r.description}</p>
+                    <p className="mt-1 text-[11px] text-gray-400">
+                      {[...r.sectors].join(', ') || 'Any sector'}{r.stage ? ` · ${r.stage}` : ''}{r.geography ? ` · ${r.geography}` : ''} · expires {r.expiresAt.slice(0, 10)}
+                    </p>
+                    {r.receivedReferrals != null && <p className="mt-1 text-[11px] text-gray-400">{r.receivedReferrals} referral{r.receivedReferrals === 1 ? '' : 's'} received through this request</p>}
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    {r.investorActorId !== state.myActorId && (
+                      <button onClick={() => setScoutReferDraft({ scoutRequestId: r.id, referredActorId: '', message: '' })}
+                        className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">
+                        Refer a startup
+                      </button>
+                    )}
+                    {r.investorActorId === state.myActorId && (
+                      <button onClick={() => closeScoutRequest(r.id)} disabled={busy} className="text-[11px] text-gray-400 hover:text-[#B00000]">Close</button>
+                    )}
+                  </div>
+                </div>
               </li>
             ))}
           </ul>

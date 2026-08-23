@@ -16,6 +16,7 @@ import {
   readActiveGroupMembershipRows,
 } from '@/lib/network-db';
 import { computeSharedInvestorSuggestions, computeSharedGroupSuggestions, mergeConnectionSuggestions, effectiveInviteStatus } from '@/lib/network';
+import { readReciprocityCounts } from '@/lib/network-reciprocity-db';
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -78,10 +79,13 @@ export async function GET() {
 
   const displays = await resolveActorDisplays(admin, [...new Set([...otherActorIds, ...inviteActorIds, ...suggestionActorIds])]);
 
+  const reciprocity = await readReciprocityCounts(admin, actor.actorId);
+
   return NextResponse.json({
     available: true,
     myActorId: actor.actorId,
     myActorKind: actor.kind,
+    reciprocity,
     discoverable,
     connections: activeConnections.map((c) => {
       const otherId = c.actorLowId === actor.actorId ? c.actorHighId : c.actorLowId;

@@ -7,6 +7,7 @@ import {
   canSignalFollowOn, isFollowOnActive, shapeFollowOnPayload, referralCarriesFollowOnBadge, FOLLOWON_VALIDITY_MONTHS,
   computePathfinderMatches, isPostVisibleToViewer,
   NETWORK_UPDATE_STRUCTURED_KEYS, lastUpdateGapCheck, UPDATE_GAP_REMINDER_DAYS, canShareRoundMilestone, formatRoundMilestoneText,
+  isOfferActive, canReferViaScoutRequest, reciprocityReputation,
 } from './network';
 import { computeRoundProgressPercent } from './round-progress';
 
@@ -582,5 +583,45 @@ describe('computeRoundProgressPercent — mesmo cálculo que RoundCard/portal j�
     expect(computeRoundProgressPercent(100, null)).toBeNull();
     expect(computeRoundProgressPercent(null, 100)).toBeNull();
     expect(computeRoundProgressPercent(100, 0)).toBeNull();
+  });
+});
+
+describe('isOfferActive — some do feed ao expirar OU ao esgotar slots, mesma condição', () => {
+  const NOW = new Date('2026-08-23T00:00:00Z');
+  const future = new Date(NOW); future.setUTCDate(future.getUTCDate() + 7);
+  const past = new Date(NOW); past.setUTCDate(past.getUTCDate() - 1);
+
+  it('activa com slots livres e prazo no futuro', () => {
+    expect(isOfferActive({ slotsTotal: 3, slotsClaimed: 1, expiresAt: future.toISOString() }, NOW)).toBe(true);
+  });
+
+  it('inactiva ao esgotar todos os slots, mesmo com prazo no futuro', () => {
+    expect(isOfferActive({ slotsTotal: 3, slotsClaimed: 3, expiresAt: future.toISOString() }, NOW)).toBe(false);
+  });
+
+  it('inactiva ao expirar, mesmo com slots livres', () => {
+    expect(isOfferActive({ slotsTotal: 3, slotsClaimed: 0, expiresAt: past.toISOString() }, NOW)).toBe(false);
+  });
+});
+
+describe('canReferViaScoutRequest — excepção documentada à elegibilidade do 318: não exige invested, exige ligação activa', () => {
+  it('permite quando a startup referida é ligação activa do founder que refere', () => {
+    expect(canReferViaScoutRequest(true)).toBe(true);
+  });
+  it('nega quando não é ligação activa — nunca inventada, nunca de fora da rede', () => {
+    expect(canReferViaScoutRequest(false)).toBe(false);
+  });
+});
+
+describe('reciprocityReputation — contagens simples do próprio, nunca comparáveis entre actores', () => {
+  it('conta só as ofertas e referências via scout do próprio actor', () => {
+    const offers = [{ actorId: 'a1' }, { actorId: 'a1' }, { actorId: 'a2' }];
+    const scoutReferrals = [{ referrerActorId: 'a1' }, { referrerActorId: 'a2' }, { referrerActorId: 'a2' }];
+    expect(reciprocityReputation(offers, scoutReferrals, 'a1')).toEqual({ officeHoursOffered: 2, startupsReferredViaScout: 1 });
+    expect(reciprocityReputation(offers, scoutReferrals, 'a2')).toEqual({ officeHoursOffered: 1, startupsReferredViaScout: 2 });
+  });
+
+  it('actor sem nenhuma actividade devolve zeros', () => {
+    expect(reciprocityReputation([], [], 'a1')).toEqual({ officeHoursOffered: 0, startupsReferredViaScout: 0 });
   });
 });
