@@ -50,7 +50,7 @@ export async function GET(req: Request) {
   // pick this in silence).
   const shareEmail = level >= 3;
 
-  const dossier = projectDossier(level, raw.full, shareEmail, raw.swot, raw.founderClarifications, raw.roadmap, raw.badges);
+  const dossier = projectDossier(level, raw.full, shareEmail, raw.swot, raw.founderClarifications, raw.roadmap, raw.badges, raw.miniPitch);
 
   return NextResponse.json({
     ok: true, level, dossier,

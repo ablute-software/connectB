@@ -19,6 +19,7 @@ import type {
 import type { SwotData } from './types';
 import type { ReviewCategory } from './review-clarifications';
 import { projectBadgesForInvestor, type BadgePublic } from './company-badges';
+import { projectMiniPitchForInvestor, type MiniPitchSlideProjected, type StoredMiniPitchSlide } from './mini-pitch';
 
 export interface DossierRawData {
   full: FullDossierData;
@@ -38,6 +39,13 @@ export interface DossierRawData {
   // (projectBadgesForInvestor) — disputed badges and internal fields never
   // reach this far.
   badges: BadgePublic[];
+  // Prompt 334 — null unless the founder has ACTIVATED a mini-pitch
+  // (org_mini_pitches.activated_at not null), same "not fetched-then-
+  // hidden" discipline as swot/roadmap/overview above: a draft the founder
+  // is still previewing is never queried here at all for the real investor
+  // route (level >= 1 investorContext callers); the founder's own preview
+  // route reads the draft separately, outside this function.
+  miniPitch: MiniPitchSlideProjected[] | null;
 }
 
 // `investorContext` is null for a caller with no real investor on the other
@@ -191,5 +199,19 @@ export async function fetchDossierRawData(
     })),
   );
 
-  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications, badges };
+  // Mini-pitch. Only ever fetched at level >= 1 (same "not fetched-then-
+  // hidden" discipline as swot/overview/roadmap above), and only an
+  // ACTIVATED row counts — a founder still previewing/regenerating a draft
+  // must never have it leak to an investor a moment before they meant to
+  // publish it.
+  let miniPitch: MiniPitchSlideProjected[] | null = null;
+  if (level >= 1) {
+    const { data: pitchRow } = await admin.from('org_mini_pitches')
+      .select('slides, activated_at').eq('org_id', orgId).maybeSingle();
+    if (pitchRow?.activated_at) {
+      miniPitch = projectMiniPitchForInvestor((pitchRow.slides as StoredMiniPitchSlide[] | null) ?? []);
+    }
+  }
+
+  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications, badges, miniPitch };
 }

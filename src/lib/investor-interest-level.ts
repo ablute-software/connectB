@@ -10,6 +10,7 @@
 import type { SwotData, RoadmapPeriodKind } from './types';
 import type { ReviewCategory } from './review-clarifications';
 import type { BadgePublic } from './company-badges';
+import type { MiniPitchSlideProjected } from './mini-pitch';
 
 // Prompt 167 §C.5 — explicit field-by-field projection, same discipline as
 // FounderClarificationFull above: period_kind/period_year/period_quarter/
@@ -166,9 +167,19 @@ export function projectDossier(
   // never exist in this array at all, so there is nothing for this
   // function to filter a second time.
   badges?: BadgePublic[] | null,
+  // Prompt 334 — same shape of exception as swot/roadmap: gated on level >=
+  // 1 (the same unlock point as `overview`, per the prompt's own "wherever
+  // overview unlocks"), but NOT listed in LEVEL_FIELDS since its presence
+  // also depends on whether the founder has activated a mini-pitch at all
+  // (a fact, not a level) — same reasoning as the swot/roadmap toggles
+  // above. Already stripped of claim ids and the evidence-class taxonomy by
+  // the caller (projectMiniPitchForInvestor, mini-pitch.ts) before it ever
+  // reaches here.
+  miniPitch?: MiniPitchSlideProjected[] | null,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { level };
   if (level >= 1) out.overview = full.overview;
+  if (level >= 1 && miniPitch && miniPitch.length > 0) out.miniPitch = miniPitch;
   // Checked again here (visible AND level >= 1), not just trusted from the
   // caller — same "the security-critical function doesn't trust a single
   // call site" discipline as the shareEmail gate below.

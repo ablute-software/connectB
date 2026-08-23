@@ -80,7 +80,7 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
     admin, params.orgId, level,
     investorCatalogEntityId ? { investorCatalogEntityId, email } : null,
   );
-  const dossier = projectDossier(level, raw.full, shareEmail, raw.swot, raw.founderClarifications, raw.roadmap, raw.badges);
+  const dossier = projectDossier(level, raw.full, shareEmail, raw.swot, raw.founderClarifications, raw.roadmap, raw.badges, raw.miniPitch);
 
   // Bug fix (relatorio_verificacao_..._8143c75_p136 §3) — this used to
   // forward `levelRows` in full, `note` included: the founder's own

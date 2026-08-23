@@ -5,6 +5,7 @@
 // reconstruction that could quietly drift from it. Every type/const the
 // section markup depends on moved here too, so there is exactly one
 // definition of "what this looks like" for both callers.
+import { useState } from 'react';
 import Link from 'next/link';
 import { SectionNav } from '@/components/SectionNav';
 import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
@@ -57,6 +58,50 @@ export interface Dossier {
   // badges and internal fields (verification_note, evidence_document_id)
   // never reach this shape at all.
   badges?: { id: string; name: string; description: string | null; year: number | null; verificationStatus: 'unverified' | 'verified' }[];
+  // Prompt 334 — already stripped of claim ids and the internal evidence-
+  // class taxonomy (projectMiniPitchForInvestor); absent unless the founder
+  // has both reached level 1 AND actually activated a mini-pitch.
+  miniPitch?: { kind: 'hook' | 'whyNow' | 'proof' | 'team' | 'ask'; title?: string; body: string }[];
+}
+
+const MINI_PITCH_SLIDE_LABEL: Record<'hook' | 'whyNow' | 'proof' | 'team' | 'ask', string> = {
+  hook: 'Why us', whyNow: 'Why now', proof: 'Proof', team: 'Team', ask: 'The ask',
+};
+
+// Prompt 334 — a small horizontal slide navigator, local to this file since
+// nothing else needs the shape yet. Deliberately no autoplay: an investor
+// reads at their own pace, and autoplay would fight anyone using the dots
+// to go back and re-read one slide.
+function MiniPitchSlides({ slides }: { slides: NonNullable<Dossier['miniPitch']> }) {
+  const [i, setI] = useState(0);
+  const slide = slides[i];
+  return (
+    <div id="mini-pitch" data-section="Pitch" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-gray-900">{MINI_PITCH_SLIDE_LABEL[slide.kind]}</h2>
+        <span className="shrink-0 text-[11px] text-gray-400">{i + 1} of {slides.length}</span>
+      </div>
+      {slide.title && <p className="mt-1 text-sm font-medium text-gray-700">{slide.title}</p>}
+      <p className="mt-1 max-w-prose text-sm text-gray-700">{slide.body}</p>
+      <div className="mt-3 flex items-center gap-3">
+        <button onClick={() => setI((n) => Math.max(0, n - 1))} disabled={i === 0}
+          className="text-xs font-medium text-[#0E7490] hover:underline disabled:cursor-not-allowed disabled:text-gray-300 disabled:no-underline">
+          ← Back
+        </button>
+        <div className="flex gap-1">
+          {slides.map((_, idx) => (
+            <button key={idx} onClick={() => setI(idx)} aria-label={`Slide ${idx + 1}`}
+              className={`h-1.5 w-1.5 rounded-full ${idx === i ? 'bg-[#0E7490]' : 'bg-gray-200'}`} />
+          ))}
+        </div>
+        <button onClick={() => setI((n) => Math.min(slides.length - 1, n + 1))} disabled={i === slides.length - 1}
+          className="text-xs font-medium text-[#0E7490] hover:underline disabled:cursor-not-allowed disabled:text-gray-300 disabled:no-underline">
+          Next →
+        </button>
+      </div>
+      <p className="mt-2 text-[10px] text-gray-400">Generated from company-provided data.</p>
+    </div>
+  );
 }
 
 export const CLARIFICATION_CAPTION: Record<ReviewCategory, string> = {
@@ -153,6 +198,15 @@ export function DossierOverviewSections({
           </div>
         )}
       </div>
+
+      {/* Prompt 334 — the mini-pitch, right after About: the concrete "here's
+          the case" an investor at Level 1 sees, before SWOT/roadmap/round
+          detail. Absent entirely unless the founder both reached this level
+          AND activated a mini-pitch (dossier.miniPitch is server-gated on
+          both, dossier-fetch.ts) — no placeholder, no "not activated yet"
+          message shown to an investor (that message belongs to the founder's
+          own settings page, never here). */}
+      {dossier.miniPitch && dossier.miniPitch.length > 0 && <MiniPitchSlides slides={dossier.miniPitch} />}
 
       {/* Prompt 166 §D.4 — right after the About/summary block, before the
           round's financial details: a quick strategic read comes before the

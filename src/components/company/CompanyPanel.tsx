@@ -16,6 +16,7 @@ import { CompletenessBar } from './CompletenessBar';
 import { RoadmapCard } from './RoadmapCard';
 import { IdentityCard } from './IdentityCard';
 import { BadgesCard } from './BadgesCard';
+import { MiniPitchCard } from './MiniPitchCard';
 import { StartupTeamCard } from './StartupTeamCard';
 import { RoundCard } from './RoundCard';
 import { PreviousFundingCard } from '@/components/PreviousFundingCard';
@@ -93,6 +94,7 @@ export function CompanyPanel() {
             confundir-se. */}
         {canEdit && <PreviousFundingCard />}
       </div>
+      <MiniPitchCard canEdit={canEdit} />
       <div data-tour-id="settings-traction">
         <TractionCard canEdit={canEdit} />
       </div>
