@@ -31,6 +31,7 @@ import { RoundUpdatesFeed } from '@/components/investor-workspace/RoundUpdatesFe
 import { QAPanel } from '@/components/investor-workspace/QAPanel';
 import { SoftCommitButton } from '@/components/investor-workspace/SoftCommitButton';
 import { deriveValuation } from '@/lib/dilution';
+import { computeRoundProgressPercent } from '@/lib/round-progress';
 import { INSTRUMENT_LABELS } from '@/lib/investor-taxonomy';
 import { SectionReviewToggle } from '@/components/investor-workspace/SectionReviewToggle';
 
@@ -163,8 +164,7 @@ function SnapshotCard({ s }: { s: PortalSnapshot }) {
     s.round_target_eur != null || securedShown != null || s.round_valuation_eur != null
     || s.round_min_ticket_eur != null || instruments || s.round_use_of_funds || s.round_target_close_date
   );
-  const progressPct = s.round_target_eur && securedShown != null
-    ? Math.min(100, Math.round((securedShown / s.round_target_eur) * 100)) : null;
+  const progressPct = computeRoundProgressPercent(securedShown, s.round_target_eur);
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-5">

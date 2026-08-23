@@ -346,6 +346,62 @@ export function isPostVisibleToViewer(
   return viewerIsActiveConnectionOfAuthor && !post.excludedActorIds.includes(viewerActorId);
 }
 
+// ---------------------------------------------------------------------------
+// Prompt 322 — structured updates + round milestones. The original concept
+// measured and showed update CADENCE as an effort signal, comparable
+// between founders — Nuno caught this before it shipped ("quão frustrante
+// será mostrar que é a startup que mais esforço faz mas não consegue
+// levantar capital"): public effort + unequal outcome is a cruel ranking
+// between peers. The correction, binding for this whole prompt: NO cadence
+// counter is ever visible between founders, anywhere — no streak badge, no
+// "posts every N weeks", no sorted list, no effort/outcome juxtaposition.
+// Cadence coaching is PRIVATE to the founder themselves (Pedido B below),
+// never a public showcase.
+
+// Pedido A — the four fixed, all-optional sections a structured update can
+// fill in. NO round-state field exists here, on purpose — a founder can
+// still mention numbers in FREE TEXT (not blocked by 321's linter, which
+// only catches sales language) but the structured FORM itself never offers
+// the field; the friction of having to type it by hand is deliberate.
+export interface NetworkUpdateStructured {
+  productProgress?: string;
+  customers?: string;
+  team?: string;
+  learnings?: string;
+}
+export const NETWORK_UPDATE_STRUCTURED_KEYS = ['productProgress', 'customers', 'team', 'learnings'] as const;
+
+// Pedido B — the private cadence coach. Deliberately simpler than the
+// claims-engine's own gap detection (Prompt 313) — same spirit as
+// outboundsAwaitingFollowUp (rules.ts): one threshold, one reminder, never
+// escalating, never shown to anyone but the founder themselves. A founder
+// who has never posted an update has nothing to measure "since" — no nudge
+// fires for them from this function (documented, literal scope; a
+// first-update nudge would need a different reference point entirely).
+export const UPDATE_GAP_REMINDER_DAYS = 60;
+
+export function lastUpdateGapCheck(lastUpdateCreatedAt: string | null, now: Date): { shouldNudge: boolean; daysSince: number | null } {
+  if (!lastUpdateCreatedAt) return { shouldNudge: false, daysSince: null };
+  const daysSince = Math.floor((now.getTime() - new Date(lastUpdateCreatedAt).getTime()) / 86_400_000);
+  return { shouldNudge: daysSince >= UPDATE_GAP_REMINDER_DAYS, daysSince };
+}
+
+// Pedido C — round milestones. Percentage ONLY, never the exact € amount,
+// even with orgs.round_progress_visible_to_investors on — MORE restrictive
+// than that toggle strictly requires (it protects the figure for one
+// individual investor's own dossier; broadcasting to the whole network is a
+// wider, less controlled audience, and that difference in audience size is
+// exactly why this surface earns a stricter rule of its own, not a copy of
+// the dossier's).
+export function canShareRoundMilestone(roundProgressVisibleToInvestors: boolean): boolean {
+  return roundProgressVisibleToInvestors;
+}
+
+export function formatRoundMilestoneText(params: { orgName: string; percent: number; stageLabel?: string | null }): string {
+  const roundPhrase = params.stageLabel ? `${params.stageLabel} round` : 'round';
+  return `${params.orgName} has secured ${params.percent}% of their ${roundPhrase}.`;
+}
+
 // Reputation (Pedido D) — live-computed from network_referrals alone, no
 // new table, never comparable between actors in the same response (the
 // anti-ranking rule): only ever "MY sent/accepted counts", read one actor

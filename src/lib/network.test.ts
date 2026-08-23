@@ -6,7 +6,9 @@ import {
   referralsVisibleToTarget, MAX_REFERRALS_PER_MONTH,
   canSignalFollowOn, isFollowOnActive, shapeFollowOnPayload, referralCarriesFollowOnBadge, FOLLOWON_VALIDITY_MONTHS,
   computePathfinderMatches, isPostVisibleToViewer,
+  NETWORK_UPDATE_STRUCTURED_KEYS, lastUpdateGapCheck, UPDATE_GAP_REMINDER_DAYS, canShareRoundMilestone, formatRoundMilestoneText,
 } from './network';
+import { computeRoundProgressPercent } from './round-progress';
 
 describe('canonicalPair — ordem canónica para a chave única de network_connections', () => {
   it('devolve sempre [menor, maior], independentemente da ordem de entrada', () => {
@@ -509,5 +511,76 @@ describe('isPostVisibleToViewer — respeita exclusões e associação a grupo e
     const post = { authorActorId: 'author', target: 'group' as const, groupId: 'g1', excludedActorIds: ['viewer'] };
     expect(isPostVisibleToViewer(post, 'viewer', false, true)).toBe(true);
     expect(isPostVisibleToViewer(post, 'viewer', false, false)).toBe(false);
+  });
+});
+
+describe('NETWORK_UPDATE_STRUCTURED_KEYS — o template nunca contém campo de ronda', () => {
+  it('não tem nenhuma chave relacionada com ronda/valores', () => {
+    const keys = NETWORK_UPDATE_STRUCTURED_KEYS.map((k) => k.toLowerCase());
+    expect(keys).toEqual(['productprogress', 'customers', 'team', 'learnings']);
+    for (const k of keys) {
+      expect(k).not.toMatch(/round|secured|valuation|target|eur|amount/);
+    }
+  });
+});
+
+describe('lastUpdateGapCheck — dispara só ao fim do intervalo certo, só é chamado para o próprio', () => {
+  const NOW = new Date('2026-08-23T00:00:00Z');
+
+  it('sem update alguma vez publicado, nunca dispara (nada para medir "desde quando")', () => {
+    expect(lastUpdateGapCheck(null, NOW)).toEqual({ shouldNudge: false, daysSince: null });
+  });
+
+  it('não dispara antes do limite', () => {
+    const recent = new Date(NOW); recent.setUTCDate(recent.getUTCDate() - (UPDATE_GAP_REMINDER_DAYS - 1));
+    const result = lastUpdateGapCheck(recent.toISOString(), NOW);
+    expect(result.shouldNudge).toBe(false);
+    expect(result.daysSince).toBe(UPDATE_GAP_REMINDER_DAYS - 1);
+  });
+
+  it('dispara exactamente ao fim do limite', () => {
+    const atLimit = new Date(NOW); atLimit.setUTCDate(atLimit.getUTCDate() - UPDATE_GAP_REMINDER_DAYS);
+    expect(lastUpdateGapCheck(atLimit.toISOString(), NOW).shouldNudge).toBe(true);
+  });
+
+  it('continua a disparar bem depois do limite', () => {
+    const wayPast = new Date(NOW); wayPast.setUTCDate(wayPast.getUTCDate() - (UPDATE_GAP_REMINDER_DAYS + 90));
+    expect(lastUpdateGapCheck(wayPast.toISOString(), NOW).shouldNudge).toBe(true);
+  });
+});
+
+describe('canShareRoundMilestone — marco só disponível com o toggle ligado', () => {
+  it('disponível com o toggle ligado', () => { expect(canShareRoundMilestone(true)).toBe(true); });
+  it('indisponível com o toggle desligado', () => { expect(canShareRoundMilestone(false)).toBe(false); });
+});
+
+describe('formatRoundMilestoneText — nunca mostra € exacto, só percentagem', () => {
+  it('inclui a percentagem e o nome, nunca um número em euros', () => {
+    const text = formatRoundMilestoneText({ orgName: 'ablute_', percent: 42, stageLabel: 'seed' });
+    expect(text).toBe('ablute_ has secured 42% of their seed round.');
+    expect(text).not.toMatch(/€|\bEUR\b|\d{4,}/);
+  });
+
+  it('sem stageLabel, cai para "their round" genérico', () => {
+    expect(formatRoundMilestoneText({ orgName: 'ablute_', percent: 10 })).toBe('ablute_ has secured 10% of their round.');
+  });
+});
+
+describe('computeRoundProgressPercent — mesmo cálculo que RoundCard/portal já mostram (duas superfícies, um número)', () => {
+  it('bate com o exemplo já usado em src/app/portal/page.tsx (securedShown/target)', () => {
+    // Mesma fórmula, extraída literalmente dessa página: Math.min(100,
+    // Math.round((securedShown / target) * 100)) — testada aqui a partir
+    // da função partilhada, não de uma cópia local.
+    expect(computeRoundProgressPercent(546000, 1300000)).toBe(42);
+  });
+
+  it('nunca excede 100%, mesmo com secured acima do target (over-subscribed)', () => {
+    expect(computeRoundProgressPercent(1500000, 1300000)).toBe(100);
+  });
+
+  it('sem target ou sem secured, devolve null em vez de dividir por zero/NaN', () => {
+    expect(computeRoundProgressPercent(100, null)).toBeNull();
+    expect(computeRoundProgressPercent(null, 100)).toBeNull();
+    expect(computeRoundProgressPercent(100, 0)).toBeNull();
   });
 });

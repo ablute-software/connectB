@@ -7,6 +7,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { networkAvailable } from '@/lib/network-capability';
 import { resolveActorId } from '@/lib/network-db';
 import { createPost, deletePost, readFeedForActor } from '@/lib/network-posts-db';
+import type { NetworkUpdateStructured } from '@/lib/network';
 
 async function actorAndAdmin(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -38,14 +39,16 @@ export async function POST(req: Request) {
   if ('error' in resolved) return resolved.error;
   const { admin, actorId } = resolved;
 
-  const body = await req.json().catch(() => ({})) as { body?: string; target?: 'all' | 'group'; groupId?: string; excludedActorIds?: string[] };
-  if (!body.body?.trim() || (body.target !== 'all' && body.target !== 'group')) {
-    return NextResponse.json({ ok: false, error: 'Missing body or target.' }, { status: 400 });
-  }
+  const body = await req.json().catch(() => ({})) as {
+    kind?: 'freeform' | 'update'; body?: string; structured?: NetworkUpdateStructured;
+    target?: 'all' | 'group'; groupId?: string; excludedActorIds?: string[];
+  };
+  if (body.target !== 'all' && body.target !== 'group') return NextResponse.json({ ok: false, error: 'Missing target.' }, { status: 400 });
 
-  const result = await createPost(admin, {
-    authorActorId: actorId, body: body.body, target: body.target, groupId: body.groupId, excludedActorIds: body.excludedActorIds,
-  });
+  const shared = { authorActorId: actorId, target: body.target, groupId: body.groupId, excludedActorIds: body.excludedActorIds };
+  const result = body.kind === 'update'
+    ? await createPost(admin, { ...shared, kind: 'update', structured: body.structured ?? {} })
+    : await createPost(admin, { ...shared, kind: 'freeform', body: body.body ?? '' });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error });
   return NextResponse.json({ ok: true, postId: result.postId });
 }

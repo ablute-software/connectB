@@ -50,7 +50,12 @@ interface FollowOnRequestView { orgId: string; orgName: string; requestedAt: str
 interface PathfinderAskView { id: string; requesterOrgId: string; requesterName: string; targetActorId: string; targetName: string; requestedAt: string }
 
 // Prompt 321 — posts.
-interface PostView { id: string; authorActorId: string; authorName: string; body: string; target: 'all' | 'group'; groupId: string | null; groupName: string | null; createdAt: string }
+interface UpdateStructuredView { productProgress?: string; customers?: string; team?: string; learnings?: string }
+interface PostView {
+  id: string; authorActorId: string; authorName: string; body: string; kind: 'freeform' | 'update' | 'milestone';
+  structured: UpdateStructuredView | null; target: 'all' | 'group'; groupId: string | null; groupName: string | null; createdAt: string;
+}
+const POST_KIND_LABEL: Record<PostView['kind'], string> = { freeform: '', update: '📋 Update', milestone: '🎯 Milestone' };
 interface ReferralCandidate { actorId: string; orgId: string | null; name: string; kind: 'founder' | 'investor' }
 interface ReferralBootstrap {
   ok: boolean; referrals?: ReferralView[]; reputation?: { sent: number; accepted: number };
@@ -121,9 +126,13 @@ export default function NetworkPage() {
   const [pathfinderAsks, setPathfinderAsks] = useState<PathfinderAskView[]>([]);
   const [posts, setPosts] = useState<PostView[] | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [composerKind, setComposerKind] = useState<'freeform' | 'update'>('freeform');
   const [composerBody, setComposerBody] = useState('');
+  const [composerStructured, setComposerStructured] = useState<UpdateStructuredView>({});
   const [composerTarget, setComposerTarget] = useState<'all' | 'group'>('all');
   const [composerGroupId, setComposerGroupId] = useState('');
+  const [milestoneAvailable, setMilestoneAvailable] = useState(false);
+  const [updateGap, setUpdateGap] = useState<{ shouldNudge: boolean; daysSince: number | null } | null>(null);
   const [excludingOpen, setExcludingOpen] = useState(false);
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -140,6 +149,8 @@ export default function NetworkPage() {
       .catch(() => setInvestorFollowOn(null));
     fetch('/api/network/pathfinder/asks').then((r) => r.json()).then((b) => setPathfinderAsks(b.asks ?? [])).catch(() => setPathfinderAsks([]));
     fetch('/api/network/post').then((r) => r.json()).then((b) => setPosts(b.posts ?? null)).catch(() => setPosts(null));
+    fetch('/api/network/milestone').then((r) => r.json()).then((b) => setMilestoneAvailable(!!b.available)).catch(() => setMilestoneAvailable(false));
+    fetch('/api/network/update-gap').then((r) => r.json()).then((b) => setUpdateGap(b.ok ? { shouldNudge: b.shouldNudge, daysSince: b.daysSince } : null)).catch(() => setUpdateGap(null));
   }
   useEffect(load, []);
 
@@ -239,21 +250,37 @@ export default function NetworkPage() {
     }).then((r) => r.json()).then((b) => { if (!b.ok) setError(b.error); load(); }).finally(() => setBusy(false));
   }
 
+  function canSubmitPost() {
+    if (composerTarget === 'group' && !composerGroupId) return false;
+    if (composerKind === 'update') return Object.values(composerStructured).some((v) => v?.trim());
+    return !!composerBody.trim();
+  }
+
   function submitPost() {
-    if (!composerBody.trim() || (composerTarget === 'group' && !composerGroupId)) return;
+    if (!canSubmitPost()) return;
     setBusy(true); setComposerError(null);
     fetch('/api/network/post', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        body: composerBody.trim(), target: composerTarget,
+        kind: composerKind,
+        body: composerKind === 'freeform' ? composerBody.trim() : undefined,
+        structured: composerKind === 'update' ? composerStructured : undefined,
+        target: composerTarget,
         groupId: composerTarget === 'group' ? composerGroupId : undefined,
         excludedActorIds: composerTarget === 'all' ? [...excludedIds] : undefined,
       }),
     }).then((r) => r.json()).then((b) => {
       if (!b.ok) { setComposerError(b.error); return; }
-      setComposerOpen(false); setComposerBody(''); setComposerTarget('all'); setComposerGroupId(''); setExcludedIds(new Set());
+      setComposerOpen(false); setComposerKind('freeform'); setComposerBody(''); setComposerStructured({});
+      setComposerTarget('all'); setComposerGroupId(''); setExcludedIds(new Set());
       load();
     }).finally(() => setBusy(false));
+  }
+
+  function submitMilestone() {
+    setBusy(true); setError(null);
+    fetch('/api/network/milestone', { method: 'POST' })
+      .then((r) => r.json()).then((b) => { if (!b.ok) setError(b.error); load(); }).finally(() => setBusy(false));
   }
 
   function removePost(postId: string) {
@@ -408,10 +435,38 @@ export default function NetworkPage() {
       {composerOpen && (
         <Modal onClose={() => setComposerOpen(false)}>
           <h2 className="text-sm font-bold text-gray-800">New post</h2>
-          <textarea value={composerBody} onChange={(e) => { setComposerBody(e.target.value); setComposerError(null); }} rows={4} autoFocus
-            placeholder="Share something that helps other founders/investors raise — never sales, partnerships, or prospecting."
-            className="mt-2 w-full rounded-lg border border-gray-300 p-2 text-sm" />
+          <div className="mt-1.5 flex gap-1.5">
+            <button onClick={() => setComposerKind('freeform')}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${composerKind === 'freeform' ? 'bg-[#0E7490] text-white' : 'border border-gray-300 text-gray-600'}`}>
+              Free text
+            </button>
+            <button onClick={() => setComposerKind('update')}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${composerKind === 'update' ? 'bg-[#0E7490] text-white' : 'border border-gray-300 text-gray-600'}`}>
+              📋 Structured update
+            </button>
+          </div>
+
+          {composerKind === 'freeform' ? (
+            <textarea value={composerBody} onChange={(e) => { setComposerBody(e.target.value); setComposerError(null); }} rows={4} autoFocus
+              placeholder="Share something that helps other founders/investors raise — never sales, partnerships, or prospecting."
+              className="mt-2 w-full rounded-lg border border-gray-300 p-2 text-sm" />
+          ) : (
+            <div className="mt-2 space-y-2">
+              <p className="text-[11px] text-gray-400">All optional — fill in whichever sections apply. No round/funding field, on purpose.</p>
+              {([
+                ['productProgress', 'Product'], ['customers', 'Customers'], ['team', 'Team'], ['learnings', 'Learnings'],
+              ] as const).map(([key, label]) => (
+                <div key={key}>
+                  <label className="text-[11px] font-medium text-gray-500">{label}</label>
+                  <textarea value={composerStructured[key] ?? ''} rows={2}
+                    onChange={(e) => { setComposerStructured((s) => ({ ...s, [key]: e.target.value })); setComposerError(null); }}
+                    className="mt-0.5 w-full rounded-lg border border-gray-300 p-1.5 text-sm" />
+                </div>
+              ))}
+            </div>
+          )}
           {composerError && <p className="mt-1 text-xs font-medium text-[#B00000]">{composerError}</p>}
+
           <div className="mt-2 flex items-center gap-2">
             <select value={composerTarget} onChange={(e) => setComposerTarget(e.target.value as 'all' | 'group')}
               className="rounded-lg border border-gray-300 bg-white p-1.5 text-xs">
@@ -431,7 +486,7 @@ export default function NetworkPage() {
             )}
           </div>
           <div className="mt-2 flex gap-1.5">
-            <button onClick={submitPost} disabled={busy || !composerBody.trim() || (composerTarget === 'group' && !composerGroupId)}
+            <button onClick={submitPost} disabled={busy || !canSubmitPost()}
               className="rounded-full bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
               Post
             </button>
@@ -520,10 +575,29 @@ export default function NetworkPage() {
       )}
 
       <Card title="Feed" right={
-        <button onClick={() => setComposerOpen(true)} className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">
-          + New post
-        </button>
+        <div className="flex items-center gap-1.5">
+          {milestoneAvailable && (
+            <button onClick={submitMilestone} disabled={busy}
+              className="rounded-full border border-emerald-300 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50">
+              🎯 Share a round milestone
+            </button>
+          )}
+          <button onClick={() => setComposerOpen(true)} className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">
+            + New post
+          </button>
+        </div>
       }>
+        {/* Prompt 322 Pedido B — private to the founder alone, never shown
+            to anyone else, never a countdown or alarming tone (same as
+            outreach's own follow-up nudges). */}
+        {updateGap?.shouldNudge && (
+          <div className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-[#E8F4F8] p-2">
+            <p className="text-xs text-[#0E7490]">It&apos;s been {updateGap.daysSince} days since your last update to your network.</p>
+            <button onClick={() => { setComposerKind('update'); setComposerOpen(true); }} className="shrink-0 text-[11px] font-semibold text-[#0E7490] underline">
+              Post one
+            </button>
+          </div>
+        )}
         {!posts || posts.length === 0 ? (
           <p className="text-sm text-gray-400">Nothing here yet — posts from you, your connections, and your groups will show up here.</p>
         ) : (
@@ -533,6 +607,9 @@ export default function NetworkPage() {
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-sm font-medium text-gray-800">
                     {p.authorName} {p.groupName && <span className="text-[11px] font-normal text-gray-400">· {p.groupName}</span>}
+                    {POST_KIND_LABEL[p.kind] && (
+                      <span className="ml-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500">{POST_KIND_LABEL[p.kind]}</span>
+                    )}
                   </p>
                   <div className="flex shrink-0 items-center gap-2">
                     <span className="text-[11px] text-gray-400">{p.createdAt.slice(0, 10)}</span>
