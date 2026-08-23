@@ -31,7 +31,6 @@ import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
 import { weakClaimCoachingNote, CATEGORY_LABEL } from '@/lib/company-claims';
 import type { ClaimCategory, ClaimSpecificity } from '@/lib/types';
 
-interface ReviewRunRow { id: string; score: number | null; created_at: string }
 interface WeakClaimRow { id: string; category: ClaimCategory; statement: string; note: string }
 
 const TYPE_LABEL: Record<'weakness' | 'risk' | 'recommendation', string> = { weakness: 'Weakness', risk: 'Risk', recommendation: 'Recommendation' };
@@ -138,35 +137,9 @@ function ClusterRow({ cluster, allActions, docsById, existingVersions, documentV
   );
 }
 
-function InvestabilityChart({ runs }: { runs: ReviewRunRow[] }) {
-  const points = runs.filter((r): r is ReviewRunRow & { score: number } => r.score != null)
-    .sort((a, b) => a.created_at.localeCompare(b.created_at));
-  if (points.length < 2) {
-    return <p className="text-xs text-gray-400">Run at least 2 investability reviews (Review tab) to see a trend here.</p>;
-  }
-  const W = 560, H = 120, PAD = 24;
-  const xStep = (W - 2 * PAD) / (points.length - 1);
-  const xs = points.map((_, i) => PAD + i * xStep);
-  const ys = points.map((p) => H - PAD - (p.score / 100) * (H - 2 * PAD));
-  const path = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x},${ys[i]}`).join(' ');
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Investability score over time">
-      <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="#E5E7EB" strokeWidth={1} />
-      <path d={path} fill="none" stroke="#0E7490" strokeWidth={2} />
-      {xs.map((x, i) => (
-        <g key={points[i].id}>
-          <circle cx={x} cy={ys[i]} r={3} fill="#0E7490" />
-          <text x={x} y={H - 6} fontSize={9} textAnchor="middle" fill="#9CA3AF">{points[i].created_at.slice(5, 10)}</text>
-        </g>
-      ))}
-    </svg>
-  );
-}
-
 export function ActionPlanPanel() {
   const { db, addDocumentVersion } = useStore();
   const [reviews, setReviews] = useState<AiReviewRow[]>([]);
-  const [runs, setRuns] = useState<ReviewRunRow[]>([]);
   const [contradictions, setContradictions] = useState<Contradiction[]>([]);
   const [weakClaims, setWeakClaims] = useState<WeakClaimRow[]>([]);
   const [showAll, setShowAll] = useState(false);
@@ -187,14 +160,11 @@ export function ActionPlanPanel() {
         .eq('org_id', db.org.id).eq('status', 'completed')
         .in('kind', Object.keys(DOC_KIND_LABEL))
         .order('created_at', { ascending: false }),
-      browserClient().from('review_runs').select('id, score, created_at')
-        .eq('org_id', db.org.id).order('created_at', { ascending: false }).limit(30),
       browserClient().from('ai_reviews').select('id, result, created_at')
         .eq('org_id', db.org.id).eq('status', 'completed').eq('kind', 'cross_document_review')
         .order('created_at', { ascending: false }).limit(1),
-    ]).then(([reviewsRes, runsRes, contradictionsRes]) => {
+    ]).then(([reviewsRes, contradictionsRes]) => {
       setReviews(latestPerKind((reviewsRes.data as AiReviewRow[] | null) ?? []));
-      setRuns((runsRes.data as ReviewRunRow[] | null) ?? []);
       const latestCrossDoc = contradictionsRes.data?.[0] as { result: { contradictions?: Contradiction[] } } | undefined;
       setContradictions(genuineContradictions(latestCrossDoc?.result?.contradictions ?? []));
       setLoading(false);
@@ -338,10 +308,6 @@ export function ActionPlanPanel() {
             </li>
           ))}
         </ul>
-      </Card>
-
-      <Card title="Investability over time">
-        <InvestabilityChart runs={runs} />
       </Card>
     </>
   );
