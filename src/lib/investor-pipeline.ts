@@ -9,6 +9,8 @@ import { pipelineTestFlagAvailable } from './pipeline-test-flag-capability';
 import { roundValuationBasisAvailable } from './round-valuation-basis-capability';
 import { MATCHDEAL_TIER_TO_INVESTOR_PLAN, investorPlanRow } from './plans';
 import { resolveActorDisplays } from './network-db';
+import { getActiveFollowOnPairs } from './network-followon-db';
+import { shapeFollowOnPayload, type FollowOnPayload } from './network';
 
 const WAVE_SIZE = 8;
 const TRACKING_WINDOW_DAYS = 30;
@@ -255,6 +257,18 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // regardless of how many cards there are — not one per card.
   const trackingCountByStage = await computeTrackingCountsByStage(admin, investorProfile.id);
 
+  // Prompt 319 Pedido C.1 — follow-on signals ("an existing investor would
+  // invest again"), masked here (never client-side) per shapeFollowOnPayload
+  // before they ever leave this function — the same discipline
+  // round_progress_visible_to_investors already uses in /api/portal/access.
+  const activeFollowOnPairs = await getActiveFollowOnPairs(admin, orgIds);
+  const followOnSignalsByOrg = new Map<string, FollowOnPayload[]>();
+  for (const pair of activeFollowOnPairs) {
+    const list = followOnSignalsByOrg.get(pair.orgId) ?? [];
+    list.push(shapeFollowOnPayload(true, pair.visibility, pair.investorName));
+    followOnSignalsByOrg.set(pair.orgId, list);
+  }
+
   const cards = (orgs ?? []).map((org) => {
     const round: StartupRound = {
       sectors: org.sectors ?? [], stage: org.stage, country: org.country,
@@ -299,6 +313,7 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       // reaching out directly.
       viaReferral: referredOrgIdsViaReferralSet.has(org.id as string),
       referredByName: referrerNameByOrgId.get(org.id as string) ?? null,
+      followOnSignals: followOnSignalsByOrg.get(org.id as string) ?? [],
       isArchived: archivedOrgIds.has(org.id as string),
     };
   }).sort((a, b) => b.matchScore - a.matchScore);

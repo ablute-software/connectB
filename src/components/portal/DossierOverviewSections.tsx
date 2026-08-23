@@ -21,6 +21,9 @@ export interface Card {
   matchScore: number; matchReasons: string[]; status: 'open' | 'passed' | 'interested'; passReason: string | null;
   decidedAt: string | null; decidedByMe: boolean | null; trackingCount: number; hasDataRoomAccess: boolean;
   viaGrant: boolean; viaDecision: boolean; isArchived: boolean;
+  // Prompt 319 — already masked server-side (shapeFollowOnPayload); never
+  // carries the signaling investor's identity when visibility is 'anonymous'.
+  followOnSignals?: import('@/lib/network').FollowOnPayload[];
 }
 export interface Overview {
   org_name: string | null; one_liner: string | null; description: string | null;

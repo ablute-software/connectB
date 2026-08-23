@@ -253,6 +253,57 @@ function daysSince(iso: string, now: Date): number {
   return (now.getTime() - new Date(iso).getTime()) / 86_400_000;
 }
 
+// ---------------------------------------------------------------------------
+// Prompt 319 — follow-on signal ("estou interessado em voltar a investir").
+// Declared BY the investor, about a startup they already hold a verified
+// 'invested' relationship with — this is the investor's own opinion, never
+// something the platform derives about the founder, so it doesn't collide
+// with CLAUDE.md's root startup-performance-privacy rule (same category as
+// the founder's own round_secured_eur: a party stating their own fact).
+export type FollowOnVisibility = 'named' | 'anonymous';
+export const FOLLOWON_VALIDITY_MONTHS = 6;
+
+export function canSignalFollowOn(hasInvestedRelationship: boolean): boolean {
+  return hasInvestedRelationship;
+}
+
+// Read-time computed, same "no cron" reasoning as every other expiry in this
+// series — revokedAt always wins even if expiresAt hasn't passed yet
+// (silent revocation, per the prompt's own "desaparece... sem notificar
+// ninguém").
+export function isFollowOnActive(signal: { expiresAt: string | null; revokedAt: string | null } | null, now: Date): boolean {
+  if (!signal?.expiresAt || signal.revokedAt) return false;
+  return new Date(signal.expiresAt).getTime() > now.getTime();
+}
+
+// Pedido B — the round_progress_visible_to_investors discipline
+// (src/app/api/portal/access/route.ts): "absent" and "anonymous" are two
+// distinct, separately-testable payload shapes, and the identity field is
+// stripped server-side, never merely hidden client-side.
+export type FollowOnPayload =
+  | { active: false }
+  | { active: true; visibility: 'anonymous' }
+  | { active: true; visibility: 'named'; investorName: string };
+
+export function shapeFollowOnPayload(active: boolean, visibility: FollowOnVisibility | null, investorName: string | null): FollowOnPayload {
+  if (!active || !visibility) return { active: false };
+  if (visibility === 'anonymous') return { active: true, visibility: 'anonymous' };
+  return { active: true, visibility: 'named', investorName: investorName ?? 'An investor' };
+}
+
+// Pedido C.2 — propagates onto a referral card ONLY when the referrer IS the
+// signaling investor AND the referral is about the SAME startup the signal
+// covers; never onto another investor's referral, and never onto a referral
+// about a different startup even from the same investor.
+export function referralCarriesFollowOnBadge(params: {
+  referrerInvestorCatalogEntityId: string | null;
+  referredOrgId: string;
+  activeSignals: { investorCatalogEntityId: string; orgId: string }[];
+}): boolean {
+  if (!params.referrerInvestorCatalogEntityId) return false;
+  return params.activeSignals.some((s) => s.investorCatalogEntityId === params.referrerInvestorCatalogEntityId && s.orgId === params.referredOrgId);
+}
+
 // Reputation (Pedido D) — live-computed from network_referrals alone, no
 // new table, never comparable between actors in the same response (the
 // anti-ranking rule): only ever "MY sent/accepted counts", read one actor

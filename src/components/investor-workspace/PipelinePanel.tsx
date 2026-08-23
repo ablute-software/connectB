@@ -7,6 +7,8 @@ import { Fragment, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ComparisonView } from './ComparisonView';
 import { InteractionLogDrawer } from './InteractionLogDrawer';
+import { FollowOnBadge } from '../FollowOnBadge';
+import type { FollowOnPayload } from '@/lib/network';
 
 const MAX_COMPARE = 3;
 
@@ -46,6 +48,10 @@ interface Card {
   // badge ("Referred by X"), distinct from "Invited" — the founder never
   // reached out directly, a mutual contact vouched for the intro.
   viaReferral?: boolean; referredByName?: string | null;
+  // Prompt 319 — active follow-on signals for this startup, already masked
+  // server-side (shapeFollowOnPayload) — never the investor's own identity
+  // when visibility is 'anonymous'.
+  followOnSignals?: FollowOnPayload[];
   // Item 8 — same source of truth the Archive tab itself reads
   // (investor_archive_entries, reopened_at is null), not session-local
   // state, so the badge survives a reload just like everything else here.
@@ -525,6 +531,7 @@ export function PipelinePanel({
                           </Link>
                         </span>
                         {c.oneLiner && <span className="block min-w-0 flex-1 truncate text-xs text-gray-500">{c.oneLiner}</span>}
+                        {(c.followOnSignals ?? []).map((s, i) => <FollowOnBadge key={i} signal={s} />)}
                       </div>
                     </div>
                     <div className="hidden shrink-0 items-center gap-1.5 sm:flex">

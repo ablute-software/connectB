@@ -16,6 +16,7 @@ import { DealThreadView, type DealMessage } from '@/components/deal-messages/Dea
 import {
   DossierOverviewSections, fmtEur, type Card, type Dossier,
 } from '@/components/portal/DossierOverviewSections';
+import { FollowOnBadge } from '@/components/FollowOnBadge';
 
 interface LevelRow { level: 2 | 3; status: 'granted' | 'pending' | 'denied' }
 interface PortalDoc { id: string; name: string; version?: string; watermark: boolean; downloadable: boolean; folder_id?: string; url: string | null }
@@ -194,6 +195,7 @@ export default function StartupDossierPage() {
                 <img src="/badges/pioneer.png" alt="Pioneer" title="Pioneer — permanent badge"
                   className="h-5 w-5" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
               )}
+              {(card.followOnSignals ?? []).map((s, i) => <FollowOnBadge key={i} signal={s} />)}
             </div>
             {card.oneLiner && <p className="text-sm text-gray-500">{card.oneLiner}</p>}
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400">

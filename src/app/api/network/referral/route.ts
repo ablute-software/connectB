@@ -8,9 +8,10 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { networkAvailable } from '@/lib/network-capability';
-import { resolveActorId, resolveActorDisplays } from '@/lib/network-db';
+import { resolveActorId, resolveActorDisplays, resolveInvestorCatalogEntityIdForActor } from '@/lib/network-db';
 import { createReferral, readReferralsInvolvingActor, resolveReferralEligibility } from '@/lib/network-referrals-db';
-import { effectiveReferralState, referralReputation, referralsVisibleToTarget } from '@/lib/network';
+import { getActiveFollowOnPairs } from '@/lib/network-followon-db';
+import { effectiveReferralState, referralReputation, referralsVisibleToTarget, referralCarriesFollowOnBadge, shapeFollowOnPayload } from '@/lib/network';
 
 async function actorAndAdmin(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -46,15 +47,31 @@ export async function GET(req: Request) {
   for (const r of visible) { actorIds.add(r.referrerActorId); actorIds.add(r.targetActorId); }
   const displays = await resolveActorDisplays(admin, [...actorIds]);
 
-  const shaped = visible.map((r) => ({
-    ...r,
-    effectiveState: effectiveReferralState({ ...r, referredDecidedAt: r.referredDecidedAt ?? null }, now),
-    referrerName: displays.get(r.referrerActorId)?.name ?? 'Someone in your network',
-    targetName: displays.get(r.targetActorId)?.name ?? 'Investor',
-    isMineAsReferrer: r.referrerActorId === actor.actorId,
-    isMineAsTarget: r.targetActorId === actor.actorId,
-    isMineAsReferred: actor.orgId != null && r.referredOrgId === actor.orgId,
-  }));
+  // Prompt 319 Pedido C.2 — the follow-on badge propagates onto a referral
+  // ONLY from the same signaling investor about the same startup
+  // (referralCarriesFollowOnBadge), masked exactly like the dossier's own
+  // copy (shapeFollowOnPayload) before it ever reaches this response.
+  const investorReferrerActorIds = [...actorIds].filter((id) => displays.get(id)?.kind === 'investor');
+  const investorCatalogEntityIdByActorId = new Map(
+    await Promise.all(investorReferrerActorIds.map(async (id) => [id, await resolveInvestorCatalogEntityIdForActor(admin, id)] as const)),
+  );
+  const activeFollowOnPairs = await getActiveFollowOnPairs(admin, [...new Set(visible.map((r) => r.referredOrgId))]);
+
+  const shaped = visible.map((r) => {
+    const referrerInvestorCatalogEntityId = investorCatalogEntityIdByActorId.get(r.referrerActorId) ?? null;
+    const carries = referralCarriesFollowOnBadge({ referrerInvestorCatalogEntityId, referredOrgId: r.referredOrgId, activeSignals: activeFollowOnPairs });
+    const matchingSignal = carries ? activeFollowOnPairs.find((s) => s.investorCatalogEntityId === referrerInvestorCatalogEntityId && s.orgId === r.referredOrgId) : undefined;
+    return {
+      ...r,
+      effectiveState: effectiveReferralState({ ...r, referredDecidedAt: r.referredDecidedAt ?? null }, now),
+      referrerName: displays.get(r.referrerActorId)?.name ?? 'Someone in your network',
+      targetName: displays.get(r.targetActorId)?.name ?? 'Investor',
+      isMineAsReferrer: r.referrerActorId === actor.actorId,
+      isMineAsTarget: r.targetActorId === actor.actorId,
+      isMineAsReferred: actor.orgId != null && r.referredOrgId === actor.orgId,
+      followOn: matchingSignal ? shapeFollowOnPayload(true, matchingSignal.visibility, matchingSignal.investorName) : { active: false as const },
+    };
+  });
 
   const reputation = referralReputation(raw.filter((r) => r.referrerActorId === actor.actorId), actor.actorId);
   const eligibility = await resolveReferralEligibility(admin, actor.actorId, actor.kind === 'investor' ? 'investor' : 'founder');

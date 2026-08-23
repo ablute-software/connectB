@@ -369,13 +369,21 @@ export async function createGroup(admin: SupabaseClient, params: {
 // founder actors does THIS investor actor count as invested" resolution
 // investor_portfolio groups already needed.
 export async function readInvestedActorIdsForOwnerInvestor(admin: SupabaseClient, ownerActorId: string): Promise<string[]> {
-  const { data: actor } = await admin.from('network_actors').select('matchdeal_profile_id').eq('id', ownerActorId).maybeSingle();
-  if (!actor?.matchdeal_profile_id) return [];
+  const catalogEntityId = await resolveInvestorCatalogEntityIdForActor(admin, ownerActorId);
+  if (!catalogEntityId) return [];
+  return readInvestedActorIdsForInvestor(admin, catalogEntityId);
+}
+
+// Prompt 319 — the same actor -> catalog_entity_id chain, exported directly
+// for callers (the referral route's follow-on badge propagation) that need
+// the identity itself, not the derived invested-startups list.
+export async function resolveInvestorCatalogEntityIdForActor(admin: SupabaseClient, actorId: string): Promise<string | null> {
+  const { data: actor } = await admin.from('network_actors').select('matchdeal_profile_id').eq('id', actorId).maybeSingle();
+  if (!actor?.matchdeal_profile_id) return null;
   const { data: profile } = await admin.from('matchdeal_profiles').select('membership_id').eq('id', actor.matchdeal_profile_id).maybeSingle();
-  if (!profile) return [];
+  if (!profile) return null;
   const { data: member } = await admin.from('matchdeal_investor_members').select('catalog_entity_id').eq('id', profile.membership_id).maybeSingle();
-  if (!member?.catalog_entity_id) return [];
-  return readInvestedActorIdsForInvestor(admin, member.catalog_entity_id as string);
+  return (member?.catalog_entity_id as string | undefined) ?? null;
 }
 
 export async function addGroupMember(admin: SupabaseClient, params: {

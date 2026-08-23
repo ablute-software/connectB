@@ -85,10 +85,30 @@ export default function EntityPage({ params }: { params: { id: string } }) {
     messages: DealMessage[];
   }>({ canMessage: false, investorCatalogEntityId: null, investorName: null, messages: [] });
   const [messagingOpen, setMessagingOpen] = useState(false);
+  // Prompt 319 Pedido C.4 — "ask about follow-on interest", only where a
+  // verified invested relationship already exists (server re-checks this;
+  // the button just doesn't render for anything else).
+  const [followOn, setFollowOn] = useState<{ eligible: boolean; investorCatalogEntityId?: string; signal?: { active: boolean } | null; requestPending?: boolean }>({ eligible: false });
+  const [followOnBusy, setFollowOnBusy] = useState(false);
 
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then((me) => setContactAvailable(!!me.capabilities?.entityContactFields)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!entity) return;
+    fetch(`/api/network/followon?entityId=${entity.id}`).then((r) => r.json()).then(setFollowOn).catch(() => setFollowOn({ eligible: false }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity?.id]);
+
+  function askAboutFollowOn() {
+    if (!followOn.investorCatalogEntityId) return;
+    setFollowOnBusy(true);
+    fetch('/api/network/followon', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ investorCatalogEntityId: followOn.investorCatalogEntityId }),
+    }).then((r) => r.json()).then((b) => { if (b.ok && entity) fetch(`/api/network/followon?entityId=${entity.id}`).then((r) => r.json()).then(setFollowOn); })
+      .finally(() => setFollowOnBusy(false));
+  }
 
   useEffect(() => {
     if (!entity) return;
@@ -183,6 +203,11 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           </h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500">
             <StatusPill status={entity.status} /> <FitTag fit={entity.fit_score} /> <WaveTag wave={entity.wave} />
+            {followOn.signal?.active && (
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                ↻ Signaled follow-on interest
+              </span>
+            )}
             <span>{entity.type.replace('_', ' ')}</span>
             <span>· {entity.hq_city ? `${entity.hq_city}, ` : ''}{entity.hq_country}</span>
           </div>
@@ -193,6 +218,12 @@ export default function EntityPage({ params }: { params: { id: string } }) {
             <button onClick={() => setMessagingOpen(true)}
               className="rounded-lg border border-[#0E7490] px-3 py-1.5 text-sm font-medium text-[#0E7490] hover:bg-[#E8F4F8]">
               Message investor
+            </button>
+          )}
+          {followOn.eligible && !followOn.signal?.active && (
+            <button onClick={askAboutFollowOn} disabled={followOnBusy || followOn.requestPending}
+              className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60">
+              {followOn.requestPending ? 'Follow-on ask sent' : 'Ask about follow-on interest'}
             </button>
           )}
           {/* Prompt 233 §A — "Mark dormant" saiu. Era o caminho INCOMPLETO

@@ -20,6 +20,8 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
 import { Card, Toggle } from '@/components/ui';
+import { FollowOnBadge } from '@/components/FollowOnBadge';
+import type { FollowOnPayload } from '@/lib/network';
 
 interface ConnectionView { id: string; otherActorId: string; otherName: string; otherKind: 'founder' | 'investor'; originContext: string | null; createdAt: string }
 interface InviteReceivedView { id: string; fromName: string; fromKind: 'founder' | 'investor'; contextRef: string | null; message: string; expiresAt: string }
@@ -36,7 +38,13 @@ interface ReferralView {
   id: string; referrerActorId: string; referredOrgId: string; targetActorId: string; message: string;
   effectiveState: ReferralState; referrerName: string; targetName: string;
   isMineAsReferrer: boolean; isMineAsTarget: boolean; isMineAsReferred: boolean;
+  followOn: FollowOnPayload;
 }
+
+// Prompt 319 — follow-on signals.
+interface FollowOnStatusView { investorCatalogEntityId: string; investorName: string; active: boolean; visibility: 'named' | 'anonymous' | null; signaledAt: string | null; expiresAt: string | null }
+interface FollowOnRelationshipView { orgId: string; orgName: string; investorCatalogEntityId: string; hasActiveSignal: boolean; visibility: 'named' | 'anonymous' | null }
+interface FollowOnRequestView { orgId: string; orgName: string; requestedAt: string }
 interface ReferralCandidate { actorId: string; orgId: string | null; name: string; kind: 'founder' | 'investor' }
 interface ReferralBootstrap {
   ok: boolean; referrals?: ReferralView[]; reputation?: { sent: number; accepted: number };
@@ -101,11 +109,17 @@ export default function NetworkPage() {
   const [addMemberActorId, setAddMemberActorId] = useState('');
   const [referralData, setReferralData] = useState<ReferralBootstrap | null>(null);
   const [referralDraft, setReferralDraft] = useState<{ referredOrgId: string; targetActorId: string; message: string } | null>(null);
+  const [founderSignals, setFounderSignals] = useState<FollowOnStatusView[] | null>(null);
+  const [investorFollowOn, setInvestorFollowOn] = useState<{ relationships: FollowOnRelationshipView[]; requests: FollowOnRequestView[] } | null>(null);
 
   function load() {
     fetch('/api/network').then((r) => r.json()).then(setState).catch(() => setState(null));
     fetch('/api/network/group').then((r) => r.json()).then((b) => setGroups(b.groups ?? [])).catch(() => setGroups([]));
     fetch('/api/network/referral').then((r) => r.json()).then(setReferralData).catch(() => setReferralData(null));
+    fetch('/api/network/followon').then((r) => r.json()).then((b) => setFounderSignals(b.signals ?? null)).catch(() => setFounderSignals(null));
+    fetch('/api/network/followon/investor').then((r) => r.json())
+      .then((b) => setInvestorFollowOn(b.ok ? { relationships: b.relationships ?? [], requests: b.requests ?? [] } : null))
+      .catch(() => setInvestorFollowOn(null));
   }
   useEffect(load, []);
 
@@ -189,6 +203,13 @@ export default function NetworkPage() {
       if (!b.ok) { setError(b.error); return; }
       setReferralDraft(null); load();
     }).finally(() => setBusy(false));
+  }
+
+  function followOnAction(orgId: string, action: 'signal' | 'change_visibility' | 'revoke' | 'dismiss_request', visibility?: 'named' | 'anonymous') {
+    setBusy(true); setError(null);
+    fetch('/api/network/followon/investor', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId, action, visibility }),
+    }).then((r) => r.json()).then((b) => { if (!b.ok) setError(b.error); load(); }).finally(() => setBusy(false));
   }
 
   if (!state || !groups) return <p className="text-sm text-gray-400">Loading…</p>;
@@ -501,6 +522,7 @@ export default function NetworkPage() {
                       <p className="text-sm text-gray-800">
                         {r.isMineAsTarget ? `${r.referrerName} referred you a startup` : `${r.referrerName} → ${r.targetName}`}
                       </p>
+                      {r.followOn.active && <div className="mt-1"><FollowOnBadge signal={r.followOn} /></div>}
                       {r.isMineAsTarget && <p className="mt-1 text-xs italic text-gray-600">&ldquo;{r.message}&rdquo;</p>}
                       <p className="mt-1 text-[11px] text-gray-400">{REFERRAL_STATE_LABEL[r.effectiveState]}</p>
                       {r.isMineAsTarget && r.effectiveState === 'pending_target_decision' && (
@@ -519,6 +541,75 @@ export default function NetworkPage() {
           );
         })()}
       </Card>
+
+      {state.myActorKind === 'founder' && founderSignals && (
+        <Card title={`Follow-on interest received (${founderSignals.filter((s) => s.active).length})`}>
+          {founderSignals.filter((s) => s.active).length === 0 ? (
+            <p className="text-sm text-gray-400">No investor has signaled follow-on interest yet.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {founderSignals.filter((s) => s.active).map((s) => (
+                <li key={s.investorCatalogEntityId} className="flex items-center justify-between text-sm">
+                  <span className="text-gray-700">{s.investorName}</span>
+                  <span className="text-[11px] text-gray-400">{s.visibility === 'anonymous' ? 'shown anonymously to others' : 'shown by name to others'}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+
+      {state.myActorKind === 'investor' && investorFollowOn && (
+        <Card title="Follow-on interest">
+          {investorFollowOn.requests.length > 0 && (
+            <div className="mb-3 space-y-2 border-b border-gray-100 pb-3">
+              <p className="text-[11px] font-medium text-gray-500">Startups asking whether you&apos;d consider a follow-on</p>
+              {investorFollowOn.requests.map((req) => (
+                <div key={req.orgId} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 p-2.5">
+                  <span className="text-sm text-gray-700">{req.orgName}</span>
+                  <div className="flex shrink-0 gap-1.5">
+                    <button onClick={() => followOnAction(req.orgId, 'signal', 'named')} disabled={busy}
+                      className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">Signal interest</button>
+                    <button onClick={() => followOnAction(req.orgId, 'dismiss_request')} disabled={busy}
+                      className="rounded-full border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600">Dismiss</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {investorFollowOn.relationships.length === 0 ? (
+            <p className="text-sm text-gray-400">No verified invested relationships yet.</p>
+          ) : (
+            <ul className="space-y-2">
+              {investorFollowOn.relationships.map((rel) => (
+                <li key={rel.orgId} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 p-2.5">
+                  <span className="text-sm text-gray-700">{rel.orgName}</span>
+                  {rel.hasActiveSignal ? (
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <select value={rel.visibility ?? 'named'} onChange={(e) => followOnAction(rel.orgId, 'change_visibility', e.target.value as 'named' | 'anonymous')}
+                        className="rounded-lg border border-gray-300 bg-white p-1 text-[11px]">
+                        <option value="named">Named</option>
+                        <option value="anonymous">Anonymous</option>
+                      </select>
+                      <button onClick={() => followOnAction(rel.orgId, 'signal', rel.visibility ?? 'named')} disabled={busy}
+                        className="rounded-full border border-gray-300 px-2 py-1 text-[11px] text-gray-600">Renew</button>
+                      <button onClick={() => followOnAction(rel.orgId, 'revoke')} disabled={busy}
+                        className="rounded-full border border-gray-300 px-2 py-1 text-[11px] text-gray-600">Revoke</button>
+                    </div>
+                  ) : (
+                    <div className="flex shrink-0 gap-1.5">
+                      <button onClick={() => followOnAction(rel.orgId, 'signal', 'named')} disabled={busy}
+                        className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">Signal (named)</button>
+                      <button onClick={() => followOnAction(rel.orgId, 'signal', 'anonymous')} disabled={busy}
+                        className="rounded-full border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600">Signal (anonymous)</button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
 
       <Card title="Suggestions">
         {state.myActorKind === 'founder' && !state.discoverable && (

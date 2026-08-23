@@ -4,6 +4,7 @@ import {
   computeSharedGroupSuggestions, mergeConnectionSuggestions, canCreateGroup, canAddGroupMember,
   canCreateReferral, isDuplicateReferral, canSendReferral, isReferralVisibleToTarget, effectiveReferralState, referralReputation,
   referralsVisibleToTarget, MAX_REFERRALS_PER_MONTH,
+  canSignalFollowOn, isFollowOnActive, shapeFollowOnPayload, referralCarriesFollowOnBadge, FOLLOWON_VALIDITY_MONTHS,
 } from './network';
 
 describe('canonicalPair — ordem canónica para a chave única de network_connections', () => {
@@ -352,5 +353,87 @@ describe('referralsVisibleToTarget — prova exigida pelo prompt: o alvo NUNCA r
       { id: 'r4', referrerActorId: ablute, targetActorId: caramelBiscuit, state: 'accepted' as const },
     ];
     expect(referralsVisibleToTarget(rows, vc).map((r) => r.id)).toEqual(['r2', 'r3']);
+  });
+});
+
+describe('canSignalFollowOn — só investidor com invested verificado pode marcar', () => {
+  it('permite quando há relação invested verificada', () => {
+    expect(canSignalFollowOn(true)).toBe(true);
+  });
+  it('nega sem relação invested verificada', () => {
+    expect(canSignalFollowOn(false)).toBe(false);
+  });
+});
+
+describe('isFollowOnActive — expira aos 6 meses, renovação reseta o prazo, revogação silenciosa vence sempre', () => {
+  const NOW = new Date('2026-08-23T00:00:00Z');
+
+  it('null (nunca marcado) não está activo', () => {
+    expect(isFollowOnActive(null, NOW)).toBe(false);
+  });
+
+  it('activo enquanto expiresAt no futuro', () => {
+    const signaledAt = new Date(NOW);
+    const expiresAt = new Date(signaledAt); expiresAt.setUTCMonth(expiresAt.getUTCMonth() + FOLLOWON_VALIDITY_MONTHS);
+    expect(isFollowOnActive({ expiresAt: expiresAt.toISOString(), revokedAt: null }, NOW)).toBe(true);
+  });
+
+  it('inactivo assim que passam os 6 meses sem renovação', () => {
+    const sixMonthsAgo = new Date(NOW); sixMonthsAgo.setUTCMonth(sixMonthsAgo.getUTCMonth() - FOLLOWON_VALIDITY_MONTHS);
+    expect(isFollowOnActive({ expiresAt: sixMonthsAgo.toISOString(), revokedAt: null }, NOW)).toBe(false);
+  });
+
+  it('renovar (novo expiresAt +6 meses a partir de agora) volta a ficar activo', () => {
+    const renewedExpiresAt = new Date(NOW); renewedExpiresAt.setUTCMonth(renewedExpiresAt.getUTCMonth() + FOLLOWON_VALIDITY_MONTHS);
+    expect(isFollowOnActive({ expiresAt: renewedExpiresAt.toISOString(), revokedAt: null }, NOW)).toBe(true);
+  });
+
+  it('revogação vence mesmo com expiresAt ainda no futuro', () => {
+    const futureExpiresAt = new Date(NOW); futureExpiresAt.setUTCMonth(futureExpiresAt.getUTCMonth() + 3);
+    expect(isFollowOnActive({ expiresAt: futureExpiresAt.toISOString(), revokedAt: NOW.toISOString() }, NOW)).toBe(false);
+  });
+});
+
+describe('shapeFollowOnPayload — o payload nunca inclui identidade quando anonymous, nem o campo quando inactivo', () => {
+  it('inactivo -> só { active: false }, sem mais nenhum campo', () => {
+    expect(shapeFollowOnPayload(false, 'named', 'Acme Ventures')).toEqual({ active: false });
+    expect(shapeFollowOnPayload(false, null, null)).toEqual({ active: false });
+  });
+
+  it('activo + anonymous -> nunca inclui investorName, mesmo que fornecido', () => {
+    const payload = shapeFollowOnPayload(true, 'anonymous', 'Acme Ventures');
+    expect(payload).toEqual({ active: true, visibility: 'anonymous' });
+    expect('investorName' in payload).toBe(false);
+  });
+
+  it('activo + named -> inclui o nome do investidor', () => {
+    expect(shapeFollowOnPayload(true, 'named', 'Acme Ventures')).toEqual({ active: true, visibility: 'named', investorName: 'Acme Ventures' });
+  });
+});
+
+describe('referralCarriesFollowOnBadge — propaga só para a mesma startup e o mesmo investidor', () => {
+  const acmeVc = 'catalog-acme-vc';
+  const otherVc = 'catalog-other-vc';
+  const abluteOrg = 'org-ablute';
+  const otherOrg = 'org-other-startup';
+
+  it('propaga quando o referrer é o investidor com sinal activo, sobre a mesma startup', () => {
+    const activeSignals = [{ investorCatalogEntityId: acmeVc, orgId: abluteOrg }];
+    expect(referralCarriesFollowOnBadge({ referrerInvestorCatalogEntityId: acmeVc, referredOrgId: abluteOrg, activeSignals })).toBe(true);
+  });
+
+  it('NÃO propaga para uma referência de outro investidor sobre a mesma startup', () => {
+    const activeSignals = [{ investorCatalogEntityId: acmeVc, orgId: abluteOrg }];
+    expect(referralCarriesFollowOnBadge({ referrerInvestorCatalogEntityId: otherVc, referredOrgId: abluteOrg, activeSignals })).toBe(false);
+  });
+
+  it('NÃO propaga para uma referência do mesmo investidor sobre outra startup', () => {
+    const activeSignals = [{ investorCatalogEntityId: acmeVc, orgId: abluteOrg }];
+    expect(referralCarriesFollowOnBadge({ referrerInvestorCatalogEntityId: acmeVc, referredOrgId: otherOrg, activeSignals })).toBe(false);
+  });
+
+  it('referrer sem identidade de investidor (fundador) nunca propaga', () => {
+    const activeSignals = [{ investorCatalogEntityId: acmeVc, orgId: abluteOrg }];
+    expect(referralCarriesFollowOnBadge({ referrerInvestorCatalogEntityId: null, referredOrgId: abluteOrg, activeSignals })).toBe(false);
   });
 });
