@@ -120,3 +120,25 @@ body {
     animation: none;
   }
 }
+
+/* Prompt 332 Pedido E — Material Symbols Outlined, the first icon-font
+   dependency in this app (see src/app/network/layout.tsx's own header for
+   why). The class definition lives here (harmless everywhere — it only
+   ever applies to an element that opts into this exact class name) so any
+   future page adopting the same vocabulary doesn't need to redeclare it;
+   only the <link> that actually loads the font is scoped to /network. */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}

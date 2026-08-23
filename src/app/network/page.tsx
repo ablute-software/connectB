@@ -21,8 +21,30 @@ import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
 import { Card, Toggle } from '@/components/ui';
 import { FollowOnBadge } from '@/components/FollowOnBadge';
+import { NetworkAvatar } from '@/components/NetworkAvatar';
+import { HelpSupportWidget } from '@/components/HelpSupportWidget';
 import type { FollowOnPayload } from '@/lib/network';
 import { ALL_SECTOR_NAMES } from '@/lib/sector-taxonomy';
+
+// Prompt 332 — the approved navigation shell: 6 sections instead of 12
+// stacked cards. Presentation only — every fetch/action/endpoint below is
+// unchanged; this type just gates which cards RENDER.
+type Section = 'feed' | 'connections' | 'groups' | 'referrals' | 'followon' | 'reciprocity';
+const SECTION_NAV: { key: Section; label: string; icon: string }[] = [
+  { key: 'feed', label: 'Feed', icon: 'dynamic_feed' },
+  { key: 'connections', label: 'Connections', icon: 'diversity_3' },
+  { key: 'groups', label: 'Groups', icon: 'groups' },
+  // Pathfinder asks live here — a Pathfinder ask IS a request to refer
+  // someone, the same action a Referrals composer produces; not a rigid
+  // mapping like the other five, called out per the prompt's own allowance.
+  { key: 'referrals', label: 'Referrals', icon: 'forward_to_inbox' },
+  { key: 'followon', label: 'Follow-on', icon: 'trending_up' },
+  { key: 'reciprocity', label: 'Reciprocity', icon: 'handshake' },
+];
+
+function Icon({ name, className }: { name: string; className?: string }) {
+  return <span className={`material-symbols-outlined ${className ?? ''}`} aria-hidden="true">{name}</span>;
+}
 
 interface ConnectionView { id: string; otherActorId: string; otherName: string; otherKind: 'founder' | 'investor'; originContext: string | null; createdAt: string }
 interface InviteReceivedView { id: string; fromName: string; fromKind: 'founder' | 'investor'; contextRef: string | null; message: string; expiresAt: string }
@@ -116,6 +138,8 @@ function Modal({ onClose, children }: { onClose: () => void; children: React.Rea
 
 export default function NetworkPage() {
   const { updateOrg } = useStore();
+  const [section, setSection] = useState<Section>('feed');
+  const [connectionSearch, setConnectionSearch] = useState('');
   const [state, setState] = useState<NetworkBootstrap | null>(null);
   const [groups, setGroups] = useState<GroupListView[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -404,23 +428,90 @@ export default function NetworkPage() {
   const invitesReceived = state.invitesReceived ?? [];
   const invitesSent = state.invitesSent ?? [];
   const suggestions = state.suggestions ?? [];
+  const filteredConnections = connectionSearch.trim()
+    ? connections.filter((c) => c.otherName.toLowerCase().includes(connectionSearch.trim().toLowerCase()))
+    : connections;
+
+  // Prompt 332 Pedido E — the Referrals nav badge. No new "unread" endpoint:
+  // this counts referrals actually waiting on MY OWN decision (consent as
+  // the referred party, or accept/decline as the target) plus open
+  // Pathfinder asks, both already resolved from existing fetches. This is
+  // an approximation, stated plainly — it does NOT distinguish "already
+  // seen but not yet decided" from "brand new since your last visit"; it's
+  // "how many things need your attention", not a true unread count.
+  const referralsNeedingAttention = (referralData?.referrals ?? []).filter((r) =>
+    (r.isMineAsReferred && r.effectiveState === 'pending_referred_consent')
+    || (r.isMineAsTarget && r.effectiveState === 'pending_target_decision')).length;
+  const referralsBadgeCount = referralsNeedingAttention + pathfinderAsks.length;
+
+  const activeSectionLabel = SECTION_NAV.find((s) => s.key === section)?.label ?? '';
 
   return (
-    <div className="max-w-3xl space-y-4">
-      <div>
-        <h1 className="text-lg font-bold">My Network</h1>
-        <p className="text-xs text-gray-400">
-          Founders and investors helping each other raise — never sales, partnerships, or prospecting. No open people search:
-          every connection starts from verified, shared context.
-        </p>
-        {state.reciprocity && (
-          <p className="mt-1 text-[11px] text-gray-400">
-            {state.reciprocity.officeHoursOffered} office hours offered · {state.reciprocity.startupsReferredViaScout} startups referred through scout requests
+    <div className="flex items-start gap-4">
+      {/* Prompt 332 §A — persistent left nav, 6 sections instead of 12
+          stacked cards. Lives inside the same shell.tsx content column
+          (max-w-6xl/main) — not a floating dock, not a second app. */}
+      <aside className="hidden w-56 shrink-0 flex-col lg:flex">
+        <div className="mb-4">
+          <h1 className="text-lg font-bold">My Network</h1>
+          <p className="text-xs text-gray-400">
+            Founders and investors helping each other raise — never sales, partnerships, or prospecting. No open people search:
+            every connection starts from verified, shared context.
           </p>
-        )}
-      </div>
+          {state.reciprocity && (
+            <p className="mt-1 text-[11px] text-gray-400">
+              {state.reciprocity.officeHoursOffered} office hours offered · {state.reciprocity.startupsReferredViaScout} startups referred through scout requests
+            </p>
+          )}
+        </div>
+        <button onClick={() => setComposerOpen(true)}
+          className="mb-4 rounded-full bg-[#0E7490] px-3 py-2 text-xs font-semibold text-white">
+          + Post update
+        </button>
+        <nav className="space-y-1">
+          {SECTION_NAV.map((s) => (
+            <button key={s.key} onClick={() => setSection(s.key)}
+              className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm ${section === s.key ? 'bg-[#E8F4F8] font-semibold text-[#0E7490]' : 'text-gray-600 hover:bg-gray-50'}`}>
+              <Icon name={s.icon} className="text-[20px] leading-none" />
+              {s.label}
+              {s.key === 'referrals' && referralsBadgeCount > 0 && (
+                <span className="ml-auto rounded-full bg-[#B00000] px-1.5 py-0.5 text-[10px] font-semibold text-white">{referralsBadgeCount}</span>
+              )}
+            </button>
+          ))}
+        </nav>
+        <div className="mt-auto border-t border-gray-100 pt-3">
+          {/* Reuses HelpSupportWidget as-is, uncontrolled — no modal logic duplicated here. */}
+          <HelpSupportWidget source="founder_app" />
+        </div>
+      </aside>
 
-      {error && <p className="text-xs text-[#B00000]">{error}</p>}
+      <div className="min-w-0 flex-1 space-y-4">
+        {/* Mobile-only: My Network's own 6-section switcher as an in-page
+            scrollable tab row — deliberately NOT a second fixed bottom dock,
+            which would collide with the app's existing global
+            WorkspaceMobileNav (Prompt 332 §F). */}
+        <div className="lg:hidden">
+          <h1 className="text-lg font-bold">My Network</h1>
+          <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+            {SECTION_NAV.map((s) => (
+              <button key={s.key} onClick={() => setSection(s.key)}
+                className={`flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-semibold ${section === s.key ? 'bg-[#0E7490] text-white' : 'border border-gray-300 text-gray-600'}`}>
+                <Icon name={s.icon} className="text-[16px] leading-none" />
+                {s.label}
+                {s.key === 'referrals' && referralsBadgeCount > 0 && (
+                  <span className={`rounded-full px-1.5 text-[10px] font-semibold ${section === s.key ? 'bg-white text-[#0E7490]' : 'bg-[#B00000] text-white'}`}>
+                    {referralsBadgeCount}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <h2 className="hidden text-base font-semibold text-gray-800 lg:block">{activeSectionLabel}</h2>
+
+        {error && <p className="text-xs text-[#B00000]">{error}</p>}
 
       {composerFor && (
         <Modal onClose={() => setComposerFor(null)}>
@@ -779,6 +870,7 @@ export default function NetworkPage() {
         </Modal>
       )}
 
+      {section === 'feed' && (
       <Card title="Feed" right={
         <div className="flex items-center gap-1.5">
           {milestoneAvailable && (
@@ -831,7 +923,10 @@ export default function NetworkPage() {
           </ul>
         )}
       </Card>
+      )}
 
+      {section === 'reciprocity' && (
+      <>
       <Card title={`Office hours (${offers.length})`} right={
         <button onClick={() => setOfferComposerOpen(true)} className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">
           + Offer office hours
@@ -902,7 +997,11 @@ export default function NetworkPage() {
           </ul>
         )}
       </Card>
+      </>
+      )}
 
+      {section === 'connections' && (
+      <>
       <Card title={`Your connections (${connections.length})`}>
         {connections.length === 0 ? (
           <p className="text-sm text-gray-400">No connections yet — accept an invite, or invite someone from a suggestion below.</p>
@@ -973,7 +1072,10 @@ export default function NetworkPage() {
           </ul>
         )}
       </Card>
+      </>
+      )}
 
+      {section === 'groups' && (
       <Card title={`Groups (${groups.length})`} right={
         <button onClick={() => setCreatingGroup(true)} className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">
           + New group
@@ -998,7 +1100,10 @@ export default function NetworkPage() {
           </ul>
         )}
       </Card>
+      )}
 
+      {section === 'referrals' && (
+      <>
       {pathfinderAsks.length > 0 && (
         <Card title={`Pathfinder — asked to refer someone (${pathfinderAsks.length})`}>
           <ul className="space-y-2">
@@ -1080,7 +1185,11 @@ export default function NetworkPage() {
           );
         })()}
       </Card>
+      </>
+      )}
 
+      {section === 'followon' && (
+      <>
       {state.myActorKind === 'founder' && founderSignals && (
         <Card title={`Follow-on interest received (${founderSignals.filter((s) => s.active).length})`}>
           {founderSignals.filter((s) => s.active).length === 0 ? (
@@ -1149,7 +1258,10 @@ export default function NetworkPage() {
           )}
         </Card>
       )}
+      </>
+      )}
 
+      {section === 'connections' && (
       <Card title="Suggestions">
         {state.myActorKind === 'founder' && !state.discoverable && (
           <div className="mb-3 space-y-2 border-b border-gray-100 pb-3">
@@ -1182,6 +1294,34 @@ export default function NetworkPage() {
           </ul>
         )}
       </Card>
+      )}
+      </div>
+
+      {/* Prompt 332 §C — real "your network" panel, N = connections.length
+          (never a placeholder count). Search is a client-side name filter
+          over already-fetched `connections` — no new server call. */}
+      <aside className="hidden w-64 shrink-0 xl:block">
+        <div className="sticky top-4 rounded-xl border border-gray-100 p-3">
+          <h3 className="text-xs font-semibold text-gray-700">Your network ({connections.length})</h3>
+          <input value={connectionSearch} onChange={(e) => setConnectionSearch(e.target.value)}
+            placeholder="Filter by name" className="mt-2 w-full rounded-lg border border-gray-300 p-1.5 text-xs" />
+          <ul className="mt-2 max-h-[60vh] space-y-2 overflow-y-auto">
+            {filteredConnections.length === 0 ? (
+              <p className="text-[11px] text-gray-400">No connections match.</p>
+            ) : (
+              filteredConnections.map((c) => (
+                <li key={c.id} className="flex items-center gap-2">
+                  <NetworkAvatar name={c.otherName} kind={c.otherKind} size="sm" />
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium text-gray-800">{c.otherName}</p>
+                    {c.originContext && <p className="truncate text-[10px] text-gray-400">{c.originContext}</p>}
+                  </div>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      </aside>
     </div>
   );
 }
