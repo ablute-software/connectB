@@ -3,13 +3,25 @@
 // (formerly its own route) into the Overview/Review & Optimization
 // separadores on /dashboard — logic unchanged, only the export changed from
 // a page default to a named panel.
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink, fmtRoundEur, statusLabel } from '@/components/ui';
 import { outboundCounts, passReasonAlert } from '@/lib/rules';
+import { can, type OrgRole } from '@/lib/permissions';
+import { authEnabled } from '@/lib/supabase';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { MatchDealVisibilityBanner } from './MatchDealVisibilityBanner';
+// Prompt 327 Pedido A — moved from CompanyPanel.tsx: these three are
+// operational RESULTS of the Sherlock relationship with investors (a
+// decision the platform recorded, a contact request, the caps that shape
+// outreach volume), not facts the company declares about itself — they
+// belong next to the rest of the campaign's own operational status, not on
+// the "about the company" page. InvestorQACard/RoundUpdatesCard/
+// SoftCommitsCard share the same characteristic but weren't named in the
+// request — left in place, flagged in the report for a follow-up decision.
+import { InvestorDecisionsCard, InterestLevelRequestsCard } from '@/components/company/InvestorEngagementCards';
+import { OutreachSettingsCard } from '@/components/company/OutreachSettingsCard';
 import type { EntityStatus } from '@/lib/types';
 
 const STATUS_ORDER: EntityStatus[] = ['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'invested', 'dormant'];
@@ -21,6 +33,14 @@ const STATUS_BAR: Record<EntityStatus, string> = {
 export function OverviewPanel() {
   const { db } = useStore();
   const [openList, setOpenList] = useState<'followups' | 'passes' | null>(null);
+  // Prompt 327 Pedido A — same permission resolution CompanyPanel.tsx used
+  // for OutreachSettingsCard, moved here unchanged so its edit gate behaves
+  // identically after relocating.
+  const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
+  useEffect(() => {
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => setOrgRole(me.orgRole ?? null)).catch(() => {});
+  }, []);
+  const canEditOutreach = !authEnabled || can(orgRole, 'manage_org_settings');
   const caps = outboundCounts(db);
   const alert = passReasonAlert(db);
   const active = db.entities.filter((e) => ['in_conversation', 'diligence'].includes(e.status)).length;
@@ -231,6 +251,10 @@ export function OverviewPanel() {
           </table>
         )}
       </Card>
+
+      <InvestorDecisionsCard />
+      <InterestLevelRequestsCard />
+      <OutreachSettingsCard canEdit={canEditOutreach} />
     </div>
   );
 }

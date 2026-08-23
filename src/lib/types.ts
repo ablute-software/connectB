@@ -594,6 +594,10 @@ export interface FundingRound {
   label: string;
   amount_eur: number;
   closed_year?: number;
+  // Prompt 327 Pedido B — WHO invested. Free text (no real catalog link
+  // required), because most previous-round investors predate this app's
+  // own catalog entirely — same "texto livre" reasoning as `label` itself.
+  investor_name?: string;
   note?: string;
   created_at?: string;
 }

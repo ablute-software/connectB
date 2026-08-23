@@ -20,9 +20,8 @@ import { StartupTeamCard } from './StartupTeamCard';
 import { RoundCard } from './RoundCard';
 import { PreviousFundingCard } from '@/components/PreviousFundingCard';
 import { TractionCard } from './TractionCard';
-import { OutreachSettingsCard } from './OutreachSettingsCard';
 import { DataroomChecklistCard } from './DataroomChecklistCard';
-import { InvestorDecisionsCard, InterestLevelRequestsCard, InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEngagementCards';
+import { InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEngagementCards';
 import { StartupAxisClassifications } from './StartupAxisClassifications';
 
 function DemoResetCard() {
@@ -98,14 +97,17 @@ export function CompanyPanel() {
         <TractionCard canEdit={canEdit} />
       </div>
       <DataroomChecklistCard />
-      <InvestorDecisionsCard />
-      <InterestLevelRequestsCard />
+      {/* Prompt 327 Pedido A — InvestorDecisionsCard/InterestLevelRequestsCard/
+          OutreachSettingsCard moved to the Dashboard Overview tab: they're
+          operational RESULTS of the Sherlock relationship, not facts the
+          company declares about itself. SoftCommitsCard/RoundUpdatesCard/
+          InvestorQACard stayed here for now (not named in the request) —
+          flagged in the report as arguably sharing the same characteristic. */}
       <SoftCommitsCard />
       <RoundUpdatesCard />
       <InvestorQACard />
       <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
       <StartupAxisClassifications />
-      <OutreachSettingsCard canEdit={canEdit} />
       <DemoResetCard />
     </div>
   );

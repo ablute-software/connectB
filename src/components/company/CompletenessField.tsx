@@ -3,7 +3,7 @@
 // can find it (id) and flash it (the `flashing` ring/fade), and so a
 // still-missing field can carry its own small "needed for 100%" tag.
 export function CompletenessField({ id, label, missing, flashing, className, children }: {
-  id: string; label: string; missing: boolean; flashing: boolean; className?: string; children: React.ReactNode;
+  id: string; label: React.ReactNode; missing: boolean; flashing: boolean; className?: string; children: React.ReactNode;
 }) {
   return (
     <label id={id}

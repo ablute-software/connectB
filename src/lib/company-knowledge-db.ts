@@ -25,7 +25,7 @@ export async function readKnowledgeSources(admin: SupabaseClient, orgId: string)
   const [facts, org, fundingRounds, milestones, roadmapCategories, people, clarifications] = await Promise.all([
     admin.from('company_facts').select('id, category, statement, status, confirmed_at, updated_at').eq('org_id', orgId),
     admin.from('orgs').select('one_liner, description, sectors, sectors_other, stage, country, founded_year, revenue_eur, round_target_eur, round_use_of_funds, round_instruments, round_valuation_eur').eq('id', orgId).maybeSingle(),
-    admin.from('funding_rounds').select('id, label, amount_eur, closed_year, note').eq('org_id', orgId),
+    admin.from('funding_rounds').select('id, label, amount_eur, closed_year, note, investor_name').eq('org_id', orgId),
     admin.from('company_roadmap_milestones').select('id, period_kind, period_year, period_quarter, items, items_v2').eq('org_id', orgId).order('period_year', { ascending: true }),
     admin.from('roadmap_categories').select('id, label').eq('org_id', orgId),
     admin.from('company_people').select('id, full_name, title, is_founder, bio').eq('org_id', orgId).order('sort_order', { ascending: true }),

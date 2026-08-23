@@ -146,6 +146,10 @@ export function orgProfileToAtoms(org: OrgProfileRow): RawAtom[] {
 // sinais que o measureSpecificity mede.
 export interface FundingRoundRow {
   id: string; label?: string | null; amount_eur?: number | null; closed_year?: number | null; note?: string | null;
+  // Prompt 327 Pedido B — who invested; folded into the atom text the same
+  // way `note` already is, so the claims/blueprint pipeline picks it up
+  // with no separate wiring.
+  investor_name?: string | null;
 }
 
 export function fundingRoundToAtom(row: FundingRoundRow): RawAtom | null {
@@ -154,6 +158,7 @@ export function fundingRoundToAtom(row: FundingRoundRow): RawAtom | null {
     row.label?.trim() || 'Previous round',
     row.amount_eur != null ? `of ${eur(row.amount_eur)}` : null,
     row.closed_year != null ? `closed in ${row.closed_year}` : null,
+    row.investor_name?.trim() ? `from ${row.investor_name.trim()}` : null,
   ].filter(Boolean);
   return {
     category: 'funding',

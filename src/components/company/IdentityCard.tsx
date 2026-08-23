@@ -196,8 +196,13 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
       ) : (
         <div className="space-y-3">
           <div className="flex items-center gap-3">
-            <div id="identity.logo" className={`flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50 transition-colors duration-700 ${flashId === 'identity.logo' ? 'ring-2 ring-amber-300' : ''}`}>
-              {logoSignedUrl ? <img src={logoSignedUrl} alt="Logo" className="h-full w-full object-cover" /> : <span className="text-[10px] text-gray-300">No logo</span>}
+            {/* Prompt 327 Pedido D — object-contain, never object-cover: a
+                rectangular logo shrinks to fit whole, never gets cropped.
+                A slightly wider box (h-14 -> h-16, w-14 -> w-20) gives a
+                landscape logo more room before it starts looking cramped,
+                without changing the crop behavior itself. */}
+            <div id="identity.logo" className={`flex h-16 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50 transition-colors duration-700 ${flashId === 'identity.logo' ? 'ring-2 ring-amber-300' : ''}`}>
+              {logoSignedUrl ? <img src={logoSignedUrl} alt="Logo" className="h-full w-full object-contain" /> : <span className="text-[10px] text-gray-300">No logo</span>}
             </div>
             {canEdit && (
               <div>

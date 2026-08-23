@@ -64,6 +64,7 @@ import { detectPastRound, type PastRoundHint } from '@/lib/round-propagation';
 import { readItems, itemCategoryLabel, CATEGORY_COLORS, CATEGORY_SHAPES, COLOR_STYLES, SHAPE_STYLES, GENERAL_LABEL, type CategoryColor, type CategoryShape } from '@/lib/roadmap-categories';
 import type { RoadmapItemV2, RoadmapCategory } from '@/lib/types';
 import { Card, TermHint, Toggle } from '@/components/ui';
+import { AiSupportButton } from './AiSupportButton';
 import type { RoadmapMilestone, RoadmapPeriodKind } from '@/lib/types';
 import { periodHasPassed, periodLabel, sortRoadmapPeriods, type RoadmapPeriod } from '@/lib/roadmap';
 
@@ -221,7 +222,7 @@ function FoundedNode({ foundedYear, col, nextColor }: { foundedYear: number | nu
 }
 
 function MilestoneNode<T extends RoadmapPeriod & { items: string[]; items_v2?: RoadmapItemV2[] | null }>({
-  m, index, col, theme, editable, onEdit, onRemove, now, prevPast, prevColor, nextColor, categories = [],
+  m, index, col, theme, editable, onEdit, onRemove, now, prevPast, prevColor, nextColor, categories = [], isRowStart = false,
 }: {
   m: T; index: number; col: number; theme: typeof CARD_THEMES[number]; editable: boolean; onEdit?: (m: T) => void; onRemove?: (m: T) => void; now: Date;
   // Prompt 213 §D — para a cor do ponto de cada item. Opcional: sem
@@ -239,6 +240,12 @@ function MilestoneNode<T extends RoadmapPeriod & { items: string[]; items_v2?: R
   // toward them. nextColor falls back to this node's OWN color when it's
   // the last milestone — nothing further to blend toward.
   prevColor: string; nextColor: string;
+  // Prompt 327 Pedido C — true for the first node of a WRAPPED row that
+  // isn't the overall first milestone: no incoming line is drawn, same
+  // "nothing precedes the very first node" treatment FoundedNode's own
+  // comment already documents — a wrapped row starts fresh, it doesn't
+  // pretend to continue a line from the row above.
+  isRowStart?: boolean;
 }) {
   const label = periodLabel(m.period_kind, m.period_year, m.period_quarter);
   const past = periodHasPassed(m, now);
@@ -291,7 +298,7 @@ function MilestoneNode<T extends RoadmapPeriod & { items: string[]; items_v2?: R
         {top && <>{card}<CardTriangle colorClass={theme.triangleDown} /></>}
       </div>
       <div style={{ ...colStyle, gridRow: ROW_AXIS }} className={`flex ${CONTAINER_WIDTH} items-center`}>
-        <AxisLine fromColor={prevColor} toColor={theme.nodeColor} solid={prevPast} />
+        {!isRowStart && <AxisLine fromColor={prevColor} toColor={theme.nodeColor} solid={prevPast} />}
         {/* §B.6 — filled + thin border when past, hollow (white fill,
             thicker border so the "empty" ring reads clearly) when future.
             Prompt 194 — the color itself is now this node's own theme hex
@@ -311,89 +318,36 @@ function MilestoneNode<T extends RoadmapPeriod & { items: string[]; items_v2?: R
   );
 }
 
-// Prompt 177 §3 / Prompt 185 §A.2 — a slim scrollbar-style bar below the
-// row of cards: thin track, a thumb sized/positioned from the real
-// scrollLeft/scrollWidth/clientWidth, small chevrons at each end (the
-// reference confirms all of this stays — Prompt 185 §B.8). New in 185: the
-// thumb is actually DRAGGABLE (pointer events, not just clickable
-// chevrons), and clicking anywhere else on the track jumps to that
-// position — the chevrons' fixed 320px-per-click alone could leave
-// "Add milestone" unreachable with several milestones in the row.
-function ScrollBar({ scrollRef }: { scrollRef: React.RefObject<HTMLDivElement> }) {
-  const [thumb, setThumb] = useState({ left: 0, width: 100 });
-  const trackRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ startClientX: number; startScrollLeft: number } | null>(null);
+// Prompt 327 Pedido C — the horizontal-scroll carousel (ScrollBar, drag-to-
+// scroll, wheel-to-scroll) is gone: the timeline must always fit the page,
+// never a horizontal scrollbar, however many milestones exist. It now WRAPS
+// into as many rows as needed instead of scrolling sideways — each row is
+// its own self-contained grid (same 4-shared-rows structure §A already
+// established, so the axis stays level within a row), stacked vertically.
+// A row that isn't the first gets no incoming line into its own first node
+// (isRowStart) — same "nothing precedes the very first node" treatment
+// FoundedNode's comment already documents; a wrapped row starts fresh, it
+// never pretends to visually continue the row above it.
+//
+// COLUMN_WIDTH_PX must track CONTAINER_WIDTH's own px value (w-60 = 15rem);
+// used only to size how many columns fit one row via ResizeObserver — real
+// layout width still comes from Tailwind classes, this is just the sizing
+// math for chunking.
+const COLUMN_WIDTH_PX = 240;
 
+function useColumnsPerRow(containerRef: React.RefObject<HTMLDivElement>): number {
+  const [columns, setColumns] = useState(3);
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    function update() {
-      const { scrollLeft, scrollWidth, clientWidth } = el!;
-      if (scrollWidth <= 0) return;
-      setThumb({
-        left: (scrollLeft / scrollWidth) * 100,
-        width: Math.max(8, (clientWidth / scrollWidth) * 100),
-      });
-    }
-    update();
-    el.addEventListener('scroll', update);
-    window.addEventListener('resize', update);
-    return () => { el.removeEventListener('scroll', update); window.removeEventListener('resize', update); };
-  }, [scrollRef]);
-
-  function scrollBy(dir: -1 | 1) {
-    scrollRef.current?.scrollBy({ left: dir * 320, behavior: 'smooth' });
-  }
-
-  function onThumbPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    const el = scrollRef.current;
-    if (!el) return;
-    dragRef.current = { startClientX: e.clientX, startScrollLeft: el.scrollLeft };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }
-  function onThumbPointerMove(e: React.PointerEvent<HTMLDivElement>) {
-    const el = scrollRef.current;
-    const track = trackRef.current;
-    if (!el || !track || !dragRef.current) return;
-    const trackWidth = track.getBoundingClientRect().width;
-    if (trackWidth <= 0) return;
-    const dx = e.clientX - dragRef.current.startClientX;
-    el.scrollLeft = dragRef.current.startScrollLeft + dx * (el.scrollWidth / trackWidth);
-  }
-  function onThumbPointerUp(e: React.PointerEvent<HTMLDivElement>) {
-    dragRef.current = null;
-    e.currentTarget.releasePointerCapture(e.pointerId);
-  }
-
-  // Click anywhere on the track (not a drag) jumps the viewport so its
-  // center lands under the click.
-  function onTrackClick(e: React.MouseEvent<HTMLDivElement>) {
-    const el = scrollRef.current;
-    const track = trackRef.current;
-    if (!el || !track || e.target !== track) return;
-    const rect = track.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    el.scrollLeft = ratio * el.scrollWidth - el.clientWidth / 2;
-  }
-
-  return (
-    <div className="mt-2 flex items-center gap-2 px-1">
-      <button type="button" onClick={() => scrollBy(-1)} aria-label="Scroll timeline left"
-        className="shrink-0 text-sm text-gray-400 hover:text-[#0E7490]">
-        ‹
-      </button>
-      <div ref={trackRef} onClick={onTrackClick} className="relative h-1.5 flex-1 cursor-pointer rounded-full bg-gray-100">
-        <div
-          onPointerDown={onThumbPointerDown} onPointerMove={onThumbPointerMove} onPointerUp={onThumbPointerUp}
-          className="absolute top-0 h-1.5 cursor-grab touch-none rounded-full bg-gray-300 active:cursor-grabbing"
-          style={{ left: `${thumb.left}%`, width: `${thumb.width}%` }} />
-      </div>
-      <button type="button" onClick={() => scrollBy(1)} aria-label="Scroll timeline right"
-        className="shrink-0 text-sm text-gray-400 hover:text-[#0E7490]">
-        ›
-      </button>
-    </div>
-  );
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width) setColumns(Math.max(2, Math.floor(width / COLUMN_WIDTH_PX)));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [containerRef]);
+  return columns;
 }
 
 export function RoadmapTimeline<T extends RoadmapPeriod & { items: string[]; items_v2?: RoadmapItemV2[] | null }>({
@@ -409,64 +363,59 @@ export function RoadmapTimeline<T extends RoadmapPeriod & { items: string[]; ite
   now?: Date;
 }) {
   const sorted = sortRoadmapPeriods(milestones);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const columnsPerRow = useColumnsPerRow(containerRef);
 
-  // Prompt 185 §A.2 — maps vertical mouse-wheel motion onto horizontal
-  // scroll, the standard pattern for a horizontal-only carousel/timeline
-  // (a plain trackpad/mouse wheel does nothing on an x-only overflow box
-  // by default). Only takes over when the gesture is more vertical than
-  // horizontal, so a trackpad's own native horizontal swipe (already
-  // deltaX-dominant) passes through untouched. Native `addEventListener`
-  // with `{ passive: false }`, not onWheel — React's synthetic wheel
-  // listener is passive by default in recent versions, so
-  // preventDefault() inside an onWheel prop is silently ignored.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    function onWheel(e: WheelEvent) {
-      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-      e.preventDefault();
-      el!.scrollLeft += e.deltaY;
-    }
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
-  }, []);
+  // The first row reserves one column for Founded; every row after that is
+  // pure milestones. Chunking never depends on scroll width — the row
+  // count that fits is measured once via ResizeObserver, not discovered by
+  // overflowing and scrolling.
+  const firstRowCount = Math.max(1, columnsPerRow - 1);
+  const rows: T[][] = [];
+  if (sorted.length <= firstRowCount) {
+    rows.push(sorted);
+  } else {
+    rows.push(sorted.slice(0, firstRowCount));
+    for (let i = firstRowCount; i < sorted.length; i += columnsPerRow) rows.push(sorted.slice(i, i + columnsPerRow));
+  }
 
-  // Prompt 185 §A — column 1 is always Founded; milestones take 2..N+1;
-  // the "Add milestone" button (editable only) takes the last column.
-  const addCol = sorted.length + 2;
+  let globalIndex = 0;
 
   return (
-    <div>
-      {/* Native scrollbar hidden — ScrollBar below is the only scroll
-          indicator, matching the reference having exactly one. A CSS grid,
-          not a flex row — see the file header for why: only a shared grid
-          row (not independent per-column flex stretch) keeps the axis line
-          level across columns whose card heights differ. */}
-      <div ref={scrollRef}
-        className="grid grid-flow-col items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        style={{ gridTemplateRows: 'repeat(4, auto)' }}>
-        <FoundedNode foundedYear={foundedYear} col={1}
-          nextColor={sorted.length > 0 ? CARD_THEMES[0 % CARD_THEMES.length].nodeColor : FOUNDED_NODE_COLOR} />
-        {sorted.map((m, i) => (
-          <MilestoneNode key={`${m.period_kind}:${m.period_year}:${m.period_quarter ?? ''}`}
-            m={m} index={i + 1} col={i + 2} theme={CARD_THEMES[i % CARD_THEMES.length]}
-            editable={editable} onEdit={onEditClick} onRemove={onRemoveClick} now={now} categories={categories}
-            prevPast={i === 0 ? true : periodHasPassed(sorted[i - 1], now)}
-            prevColor={i === 0 ? FOUNDED_NODE_COLOR : CARD_THEMES[(i - 1) % CARD_THEMES.length].nodeColor}
-            nextColor={i === sorted.length - 1 ? CARD_THEMES[i % CARD_THEMES.length].nodeColor : CARD_THEMES[(i + 1) % CARD_THEMES.length].nodeColor} />
-        ))}
-        {editable && (
-          <div style={{ gridColumn: addCol, gridRow: ROW_AXIS }} className="flex w-28 flex-col items-center justify-center">
-            <button onClick={onAddClick}
-              className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-dashed border-cyan-300 text-xl font-bold text-[#0E7490] hover:bg-cyan-50">
-              +
-            </button>
-            <span className="mt-1 text-xs font-medium text-[#0E7490]">Add milestone</span>
+    <div ref={containerRef} className="space-y-6">
+      {rows.map((row, rowIdx) => {
+        const isFirstRow = rowIdx === 0;
+        const rowStartIndex = globalIndex;
+        globalIndex += row.length;
+        return (
+          <div key={rowIdx} className="grid grid-flow-col items-stretch" style={{ gridTemplateRows: 'repeat(4, auto)' }}>
+            {isFirstRow && (
+              <FoundedNode foundedYear={foundedYear} col={1}
+                nextColor={row.length > 0 ? CARD_THEMES[0 % CARD_THEMES.length].nodeColor : FOUNDED_NODE_COLOR} />
+            )}
+            {row.map((m, iInRow) => {
+              const i = rowStartIndex + iInRow;
+              const isRowStart = !isFirstRow && iInRow === 0;
+              return (
+                <MilestoneNode key={`${m.period_kind}:${m.period_year}:${m.period_quarter ?? ''}`}
+                  m={m} index={i + 1} col={isFirstRow ? iInRow + 2 : iInRow + 1} theme={CARD_THEMES[i % CARD_THEMES.length]}
+                  editable={editable} onEdit={onEditClick} onRemove={onRemoveClick} now={now} categories={categories}
+                  isRowStart={isRowStart}
+                  prevPast={i === 0 ? true : periodHasPassed(sorted[i - 1], now)}
+                  prevColor={i === 0 ? FOUNDED_NODE_COLOR : CARD_THEMES[(i - 1) % CARD_THEMES.length].nodeColor}
+                  nextColor={i === sorted.length - 1 ? CARD_THEMES[i % CARD_THEMES.length].nodeColor : CARD_THEMES[(i + 1) % CARD_THEMES.length].nodeColor} />
+              );
+            })}
           </div>
-        )}
-      </div>
-      <ScrollBar scrollRef={scrollRef} />
+        );
+      })}
+      {editable && (
+        <button onClick={onAddClick}
+          className="flex items-center gap-2 rounded-xl border-2 border-dashed border-cyan-300 px-3 py-2 text-xs font-medium text-[#0E7490] hover:bg-cyan-50">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-dashed border-cyan-300 text-base font-bold">+</span>
+          Add milestone
+        </button>
+      )}
     </div>
   );
 }
@@ -652,7 +601,16 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
       {/* id targeted by the "Turn on →" link on the founder-only dossier
           preview page (Prompt 306) when this toggle is off. */}
       <div id="roadmap-visibility-toggle" className="mb-2 flex scroll-mt-16 flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-gray-400">Key milestones and goals for the journey ahead.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-gray-400">Key milestones and goals for the journey ahead.</p>
+          {/* Prompt 327 Pedido E — gated on a completed Readiness & Train
+              analysis; never applies a suggestion automatically, opens the
+              existing add-milestone form pre-filled for the founder to
+              review, edit the period, and save (or discard). */}
+          {canEdit && (
+            <AiSupportButton kind="roadmap" onUse={(s) => { setAddDraft({ ...BLANK_DRAFT, itemsText: s }); setAdding(true); setEditingId(null); }} />
+          )}
+        </div>
         {canEdit && (
           <Toggle checked={db.org.roadmap_visible_to_investors ?? true}
             onChange={(v) => updateOrg({ roadmap_visible_to_investors: v })}

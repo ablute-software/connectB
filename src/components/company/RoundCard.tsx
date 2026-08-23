@@ -9,6 +9,7 @@ import { PropagationConfirm } from '@/components/PropagationConfirm';
 import type { RoundField } from '@/lib/round-propagation';
 import { Card } from '@/components/ui';
 import { CompletenessField } from './CompletenessField';
+import { AiSupportButton } from './AiSupportButton';
 import type { CompletenessField as Field } from '@/lib/companyCompleteness';
 import type { Stage } from '@/lib/types';
 import { deriveValuation, type ValuationBasis } from '@/lib/dilution';
@@ -208,7 +209,16 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
                 )}
               </CompletenessField>
 
-              <CompletenessField id="round.use_of_funds" label="Use of funds" missing={missingIds.has('round.use_of_funds')} flashing={flashId === 'round.use_of_funds'}>
+              <CompletenessField id="round.use_of_funds" label={
+                <span className="inline-flex items-center gap-1.5">
+                  Use of funds
+                  {/* Prompt 327 Pedido F — same gate, same component, same
+                      "never applies automatically" discipline as the
+                      Roadmap's own AI support button; appends the chosen
+                      suggestion as a new line for the founder to edit. */}
+                  <AiSupportButton kind="use_of_funds" onUse={(s) => setDraft({ ...draft, use_of_funds: draft.use_of_funds ? `${draft.use_of_funds}\n${s}` : s })} />
+                </span>
+              } missing={missingIds.has('round.use_of_funds')} flashing={flashId === 'round.use_of_funds'}>
                 <textarea value={draft.use_of_funds} onChange={(e) => setDraft({ ...draft, use_of_funds: e.target.value })} rows={2} className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
               </CompletenessField>
 
