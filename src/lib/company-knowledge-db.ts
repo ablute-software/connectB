@@ -18,7 +18,8 @@ import 'server-only';
 // sem gerar linha nenhuma em company_claims.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { KnowledgeSources } from './company-knowledge';
-import type { CompanyClaim, ClaimCategory, ClaimSpecificity, ClaimSourceKind, ClaimStatus, EvidenceClass } from './types';
+import type { CompanyClaim, ClaimCategory, ClaimSpecificity, ClaimSourceKind, ClaimStatus, EvidenceClass, DocumentRef } from './types';
+import { documentRefsAvailable } from './document-extraction-capability';
 
 export async function readKnowledgeSources(admin: SupabaseClient, orgId: string): Promise<KnowledgeSources> {
   const [facts, org, fundingRounds, milestones, roadmapCategories, people, clarifications] = await Promise.all([
@@ -61,10 +62,27 @@ export async function hasAnyVaultDocument(admin: SupabaseClient, orgId: string):
 
 // Os claims que já existem para esta org — para não voltar a propor o que o
 // founder já aceitou ou já rejeitou (newAtoms, no ficheiro puro).
+//
+// Prompt 313 §B — document_refs só entra no select depois de confirmado por
+// documentRefsAvailable(): a 0208 pode ainda não estar aplicada num
+// ambiente que já tem company_claims (0176) há muito tempo, e um select por
+// uma coluna inexistente rebentava a funcionalidade INTEIRA do Blueprint,
+// não só a parte nova. Degradar para documentRefs: [] é honesto — nunca
+// finge um link que não existe.
 export async function readExistingClaims(admin: SupabaseClient, orgId: string): Promise<CompanyClaim[]> {
-  const { data } = await admin.from('company_claims')
-    .select('id, category, statement, evidence_class, specificity, source_kind, source_ref, status, updated_at')
-    .eq('org_id', orgId).order('created_at', { ascending: true });
+  const withDocumentRefs = await documentRefsAvailable();
+  // Two separate literal .select() calls, not one string built from a
+  // ternary: postgrest-js infers the result row type from the SELECT
+  // string's own literal TYPE, not its runtime value — a variable holding
+  // either literal widens to plain `string`, which the parser can't type at
+  // all (confirmed: that shape fails tsc with a ParserError on every field).
+  const { data } = withDocumentRefs
+    ? await admin.from('company_claims')
+      .select('id, category, statement, evidence_class, specificity, source_kind, source_ref, status, updated_at, document_refs')
+      .eq('org_id', orgId).order('created_at', { ascending: true })
+    : await admin.from('company_claims')
+      .select('id, category, statement, evidence_class, specificity, source_kind, source_ref, status, updated_at')
+      .eq('org_id', orgId).order('created_at', { ascending: true });
   return (data ?? []).map((c) => ({
     id: c.id as string,
     category: c.category as ClaimCategory,
@@ -75,5 +93,6 @@ export async function readExistingClaims(admin: SupabaseClient, orgId: string): 
     sourceRef: (c.source_ref as string | null) ?? null,
     status: c.status as ClaimStatus,
     updatedAt: c.updated_at as string,
+    documentRefs: withDocumentRefs ? (((c as unknown as { document_refs?: DocumentRef[] }).document_refs) ?? []) : [],
   }));
 }

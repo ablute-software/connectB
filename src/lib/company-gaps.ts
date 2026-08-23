@@ -199,10 +199,29 @@ export function ruleG3c(claims: CompanyClaim[], context: GapContext): Gap[] {
 // mais geram G4.
 const G4_DOCUMENTABLE_CATEGORIES = new Set<ClaimCategory>(['prova_tecnica', 'validacao_externa', 'tracao_gtm', 'equipa']);
 
+// Prompt 313 §B — a SECOND, precise way to be "covered": c.documentRefs is a
+// mechanical link from THIS claim to an actual Vault document + page
+// (document-extraction-linking.ts, on top of document-extraction.ts actually
+// reading document content — see company-claims.ts's findDocumentLinkCandidate).
+// Added as an ADDITIONAL clause, not a replacement for hasVaultDocuments:
+// only PDFs get extracted ("só PDF por agora"), so a prova_tecnica claim
+// backed by a real but non-PDF Vault file (a .docx spec sheet, a .pptx
+// architecture diagram) would regress — losing its only suppression path —
+// if the coarse per-org hasVaultDocuments fallback were removed instead of
+// kept alongside this. This is what actually fixes the motivating bug: the
+// ablute_ "Carla Dias is a WomenTechEU awardee" claim is category `equipa`,
+// which hasVaultDocuments never covered (by design, see the comment above) —
+// only a per-claim link like this one can.
+function hasDocumentBacking(c: CompanyClaim): boolean {
+  return Array.isArray(c.documentRefs) && c.documentRefs.length > 0;
+}
+
 export function ruleG4(claims: CompanyClaim[], context: GapContext): Gap[] {
   const documentable = claims.filter((c) => G4_DOCUMENTABLE_CATEGORIES.has(c.category));
   return documentable
-    .filter((c) => c.status === 'accepted' && !(c.category === 'prova_tecnica' && context.hasVaultDocuments))
+    .filter((c) => c.status === 'accepted'
+      && !hasDocumentBacking(c)
+      && !(c.category === 'prova_tecnica' && context.hasVaultDocuments))
     .map((c) => ({
       rule: 'G4' as const, severity: 'medium' as const,
       message: `Accepted but undocumented: "${c.statement}" has no Vault document backing it.`,

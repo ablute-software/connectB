@@ -528,6 +528,18 @@ export type ClaimSourceKind =
 // classificar) por ter identidade, status e datas — o ciclo de vida.
 export type ClaimStatus = 'proposed' | 'accepted' | 'rejected';
 
+// Prompt 313 §B — a mechanical link from a claim to the Vault document (and
+// page) that backs it, produced by document-extraction-linking.ts. A real DB
+// column (company_claims.document_refs, migration 0208) — unlike
+// possibleDuplicateOf below, this IS persisted: extraction is expensive and
+// rare, claims are read on every page load, so the match is computed once
+// and stored rather than recomputed per request.
+export interface DocumentRef {
+  documentId: string;
+  documentName: string;
+  page: number | null;
+}
+
 export interface CompanyClaim {
   id: string;
   category: ClaimCategory;
@@ -543,6 +555,7 @@ export interface CompanyClaim {
   // current claims, not a value frozen at ingestion time. Only ever set on
   // a 'proposed' claim; absent everywhere else.
   possibleDuplicateOf?: { id: string; statement: string } | null;
+  documentRefs?: DocumentRef[];
 }
 
 // Prompt 213 §D — item estruturado do roadmap (items_v2 na 0177).

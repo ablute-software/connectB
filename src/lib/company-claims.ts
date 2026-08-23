@@ -11,7 +11,7 @@
 // AI, dois runs dariam narrativas diferentes para os mesmos factos, e o
 // founder deixaria de poder confiar no que a app lhe diz. O modelo entra
 // depois (síntese, 1.5), sobre claims já classificados.
-import type { EvidenceClass, ClaimCategory, ClaimSpecificity, ClaimSourceKind, CompanyClaim } from './types';
+import type { EvidenceClass, ClaimCategory, ClaimSpecificity, ClaimSourceKind, CompanyClaim, DocumentRef } from './types';
 
 // ---------------------------------------------------------------------------
 // Classe de evidência — a hierarquia acordada, do mais caro de falsificar ao
@@ -229,4 +229,113 @@ export function findDuplicateCandidate(
     && c.evidenceClass === 5
     && c.statement.toLowerCase().includes(name.toLowerCase()));
   return match ? { id: match.id, statement: match.statement } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 313 §B — the real fix behind the ablute_ WomenTechEU case: a signed
+// Grant Agreement sat in the Vault the whole time, but nothing ever read a
+// document's CONTENT, so a claim like "Carla Dias is a WomenTechEU awardee"
+// stayed unlinked forever no matter what the file was named
+// (document-extraction.ts is what finally reads the content; this is the
+// mechanical step that connects what it found back to an existing claim).
+//
+// EXACTLY the same mechanic as findDuplicateCandidate above, reused rather
+// than reinvented: the claim must be class-5 (DECORATION — an award/prize/
+// certification, regardless of category) with an extractable name, and here
+// the comparison pool is FACTS FROM A DOCUMENT EXTRACTION instead of other
+// claims. Bidirectional check (fact label found in the claim, OR the claim's
+// extracted name found in the fact label) because either direction alone
+// misses a real case: "Carla Dias is a WomenTechEU awardee" matches a
+// named-entity fact labelled "Carla Dias" via the first direction, and a
+// program fact labelled "WomenTechEU" via the second.
+//
+// containsWholeWord, not a bare substring .includes(): unlike
+// findDuplicateCandidate above (claim-vs-claim, an already-documented,
+// deliberately-accepted fuzziness — see its own header), this function's
+// output is WRITTEN to document_refs and can silently suppress a real G4
+// gap or show a wrong "Backed by" badge, so a bare substring match is a
+// real bug here, not an acceptable one — e.g. a program fact labelled "ANI"
+// would substring-match inside an unrelated claim statement containing
+// "Daniela" (d-ANI-ela) with no word-boundary check. Caught by adversarial
+// review before shipping.
+function containsWholeWord(haystack: string, needle: string): boolean {
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${escaped}\\b`, 'i').test(haystack);
+}
+
+export interface DocumentFactRef {
+  documentId: string;
+  documentName: string;
+  page: number | null;
+  label: string;
+}
+
+export function findDocumentLinkCandidate(
+  claim: Pick<CompanyClaim, 'evidenceClass' | 'statement'>,
+  facts: DocumentFactRef[],
+): DocumentRef | null {
+  if (claim.evidenceClass !== 5) return null;
+  const name = extractNamedEntity(claim.statement);
+  if (!name) return null;
+  const match = facts.find((f) => containsWholeWord(f.label, name) || containsWholeWord(claim.statement, f.label));
+  return match ? { documentId: match.documentId, documentName: match.documentName, page: match.page } : null;
+}
+
+// Prompt 313 §B — the narrow, explicitly-scoped exception to "never generate
+// a claim per document" (Prompt 311 §A's own removal of documentToAtom):
+// only when an extraction surfaces a decoration-class fact (an award, prize,
+// grant program, or certification — document-extraction.ts's own closed
+// `programs` list) that no existing live claim already covers. It is born
+// ALREADY documented (documentRefs set at creation), never as a bare 'low'-
+// specificity claim asking the founder to fill in evidence that already
+// exists.
+//
+// evidenceClass is hardcoded to 5 here rather than run through
+// classifyEvidence(), deliberately: that function's DECORATION regex only
+// fires on award-ish WORDS in the statement text, and would misfire (or
+// simply fail to fire) on a plain certification name with none of those
+// words. Here the class-5 status is known STRUCTURALLY — the fact came from
+// the extraction's own "programs" bucket, which by construction only ever
+// holds awards/certifications/programs — so asserting it directly is more
+// reliable than hoping a regex built for founder-typed prose happens to
+// match extracted document text too.
+export interface ProposedDocumentClaim {
+  category: ClaimCategory;
+  statement: string;
+  evidenceClass: EvidenceClass;
+  specificity: ClaimSpecificity;
+  sourceKind: ClaimSourceKind;
+  sourceRef: string;
+  documentRefs: DocumentRef[];
+}
+
+export function proposeClaimFromDocumentFact(
+  fact: { label: string; page: number | null; documentId: string; documentName: string },
+  pool: Pick<CompanyClaim, 'statement' | 'evidenceClass' | 'status'>[],
+): ProposedDocumentClaim | null {
+  // Word-boundary match, not a bare substring — same reasoning as
+  // findDocumentLinkCandidate's containsWholeWord above: a short program
+  // label like "ANI" would otherwise falsely match inside an unrelated
+  // claim's "Daniela", silently swallowing a real new claim with no error.
+  const alreadyCovered = pool.some((c) =>
+    (c.status === 'accepted' || c.status === 'proposed')
+    && c.evidenceClass === 5
+    && containsWholeWord(c.statement, fact.label));
+  if (alreadyCovered) return null;
+
+  const statement = `${fact.label} — documented in ${fact.documentName}${fact.page != null ? ` (p. ${fact.page})` : ''}`;
+  const { level } = measureSpecificity(statement);
+  return {
+    // A program/award/certification recognized by an outside body is, by
+    // definition, external validation — a deliberate simplification (not a
+    // general categorization engine) rather than trying to correlate the
+    // program with a specific team member to justify 'equipa' instead.
+    category: 'validacao_externa',
+    statement,
+    evidenceClass: 5,
+    specificity: level,
+    sourceKind: 'vault_doc',
+    sourceRef: fact.documentId,
+    documentRefs: [{ documentId: fact.documentId, documentName: fact.documentName, page: fact.page }],
+  };
 }

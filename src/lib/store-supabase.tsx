@@ -365,6 +365,21 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     }).catch(() => { /* never blocks the unlock */ });
   }
 
+  // Prompt 313 §A — same fire-and-forget shape as triggerEnrichmentEnqueue
+  // above: extract-document/route.ts does the real work server-side (auth,
+  // fail-closed checks, Anthropic call), this just kicks it off without
+  // ever blocking the upload/version-add that triggered it. Only worth
+  // calling for a file that just came back 'clean' AND looks like a PDF —
+  // the server re-checks both anyway, this is purely to skip a useless
+  // request for every non-PDF upload (images, decks-as-pptx, etc.).
+  function triggerDocumentExtraction(documentId: string, name: string, malwareScanStatus?: string) {
+    if (malwareScanStatus !== 'clean' || !/\.pdf$/i.test(name)) return;
+    fetch('/api/data-room/extract-document', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ documentId }),
+    }).catch(() => { /* never blocks the upload */ });
+  }
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1034,6 +1049,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       commit({ ...prev, documents: [...prev.documents, row] });
       const o = orgIdRef.current;
       if (o) persist(sb.from('documents').insert({ ...row, org_id: o }), 'addDocument');
+      triggerDocumentExtraction(row.id, row.name, row.malware_scan_status);
     },
 
     deleteDocument(id: string) {
@@ -1154,6 +1170,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
           malware_scan_provider: scan?.provider ?? null, malware_scan_checked_at: malwareScanStatus !== 'not_scanned' ? now : null,
         }).eq('id', docId), 'addDocumentVersion:doc');
       }
+      triggerDocumentExtraction(docId, doc.name, malwareScanStatus);
     },
 
     // F — approve a reawakening proposal. Entity returns to the active pipeline

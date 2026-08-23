@@ -1,0 +1,176 @@
+// Prompt 313 §A — the closed list of what gets extracted from a Vault PDF,
+// and the pure mapping from Claude's tool-forced output into it. Deliberately
+// narrow, per the prompt's own instruction: short, verifiable facts with a
+// page reference each — never a free-form summary. Pure and mechanical on
+// purpose, same discipline as company-claims.ts: the SHAPE of what's kept is
+// fixed here, not decided ad hoc by whatever the model happens to return.
+export type NamedEntityKind = 'person' | 'company' | 'organization';
+
+export interface ExtractedNamedEntity { name: string; kind: NamedEntityKind; page: number | null }
+export interface ExtractedProgram { name: string; page: number | null }
+export interface ExtractedDate { label: string; date: string; page: number | null }
+export interface ExtractedAmount { amount: number; currency: string; label: string | null; page: number | null }
+
+export interface DocumentExtractionData {
+  documentType: string | null;
+  namedEntities: ExtractedNamedEntity[];
+  programs: ExtractedProgram[];
+  dates: ExtractedDate[];
+  amounts: ExtractedAmount[];
+  documentReference: string | null;
+  isSigned: boolean | null;
+  // How much of the source PDF this extraction actually saw — set from the
+  // truncation step (pdf-truncate.ts), never from the model's own say-so.
+  pagesRead: number;
+  totalPages: number;
+  partial: boolean;
+}
+
+// The API accepts far more (up to ~100 pages for a 200k-context model per
+// Anthropic's docs, not enforced or even checked anywhere in this codebase
+// today), but a grant/contract's essentials live in the preamble — the real
+// case this prompt exists for (a 125-page Grant Agreement) only needs its
+// first pages read to answer "is this signed, who's named, what program".
+export const MAX_EXTRACTION_PAGES = 30;
+
+// Anthropic tool_use input_schema — plain JSON Schema, no nullable-type
+// unions (no precedent for that in this codebase's other tool schemas).
+// Optional fields are simply left out of `required`; rawExtractionToData
+// below treats their absence as null/empty rather than trusting the model
+// to have included every key.
+export const EXTRACTION_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    document_type: {
+      type: 'string',
+      description: 'A short label for what kind of document this is (e.g. "grant agreement", "invoice", "certificate", "term sheet").',
+    },
+    named_entities: {
+      type: 'array',
+      description: 'People, companies, or organizations explicitly named in the document.',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          kind: { type: 'string', enum: ['person', 'company', 'organization'] },
+          page: { type: 'integer', description: 'Page number where this name appears, if known.' },
+        },
+        required: ['name', 'kind'],
+      },
+    },
+    programs: {
+      type: 'array',
+      description: 'Named awards, prizes, grant programs, or certifications this document is about or references (e.g. "WomenTechEU", "ANI seal").',
+      items: {
+        type: 'object',
+        properties: { name: { type: 'string' }, page: { type: 'integer' } },
+        required: ['name'],
+      },
+    },
+    dates: {
+      type: 'array',
+      description: 'Relevant dates in the document (signing date, deadline, period covered).',
+      items: {
+        type: 'object',
+        properties: { label: { type: 'string' }, date: { type: 'string' }, page: { type: 'integer' } },
+        required: ['label', 'date'],
+      },
+    },
+    amounts: {
+      type: 'array',
+      description: 'Monetary amounts mentioned, with currency.',
+      items: {
+        type: 'object',
+        properties: {
+          amount: { type: 'number' }, currency: { type: 'string' },
+          label: { type: 'string', description: 'What this amount is for.' },
+          page: { type: 'integer' },
+        },
+        required: ['amount', 'currency'],
+      },
+    },
+    document_reference: { type: 'string', description: 'The document\'s own number/reference/project code, if it has one.' },
+    is_signed: { type: 'boolean', description: 'Whether the document appears to be signed (a signature, stamp, or signature block filled in).' },
+  },
+  required: ['document_type', 'named_entities', 'programs', 'dates', 'amounts'],
+};
+
+interface RawNamedEntity { name?: unknown; kind?: unknown; page?: unknown }
+interface RawProgram { name?: unknown; page?: unknown }
+interface RawDate { label?: unknown; date?: unknown; page?: unknown }
+interface RawAmount { amount?: unknown; currency?: unknown; label?: unknown; page?: unknown }
+interface RawExtraction {
+  document_type?: unknown;
+  named_entities?: unknown;
+  programs?: unknown;
+  dates?: unknown;
+  amounts?: unknown;
+  document_reference?: unknown;
+  is_signed?: unknown;
+}
+
+function pageOf(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+// Never trusts the model to have honored the schema exactly — same defensive
+// posture as providerErrorMessage's own JSON.parse fallback elsewhere in
+// this codebase. tool_choice forcing the shape reduces but doesn't
+// eliminate the chance of a missing/malformed field.
+export function rawExtractionToData(raw: unknown, pagesRead: number, totalPages: number): DocumentExtractionData {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as RawExtraction;
+
+  const namedEntities: ExtractedNamedEntity[] = Array.isArray(r.named_entities)
+    ? (r.named_entities as RawNamedEntity[])
+      .filter((e) => e && typeof e.name === 'string' && (e.kind === 'person' || e.kind === 'company' || e.kind === 'organization'))
+      .map((e) => ({ name: e.name as string, kind: e.kind as NamedEntityKind, page: pageOf(e.page) }))
+    : [];
+
+  const programs: ExtractedProgram[] = Array.isArray(r.programs)
+    ? (r.programs as RawProgram[])
+      .filter((p) => p && typeof p.name === 'string')
+      .map((p) => ({ name: p.name as string, page: pageOf(p.page) }))
+    : [];
+
+  const dates: ExtractedDate[] = Array.isArray(r.dates)
+    ? (r.dates as RawDate[])
+      .filter((d) => d && typeof d.label === 'string' && typeof d.date === 'string')
+      .map((d) => ({ label: d.label as string, date: d.date as string, page: pageOf(d.page) }))
+    : [];
+
+  const amounts: ExtractedAmount[] = Array.isArray(r.amounts)
+    ? (r.amounts as RawAmount[])
+      .filter((a) => a && typeof a.amount === 'number' && typeof a.currency === 'string')
+      .map((a) => ({ amount: a.amount as number, currency: a.currency as string, label: typeof a.label === 'string' ? a.label : null, page: pageOf(a.page) }))
+    : [];
+
+  return {
+    documentType: typeof r.document_type === 'string' ? r.document_type : null,
+    namedEntities, programs, dates, amounts,
+    documentReference: typeof r.document_reference === 'string' ? r.document_reference : null,
+    isSigned: typeof r.is_signed === 'boolean' ? r.is_signed : null,
+    pagesRead, totalPages, partial: pagesRead < totalPages,
+  };
+}
+
+// The comparison pool company-claims.ts's findDocumentLinkCandidate and
+// proposeClaimFromDocumentFact both match against — programs AND named
+// entities, since a real award statement usually names either the program
+// ("WomenTechEU") or the person ("Carla Dias"), or both, and either can be
+// the side that matches a claim's own extracted name.
+export interface DocumentFact { documentId: string; documentName: string; page: number | null; label: string }
+
+export function extractionToFacts(extraction: DocumentExtractionData, documentId: string, documentName: string): DocumentFact[] {
+  return [
+    ...extraction.programs.map((p) => ({ documentId, documentName, page: p.page, label: p.name })),
+    ...extraction.namedEntities.map((e) => ({ documentId, documentName, page: e.page, label: e.name })),
+  ];
+}
+
+// Only `programs` are decoration-type facts eligible to become a brand new
+// proposed claim (Prompt 313's own "não fazer" guardrail) — a bare named
+// entity with no associated award is never, on its own, a claim worth
+// proposing.
+export function programFacts(extraction: DocumentExtractionData, documentId: string, documentName: string): DocumentFact[] {
+  return extraction.programs.map((p) => ({ documentId, documentName, page: p.page, label: p.name }));
+}

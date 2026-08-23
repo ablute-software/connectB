@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyEvidence, measureSpecificity, normalizeAtom, isWastedStrongClaim, rankForNarrative, weakClaimCoachingNote,
-  extractNamedEntity, findDuplicateCandidate, type RawAtom,
+  extractNamedEntity, findDuplicateCandidate, findDocumentLinkCandidate, proposeClaimFromDocumentFact, type RawAtom,
 } from './company-claims';
 import type { CompanyClaim } from './types';
 
@@ -200,5 +200,74 @@ describe('findDuplicateCandidate (Prompt 311 §C) — o sinal estreito, não ded
   it('não dispara quando não há sobreposição de nome nenhuma', () => {
     const other = claim('c-other-award', { statement: 'Rui Almeida won the national hackathon award, 2024', evidenceClass: 5 });
     expect(findDuplicateCandidate(CARLA_FACT, [other])).toBeNull();
+  });
+});
+
+// Prompt 313 §B — a ligação real: o Grant Agreement (WomenTechEU/EISMEA)
+// tem de resolver o claim da Carla Dias, o caso que motivou este prompt.
+describe('findDocumentLinkCandidate (Prompt 313 §B) — a mesma mecânica do findDuplicateCandidate, agora contra factos de um documento', () => {
+  const CARLA_CLAIM = claim('c-fact', { statement: 'Carla Dias is a WomenTechEU awardee', evidenceClass: 5 });
+  const NAMED_ENTITY_FACT = { documentId: 'doc-1', documentName: 'Grant Agreement.pdf', page: 1, label: 'Carla Dias' };
+  const PROGRAM_FACT = { documentId: 'doc-1', documentName: 'Grant Agreement.pdf', page: 1, label: 'WomenTechEU' };
+
+  it('liga via o nome extraído coincidindo com um facto de entidade nomeada', () => {
+    expect(findDocumentLinkCandidate(CARLA_CLAIM, [NAMED_ENTITY_FACT]))
+      .toEqual({ documentId: 'doc-1', documentName: 'Grant Agreement.pdf', page: 1 });
+  });
+
+  it('liga via o nome do programa aparecendo dentro do statement do claim', () => {
+    expect(findDocumentLinkCandidate(CARLA_CLAIM, [PROGRAM_FACT]))
+      .toEqual({ documentId: 'doc-1', documentName: 'Grant Agreement.pdf', page: 1 });
+  });
+
+  it('nunca dispara para um claim que não é classe 5 (decoração)', () => {
+    const named = claim('c-other', { statement: 'Carla Dias leads the technical side.', evidenceClass: 3 });
+    expect(findDocumentLinkCandidate(named, [NAMED_ENTITY_FACT])).toBeNull();
+  });
+
+  it('nunca dispara quando não há nome próprio extraível na frase', () => {
+    const noName = claim('c-noname', { statement: 'the team won a regional prize', evidenceClass: 5 });
+    expect(findDocumentLinkCandidate(noName, [PROGRAM_FACT])).toBeNull();
+  });
+
+  it('não dispara quando não há sobreposição nenhuma', () => {
+    const other = { documentId: 'doc-2', documentName: 'Unrelated.pdf', page: 1, label: 'Acme Corp' };
+    expect(findDocumentLinkCandidate(CARLA_CLAIM, [other])).toBeNull();
+  });
+
+  it('devolve o primeiro facto correspondente entre vários', () => {
+    const unrelated = { documentId: 'doc-2', documentName: 'Unrelated.pdf', page: 5, label: 'Acme Corp' };
+    expect(findDocumentLinkCandidate(CARLA_CLAIM, [unrelated, NAMED_ENTITY_FACT]))
+      .toEqual({ documentId: 'doc-1', documentName: 'Grant Agreement.pdf', page: 1 });
+  });
+});
+
+describe('proposeClaimFromDocumentFact (Prompt 313 §B) — só para factos de programa não cobertos, nasce já documentado', () => {
+  const FACT = { label: 'WomenTechEU', page: 3, documentId: 'doc-1', documentName: 'Grant Agreement.pdf' };
+
+  it('propõe um novo claim quando nenhum claim existente cobre o programa', () => {
+    const proposal = proposeClaimFromDocumentFact(FACT, []);
+    expect(proposal).not.toBeNull();
+    expect(proposal?.category).toBe('validacao_externa');
+    expect(proposal?.evidenceClass).toBe(5);
+    expect(proposal?.sourceKind).toBe('vault_doc');
+    expect(proposal?.documentRefs).toEqual([{ documentId: 'doc-1', documentName: 'Grant Agreement.pdf', page: 3 }]);
+    expect(proposal?.statement).toContain('WomenTechEU');
+    expect(proposal?.statement).toContain('Grant Agreement.pdf');
+  });
+
+  it('não propõe quando um claim classe-5 já existente menciona o mesmo programa', () => {
+    const existing = claim('c-existing', { statement: 'Carla Dias is a WomenTechEU awardee', evidenceClass: 5, status: 'accepted' });
+    expect(proposeClaimFromDocumentFact(FACT, [existing])).toBeNull();
+  });
+
+  it('ignora claims rejeitados ao decidir se já está coberto', () => {
+    const rejected = claim('c-rejected', { statement: 'Carla Dias is a WomenTechEU awardee', evidenceClass: 5, status: 'rejected' });
+    expect(proposeClaimFromDocumentFact(FACT, [rejected])).not.toBeNull();
+  });
+
+  it('ignora um claim que menciona o programa mas não é classe 5', () => {
+    const notDecoration = claim('c-other', { statement: 'We applied to the WomenTechEU program', evidenceClass: 3, status: 'accepted' });
+    expect(proposeClaimFromDocumentFact(FACT, [notDecoration])).not.toBeNull();
   });
 });

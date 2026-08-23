@@ -15,7 +15,7 @@ const NOW = new Date('2026-08-17T12:00:00Z');
 // os testes usam a classificação real, nunca valores escritos à mão.
 function claim(
   id: string, category: ClaimCategory, statement: string,
-  over: { sourceKind?: ClaimSourceKind; status?: ClaimStatus; updatedAt?: string } = {},
+  over: { sourceKind?: ClaimSourceKind; status?: ClaimStatus; updatedAt?: string; documentRefs?: CompanyClaim['documentRefs'] } = {},
 ): CompanyClaim {
   const sourceKind = over.sourceKind ?? 'fact';
   const n = normalizeAtom({ category, statement, sourceKind });
@@ -23,6 +23,7 @@ function claim(
     id, category, statement, sourceKind,
     evidenceClass: n.evidenceClass, specificity: n.specificity,
     status: over.status ?? 'accepted', updatedAt: over.updatedAt ?? '2026-08-01T00:00:00Z',
+    documentRefs: over.documentRefs,
   };
 }
 
@@ -160,6 +161,30 @@ describe('G4 — claim aceite sem documento no Vault (Prompt 311 §A: lido direc
     const proof = claim('proof1', 'prova_tecnica', 'CE-marked as a Class IIa medical device since 2025.');
     expect(ruleG4([proof], ctx({ hasVaultDocuments: true }))).toEqual([]);
     expect(ruleG4([proof], ctx({ hasVaultDocuments: false }))).toHaveLength(1);
+  });
+
+  // Prompt 313 §B — o caso real que motivou este prompt: um claim de EQUIPA
+  // (categoria que hasVaultDocuments nunca cobre, por desenho) fica coberto
+  // quando tem documentRefs próprio — a ligação precisa, por claim, que a
+  // extração de conteúdo (document-extraction-linking.ts) escreve.
+  it('documentRefs próprio suprime G4 mesmo em equipa — a categoria que hasVaultDocuments nunca cobria', () => {
+    const withDoc = claim('team-carla', 'equipa', 'Carla Dias is a WomenTechEU awardee', {
+      documentRefs: [{ documentId: 'doc-1', documentName: 'Grant Agreement.pdf', page: 3 }],
+    });
+    expect(ruleG4([withDoc], ctx({ hasVaultDocuments: false }))).toEqual([]);
+  });
+
+  it('documentRefs vazio não conta como coberto', () => {
+    const withEmptyRefs = claim('team-x', 'equipa', 'Jane Doe, CTO (founder). Ex-Google, 8 years in ML.', { documentRefs: [] });
+    expect(ruleG4([withEmptyRefs], ctx())).toHaveLength(1);
+  });
+
+  // Aditivo, não substitutivo: hasVaultDocuments continua a suprimir
+  // prova_tecnica mesmo quando o claim não tem documentRefs próprio (o caso
+  // de um documento não-PDF, que nunca é extraído — "só PDF por agora").
+  it('hasVaultDocuments continua a funcionar como antes quando documentRefs está ausente', () => {
+    const proof = claim('proof1', 'prova_tecnica', 'CE-marked as a Class IIa medical device since 2025.');
+    expect(ruleG4([proof], ctx({ hasVaultDocuments: true }))).toEqual([]);
   });
 
   it('claims propostos (ainda não aceites) não são lacuna documental', () => {

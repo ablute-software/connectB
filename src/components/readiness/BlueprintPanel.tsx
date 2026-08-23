@@ -11,6 +11,7 @@
 // Sem AI (bloco 4) e sem gating de tier (bloco 6). A UI só desenha; toda a
 // classificação vive no servidor, sobre as funções puras dos blocos 1 e 2.
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Card } from '@/components/ui';
 import type { CompanyClaim, ClaimCategory } from '@/lib/types';
 import { GapInterrogation, type GapView } from './GapInterrogation';
@@ -52,6 +53,27 @@ const CLASS_STYLE: Record<number, string> = {
 // what G2 already flags as wasted strength must never be pre-marked.
 function isSafeBulkCandidate(c: CompanyClaim): boolean {
   return c.specificity === 'high' && (c.sourceKind === 'vault_doc' || c.sourceKind === 'fact') && !isWastedStrongClaim(c);
+}
+
+// Prompt 313 §B — the founder-visible half of document_refs: which real
+// Vault file (and page, if known) backs this claim. Links to the Vault list
+// rather than a specific-document deep link — no such route exists yet, and
+// building one is out of scope here.
+function DocumentRefsBadge({ refs }: { refs: CompanyClaim['documentRefs'] }) {
+  if (!refs || refs.length === 0) return null;
+  return (
+    <p className="mt-1 text-[11px] text-emerald-700">
+      Backed by:{' '}
+      {refs.map((r, i) => (
+        <span key={r.documentId}>
+          {i > 0 && ', '}
+          <Link href="/documents" className="underline hover:no-underline">
+            {r.documentName}{r.page != null ? ` (p. ${r.page})` : ''}
+          </Link>
+        </span>
+      ))}
+    </p>
+  );
 }
 
 export function BlueprintPanel() {
@@ -274,6 +296,7 @@ export function BlueprintPanel() {
                         <p className="mt-0.5 text-amber-900">&quot;{c.possibleDuplicateOf.statement}&quot;</p>
                       </div>
                     )}
+                    <DocumentRefsBadge refs={c.documentRefs} />
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
                       <span>{c.category}</span>
                       <span>· {c.specificity} detail</span>
@@ -304,7 +327,10 @@ export function BlueprintPanel() {
                 <span className={`mt-0.5 shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${CLASS_STYLE[c.evidenceClass]}`}>
                   {CLASS_LABEL[c.evidenceClass]}
                 </span>
-                <span className="flex-1 text-gray-800">{c.statement}</span>
+                <span className="flex-1 text-gray-800">
+                  {c.statement}
+                  <DocumentRefsBadge refs={c.documentRefs} />
+                </span>
                 <span className="shrink-0 text-[11px] text-gray-400">{c.specificity}</span>
               </li>
             ))}
