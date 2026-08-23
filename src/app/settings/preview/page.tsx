@@ -17,6 +17,7 @@ import { useStore } from '@/lib/store';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { DossierOverviewSections, type Card as DossierCard, type Dossier } from '@/components/portal/DossierOverviewSections';
+import { projectIntroPitch } from '@/lib/investor-interest-level';
 
 type Level = 0 | 1 | 2 | 3;
 
@@ -59,6 +60,7 @@ export default function DossierPreviewPage() {
     roundInstruments: db.org.round_instruments ?? [],
     matchScore: 0, matchReasons: [], status: 'open', passReason: null, decidedAt: null, decidedByMe: null,
     trackingCount: 0, hasDataRoomAccess: false, viaGrant: false, viaDecision: false, isArchived: false,
+    ...projectIntroPitch({ introProblem: db.org.intro_problem, introSolution: db.org.intro_solution }),
   };
 
   return (
@@ -88,6 +90,18 @@ export default function DossierPreviewPage() {
           </button>
         ))}
       </div>
+
+      {/* Prompt 325 Pedido B — founder-only guidance, never shown to a real
+          investor (this note lives in the preview page itself, not inside
+          DossierOverviewSections, which the real investor route also
+          renders). Informative, not alarming — same direct tone as the rest
+          of this preview's own copy. */}
+      {level === 0 && (
+        <p className="mt-3 max-w-2xl text-xs text-gray-500">
+          This is all an investor sees before expressing interest. Filling in your intro pitch below is the difference
+          between a one-liner and a reason to click.
+        </p>
+      )}
 
       <div className="mt-4">
         {!data ? (

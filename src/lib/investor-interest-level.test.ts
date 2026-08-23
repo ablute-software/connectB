@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { currentInterestLevel, projectDossier, LEVEL_FIELDS, type FullDossierData } from './investor-interest-level';
+import { currentInterestLevel, projectDossier, LEVEL_FIELDS, projectIntroPitch, type FullDossierData } from './investor-interest-level';
 
 describe('currentInterestLevel', () => {
   it('no decision, no rows -> 0', () => {
@@ -182,5 +182,34 @@ describe('projectDossier — roadmap', () => {
   it('arg omitted entirely — absent, no throw', () => {
     const result = projectDossier(1, FULL, false, null, null);
     expect('roadmap' in result).toBe(false);
+  });
+});
+
+describe('projectIntroPitch — Prompt 325, visible at Discovery, absent key not empty value', () => {
+  it('both filled — both keys present, trimmed', () => {
+    const result = projectIntroPitch({ introProblem: '  Founders waste months on lists that ignore fit.  ', introSolution: 'We match by sector and stage automatically.' });
+    expect(result).toEqual({ introProblem: 'Founders waste months on lists that ignore fit.', introSolution: 'We match by sector and stage automatically.' });
+  });
+
+  it('neither filled — empty object, neither key present', () => {
+    const result = projectIntroPitch({ introProblem: null, introSolution: null });
+    expect('introProblem' in result).toBe(false);
+    expect('introSolution' in result).toBe(false);
+    expect(result).toEqual({});
+  });
+
+  it('undefined source fields — also absent, never throws', () => {
+    expect(projectIntroPitch({})).toEqual({});
+  });
+
+  it('whitespace-only value is treated as unfilled — absent, not an empty string', () => {
+    const result = projectIntroPitch({ introProblem: '   ', introSolution: 'A real solution.' });
+    expect('introProblem' in result).toBe(false);
+    expect(result.introSolution).toBe('A real solution.');
+  });
+
+  it('only one of the two filled — only that key present', () => {
+    const result = projectIntroPitch({ introProblem: 'A real problem.', introSolution: undefined });
+    expect(result).toEqual({ introProblem: 'A real problem.' });
   });
 });

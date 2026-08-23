@@ -13,6 +13,7 @@ import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
 import { CompletenessField } from './CompletenessField';
 import { SectorPicker, type SectorValue } from './SectorPicker';
 import { ALL_SECTOR_NAMES } from '@/lib/sector-taxonomy';
+import { INTRO_PITCH_MAX } from '@/lib/investor-interest-level';
 import type { CompletenessField as Field } from '@/lib/companyCompleteness';
 import type { CompanyPhase } from '@/lib/types';
 
@@ -53,6 +54,7 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
       country: org.country ?? '', hq_city: org.hq_city ?? '', postal_code: org.postal_code ?? '',
       founded_year: org.founded_year != null ? String(org.founded_year) : '',
       one_liner: org.one_liner ?? '', description: org.description ?? '',
+      intro_problem: org.intro_problem ?? '', intro_solution: org.intro_solution ?? '',
       current_phase: org.current_phase ?? '', revenue_eur: org.revenue_eur != null ? String(org.revenue_eur) : '',
     });
     // Only pre-check values that exist in the fixed taxonomy — pre-existing
@@ -90,6 +92,8 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
       sector: [...sectors, ...(other ? [other] : [])].join(', ') || undefined,
       one_liner: draft.one_liner.trim() || undefined,
       description: draft.description.trim() || undefined,
+      intro_problem: draft.intro_problem.trim() || undefined,
+      intro_solution: draft.intro_solution.trim() || undefined,
       current_phase: (draft.current_phase || undefined) as CompanyPhase | undefined,
       revenue_eur: draft.revenue_eur ? Number(draft.revenue_eur) : undefined,
     });
@@ -163,6 +167,23 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
             <input value={draft.one_liner ?? ''} onChange={(e) => setDraft({ ...draft, one_liner: e.target.value })}
               className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
           </CompletenessField>
+          {/* Prompt 325 — additional to the one-liner above, never
+              required: the concrete "why click Interested" an investor
+              sees at Discovery, before granting anything. */}
+          <CompletenessField id="identity.intro_problem" label={`Intro pitch — problem (optional, max ${INTRO_PITCH_MAX} characters)`} missing={false} flashing={false}>
+            <input value={draft.intro_problem ?? ''} maxLength={INTRO_PITCH_MAX}
+              onChange={(e) => setDraft({ ...draft, intro_problem: e.target.value })}
+              placeholder="e.g. Founders waste months chasing investors who were never a fit."
+              className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+            <span className="mt-0.5 self-end text-[10px] text-gray-400">{(draft.intro_problem ?? '').length}/{INTRO_PITCH_MAX}</span>
+          </CompletenessField>
+          <CompletenessField id="identity.intro_solution" label="Intro pitch — solution (optional)" missing={false} flashing={false}>
+            <input value={draft.intro_solution ?? ''} maxLength={INTRO_PITCH_MAX}
+              onChange={(e) => setDraft({ ...draft, intro_solution: e.target.value })}
+              placeholder="e.g. We match founders to investors by real sector and stage fit."
+              className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+            <span className="mt-0.5 self-end text-[10px] text-gray-400">{(draft.intro_solution ?? '').length}/{INTRO_PITCH_MAX}</span>
+          </CompletenessField>
           <CompletenessField id="identity.description" label="Short description (2-3 sentences)" missing={missingIds.has('identity.description')} flashing={flashId === 'identity.description'}>
             <textarea value={draft.description ?? ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} rows={3}
               className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
@@ -230,6 +251,12 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
               <p className="text-xs text-amber-700">One-liner needed for 100%</p>
             )}
           </div>
+          {(org.intro_problem || org.intro_solution) && (
+            <div id="identity.intro_pitch" className="rounded p-1 text-sm">
+              {org.intro_problem && <p className="text-gray-700"><span className="font-semibold text-gray-500">Problem: </span>{org.intro_problem}</p>}
+              {org.intro_solution && <p className="text-gray-700"><span className="font-semibold text-gray-500">Solution: </span>{org.intro_solution}</p>}
+            </div>
+          )}
           <div id="identity.description" className={`rounded p-1 text-xs transition-colors duration-700 ${flashId === 'identity.description' ? 'bg-amber-50 ring-2 ring-amber-300' : ''}`}>
             {org.description ? <p className="text-gray-500">{org.description}</p> : missingIds.has('identity.description') && (
               <p className="text-amber-700">Short description needed for 100%</p>

@@ -59,6 +59,11 @@ const EDITABLE = [
   // propose-only). Off by default, unlike the visibility toggles above —
   // see the migration's own header for why this one is opt-in, not opt-out.
   'network_discoverable',
+  // Prompt 325 — the intro pitch (migration 0218), additional to
+  // one_liner. Same owner/admin gate as everything else here; the DB's own
+  // char_length check constraint (240) is the backstop if this route's own
+  // input validation is ever bypassed.
+  'intro_problem', 'intro_solution',
 ] as const;
 
 export async function POST(req: Request) {

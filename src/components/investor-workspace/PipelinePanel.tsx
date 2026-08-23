@@ -30,6 +30,9 @@ interface Card {
   // P134-A — the fuller MatchDeal description, shown only once a row is
   // expanded; the collapsed row keeps the shorter one_liner.
   description: string | null;
+  // Prompt 325 — additional to oneLiner/description, absent (not empty
+  // string) when the founder hasn't filled it in.
+  introProblem?: string; introSolution?: string;
   sectors: string[]; stage: string | null;
   hqCity: string | null; country: string | null; roundTargetEur: number | null; roundValuationEur: number | null;
   roundValuationBasis?: 'pre_money' | 'post_money' | null; roundInstruments: string[];
@@ -607,6 +610,15 @@ export function PipelinePanel({
                     </div>
 
                     {c.description && <p className="text-xs text-gray-600">{c.description}</p>}
+                    {/* Prompt 325 — Discovery-visible, additional to
+                        description/oneLiner above; absent when the founder
+                        hasn't filled it in. */}
+                    {(c.introProblem || c.introSolution) && (
+                      <div className="mt-1 space-y-0.5">
+                        {c.introProblem && <p className="text-xs text-gray-600"><span className="font-medium text-gray-500">Problem: </span>{c.introProblem}</p>}
+                        {c.introSolution && <p className="text-xs text-gray-600"><span className="font-medium text-gray-500">Solution: </span>{c.introSolution}</p>}
+                      </div>
+                    )}
                     {c.trackingCount > 0 && (
                       <p className="mt-1.5 text-xs text-gray-400">
                         {c.trackingCount} other investor{c.trackingCount === 1 ? ' is' : 's are'} tracking {c.stage ? (STAGE_LABELS[c.stage] ?? c.stage) : 'this stage'} rounds

@@ -77,6 +77,11 @@ export interface Org {
   round_target_eur?: number;
   country?: string;
   one_liner?: string;
+  // Prompt 325 — additional to one_liner, never a replacement. Short
+  // (INTRO_PITCH_MAX, investor-interest-level.ts), optional, Discovery-
+  // visible: the concrete "why click Interested" one_liner alone didn't give.
+  intro_problem?: string;
+  intro_solution?: string;
   // Packs credits (spec, not yet wired to a real crediting mechanic or
   // billing model — see DECISIONS.md "Packs — future pricing spec").
   // Type-only stub for now: no DB column, no migration, no logic reads or

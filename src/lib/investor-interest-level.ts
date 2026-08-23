@@ -62,6 +62,28 @@ export function currentInterestLevel(decision: 'interested' | 'passed' | null, r
   return 0;
 }
 
+// Prompt 325 — the intro pitch. Founder-authored, optional, additive to the
+// existing one_liner (never a replacement) — the concrete "why should I
+// click Interested" that Discovery/Level 0 didn't have before. Lives on
+// the compact card (investor-pipeline.ts), NOT in FullDossierData/
+// LEVEL_FIELDS: those govern the DOSSIER route's level-gated disclosure,
+// but the intro pitch — like one_liner itself — must be visible at
+// Discovery, before any level has even been reached, so it doesn't fit the
+// "unlocked at level N" shape those model. Same "absent key, not empty
+// value" discipline as projectDossier below: an unfilled field never
+// appears in the projected object, so a consumer's `card.introProblem &&
+// …` check never has to distinguish "empty string" from "not written yet".
+export const INTRO_PITCH_MAX = 240;
+export interface IntroPitchSource { introProblem?: string | null; introSolution?: string | null }
+export interface IntroPitchProjected { introProblem?: string; introSolution?: string }
+
+export function projectIntroPitch(source: IntroPitchSource): IntroPitchProjected {
+  const out: IntroPitchProjected = {};
+  if (source.introProblem?.trim()) out.introProblem = source.introProblem.trim();
+  if (source.introSolution?.trim()) out.introSolution = source.introSolution.trim();
+  return out;
+}
+
 export interface TeamMemberFull { id: string; fullName: string; title: string | null; isFounder: boolean; linkedinUrl: string | null; email: string | null }
 export interface ContactHistoryEntryFull { id: string; at: string; content: string; channel: string | null }
 export interface DocumentTitleFull { id: string; name: string }

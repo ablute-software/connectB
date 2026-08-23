@@ -11,6 +11,7 @@ import { MATCHDEAL_TIER_TO_INVESTOR_PLAN, investorPlanRow } from './plans';
 import { resolveActorDisplays } from './network-db';
 import { getActiveFollowOnPairs } from './network-followon-db';
 import { shapeFollowOnPayload, type FollowOnPayload } from './network';
+import { projectIntroPitch } from './investor-interest-level';
 
 const WAVE_SIZE = 8;
 const TRACKING_WINDOW_DAYS = 30;
@@ -203,10 +204,10 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   const basisAvailable = await roundValuationBasisAvailable();
   const { data: orgs } = basisAvailable
     ? await admin.from('orgs').select(
-        'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, round_valuation_basis',
+        'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, round_valuation_basis, intro_problem, intro_solution',
       ).in('id', orgIds)
     : await admin.from('orgs').select(
-        'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur',
+        'id, name, one_liner, sectors, stage, round_target_eur, round_min_ticket_eur, round_instruments, hq_city, country, round_valuation_eur, intro_problem, intro_solution',
       ).in('id', orgIds);
 
   // Item 3.1 — a membership_id an eligible source resolved that doesn't
@@ -285,6 +286,10 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     return {
       orgId: org.id, name: org.name, oneLiner: org.one_liner,
       description: descriptionByOrg.get(org.id as string) ?? null,
+      // Prompt 325 — Discovery-visible reason to click "Interested",
+      // additional to oneLiner. Same absent-key discipline as the rest of
+      // this card object's optional fields.
+      ...projectIntroPitch({ introProblem: org.intro_problem as string | null, introSolution: org.intro_solution as string | null }),
       sectors: org.sectors ?? [], stage: org.stage,
       hqCity: org.hq_city, country: org.country, roundTargetEur: org.round_target_eur,
       roundMinTicketEur: org.round_min_ticket_eur, roundValuationEur: org.round_valuation_eur,

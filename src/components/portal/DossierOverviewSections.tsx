@@ -15,6 +15,9 @@ import type { ReviewCategory } from '@/lib/review-clarifications';
 
 export interface Card {
   orgId: string; name: string; oneLiner: string | null; description: string | null;
+  // Prompt 325 — additional to oneLiner, Discovery-visible, absent (not
+  // empty string) when the founder hasn't filled it in.
+  introProblem?: string; introSolution?: string;
   sectors: string[]; stage: string | null; hqCity: string | null; country: string | null;
   roundTargetEur: number | null; roundMinTicketEur: number | null; roundValuationEur: number | null;
   roundValuationBasis: 'pre_money' | 'post_money' | null; roundInstruments: string[];
@@ -109,6 +112,16 @@ export function DossierOverviewSections({
         {/* §A — a pagina e larga, o paragrafo nao: texto corrido acima de
             ~75 caracteres por linha perde-se a mudar de linha. */}
         <p className="mt-1 max-w-prose text-sm text-gray-700">{overview?.description || card.oneLiner || 'Not shared yet.'}</p>
+        {/* Prompt 325 — the intro pitch, visible regardless of level (same
+            tier as oneLiner above: Discovery-safe, founder-authored, never
+            derived). Absent entirely when the founder hasn't filled it in,
+            never an empty placeholder line. */}
+        {(card.introProblem || card.introSolution) && (
+          <div className="mt-2 max-w-prose space-y-0.5">
+            {card.introProblem && <p className="text-sm text-gray-700"><span className="font-semibold text-gray-500">Problem: </span>{card.introProblem}</p>}
+            {card.introSolution && <p className="text-sm text-gray-700"><span className="font-semibold text-gray-500">Solution: </span>{card.introSolution}</p>}
+          </div>
+        )}
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400">
           {card.sectors.length > 0 && <span>{card.sectors.join(', ')}</span>}
           {overview?.founded_year && <span>Founded {overview.founded_year}</span>}
