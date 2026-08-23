@@ -178,6 +178,14 @@ export interface Org {
   // as never frozen. Set = every investor-facing document/folder path for
   // this org returns nothing; null/undefined = normal.
   vault_access_frozen_at?: string | null;
+  // Prompt 316 §B — My Network opt-in. Off by default (unlike the
+  // visibility toggles above, which default true/opt-out): "shares an
+  // investor with another founder" is pipeline data about THIS org, and
+  // the root privacy rule (CLAUDE.md) requires consent before it's
+  // discoverable by anyone else — the suggestion engine only ever pairs
+  // two orgs that BOTH have this on. Undefined/false pre-migration or
+  // pre-opt-in both mean "never discoverable", the fail-closed default.
+  network_discoverable?: boolean;
 }
 
 // Prompt 167 §A — one row per roadmap period (a quarter or a whole year).
@@ -988,4 +996,52 @@ export interface Db {
   rejectionCodes: RejectionCode[];
   interactionEdits: InteractionEdit[];
   orgAxisClassifications: OrgAxisClassification[];
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 316 — My Network. Cross-org by nature (a connection spans two
+// different orgs, or an org and an investor), so — unlike everything above —
+// this is never part of the per-org `Db` shape: it's fetched via dedicated
+// /api/network/* routes (service-role), never the browser client directly.
+// See src/lib/network.ts (pure rules) and src/lib/network-db.ts (adapter).
+export type NetworkActorKind = 'founder' | 'investor';
+
+// A network_actors row. Exactly one of orgId/matchdealProfileId is set,
+// mirroring usage_sessions' own dual-identity precedent (migration 0203) —
+// see the migration's own header for why a third identity isn't introduced.
+export interface NetworkActor {
+  id: string;
+  orgId?: string | null;
+  matchdealProfileId?: string | null;
+}
+
+export type NetworkConnectionStatus = 'active' | 'removed' | 'blocked';
+
+export interface NetworkConnection {
+  id: string;
+  actorLowId: string;
+  actorHighId: string;
+  status: NetworkConnectionStatus;
+  blockedByActorId?: string | null;
+  originContext?: string | null;
+  createdAt: string;
+}
+
+export type NetworkInviteStatus = 'pending' | 'accepted' | 'declined' | 'expired';
+// Prompt 316 only ever produces 'shared_investor'; later prompts in the
+// series (317 groups, 318 referrals) add more without touching this type's
+// existing members.
+export type NetworkInviteContextKind = 'shared_investor' | 'shared_group' | 'referral';
+
+export interface NetworkInvite {
+  id: string;
+  fromActorId: string;
+  toActorId: string;
+  contextKind: NetworkInviteContextKind;
+  contextRef?: string | null;
+  message: string;
+  status: NetworkInviteStatus;
+  expiresAt: string;
+  createdAt: string;
+  respondedAt?: string | null;
 }

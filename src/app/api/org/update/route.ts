@@ -55,6 +55,10 @@ const EDITABLE = [
   // admin write is blocked by the same org_editing check as everything
   // else in this list, not by this column being special-cased.
   'vault_access_frozen_at',
+  // Prompt 316 §B — My Network discoverability opt-in (migration 0209,
+  // propose-only). Off by default, unlike the visibility toggles above —
+  // see the migration's own header for why this one is opt-in, not opt-out.
+  'network_discoverable',
 ] as const;
 
 export async function POST(req: Request) {
