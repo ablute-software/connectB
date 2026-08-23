@@ -22,7 +22,8 @@ import { useStore } from '@/lib/store';
 import { Card, Toggle } from '@/components/ui';
 import { FollowOnBadge } from '@/components/FollowOnBadge';
 import { NetworkAvatar } from '@/components/NetworkAvatar';
-import { HelpSupportWidget } from '@/components/HelpSupportWidget';
+import { InviteByEmailForm } from '@/components/network/InviteByEmailForm';
+import { PENDING_CONNECT_TOKEN_KEY } from '@/lib/network';
 import type { FollowOnPayload } from '@/lib/network';
 import { ALL_SECTOR_NAMES } from '@/lib/sector-taxonomy';
 
@@ -140,6 +141,16 @@ export default function NetworkPage() {
   const { updateOrg } = useStore();
   const [section, setSection] = useState<Section>('feed');
   const [connectionSearch, setConnectionSearch] = useState('');
+  // Prompt 335 §D1/§D3a — My contacts panel's own "+Add" and "My connect
+  // link" affordances.
+  const [addingContact, setAddingContact] = useState(false);
+  const [connectLink, setConnectLink] = useState<{ exists: boolean; revoked: boolean } | null>(null);
+  const [connectLinkUrl, setConnectLinkUrl] = useState<string | null>(null);
+  const [connectLinkBusy, setConnectLinkBusy] = useState(false);
+  const [directoryQuery, setDirectoryQuery] = useState('');
+  const [directoryResults, setDirectoryResults] = useState<{ orgId: string; name: string; sectors: string[]; geography: string | null }[] | null>(null);
+  const [cohortCode, setCohortCode] = useState('');
+  const [cohortCodeResult, setCohortCodeResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [state, setState] = useState<NetworkBootstrap | null>(null);
   const [groups, setGroups] = useState<GroupListView[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -203,6 +214,20 @@ export default function NetworkPage() {
     fetch('/api/network/scout').then((r) => r.json()).then((b) => setScoutRequests(b.requests ?? [])).catch(() => setScoutRequests([]));
   }
   useEffect(load, []);
+
+  // Prompt 335 §D3a — finishes the "opened a connect link while logged
+  // out" loop: the link page stashed the token and sent them to /signup;
+  // now that a session exists (they've reached My Network, exactly where
+  // they were headed), consume it once and clear the stash.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const pending = sessionStorage.getItem(PENDING_CONNECT_TOKEN_KEY);
+    if (!pending) return;
+    sessionStorage.removeItem(PENDING_CONNECT_TOKEN_KEY);
+    fetch('/api/network/connect-link/consume', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: pending }),
+    }).then(load);
+  }, []);
 
   useEffect(() => {
     if (!openGroupId) { setGroupDetail(null); return; }
@@ -411,6 +436,60 @@ export default function NetworkPage() {
     }).finally(() => setBusy(false));
   }
 
+  // Prompt 335 §D3a — My connect link. Status only ever tells us
+  // exists/revoked; the raw link itself is only ever known right after a
+  // (re)generate call, same "shown once" discipline as any other token.
+  function loadConnectLinkStatus() {
+    fetch('/api/network/connect-link').then((r) => r.json()).then((b) => setConnectLink(b.ok ? b.status : null)).catch(() => setConnectLink(null));
+  }
+  useEffect(loadConnectLinkStatus, []);
+
+  function regenerateConnectLink() {
+    setConnectLinkBusy(true);
+    fetch('/api/network/connect-link', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'regenerate' }) })
+      .then((r) => r.json()).then((b) => { if (b.ok) { setConnectLinkUrl(b.link); loadConnectLinkStatus(); } })
+      .finally(() => setConnectLinkBusy(false));
+  }
+
+  function revokeConnectLinkAction() {
+    setConnectLinkBusy(true);
+    fetch('/api/network/connect-link', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'revoke' }) })
+      .then(() => { setConnectLinkUrl(null); loadConnectLinkStatus(); })
+      .finally(() => setConnectLinkBusy(false));
+  }
+
+  // Prompt 335 §D2 — directory search, only ever over network_discoverable
+  // founders (enforced server-side, not by this client code).
+  function searchDirectory(q: string) {
+    setDirectoryQuery(q);
+    if (!q.trim()) { setDirectoryResults(null); return; }
+    fetch(`/api/network/directory?q=${encodeURIComponent(q)}`).then((r) => r.json()).then((b) => setDirectoryResults(b.ok ? b.results : [])).catch(() => setDirectoryResults([]));
+  }
+
+  function inviteFromDirectory(orgId: string) {
+    setBusy(true); setError(null);
+    fetch('/api/network/directory-invite', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId }),
+    }).then((r) => r.json()).then((b) => {
+      if (!b.ok) { setError(b.error); return; }
+      setDirectoryResults((prev) => prev?.filter((r) => r.orgId !== orgId) ?? null);
+      load();
+    }).finally(() => setBusy(false));
+  }
+
+  // Prompt 335 §D3b — cohort codes: self-service join, additive to the
+  // existing owner-invite flow.
+  function joinWithCode() {
+    if (!cohortCode.trim()) return;
+    setBusy(true); setCohortCodeResult(null);
+    fetch('/api/network/group/join-by-code', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: cohortCode.trim() }),
+    }).then((r) => r.json()).then((b) => {
+      setCohortCodeResult({ ok: !!b.ok, text: b.ok ? `Joined ${b.groupName}.` : (b.error ?? 'Could not join.') });
+      if (b.ok) { setCohortCode(''); load(); }
+    }).finally(() => setBusy(false));
+  }
+
   if (!state || !groups) return <p className="text-sm text-gray-400">Loading…</p>;
 
   if (!state.available) {
@@ -470,7 +549,7 @@ export default function NetworkPage() {
         </button>
         <nav className="space-y-1">
           {SECTION_NAV.map((s) => (
-            <button key={s.key} onClick={() => setSection(s.key)}
+            <button key={s.key} data-tour-id={`network-nav-${s.key}`} onClick={() => setSection(s.key)}
               className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm ${section === s.key ? 'bg-[#E8F4F8] font-semibold text-[#0E7490]' : 'text-gray-600 hover:bg-gray-50'}`}>
               <Icon name={s.icon} className="text-[20px] leading-none" />
               {s.label}
@@ -480,10 +559,10 @@ export default function NetworkPage() {
             </button>
           ))}
         </nav>
-        <div className="mt-auto border-t border-gray-100 pt-3">
-          {/* Reuses HelpSupportWidget as-is, uncontrolled — no modal logic duplicated here. */}
-          <HelpSupportWidget source="founder_app" />
-        </div>
+        {/* Prompt 335 §A — Help & support removed from here: it already
+            exists on the main workspace sidebar (Grupo 5, Prompt 331) and
+            the 💡 lamp (LampButton) every page already has — this was a
+            second, redundant entry point, not a missing one. */}
       </aside>
 
       <div className="min-w-0 flex-1 space-y-4">
@@ -1102,6 +1181,27 @@ export default function NetworkPage() {
       </Card>
       )}
 
+      {/* Prompt 335 §D3b — cohort codes: self-service join, additive to the
+          existing owner-invite flow above. No founder UI to CREATE a code
+          in this prompt — backoffice/developer sets network_groups.join_code
+          directly for now. */}
+      {section === 'groups' && (
+      <Card title="Join with code">
+        <p className="text-[11px] text-gray-400">Given a code by an accelerator or event? Enter it here to join that group.</p>
+        <div className="mt-2 flex gap-1.5">
+          <input value={cohortCode} onChange={(e) => setCohortCode(e.target.value)} placeholder="Group code"
+            className="flex-1 rounded-lg border border-gray-300 p-1.5 text-sm" />
+          <button onClick={joinWithCode} disabled={busy || !cohortCode.trim()}
+            className="shrink-0 rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-40">
+            Join
+          </button>
+        </div>
+        {cohortCodeResult && (
+          <p className={`mt-1.5 text-[11px] ${cohortCodeResult.ok ? 'text-emerald-700' : 'text-gray-500'}`}>{cohortCodeResult.text}</p>
+        )}
+      </Card>
+      )}
+
       {section === 'referrals' && (
       <>
       {pathfinderAsks.length > 0 && (
@@ -1266,7 +1366,8 @@ export default function NetworkPage() {
         {state.myActorKind === 'founder' && !state.discoverable && (
           <div className="mb-3 space-y-2 border-b border-gray-100 pb-3">
             <p className="text-sm text-gray-600">
-              Turn this on to see founders who share an investor with you, and let them discover you the same way.
+              Turn this on to see founders who share an investor with you, and let them discover you the same way — it
+              also lets other founders find you by name or sector in the directory below.
             </p>
             <p className="text-[11px] text-gray-400">
               Only the fact that you share an investor is ever shown — never pipeline stages, counts, or anything else about your fundraise.
@@ -1295,14 +1396,83 @@ export default function NetworkPage() {
         )}
       </Card>
       )}
+
+      {section === 'connections' && (
+      <Card title="Directory">
+        <p className="text-[11px] text-gray-400">
+          Search founders who opted in to being found — never open people search, only who raised their hand.
+        </p>
+        <input value={directoryQuery} onChange={(e) => searchDirectory(e.target.value)}
+          placeholder="Search by name, sector, or geography" className="mt-2 w-full rounded-lg border border-gray-300 p-1.5 text-sm" />
+        {directoryResults && (
+          directoryResults.length === 0 ? (
+            <p className="mt-2 text-sm text-gray-400">No matches.</p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {directoryResults.map((r) => (
+                <li key={r.orgId} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 p-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">{r.name}</p>
+                    <p className="text-[11px] text-gray-400">{[r.sectors.join(', '), r.geography].filter(Boolean).join(' · ')}</p>
+                  </div>
+                  <button onClick={() => inviteFromDirectory(r.orgId)} disabled={busy}
+                    className="shrink-0 rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-40">
+                    Invite to connect
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )
+        )}
+      </Card>
+      )}
       </div>
 
       {/* Prompt 332 §C — real "your network" panel, N = connections.length
           (never a placeholder count). Search is a client-side name filter
           over already-fetched `connections` — no new server call. */}
-      <aside className="hidden w-64 shrink-0 xl:block">
+      <aside data-tour-id="network-my-contacts" className="hidden w-64 shrink-0 xl:block">
         <div className="sticky top-4 rounded-xl border border-gray-100 p-3">
-          <h3 className="text-xs font-semibold text-gray-700">Your network ({connections.length})</h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold text-gray-700">My contacts ({connections.length})</h3>
+            {!addingContact && (
+              <button onClick={() => setAddingContact(true)} className="shrink-0 text-[11px] text-cyan-700 hover:underline">+ Add</button>
+            )}
+          </div>
+
+          {addingContact && (
+            <div className="mt-2 border-b border-gray-100 pb-3">
+              <InviteByEmailForm />
+              <button onClick={() => setAddingContact(false)} className="mt-1.5 rounded-full border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600">Close</button>
+            </div>
+          )}
+
+          {/* Prompt 335 §D3a — My connect link. */}
+          <div className="mt-2 border-b border-gray-100 pb-3">
+            <p className="text-[11px] font-medium text-gray-500">My connect link</p>
+            {connectLinkUrl ? (
+              <div className="mt-1 flex items-center gap-1.5">
+                <input readOnly value={connectLinkUrl} className="min-w-0 flex-1 rounded border border-gray-200 bg-gray-50 px-1.5 py-1 text-[10px] text-gray-500" />
+                <button onClick={() => navigator.clipboard?.writeText(connectLinkUrl).catch(() => {})} className="shrink-0 rounded-full border border-gray-300 px-2 py-0.5 text-[10px] text-gray-600 hover:bg-gray-50">Copy</button>
+              </div>
+            ) : (
+              <p className="mt-1 text-[10px] text-gray-400">
+                {connectLink?.exists && !connectLink.revoked ? 'Active — regenerate to see the link again.' : 'Share a link so people can request to connect.'}
+              </p>
+            )}
+            <div className="mt-1.5 flex gap-1.5">
+              <button onClick={regenerateConnectLink} disabled={connectLinkBusy}
+                className="rounded-full border border-gray-300 px-2 py-0.5 text-[10px] text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                {connectLink?.exists ? 'Regenerate' : 'Create link'}
+              </button>
+              {connectLink?.exists && !connectLink.revoked && (
+                <button onClick={revokeConnectLinkAction} disabled={connectLinkBusy} className="rounded-full border border-gray-300 px-2 py-0.5 text-[10px] text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                  Revoke
+                </button>
+              )}
+            </div>
+          </div>
+
           <input value={connectionSearch} onChange={(e) => setConnectionSearch(e.target.value)}
             placeholder="Filter by name" className="mt-2 w-full rounded-lg border border-gray-300 p-1.5 text-xs" />
           <ul className="mt-2 max-h-[60vh] space-y-2 overflow-y-auto">

@@ -1,18 +1,27 @@
-// Prompt 330 §B — Pipeline's "+Add" flow: invite a founder you already
-// personally know by email. This deliberately does NOT extend
-// /api/network/invite's toActorId contract — that route's whole shape
-// assumes the recipient is already a resolvable actorId (a suggestion, a
-// connection, someone the UI already surfaced). Here the founder only has
-// an email, so this route resolves email -> org -> actor itself, and fails
-// honestly (never a fabricated contact, never an invite sent outside the
-// product) when no account exists yet.
+// Prompt 330 / Prompt 335 §D1 — invite a founder or investor you already
+// personally know, by email. This is the ONE implementation of the
+// direct-known mechanism — Pipeline's "Partners & colleagues" panel and My
+// Network's "My contacts" panel both call this same route, never a second
+// copy of the logic.
+//
+// Anti-enumeration (Prompt 335 §D1, explicit): the response is IDENTICAL
+// whether the email belongs to an existing account or not — same message,
+// same shape, always including a copyable link. For an existing account the
+// link is inert once opened (the real in-app invite was already created);
+// for a new one it's the actual growth loop, landing on an explainer before
+// signup. Never reveals which case happened.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { networkAvailable } from '@/lib/network-capability';
-import { resolveActorId, countPendingInvitesFrom, createInvite, findOrgByMemberEmail, findActorIdByOrgId } from '@/lib/network-db';
-import { canSendInvite } from '@/lib/network';
+import {
+  resolveActorId, findOrgByMemberEmail, findActorIdByOrgId, findEmailInvite, createEmailInvite, emailInviteCreatedAtsForActor,
+} from '@/lib/network-db';
+import { emailInviteRateCounts, canSendDirectInvite } from '@/lib/network';
+import { generateRawToken, hashToken } from '@/lib/matchdeal-pairing';
+
+const GENERIC_SENT_MESSAGE = 'Invite sent — they need to accept before you\'re connected. Share the link below too, in case they haven\'t signed up yet.';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -31,31 +40,44 @@ export async function POST(req: Request) {
   if (!actor) return NextResponse.json({ ok: false, error: 'No network profile found for your account.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as { email?: string; message?: string };
-  const email = body.email?.trim();
+  const email = body.email?.trim().toLowerCase();
   const message = body.message?.trim();
   if (!email) return NextResponse.json({ ok: false, error: 'Missing email.' }, { status: 400 });
   if (!message) return NextResponse.json({ ok: false, error: 'A short note on how you know them is required.' }, { status: 400 });
 
+  // "sem repetir convite ao mesmo email" — a legitimate, non-enumerating
+  // check: it's about the FOUNDER'S OWN sending history, not the target
+  // account's existence, so an accurate answer here doesn't violate
+  // anti-enumeration (it says nothing about whether the email is a user).
+  const existing = await findEmailInvite(admin, actor.actorId, email);
+  if (existing) {
+    return NextResponse.json({ ok: false, error: 'You already invited this email — check My contacts for its status.' });
+  }
+
+  // Prompt 335 §D1 — 5/day, 20/week on this actor's own OUTBOUND email
+  // invites (mirrors rules.ts's outreach-cap numbers, a deliberate,
+  // documented choice — see network.ts's own comment — not the same
+  // constant reused).
+  const createdAts = await emailInviteCreatedAtsForActor(admin, actor.actorId);
+  if (!canSendDirectInvite(emailInviteRateCounts(createdAts, new Date()))) {
+    return NextResponse.json({ ok: false, error: 'You\'ve reached your invite limit for now — try again tomorrow or next week.' });
+  }
+
   const org = await findOrgByMemberEmail(admin, email);
-  if (!org) {
-    // Honest, not opaque — and NOT a 4xx/error: this is a normal, expected
-    // outcome (the target just hasn't signed up yet), never a failure the
-    // UI should render as if something went wrong.
-    return NextResponse.json({ ok: true, found: false, message: "We couldn't find an account with that email on Sherlock Deal yet." });
+  const toActorId = org ? await findActorIdByOrgId(admin, org.orgId) : null;
+  if (toActorId === actor.actorId) {
+    // The one case allowed to differ from the generic response — it's
+    // feedback about the CALLER'S OWN identity, not about whether some
+    // other email has an account.
+    return NextResponse.json({ ok: false, error: 'That\'s your own email.' });
   }
 
-  const toActorId = await findActorIdByOrgId(admin, org.orgId);
-  if (!toActorId) return NextResponse.json({ ok: false, error: 'Could not resolve that account.' }, { status: 500 });
-  if (toActorId === actor.actorId) return NextResponse.json({ ok: false, error: "You can't invite yourself." }, { status: 400 });
-
-  const pendingCount = await countPendingInvitesFrom(admin, actor.actorId);
-  if (!canSendInvite(pendingCount)) {
-    return NextResponse.json({ ok: false, error: 'You already have 5 pending invites out — wait for one to be answered before sending another.' });
-  }
-
-  const result = await createInvite(admin, {
-    fromActorId: actor.actorId, toActorId, contextKind: 'direct_known', contextRef: org.orgName, message,
+  const rawToken = generateRawToken();
+  const result = await createEmailInvite(admin, {
+    fromActorId: actor.actorId, email, message, tokenHash: hashToken(rawToken), toActorId, contextKind: 'direct_known',
   });
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error });
-  return NextResponse.json({ ok: true, found: true, invite: result.invite });
+
+  const origin = new URL(req.url).origin;
+  return NextResponse.json({ ok: true, message: GENERIC_SENT_MESSAGE, inviteLink: `${origin}/network/invite/${rawToken}` });
 }

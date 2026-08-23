@@ -13,6 +13,11 @@
 export const MAX_PENDING_INVITES_PER_ACTOR = 5;
 export const INVITE_EXPIRY_DAYS = 14;
 
+// Prompt 335 §D3a — sessionStorage key the connect-link landing page
+// stashes an unauthenticated opener's token under before redirecting to
+// /signup; network/page.tsx reads and clears it once a session exists.
+export const PENDING_CONNECT_TOKEN_KEY = 'sd_pending_connect_token';
+
 // ---------------------------------------------------------------------------
 // Canonical pair ordering for network_connections' "smaller id first"
 // storage convention — one row per pair regardless of who acted first.
@@ -28,6 +33,67 @@ export function canonicalPair(actorAId: string, actorBId: string): [string, stri
 // unit-testable without a database.
 export function canSendInvite(pendingCount: number): boolean {
   return pendingCount < MAX_PENDING_INVITES_PER_ACTOR;
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 335 §D1 — the rate cap on email-based direct invites (the cold-
+// start mechanism itself). Numbers deliberately mirror rules.ts's own
+// outreach caps (5/day, 20/week) — a founder's outbound-to-investors budget
+// and their network-invite budget are different things that happen to use
+// the same round numbers, not the same constant reused across two
+// unrelated features. Same rolling-window shape as rules.ts's own
+// outboundCounts: `now` is an explicit parameter so this stays pure and
+// testable, midnight/Monday computed fresh from it rather than from a
+// stored "period start".
+export const NETWORK_DIRECT_INVITE_DAILY_CAP = 5;
+export const NETWORK_DIRECT_INVITE_WEEKLY_CAP = 20;
+
+export function emailInviteRateCounts(createdAts: string[], now: Date): { today: number; week: number } {
+  const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
+  const day = now.getDay(); // 0 = Sunday
+  const monday = new Date(now); monday.setHours(0, 0, 0, 0);
+  monday.setDate(monday.getDate() - ((day + 6) % 7));
+  const dates = createdAts.map((c) => new Date(c));
+  return {
+    today: dates.filter((d) => d >= startOfDay).length,
+    week: dates.filter((d) => d >= monday).length,
+  };
+}
+
+export function canSendDirectInvite(counts: { today: number; week: number }): boolean {
+  return counts.today < NETWORK_DIRECT_INVITE_DAILY_CAP && counts.week < NETWORK_DIRECT_INVITE_WEEKLY_CAP;
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 335 §D3a — a connect link auto-pauses once it's generated too many
+// still-outstanding invites in the trailing week, rather than needing a
+// stored "paused" flag that could go stale. Counts ALL connect_link-sourced
+// invites created in the window regardless of status — a founder whose link
+// got hammered by 20 people in a day shouldn't have it immediately usable
+// again just because those 20 got declined; the cool-down is on generation
+// volume, not on how many are still pending.
+export const CONNECT_LINK_WEEKLY_PAUSE_THRESHOLD = 20;
+
+export function connectLinkPaused(invitesGeneratedThisWeek: number): boolean {
+  return invitesGeneratedThisWeek >= CONNECT_LINK_WEEKLY_PAUSE_THRESHOLD;
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 335 §D2 — the discoverable-founders directory. NOT an open people
+// search: only rows the caller has already filtered to
+// network_discoverable=true ever reach this function — it just applies the
+// name/sector/geography match on top, case-insensitively, substring-based
+// (never a ranked/scored result — that would violate the anti-ranking rule
+// just as much as scoring connections would).
+export interface DiscoverableFounderRow { orgId: string; name: string; sectors: string[]; geography: string | null }
+
+export function searchDiscoverableFounders(rows: DiscoverableFounderRow[], query: string): DiscoverableFounderRow[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  return rows.filter((r) =>
+    r.name.toLowerCase().includes(q)
+    || r.sectors.some((s) => s.toLowerCase().includes(q))
+    || (r.geography ?? '').toLowerCase().includes(q));
 }
 
 // ---------------------------------------------------------------------------

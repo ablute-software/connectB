@@ -1,13 +1,29 @@
 // Provision a new founder's org + owner membership using the service role.
 // Idempotent: if the user already owns an org, it is returned unchanged.
 import { NextResponse, type NextRequest } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { isAbluteTeamEmail, serverClient } from '@/lib/supabase-server';
 import { ABLUTE_ORG_ID } from '@/lib/ablute-org';
 import { logAdminAction } from '@/lib/audit';
 import { PRESET_MATERIALS_FOLDERS, PRESET_DATA_ROOM_FOLDERS } from '@/lib/vault-preset-folders';
 import { acquisitionSourceAvailable } from '@/lib/acquisition-source-capability';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
+import { findActorIdByOrgId, materializeEmailInvitesForNewActor } from '@/lib/network-db';
+
+// Prompt 335 §D1 — the cold-start hook: a brand-new founder's own email may
+// already have pending network_email_invites rows (someone invited them by
+// email before they ever signed up). network_actors gets its row from the
+// orgs-insert trigger (migration 0209) automatically, so by the time this
+// runs there IS an actor to materialize the real network_invites row
+// against. Best-effort only, same discipline as the platform_admin grant
+// above — this must never block or fail a sign-up.
+async function materializeNetworkInvitesIfAny(admin: SupabaseClient, orgId: string, email: string | undefined) {
+  if (typeof email !== 'string') return;
+  try {
+    const actorId = await findActorIdByOrgId(admin, orgId);
+    if (actorId) await materializeEmailInvitesForNewActor(admin, email, actorId);
+  } catch { /* never blocks sign-up */ }
+}
 
 // The platform owner. Signing up with either of these two specific,
 // hardcoded addresses links to the real ablute_ org (already seeded) as
@@ -117,7 +133,10 @@ export async function POST(req: NextRequest) {
   // person profile does. Multi-org platform-admin management is a later concern.
   if (isOwner) {
     const { error: linkErr } = await admin.from('org_members').insert({ org_id: ABLUTE_ORG_ID, user_id, role: 'owner', ...profileFields });
-    if (!linkErr) return NextResponse.json({ ok: true, org_id: ABLUTE_ORG_ID, owner: true });
+    if (!linkErr) {
+      await materializeNetworkInvitesIfAny(admin, ABLUTE_ORG_ID, email);
+      return NextResponse.json({ ok: true, org_id: ABLUTE_ORG_ID, owner: true });
+    }
     // If linking failed for any reason, fall through to creating a normal org.
   }
 
@@ -148,5 +167,6 @@ export async function POST(req: NextRequest) {
     ...PRESET_DATA_ROOM_FOLDERS.map((name, i) => ({ org_id: org.id, name, kind: 'data_room', position: i + 11 })),
   ]);
 
+  await materializeNetworkInvitesIfAny(admin, org.id, email);
   return NextResponse.json({ ok: true, org_id: org.id });
 }

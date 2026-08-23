@@ -318,4 +318,47 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
       body: 'Switch the whole grid between monthly and annual pricing. Requesting a different tier doesn\'t charge you automatically — the team applies it manually.',
     },
   ],
+  // Prompt 335 §C — "nem eu entendo os ícones": one step per My Network nav
+  // item plus the right-hand panel, explaining WHAT EACH IS FOR, not just
+  // what it's called. Anchored to the real desktop sidebar/panel
+  // (network/page.tsx) — the mobile tab row intentionally has no matching
+  // data-tour-id, so this tour only ever resolves on the desktop layout it
+  // was written for; PageTour drops it there rather than mis-anchoring.
+  guide_network: [
+    {
+      selector: 'network-nav-feed',
+      title: 'Feed',
+      body: 'Updates and milestones from founders and investors you\'re connected to. No likes, no follower counts — nothing here ranks you against anyone.',
+    },
+    {
+      selector: 'network-nav-connections',
+      title: 'Connections',
+      body: 'Your accepted connections, plus invites sent and received. Every connection starts from something real you share — or someone you invited directly.',
+    },
+    {
+      selector: 'network-nav-groups',
+      title: 'Groups',
+      body: 'Accelerator batches, investor portfolios, communities. Joining always requires consent — and each group seeds new connection suggestions.',
+    },
+    {
+      selector: 'network-nav-referrals',
+      title: 'Referrals',
+      body: 'Ask a founder you know to introduce you to one of their investors. Double opt-in: nobody hears about it unless you both agree.',
+    },
+    {
+      selector: 'network-nav-followon',
+      title: 'Follow-on',
+      body: 'Investors who declared interest in your next round. Declared by them, never derived by us.',
+    },
+    {
+      selector: 'network-nav-reciprocity',
+      title: 'Reciprocity',
+      body: 'Office hours and scout requests — concrete help exchanged inside the network. Your counts are yours alone, never a leaderboard.',
+    },
+    {
+      selector: 'network-my-contacts',
+      title: 'My contacts',
+      body: 'Everyone you\'re connected to, searchable. Teal = investor, gray = founder.',
+    },
+  ],
 };

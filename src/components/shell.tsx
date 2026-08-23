@@ -35,6 +35,7 @@ import type { WorkspaceNavItem } from '@/components/workspace-shell/types';
 // with no tour yet (readiness, messages, …) fall through to [].
 function tourKeysForPath(path: string | null): string[] {
   if (path === '/pipeline') return ['guide_pipeline'];
+  if (path === '/network') return ['guide_network'];
   if (path === '/documents') return ['guide_documents', 'guide_people_access'];
   if (path === '/tasks') return ['guide_today', 'guide_warrants'];
   if (path === '/dashboard') return ['guide_dashboard'];

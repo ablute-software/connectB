@@ -6,21 +6,20 @@
 // readConnectionsForActor/resolveActorDisplays in network-db.ts) — never a
 // second, parallel connections list. Zero engagement counters, zero
 // comparison between connections — same anti-ranking rule as the rest of
-// My Network.
+// My Network. "+Add" reuses InviteByEmailForm — the ONE implementation of
+// the email-invite mechanism (Prompt 335 §D1), shared with My Network's own
+// "My contacts" panel.
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui';
 import { authEnabled } from '@/lib/supabase';
 import { NetworkAvatar } from '@/components/NetworkAvatar';
+import { InviteByEmailForm } from '@/components/network/InviteByEmailForm';
 
 interface ConnectionRow { id: string; otherActorId: string; otherName: string; otherKind: 'founder' | 'investor'; originContext: string | null }
 
 export function PartnersColleaguesPanel() {
   const [connections, setConnections] = useState<ConnectionRow[] | null>(null);
   const [adding, setAdding] = useState(false);
-  const [email, setEmail] = useState('');
-  const [message, setMessage] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   function load() {
     if (!authEnabled) { setConnections([]); return; }
@@ -28,44 +27,14 @@ export function PartnersColleaguesPanel() {
   }
   useEffect(load, []);
 
-  function openAdd() {
-    setAdding(true); setEmail(''); setMessage(''); setResult(null);
-  }
-
-  function submit() {
-    setBusy(true); setResult(null);
-    fetch('/api/network/invite-by-email', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: email.trim(), message: message.trim() }),
-    }).then((r) => r.json()).then((b) => {
-      if (!b.ok) { setResult({ ok: false, text: b.error ?? 'Could not send the invite.' }); return; }
-      if (b.found === false) { setResult({ ok: false, text: b.message }); return; }
-      setResult({ ok: true, text: 'Invite sent — they need to accept before you\'re connected.' });
-      setEmail(''); setMessage('');
-    }).finally(() => setBusy(false));
-  }
-
   return (
     <Card title="Partners & colleagues" right={
-      !adding && <button onClick={openAdd} className="text-xs text-cyan-700 hover:underline">+ Add</button>
+      !adding && <button onClick={() => setAdding(true)} className="text-xs text-cyan-700 hover:underline">+ Add</button>
     }>
       {adding && (
-        <div className="mb-3 space-y-1.5 border-b border-gray-100 pb-3">
-          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email"
-            placeholder="Their email on Sherlock Deal" className="w-full rounded-lg border border-gray-300 p-1.5 text-xs" />
-          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={2}
-            placeholder="How do you know them? (required — they'll see this)"
-            className="w-full rounded-lg border border-gray-300 p-1.5 text-xs" />
-          {result && (
-            <p className={`text-[11px] ${result.ok ? 'text-emerald-700' : 'text-gray-500'}`}>{result.text}</p>
-          )}
-          <div className="flex gap-1.5">
-            <button onClick={submit} disabled={busy || !email.trim() || !message.trim()}
-              className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
-              Send invite
-            </button>
-            <button onClick={() => setAdding(false)} className="rounded-full border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600">Cancel</button>
-          </div>
+        <div className="mb-3 border-b border-gray-100 pb-3">
+          <InviteByEmailForm />
+          <button onClick={() => setAdding(false)} className="mt-1.5 rounded-full border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600">Close</button>
         </div>
       )}
 

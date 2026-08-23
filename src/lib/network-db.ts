@@ -153,6 +153,175 @@ export async function findActorIdByOrgId(admin: SupabaseClient, orgId: string): 
   return (data?.id as string | undefined) ?? null;
 }
 
+// ---------------------------------------------------------------------------
+// Prompt 335 §D1 — email invites. See migration 0223's own header for why
+// this is ONE table covering both "target already has an account" and
+// "target doesn't yet" — the unique (from_actor_id, lower(email)) index is
+// what makes rate-cap counting, no-repeat, and no-reinvite-after-decline
+// all fall out of the same rows, so this file never has to reconcile two
+// separate stores of "who did I already try to invite by email".
+export interface EmailInviteRow {
+  id: string; fromActorId: string; email: string; message: string; status: string;
+  resultingInviteId: string | null; expiresAt: string; createdAt: string;
+}
+
+function mapEmailInvite(row: Record<string, unknown>): EmailInviteRow {
+  return {
+    id: row.id as string, fromActorId: row.from_actor_id as string, email: row.email as string,
+    message: row.message as string, status: row.status as string,
+    resultingInviteId: (row.resulting_invite_id as string | null) ?? null,
+    expiresAt: row.expires_at as string, createdAt: row.created_at as string,
+  };
+}
+
+export async function emailInviteCreatedAtsForActor(admin: SupabaseClient, actorId: string): Promise<string[]> {
+  const { data } = await admin.from('network_email_invites').select('created_at').eq('from_actor_id', actorId);
+  return (data ?? []).map((r) => r.created_at as string);
+}
+
+export async function findEmailInvite(admin: SupabaseClient, fromActorId: string, email: string): Promise<EmailInviteRow | null> {
+  const { data } = await admin.from('network_email_invites').select('*')
+    .eq('from_actor_id', fromActorId).ilike('email', email.trim().toLowerCase()).maybeSingle();
+  return data ? mapEmailInvite(data) : null;
+}
+
+// Public-facing lookup for the /network/invite/[token] landing page — the
+// recipient hasn't signed up yet, so there's no session to authorize this
+// by; the token itself (32 random bytes, never guessable) is the whole
+// authorization, same trust model as the MatchDeal pairing tokens this
+// hashing scheme is borrowed from.
+export async function findEmailInviteByTokenHash(admin: SupabaseClient, tokenHash: string): Promise<EmailInviteRow | null> {
+  const { data } = await admin.from('network_email_invites').select('*').eq('token_hash', tokenHash).maybeSingle();
+  return data ? mapEmailInvite(data) : null;
+}
+
+// `toActorId` is set at creation time when the email already resolves to an
+// account — the real network_invites row is created in the SAME call, so
+// there is never a moment where a "pending, not yet delivered" row exists
+// for an email that was actually resolvable (avoids a second round-trip
+// racing a signup that completes in between).
+export async function createEmailInvite(admin: SupabaseClient, params: {
+  fromActorId: string; email: string; message: string; tokenHash: string; toActorId: string | null; contextKind: 'direct_known';
+}): Promise<{ ok: true; row: EmailInviteRow } | { ok: false; error: string }> {
+  if (await isNetworkActorSuspended(admin, params.fromActorId)) return { ok: false, error: NETWORK_SUSPENDED_ERROR };
+  const contentCheck = checkNetworkContent(params.message);
+  if (contentCheck.blocked) return { ok: false, error: contentCheck.reason! };
+
+  const email = params.email.trim().toLowerCase();
+  let resultingInviteId: string | null = null;
+  let status = 'pending';
+  if (params.toActorId) {
+    const invited = await createInvite(admin, {
+      fromActorId: params.fromActorId, toActorId: params.toActorId, contextKind: params.contextKind, message: params.message,
+    });
+    if (!invited.ok) return { ok: false, error: invited.error };
+    resultingInviteId = invited.invite.id;
+    status = 'delivered';
+  }
+
+  const { data, error } = await admin.from('network_email_invites').insert({
+    from_actor_id: params.fromActorId, email, message: params.message, token_hash: params.tokenHash,
+    status, resulting_invite_id: resultingInviteId,
+  }).select('*').single();
+  if (error) {
+    if (error.message.includes('network_email_invites_no_repeat')) {
+      return { ok: false, error: 'You already invited this email — check My contacts for its status.' };
+    }
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, row: mapEmailInvite(data) };
+}
+
+// Called on brand-new founder account creation (provision-org route) — ANY
+// pending email invite matching this email, from any inviter, becomes a
+// real network_invites row now that there's an actor to target. A founder
+// might have been invited by several people before ever signing up.
+export async function materializeEmailInvitesForNewActor(admin: SupabaseClient, email: string, toActorId: string): Promise<void> {
+  const { data: rows } = await admin.from('network_email_invites').select('*')
+    .eq('status', 'pending').ilike('email', email.trim().toLowerCase());
+  for (const row of (rows ?? []) as Record<string, unknown>[]) {
+    if (row.from_actor_id === toActorId) continue; // can't invite yourself
+    const invited = await createInvite(admin, {
+      fromActorId: row.from_actor_id as string, toActorId, contextKind: 'direct_known', message: row.message as string,
+    });
+    if (invited.ok) {
+      await admin.from('network_email_invites').update({ status: 'delivered', resulting_invite_id: invited.invite.id }).eq('id', row.id as string);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 335 §D3a — "My connect link". One row per actor (unique actor_id);
+// regenerating replaces the token (old one stops resolving) rather than
+// keeping history — there's exactly one live link per person at a time, by
+// design ("revogável/regenerável", not "list of all links ever issued").
+export interface ConnectLinkStatus { exists: boolean; revoked: boolean; createdAt: string | null }
+
+export async function connectLinkStatus(admin: SupabaseClient, actorId: string): Promise<ConnectLinkStatus> {
+  const { data } = await admin.from('network_connect_links').select('created_at, revoked_at').eq('actor_id', actorId).maybeSingle();
+  if (!data) return { exists: false, revoked: false, createdAt: null };
+  return { exists: true, revoked: !!data.revoked_at, createdAt: data.created_at as string };
+}
+
+export async function upsertConnectLink(admin: SupabaseClient, actorId: string, tokenHash: string): Promise<void> {
+  await admin.from('network_connect_links').upsert(
+    { actor_id: actorId, token_hash: tokenHash, revoked_at: null, created_at: new Date().toISOString() },
+    { onConflict: 'actor_id' },
+  );
+}
+
+export async function revokeConnectLink(admin: SupabaseClient, actorId: string): Promise<void> {
+  await admin.from('network_connect_links').update({ revoked_at: new Date().toISOString() }).eq('actor_id', actorId);
+}
+
+export async function findConnectLinkByTokenHash(admin: SupabaseClient, tokenHash: string): Promise<{ actorId: string; revoked: boolean } | null> {
+  const { data } = await admin.from('network_connect_links').select('actor_id, revoked_at').eq('token_hash', tokenHash).maybeSingle();
+  return data ? { actorId: data.actor_id as string, revoked: !!data.revoked_at } : null;
+}
+
+// How many connect_link-sourced invites this owner's link has generated in
+// the trailing 7 days — feeds network.ts's connectLinkPaused, computed
+// fresh on every redemption attempt rather than a stored counter that could
+// drift (no cron capacity to reset it — see CLAUDE.md's cron constraint).
+export async function connectLinkInvitesGeneratedThisWeek(admin: SupabaseClient, ownerActorId: string): Promise<number> {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { count } = await admin.from('network_invites').select('id', { count: 'exact', head: true })
+    .eq('from_actor_id', ownerActorId).eq('context_kind', 'connect_link').gte('created_at', weekAgo);
+  return count ?? 0;
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 335 §D2 — the discoverable-founders directory. Only ever reads
+// orgs that have opted in (network_discoverable = true, fail-closed
+// default) — never a general org lookup.
+export async function readDiscoverableFounderRows(admin: SupabaseClient): Promise<{ orgId: string; name: string; sectors: string[]; geography: string | null }[]> {
+  const { data } = await admin.from('orgs').select('id, name, sectors, hq_city, country').eq('network_discoverable', true);
+  return (data ?? []).map((o) => ({
+    orgId: o.id as string, name: o.name as string, sectors: (o.sectors as string[] | null) ?? [],
+    geography: [o.hq_city, o.country].filter(Boolean).join(', ') || null,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 335 §D3b — cohort codes. Self-service join, additive to the
+// existing owner-initiated network_invites(group_id=...) flow (0211),
+// which is untouched. investor_portfolio groups are excluded on purpose: a
+// code has no way to carry the "verified invested relationship" signal
+// canAddGroupMember requires for that group kind, so those still require a
+// real invite.
+export async function joinGroupByCode(admin: SupabaseClient, actorId: string, code: string): Promise<{ ok: true; groupId: string; groupName: string } | { ok: false; error: string }> {
+  const { data: group } = await admin.from('network_groups').select('id, name, kind').eq('join_code', code.trim()).maybeSingle();
+  if (!group) return { ok: false, error: 'That code doesn\'t match any group.' };
+  if (group.kind === 'investor_portfolio') return { ok: false, error: 'This group requires an invite, not a code.' };
+
+  const { error } = await admin.from('network_group_members').upsert(
+    { group_id: group.id, actor_id: actorId, added_by_actor_id: actorId, status: 'active', joined_at: new Date().toISOString() },
+    { onConflict: 'group_id,actor_id' },
+  );
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, groupId: group.id as string, groupName: group.name as string };
+}
+
 export async function readConnectionsForActor(admin: SupabaseClient, actorId: string): Promise<NetworkConnection[]> {
   const { data } = await admin.from('network_connections')
     .select('*').or(`actor_low_id.eq.${actorId},actor_high_id.eq.${actorId}`).order('created_at', { ascending: false });
@@ -208,7 +377,16 @@ export async function respondToInvite(
     .update({ status: newStatus, responded_at: new Date().toISOString() }).eq('id', inviteId).eq('status', 'pending');
   if (updateError) return { ok: false, error: updateError.message };
 
-  if (action === 'decline') return { ok: true };
+  if (action === 'decline') {
+    // Prompt 335 §D1 — "a declined email can never be reinvited": the row
+    // this invite came from (if any — most invites aren't email-sourced)
+    // gets its own status flipped too, so the unique (from_actor_id,
+    // lower(email)) index keeps blocking a fresh attempt at that email
+    // forever. A no-op for any invite that didn't originate from an email
+    // invite (the .eq simply matches zero rows).
+    await admin.from('network_email_invites').update({ status: 'declined', responded_at: new Date().toISOString() }).eq('resulting_invite_id', inviteId);
+    return { ok: true };
+  }
 
   // Prompt 317 — a group-join invite (group_id set) accepts into
   // network_group_members instead of network_connections: joining a group

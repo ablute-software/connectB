@@ -82,6 +82,7 @@ persists server-side and each org sees only its own.
 - Password reset; verify investor magic-link end-to-end after Phase 0.
 - Back-office: developers verify submitted investors into the shared catalog; distribution log.
 - Keep every deploy Hobby-safe (crons ≤ daily) until/unless upgrading the Vercel plan.
+- My Network growth (Prompt 335 §D3c, registered not implemented): peer-matching between discoverable founders, MatchDeal-style; a Pathfinder-suggested intro between two of your own connections who could help each other; sector+geography connection suggestions surfaced during onboarding.
 
 ---
 

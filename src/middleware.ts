@@ -26,7 +26,14 @@ const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/ap
   // InvestorSignInForm when there's no session, same as /portal. The write
   // routes (/api/portal/claims*) are already covered by the existing
   // '/api/portal' prefix above.
-  '/claim'];
+  '/claim',
+  // Prompt 335 §D1/§D3a — both landing pages for My Network's cold-start
+  // links work exactly like the pairing-consume/guest links above: the
+  // token itself is the entire authorization, and the whole point (for the
+  // email-invite link) is a recipient who has no session yet at all. The
+  // connect-link page also needs to load logged-out so it can redirect an
+  // unauthenticated opener into /signup itself, client-side.
+  '/network/invite', '/api/network/invite-link', '/network/connect'];
 
 // Where a signed-in user belongs. '/' is the public landing now, so the app
 // home is the pipeline.

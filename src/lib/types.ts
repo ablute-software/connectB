@@ -1043,7 +1043,10 @@ export type NetworkInviteStatus = 'pending' | 'accepted' | 'declined' | 'expired
 // automatically-verifiable signal behind it; the required `message` field
 // below carries the founder's own human explanation instead, always shown
 // to the recipient before they accept (see migration 0222's own comment).
-export type NetworkInviteContextKind = 'shared_investor' | 'shared_group' | 'referral' | 'direct_known';
+// Prompt 335 adds 'directory' (found via the discoverable-founders search,
+// §D2) and 'connect_link' (created by opening someone's personal connect
+// link, §D3a) — see migration 0223.
+export type NetworkInviteContextKind = 'shared_investor' | 'shared_group' | 'referral' | 'direct_known' | 'directory' | 'connect_link';
 
 export interface NetworkInvite {
   id: string;

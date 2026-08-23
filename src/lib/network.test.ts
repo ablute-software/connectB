@@ -8,6 +8,8 @@ import {
   computePathfinderMatches, isPostVisibleToViewer,
   NETWORK_UPDATE_STRUCTURED_KEYS, lastUpdateGapCheck, UPDATE_GAP_REMINDER_DAYS, canShareRoundMilestone, formatRoundMilestoneText,
   isOfferActive, canReferViaScoutRequest, reciprocityReputation,
+  emailInviteRateCounts, canSendDirectInvite, NETWORK_DIRECT_INVITE_DAILY_CAP, NETWORK_DIRECT_INVITE_WEEKLY_CAP,
+  connectLinkPaused, CONNECT_LINK_WEEKLY_PAUSE_THRESHOLD, searchDiscoverableFounders, type DiscoverableFounderRow,
 } from './network';
 import { computeRoundProgressPercent } from './round-progress';
 
@@ -623,5 +625,73 @@ describe('reciprocityReputation — contagens simples do próprio, nunca compar�
 
   it('actor sem nenhuma actividade devolve zeros', () => {
     expect(reciprocityReputation([], [], 'a1')).toEqual({ officeHoursOffered: 0, startupsReferredViaScout: 0 });
+  });
+});
+
+describe('emailInviteRateCounts / canSendDirectInvite — Prompt 335 §D1 caps (5/day, 20/week)', () => {
+  const now = new Date('2026-08-26T15:00:00Z'); // a Wednesday
+
+  it('counts only today\'s and this week\'s invites, ignoring older ones', () => {
+    const createdAts = [
+      '2026-08-26T09:00:00Z', // today
+      '2026-08-25T09:00:00Z', // this week (Tuesday)
+      '2026-08-24T09:00:00Z', // this week (Monday)
+      '2026-08-23T09:00:00Z', // last week (Sunday)
+      '2026-07-01T09:00:00Z', // long ago
+    ];
+    expect(emailInviteRateCounts(createdAts, now)).toEqual({ today: 1, week: 3 });
+  });
+
+  it('allows sending under both caps', () => {
+    expect(canSendDirectInvite({ today: NETWORK_DIRECT_INVITE_DAILY_CAP - 1, week: NETWORK_DIRECT_INVITE_WEEKLY_CAP - 1 })).toBe(true);
+  });
+
+  it('blocks at the daily cap even with weekly budget left', () => {
+    expect(canSendDirectInvite({ today: NETWORK_DIRECT_INVITE_DAILY_CAP, week: 1 })).toBe(false);
+  });
+
+  it('blocks at the weekly cap even with daily budget left', () => {
+    expect(canSendDirectInvite({ today: 0, week: NETWORK_DIRECT_INVITE_WEEKLY_CAP })).toBe(false);
+  });
+});
+
+describe('connectLinkPaused — Prompt 335 §D3a auto-pause at 20 generated invites/week', () => {
+  it('not paused under the threshold', () => {
+    expect(connectLinkPaused(CONNECT_LINK_WEEKLY_PAUSE_THRESHOLD - 1)).toBe(false);
+  });
+
+  it('paused at or above the threshold', () => {
+    expect(connectLinkPaused(CONNECT_LINK_WEEKLY_PAUSE_THRESHOLD)).toBe(true);
+    expect(connectLinkPaused(CONNECT_LINK_WEEKLY_PAUSE_THRESHOLD + 5)).toBe(true);
+  });
+});
+
+describe('searchDiscoverableFounders — Prompt 335 §D2, only ever over pre-filtered discoverable=true rows', () => {
+  const rows: DiscoverableFounderRow[] = [
+    { orgId: 'o1', name: 'ablute_', sectors: ['Healthtech'], geography: 'Porto, PT' },
+    { orgId: 'o2', name: 'Northbridge Robotics', sectors: ['Deep tech', 'Robotics'], geography: 'Lisbon, PT' },
+    { orgId: 'o3', name: 'Vega Analytics', sectors: ['Fintech'], geography: 'Berlin, DE' },
+  ];
+
+  it('matches by name, case-insensitively', () => {
+    expect(searchDiscoverableFounders(rows, 'ABLUTE').map((r) => r.orgId)).toEqual(['o1']);
+  });
+
+  it('matches by sector substring', () => {
+    // "Deep tech" also contains "tech" — o2 matches too, not just o1/o3.
+    expect(searchDiscoverableFounders(rows, 'tech').map((r) => r.orgId).sort()).toEqual(['o1', 'o2', 'o3']);
+  });
+
+  it('matches by geography', () => {
+    expect(searchDiscoverableFounders(rows, 'porto').map((r) => r.orgId)).toEqual(['o1']);
+  });
+
+  it('an empty query returns nothing — never the full directory as a fallback', () => {
+    expect(searchDiscoverableFounders(rows, '   ')).toEqual([]);
+  });
+
+  it('never ranks or scores — result order is the input order, not a relevance sort', () => {
+    const result = searchDiscoverableFounders(rows, 'PT');
+    expect(result.map((r) => r.orgId)).toEqual(['o1', 'o2']);
   });
 });
