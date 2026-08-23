@@ -558,7 +558,7 @@ export default function NetworkPage() {
           )}
           {composerError && <p className="mt-1 text-xs font-medium text-[#B00000]">{composerError}</p>}
 
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <select value={composerTarget} onChange={(e) => setComposerTarget(e.target.value as 'all' | 'group')}
               className="rounded-lg border border-gray-300 bg-white p-1.5 text-xs">
               <option value="all">Everyone (your connections)</option>

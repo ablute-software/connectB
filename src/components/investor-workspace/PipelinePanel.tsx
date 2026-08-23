@@ -542,7 +542,7 @@ export function PipelinePanel({
                           Interested{fmtDecidedAt(c.decidedAt, c.decidedByMe)}
                         </span>
                       ) : c.viaReferral ? (
-                        <span className="rounded-full bg-[#F0EBFA] px-2 py-1 text-[11px] font-medium text-[#6D28D9]"
+                        <span className="rounded-full bg-purple-50 px-2 py-1 text-[11px] font-medium text-purple-700"
                           title={`Referred${c.referredByName ? ` by ${c.referredByName}` : ''} through your network — never wave-gated.`}>
                           Referred{c.referredByName ? ` by ${c.referredByName}` : ''}
                         </span>
@@ -587,7 +587,7 @@ export function PipelinePanel({
                       ) : c.status === 'interested' ? (
                         <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]">Interested{fmtDecidedAt(c.decidedAt, c.decidedByMe)}</span>
                       ) : c.viaReferral ? (
-                        <span className="rounded-full bg-[#F0EBFA] px-2 py-1 text-[11px] font-medium text-[#6D28D9]">Referred{c.referredByName ? ` by ${c.referredByName}` : ''}</span>
+                        <span className="rounded-full bg-purple-50 px-2 py-1 text-[11px] font-medium text-purple-700">Referred{c.referredByName ? ` by ${c.referredByName}` : ''}</span>
                       ) : c.viaGrant || c.viaDecision ? (
                         <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]">Invited</span>
                       ) : (
