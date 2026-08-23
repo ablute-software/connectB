@@ -11,11 +11,20 @@
 // pipeline, nem `round_secured_eur`. O modelo de claims nem sequer tem
 // categoria para isso, mas a garantia real é esta lista de fontes: factos
 // declarados pelo founder, perfil que ele escreveu, rondas que ele
-// registou, roadmap que ele desenhou, equipa que ele inseriu, NOMES de
-// documentos (nunca conteúdo) e esclarecimentos que ele próprio redigiu.
+// registou, roadmap que ele desenhou, equipa que ele inseriu e
+// esclarecimentos que ele próprio redigiu.
 // `round_target_eur` entra porque o pedido É o pitch; `round_secured_eur`
 // NÃO entra, porque é progresso contra o pedido e vive atrás do toggle do
 // 212 §A — e um claim não tem forma de transportar esse toggle.
+//
+// Prompt 311 §A — NOMES de documentos do Vault deixaram de entrar aqui.
+// Existiam só para o G4 poder perguntar "há documento a suportar isto?" via
+// um claim `vault_doc` por ficheiro — mas isso pôs um claim na fila de
+// revisão POR CADA documento existente (66 dos 68 itens da fila da ablute_
+// eram exactamente isto: "Document on file: {nome}.pdf", sem nada que o
+// founder não soubesse já). G4 agora lê a existência de documentos
+// DIRECTAMENTE (company-knowledge-db.ts's hasAnyVaultDocument), nunca via
+// um átomo/claim intermédio — ver ruleG4 em company-gaps.ts.
 import type { RawAtom } from './company-claims';
 import type { ClaimCategory, CompanyFactCategory, RoadmapItemV2 } from './types';
 import { readItems, itemCategoryLabel, GENERAL_LABEL, type CategoryLike } from './roadmap-categories';
@@ -217,26 +226,6 @@ export function personToAtom(p: CompanyPersonRow): RawAtom | null {
 }
 
 // ---------------------------------------------------------------------------
-// Documentos da Vault → claims de METADADOS. Nome, pasta e versão; NUNCA
-// conteúdo (nem o storage_path, que é uma chave de acesso e não um facto).
-// Servem ao G4: é isto que responde "há documento a suportar este claim".
-export interface DocumentRow {
-  id: string; name: string; version?: string | null; folderName?: string | null;
-}
-
-export function documentToAtom(doc: DocumentRow): RawAtom | null {
-  if (!doc.name?.trim()) return null;
-  const where = doc.folderName?.trim() ? ` filed under ${doc.folderName.trim()}` : '';
-  const version = doc.version?.trim() ? ` (${doc.version.trim()})` : '';
-  return {
-    category: 'prova_tecnica',
-    statement: `Document on file: ${doc.name.trim()}${version}${where}.`,
-    sourceKind: 'vault_doc',
-    sourceRef: doc.id,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // review_clarifications → claims. O founder escreveu-as para esclarecer um
 // bullet de um review; são afirmações dele sobre a empresa, na mesma moeda.
 export interface ClarificationRow {
@@ -268,7 +257,6 @@ export interface KnowledgeSources {
   milestones: RoadmapMilestoneRow[];
   roadmapCategories: (CategoryLike & { label: string })[];
   people: CompanyPersonRow[];
-  documents: DocumentRow[];
   clarifications: ClarificationRow[];
 }
 
@@ -279,7 +267,6 @@ export function knowledgeToAtoms(sources: KnowledgeSources): RawAtom[] {
     ...sources.fundingRounds.map(fundingRoundToAtom),
     ...roadmapToAtoms(sources.milestones, sources.roadmapCategories),
     ...sources.people.map(personToAtom),
-    ...sources.documents.map(documentToAtom),
     ...sources.clarifications.map(clarificationToAtom),
   ].filter((a): a is RawAtom => a !== null);
 }

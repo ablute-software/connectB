@@ -538,6 +538,11 @@ export interface CompanyClaim {
   sourceRef?: string | null;
   status: ClaimStatus;
   updatedAt?: string;
+  // Prompt 311 §C — NEVER a DB column: recomputed on every GET
+  // /api/blueprint (findDuplicateCandidate) so it always reflects the
+  // current claims, not a value frozen at ingestion time. Only ever set on
+  // a 'proposed' claim; absent everywhere else.
+  possibleDuplicateOf?: { id: string; statement: string } | null;
 }
 
 // Prompt 213 §D — item estruturado do roadmap (items_v2 na 0177).

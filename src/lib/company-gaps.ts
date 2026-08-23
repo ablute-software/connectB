@@ -8,7 +8,7 @@
 // array de config com placeholders), não strings soltas — o bloco 3 é que
 // os liga ao fluxo interativo; aqui só templateFor(gap) os preenche.
 import type { CompanyClaim, ClaimCategory } from './types';
-import { isWastedStrongClaim, measureSpecificity } from './company-claims';
+import { isWastedStrongClaim, measureSpecificity, extractNamedEntity } from './company-claims';
 
 export type GapRule = 'G1' | 'G2' | 'G3' | 'G3b' | 'G3c' | 'G4' | 'G5' | 'G6' | 'G7' | 'G8';
 export type GapSeverity = 'critical' | 'high' | 'medium';
@@ -39,6 +39,11 @@ export interface GapContext {
   now: Date;
   // G5 — meses até um claim ficar stale. Default 6.
   staleMonths?: number;
+  // Prompt 311 §A — se a org tem ALGUM documento no Vault, lido DIRECTAMENTE
+  // (documents/pastas, mesma leitura de company-knowledge-db.ts), nunca via
+  // um claim materializado por ficheiro (documentToAtom, removido). Default
+  // false/ausente quando o chamador não sabe (nunca assume "documentado").
+  hasVaultDocuments?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,10 +151,34 @@ export function ruleG3c(claims: CompanyClaim[], context: GapContext): Gap[] {
   }));
 }
 
-// G4 — claim aceite sem documento no Vault a suportá-lo: nem o próprio é
-// vault_doc, nem existe outro claim vault_doc na mesma categoria (a noção
-// mecânica de "relacionado" desta fase — deliberadamente grosseira; ligação
-// claim-a-claim fina é trabalho do bloco 4, sobre ids).
+// G4 — claim aceite sem documento no Vault a suportá-lo.
+//
+// Prompt 311 §A — deixou de existir um claim POR FICHEIRO (documentToAtom,
+// removido de knowledgeToAtoms) só para este check poder ler "há vault_doc
+// nesta categoria?" — 66 dos 68 itens da fila de revisão da ablute_ eram
+// exactamente isto: "Document on file: {nome}.pdf", uma frase que não diz
+// nada que o founder não saiba já, a pedir Accept/Edit/Reject como se fosse
+// narrativa. G4 agora lê a existência de documentos DIRECTAMENTE
+// (context.hasVaultDocuments, calculado pelo chamador sobre
+// documents/pastas — a mesma leitura que company-knowledge-db.ts já faz),
+// nunca via um claim intermédio.
+//
+// Precisão preservada, DELIBERADAMENTE não alargada (revisão adversarial do
+// Prompt 311 apanhou uma primeira versão que suprimia G4 nas QUATRO
+// categorias assim que existisse UM documento QUALQUER no Vault — a pedido
+// diz "aqui é a mecânica de COMO ele verifica, não substitui essa restrição
+// de âmbito", e alargar a supressão a categorias sem nenhum sinal de
+// relação real (um pitch deck não prova nada sobre equipa/tracao_gtm/
+// validacao_externa) trocava "68 claims de ruído" por "gaps reais escondidos
+// sem aviso" — pior, não melhor). hasVaultDocuments continua a cobrir
+// apenas prova_tecnica, exactamente como a implementação antiga cobria na
+// prática (documentToAtom categorizava TODO documento como prova_tecnica,
+// sempre) — só a MECÂNICA muda (leitura directa, sem claim intermédio),
+// nunca o alcance. equipa/tracao_gtm/validacao_externa continuam a perguntar
+// sempre que há um claim aceite nessas categorias, tal como sempre
+// perguntaram — não há sinal fiável (sem correlacionar pasta/nome de
+// ficheiro, fora do âmbito pedido aqui) que ligue um documento genérico a
+// UMA dessas três categorias especificamente.
 //
 // Prompt 310 §A — G4 costumava disparar para QUALQUER categoria, incluindo
 // onde "há um documento que o comprove?" não tem resposta útil possível —
@@ -170,11 +199,10 @@ export function ruleG3c(claims: CompanyClaim[], context: GapContext): Gap[] {
 // mais geram G4.
 const G4_DOCUMENTABLE_CATEGORIES = new Set<ClaimCategory>(['prova_tecnica', 'validacao_externa', 'tracao_gtm', 'equipa']);
 
-export function ruleG4(claims: CompanyClaim[]): Gap[] {
+export function ruleG4(claims: CompanyClaim[], context: GapContext): Gap[] {
   const documentable = claims.filter((c) => G4_DOCUMENTABLE_CATEGORIES.has(c.category));
-  const vaultByCategory = new Set(documentable.filter((c) => c.sourceKind === 'vault_doc').map((c) => c.category));
   return documentable
-    .filter((c) => c.status === 'accepted' && c.sourceKind !== 'vault_doc' && !vaultByCategory.has(c.category))
+    .filter((c) => c.status === 'accepted' && !(c.category === 'prova_tecnica' && context.hasVaultDocuments))
     .map((c) => ({
       rule: 'G4' as const, severity: 'medium' as const,
       message: `Accepted but undocumented: "${c.statement}" has no Vault document backing it.`,
@@ -251,7 +279,10 @@ export function ruleG6(claims: CompanyClaim[]): Gap[] {
 // que decidiu (havia nome para verificar, e não apareceu em mais lado
 // nenhum), a deteção fica marcada 'low' confidence e a severity desce de
 // 'high' para 'medium' — ver o comentário do Gap.detectionConfidence.
-const NAMED_ENTITY_G7 = /(?!^)\b[A-Z][a-zA-Z]{2,}(?:\s[A-Z][a-zA-Z]+)*/;
+//
+// Prompt 311 §C — a extração de nome (antes um regex privado duplicado
+// aqui) passou a viver em company-claims.ts (extractNamedEntity), reutilizada
+// também pela deteção de duplicados — mesmo sinal, uma só definição.
 const STRONG_OR_CORE = new Set<ClaimCategory>(['problema', 'solucao']);
 
 export function ruleG7(claims: CompanyClaim[]): Gap[] {
@@ -264,8 +295,7 @@ export function ruleG7(claims: CompanyClaim[]): Gap[] {
     const sameCategoryElsewhere = accepted.some((o) => o.id !== c.id && o.category === c.category);
     if (sameCategoryElsewhere) continue; // nível 1 já encontrou corroboração
 
-    const nameMatch = c.statement.match(NAMED_ENTITY_G7);
-    const name = nameMatch?.[0];
+    const name = extractNamedEntity(c.statement);
     const nameElsewhere = name
       ? accepted.some((o) => o.id !== c.id && o.statement.toLowerCase().includes(name.toLowerCase()))
       : false;
@@ -532,7 +562,7 @@ export function detectGaps(claims: CompanyClaim[], context: GapContext): Gap[] {
     ...ruleG3(claims),
     ...ruleG3b(claims, context),
     ...ruleG3c(claims, context),
-    ...ruleG4(claims),
+    ...ruleG4(claims, context),
     ...ruleG5(claims, context),
     ...ruleG6(claims),
     ...ruleG7(claims),

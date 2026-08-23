@@ -11,7 +11,7 @@
 // AI, dois runs dariam narrativas diferentes para os mesmos factos, e o
 // founder deixaria de poder confiar no que a app lhe diz. O modelo entra
 // depois (síntese, 1.5), sobre claims já classificados.
-import type { EvidenceClass, ClaimCategory, ClaimSpecificity, ClaimSourceKind } from './types';
+import type { EvidenceClass, ClaimCategory, ClaimSpecificity, ClaimSourceKind, CompanyClaim } from './types';
 
 // ---------------------------------------------------------------------------
 // Classe de evidência — a hierarquia acordada, do mais caro de falsificar ao
@@ -82,9 +82,24 @@ const DATE_OR_YEAR = /\b(19|20)\d{2}\b|\b(Q[1-4])\b|\b(jan|feb|mar|apr|may|jun|j
 const NUMBER = /\d/;
 const OUTCOME = /\b(signed|agreed|contracted|loi|mou|pilot|purchase|renewed|deployed|approved|certified|assinad[oa]|contratad[oa])\b/i;
 
+// Prompt 311 §C — exportado (era só o regex privado por trás de
+// hasNamedEntity) para que a deteção de duplicados abaixo reutilize o MESMO
+// sinal, já calculado, em vez de uma segunda extração de nome.
+//
+// Nota de comportamento (herdada do NAMED_ENTITY original, não nova aqui):
+// (?!^) bloqueia um match a começar na posição 0, por isso um nome que abre
+// a própria frase ("Carla Dias won...") só é capturado a partir da SEGUNDA
+// palavra ("Dias"), nunca o nome completo. Inofensivo para hasNamedEntity
+// (só importava presença) e ainda útil aqui — "Dias" continua a ser uma
+// chave de comparação razoável — mas um futuro leitor não deve assumir que
+// isto devolve sempre o nome completo.
+export function extractNamedEntity(statement: string): string | null {
+  return NAMED_ENTITY.exec(statement)?.[0] ?? null;
+}
+
 export function measureSpecificity(statement: string): { level: ClaimSpecificity; signals: SpecificitySignals } {
   const signals: SpecificitySignals = {
-    hasNamedEntity: NAMED_ENTITY.test(statement),
+    hasNamedEntity: extractNamedEntity(statement) !== null,
     hasDate: DATE_OR_YEAR.test(statement),
     hasNumber: NUMBER.test(statement),
     hasOutcome: OUTCOME.test(statement),
@@ -165,4 +180,53 @@ export function weakClaimCoachingNote(claim: Pick<NormalizedClaim, 'category' | 
   return `This ${label} claim is written broadly — naming who was involved, a date, or the concrete outcome would `
     + `make it verifiable. If this specific one has stalled, finding an alternative to point to instead would `
     + `strengthen your ${label} story just as much.`;
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 311 §C — the ablute_ real case: the SAME award (Carla Dias /
+// WomenTechEU) exists today as 4 separate claims from 4 sources (a
+// confirmed fact, the profile bio, a roadmap item, and — before Part A of
+// this same prompt removed it — a Vault document row), never linked, each
+// independently measured (so the identical underlying fact reads 'low' in
+// one place and 'high' in another). General semantic dedup is explicitly
+// out of scope here (this file's own root discipline: classification is
+// mechanical, never AI/"vibes" — see the header above) — but this ONE
+// narrow, already-computed signal catches the ablute_ case and its shape:
+// DECORATION already marks "awardee/prize/winner/…" as class 5 regardless
+// of category (classifyEvidence above), and hasNamedEntity/extractNamedEntity
+// already extracts the name. A new claim that is class-5 AND names someone
+// already named in an existing class-5 claim (in ANY category — the whole
+// point is these four span different categories) is flagged as a possible
+// duplicate instead of being proposed as an independent new claim — the
+// founder sees both statements side by side and decides once, rather than
+// reconciling four claims on their own.
+//
+// Deliberately NOT: fuzzy text similarity, a second regex against arbitrary
+// phrasing, or anything beyond this one signal — a claim that merely SHARES
+// a topic without being class-5 decoration is never flagged.
+//
+// Known, accepted limitation (adversarial review): a short or common
+// extracted fragment (a shared surname, or a name that's also a place —
+// "Rio" inside "Rio de Janeiro") can cross-flag two UNRELATED class-5 claims
+// as possible duplicates of each other. No word-boundary tightening or
+// length floor fixes this in general (the ablute_ case itself only extracts
+// as "Dias", not "Carla Dias" — see extractNamedEntity's own note — so
+// raising a length threshold would break the exact case this exists for).
+// Accepted because the cost of a false positive here is one dismissable UI
+// suggestion, never a hidden gap, a data mutation, or a wrong number shown
+// to anyone — nothing like G4/G8's stakes, where this file's root
+// discipline treats an unnecessary flag as far more costly.
+export function findDuplicateCandidate(
+  candidate: Pick<CompanyClaim, 'id' | 'statement' | 'evidenceClass'>,
+  pool: Pick<CompanyClaim, 'id' | 'statement' | 'status' | 'evidenceClass'>[],
+): { id: string; statement: string } | null {
+  if (candidate.evidenceClass !== 5) return null;
+  const name = extractNamedEntity(candidate.statement);
+  if (!name) return null;
+  const match = pool.find((c) =>
+    c.id !== candidate.id
+    && (c.status === 'accepted' || c.status === 'proposed')
+    && c.evidenceClass === 5
+    && c.statement.toLowerCase().includes(name.toLowerCase()));
+  return match ? { id: match.id, statement: match.statement } : null;
 }

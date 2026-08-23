@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyEvidence, measureSpecificity, normalizeAtom, isWastedStrongClaim, rankForNarrative, weakClaimCoachingNote,
-  type RawAtom,
+  extractNamedEntity, findDuplicateCandidate, type RawAtom,
 } from './company-claims';
+import type { CompanyClaim } from './types';
 
 // Prompt 219 bloco 1 — os átomos REAIS da ablute_, do próprio prompt. O
 // antes/depois do 1.5 depende de esta classificação sair exactamente assim.
@@ -135,5 +136,69 @@ describe('weakClaimCoachingNote — a ilação para o founder, nunca para o inve
   it('nomeia a categoria certa em cada caso', () => {
     expect(weakClaimCoachingNote(normalizeAtom({ category: 'equipa', statement: 'a strong team', sourceKind: 'fact' }))).toContain('team');
     expect(weakClaimCoachingNote(normalizeAtom({ category: 'funding', statement: 'talking to investors', sourceKind: 'fact' }))).toContain('funding');
+  });
+});
+
+describe('extractNamedEntity — o mesmo sinal do hasNamedEntity, mas devolvendo o texto', () => {
+  it('extrai o mesmo nome que measureSpecificity já detecta como presente', () => {
+    // (?!^) (herdado, não novo aqui) bloqueia um match a começar na própria
+    // posição 0 — um nome que abre a frase só é capturado a partir da
+    // segunda palavra. "Dias" continua a ser uma chave de comparação válida.
+    expect(extractNamedEntity(PREMIO.statement)).toBe('Dias');
+    expect(measureSpecificity(PREMIO.statement).signals.hasNamedEntity).toBe(true);
+  });
+
+  it('extrai o nome completo quando não é a primeira palavra da frase', () => {
+    expect(extractNamedEntity('The award went to Carla Dias in 2022')).toBe('Carla Dias');
+  });
+
+  it('devolve null quando não há nome próprio a meio da frase', () => {
+    expect(extractNamedEntity(VISITA_VAGA.statement)).toBeNull();
+  });
+});
+
+// Prompt 311 §C — o caso real da Carla Dias/WomenTechEU: a MESMA coisa,
+// 4 claims nunca ligados, em categorias diferentes.
+function claim(id: string, over: Partial<CompanyClaim> = {}): Pick<CompanyClaim, 'id' | 'statement' | 'status' | 'evidenceClass'> {
+  return { id, statement: 'placeholder', status: 'proposed', evidenceClass: 4, ...over };
+}
+
+describe('findDuplicateCandidate (Prompt 311 §C) — o sinal estreito, não dedup geral', () => {
+  const CARLA_FACT = claim('c-fact', { statement: 'Carla Dias is a WomenInTech EU awardee', evidenceClass: 5, status: 'proposed' });
+  const CARLA_PROFILE = claim('c-profile', { statement: 'Carla Dias, CTO. Woman In Tech EU warded', evidenceClass: 5, status: 'accepted' });
+  const CARLA_ROADMAP = claim('c-roadmap', { statement: '2022 — WomenTechEU prize', evidenceClass: 5, status: 'accepted' });
+
+  it('marca um novo claim classe-5 como possível duplicado de um existente que nomeia a MESMA pessoa, mesmo noutra categoria', () => {
+    const match = findDuplicateCandidate(CARLA_FACT, [CARLA_PROFILE, CARLA_ROADMAP]);
+    expect(match).toEqual({ id: 'c-profile', statement: CARLA_PROFILE.statement });
+  });
+
+  it('nunca dispara para um claim que não é classe 5 (decoração), mesmo partilhando o nome', () => {
+    const named = claim('c-other', { statement: 'Carla Dias leads the technical side.', evidenceClass: 3 });
+    expect(findDuplicateCandidate(named, [CARLA_PROFILE])).toBeNull();
+  });
+
+  it('nunca dispara contra um existente que não é classe 5, mesmo sendo classe 5 o novo', () => {
+    const notDecoration = claim('c-other', { statement: 'Carla Dias leads the technical side.', evidenceClass: 3 });
+    expect(findDuplicateCandidate(CARLA_FACT, [notDecoration])).toBeNull();
+  });
+
+  it('nunca dispara quando não há nome próprio extraível na frase nova', () => {
+    const noName = claim('c-noname', { statement: 'the team won a regional prize', evidenceClass: 5 });
+    expect(findDuplicateCandidate(noName, [CARLA_PROFILE])).toBeNull();
+  });
+
+  it('ignora claims rejeitados no pool — uma decisão já tomada não é candidato a duplicado', () => {
+    const rejected = claim('c-rejected', { statement: 'Carla Dias, CTO. Woman In Tech EU warded', evidenceClass: 5, status: 'rejected' });
+    expect(findDuplicateCandidate(CARLA_FACT, [rejected])).toBeNull();
+  });
+
+  it('nunca compara um claim consigo próprio', () => {
+    expect(findDuplicateCandidate(CARLA_FACT, [CARLA_FACT])).toBeNull();
+  });
+
+  it('não dispara quando não há sobreposição de nome nenhuma', () => {
+    const other = claim('c-other-award', { statement: 'Rui Almeida won the national hackathon award, 2024', evidenceClass: 5 });
+    expect(findDuplicateCandidate(CARLA_FACT, [other])).toBeNull();
   });
 });

@@ -261,6 +261,19 @@ export function BlueprintPanel() {
                         {CLASS_LABEL[c.evidenceClass]}
                       </span>
                     </div>
+                    {/* Prompt 311 §C — the ablute_ real case: the same
+                        decoration-class fact (an award, a prize) said 4
+                        different ways, never linked. Not general dedup —
+                        just this one narrow, already-computed signal (see
+                        findDuplicateCandidate's own header) — surfaced here
+                        so the founder can decide keep/reject in one look
+                        instead of reconciling several claims on their own. */}
+                    {c.possibleDuplicateOf && (
+                      <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs">
+                        <p className="font-medium text-amber-800">Possible duplicate — you may have already said this:</p>
+                        <p className="mt-0.5 text-amber-900">&quot;{c.possibleDuplicateOf.statement}&quot;</p>
+                      </div>
+                    )}
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
                       <span>{c.category}</span>
                       <span>· {c.specificity} detail</span>

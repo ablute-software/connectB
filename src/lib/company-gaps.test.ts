@@ -125,15 +125,41 @@ describe('G3c — funções críticas sem dono (219-B)', () => {
   });
 });
 
-describe('G4 — claim aceite sem documento no Vault', () => {
-  it('dispara para o aceite sem vault_doc na sua categoria', () => {
-    const gaps = ruleG4([VISITA_VAGA]);
+describe('G4 — claim aceite sem documento no Vault (Prompt 311 §A: lido directamente, nunca via claim vault_doc)', () => {
+  it('dispara para o aceite quando a org NÃO tem nenhum documento no Vault', () => {
+    const gaps = ruleG4([VISITA_VAGA], ctx({ hasVaultDocuments: false }));
     expect(gaps).toHaveLength(1);
     expect(gaps[0]).toMatchObject({ rule: 'G4', relatedClaimIds: ['c-visita'] });
   });
 
-  it('um vault_doc na mesma categoria cobre os restantes', () => {
-    expect(ruleG4([VISITA_VAGA, claim('v1', 'validacao_externa', 'Committee visit report, March 2026', { sourceKind: 'vault_doc' })])).toEqual([]);
+  it('hasVaultDocuments ausente (chamador não sabe) nunca é tratado como "está documentado"', () => {
+    expect(ruleG4([VISITA_VAGA], ctx())).toHaveLength(1);
+  });
+
+  // Prompt 311 §A, corrigido após revisão adversarial: uma primeira versão
+  // deixava hasVaultDocuments suprimir G4 nas QUATRO categorias assim que
+  // existisse UM documento QUALQUER — mas um pitch deck não prova nada
+  // sobre equipa/tracao_gtm/validacao_externa, e isso trocava "68 claims de
+  // ruído" por "gaps reais escondidos sem aviso", pior que o bug original.
+  // A precisão fica exactamente como a implementação antiga (que só cobria
+  // prova_tecnica na prática, porque documentToAtom categorizava TODO
+  // documento como prova_tecnica, sempre) — só a MECÂNICA de verificação
+  // muda, nunca o alcance.
+  it('hasVaultDocuments só suprime G4 para prova_tecnica — nunca para equipa/tracao_gtm/validacao_externa', () => {
+    const claims = [
+      claim('proof1', 'prova_tecnica', 'CE-marked as a Class IIa medical device since 2025.'),
+      claim('team1', 'equipa', 'Jane Doe, CTO (founder). Ex-Google, 8 years in ML.'),
+      claim('t1', 'tracao_gtm', 'Paid pilot with Hospital de Braga, invoiced €12,000.'),
+      VISITA_VAGA,
+    ];
+    const gaps = ruleG4(claims, ctx({ hasVaultDocuments: true }));
+    expect(gaps.map((g) => g.relatedClaimIds[0]).sort()).toEqual(['c-visita', 't1', 'team1']);
+  });
+
+  it('hasVaultDocuments continua a suprimir G4 para prova_tecnica especificamente', () => {
+    const proof = claim('proof1', 'prova_tecnica', 'CE-marked as a Class IIa medical device since 2025.');
+    expect(ruleG4([proof], ctx({ hasVaultDocuments: true }))).toEqual([]);
+    expect(ruleG4([proof], ctx({ hasVaultDocuments: false }))).toHaveLength(1);
   });
 
   it('claims propostos (ainda não aceites) não são lacuna documental', () => {
@@ -141,20 +167,20 @@ describe('G4 — claim aceite sem documento no Vault', () => {
     // exercitar a exclusão por STATUS, não a acabar a passar só por a
     // categoria já estar de fora (Prompt 310 §A moveu 'solucao' para fora
     // do âmbito do G4).
-    expect(ruleG4([claim('p1', 'prova_tecnica', 'the device is CE certified', { status: 'proposed' })])).toEqual([]);
+    expect(ruleG4([claim('p1', 'prova_tecnica', 'the device is CE certified', { status: 'proposed' })], ctx())).toEqual([]);
   });
 
   // Prompt 310 §A — categorias onde "há documento?" não é uma pergunta com
-  // sentido deixam de gerar G4, mesmo aceites e sem vault_doc.
+  // sentido deixam de gerar G4, mesmo aceites e sem documento nenhum.
   it.each(['mercado_timing', 'solucao', 'problema', 'funding', 'ask'] as const)(
     'nunca dispara para %s — "documento que o comprove" não tem resposta útil possível',
     (category) => {
-      expect(ruleG4([claim('x1', category, 'some accepted statement with plenty of specificity, 2026')])).toEqual([]);
+      expect(ruleG4([claim('x1', category, 'some accepted statement with plenty of specificity, 2026')], ctx())).toEqual([]);
     },
   );
 
   it('continua a disparar para equipa — um CV/portefólio real costuma existir e fazer sentido pedir', () => {
-    const gaps = ruleG4([claim('team1', 'equipa', 'Jane Doe, CTO (founder). Ex-Google, 8 years in ML.')]);
+    const gaps = ruleG4([claim('team1', 'equipa', 'Jane Doe, CTO (founder). Ex-Google, 8 years in ML.')], ctx());
     expect(gaps).toHaveLength(1);
     expect(gaps[0]).toMatchObject({ rule: 'G4', relatedClaimIds: ['team1'] });
   });
@@ -166,7 +192,7 @@ describe('G4 — claim aceite sem documento no Vault', () => {
   // validacao_externa. Mesmo tratamento que o G7 já tinha.
   it('carrega a categoria ORIGINAL do claim em meta.category, para as 4 categorias que ainda dispara', () => {
     for (const category of ['prova_tecnica', 'validacao_externa', 'tracao_gtm', 'equipa'] as const) {
-      const gaps = ruleG4([claim(`x-${category}`, category, 'some accepted statement with plenty of specificity, 2026')]);
+      const gaps = ruleG4([claim(`x-${category}`, category, 'some accepted statement with plenty of specificity, 2026')], ctx());
       expect(gaps[0]?.meta?.category).toBe(category);
     }
   });
@@ -182,7 +208,7 @@ describe('G4 — claim aceite sem documento no Vault', () => {
       // fazia sentido.
       claim('proof1', 'prova_tecnica', 'CE-marked as a Class IIa medical device since 2025.'),
     ];
-    const gaps = ruleG4(claims);
+    const gaps = ruleG4(claims, ctx({ hasVaultDocuments: false }));
     expect(gaps.map((g) => g.relatedClaimIds[0])).toEqual(['proof1']);
     expect(gaps.every((g) => ['prova_tecnica', 'validacao_externa', 'tracao_gtm', 'equipa'].includes(
       claims.find((c) => c.id === g.relatedClaimIds[0])?.category ?? '',

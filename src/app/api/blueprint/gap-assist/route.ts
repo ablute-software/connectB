@@ -23,7 +23,7 @@ import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { claimsAvailable } from '@/lib/blueprint-capability';
-import { readExistingClaims } from '@/lib/company-knowledge-db';
+import { readExistingClaims, hasAnyVaultDocument } from '@/lib/company-knowledge-db';
 import { detectGaps, gapKey as computeGapKey, templateFor, type GapRule } from '@/lib/company-gaps';
 import {
   isTeamGap, formatTeamProfiles, selectTeamDocumentCandidates, isAllowedLinkedInUrl, looksLikeUsableLinkedInContent,
@@ -79,12 +79,15 @@ async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: 
 }
 
 async function gapContext(admin: SupabaseClient, orgId: string) {
-  const [{ data: people }, { data: org }] = await Promise.all([
+  const [{ data: people }, { data: org }, hasVaultDocuments] = await Promise.all([
     // Prompt 308 Part A — title/bio/linkedin_url added (previously only
     // full_name/is_founder), so a team-gap draft can read what Settings→Team
     // already has on file instead of only ever seeing accepted claims.
     admin.from('company_people').select('full_name, title, is_founder, bio, linkedin_url').eq('org_id', orgId),
     admin.from('orgs').select('stage, sectors').eq('id', orgId).maybeSingle(),
+    // Prompt 311 §A — detectGaps (via ruleG4) needs this too, same direct
+    // read as /api/blueprint's own gapContext, never a materialized claim.
+    hasAnyVaultDocument(admin, orgId),
   ]);
   const rows = (people ?? []) as PersonRow[];
   const orgRow = (org ?? null) as { stage?: string | null; sectors?: string[] | null } | null;
@@ -92,6 +95,7 @@ async function gapContext(admin: SupabaseClient, orgId: string) {
     founders: rows.filter((p) => p.is_founder).map((p) => ({ name: p.full_name })),
     people: rows,
     stage: orgRow?.stage ?? null, sector: (orgRow?.sectors ?? [])[0] ?? null, now: new Date(),
+    hasVaultDocuments,
   };
 }
 

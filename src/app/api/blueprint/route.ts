@@ -15,9 +15,9 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { claimsAvailable, blueprintAnalysesAvailable } from '@/lib/blueprint-capability';
-import { readKnowledgeSources, readExistingClaims } from '@/lib/company-knowledge-db';
+import { readKnowledgeSources, readExistingClaims, hasAnyVaultDocument } from '@/lib/company-knowledge-db';
 import { knowledgeToAtoms, newAtoms } from '@/lib/company-knowledge';
-import { normalizeAtom } from '@/lib/company-claims';
+import { normalizeAtom, findDuplicateCandidate } from '@/lib/company-claims';
 import { detectGaps, templateFor, gapKey } from '@/lib/company-gaps';
 
 async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
@@ -28,9 +28,10 @@ async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: 
 // As lacunas precisam de saber quem são os founders (G3b) e o estágio
 // (G3c) — ambos do próprio perfil da org, nada derivado pela plataforma.
 async function gapContext(admin: SupabaseClient, orgId: string) {
-  const [{ data: people }, { data: org }] = await Promise.all([
+  const [{ data: people }, { data: org }, hasVaultDocuments] = await Promise.all([
     admin.from('company_people').select('full_name, is_founder').eq('org_id', orgId),
     admin.from('orgs').select('stage, sectors').eq('id', orgId).maybeSingle(),
+    hasAnyVaultDocument(admin, orgId),
   ]);
   const orgRow = (org ?? null) as { stage?: string | null; sectors?: string[] | null } | null;
   return {
@@ -39,6 +40,7 @@ async function gapContext(admin: SupabaseClient, orgId: string) {
     stage: orgRow?.stage ?? null,
     sector: (orgRow?.sectors ?? [])[0] ?? null,
     now: new Date(),
+    hasVaultDocuments,
   };
 }
 
@@ -82,10 +84,18 @@ export async function GET() {
     analysis = data ?? null;
   }
 
+  // Prompt 311 §C — recomputado a cada GET (nunca persistido: fica sempre
+  // coerente com o estado actual dos claims, e não precisa de migração
+  // nenhuma). Só claims PROPOSTOS são candidatos — um já aceite é uma
+  // decisão tomada, não algo a reconciliar contra outra coisa.
+  const claimsWithDuplicates = claims.map((c) => (
+    c.status === 'proposed' ? { ...c, possibleDuplicateOf: findDuplicateCandidate(c, claims) } : c
+  ));
+
   return NextResponse.json({
     available: true,
     analysesAvailable: await blueprintAnalysesAvailable(),
-    claims,
+    claims: claimsWithDuplicates,
     gaps: gaps
       .filter((g) => !answeredRules.has(gapKey(g)))
       .map((g) => ({ ...g, key: gapKey(g), prompt: templateFor(g) })),

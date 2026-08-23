@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   factToAtom, orgProfileToAtoms, fundingRoundToAtom, roadmapToAtoms,
-  personToAtom, documentToAtom, clarificationToAtom, knowledgeToAtoms,
+  personToAtom, clarificationToAtom, knowledgeToAtoms,
   isAlreadyKnown, newAtoms, type KnowledgeSources,
 } from './company-knowledge';
 import { normalizeAtom } from './company-claims';
@@ -118,12 +118,6 @@ describe('as outras fontes', () => {
     expect(atom.category).toBe('equipa');
   });
 
-  it('documento leva METADADOS e nunca conteúdo nem storage_path', () => {
-    const atom = documentToAtom({ id: 'd1', name: 'Pilot LOI', version: 'v2', folderName: 'Commercial' })!;
-    expect(atom.statement).toBe('Document on file: Pilot LOI (v2) filed under Commercial.');
-    expect(atom.sourceKind).toBe('vault_doc');
-  });
-
   it('esclarecimento entra como founder_answer', () => {
     expect(clarificationToAtom({ id: 'cl1', category: 'weaknesses', item_text: 'x', clarification_text: 'We signed the protocol in July.' }))
       .toMatchObject({ sourceKind: 'founder_answer', category: 'solucao' });
@@ -133,7 +127,7 @@ describe('as outras fontes', () => {
 describe('knowledgeToAtoms + dedup', () => {
   const sources: KnowledgeSources = {
     facts: [FACT_PREMIO, FACT_VISITA, FACT_PILOTO, { ...FACT_PREMIO, id: 'f4', status: 'unconfirmed' }],
-    org: null, fundingRounds: [], milestones: [], roadmapCategories: [], people: [], documents: [], clarifications: [],
+    org: null, fundingRounds: [], milestones: [], roadmapCategories: [], people: [], clarifications: [],
   };
 
   it('agrega e deixa cair os não-confirmados', () => {
