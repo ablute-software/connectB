@@ -11,7 +11,8 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { NetworkReferral, NetworkReferralState } from './types';
 import { canCreateReferral, isDuplicateReferral, canSendReferral, MAX_REFERRALS_PER_MONTH, referralsVisibleToTarget } from './network';
-import { readActiveConnectionActorIds, readInvestedActorIdsForOwnerInvestor, resolveActorDisplays } from './network-db';
+import { readActiveConnectionActorIds, readInvestedActorIdsForOwnerInvestor, resolveActorDisplays, isNetworkActorSuspended, NETWORK_SUSPENDED_ERROR } from './network-db';
+import { checkNetworkContent } from './network-content-policy';
 
 export interface ReferralCandidate { actorId: string; orgId: string | null; name: string; kind: 'founder' | 'investor' }
 
@@ -102,6 +103,10 @@ async function resolveActorIdForOrg(admin: SupabaseClient, orgId: string): Promi
 export async function createReferral(admin: SupabaseClient, params: {
   referrerActorId: string; referrerIsInvestor: boolean; referredOrgId: string; targetActorId: string; targetIsInvestor: boolean; message: string;
 }): Promise<{ ok: true; referral: NetworkReferral } | { ok: false; error: string }> {
+  if (await isNetworkActorSuspended(admin, params.referrerActorId)) return { ok: false, error: NETWORK_SUSPENDED_ERROR };
+  const contentCheck = checkNetworkContent(params.message);
+  if (contentCheck.blocked) return { ok: false, error: contentCheck.reason! };
+
   const referredActorId = await resolveActorIdForOrg(admin, params.referredOrgId);
   if (!referredActorId) return { ok: false, error: 'Referred startup not found.' };
   if (referredActorId === params.referrerActorId) return { ok: false, error: 'You can\'t refer yourself.' };

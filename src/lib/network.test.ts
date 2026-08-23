@@ -5,7 +5,7 @@ import {
   canCreateReferral, isDuplicateReferral, canSendReferral, isReferralVisibleToTarget, effectiveReferralState, referralReputation,
   referralsVisibleToTarget, MAX_REFERRALS_PER_MONTH,
   canSignalFollowOn, isFollowOnActive, shapeFollowOnPayload, referralCarriesFollowOnBadge, FOLLOWON_VALIDITY_MONTHS,
-  computePathfinderMatches,
+  computePathfinderMatches, isPostVisibleToViewer,
 } from './network';
 
 describe('canonicalPair — ordem canónica para a chave única de network_connections', () => {
@@ -477,5 +477,37 @@ describe('computePathfinderMatches — mesma verificação do Pedido A do 318, n
       { actorId: 'c1', alreadyRequested: false },
       { actorId: 'c4', alreadyRequested: true },
     ]);
+  });
+});
+
+describe('isPostVisibleToViewer — respeita exclusões e associação a grupo em tempo real, nunca snapshot', () => {
+  it('o autor vê sempre o seu próprio post, mesmo target=all com todos excluídos', () => {
+    const post = { authorActorId: 'author', target: 'all' as const, groupId: null, excludedActorIds: ['author'] };
+    expect(isPostVisibleToViewer(post, 'author', false, false)).toBe(true);
+  });
+
+  it('target=all: uma ligação activa vê, uma ligação excluída não vê', () => {
+    const post = { authorActorId: 'author', target: 'all' as const, groupId: null, excludedActorIds: ['excluded-viewer'] };
+    expect(isPostVisibleToViewer(post, 'connection-viewer', true, false)).toBe(true);
+    expect(isPostVisibleToViewer(post, 'excluded-viewer', true, false)).toBe(false);
+  });
+
+  it('target=all: quem não é ligação activa não vê, mesmo sem estar excluído', () => {
+    const post = { authorActorId: 'author', target: 'all' as const, groupId: null, excludedActorIds: [] };
+    expect(isPostVisibleToViewer(post, 'stranger', false, false)).toBe(false);
+  });
+
+  it('remover a ligação depois faz o post deixar de ser visível — reavaliado em tempo real, nunca snapshot', () => {
+    const post = { authorActorId: 'author', target: 'all' as const, groupId: null, excludedActorIds: [] };
+    // Era ligação activa quando publicou; a ligação foi removida entretanto
+    // — o chamador (network-posts-db.ts) resolve isto sempre ao vivo, nunca
+    // a partir de um estado guardado no momento da publicação.
+    expect(isPostVisibleToViewer(post, 'ex-connection', false, false)).toBe(false);
+  });
+
+  it('target=group: membro activo vê, não-membro não vê, independentemente de excludedActorIds', () => {
+    const post = { authorActorId: 'author', target: 'group' as const, groupId: 'g1', excludedActorIds: ['viewer'] };
+    expect(isPostVisibleToViewer(post, 'viewer', false, true)).toBe(true);
+    expect(isPostVisibleToViewer(post, 'viewer', false, false)).toBe(false);
   });
 });

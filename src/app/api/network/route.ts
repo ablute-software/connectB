@@ -80,6 +80,7 @@ export async function GET() {
 
   return NextResponse.json({
     available: true,
+    myActorId: actor.actorId,
     myActorKind: actor.kind,
     discoverable,
     connections: activeConnections.map((c) => {

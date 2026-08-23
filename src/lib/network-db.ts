@@ -8,6 +8,7 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { NetworkActorKind, NetworkConnection, NetworkInvite, NetworkInviteContextKind, NetworkGroup, NetworkGroupKind, NetworkGroupMember } from './types';
 import { canonicalPair, canCreateGroup, canAddGroupMember, type DeliveryRow, type GroupMembershipRow } from './network';
+import { checkNetworkContent } from './network-content-policy';
 
 export interface ResolvedActor {
   actorId: string;
@@ -53,6 +54,19 @@ export async function resolveActorId(admin: SupabaseClient, userId: string): Pro
   }
   return null;
 }
+
+// Prompt 321 Pedido C — 3 strikes suspends My Network access (only My
+// Network, never the app itself — that's what makes network_suspended_at a
+// column of its own rather than reusing orgs.platform_suspended_at, which
+// suspends the whole pipeline). Checked at every WRITE surface this series
+// has ever added (invites, referrals, follow-on asks, Pathfinder asks,
+// posts) — never at reads, since a suspended actor can still see and
+// receive, just not act.
+export async function isNetworkActorSuspended(admin: SupabaseClient, actorId: string): Promise<boolean> {
+  const { data } = await admin.from('network_actors').select('network_suspended_at').eq('id', actorId).maybeSingle();
+  return !!data?.network_suspended_at;
+}
+export const NETWORK_SUSPENDED_ERROR = 'Your My Network access has been suspended following a content report.';
 
 export interface ActorDisplay {
   actorId: string;
@@ -142,6 +156,10 @@ export async function countPendingInvitesFrom(admin: SupabaseClient, actorId: st
 export async function createInvite(admin: SupabaseClient, params: {
   fromActorId: string; toActorId: string; contextKind: NetworkInviteContextKind; contextRef?: string | null; message: string; groupId?: string | null;
 }): Promise<{ ok: true; invite: NetworkInvite } | { ok: false; error: string }> {
+  if (await isNetworkActorSuspended(admin, params.fromActorId)) return { ok: false, error: NETWORK_SUSPENDED_ERROR };
+  const contentCheck = checkNetworkContent(params.message);
+  if (contentCheck.blocked) return { ok: false, error: contentCheck.reason! };
+
   const { data, error } = await admin.from('network_invites').insert({
     from_actor_id: params.fromActorId, to_actor_id: params.toActorId,
     context_kind: params.contextKind, context_ref: params.contextRef ?? null, message: params.message, group_id: params.groupId ?? null,

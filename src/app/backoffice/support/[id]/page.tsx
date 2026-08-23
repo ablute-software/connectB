@@ -17,7 +17,7 @@ interface Attachment { path: string; url: string | null; malwareFlagged?: boolea
 const STATUS_LABEL: Record<string, string> = { new: 'New', open: 'Open', waiting_user: 'Waiting on user', resolved: 'Resolved', closed: 'Closed' };
 const CATEGORY_LABEL: Record<string, string> = {
   question: 'Question', problem: 'Problem/bug', billing: 'Billing',
-  data_correction: 'Data correction', claim_profile: 'Profile claim', other: 'Other',
+  data_correction: 'Data correction', claim_profile: 'Profile claim', network_content_report: 'My Network report', other: 'Other',
 };
 const SOURCE_LABEL: Record<string, string> = {
   landing: 'Landing', landing_investors: 'Landing (investors)', founder_app: 'App (founder)', investor_portal: 'Portal (investor)',
@@ -108,6 +108,19 @@ export default function SupportTicketPage() {
         </div>
         {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}
       </Card>
+
+      {ticket.category === 'network_content_report' && (
+        <Card title="My Network moderation">
+          <p className="text-sm text-gray-600">
+            Confirmed as a genuine violation? Applying a strike is manual and permanent for this report — 3 strikes suspends
+            the reported actor&apos;s My Network access (not their whole account).
+          </p>
+          <button disabled={busy} onClick={() => act({ action: 'strike' })}
+            className="mt-2 rounded-lg bg-[#B00000] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+            Apply strike
+          </button>
+        </Card>
+      )}
 
       <Card title="Timeline">
         {events.length === 0 ? <p className="text-sm text-gray-400">No events yet.</p> : (

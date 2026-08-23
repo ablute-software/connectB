@@ -329,6 +329,23 @@ export function computePathfinderMatches(connections: PathfinderConnectionRow[])
     .map((c) => ({ actorId: c.actorId, alreadyRequested: c.hasLiveReferralForThisAsk }));
 }
 
+// ---------------------------------------------------------------------------
+// Prompt 321 — post visibility. A pure restatement of the RLS policy
+// (migration 0215's network_posts_visible_read) so the rule is testable
+// without a database: both inputs (connection status, group membership)
+// MUST be resolved live by the caller at read time — never a snapshot
+// stored when the post was published (Pedido A's own explicit requirement:
+// remove a connection later and their past posts disappear too).
+export interface FeedPostRow { authorActorId: string; target: 'all' | 'group'; groupId: string | null; excludedActorIds: string[] }
+
+export function isPostVisibleToViewer(
+  post: FeedPostRow, viewerActorId: string, viewerIsActiveConnectionOfAuthor: boolean, viewerIsActiveGroupMember: boolean,
+): boolean {
+  if (post.authorActorId === viewerActorId) return true;
+  if (post.target === 'group') return viewerIsActiveGroupMember;
+  return viewerIsActiveConnectionOfAuthor && !post.excludedActorIds.includes(viewerActorId);
+}
+
 // Reputation (Pedido D) — live-computed from network_referrals alone, no
 // new table, never comparable between actors in the same response (the
 // anti-ranking rule): only ever "MY sent/accepted counts", read one actor

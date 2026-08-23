@@ -48,6 +48,9 @@ interface FollowOnRequestView { orgId: string; orgName: string; requestedAt: str
 
 // Prompt 320 — Pathfinder asks received (someone wants me to refer them).
 interface PathfinderAskView { id: string; requesterOrgId: string; requesterName: string; targetActorId: string; targetName: string; requestedAt: string }
+
+// Prompt 321 — posts.
+interface PostView { id: string; authorActorId: string; authorName: string; body: string; target: 'all' | 'group'; groupId: string | null; groupName: string | null; createdAt: string }
 interface ReferralCandidate { actorId: string; orgId: string | null; name: string; kind: 'founder' | 'investor' }
 interface ReferralBootstrap {
   ok: boolean; referrals?: ReferralView[]; reputation?: { sent: number; accepted: number };
@@ -62,6 +65,7 @@ const REFERRAL_STATE_LABEL: Record<ReferralState, string> = {
 
 interface NetworkBootstrap {
   available: boolean;
+  myActorId?: string;
   myActorKind?: 'founder' | 'investor';
   discoverable?: boolean;
   connections?: ConnectionView[];
@@ -115,6 +119,16 @@ export default function NetworkPage() {
   const [founderSignals, setFounderSignals] = useState<FollowOnStatusView[] | null>(null);
   const [investorFollowOn, setInvestorFollowOn] = useState<{ relationships: FollowOnRelationshipView[]; requests: FollowOnRequestView[] } | null>(null);
   const [pathfinderAsks, setPathfinderAsks] = useState<PathfinderAskView[]>([]);
+  const [posts, setPosts] = useState<PostView[] | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerBody, setComposerBody] = useState('');
+  const [composerTarget, setComposerTarget] = useState<'all' | 'group'>('all');
+  const [composerGroupId, setComposerGroupId] = useState('');
+  const [excludingOpen, setExcludingOpen] = useState(false);
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
+  const [composerError, setComposerError] = useState<string | null>(null);
+  const [reportTarget, setReportTarget] = useState<{ postId?: string; reportedActorId?: string } | null>(null);
+  const [reportReason, setReportReason] = useState('');
 
   function load() {
     fetch('/api/network').then((r) => r.json()).then(setState).catch(() => setState(null));
@@ -125,6 +139,7 @@ export default function NetworkPage() {
       .then((b) => setInvestorFollowOn(b.ok ? { relationships: b.relationships ?? [], requests: b.requests ?? [] } : null))
       .catch(() => setInvestorFollowOn(null));
     fetch('/api/network/pathfinder/asks').then((r) => r.json()).then((b) => setPathfinderAsks(b.asks ?? [])).catch(() => setPathfinderAsks([]));
+    fetch('/api/network/post').then((r) => r.json()).then((b) => setPosts(b.posts ?? null)).catch(() => setPosts(null));
   }
   useEffect(load, []);
 
@@ -222,6 +237,41 @@ export default function NetworkPage() {
     fetch('/api/network/pathfinder/asks', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }),
     }).then((r) => r.json()).then((b) => { if (!b.ok) setError(b.error); load(); }).finally(() => setBusy(false));
+  }
+
+  function submitPost() {
+    if (!composerBody.trim() || (composerTarget === 'group' && !composerGroupId)) return;
+    setBusy(true); setComposerError(null);
+    fetch('/api/network/post', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        body: composerBody.trim(), target: composerTarget,
+        groupId: composerTarget === 'group' ? composerGroupId : undefined,
+        excludedActorIds: composerTarget === 'all' ? [...excludedIds] : undefined,
+      }),
+    }).then((r) => r.json()).then((b) => {
+      if (!b.ok) { setComposerError(b.error); return; }
+      setComposerOpen(false); setComposerBody(''); setComposerTarget('all'); setComposerGroupId(''); setExcludedIds(new Set());
+      load();
+    }).finally(() => setBusy(false));
+  }
+
+  function removePost(postId: string) {
+    setBusy(true); setError(null);
+    fetch(`/api/network/post?postId=${postId}`, { method: 'DELETE' })
+      .then((r) => r.json()).then((b) => { if (!b.ok) setError(b.error); load(); }).finally(() => setBusy(false));
+  }
+
+  function submitReport() {
+    if (!reportTarget || !reportReason.trim()) return;
+    setBusy(true); setError(null);
+    fetch('/api/network/report', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...reportTarget, reason: reportReason.trim() }),
+    }).then((r) => r.json()).then((b) => {
+      if (!b.ok) { setError(b.error); return; }
+      setReportTarget(null); setReportReason('');
+    }).finally(() => setBusy(false));
   }
 
   if (!state || !groups) return <p className="text-sm text-gray-400">Loading…</p>;
@@ -355,6 +405,78 @@ export default function NetworkPage() {
         </Modal>
       )}
 
+      {composerOpen && (
+        <Modal onClose={() => setComposerOpen(false)}>
+          <h2 className="text-sm font-bold text-gray-800">New post</h2>
+          <textarea value={composerBody} onChange={(e) => { setComposerBody(e.target.value); setComposerError(null); }} rows={4} autoFocus
+            placeholder="Share something that helps other founders/investors raise — never sales, partnerships, or prospecting."
+            className="mt-2 w-full rounded-lg border border-gray-300 p-2 text-sm" />
+          {composerError && <p className="mt-1 text-xs font-medium text-[#B00000]">{composerError}</p>}
+          <div className="mt-2 flex items-center gap-2">
+            <select value={composerTarget} onChange={(e) => setComposerTarget(e.target.value as 'all' | 'group')}
+              className="rounded-lg border border-gray-300 bg-white p-1.5 text-xs">
+              <option value="all">Everyone (your connections)</option>
+              {groups.length > 0 && <option value="group">A specific group…</option>}
+            </select>
+            {composerTarget === 'group' && (
+              <select value={composerGroupId} onChange={(e) => setComposerGroupId(e.target.value)} className="rounded-lg border border-gray-300 bg-white p-1.5 text-xs">
+                <option value="">Which group?</option>
+                {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            )}
+            {composerTarget === 'all' && connections.length > 0 && (
+              <button onClick={() => setExcludingOpen(true)} className="text-[11px] text-gray-400 underline hover:text-gray-600">
+                exclude some connections{excludedIds.size > 0 ? ` (${excludedIds.size})` : ''}
+              </button>
+            )}
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <button onClick={submitPost} disabled={busy || !composerBody.trim() || (composerTarget === 'group' && !composerGroupId)}
+              className="rounded-full bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
+              Post
+            </button>
+            <button onClick={() => setComposerOpen(false)} className="rounded-full border border-gray-300 px-3 py-1.5 text-xs text-gray-600">Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {excludingOpen && (
+        <Modal onClose={() => setExcludingOpen(false)}>
+          <h2 className="text-sm font-bold text-gray-800">Exclude some connections</h2>
+          <p className="mt-1 text-[11px] text-gray-400">Unchecked connections won&apos;t see this post.</p>
+          <div className="mt-2 max-h-48 space-y-1 overflow-y-auto">
+            {connections.map((c) => (
+              <label key={c.otherActorId} className="flex items-center gap-1.5 text-sm text-gray-700">
+                <input type="checkbox" checked={!excludedIds.has(c.otherActorId)}
+                  onChange={(e) => setExcludedIds((prev) => {
+                    const next = new Set(prev);
+                    if (e.target.checked) next.delete(c.otherActorId); else next.add(c.otherActorId);
+                    return next;
+                  })} />
+                {c.otherName}
+              </label>
+            ))}
+          </div>
+          <button onClick={() => setExcludingOpen(false)} className="mt-2 rounded-full border border-gray-300 px-3 py-1.5 text-xs text-gray-600">Done</button>
+        </Modal>
+      )}
+
+      {reportTarget && (
+        <Modal onClose={() => setReportTarget(null)}>
+          <h2 className="text-sm font-bold text-gray-800">Report</h2>
+          <p className="mt-1 text-[11px] text-gray-400">This goes to our support team for review — never shown to anyone else.</p>
+          <textarea value={reportReason} onChange={(e) => setReportReason(e.target.value)} rows={3} autoFocus
+            placeholder="What's wrong with this?" className="mt-2 w-full rounded-lg border border-gray-300 p-2 text-sm" />
+          <div className="mt-2 flex gap-1.5">
+            <button onClick={submitReport} disabled={busy || !reportReason.trim()}
+              className="rounded-full bg-[#B00000] px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
+              Send report
+            </button>
+            <button onClick={() => setReportTarget(null)} className="rounded-full border border-gray-300 px-3 py-1.5 text-xs text-gray-600">Cancel</button>
+          </div>
+        </Modal>
+      )}
+
       {openGroupId && groupDetail && (
         <Modal onClose={() => setOpenGroupId(null)}>
           <div className="flex items-start justify-between gap-2">
@@ -397,6 +519,37 @@ export default function NetworkPage() {
         </Modal>
       )}
 
+      <Card title="Feed" right={
+        <button onClick={() => setComposerOpen(true)} className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">
+          + New post
+        </button>
+      }>
+        {!posts || posts.length === 0 ? (
+          <p className="text-sm text-gray-400">Nothing here yet — posts from you, your connections, and your groups will show up here.</p>
+        ) : (
+          <ul className="space-y-2">
+            {posts.map((p) => (
+              <li key={p.id} className="rounded-lg border border-gray-100 p-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-medium text-gray-800">
+                    {p.authorName} {p.groupName && <span className="text-[11px] font-normal text-gray-400">· {p.groupName}</span>}
+                  </p>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-[11px] text-gray-400">{p.createdAt.slice(0, 10)}</span>
+                    {p.authorActorId === state.myActorId ? (
+                      <button onClick={() => removePost(p.id)} disabled={busy} className="text-[11px] text-gray-300 hover:text-[#B00000]">Delete</button>
+                    ) : (
+                      <button onClick={() => setReportTarget({ postId: p.id })} className="text-[11px] text-gray-300 hover:text-[#B00000]">Report</button>
+                    )}
+                  </div>
+                </div>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{p.body}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
       <Card title={`Your connections (${connections.length})`}>
         {connections.length === 0 ? (
           <p className="text-sm text-gray-400">No connections yet — accept an invite, or invite someone from a suggestion below.</p>
@@ -417,6 +570,7 @@ export default function NetworkPage() {
                   </div>
                 ) : (
                   <div className="flex shrink-0 items-center gap-1.5">
+                    <button onClick={() => setReportTarget({ reportedActorId: c.otherActorId })} className="text-[11px] text-gray-300 hover:text-[#B00000]">Report</button>
                     <button onClick={() => setConfirmAction({ id: c.id, action: 'remove' })} className="text-[11px] text-gray-400 hover:text-[#B00000]">Remove</button>
                     <button onClick={() => setConfirmAction({ id: c.id, action: 'block' })} className="text-[11px] text-gray-400 hover:text-[#B00000]">Block</button>
                   </div>

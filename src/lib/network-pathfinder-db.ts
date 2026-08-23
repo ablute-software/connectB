@@ -6,7 +6,7 @@ import 'server-only';
 // second query for "who invested in whom".
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { computePathfinderMatches, isLiveReferralState, type PathfinderMatch, type NetworkReferralState } from './network';
-import { readActiveConnectionActorIds, readInvestedActorIdsForInvestor, resolveActorDisplays } from './network-db';
+import { readActiveConnectionActorIds, readInvestedActorIdsForInvestor, resolveActorDisplays, isNetworkActorSuspended, NETWORK_SUSPENDED_ERROR } from './network-db';
 
 // Same entityId -> investorCatalogEntityId lookup as 319's follow-on widget
 // (catalog_deliveries.entity_id), plus the investor's own network_actors id
@@ -102,6 +102,7 @@ export async function getPathfinderEntityIdsWithMatch(admin: SupabaseClient, par
 // compose the referral themselves; it never creates the referral on their
 // behalf (keeps authorship with whoever is actually vouching).
 export async function createPathfinderAsk(admin: SupabaseClient, params: { requesterActorId: string; connectionActorId: string; targetActorId: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (await isNetworkActorSuspended(admin, params.requesterActorId)) return { ok: false, error: NETWORK_SUSPENDED_ERROR };
   const { error } = await admin.from('network_pathfinder_asks').insert({
     requester_actor_id: params.requesterActorId, connection_actor_id: params.connectionActorId, target_actor_id: params.targetActorId,
   });

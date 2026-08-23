@@ -6,6 +6,20 @@ import 'server-only';
 // into them, same split as network-referrals-db.ts.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { canSignalFollowOn, isFollowOnActive, shapeFollowOnPayload, FOLLOWON_VALIDITY_MONTHS, type FollowOnVisibility, type FollowOnPayload } from './network';
+import { NETWORK_SUSPENDED_ERROR } from './network-db';
+
+// Prompt 321 Pedido C — same network_suspended_at check every other write
+// surface in this series applies, resolved from the investor's own
+// catalog_entity_id (this file's own identity key) rather than requiring
+// every caller to separately resolve a network_actors id first.
+async function isInvestorNetworkSuspended(admin: SupabaseClient, investorCatalogEntityId: string): Promise<boolean> {
+  const { data: member } = await admin.from('matchdeal_investor_members').select('id').eq('catalog_entity_id', investorCatalogEntityId).maybeSingle();
+  if (!member) return false;
+  const { data: profile } = await admin.from('matchdeal_profiles').select('id').eq('membership_id', member.id).eq('kind', 'investor').maybeSingle();
+  if (!profile) return false;
+  const { data: actor } = await admin.from('network_actors').select('network_suspended_at').eq('matchdeal_profile_id', profile.id).maybeSingle();
+  return !!actor?.network_suspended_at;
+}
 
 interface DeliveryFollowOnRow {
   id: string; org_id: string; catalog_id: string;
@@ -25,6 +39,7 @@ async function findInvestedDelivery(admin: SupabaseClient, orgId: string, invest
 export async function setFollowOnSignal(admin: SupabaseClient, params: {
   orgId: string; investorCatalogEntityId: string; visibility: FollowOnVisibility;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (await isInvestorNetworkSuspended(admin, params.investorCatalogEntityId)) return { ok: false, error: NETWORK_SUSPENDED_ERROR };
   const found = await findInvestedDelivery(admin, params.orgId, params.investorCatalogEntityId);
   if (!found || !canSignalFollowOn(found.invested)) {
     return { ok: false, error: 'You can only signal follow-on interest for a startup you have a verified invested relationship with.' };
@@ -113,6 +128,8 @@ export async function getActiveFollowOnPairs(admin: SupabaseClient, orgIds: stri
 // for the same pair is a harmless no-op (migration 0213's partial unique
 // index), never a second row piling up.
 export async function requestFollowOnAsk(admin: SupabaseClient, params: { orgId: string; investorCatalogEntityId: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: myActor } = await admin.from('network_actors').select('network_suspended_at').eq('org_id', params.orgId).maybeSingle();
+  if (myActor?.network_suspended_at) return { ok: false, error: NETWORK_SUSPENDED_ERROR };
   const found = await findInvestedDelivery(admin, params.orgId, params.investorCatalogEntityId);
   if (!found || !found.invested) return { ok: false, error: 'You can only ask an investor with a verified invested relationship.' };
   const { error } = await admin.from('network_followon_requests').insert({ org_id: params.orgId, investor_catalog_entity_id: params.investorCatalogEntityId });

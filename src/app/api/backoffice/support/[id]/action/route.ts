@@ -67,6 +67,32 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       });
       if (!result.sent) return NextResponse.json({ ok: false, error: result.error ?? 'Email send failed.' }, { status: 500 });
     }
+  } else if (action === 'strike') {
+    // Prompt 321 Pedido C — manual, human moderation only (no AI decides
+    // alone on something with social consequence, same posture as the
+    // rest of this app). context carries "network_actor:{id}" or
+    // "network_post:{id}" (whose author we then strike) from
+    // /api/network/report — never guessed from free text.
+    if (ticket.category !== 'network_content_report') return NextResponse.json({ ok: false, error: 'Only valid for network content reports.' }, { status: 400 });
+    let actorId: string | null = null;
+    const actorMatch = (ticket.context as string | null)?.match(/^network_actor:([0-9a-f-]{36})$/);
+    const postMatch = (ticket.context as string | null)?.match(/^network_post:([0-9a-f-]{36})$/);
+    if (actorMatch) actorId = actorMatch[1];
+    else if (postMatch) {
+      const { data: post } = await admin.from('network_posts').select('author_actor_id').eq('id', postMatch[1]).maybeSingle();
+      actorId = (post?.author_actor_id as string | undefined) ?? null;
+    }
+    if (!actorId) return NextResponse.json({ ok: false, error: 'Could not resolve the reported actor from this ticket.' }, { status: 400 });
+
+    const { data: actorRow } = await admin.from('network_actors').select('network_strikes_count').eq('id', actorId).maybeSingle();
+    if (!actorRow) return NextResponse.json({ ok: false, error: 'Reported actor not found.' }, { status: 404 });
+    const newCount = (actorRow.network_strikes_count as number) + 1;
+    const actorPatch: Record<string, unknown> = { network_strikes_count: newCount };
+    if (newCount >= 3) actorPatch.network_suspended_at = now;
+    await admin.from('network_actors').update(actorPatch).eq('id', actorId);
+
+    eventKind = 'note';
+    eventBody = `Strike applied to network actor ${actorId} (now ${newCount}/3)${newCount >= 3 ? ' — My Network access suspended' : ''}.`;
   } else {
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   }
