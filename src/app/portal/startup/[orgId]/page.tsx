@@ -17,6 +17,8 @@ import {
   DossierOverviewSections, fmtEur, type Card, type Dossier,
 } from '@/components/portal/DossierOverviewSections';
 import { FollowOnBadge } from '@/components/FollowOnBadge';
+import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
+import { DocScorePanel, type DocScore } from '@/components/investor-workspace/DocScorePanel';
 
 interface LevelRow { level: 2 | 3; status: 'granted' | 'pending' | 'denied' }
 interface PortalDoc { id: string; name: string; version?: string; watermark: boolean; downloadable: boolean; folder_id?: string; url: string | null }
@@ -59,6 +61,34 @@ export default function StartupDossierPage() {
   const [reasonDraft, setReasonDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Prompt 347 — "Track & Evaluate" mode. Off by default until the
+  // investor's own remembered preference loads; the mode/columns survive
+  // navigation between Overview/Documents/Messages/Activity on purpose —
+  // this state lives at the page level, never inside a per-tab component.
+  const [trackEvaluate, setTrackEvaluate] = useState(false);
+  useEffect(() => {
+    fetch('/api/portal/track-evaluate-mode').then((r) => r.json()).then((d) => { if (d.enabled) setTrackEvaluate(true); }).catch(() => {});
+  }, []);
+  function toggleTrackEvaluate() {
+    const next = !trackEvaluate;
+    setTrackEvaluate(next);
+    fetch('/api/portal/track-evaluate-mode', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: next }),
+    }).catch(() => {});
+  }
+  // Prompt 347 §B — this investor's own scores for every document already
+  // fetched for this org, keyed by documentId; the Documents tab reads it
+  // to badge already-scored rows, DocScorePanel reads/writes the focused
+  // one. Fetched once docs are known — investor-private, never touches any
+  // founder-facing payload.
+  const [docScores, setDocScores] = useState<Record<string, DocScore>>({});
+  useEffect(() => {
+    if (!docs) return;
+    fetch(`/api/portal/doc-scores?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => setDocScores(d.scores ?? {})).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!docs, orgId]);
+  const [focusedDoc, setFocusedDoc] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     if (!authEnabled) { setSessionEmail(null); return; }
@@ -204,6 +234,13 @@ export default function StartupDossierPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {/* Prompt 347 — off by default (until the remembered preference
+                loads), zero layout change with the mode off: no empty
+                columns, no CLS. */}
+            <button onClick={toggleTrackEvaluate}
+              className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium ${trackEvaluate ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-200 text-gray-700 hover:border-[#0E7490]'}`}>
+              📝 Track &amp; Evaluate{trackEvaluate ? ' · on' : ''}
+            </button>
             <Link href={`/portal?tab=evaluation&orgId=${orgId}`}
               className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
               🧮 Equity calculator
@@ -307,11 +344,64 @@ export default function StartupDossierPage() {
       {/* Prompt 213 §A — o dossier vivia numa coluna de ~640px com laterais
           vazias enormes. Passa a largo; a restricao de leitura e do
           PARAGRAFO (max-w dentro do cartao do About), nao da pagina. */}
-      <main className={tab === 'messages' ? 'mx-auto max-w-4xl p-4 md:p-8' : 'mx-auto max-w-6xl p-4 md:p-8'}>
+      <main className={tab === 'messages' && !trackEvaluate ? 'mx-auto max-w-4xl p-4 md:p-8' : 'mx-auto max-w-6xl p-4 md:p-8'}>
+        {trackEvaluate ? (
+          // Prompt 347 §A/§B — the 3-column grid is a `sticky`-in-grid
+          // layout, deliberately NOT `position: fixed` to the viewport (the
+          // WorkspaceHeader/backdrop-blur incident, CLAUDE.md): a
+          // backdrop-blur/transform ancestor silently becomes the
+          // containing block for a real fixed element, which this sticky
+          // grid item is immune to. Both side columns render unconditional
+          // of `tab` — same JSX tree across every sub-tab switch, so they
+          // never unmount/remount and the scorecard/focused-doc state
+          // survives navigation, exactly as required. Mobile (below lg):
+          // stacked, collapsible via <details> — never a second parallel
+          // layout, just the same content, disclosed instead of always-open.
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr_260px] lg:items-start">
+            <details className="rounded-lg border border-gray-200 bg-white lg:hidden">
+              <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">Your scorecard</summary>
+              <div className="border-t border-gray-100 p-2"><ScorecardPanel orgId={orgId} /></div>
+            </details>
+            <div className="hidden lg:sticky lg:top-24 lg:block">
+              <ScorecardPanel orgId={orgId} />
+            </div>
+
+            <div className="min-w-0">{renderTabContent()}</div>
+
+            {focusedDoc && (
+              <>
+                <details className="rounded-lg border border-gray-200 bg-white lg:hidden" open>
+                  <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">Rate this document</summary>
+                  <div className="border-t border-gray-100 p-2">
+                    <DocScorePanel orgId={orgId} documentId={focusedDoc.id} documentName={focusedDoc.name}
+                      initial={docScores[focusedDoc.id] ?? null}
+                      onSaved={(id, s) => setDocScores((prev) => ({ ...prev, [id]: s }))} />
+                  </div>
+                </details>
+                <div className="hidden lg:sticky lg:top-24 lg:block">
+                  <DocScorePanel orgId={orgId} documentId={focusedDoc.id} documentName={focusedDoc.name}
+                    initial={docScores[focusedDoc.id] ?? null}
+                    onSaved={(id, s) => setDocScores((prev) => ({ ...prev, [id]: s }))} />
+                </div>
+              </>
+            )}
+          </div>
+        ) : renderTabContent()}
+      </main>
+    </div>
+  );
+
+  function renderTabContent() {
+    return (
+      <>
         {tab === 'overview' && (
           <DossierOverviewSections card={card} level={level} dossier={dossier} onRequestLevel={requestLevel} levelBusy={levelBusy} scorecardOrgId={card.orgId} />
         )}
-        {tab === 'documents' && <DocumentsTab hasAccess={card.hasDataRoomAccess} docs={docs} sharedInMessages={messagesInfo?.messages ?? []} />}
+        {tab === 'documents' && (
+          <DocumentsTab hasAccess={card.hasDataRoomAccess} docs={docs} sharedInMessages={messagesInfo?.messages ?? []}
+            trackEvaluate={trackEvaluate} docScores={docScores} focusedDocId={focusedDoc?.id ?? null}
+            onFocusDoc={(id, name) => setFocusedDoc({ id, name })} />
+        )}
         {tab === 'messages' && (
           <div className="flex flex-col gap-4 md:flex-row">
             <div className="flex-1">
@@ -337,17 +427,21 @@ export default function StartupDossierPage() {
           <InteractionLogTimeline orgId={orgId} journey={{
             messages: messagesInfo?.messages ?? [],
             accessibleDocs: docs ? docs.sections.flatMap((s) => s.documents.map((d) => ({ id: d.id, name: d.name }))) : [],
-            status: data.card.status, decidedAt: data.card.decidedAt,
+            status: card.status, decidedAt: card.decidedAt,
             onOpenDoc: openDocById,
           }} />
         )}
-      </main>
-    </div>
-  );
+      </>
+    );
+  }
 }
 
-function DocumentsTab({ hasAccess, docs, sharedInMessages }: {
+function DocumentsTab({ hasAccess, docs, sharedInMessages, trackEvaluate, docScores, focusedDocId, onFocusDoc }: {
   hasAccess: boolean; docs: { sections: DocSection[]; pendingNdaCount: number } | null; sharedInMessages: DealMessage[];
+  // Prompt 347 §B — off (all four undefined/false) means zero change from
+  // before this prompt: no score badges, no "Rate" affordance.
+  trackEvaluate?: boolean; docScores?: Record<string, DocScore>; focusedDocId?: string | null;
+  onFocusDoc?: (id: string, name: string) => void;
 }) {
   if (!hasAccess) {
     return (
@@ -361,6 +455,24 @@ function DocumentsTab({ hasAccess, docs, sharedInMessages }: {
   async function openDoc(doc: PortalDoc) {
     await fetch('/api/portal/view', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentId: doc.id }) });
     window.open(doc.url ?? '#', '_blank');
+    // Prompt 347 §B — opening a document while in Track & Evaluate mode
+    // brings it into focus for the right-column scoring panel; off mode
+    // never calls this (onFocusDoc is undefined then).
+    onFocusDoc?.(doc.id, doc.name);
+  }
+
+  // Prompt 347 §B — "documents already evaluated show the score in the doc
+  // list, only for the investor" — a small badge, nothing rendered at all
+  // when the mode is off or the document has no score yet.
+  function ScoreBadge({ documentId }: { documentId: string }) {
+    if (!trackEvaluate) return null;
+    const s = docScores?.[documentId];
+    return (
+      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+        focusedDocId === documentId ? 'bg-[#0E7490] text-white' : s ? 'border border-amber-200 bg-amber-50 text-amber-700' : 'border border-dashed border-gray-200 text-gray-400'}`}>
+        {s ? `★ ${s.score}/10` : 'Rate'}
+      </span>
+    );
   }
 
   // P134-C — "Shared in messages": the mini-prompt's own "documents
@@ -396,6 +508,7 @@ function DocumentsTab({ hasAccess, docs, sharedInMessages }: {
                       Open{d.version && ` · ${d.version}`}{d.watermark && ' · watermarked'}{!d.downloadable && ' · view only, no download'}
                     </div>
                   </div>
+                  <ScoreBadge documentId={d.id} />
                   <button onClick={() => openDoc(d)} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">Open</button>
                 </div>
               ))}
@@ -413,6 +526,7 @@ function DocumentsTab({ hasAccess, docs, sharedInMessages }: {
                 <div key={d.id} className="flex items-center gap-3 rounded-lg border border-gray-100 p-3">
                   <span className="text-lg">▤</span>
                   <div className="flex-1 text-sm font-medium">{d.name}</div>
+                  <ScoreBadge documentId={d.id} />
                   <button onClick={() => openDoc(d)} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">Open</button>
                 </div>
               ))}
