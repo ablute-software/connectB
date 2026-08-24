@@ -29,27 +29,10 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { descendantFolderIds, resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { grantIsActive, grantStatus } from '@/lib/access-grants';
-import { PORTAL_SECTIONS } from '@/lib/dataroom-sections';
+import { groupDocumentsBySection } from '@/lib/dataroom-sections';
 import { roundValuationBasisAvailable } from '@/lib/round-valuation-basis-capability';
 import { vaultFrozenForOrg } from '@/lib/data-room-server';
-
-// Investor Workspace Fase 2 (prompt 55) — groups documents into the 6 fixed
-// diligence-journey sections by their folder's portal_section (migration
-// 0058). A folder with no portal_section (a container shell, or simply not
-// mapped yet) contributes nothing here — its documents don't appear in the
-// portal at all, per the prompt. Every section is always present in the
-// response, even empty, so the client can render "In preparation" instead
-// of just omitting it.
-function buildSections(
-  folders: { id: string; portal_section: string | null }[],
-  documents: { id: unknown; folder_id: unknown }[],
-) {
-  const sectionByFolderId = new Map(folders.map((f) => [f.id, f.portal_section]));
-  return PORTAL_SECTIONS.map((s) => ({
-    key: s.key, label: s.label,
-    documents: documents.filter((d) => sectionByFolderId.get(d.folder_id as string) === s.key),
-  }));
-}
+import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 
 // Prompt 54 Bloco 1 — Zona 1 snapshot card data. Reads the same orgs
 // columns the founder-side Company tab (RoundCard.tsx) already writes —
@@ -124,6 +107,26 @@ async function latestTicketSignal(admin: SupabaseClient, orgId: string, email: s
   return data ?? null;
 }
 
+// Prompt 350 §B — the two extra per-deal signals ("Considering", "Type of
+// investment"), same latest-row-wins convention as the ticket signal above.
+// `profileDefaults` is only what the selector pre-fills FROM (the
+// investor's own thesis, lead_or_colead/instruments) when no deal-level
+// override exists yet — never itself what gets saved; the deal row is
+// always what's authoritative once one exists.
+async function latestDealSignal(admin: SupabaseClient, orgId: string, email: string) {
+  const { data } = await admin.from('investor_deal_signals').select('considering, instruments')
+    .eq('org_id', orgId).eq('investor_email', email).order('created_at', { ascending: false }).limit(1).maybeSingle();
+  return data ?? null;
+}
+
+async function investorProfileDefaults(admin: SupabaseClient, userId: string) {
+  const member = await resolveActiveInvestorMember(admin, userId);
+  if (!member) return null;
+  const { data } = await admin.from('matchdeal_profiles').select('lead_or_colead, instruments')
+    .eq('membership_id', member.id).eq('kind', 'investor').maybeSingle();
+  return data ?? null;
+}
+
 async function toPortalDoc(admin: SupabaseClient, d: Record<string, unknown>) {
   let signedUrl: string | null = (d.external_url as string | null) ?? null;
   // Prompt 301 §3 — same gate as /api/portal/access-granted: a flagged
@@ -154,7 +157,8 @@ export async function GET(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   const email = user?.email?.trim().toLowerCase();
-  if (!email) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
+  if (!email || !user) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
+  const userId = user.id;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -232,8 +236,10 @@ export async function GET(req: Request) {
     const currentTicketSignal = await latestTicketSignal(admin, orgId, email);
     return NextResponse.json({
       orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
-      pendingNdaCount: 0, folders: [], documents: [], sections: buildSections([], []),
+      pendingNdaCount: 0, folders: [], documents: [], sections: groupDocumentsBySection([], []),
       pendingConfirmation, snapshot, orgId, currentTicketSignal,
+      currentDealSignal: await latestDealSignal(admin, orgId, email),
+      dealSignalDefaults: await investorProfileDefaults(admin, userId),
     });
   }
 
@@ -247,7 +253,7 @@ export async function GET(req: Request) {
   // concedidas em si. Era esta metade que fazia a ablute_ ver "0 documentos":
   // os grants estão na raiz "Vault Data Room", que tem zero documentos
   // directos, e os 40+ vivem nas subpastas.
-  const { data: orgFolders } = await admin.from('folders').select('id, parent_id').eq('org_id', orgId);
+  const { data: orgFolders } = await admin.from('folders').select('id, parent_id, portal_section').eq('org_id', orgId);
   const folderTree = (orgFolders ?? []).map((f) => ({ id: f.id as string, parent_id: (f.parent_id as string | undefined) ?? undefined }));
   const grantedFolderIds = orgGrants.filter((g) => g.folder_id).map((g) => g.folder_id as string);
   const allFolderIds = descendantFolderIds(folderTree, grantedFolderIds);
@@ -285,11 +291,20 @@ export async function GET(req: Request) {
   const documents = await Promise.all(visibleDocs.map((d) => toPortalDoc(admin, d)));
   const snapshot = await buildSnapshot(admin, orgId);
   const currentTicketSignal = await latestTicketSignal(admin, orgId, email);
-  const sections = buildSections(folders ?? [], documents);
+  // Prompt 350 §A — sectioned from ALL of the org's folders (orgFolders,
+  // already fetched above for descendantFolderIds), never from `folders`
+  // (the "Folder access" summary list, which is only the DIRECTLY granted
+  // folders — a different role. A grant authorizes; portal_section
+  // classifies; a doc living three levels under a root grant still has a
+  // real section, even though its own direct folder never appears in
+  // `folders`.
+  const sections = groupDocumentsBySection(orgFolders ?? [], documents);
 
   return NextResponse.json({
     orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
     pendingNdaCount: folderPendingCount + docPendingCount, folders: folders ?? [], documents, sections,
     pendingConfirmation, snapshot, orgId, currentTicketSignal,
+    currentDealSignal: await latestDealSignal(admin, orgId, email),
+    dealSignalDefaults: await investorProfileDefaults(admin, userId),
   });
 }

@@ -6,7 +6,7 @@
 // own comment), so there is nothing to exclude.
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
-import { PORTAL_SECTIONS } from '@/lib/dataroom-sections';
+import { PORTAL_SECTIONS, groupDocumentsBySection } from '@/lib/dataroom-sections';
 
 export async function GET() {
   const sb = await serverClient();
@@ -17,28 +17,28 @@ export async function GET() {
   if (!member) return NextResponse.json({ error: 'Not a member of any org.' }, { status: 403 });
   const orgId = member.org_id as string;
 
-  const { data: folders } = await sb.from('folders').select('id, portal_section').eq('org_id', orgId);
-  const sectionByFolderId = new Map((folders ?? []).map((f) => [f.id as string, f.portal_section as string | null]));
-
+  // Prompt 350 §A — same ancestor-climbing sectioning as the investor-facing
+  // route (groupDocumentsBySection), so a doc whose direct folder has no
+  // portal_section but an ancestor does still counts toward its real
+  // section instead of silently vanishing from every count.
+  const { data: folders } = await sb.from('folders').select('id, parent_id, portal_section').eq('org_id', orgId);
   const { data: docs } = await sb.from('documents').select('id, folder_id').eq('org_id', orgId);
-  const docCountBySection = new Map<string, number>();
-  for (const d of docs ?? []) {
-    const section = sectionByFolderId.get(d.folder_id as string);
-    if (section) docCountBySection.set(section, (docCountBySection.get(section) ?? 0) + 1);
-  }
+  const grouped = groupDocumentsBySection(
+    (folders ?? []) as { id: string; parent_id: string | null; portal_section: string | null }[],
+    (docs ?? []) as { id: string; folder_id: unknown }[],
+  );
+  const docCountBySection = new Map(grouped.map((s) => [s.key, s.documents.length]));
+  const docsBySection = new Map(grouped.map((s) => [s.key, new Set(s.documents.map((d) => d.id))]));
 
   const { data: views } = await sb.from('document_views')
     .select('document_id, viewed_at, seconds')
     .eq('org_id', orgId)
     .order('viewed_at', { ascending: false })
     .limit(200);
-  const docToFolder = new Map((docs ?? []).map((d) => [d.id as string, d.folder_id as string | null]));
 
   const sections = PORTAL_SECTIONS.map((s) => {
-    const sectionViews = (views ?? []).filter((v) => {
-      const folderId = docToFolder.get(v.document_id as string);
-      return folderId && sectionByFolderId.get(folderId) === s.key;
-    });
+    const sectionDocIds = docsBySection.get(s.key) ?? new Set<string>();
+    const sectionViews = (views ?? []).filter((v) => sectionDocIds.has(v.document_id as string));
     const totalSeconds = sectionViews.reduce((sum, v) => sum + ((v.seconds as number | null) ?? 0), 0);
     return {
       key: s.key, label: s.label, documentCount: docCountBySection.get(s.key) ?? 0,

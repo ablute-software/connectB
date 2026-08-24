@@ -84,6 +84,12 @@ interface PortalData {
   snapshot?: PortalSnapshot | null;
   orgId?: string;
   currentTicketSignal?: { range_label: string; range_min_eur: number | null; range_max_eur: number | null } | null;
+  // Prompt 350 §B — same "signal, not commitment" pattern as the ticket
+  // range. currentDealSignal is the latest saved value for THIS deal;
+  // dealSignalDefaults is only what the selector pre-fills FROM (the
+  // investor's own thesis) when no deal-level value has been saved yet.
+  currentDealSignal?: { considering: string | null; instruments: string[] } | null;
+  dealSignalDefaults?: { lead_or_colead: string | null; instruments: string[] | null } | null;
 }
 
 // Prompt 54 Bloco 2 — fixed ranges per the spec, plus a free "Other" input.
@@ -144,6 +150,77 @@ function TicketSelector({ orgId, current }: {
           <button onClick={submitOther} disabled={!otherValue.trim() || saving} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Save</button>
         </div>
       )}
+      {saved && <p className="mt-2 text-xs text-green-700">Saved.</p>}
+    </div>
+  );
+}
+
+// Prompt 350 §B — deliberately "Leading"/"Following"/"Both" here, not
+// investor-taxonomy.ts's own LEAD_OR_COLEAD_LABELS wording ("Leads rounds" /
+// "Follows"): that copy describes the investor's general profile stance,
+// while this is a per-deal question about THIS round specifically. Same
+// underlying value domain (lead/co_lead/both) — only the label differs by
+// context, same convention as INSTRUMENT_LABELS being reused as-is (no
+// second parallel value list, just a second label set for a second copy
+// context).
+const CONSIDERING_OPTIONS: { value: string; label: string }[] = [
+  { value: 'lead', label: 'Leading' }, { value: 'co_lead', label: 'Following' }, { value: 'both', label: 'Both' },
+];
+
+function DealSignals({ orgId, current, defaults }: {
+  orgId: string; current: PortalData['currentDealSignal']; defaults: PortalData['dealSignalDefaults'];
+}) {
+  const [considering, setConsidering] = useState<string | null>(current?.considering ?? defaults?.lead_or_colead ?? null);
+  const [instruments, setInstruments] = useState<string[]>(
+    current ? current.instruments : (defaults?.instruments ?? []),
+  );
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function save(nextConsidering: string | null, nextInstruments: string[]) {
+    setSaving(true); setSaved(false);
+    try {
+      const res = await fetch('/api/portal/deal-signal', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ org_id: orgId, considering: nextConsidering, instruments: nextInstruments }),
+      });
+      const body = await res.json();
+      if (body.ok) setSaved(true);
+    } finally { setSaving(false); }
+  }
+
+  function chooseConsidering(value: string) {
+    setConsidering(value);
+    save(value, instruments);
+  }
+
+  function toggleInstrument(value: string) {
+    const next = instruments.includes(value) ? instruments.filter((v) => v !== value) : [...instruments, value];
+    setInstruments(next);
+    save(considering, next);
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <h2 className="text-sm font-semibold text-gray-900">Considering</h2>
+      <p className="mt-0.5 text-xs text-gray-400">Editable any time — a signal, not a binding commitment.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {CONSIDERING_OPTIONS.map((o) => (
+          <button key={o.value} onClick={() => chooseConsidering(o.value)} disabled={saving}
+            className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${considering === o.value ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490] font-medium' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <h2 className="mt-4 text-sm font-semibold text-gray-900">Type of investment</h2>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {Object.entries(INSTRUMENT_LABELS).map(([value, label]) => (
+          <label key={value} className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors ${instruments.includes(value) ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490] font-medium' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+            <input type="checkbox" className="hidden" checked={instruments.includes(value)} onChange={() => toggleInstrument(value)} disabled={saving} />
+            {label}
+          </label>
+        ))}
+      </div>
       {saved && <p className="mt-2 text-xs text-green-700">Saved.</p>}
     </div>
   );
@@ -439,6 +516,9 @@ export default function PortalPage() {
         {authEnabled && real?.orgId && (
           <TicketSelector orgId={real.orgId} current={real.currentTicketSignal} />
         )}
+        {authEnabled && real?.orgId && (
+          <DealSignals orgId={real.orgId} current={real.currentDealSignal} defaults={real.dealSignalDefaults} />
+        )}
         {authEnabled && real?.orgId && <SoftCommitButton orgId={real.orgId} />}
         {authEnabled && real?.orgId && (
           <button onClick={() => setInteractionLogOpen(true)}
@@ -630,6 +710,9 @@ export default function PortalPage() {
             {authEnabled && real?.snapshot && <SnapshotCard s={real.snapshot} orgId={real.orgId} />}
             {authEnabled && real?.orgId && (
               <TicketSelector orgId={real.orgId} current={real.currentTicketSignal} />
+            )}
+            {authEnabled && real?.orgId && (
+              <DealSignals orgId={real.orgId} current={real.currentDealSignal} defaults={real.dealSignalDefaults} />
             )}
             <p className="text-sm text-gray-500">Signed in as <b>{authEnabled ? sessionEmail : email}</b>{orgName ? <> · <b>{orgName}</b></> : ''}. You can see only the items granted to you.</p>
             {pendingNdaCount > 0 && (
