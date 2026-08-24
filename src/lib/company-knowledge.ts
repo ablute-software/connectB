@@ -276,15 +276,24 @@ export function knowledgeToAtoms(sources: KnowledgeSources): RawAtom[] {
   ].filter((a): a is RawAtom => a !== null);
 }
 
-// Um átomo já é conhecido se um claim existente (aceite OU rejeitado) diz o
-// mesmo. Rejeitado conta: o founder já disse que não queria aquilo, e
-// re-propor a cada análise seria pedir-lhe para rejeitar o mesmo para
-// sempre. Comparação por texto normalizado — os sourceRef mudam quando a
-// linha de origem é reescrita, o texto é o que o founder reconhece.
+// Um átomo já é conhecido se QUALQUER claim existente diz o mesmo — aceite,
+// rejeitado, OU proposto. Rejeitado conta: o founder já disse que não
+// queria aquilo, e re-propor a cada análise seria pedir-lhe para rejeitar o
+// mesmo para sempre. Proposto conta pela MESMA razão, e é o bug real do
+// Prompt 366: antes disto, cada "Re-read my company" sobre um perfil sem
+// alterações reinseria os MESMOS átomos como claims `proposed` novas —
+// duplicados byte-a-byte em "To review", crescendo a cada re-leitura,
+// nunca resolvidos. A comparação já é por texto exacto normalizado (trim +
+// lowercase + espaços colapsados), por isso incluir `proposed` não arrisca
+// esconder uma actualização legítima: só bloqueia reinserir texto IDÊNTICO
+// ao que já está pendente — exactamente o que POST /api/blueprint's próprio
+// comentário sempre disse que isto fazia. Comparação por texto normalizado
+// — os sourceRef mudam quando a linha de origem é reescrita, o texto é o
+// que o founder reconhece.
 export function isAlreadyKnown(atom: RawAtom, existing: { statement: string; status: string }[]): boolean {
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
   const key = norm(atom.statement);
-  return existing.some((c) => (c.status === 'accepted' || c.status === 'rejected') && norm(c.statement) === key);
+  return existing.some((c) => norm(c.statement) === key);
 }
 
 export function newAtoms(atoms: RawAtom[], existing: { statement: string; status: string }[]): RawAtom[] {

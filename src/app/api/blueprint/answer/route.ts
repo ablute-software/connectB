@@ -28,7 +28,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { claimsAvailable, blueprintAnalysesAvailable } from '@/lib/blueprint-capability';
 import { gapDispositionAvailable, gapQuestionsAvailable } from '@/lib/document-extraction-capability';
-import { normalizeAtom } from '@/lib/company-claims';
+import { normalizeAtom, joinChipAndFreeText } from '@/lib/company-claims';
 import { routeAnswer, type GapRule } from '@/lib/company-gaps';
 import { routeFreeTextAnswer } from '@/lib/answer-routing';
 import type { ClaimCategory } from '@/lib/types';
@@ -160,8 +160,7 @@ export async function POST(req: Request) {
   // routing decides free text is just amending the claim this gap was
   // already about (never silent either way — routedAs/reasoning always
   // come back in the response so the UI can tell the founder what happened).
-  const parts = [option, answerText].filter(Boolean);
-  const statement = parts.join(' — ');
+  const statement = joinChipAndFreeText(option, answerText);
   if (!statement) return NextResponse.json({ ok: false, error: 'An answer is required.' }, { status: 400 });
 
   if (answerText && targetClaimId && apiKey) {

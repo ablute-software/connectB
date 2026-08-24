@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyEvidence, measureSpecificity, normalizeAtom, isWastedStrongClaim, rankForNarrative, weakClaimCoachingNote,
-  extractNamedEntity, findDuplicateCandidate, findDocumentLinkCandidate, proposeClaimFromDocumentFact, strengthenGaps, type RawAtom,
+  extractNamedEntity, findDuplicateCandidate, findDocumentLinkCandidate, proposeClaimFromDocumentFact, strengthenGaps,
+  joinChipAndFreeText, type RawAtom,
 } from './company-claims';
 import type { CompanyClaim } from './types';
 
@@ -301,5 +302,37 @@ describe('strengthenGaps (Prompt 358 §3.4) — o que falta EXACTAMENTE, nunca u
   it('sourceKind de campo estruturado (profile/funding_round) nunca aparece, seja qual for a categoria', () => {
     expect(strengthenGaps({ category: 'mercado_timing', sourceKind: 'profile', statement: 'Operating in Digital Health from Portugal.' })).toBeNull();
     expect(strengthenGaps({ category: 'funding', sourceKind: 'funding_round', statement: 'Previous round of €500k closed in 2023.' })).toBeNull();
+  });
+});
+
+describe('joinChipAndFreeText (Prompt 367) — a chip the founder naturally repeats in their own free text never duplicates', () => {
+  it('the real fixture: free text continuing the chip drops the repeated prefix', () => {
+    expect(joinChipAndFreeText('Not yet', "Not yet. Building what we're developing requires significant time and resources."))
+      .toBe("Not yet. Building what we're developing requires significant time and resources.");
+  });
+
+  it('case-insensitive overlap is still caught', () => {
+    expect(joinChipAndFreeText('Not yet', 'not yet, but we have LOIs.')).toBe('not yet, but we have LOIs.');
+  });
+
+  it('no overlap: chip and free text join with " — ", unchanged from before', () => {
+    expect(joinChipAndFreeText('Not yet', 'we have LOIs for our first pilots')).toBe('Not yet — we have LOIs for our first pilots');
+  });
+
+  it('option alone (no free text) is returned as-is', () => {
+    expect(joinChipAndFreeText('Not yet', undefined)).toBe('Not yet');
+  });
+
+  it('free text alone (no option) is returned as-is', () => {
+    expect(joinChipAndFreeText(undefined, 'we have LOIs')).toBe('we have LOIs');
+  });
+
+  it('neither present returns an empty string', () => {
+    expect(joinChipAndFreeText(undefined, undefined)).toBe('');
+  });
+
+  it('a free-text answer that merely CONTAINS the chip later on (not as a prefix) still joins normally', () => {
+    expect(joinChipAndFreeText('Not yet', 'We are still working on it — not yet ready.'))
+      .toBe('Not yet — We are still working on it — not yet ready.');
   });
 });

@@ -5,12 +5,26 @@
 // Never invents a name/date/outcome not present in that context; says so
 // plainly (sufficient:false) rather than guessing, same discipline as
 // gap-assist and reconciliation.ts.
+//
+// Prompt 365 — orgKnowledgeText used to NEVER actually include accepted
+// claims, despite this file's own header comment claiming it did: the
+// exact data that fills most gaps ("2022 — WomenTechEU prize" already
+// accepted as a roadmap claim, the missing YEAR for "Carla Dias is a
+// WomenTechEU awardee") lives in company_claims, not in company_people or
+// document_extractions — the two sources this function actually queried.
+// `claims` was already fetched by the caller (to find the target claim
+// itself) and simply never passed in. Confirmed live against ablute_'s real
+// data before this fix: every one of 6 "Strengthen your claims" items came
+// back "insufficient", including the Carla Dias fixture, because the model
+// was telling the truth about what it was given — the given context was
+// just incomplete by construction.
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { claimsAvailable } from '@/lib/blueprint-capability';
 import { readExistingClaims } from '@/lib/company-knowledge-db';
 import { strengthenGaps, type StrengthenDimension } from '@/lib/company-claims';
+import type { CompanyClaim } from '@/lib/types';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
@@ -19,12 +33,19 @@ const DIMENSION_LABEL: Record<StrengthenDimension, string> = {
   who: 'exactly who is named', when: 'a date or year', outcome: 'a concrete outcome (signed, agreed, deployed, etc.)',
 };
 
-async function orgKnowledgeText(admin: SupabaseClient, orgId: string): Promise<string> {
+// targetClaimId is excluded so the claim never "confirms itself" — the
+// model must find the missing detail SOMEWHERE ELSE on file, not just be
+// handed its own unchanged statement back as if that were new information.
+async function orgKnowledgeText(admin: SupabaseClient, orgId: string, allClaims: CompanyClaim[], targetClaimId: string): Promise<string> {
   const [{ data: people }, { data: extractions }] = await Promise.all([
     admin.from('company_people').select('full_name, title, bio').eq('org_id', orgId),
     admin.from('document_extractions').select('extracted').eq('org_id', orgId).eq('status', 'completed'),
   ]);
   const lines: string[] = [];
+  for (const c of allClaims) {
+    if (c.id === targetClaimId || c.status !== 'accepted') continue;
+    lines.push(`Confirmed fact [${c.category}]: ${c.statement}`);
+  }
   for (const p of (people ?? []) as { full_name: string; title: string | null; bio: string | null }[]) {
     lines.push(`Team: ${p.full_name}${p.title ? `, ${p.title}` : ''}.${p.bio ? ` ${p.bio}` : ''}`);
   }
@@ -64,7 +85,7 @@ export async function POST(req: Request) {
   if (!missing) return NextResponse.json({ ok: false, error: 'This claim is already specific — nothing to strengthen.' });
 
   const missingLabels = missing.map((d) => DIMENSION_LABEL[d]).join(', ');
-  const knowledge = await orgKnowledgeText(admin, orgId);
+  const knowledge = await orgKnowledgeText(admin, orgId, claims, claimId);
   const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
 
   const system = 'You rewrite ONE startup founder claim to add specific missing details, using ONLY the company '

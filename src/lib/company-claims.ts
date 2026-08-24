@@ -171,6 +171,28 @@ export function normalizeAtom(atom: RawAtom): NormalizedClaim {
   };
 }
 
+// Prompt 367 — a claim gravada por /api/blueprint/answer junta sempre
+// `chip — texto livre`, mas um founder a continuar a frase do próprio chip
+// naturalmente REPETE-o ("Not yet" + "Not yet. Building what we're
+// developing...") — sem guarda, isso gravava "Not yet — Not yet. Building
+// ...", literalmente duplicado, para sempre na claim. Deteta a sobreposição
+// (comparação normalizada: trim + lowercase, insensível a pontuação a
+// seguir ao chip) e usa só o texto livre sozinho quando ele já começa pelo
+// próprio chip; mantém `chip — texto` sem alterações em qualquer outro caso.
+export function joinChipAndFreeText(option: string | undefined, answerText: string | undefined): string {
+  const opt = option?.trim();
+  const text = answerText?.trim();
+  if (opt && text) {
+    const normOpt = opt.toLowerCase();
+    // Só as letras/números do início do texto livre, até ao comprimento do
+    // chip — ignora pontuação a seguir ("Not yet." vs "Not yet") sem exigir
+    // um match byte-a-byte.
+    const normTextStart = text.slice(0, opt.length).toLowerCase();
+    if (normTextStart === normOpt) return text;
+  }
+  return [opt, text].filter(Boolean).join(' — ');
+}
+
 // O delta que o 219 §1.3 chama G2 e que é "a lacuna mais valiosa de
 // resolver": uma classe forte desperdiçada por falta de detalhe. O facto já
 // existe — falta só o founder dizer o nome e o desfecho.

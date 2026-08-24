@@ -157,8 +157,20 @@ describe('knowledgeToAtoms + dedup', () => {
     expect(newAtoms(atoms, existing).map((a) => a.sourceRef)).toEqual(['f2']);
   });
 
-  it('um claim ainda "proposed" não impede voltar a propor', () => {
+  // Prompt 366 — inverte o teste anterior, que encodava o próprio bug: um
+  // claim ainda `proposed` com o MESMO texto TEM de impedir reinserção — sem
+  // isto, cada "Re-read my company" sobre um perfil inalterado duplicava a
+  // fila "To review" byte a byte, sempre que POST /api/blueprint corria de
+  // novo (o seu próprio comentário já dizia "não duplica", o código fazia o
+  // oposto até este fix).
+  it('um claim ainda "proposed" com o MESMO texto impede reinserção — o bug real do 366', () => {
     const atoms = knowledgeToAtoms(sources);
-    expect(isAlreadyKnown(atoms[0], [{ statement: atoms[0].statement, status: 'proposed' }])).toBe(false);
+    expect(isAlreadyKnown(atoms[0], [{ statement: atoms[0].statement, status: 'proposed' }])).toBe(true);
+  });
+
+  it('newAtoms nunca duplica um proposed já existente numa segunda chamada (fixture de regressão)', () => {
+    const atoms = knowledgeToAtoms(sources);
+    const alreadyProposed = atoms.map((a) => ({ statement: a.statement, status: 'proposed' }));
+    expect(newAtoms(atoms, alreadyProposed)).toEqual([]);
   });
 });

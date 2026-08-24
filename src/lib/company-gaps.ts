@@ -829,16 +829,23 @@ export const GAP_QUESTION_BUDGET = 5;
 // panel (never shown to investors themselves — founder-only, like every
 // other gap-engine surface). Deliberately distinct from Gap.message (which
 // describes what's missing); this describes what closing it buys.
+// Prompt 367 — each entry must say something the RULE'S OWN message (above,
+// in Gap.message/QUESTION_TEMPLATES) hasn't already said, in different
+// words — not restate it. The point of `why` is the investor-side stake
+// (what changes for them, what they'll actually do with this), never a
+// synonym pass over "what's missing." Two of these (G6, G2) were caught in
+// production paraphrasing their own message almost verbatim; all eight were
+// re-read against their message here, not just the two named.
 const IMPACT_WHY: Record<GapRule, string> = {
-  G1: 'Paid traction is the single strongest signal investors look for — nothing else substitutes for money already at risk.',
-  G2: 'A vague mention reads as filler; a name, date and outcome turns it into something an investor could actually verify.',
+  G1: 'This is usually the very first thing a serious investor checks before reading anything else you claim.',
+  G2: 'Investors run real diligence on exactly this kind of claim — one they can\'t check gets quietly discounted, not asked about.',
   G3: 'Investors back teams as much as ideas — a clear "why this team wins" answers the question they\'re silently asking anyway.',
-  G3b: 'A founder with no narrative reads as passive or absent — even a short answer changes that.',
-  G3c: 'An unowned critical function is a real risk flag investors will ask about if you don\'t address it first.',
+  G3b: 'A team member with zero visible role invites the question "are they even involved?" — worth pre-empting before it\'s asked.',
+  G3c: 'A named owner is what lets an investor picture the function actually getting done, not just planned for.',
   G4: 'Backing this with a document raises it to a class investors treat as externally verified, not just asserted.',
   G5: 'A stale claim risks being wrong by the time an investor checks it — confirming it keeps your dossier trustworthy.',
-  G6: 'An ask without a use-of-funds story reads as a number, not a plan — investors fund plans.',
-  G7: 'A central claim with nothing else supporting it is the first thing a sharp investor will probe.',
+  G6: 'A credible plan for the money is what makes investors trust the ASK itself, not just the number attached to it.',
+  G7: 'A claim central to your pitch that nothing else touches is exactly where a sharp investor will push hardest.',
   G8: 'Numbers that disagree across your own materials undermine trust in everything else you say.',
 };
 
