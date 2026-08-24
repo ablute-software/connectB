@@ -21,6 +21,7 @@
 // whole page, not just its own accidental corner of it.
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Link from 'next/link';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { ContactForm, type SupportSource } from './ContactForm';
 
@@ -68,6 +69,9 @@ export function HelpSupportWidget({ source, className, open: controlledOpen, onO
             </div>
             <ContactForm source={source} defaultName={defaultName} defaultEmail={defaultEmail}
               showContext={source === 'founder_app'} />
+            <Link href="/terms" target="_blank" className="mt-3 block text-xs text-gray-400 hover:underline">
+              Terms &amp; Conditions
+            </Link>
           </div>
         </div>,
         document.body,

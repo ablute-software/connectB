@@ -96,6 +96,11 @@ function LoginInner() {
             <>New founder? <Link href="/signup" className="font-medium text-[#0E7490] hover:underline">Create an account for free!</Link></>
           )}
         </div>
+        {/* Prompt 341 — availability BEFORE contracting is a legal
+            requirement, not cosmetic (DL 7/2004). */}
+        <p className="mt-3 text-center text-[11px] text-gray-400">
+          By signing in you agree to the <Link href="/terms" target="_blank" className="hover:underline">Terms &amp; Conditions</Link>.
+        </p>
       </div>
     </AuthShell>
   );

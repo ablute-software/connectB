@@ -11,6 +11,11 @@ import { createServerClient } from '@supabase/ssr';
 import { shareableCookieDomain } from '@/lib/supabase';
 
 const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/api/me', '/invite', '/api/invite', '/api/portal', '/privacy-request', '/api/gdpr', '/forgot-password', '/reset-password', '/set-password', '/api/stripe/webhook', '/contact', '/api/support', '/api/investor-access-request', '/matchdeal/pair', '/pair', '/manifest.json', '/api/plan/private-detective',
+  // Prompt 341 — DL 7/2004's pre-contractual information duty: the text
+  // must be reachable BEFORE anyone contracts, not gated behind login. The
+  // acceptance routes (/api/terms/status, /api/terms/accept) stay OUT of
+  // this list on purpose — they only mean anything for a signed-in user.
+  '/terms',
   // Prompt 114 Fase 1 — the token IS the auth for this one route now; a
   // caller here has no session yet by definition (that's the whole point).
   // Exact path only (not a prefix) — every other /api/matchdeal/pairing/*

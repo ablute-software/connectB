@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { BRAND_NAME } from '@/lib/brand';
 import { useUsageHeartbeat } from '@/lib/use-usage-heartbeat';
+import { TermsGateModal } from '@/components/terms/TermsGateModal';
 
 const NAV = [
   { href: '/backoffice', label: 'Today' },
@@ -87,6 +88,7 @@ export default function BackofficeLayout({ children }: { children: React.ReactNo
         </div>
       </header>
       <main className="mx-auto max-w-6xl p-4 md:p-8">{children}</main>
+      <TermsGateModal />
     </div>
   );
 }

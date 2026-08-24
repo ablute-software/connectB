@@ -6,6 +6,7 @@
 // building a second messaging UI — support_ticket_events is not
 // deal_messages, and shouldn't try to look like it.
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Card } from './ui';
 
 type TicketSummary = {
@@ -74,6 +75,13 @@ export function SupportTicketsPanel() {
 
   return (
     <Card title="Support tickets">
+      {/* Prompt 341 §C — the Support tab's own Terms & Conditions entry
+          point (shared by the investor workspace's Support tab and the
+          founder side's Messages → Support sub-tab, both of which render
+          this exact component). */}
+      <Link href="/terms" target="_blank" className="mb-2 inline-block text-xs text-gray-400 hover:underline">
+        Terms &amp; Conditions
+      </Link>
       {err && <p className="text-sm text-[#B00000]">{err}</p>}
       {!tickets ? (
         <p className="text-sm text-gray-400">Loading…</p>

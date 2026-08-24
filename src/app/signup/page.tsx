@@ -116,6 +116,11 @@ function InvestorSignupPanel() {
         <div className="mt-5 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
           Raising a round? <Link href="/signup" className="font-medium text-[#0E7490] hover:underline">Create a founder account</Link>
         </div>
+        {/* Prompt 341 — availability BEFORE contracting is a legal
+            requirement, not cosmetic (DL 7/2004). */}
+        <p className="mt-3 text-center text-[11px] text-gray-400">
+          By creating an account you agree to the <Link href="/terms" target="_blank" className="hover:underline">Terms &amp; Conditions</Link>.
+        </p>
       </div>
     </AuthShell>
   );
@@ -303,6 +308,11 @@ function FounderSignupForm() {
           </button>
         )}
         <p className="mt-2 text-[11px] text-gray-400">* required</p>
+        {/* Prompt 341 — availability BEFORE contracting is a legal
+            requirement, not cosmetic (DL 7/2004). */}
+        <p className="mt-1 text-[11px] text-gray-400">
+          By creating an account you agree to the <Link href="/terms" target="_blank" className="hover:underline">Terms &amp; Conditions</Link>.
+        </p>
         {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">{msg}</div>}
         <div className="mt-5 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
           Already have an account? <Link href="/login" className="font-medium text-[#0E7490] hover:underline">Sign in</Link>

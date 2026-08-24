@@ -11,6 +11,7 @@ import { useUnreadMessagesCount } from '@/components/deal-messages/DealThreadVie
 import { usePendingInterestCount } from '@/lib/interest-requests-client';
 import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
+import { TermsGateModal, useTermsGateStatus } from '@/components/terms/TermsGateModal';
 import { W1Badge } from '@/components/onboarding/W1Badge';
 import { DeveloperViewerFrame } from '@/components/DeveloperViewerFrame';
 import { OrphanAccountRepair } from '@/components/OrphanAccountRepair';
@@ -125,6 +126,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // refetched after a thread was read, unlike Support's own badge; now the
   // same live-refresh hook pattern (see DealThreadView.tsx's own header).
   const unreadMessages = useUnreadMessagesCount();
+  // Prompt 341 — called unconditionally here (before the bare-shell-route
+  // early return below) so hook order stays stable; only actually used in
+  // the JSX further down to gate WelcomeModal's own mount.
+  const needsTerms = useTermsGateStatus();
   // Prompt 125 Block A — reports this nav's real rendered height (only
   // ever present on mobile, md:hidden) to ReportProblemWidget.
   const mobileNavRef = useBottomNavRef<HTMLElement>();
@@ -343,7 +348,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       <WorkspaceMobileNav ref={mobileNavRef} items={mobileNavItems} />
 
-      <WelcomeModal />
+      {/* Prompt 341 — T&C must show first if both would fire on the same
+          first login: WelcomeModal only mounts once we KNOW the gate is
+          clear (false), not while it's still loading (null) or pending
+          (true). TermsGateModal itself always mounts — it no-ops until its
+          own fetch says a gate is needed. */}
+      {needsTerms === false && <WelcomeModal />}
+      <TermsGateModal />
       <ReminderPopup />
       <InvestorInterestPopup />
     </div>
