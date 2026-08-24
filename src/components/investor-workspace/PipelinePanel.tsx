@@ -5,13 +5,10 @@
 // fully treated (every card passed or expressed interest on).
 import { Fragment, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ComparisonView } from './ComparisonView';
 import { InteractionLogDrawer } from './InteractionLogDrawer';
 import { ArchivePanel } from './ArchivePanel';
 import { FollowOnBadge } from '../FollowOnBadge';
 import type { FollowOnPayload } from '@/lib/network';
-
-const MAX_COMPARE = 3;
 
 // Prompt 189 — measured in the actual render (a scratch element built from
 // this file's own collapsed-card markup, at the panel's own max-w-2xl
@@ -137,19 +134,12 @@ function LockedWave({ hiddenCount, onReview }: { hiddenCount: number; onReview: 
   );
 }
 
-export function PipelinePanel({
-  onOpenStartup, compareIds, setCompareIds, showComparison, setShowComparison,
-}: {
+// Prompt 345 Block E — compareIds/showComparison (P169 §B) are gone: the
+// comparator (checkbox-per-row + banner + ComparisonView) moved to
+// Evaluation tools' own "Compare startups" entry, which now owns that state
+// locally since it never needs to survive a trip across tabs anymore.
+export function PipelinePanel({ onOpenStartup }: {
   onOpenStartup: (orgId: string) => void;
-  // Prompt 169 §B — lifted up to InvestorWorkspaceShell (was local state
-  // here) so a selection made on this tab survives a trip to Evaluation
-  // tools and back — that tab's own "Compare startups from your Pipeline →"
-  // shortcut needs "the compareIds the investor already had marked, if
-  // any" to mean something; local state here would already be gone by the
-  // time the investor reaches that other tab (this component unmounts on
-  // tab switch, same as every other tab's panel).
-  compareIds: string[]; setCompareIds: (ids: string[] | ((prev: string[]) => string[])) => void;
-  showComparison: boolean; setShowComparison: (v: boolean) => void;
 }) {
   // P134-A — which rows are expanded (chevron), independent of data —
   // toggling never fetches, per the mini-prompt's own acceptance criterion.
@@ -248,43 +238,6 @@ export function PipelinePanel({
       .then((d) => setScorecardAvgs(d.averages ?? {}))
       .catch(() => setScorecardAvgs({}));
   }, []);
-
-  // Prompt 169 §A — Berkus total for the comparison table. Deliberately
-  // lazy (only once the comparator is actually shown, only for the up-to-3
-  // orgIds being compared) — unlike scorecardAvgs above (one cheap summary
-  // call covering every org at once), Berkus has no batch endpoint, so
-  // firing it for every Pipeline card on every page load would be real,
-  // unnecessary load for a table almost nobody opens.
-  //
-  // Prompt 174 — this used to also fetch TAM/SAM/SOM off the full dossier
-  // route (/api/portal/startup/[orgId]) alongside Berkus; Prompt 169b had
-  // already cancelled surfacing TAM/SAM/SOM anywhere (unreliable source,
-  // Nuno's decision, repeated twice) before that landed. Reverted — Berkus
-  // stays, the dossier fetch and its fields are gone.
-  const [compareEnrichment, setCompareEnrichment] = useState<Record<string, { berkusTotal: number | null }>>({});
-  useEffect(() => {
-    if (!showComparison || compareIds.length === 0) return;
-    const missing = compareIds.filter((id) => !(id in compareEnrichment));
-    if (missing.length === 0) return;
-    Promise.all(missing.map(async (orgId) => {
-      const berkusRes = await fetch(`/api/portal/berkus?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).catch(() => ({ estimate: null }));
-      const estimate = berkusRes.estimate as { sound_idea_eur: number; prototype_eur: number; team_eur: number; relationships_eur: number; sales_eur: number } | null;
-      const berkusTotal = estimate
-        ? estimate.sound_idea_eur + estimate.prototype_eur + estimate.team_eur + estimate.relationships_eur + estimate.sales_eur
-        : null;
-      return [orgId, { berkusTotal }] as const;
-    })).then((entries) => {
-      setCompareEnrichment((prev) => {
-        const next = { ...prev };
-        for (const [orgId, enrichment] of entries) next[orgId] = enrichment;
-        return next;
-      });
-    });
-  }, [showComparison, compareIds, compareEnrichment]);
-
-  function toggleCompare(orgId: string) {
-    setCompareIds((ids) => (ids.includes(orgId) ? ids.filter((id) => id !== orgId) : ids.length < MAX_COMPARE ? [...ids, orgId] : ids));
-  }
 
   function load() {
     fetch('/api/portal/pipeline').then((r) => r.json()).then(setData);
@@ -405,15 +358,6 @@ export function PipelinePanel({
   }
 
   const allCards = waves.flatMap((w) => w.items);
-  // Prompt 169 §A — the enrichment merge itself. scorecardAvgs already
-  // covers every org (cheap summary call, not lazy); berkus comes from
-  // compareEnrichment, only populated for orgIds actually being compared
-  // (see that state's own comment above).
-  const compareCards = compareIds.map((id) => allCards.find((c) => c.orgId === id)).filter((c): c is Card => !!c)
-    .map((c) => ({
-      ...c, scorecardAvg: scorecardAvgs[c.orgId] ?? null,
-      berkusTotal: compareEnrichment[c.orgId]?.berkusTotal ?? null,
-    }));
   // Prompt 121 §2.3 — option lists built from whatever's actually in the
   // Pipeline right now (not a fixed taxonomy import), so a filter sourced
   // from a canonical list could never show an option nothing actually
@@ -546,31 +490,6 @@ export function PipelinePanel({
       </div>
       {data.usualCoInvestors && <p className="text-xs text-gray-400">Usually co-invests with: {data.usualCoInvestors}</p>}
 
-      {/* Prompt 127 §3 — before this, the only hint that comparison existed
-          at all was the per-card checkbox itself, with zero invitation to
-          use it; a visible entry point even at zero-selected fixes that.
-          Once a card is ticked, this same slot becomes the existing
-          "N selected / Compare" banner — one discovery surface, not two. */}
-      {!showComparison && (compareIds.length > 0 ? (
-        <div className="flex items-center justify-between rounded-lg border border-[#0E7490] bg-[#E8F4F8] px-3 py-2 text-xs">
-          <span>{compareIds.length} selected to compare</span>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setCompareIds([])} className="text-gray-500 hover:underline">Clear</button>
-            <button onClick={() => setShowComparison(true)} disabled={compareIds.length < 2}
-              className="rounded-lg bg-[#0E7490] px-2.5 py-1 font-medium text-white disabled:opacity-40">
-              Compare
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-dashed border-gray-200 bg-white px-3 py-2 text-xs text-gray-500">
-          💡 Compare up to {MAX_COMPARE} startups side-by-side — tick the checkbox on any card below to get started.
-        </div>
-      ))}
-      {showComparison && compareCards.length >= 2 && (
-        <ComparisonView cards={compareCards} onClose={() => setShowComparison(false)} />
-      )}
-
       {/* Prompt 189 — own vertical scroll capped at ~15 cards so the list
           doesn't grow the whole page; max-height (not a hard height) so a
           short pipeline still shrinks to fit rather than leaving dead
@@ -607,9 +526,9 @@ export function PipelinePanel({
                     presence here at all anymore (it lives in Evaluation
                     tools + the dossier header, per the mini-prompt). */}
                 <div className="flex items-center gap-2 px-3 py-2.5">
-                  <input type="checkbox" checked={compareIds.includes(c.orgId)} onChange={() => toggleCompare(c.orgId)}
-                    disabled={!compareIds.includes(c.orgId) && compareIds.length >= MAX_COMPARE}
-                    title="Select to compare" />
+                  {/* Prompt 345 Block E — the per-row compare checkbox is
+                      gone; comparing now happens entirely in Evaluation
+                      tools' own "Compare startups" picker. */}
                   <button onClick={() => toggleExpanded(c.orgId)} className="group flex min-w-0 flex-1 items-center gap-2 text-left">
                     <div className="min-w-0 flex-1">
                       {/* Prompt 183 §B — `truncate` on a bare inline <span>

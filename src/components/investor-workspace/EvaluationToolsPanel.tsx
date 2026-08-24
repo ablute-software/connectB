@@ -11,13 +11,20 @@
 import { useEffect, useState } from 'react';
 import { computeDilution, type ValuationBasis } from '@/lib/dilution';
 import { ReturnScenarioTool } from './ReturnScenarioTool';
+import { ComparisonView } from './ComparisonView';
 
+// Prompt 345 Block E — oneLiner/sectors/stage/matchScore/matchReasons added
+// so this same fetch can also feed the comparator moved here from the
+// Pipeline (ComparisonView's own Card shape) — never a second /api/portal/
+// pipeline call just for that.
 interface PipelineCard {
-  orgId: string; name: string; roundTargetEur: number | null; roundValuationEur: number | null;
-  roundValuationBasis?: ValuationBasis | null;
+  orgId: string; name: string; oneLiner: string | null; sectors: string[]; stage: string | null;
+  roundTargetEur: number | null; roundValuationEur: number | null;
+  roundValuationBasis?: ValuationBasis | null; matchScore: number; matchReasons: string[];
 }
 interface Wave { items: PipelineCard[] }
 interface PipelineResponse { waves?: Wave[] }
+const MAX_COMPARE = 3;
 
 function fmtEur(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
@@ -442,12 +449,93 @@ function BerkusMethodTool({ cards }: { cards: PipelineCard[] }) {
   );
 }
 
+// Prompt 345 Block E — moved here from the Pipeline (checkbox-per-row +
+// top banner removed there): the picker + ComparisonView, self-contained.
+// compareIds/showComparison used to be lifted all the way up to
+// InvestorWorkspaceShell (P169 §B) purely so a selection survived the trip
+// from Pipeline to this tab and back — now that the picker lives on this
+// tab permanently, that round-trip is gone and the state can just live
+// here. `cards` is the exact same fetch this panel's other tools already
+// share, enriched (Block E's own reason for widening PipelineCard above).
+function CompareStartupsTool({ cards }: { cards: PipelineCard[] }) {
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [showComparison, setShowComparison] = useState(false);
+  const [scorecardAvgs, setScorecardAvgs] = useState<Record<string, number>>({});
+  useEffect(() => {
+    fetch('/api/portal/scorecard/summary').then((r) => r.json())
+      .then((d) => setScorecardAvgs(d.averages ?? {})).catch(() => setScorecardAvgs({}));
+  }, []);
+
+  // Prompt 169 §A — lazy, only for the up-to-3 orgIds actually being
+  // compared, same reasoning as the Pipeline's own former implementation:
+  // Berkus has no batch endpoint, so firing it for every Pipeline card
+  // would be real, unnecessary load for a tool almost nobody opens.
+  const [compareEnrichment, setCompareEnrichment] = useState<Record<string, { berkusTotal: number | null }>>({});
+  useEffect(() => {
+    if (!showComparison || compareIds.length === 0) return;
+    const missing = compareIds.filter((id) => !(id in compareEnrichment));
+    if (missing.length === 0) return;
+    Promise.all(missing.map(async (orgId) => {
+      const berkusRes = await fetch(`/api/portal/berkus?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).catch(() => ({ estimate: null }));
+      const estimate = berkusRes.estimate as { sound_idea_eur: number; prototype_eur: number; team_eur: number; relationships_eur: number; sales_eur: number } | null;
+      const berkusTotal = estimate
+        ? estimate.sound_idea_eur + estimate.prototype_eur + estimate.team_eur + estimate.relationships_eur + estimate.sales_eur
+        : null;
+      return [orgId, { berkusTotal }] as const;
+    })).then((entries) => {
+      setCompareEnrichment((prev) => {
+        const next = { ...prev };
+        for (const [orgId, enrichment] of entries) next[orgId] = enrichment;
+        return next;
+      });
+    });
+  }, [showComparison, compareIds, compareEnrichment]);
+
+  function toggleCompare(orgId: string) {
+    setCompareIds((ids) => (ids.includes(orgId) ? ids.filter((id) => id !== orgId) : ids.length < MAX_COMPARE ? [...ids, orgId] : ids));
+  }
+
+  const compareCards = compareIds.map((id) => cards.find((c) => c.orgId === id)).filter((c): c is PipelineCard => !!c)
+    .map((c) => ({ ...c, scorecardAvg: scorecardAvgs[c.orgId] ?? null, berkusTotal: compareEnrichment[c.orgId]?.berkusTotal ?? null }));
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-gray-500">Pick up to {MAX_COMPARE} startups from your Pipeline to compare side by side.</p>
+      {cards.length === 0 ? (
+        <p className="text-sm text-gray-400">Nothing in your Pipeline yet.</p>
+      ) : (
+        <ul className="max-h-72 space-y-1.5 overflow-y-auto rounded-lg border border-gray-200 bg-white p-2">
+          {cards.map((c) => (
+            <li key={c.orgId}>
+              <label className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-gray-50">
+                <input type="checkbox" checked={compareIds.includes(c.orgId)} onChange={() => toggleCompare(c.orgId)}
+                  disabled={!compareIds.includes(c.orgId) && compareIds.length >= MAX_COMPARE} />
+                <span className="text-gray-800">{c.name}</span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex items-center gap-2">
+        <button onClick={() => setCompareIds([])} disabled={compareIds.length === 0} className="text-xs text-gray-500 hover:underline disabled:opacity-40">Clear</button>
+        <button onClick={() => setShowComparison(true)} disabled={compareIds.length < 2}
+          className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+          Compare ({compareIds.length})
+        </button>
+      </div>
+      {showComparison && compareCards.length >= 2 && (
+        <ComparisonView cards={compareCards} onClose={() => setShowComparison(false)} />
+      )}
+    </div>
+  );
+}
+
 // Prompt 164 A — the two dilution tools kept being mistaken for duplicates
 // (they share computeDilution, so the results LOOK alike); a one-line
 // subtitle on each selector button and a header line on each tool spells
 // out the real difference: real Pipeline round data vs. your own
 // hypothetical numbers.
-const TOOLS: { key: 'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'return'; label: string; subtitle: string }[] = [
+const TOOLS: { key: 'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'return' | 'compare'; label: string; subtitle: string }[] = [
   { key: 'calculator', label: 'Ownership calculator', subtitle: 'Real round data from your Pipeline' },
   { key: 'simulator', label: 'Equity simulator', subtitle: 'Your own hypothetical numbers' },
   { key: 'scorecard', label: 'Scorecard criteria', subtitle: 'Your private scoring criteria' },
@@ -456,18 +544,17 @@ const TOOLS: { key: 'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'retur
   // calculator above, against an assumed exit value (from Berkus × a
   // growth multiple, or typed directly).
   { key: 'return', label: 'Return scenario', subtitle: 'Model MOIC against an exit value' },
+  // Prompt 345 Block E — moved here from the Pipeline (checkbox-per-row +
+  // banner removed there); this tool IS the comparator now, not a shortcut
+  // back to another tab.
+  { key: 'compare', label: 'Compare startups', subtitle: 'Side-by-side, up to 3 from your Pipeline' },
 ];
 
-export function EvaluationToolsPanel({ initialOrgId, onGoToPipelineComparison }: {
+export function EvaluationToolsPanel({ initialOrgId }: {
   initialOrgId?: string | null;
-  // Prompt 169 §B — "Compare startups from your Pipeline →" shortcut at the
-  // top of this panel; the actual tab-switch + comparator-open mechanism
-  // lives in InvestorWorkspaceShell (goToPipelineComparison), same as every
-  // other cross-tab navigation this shell already does.
-  onGoToPipelineComparison: () => void;
 }) {
   const [cards, setCards] = useState<PipelineCard[]>([]);
-  const [tool, setTool] = useState<'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'return'>('calculator');
+  const [tool, setTool] = useState<'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'return' | 'compare'>('calculator');
   const [selectedOrgId, setSelectedOrgId] = useState(initialOrgId ?? '');
 
   useEffect(() => {
@@ -486,7 +573,10 @@ export function EvaluationToolsPanel({ initialOrgId, onGoToPipelineComparison }:
     <div className="max-w-3xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-bold text-gray-900">Evaluation tools</h1>
-        <button onClick={onGoToPipelineComparison} className="text-xs font-medium text-[#0E7490] hover:underline">
+        {/* Prompt 345 Block E — "the shortcut that already exists becomes
+            THE path": same entry point, now opens the comparator right
+            here instead of jumping back to the Pipeline tab. */}
+        <button onClick={() => setTool('compare')} className="text-xs font-medium text-[#0E7490] hover:underline">
           Compare startups from your Pipeline →
         </button>
       </div>
@@ -518,6 +608,8 @@ export function EvaluationToolsPanel({ initialOrgId, onGoToPipelineComparison }:
         <ScorecardCriteriaTool />
       ) : tool === 'berkus' ? (
         <BerkusMethodTool cards={cards} />
+      ) : tool === 'compare' ? (
+        <CompareStartupsTool cards={cards} />
       ) : (
         <ReturnScenarioTool cards={cards} onSwitchToSimulator={() => setTool('simulator')} />
       )}
