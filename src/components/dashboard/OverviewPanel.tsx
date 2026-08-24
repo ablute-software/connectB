@@ -23,6 +23,8 @@ import { MatchDealVisibilityBanner } from './MatchDealVisibilityBanner';
 import { InvestorDecisionsCard, InterestLevelRequestsCard, WatchersCard, WatchUpdatesCard } from '@/components/company/InvestorEngagementCards';
 import { OutreachSettingsCard } from '@/components/company/OutreachSettingsCard';
 import type { EntityStatus } from '@/lib/types';
+import { EraSelector, useEraFilter } from './EraSelector';
+import { funnelByEra, interactionsInEra, datedInEra, entitiesActiveInEra } from '@/lib/dashboard-era';
 
 const STATUS_ORDER: EntityStatus[] = ['not_contacted', 'contacted', 'in_conversation', 'diligence', 'passed', 'invested', 'dormant'];
 const STATUS_BAR: Record<EntityStatus, string> = {
@@ -43,8 +45,11 @@ export function OverviewPanel() {
   const canEditOutreach = !authEnabled || can(orgRole, 'manage_org_settings');
   const caps = outboundCounts(db);
   const alert = passReasonAlert(db);
+  // Prompt 361 — these four ("inherently now" cards) never filter by era:
+  // they describe the campaign's CURRENT operational state, not history.
+  // A "current" sublabel (below) makes that explicit once a non-'all' era
+  // is selected, so it never reads as silently ignoring the selector.
   const active = db.entities.filter((e) => ['in_conversation', 'diligence'].includes(e.status)).length;
-  const passes = db.interactions.filter((i) => i.classification === 'pass');
   const followupsDue = db.tasks.filter((t) => !t.done && t.kind === 'follow_up'
     && t.due_at && new Date(t.due_at) < new Date(Date.now() + 7 * 86400_000));
   // P106 §3 — was softCircled (sum of interest_eur, a different concept:
@@ -55,14 +60,14 @@ export function OverviewPanel() {
   const roundSecured = db.org.round_secured_eur ?? 0;
   const roundPct = roundTarget ? Math.min(100, (roundSecured / roundTarget) * 100) : 0;
 
-  const contacted = db.entities.filter((e) => e.status !== 'not_contacted').length;
-  const replied = new Set(db.interactions.filter((i) => i.direction === 'in').map((i) => i.entity_id)).size;
-  const meetings = new Set(db.interactions.filter((i) => i.channel === 'meeting' || i.classification === 'meeting_request').map((i) => i.entity_id)).size;
-  const diligence = db.entities.filter((e) => e.status === 'diligence').length;
-  const invested = db.entities.filter((e) => e.status === 'invested').length;
+  const joinedAt = db.org.created_at ?? null;
+  const [era, setEra] = useEraFilter(db.org.id);
+
+  const passes = interactionsInEra(db.interactions.filter((i) => i.classification === 'pass'), era, joinedAt);
+  const eraFunnel = funnelByEra(db, era, joinedAt);
   const funnel = [
-    { label: 'contacted', n: contacted }, { label: 'replied', n: replied },
-    { label: 'meeting', n: meetings }, { label: 'diligence', n: diligence }, { label: 'committed', n: invested },
+    { label: 'contacted', n: eraFunnel.contacted }, { label: 'replied', n: eraFunnel.replied },
+    { label: 'meeting', n: eraFunnel.meeting }, { label: 'diligence', n: eraFunnel.diligence }, { label: 'committed', n: eraFunnel.committed },
   ];
 
   const passCounts = new Map<string, { count: number; sample?: string }>();
@@ -72,8 +77,10 @@ export function OverviewPanel() {
     passCounts.set(k, { count: cur.count + 1, sample: cur.sample ?? p.pass_reason });
   }
 
+  const eraEntities = entitiesActiveInEra(db, era, joinedAt);
+  const eraViews = datedInEra(db.views, era, joinedAt, (v) => v.viewed_at);
   const viewsByDoc = new Map<string, number>();
-  for (const v of db.views) viewsByDoc.set(v.document_id, (viewsByDoc.get(v.document_id) ?? 0) + 1);
+  for (const v of eraViews) viewsByDoc.set(v.document_id, (viewsByDoc.get(v.document_id) ?? 0) + 1);
 
   return (
     <div className="space-y-4">
@@ -84,6 +91,8 @@ export function OverviewPanel() {
 
       <MatchDealVisibilityBanner />
 
+      <EraSelector era={era} onChange={setEra} joinedAt={joinedAt} />
+
       {alert && (
         <div className="rounded-lg border-l-4 border-[#B00000] bg-red-50 px-4 py-3 text-sm">
           <span className="font-semibold text-[#B00000]">⚠ Same pass reason ({alert.category.replace('_', ' ')}) at {alert.count} investors — the pitch may be the problem. Review before sending more.</span>
@@ -92,13 +101,13 @@ export function OverviewPanel() {
 
       <div data-tour-id="dashboard-top-cards" className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Card><div className="text-2xl font-bold text-[#0E7490]">{active}</div>
-          <div className="text-xs text-gray-500">Active conversations<br />benchmark: seeds close on 15–40</div></Card>
+          <div className="text-xs text-gray-500">Active conversations{era !== 'all' && <span className="text-gray-400"> · current</span>}<br />benchmark: seeds close on 15–40</div></Card>
         <Card><div className="text-2xl font-bold">{caps.week}<span className="text-sm font-normal text-gray-400">/{caps.weeklyCap}</span></div>
           <div className="mt-1 h-1.5 rounded bg-gray-100"><div className={`h-full rounded ${caps.week >= caps.weeklyCap - 2 ? 'bg-amber-500' : 'bg-[#0E7490]'}`} style={{ width: `${Math.min(100, caps.week / caps.weeklyCap * 100)}%` }} /></div>
-          <div className="text-xs text-gray-500">Sent this week</div></Card>
+          <div className="text-xs text-gray-500">Sent this week{era !== 'all' && <span className="text-gray-400"> · current</span>}</div></Card>
         <button onClick={() => setOpenList(openList === 'followups' ? null : 'followups')} className="text-left">
           <Card><div className="text-2xl font-bold">{followupsDue.length}</div>
-            <div className="text-xs text-gray-500">Follow-ups due next 7 days <span className="text-[#0E7490]">— {openList === 'followups' ? 'hide' : 'view'}</span></div></Card>
+            <div className="text-xs text-gray-500">Follow-ups due next 7 days{era !== 'all' && <span className="text-gray-400"> · current</span>} <span className="text-[#0E7490]">— {openList === 'followups' ? 'hide' : 'view'}</span></div></Card>
         </button>
         <button onClick={() => setOpenList(openList === 'passes' ? null : 'passes')} className="text-left">
           <Card><div className="text-2xl font-bold">{passes.length}</div>
@@ -137,7 +146,7 @@ export function OverviewPanel() {
       )}
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card title="Round progress" tint="blue">
+        <Card title={`Round progress${era !== 'all' ? ' · current' : ''}`} tint="blue">
           {roundTarget ? (
             <>
               <div className="text-xl font-bold text-[#0E7490]">{fmtRoundEur(roundSecured)} <span className="text-sm font-normal text-gray-500">/ {fmtRoundEur(roundTarget)} target</span></div>
@@ -176,14 +185,14 @@ export function OverviewPanel() {
           </div>
         </Card>
 
-        <Card title="Status breakdown">
+        <Card title={era === 'all' ? 'Status breakdown' : 'Status breakdown — entities active in this era'}>
           <div className="space-y-1.5">
             {STATUS_ORDER.map((s) => {
-              const n = db.entities.filter((e) => e.status === s).length;
+              const n = eraEntities.filter((e) => e.status === s).length;
               return (
                 <div key={s} className="flex items-center gap-2 text-sm">
                   <span className="w-28 text-xs text-gray-500">{statusLabel[s]}</span>
-                  <div className={`h-3 rounded ${STATUS_BAR[s]}`} style={{ width: `${Math.max(3, n / db.entities.length * 100)}%` }} />
+                  <div className={`h-3 rounded ${STATUS_BAR[s]}`} style={{ width: `${Math.max(3, n / Math.max(1, eraEntities.length) * 100)}%` }} />
                   <span className="text-xs">{n}</span>
                 </div>
               );
@@ -220,8 +229,8 @@ export function OverviewPanel() {
             </ul>
           )}
         </Card>
-        <Card title="Data room engagement">
-          {db.views.length === 0 ? <p className="text-sm text-gray-400">No investor views yet. Views appear here the moment a grantee opens a document.</p> : (
+        <Card title={era === 'all' ? 'Data room engagement' : 'Data room engagement — this era'}>
+          {eraViews.length === 0 ? <p className="text-sm text-gray-400">No investor views yet. Views appear here the moment a grantee opens a document.</p> : (
             <ul className="space-y-1.5 text-sm">
               {[...viewsByDoc.entries()].map(([docId, n]) => (
                 <li key={docId} className="flex justify-between">

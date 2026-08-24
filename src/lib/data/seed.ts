@@ -15,6 +15,10 @@ export const seed: Db = {
     weekly_cap: 20,
     sender_email: 'nunomarujo@ablute.pt',
     bcc_email: 'investors@ablute.pt',
+    // Prompt 361 — "when this founder joined Sherlock", for the Dashboard's
+    // Before/With Sherlock era split. Demo-only date; matches the real
+    // ablute_ account's actual join week.
+    created_at: '2026-07-21T00:00:00Z',
   },
 
   entities: [
@@ -369,6 +373,27 @@ export const seed: Db = {
       occurred_at: '2026-06-30T10:00:00Z',
       content: '[demo] Quarterly check-in with Portugal Ventures (existing €100k convertible note holder). Supportive; asked to be kept informed on the seed progress.',
       classification: 'interested', next_action: 'Share round progress after wave 1', next_action_due: '2026-09-01',
+    },
+    // Prompt 361 — a small pre-platform vs. post-platform spread, so the
+    // Dashboard's Before/With Sherlock split has something real to show in
+    // demo mode instead of an empty "before" side. int-ptv-note above
+    // already pre-dates org.created_at (2026-07-21), so it counts as
+    // "before" without changes; these two add an imported outbound contact
+    // and a platform-native contact+reply pair.
+    {
+      id: 'int-bynd-import', entity_id: 'ent-bynd', direction: 'out', channel: 'email',
+      occurred_at: '2018-03-01T09:00:00Z', source: 'import',
+      content: '[demo, imported history] First outreach to Bynd VC, years before joining Sherlock.',
+    },
+    {
+      id: 'int-nina-out', entity_id: 'ent-nina', direction: 'out', channel: 'email',
+      occurred_at: '2026-08-10T09:00:00Z', source: 'manual',
+      content: '[demo] Intro email to Nina Capital, sent from Sherlock.',
+    },
+    {
+      id: 'int-nina-in', entity_id: 'ent-nina', direction: 'in', channel: 'email',
+      occurred_at: '2026-08-15T09:00:00Z', source: 'manual',
+      content: '[demo] Nina Capital replied, interested in a call.', classification: 'interested',
     },
   ],
 

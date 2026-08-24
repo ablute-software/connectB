@@ -14,6 +14,7 @@ import { Tabs } from '@/components/ui';
 import { useTabParam } from '@/lib/use-tab';
 import { OverviewPanel } from '@/components/dashboard/OverviewPanel';
 import { ProgressPanel } from '@/components/dashboard/ProgressPanel';
+import { ImpactPanel } from '@/components/dashboard/ImpactPanel';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 
 // Compatibility redirect for the old ?tab=review-optimization bookmarks and
@@ -33,6 +34,7 @@ function LegacyReviewTabRedirect() {
 const TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'progress', label: 'Progress' },
+  { key: 'impact', label: 'Impact' },
 ];
 
 function DashboardTabs() {
@@ -43,6 +45,7 @@ function DashboardTabs() {
       <Tabs items={TABS} active={activeTab} onChange={setTab} />
       {activeTab === 'overview' && <OverviewPanel />}
       {activeTab === 'progress' && <ProgressPanel />}
+      {activeTab === 'impact' && <ImpactPanel />}
     </div>
   );
 }

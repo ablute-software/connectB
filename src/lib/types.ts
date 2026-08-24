@@ -65,6 +65,11 @@ export type AiReviewKind = 'deck_review' | 'one_pager_review' | 'message_review'
 export interface Org {
   id: string;
   name: string;
+  // Prompt 361 — "when this founder started using the platform," for the
+  // Dashboard's Before/With Sherlock era split. Real DB column since
+  // migration 0001 (default now()); only just surfaced on the type — the
+  // store's `select('*')` already passes it through untyped.
+  created_at?: string;
   plan: PlanTier;
   daily_cap: number;
   weekly_cap: number;
@@ -310,6 +315,10 @@ export interface CompanyPerson {
 export interface Entity {
   id: string;
   name: string;
+  // Prompt 361 — for the Impact tab's "only possible with Sherlock" block
+  // (source === 'match_deal' | 'catalog' entities, first-added date). Real
+  // DB column since migration 0001; only just surfaced on the type.
+  created_at?: string;
   type: EntityType;
   hq_city?: string;
   hq_country?: string;
@@ -512,6 +521,14 @@ export interface Interaction {
   // classifyInteraction) — it marks "who decided this currently stands",
   // not a permanent history of who first touched the row.
   classified_by?: 'ai' | 'mechanical';
+  // Prompt 361 — the two fields the Dashboard's era classifier needs.
+  // Real DB columns since migration 0011 (source, default 'manual') and
+  // 0001 (created_at); only just surfaced on the type, same as Org.created_at
+  // above — the store's `select('*')` already passes both through untyped.
+  // `source === 'import'` marks a row that came in via the history import
+  // (§9d/§9f), regardless of what occurred_at claims.
+  source?: 'manual' | 'import';
+  created_at?: string;
 }
 
 export interface TaskItem {
