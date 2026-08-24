@@ -16,6 +16,7 @@ import { Card } from '@/components/ui';
 import type { CompanyClaim, ClaimCategory } from '@/lib/types';
 import { GapInterrogation, type GapView } from './GapInterrogation';
 import { KnowledgeHealthPanel } from './KnowledgeHealthPanel';
+import { StrengthenClaimsPanel } from './StrengthenClaimsPanel';
 import { isWastedStrongClaim } from '@/lib/company-claims';
 import { pickCurrentGap } from '@/lib/gap-rotation';
 import { GAP_QUESTION_BUDGET } from '@/lib/company-gaps';
@@ -269,6 +270,12 @@ export function BlueprintPanel() {
               Ask me more ({allGaps.length - budgetedGaps.length} more available)
             </button>
           )}
+        </Card>
+      )}
+
+      {state.claims.length > 0 && (
+        <Card title={<span className="text-[#0E7490]">Strengthen your claims</span>}>
+          <StrengthenClaimsPanel claims={state.claims} onApplied={load} />
         </Card>
       )}
 

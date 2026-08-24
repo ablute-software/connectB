@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyEvidence, measureSpecificity, normalizeAtom, isWastedStrongClaim, rankForNarrative, weakClaimCoachingNote,
-  extractNamedEntity, findDuplicateCandidate, findDocumentLinkCandidate, proposeClaimFromDocumentFact, type RawAtom,
+  extractNamedEntity, findDuplicateCandidate, findDocumentLinkCandidate, proposeClaimFromDocumentFact, strengthenGaps, type RawAtom,
 } from './company-claims';
 import type { CompanyClaim } from './types';
 
@@ -269,5 +269,37 @@ describe('proposeClaimFromDocumentFact (Prompt 313 §B) — só para factos de p
   it('ignora um claim que menciona o programa mas não é classe 5', () => {
     const notDecoration = claim('c-other', { statement: 'We applied to the WomenTechEU program', evidenceClass: 3, status: 'accepted' });
     expect(proposeClaimFromDocumentFact(FACT, [notDecoration])).not.toBeNull();
+  });
+});
+
+describe('strengthenGaps (Prompt 358 §3.4) — o que falta EXACTAMENTE, nunca uma ladainha genérica', () => {
+  it('devolve null (silêncio) para um claim já específico com quem+quando+resultado', () => {
+    expect(strengthenGaps({ category: 'validacao_externa', sourceKind: 'founder_answer',
+      statement: 'Acme Corp signed a pilot LOI with us in March 2026' })).toBeNull();
+  });
+
+  it('um claim de decoração (prémio) nunca pede "outcome" — o prémio já É o resultado', () => {
+    expect(strengthenGaps({ category: 'equipa', sourceKind: 'roadmap',
+      statement: 'Carla Dias won the WomenTechEU prize, €75,000 non-dilutive, 2022' })).toBeNull();
+  });
+
+  it('a fixture real do Nuno: falta exactamente o ano, nada mais', () => {
+    expect(strengthenGaps({ category: 'equipa', sourceKind: 'fact',
+      statement: 'Carla Dias is a WomenTechEU awardee' })).toEqual(['when']);
+  });
+
+  it('o vago clássico do 219 pede quem e resultado, não "quando" (a data existe)', () => {
+    expect(strengthenGaps({ category: 'validacao_externa', sourceKind: 'fact',
+      statement: "the world's manufacturing leader sent a committee to visit us for a week in 2026" })).toEqual(['who', 'outcome']);
+  });
+
+  it('categorias estruturadas (ask/funding) nunca aparecem — específicas por construção', () => {
+    expect(strengthenGaps({ category: 'ask', sourceKind: 'profile', statement: 'Raising €300k.' })).toBeNull();
+    expect(strengthenGaps({ category: 'funding', sourceKind: 'profile', statement: 'Use of funds: hiring.' })).toBeNull();
+  });
+
+  it('sourceKind de campo estruturado (profile/funding_round) nunca aparece, seja qual for a categoria', () => {
+    expect(strengthenGaps({ category: 'mercado_timing', sourceKind: 'profile', statement: 'Operating in Digital Health from Portugal.' })).toBeNull();
+    expect(strengthenGaps({ category: 'funding', sourceKind: 'funding_round', statement: 'Previous round of €500k closed in 2023.' })).toBeNull();
   });
 });

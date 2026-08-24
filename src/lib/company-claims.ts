@@ -45,8 +45,11 @@ const CATEGORY_BASE_CLASS: Record<ClaimCategory, EvidenceClass> = {
 // mãos ou está contratado) e não uma promessa.
 const PAID_COMMITMENT = /\b(paying customer|paid pilot|contract signed|purchase order|revenue|invoiced|cliente pagante|contrato assinado)\b/i;
 // Sinais de decoração — sobrepõem-se à categoria: um prémio é classe 5
-// mesmo quando a frase fala de equipa.
-const DECORATION = /\b(award|awardee|prize|winner|finalist|featured in|press|prémio|premio|vencedor|finalista)\b/i;
+// mesmo quando a frase fala de equipa. Exportado (Prompt 358 §3.4) —
+// strengthenGaps abaixo reutiliza o MESMO sinal: um prémio já É o
+// resultado, por isso nunca lhe falta "outcome" da mesma forma que falta a
+// um claim de tracao_gtm/validacao_externa.
+export const DECORATION = /\b(award|awardee|prize|winner|finalist|featured in|press|prémio|premio|vencedor|finalista)\b/i;
 
 export function classifyEvidence(category: ClaimCategory, statement: string): EvidenceClass {
   if (DECORATION.test(statement)) return 5;
@@ -112,6 +115,34 @@ export function measureSpecificity(statement: string): { level: ClaimSpecificity
   // investidor não consegue verificar.
   const level: ClaimSpecificity = score >= 3 ? 'high' : score === 2 ? 'medium' : 'low';
   return { level, signals };
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 358 §3.4 — "Strengthen your claims": which of who/when/outcome a
+// SPECIFIC claim is actually missing, mechanically (never a repeated
+// template). Returns null for two distinct reasons the caller must NOT
+// conflate: (a) the claim is already specific enough — nothing to say, panel
+// stays silent for it; (b) the claim is INELIGIBLE — echo claims (Phase 1
+// already kills these at the source), and anything from a structured field
+// (ask/funding's own terms, the org/person profile fields) that is specific
+// by construction and never needed this panel's help.
+export type StrengthenDimension = 'who' | 'when' | 'outcome';
+
+const STRUCTURED_SOURCE_KINDS = new Set<ClaimSourceKind>(['profile', 'funding_round']);
+const STRUCTURED_CATEGORIES = new Set<ClaimCategory>(['ask', 'funding']);
+
+export function strengthenGaps(
+  c: { category: ClaimCategory; statement: string; sourceKind: ClaimSourceKind },
+): StrengthenDimension[] | null {
+  if (STRUCTURED_SOURCE_KINDS.has(c.sourceKind) || STRUCTURED_CATEGORIES.has(c.category)) return null;
+  const { signals } = measureSpecificity(c.statement);
+  const isDecoration = DECORATION.test(c.statement);
+  const missing: StrengthenDimension[] = [];
+  if (!signals.hasNamedEntity) missing.push('who');
+  if (!signals.hasDate) missing.push('when');
+  // A prize/award IS the outcome — never ask a decoration claim for one.
+  if (!isDecoration && !signals.hasOutcome) missing.push('outcome');
+  return missing.length > 0 ? missing : null;
 }
 
 // ---------------------------------------------------------------------------
