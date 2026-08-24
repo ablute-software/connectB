@@ -1079,18 +1079,97 @@ export default function NetworkPage() {
       </>
       )}
 
+      {/* Prompt 342 — Connections' central column, Nuno's own order:
+          Directory first (moved up from below), then "My connections"
+          (renamed from "Your connections", absorbing the Pipeline's old
+          "Partners & colleagues" panel — its NetworkAvatar list + "+Add"
+          email invite — into this ONE card, never a second list beside it).
+          Invites received/sent moved out entirely, to the right column
+          (connections-only, see the aside below) — zero logic/endpoint
+          changes, pure relocation. */}
       {section === 'connections' && (
       <>
-      <Card title={`Your connections (${connections.length})`}>
+      <Card title="Directory">
+        <p className="text-[11px] text-gray-400">
+          Search founders who opted in to being found — never open people search, only who raised their hand.
+        </p>
+        <input value={directoryQuery} onChange={(e) => searchDirectory(e.target.value)}
+          placeholder="Search by name, sector, or geography" className="mt-2 w-full rounded-lg border border-gray-300 p-1.5 text-sm" />
+        {directoryResults && (
+          directoryResults.length === 0 ? (
+            <p className="mt-2 text-sm text-gray-400">No matches.</p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {directoryResults.map((r) => (
+                <li key={r.orgId} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 p-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">{r.name}</p>
+                    <p className="text-[11px] text-gray-400">{[r.sectors.join(', '), r.geography].filter(Boolean).join(' · ')}</p>
+                  </div>
+                  <button onClick={() => inviteFromDirectory(r.orgId)} disabled={busy}
+                    className="shrink-0 rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-40">
+                    Invite to connect
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )
+        )}
+      </Card>
+
+      <Card title={`My connections (${connections.length})`} right={
+        !addingContact && <button onClick={() => setAddingContact(true)} className="text-xs text-cyan-700 hover:underline">+ Add</button>
+      }>
+        {addingContact && (
+          <div className="mb-3 border-b border-gray-100 pb-3">
+            <InviteByEmailForm />
+            <button onClick={() => setAddingContact(false)} className="mt-1.5 rounded-full border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600">Close</button>
+          </div>
+        )}
+
+        {/* "My connect link" has no explicitly named new home in Prompt
+            342's spec (only NetworkAvatar + "+Add" are named as absorbed
+            here, and the right column names only Invites received/sent +
+            Suggestions) — kept here rather than dropped, since removing a
+            working feature was never asked for; it's a connections-adjacent
+            affordance, not a second connections list. */}
+        <div className="mb-3 border-b border-gray-100 pb-3">
+          <p className="text-[11px] font-medium text-gray-500">My connect link</p>
+          {connectLinkUrl ? (
+            <div className="mt-1 flex items-center gap-1.5">
+              <input readOnly value={connectLinkUrl} className="min-w-0 flex-1 rounded border border-gray-200 bg-gray-50 px-1.5 py-1 text-[10px] text-gray-500" />
+              <button onClick={() => navigator.clipboard?.writeText(connectLinkUrl).catch(() => {})} className="shrink-0 rounded-full border border-gray-300 px-2 py-0.5 text-[10px] text-gray-600 hover:bg-gray-50">Copy</button>
+            </div>
+          ) : (
+            <p className="mt-1 text-[10px] text-gray-400">
+              {connectLink?.exists && !connectLink.revoked ? 'Active — regenerate to see the link again.' : 'Share a link so people can request to connect.'}
+            </p>
+          )}
+          <div className="mt-1.5 flex gap-1.5">
+            <button onClick={regenerateConnectLink} disabled={connectLinkBusy}
+              className="rounded-full border border-gray-300 px-2 py-0.5 text-[10px] text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+              {connectLink?.exists ? 'Regenerate' : 'Create link'}
+            </button>
+            {connectLink?.exists && !connectLink.revoked && (
+              <button onClick={revokeConnectLinkAction} disabled={connectLinkBusy} className="rounded-full border border-gray-300 px-2 py-0.5 text-[10px] text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                Revoke
+              </button>
+            )}
+          </div>
+        </div>
+
         {connections.length === 0 ? (
-          <p className="text-sm text-gray-400">No connections yet — accept an invite, or invite someone from a suggestion below.</p>
+          <p className="text-sm text-gray-400">No connections yet — accept an invite, or invite someone from a suggestion, or add a colleague by email above.</p>
         ) : (
           <ul className="space-y-2">
             {connections.map((c) => (
               <li key={c.id} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 p-2.5">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{c.otherName} <span className="text-[11px] font-normal text-gray-400">· {c.otherKind}</span></p>
-                  {c.originContext && <p className="text-[11px] text-gray-400">{c.originContext}</p>}
+                <div className="flex min-w-0 items-center gap-2">
+                  <NetworkAvatar name={c.otherName} kind={c.otherKind} size="sm" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-gray-800">{c.otherName} <span className="text-[11px] font-normal text-gray-400">· {c.otherKind}</span></p>
+                    {c.originContext && <p className="truncate text-[11px] text-gray-400">{c.originContext}</p>}
+                  </div>
                 </div>
                 {confirmAction?.id === c.id ? (
                   <div className="flex shrink-0 items-center gap-1.5">
@@ -1106,46 +1185,6 @@ export default function NetworkPage() {
                     <button onClick={() => setConfirmAction({ id: c.id, action: 'block' })} className="text-[11px] text-gray-400 hover:text-[#B00000]">Block</button>
                   </div>
                 )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <Card title={`Invites received (${invitesReceived.length})`}>
-        {invitesReceived.length === 0 ? (
-          <p className="text-sm text-gray-400">No pending invites.</p>
-        ) : (
-          <ul className="space-y-2">
-            {invitesReceived.map((i) => (
-              <li key={i.id} className="rounded-lg border border-gray-100 p-2.5">
-                <p className="text-sm text-gray-800">{i.fromName} <span className="text-[11px] font-normal text-gray-400">· {i.fromKind}</span></p>
-                {i.contextRef && <p className="text-[11px] text-gray-400">{i.contextRef}</p>}
-                <p className="mt-1 text-xs italic text-gray-600">&ldquo;{i.message}&rdquo;</p>
-                <p className="mt-1 text-[11px] text-gray-400">{daysLeft(i.expiresAt)}d left to respond</p>
-                <div className="mt-1.5 flex gap-1.5">
-                  <button onClick={() => respondToInvite(i.id, 'accept')} disabled={busy}
-                    className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">Accept</button>
-                  <button onClick={() => respondToInvite(i.id, 'decline')} disabled={busy}
-                    className="rounded-full border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600">Decline</button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <Card title={`Invites sent (${invitesSent.length})`}>
-        {invitesSent.length === 0 ? (
-          <p className="text-sm text-gray-400">You haven&apos;t sent any invites yet.</p>
-        ) : (
-          <ul className="space-y-1.5">
-            {invitesSent.map((i) => (
-              <li key={i.id} className="flex items-center justify-between text-sm">
-                <span className="text-gray-700">{i.toName} <span className="text-[11px] text-gray-400">· {i.toKind}</span></span>
-                <span className="text-[11px] text-gray-400">
-                  {i.status === 'pending' ? `${daysLeft(i.expiresAt)}d left` : i.status}
-                </span>
               </li>
             ))}
           </ul>
@@ -1361,77 +1400,96 @@ export default function NetworkPage() {
       </>
       )}
 
-      {section === 'connections' && (
-      <Card title="Suggestions">
-        {state.myActorKind === 'founder' && !state.discoverable && (
-          <div className="mb-3 space-y-2 border-b border-gray-100 pb-3">
-            <p className="text-sm text-gray-600">
-              Turn this on to see founders who share an investor with you, and let them discover you the same way — it
-              also lets other founders find you by name or sector in the directory below.
-            </p>
-            <p className="text-[11px] text-gray-400">
-              Only the fact that you share an investor is ever shown — never pipeline stages, counts, or anything else about your fundraise.
-            </p>
-            <Toggle checked={false} onChange={(v) => { updateOrg({ network_discoverable: v }); window.setTimeout(load, 400); }}
-              label={<span className="text-xs text-gray-600">Let founders who share an investor with me discover me</span>} />
-          </div>
-        )}
-        {suggestions.length === 0 ? (
-          <p className="text-sm text-gray-400">No suggestions right now — none of your invested investors or groups overlap with another connectable actor yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {suggestions.map((s) => (
-              <li key={s.actorId} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 p-2.5">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{s.name}</p>
-                  {s.reasons.map((r) => <p key={r.kind} className="text-[11px] text-gray-400">{r.label}</p>)}
-                </div>
-                <button onClick={() => { setComposerFor(s); setComposerMessage(''); }}
-                  className="shrink-0 rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">
-                  Connect
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-      )}
-
-      {section === 'connections' && (
-      <Card title="Directory">
-        <p className="text-[11px] text-gray-400">
-          Search founders who opted in to being found — never open people search, only who raised their hand.
-        </p>
-        <input value={directoryQuery} onChange={(e) => searchDirectory(e.target.value)}
-          placeholder="Search by name, sector, or geography" className="mt-2 w-full rounded-lg border border-gray-300 p-1.5 text-sm" />
-        {directoryResults && (
-          directoryResults.length === 0 ? (
-            <p className="mt-2 text-sm text-gray-400">No matches.</p>
-          ) : (
-            <ul className="mt-2 space-y-2">
-              {directoryResults.map((r) => (
-                <li key={r.orgId} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 p-2.5">
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">{r.name}</p>
-                    <p className="text-[11px] text-gray-400">{[r.sectors.join(', '), r.geography].filter(Boolean).join(' · ')}</p>
-                  </div>
-                  <button onClick={() => inviteFromDirectory(r.orgId)} disabled={busy}
-                    className="shrink-0 rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-40">
-                    Invite to connect
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )
-        )}
-      </Card>
-      )}
       </div>
 
       {/* Prompt 332 §C — real "your network" panel, N = connections.length
           (never a placeholder count). Search is a client-side name filter
-          over already-fetched `connections` — no new server call. */}
+          over already-fetched `connections` — no new server call.
+          Prompt 342 — this slot is section-dependent now: ONLY while on
+          Connections, "My contacts" is swapped out for Invites received/
+          sent + Suggestions (Nuno's own instruction — the contacts list
+          would be redundant right next to "My connections" in the center
+          column there). Every other section keeps "My contacts" exactly as
+          before; same data-tour-id either way, so guide_network's own
+          'network-my-contacts' step keeps resolving regardless of section. */}
       <aside data-tour-id="network-my-contacts" className="hidden w-64 shrink-0 xl:block">
+        {section === 'connections' ? (
+          <div className="sticky top-4 space-y-3">
+            <Card title={`Invites received (${invitesReceived.length})`}>
+              {invitesReceived.length === 0 ? (
+                <p className="text-sm text-gray-400">No pending invites.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {invitesReceived.map((i) => (
+                    <li key={i.id} className="rounded-lg border border-gray-100 p-2.5">
+                      <p className="text-sm text-gray-800">{i.fromName} <span className="text-[11px] font-normal text-gray-400">· {i.fromKind}</span></p>
+                      {i.contextRef && <p className="text-[11px] text-gray-400">{i.contextRef}</p>}
+                      <p className="mt-1 text-xs italic text-gray-600">&ldquo;{i.message}&rdquo;</p>
+                      <p className="mt-1 text-[11px] text-gray-400">{daysLeft(i.expiresAt)}d left to respond</p>
+                      <div className="mt-1.5 flex gap-1.5">
+                        <button onClick={() => respondToInvite(i.id, 'accept')} disabled={busy}
+                          className="rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">Accept</button>
+                        <button onClick={() => respondToInvite(i.id, 'decline')} disabled={busy}
+                          className="rounded-full border border-gray-300 px-2.5 py-1 text-[11px] text-gray-600">Decline</button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            <Card title={`Invites sent (${invitesSent.length})`}>
+              {invitesSent.length === 0 ? (
+                <p className="text-sm text-gray-400">You haven&apos;t sent any invites yet.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {invitesSent.map((i) => (
+                    <li key={i.id} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-700">{i.toName} <span className="text-[11px] text-gray-400">· {i.toKind}</span></span>
+                      <span className="text-[11px] text-gray-400">
+                        {i.status === 'pending' ? `${daysLeft(i.expiresAt)}d left` : i.status}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            <Card title="Suggestions">
+              {state.myActorKind === 'founder' && !state.discoverable && (
+                <div className="mb-3 space-y-2 border-b border-gray-100 pb-3">
+                  <p className="text-sm text-gray-600">
+                    Turn this on to see founders who share an investor with you, and let them discover you the same way — it
+                    also lets other founders find you by name or sector in the directory above.
+                  </p>
+                  <p className="text-[11px] text-gray-400">
+                    Only the fact that you share an investor is ever shown — never pipeline stages, counts, or anything else about your fundraise.
+                  </p>
+                  <Toggle checked={false} onChange={(v) => { updateOrg({ network_discoverable: v }); window.setTimeout(load, 400); }}
+                    label={<span className="text-xs text-gray-600">Let founders who share an investor with me discover me</span>} />
+                </div>
+              )}
+              {suggestions.length === 0 ? (
+                <p className="text-sm text-gray-400">No suggestions right now — none of your invested investors or groups overlap with another connectable actor yet.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {suggestions.map((s) => (
+                    <li key={s.actorId} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 p-2.5">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">{s.name}</p>
+                        {s.reasons.map((r) => <p key={r.kind} className="text-[11px] text-gray-400">{r.label}</p>)}
+                      </div>
+                      <button onClick={() => { setComposerFor(s); setComposerMessage(''); }}
+                        className="shrink-0 rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white">
+                        Connect
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </div>
+        ) : (
         <div className="sticky top-4 rounded-xl border border-gray-100 p-3">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-xs font-semibold text-gray-700">My contacts ({connections.length})</h3>
@@ -1491,6 +1549,7 @@ export default function NetworkPage() {
             )}
           </ul>
         </div>
+        )}
       </aside>
     </div>
   );
