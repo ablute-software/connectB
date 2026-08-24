@@ -553,7 +553,14 @@ export default function StartupDossierPage() {
           // it scrolls WITHIN its own column instead. The `lg` breakpoint
           // (1024px) is where 3 real columns stop fitting comfortably;
           // below it, the stacked/accordion layout takes over, unchanged.
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_1fr_300px] lg:items-start">
+          //
+          // Prompt 356 §B — the right column's TRACK only exists in the grid
+          // template when there's real content for it (a focused document's
+          // scoring panel); with no doc in focus it was previously reserved
+          // as empty space regardless, squeezing the center against a dead
+          // white margin. 2 columns (scorecard + center) is the resting
+          // state; 3 only when Documents actually has a doc in focus.
+          <div className={`grid grid-cols-1 gap-4 lg:items-start ${focusedDoc ? 'lg:grid-cols-[300px_1fr_300px]' : 'lg:grid-cols-[300px_1fr]'}`}>
             <details className="rounded-lg border border-gray-200 bg-white lg:hidden">
               <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">Your scorecard</summary>
               <div className="border-t border-gray-100 p-2 space-y-2">
@@ -632,7 +639,7 @@ export default function StartupDossierPage() {
                 ))}
               </div>
             )}
-            <DossierOverviewSections card={card} level={level} dossier={dossier} onRequestLevel={requestLevel} levelBusy={levelBusy} scorecardOrgId={card.orgId} />
+            <DossierOverviewSections card={card} level={level} dossier={dossier} onRequestLevel={requestLevel} levelBusy={levelBusy} />
           </>
         )}
         {tab === 'documents' && (

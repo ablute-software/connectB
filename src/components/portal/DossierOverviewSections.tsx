@@ -7,7 +7,6 @@
 // definition of "what this looks like" for both callers.
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
 import { SwotQuadrant } from '@/components/readiness/SwotVisualCard';
 import { ResponsiveRoadmap } from '@/components/company/ResponsiveRoadmap';
 import type { SwotData, RoadmapPeriodKind } from '@/lib/types';
@@ -141,15 +140,18 @@ export function fmtEur(n: number | null | undefined) {
 // the real investor page passes all three; the founder preview passes
 // none, so no button that would call requestLevel ever renders (Prompt
 // 306's own guard: "no action that implies a real investor relationship").
-// `scorecardOrgId` is likewise optional — ONLY the real investor page
-// passes it, since ScorecardPanel is the INVESTOR's own private scoring of
-// this startup, not something the startup itself has any content for.
+// Prompt 356 §A — ScorecardPanel used to ALSO render inline here (a
+// `scorecardOrgId` prop), duplicating the Track & Evaluate sidebar's own
+// copy (347/352) on every single sub-tab. One scorecard, one home: the
+// T&E left column when the mode is on, never here — removed outright
+// rather than conditionally hidden, so there's exactly one source of truth
+// (the mode) for whether it renders at all.
 export function DossierOverviewSections({
-  card, level, dossier, onRequestLevel, levelBusy, readOnly, scorecardOrgId, swotOffHref, roadmapOffHref,
+  card, level, dossier, onRequestLevel, levelBusy, readOnly, swotOffHref, roadmapOffHref,
 }: {
   card: Card; level: 0 | 1 | 2 | 3; dossier: Dossier;
   onRequestLevel?: (level: 2 | 3) => void; levelBusy?: boolean;
-  readOnly?: boolean; scorecardOrgId?: string;
+  readOnly?: boolean;
   // Preview-only (Prompt 306): set ONLY when level >= 1 AND the section is
   // absent because the founder's OWN toggle is off, never when it's simply
   // not unlocked at this level yet — the caller (the preview page) is the
@@ -510,8 +512,6 @@ export function DossierOverviewSections({
       )}
 
       {active?.node}
-
-      {scorecardOrgId && <ScorecardPanel orgId={scorecardOrgId} />}
 
       {level === 1 && (
         <div className="rounded-lg border border-dashed border-gray-200 bg-white p-4 text-center">
