@@ -1037,6 +1037,12 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
         };
       });
     },
+
+    // Prompt 346 — demo mode has nothing server-side to fall behind; the
+    // localStorage db is already current the instant any action above
+    // writes to it. A no-op so callers (InvestorInterestPopup etc.) can
+    // call this unconditionally without branching on which store is mounted.
+    async refreshFromServer() {},
   }), [db]);
 
   return <StoreCtx.Provider value={api}>{children}</StoreCtx.Provider>;

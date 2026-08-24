@@ -333,6 +333,15 @@ export interface StoreApi {
   addRoadmapMilestone: (m: Omit<RoadmapMilestone, 'id' | 'org_id' | 'sort_order' | 'created_at' | 'updated_at'>) => Promise<{ error?: string }>;
   updateRoadmapMilestone: (id: string, patch: Partial<RoadmapMilestone>) => Promise<{ error?: string }>;
   removeRoadmapMilestone: (id: string) => void;
+  // Prompt 346 — "an investor's interest can never look lost": the founder
+  // workspace hydrates this store ONCE on load; anything born server-side
+  // afterward (investor decisions, automations tasks, catalog deliveries)
+  // is invisible until an F5 unless something explicitly pulls fresh data.
+  // Reuses the exact same load path each store already has internally
+  // (store-supabase.tsx's own refetch()) — never a second, parallel one.
+  // Demo mode's implementation is a no-op (nothing server-side to fall
+  // behind), so every caller can invoke this unconditionally.
+  refreshFromServer: () => Promise<void>;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);

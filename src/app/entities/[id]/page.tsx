@@ -29,8 +29,25 @@ import { ReportFraudModal } from '@/components/ReportFraudModal';
 
 export default function EntityPage({ params }: { params: { id: string } }) {
   const { id } = params;
-  const { db, setInterest, markEntityVerified, updateEntity, resolveHardFilter } = useStore();
+  const { db, loading, refreshFromServer, setInterest, markEntityVerified, updateEntity, resolveHardFilter } = useStore();
   const entity = db.entities.find((e) => e.id === id);
+  // Prompt 346 §B — this used to trust the client store blindly: an id not
+  // found here was declared "Entity not found" outright, even for an
+  // entity that demonstrably exists in the database (the confirmed
+  // incident — an investor's interest reconciled server-side seconds
+  // earlier, invisible here until an F5, since this store only ever
+  // hydrates once on load). One refetch of the whole store (the same
+  // refreshFromServer path the interest popup itself uses — never a
+  // second, parallel fetch) before giving up; only a genuinely nonexistent
+  // id still reaches the error state below, which now offers a real way
+  // out (Refresh) instead of being a dead end.
+  const [attemptedRefetch, setAttemptedRefetch] = useState(false);
+  const [refetching, setRefetching] = useState(false);
+  useEffect(() => {
+    if (entity || loading || attemptedRefetch) return;
+    setRefetching(true);
+    refreshFromServer().finally(() => { setRefetching(false); setAttemptedRefetch(true); });
+  }, [entity, loading, attemptedRefetch, refreshFromServer]);
   // Prompt 220 §C — o pedido de nível 3 deste investidor, se pendente. O
   // match é por entityId (a resolução catalog_deliveries devolvida pelo
   // endpoint founder), a mesma que liga a task do Today ao pedido.
@@ -149,7 +166,18 @@ export default function EntityPage({ params }: { params: { id: string } }) {
     [messaging.messages],
   );
 
-  if (!entity) return <div className="text-gray-500">Entity not found.</div>;
+  if (!entity) {
+    if (loading || refetching || !attemptedRefetch) return <div className="text-gray-500">Loading…</div>;
+    return (
+      <div className="mx-auto mt-16 max-w-sm space-y-3 text-center">
+        <p className="text-sm text-gray-600">We couldn&apos;t find this entity — it may still be syncing.</p>
+        <button onClick={() => setAttemptedRefetch(false)}
+          className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#0c637b]">
+          Refresh
+        </button>
+      </div>
+    );
+  }
 
   function startEditContact() {
     setContactDraft({

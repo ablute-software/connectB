@@ -11,8 +11,9 @@
 // unnoticed. Polls + reacts to visibilitychange, same shape as
 // ReminderPopup.tsx; placed bottom-left so the two never overlap if both
 // are showing at once.
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useStore } from '@/lib/store';
 
 const POLL_MS = 30_000;
 
@@ -25,12 +26,33 @@ interface InterestItem {
 }
 
 export function InvestorInterestPopup() {
+  const { refreshFromServer } = useStore();
+  const router = useRouter();
   const [items, setItems] = useState<InterestItem[]>([]);
   const [busy, setBusy] = useState(false);
+  // Prompt 346 §A — "an investor's interest can never look lost": the
+  // founder workspace only ever hydrates its store once on load, so the
+  // entity/task this popup is ABOUT (born server-side by
+  // matchdeal_record_interest_notification, moments before this popup ever
+  // shows) stays invisible to Pipeline/Tasks/Today/search until an F5 —
+  // exactly the confirmed incident (SQL showed the entity existed;
+  // /entities/[id] still said "Entity not found" because it only ever
+  // reads the stale client store). seenIds tracks what THIS mounted
+  // instance has already reacted to, so a refresh only fires for a
+  // genuinely new arrival, never on every 30s poll of the same item.
+  const seenIdsRef = useRef<Set<string>>(new Set());
 
   function load() {
     fetch('/api/founder/investor-interest', { cache: 'no-store' }).then((r) => r.json())
-      .then((body) => setItems(body.items ?? [])).catch(() => {});
+      .then((body) => {
+        const next = (body.items ?? []) as InterestItem[];
+        setItems(next);
+        const hasNew = next.some((i) => !seenIdsRef.current.has(i.catalogEntityId));
+        for (const i of next) seenIdsRef.current.add(i.catalogEntityId);
+        // Reused refresh, not a parallel load path — see store-context.tsx's
+        // own comment on refreshFromServer.
+        if (hasNew) void refreshFromServer();
+      }).catch(() => {});
   }
 
   useEffect(() => {
@@ -38,7 +60,7 @@ export function InvestorInterestPopup() {
     const id = setInterval(load, POLL_MS);
     function onVisible() { if (document.visibilityState === 'visible') load(); }
     document.addEventListener('visibilitychange', onVisible);
-    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVisible); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const current = items[0];
@@ -55,6 +77,22 @@ export function InvestorInterestPopup() {
     } finally { setBusy(false); }
   }
 
+  // Prompt 346 §A — "View" only navigates AFTER the store refresh
+  // completes (or is already settled), so it can never land on a store
+  // that still doesn't know the entity exists. A plain Link here would
+  // navigate on click regardless of that refresh's own timing.
+  async function viewEntity() {
+    if (!current!.entityId) return;
+    setBusy(true);
+    try {
+      await refreshFromServer();
+      router.push(`/entities/${current!.entityId}`);
+    } finally {
+      setBusy(false);
+      void dismiss();
+    }
+  }
+
   return (
     <div className="fixed bottom-4 left-4 z-50 w-full max-w-sm overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-2xl">
       <div className="flex items-center justify-between gap-2 bg-gradient-to-r from-emerald-500 to-green-400 px-4 py-2">
@@ -66,10 +104,10 @@ export function InvestorInterestPopup() {
         {current.reasonDetail && <p className="mt-1 text-xs text-gray-500">&ldquo;{current.reasonDetail}&rdquo;</p>}
         <div className="mt-3 flex flex-wrap gap-1.5">
           {current.entityId && (
-            <Link href={`/entities/${current.entityId}`} onClick={dismiss}
-              className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
-              View
-            </Link>
+            <button onClick={() => void viewEntity()} disabled={busy}
+              className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b] disabled:opacity-40">
+              {busy ? 'Opening…' : 'View'}
+            </button>
           )}
           <button onClick={dismiss} disabled={busy} className="ml-auto rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
             Dismiss

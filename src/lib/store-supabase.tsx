@@ -1829,6 +1829,14 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       });
       if (orgIdRef.current) persist(sb.from('person_affiliations').update({ current: false, ended_at }).eq('id', id), 'endAffiliation');
     },
+
+    // Prompt 346 §A/C — "an investor's interest can never look lost". This
+    // is the SAME refetch() this file already calls internally after
+    // reawakening proposals land — never a parallel load path. Public now
+    // so any surface that just learned about a server-side arrival
+    // (investor interest, an automations task, a catalog delivery, …) can
+    // pull the store forward without waiting for the next F5.
+    refreshFromServer: refetch,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [version]);
 
