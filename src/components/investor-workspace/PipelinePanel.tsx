@@ -450,9 +450,13 @@ export function PipelinePanel({
   // fix itself (a shared CSS grid column template, not flexbox, so the bar
   // column is the same pixel width on every row regardless of what else
   // that row shows) carried over to keep the same visual language.
-  const overviewStats = [
-    { label: 'Tracking', n: allCards.filter((c) => c.status === 'open').length },
-    { label: 'Interested', n: allCards.filter((c) => c.status === 'interested').length },
+  // Prompt 345 §D.5 — "Tracking" renamed "No decision" (clearer than the
+  // old label for a card nobody has acted on yet); filterValue is set only
+  // for the two rows that actually correspond to a STATUS_FILTERS value —
+  // Data room open/Meetings aren't a status, so their bars stay static.
+  const overviewStats: { label: string; n: number; filterValue?: StatusFilterValue }[] = [
+    { label: 'No decision', n: allCards.filter((c) => c.status === 'open').length, filterValue: 'open' },
+    { label: 'Interested', n: allCards.filter((c) => c.status === 'interested').length, filterValue: 'interested' },
     { label: 'Data room open', n: allCards.filter((c) => c.hasDataRoomAccess).length },
     { label: 'Meetings', n: meetingsCount ?? 0 },
   ];
@@ -465,20 +469,31 @@ export function PipelinePanel({
   const overviewAllZero = overviewStats.every((s) => s.n === 0);
 
   return (
-    <div className="max-w-2xl space-y-4">
+    // Prompt 345 §D.1 — max-w-2xl (672px) is gone; the shell now gives this
+    // tab the same max-w-6xl real estate as Plans/My Network.
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-gray-900">Pipeline</h1>
         <a href="/api/portal/export?type=pipeline" className="text-xs text-gray-400 hover:underline">Export CSV</a>
       </div>
       <div data-tour-id="investor-pipeline-overview" className="rounded-lg border border-gray-200 bg-white p-3">
         <div className="grid items-center gap-x-2 gap-y-1.5 text-sm" style={{ gridTemplateColumns: '7rem 1fr 2.5rem' }}>
-          {overviewStats.map((s) => (
-            <Fragment key={s.label}>
-              <span className="text-xs text-gray-500">{s.label}</span>
-              <div className="h-4 rounded bg-[#0E7490]/80" style={{ width: `${Math.max(4, s.n / overviewMax * 100)}%` }} />
-              <span className="text-right text-xs font-medium">{s.n}</span>
-            </Fragment>
-          ))}
+          {overviewStats.map((s) => {
+            // Prompt 345 §D.5 — only the two rows with a corresponding
+            // status filter are clickable (Data room open/Meetings aren't a
+            // status); the three cells stay individually-styled grid items
+            // (not wrapped in one button) so the shared column template
+            // above is untouched — each just gets its own onClick.
+            const onClick = s.filterValue !== undefined ? () => setStatusFilter(s.filterValue!) : undefined;
+            const clickableCls = onClick ? 'cursor-pointer hover:underline' : '';
+            return (
+              <Fragment key={s.label}>
+                <span onClick={onClick} className={`text-xs ${onClick ? 'font-medium text-[#0E7490]' : 'text-gray-500'} ${clickableCls}`}>{s.label}</span>
+                <div onClick={onClick} className={`h-4 rounded bg-[#0E7490]/80 ${clickableCls}`} style={{ width: `${Math.max(4, s.n / overviewMax * 100)}%` }} />
+                <span onClick={onClick} className={`text-right text-xs font-medium ${clickableCls}`}>{s.n}</span>
+              </Fragment>
+            );
+          })}
         </div>
         {overviewAllZero && (
           <p className="mt-2 text-xs text-gray-400">No activity yet — this fills in as you and other investors review startups on the platform.</p>
@@ -487,11 +502,17 @@ export function PipelinePanel({
       <div className="flex items-center gap-1.5">
         {STATUS_FILTERS.map((f) => (
           <button key={f.value} onClick={() => setStatusFilter(f.value)}
+            title={f.value === 'all' ? 'Passed and Archived live in their own filters.' : undefined}
             className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${statusFilter === f.value ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
             {f.label}{f.value === 'archived' && archivedCount != null ? ` (${archivedCount})` : ''}
           </button>
         ))}
       </div>
+      {/* Prompt 345 §D.6 — a short, always-visible legend rather than only
+          a hover tooltip (Nuno's own "tooltip ou legenda" gave either); a
+          hidden-until-hover title is easy to miss on a filter row that
+          reads as self-explanatory at a glance. */}
+      <p className="text-[11px] text-gray-400">Passed and Archived live in their own filters.</p>
       {statusFilter === 'archived' ? (
         <ArchivePanel />
       ) : (
@@ -589,7 +610,7 @@ export function PipelinePanel({
                   <input type="checkbox" checked={compareIds.includes(c.orgId)} onChange={() => toggleCompare(c.orgId)}
                     disabled={!compareIds.includes(c.orgId) && compareIds.length >= MAX_COMPARE}
                     title="Select to compare" />
-                  <button onClick={() => toggleExpanded(c.orgId)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                  <button onClick={() => toggleExpanded(c.orgId)} className="group flex min-w-0 flex-1 items-center gap-2 text-left">
                     <div className="min-w-0 flex-1">
                       {/* Prompt 183 §B — `truncate` on a bare inline <span>
                           doesn't reliably clip: an inline box has no width
@@ -650,8 +671,18 @@ export function PipelinePanel({
                       {fmtEur(c.roundTargetEur) && ` · ${fmtEur(c.roundTargetEur)}`}
                       {c.sectors.length > 0 && ` · ${c.sectors[0]}${c.sectors.length > 1 ? ` +${c.sectors.length - 1}` : ''}`}
                     </div>
-                    {c.isArchived && <span className="hidden shrink-0 text-[11px] text-gray-400 lg:inline">📦</span>}
-                    <span className="shrink-0 text-xs text-gray-400">{expanded ? '︿' : '⌄'}</span>
+                    {/* Prompt 345 §D.4 — visible at every breakpoint now,
+                        not just lg+: archived status shouldn't disappear on
+                        a narrower window. */}
+                    {c.isArchived && <span className="shrink-0 text-[11px] text-gray-400" title="Archived">📦</span>}
+                    {/* Prompt 345 §D.2 — the bare 12px chevron is gone; this
+                        is now a real, hoverable expand affordance (bigger
+                        glyph, its own rounded hover background) while the
+                        whole row (this span's own parent button) stays
+                        clickable exactly as before. */}
+                    <span className={`shrink-0 rounded-lg border p-1 text-sm transition ${expanded ? 'border-gray-200 bg-gray-50 text-gray-600' : 'border-transparent text-gray-400 group-hover:border-gray-200 group-hover:bg-gray-50 group-hover:text-gray-600'}`}>
+                      {expanded ? '︿' : '⌄'}
+                    </span>
                   </button>
                 </div>
 
@@ -797,55 +828,64 @@ export function PipelinePanel({
                         </div>
                       </div>
                     ) : wave.unlocked ? (
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {/* P120 Block A — a card without a grant is eligible
-                            by published profile alone; the data room stays
-                            gated on the founder actually consenting
-                            (access_grants). That trust boundary doesn't
-                            move — only discovery does. */}
-                        {c.hasDataRoomAccess ? (
-                          <button onClick={() => onOpenStartup(c.orgId)} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
-                            Open data room
+                      // Prompt 345 §D.3 — two-tier hierarchy: Express
+                      // interest (primary) and Pass (destructive) are the
+                      // two decisions this row exists for, full visual
+                      // weight, same as before. Everything else (Interaction
+                      // log, Archive, Remind me, Open data room when it
+                      // exists) is real but secondary — a lighter second
+                      // line, not a hidden "⋯" menu, since none of these are
+                      // rare enough to bury (Interaction log and Remind me
+                      // in particular are common, everyday actions).
+                      <div className="mt-2 space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button onClick={() => startConfirm(c.orgId, 'interest')} disabled={busyOrgId === c.orgId}
+                            className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                            Express interest
                           </button>
-                        ) : (
-                          <span className="rounded-lg border border-dashed border-gray-200 px-2.5 py-1.5 text-xs text-gray-400">
-                            🔒 Access to documents is granted by the founder — express interest to start the conversation.
-                          </span>
-                        )}
-                        <button onClick={() => startConfirm(c.orgId, 'interest')} disabled={busyOrgId === c.orgId}
-                          className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-                          Express interest
-                        </button>
-                        {/* Prompt 345 §C.2 — the concrete date, reload-proof
-                            (followupsByOrg, from the Agenda's own storage),
-                            with a × to cancel outright rather than a session
-                            flag that forgot itself on refresh. */}
-                        {followupsByOrg[c.orgId] ? (
-                          <span className="flex items-center gap-1 text-xs text-gray-400">
-                            Reminder: {new Date(followupsByOrg[c.orgId].date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                            <button onClick={() => cancelReminder(followupsByOrg[c.orgId].id)} title="Cancel reminder" className="text-gray-400 hover:text-[#B00000]">×</button>
-                          </span>
-                        ) : (
-                          <button onClick={() => remindIn2Weeks(c.orgId)} className="text-xs text-gray-400 hover:underline">
-                            Remind me in 2 weeks
+                          {/* Prompt 214 §A.1 — Pass e uma accao FINAL que
+                              revoga o data room. O peso visual tem de
+                              corresponder ao peso da consequencia. */}
+                          <button onClick={() => startConfirm(c.orgId, 'pass')}
+                            className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-[#B00000] hover:border-[#B00000] hover:bg-red-50">
+                            Pass
                           </button>
-                        )}
-                        {/* Prompt 214 §A.1 — Pass e uma accao FINAL que revoga
-                            o data room. Era texto cinzento solto ao lado do
-                            botao de interesse; passa a botao com moldura, na
-                            mesma hierarquia da linha. O peso visual tem de
-                            corresponder ao peso da consequencia. */}
-                        <button onClick={() => startConfirm(c.orgId, 'pass')}
-                          className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-[#B00000] hover:border-[#B00000] hover:bg-red-50">
-                          Pass
-                        </button>
-                        <button onClick={() => setInteractionLogOrgId(c.orgId)} className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
-                          🗂 Interaction log
-                        </button>
-                        <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId}
-                          className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
-                          Archive
-                        </button>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2.5 text-xs text-gray-500">
+                          {/* P120 Block A — a card without a grant is
+                              eligible by published profile alone; the data
+                              room stays gated on the founder actually
+                              consenting (access_grants). That trust
+                              boundary doesn't move — only discovery does. */}
+                          {c.hasDataRoomAccess ? (
+                            <button onClick={() => onOpenStartup(c.orgId)} className="hover:text-[#0E7490] hover:underline">
+                              Open data room
+                            </button>
+                          ) : (
+                            <span className="text-gray-400">🔒 Access is granted by the founder — express interest to start the conversation.</span>
+                          )}
+                          <button onClick={() => setInteractionLogOrgId(c.orgId)} className="hover:text-[#0E7490] hover:underline">
+                            🗂 Interaction log
+                          </button>
+                          <button onClick={() => archiveManually(c.orgId)} disabled={busyOrgId === c.orgId} className="hover:text-[#0E7490] hover:underline disabled:opacity-40">
+                            Archive
+                          </button>
+                          {/* Prompt 345 §C.2 — the concrete date, reload-
+                              proof (followupsByOrg, from the Agenda's own
+                              storage), with a × to cancel outright rather
+                              than a session flag that forgot itself on
+                              refresh. */}
+                          {followupsByOrg[c.orgId] ? (
+                            <span className="flex items-center gap-1">
+                              Reminder: {new Date(followupsByOrg[c.orgId].date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                              <button onClick={() => cancelReminder(followupsByOrg[c.orgId].id)} title="Cancel reminder" className="text-gray-400 hover:text-[#B00000]">×</button>
+                            </span>
+                          ) : (
+                            <button onClick={() => remindIn2Weeks(c.orgId)} className="hover:underline">
+                              Remind me in 2 weeks
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ) : (
                       <button onClick={() => setInteractionLogOrgId(c.orgId)} className="mt-2 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">

@@ -289,7 +289,10 @@ export function InvestorWorkspaceShell({
         {/* Prompt 340 — 'network' joins 'plans' in the wide container: it
             mounts NetworkPage as-is, which assumes the founder shell's own
             max-w-6xl content column (aside + flex-1 layout). */}
-        <main className={`mx-auto p-4 md:p-8 ${tab === 'plans' || tab === 'network' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+        {/* Prompt 345 §D.1 — Pipeline joins plans/network in the wide
+            container: PipelinePanel dropped its own max-w-2xl (672px),
+            same family as the founder Pipeline's real content width. */}
+        <main className={`mx-auto p-4 md:p-8 ${tab === 'plans' || tab === 'network' || tab === 'pipeline' ? 'max-w-6xl' : 'max-w-3xl'}`}>
           {tab === 'pipeline' && (
             !gateOpen ? (
               <EmptyState
