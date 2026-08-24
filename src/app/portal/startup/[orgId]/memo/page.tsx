@@ -39,8 +39,14 @@ interface MemoData { card: Card; dossier: Dossier }
 // direction: founder data reaching investors, not an investor's own notes
 // reaching themselves).
 interface ScorecardItem { criteriaId: string; label: string; weight: number; score: number | null; note: string | null }
-interface DocScoreEntry { score: number; note: string | null }
+// Prompt 355 §A — matches /api/portal/doc-scores' versioned shape; the memo
+// only ever prints the CURRENT rating (a superseded, pre-re-rate score
+// belongs in the dossier's own History, not in a printed record).
+interface DocScoreEntry { current: { score: number; note: string | null } | null }
 interface ReminderItem { id: string; orgId: string | null; title: string; due_at: string | null }
+// Prompt 355 §C — "the deal memo can include the summaries of documents you
+// rated, when they exist" — cache-only (GET), never triggers generation.
+interface DocSummaryEntry { summary: string; highlights: string[] }
 
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
 const CONSIDERING_LABEL: Record<string, string> = { lead: 'Leading', co_lead: 'Following', both: 'Both' };
@@ -64,6 +70,7 @@ export default function DealMemoPage() {
   const [ticketSignal, setTicketSignal] = useState<{ range_label: string } | null>(null);
   const [dealSignal, setDealSignal] = useState<{ considering: string | null; instruments: string[] } | null>(null);
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
+  const [docSummaries, setDocSummaries] = useState<Record<string, DocSummaryEntry>>({});
 
   useEffect(() => {
     if (!authEnabled) { setSessionEmail(null); return; }
@@ -77,7 +84,15 @@ export default function DealMemoPage() {
     // existing route (scorecard, doc-scores, ticket/deal signals via the
     // same /api/portal/access the dossier itself uses, reminders).
     fetch(`/api/portal/scorecard/scores?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => setScorecard(d.items ?? [])).catch(() => {});
-    fetch(`/api/portal/doc-scores?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => setDocScores(d.scores ?? {})).catch(() => {});
+    fetch(`/api/portal/doc-scores?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => {
+      const scores = (d.scores ?? {}) as Record<string, DocScoreEntry>;
+      setDocScores(scores);
+      const ratedDocIds = Object.keys(scores).filter((id) => scores[id].current);
+      if (ratedDocIds.length === 0) return;
+      const qs = ratedDocIds.map((id) => `documentId=${encodeURIComponent(id)}`).join('&');
+      fetch(`/api/portal/doc-summary?orgId=${encodeURIComponent(orgId)}&${qs}`).then((r) => r.json())
+        .then((s) => setDocSummaries(s.summaries ?? {})).catch(() => {});
+    }).catch(() => {});
     fetch(`/api/portal/access?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => {
       setTicketSignal(d.currentTicketSignal ?? null);
       setDealSignal(d.currentDealSignal ?? null);
@@ -209,13 +224,19 @@ export default function DealMemoPage() {
           </div>
         )}
 
-        {Object.keys(docScores).length > 0 && (
+        {Object.values(docScores).some((s) => s.current) && (
           <div className="mt-3 rounded-lg border border-gray-200 p-4 print:border-0 print:p-0">
             <h3 className="text-sm font-semibold text-gray-900">Your document ratings</h3>
-            <ul className="mt-2 space-y-1">
-              {Object.entries(docScores).map(([docId, s]) => (
+            <ul className="mt-2 space-y-2">
+              {Object.entries(docScores).filter(([, s]) => s.current).map(([docId, s]) => (
                 <li key={docId} className="text-sm text-gray-700">
-                  {docNames[docId] ?? 'Document'}: <b>{s.score}/10</b>{s.note && <span className="text-gray-500"> — {s.note}</span>}
+                  <p>{docNames[docId] ?? 'Document'}: <b>{s.current!.score}/10</b>{s.current!.note && <span className="text-gray-500"> — {s.current!.note}</span>}</p>
+                  {/* Prompt 355 §C — only when a Sherlock summary already
+                      exists for this document (cache-only GET) — never
+                      generated on the fly just because the memo printed. */}
+                  {docSummaries[docId] && (
+                    <p className="mt-0.5 text-xs text-gray-500">{docSummaries[docId].summary}</p>
+                  )}
                 </li>
               ))}
             </ul>

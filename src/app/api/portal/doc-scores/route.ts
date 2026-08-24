@@ -5,8 +5,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
-import { projectDocScores } from '@/lib/investor-doc-scores';
+import { projectDocScoresWithHistory, type DocScoreRow } from '@/lib/investor-doc-scores';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { getCurrentDocumentVersionId } from '@/lib/document-versions';
 
 export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -24,9 +25,22 @@ export async function GET(req: Request) {
   const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ scores: {} });
 
-  const { data: rows } = await admin.from('investor_doc_scores').select('document_id, score, note')
+  const { data: rows } = await admin.from('investor_doc_scores').select('document_id, document_version_id, score, note, updated_at')
     .eq('investor_member_id', member.id).eq('startup_org_id', orgId);
-  return NextResponse.json({ scores: projectDocScores((rows ?? []) as { document_id: string; score: number; note: string | null }[]) });
+  const docIds = [...new Set((rows ?? []).map((r) => r.document_id as string))];
+  // Prompt 355 §A — current-version-per-document, batched in one query
+  // rather than per-row: every score row this investor ever left for THIS
+  // org's documents, at most a few dozen distinct documents.
+  const { data: versionRows } = docIds.length
+    ? await admin.from('document_versions').select('document_id, id, version').in('document_id', docIds).order('version', { ascending: false })
+    : { data: [] };
+  const currentVersionByDocument: Record<string, string | null> = {};
+  for (const docId of docIds) currentVersionByDocument[docId] = null;
+  for (const v of versionRows ?? []) {
+    if (currentVersionByDocument[v.document_id as string] === null) currentVersionByDocument[v.document_id as string] = v.id as string;
+  }
+
+  return NextResponse.json({ scores: projectDocScoresWithHistory((rows ?? []) as DocScoreRow[], currentVersionByDocument) });
 }
 
 export async function POST(req: Request) {
@@ -56,10 +70,26 @@ export async function POST(req: Request) {
   const { data: doc } = await admin.from('documents').select('id').eq('id', body.documentId).eq('org_id', body.orgId).maybeSingle();
   if (!doc) return NextResponse.json({ ok: false, error: 'Document not found.' }, { status: 404 });
 
-  const { error } = await admin.from('investor_doc_scores').upsert({
-    investor_member_id: member.id, startup_org_id: body.orgId, document_id: body.documentId,
-    score: body.score, note: body.note?.trim() || null, updated_at: new Date().toISOString(),
-  }, { onConflict: 'investor_member_id,document_id' });
+  // Prompt 355 §A — every write targets the document's CURRENT version
+  // (never an arbitrary/stale one the client might pass), so "rectify the
+  // current rating" and "the version changed underneath you" can never be
+  // confused. Two separate partial unique indexes back this table now
+  // (versioned vs. no-version-at-all for an external-link document), which
+  // Postgres's ON CONFLICT can't reliably infer a single target for — so
+  // this is an explicit select-then-update-or-insert instead of .upsert().
+  const versionId = await getCurrentDocumentVersionId(admin, body.documentId);
+  let existingQuery = admin.from('investor_doc_scores').select('id')
+    .eq('investor_member_id', member.id).eq('document_id', body.documentId);
+  existingQuery = versionId ? existingQuery.eq('document_version_id', versionId) : existingQuery.is('document_version_id', null);
+  const { data: existing } = await existingQuery.maybeSingle();
+
+  const patch = { score: body.score, note: body.note?.trim() || null, updated_at: new Date().toISOString() };
+  const { error } = existing
+    ? await admin.from('investor_doc_scores').update(patch).eq('id', existing.id)
+    : await admin.from('investor_doc_scores').insert({
+        investor_member_id: member.id, startup_org_id: body.orgId, document_id: body.documentId,
+        document_version_id: versionId, ...patch,
+      });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

@@ -18,11 +18,17 @@ import {
 } from '@/components/portal/DossierOverviewSections';
 import { FollowOnBadge } from '@/components/FollowOnBadge';
 import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
-import { DocScorePanel, type DocScore } from '@/components/investor-workspace/DocScorePanel';
+import { DocScorePanel, type DocScore, type DocScoreHistoryEntry } from '@/components/investor-workspace/DocScorePanel';
 import { WatsonEvaluationSupport } from '@/components/investor-workspace/WatsonEvaluationSupport';
+import { SherlockSummaryButton } from '@/components/investor-workspace/SherlockSummaryButton';
 import { Tooltip } from '@/components/ui';
 import { computeDilution, type ValuationBasis } from '@/lib/dilution';
 
+// Prompt 355 §A — richer per-document shape: `current` is the score
+// matching the document's CURRENT version (or null when the founder has
+// re-versioned since the last rating), `needsReRate` flags exactly that
+// case, `history` holds every score on a superseded version, never deleted.
+interface DocScoreEntry { current: DocScore | null; needsReRate: boolean; history: DocScoreHistoryEntry[] }
 interface LevelRow { level: 2 | 3; status: 'granted' | 'pending' | 'denied' }
 interface PortalDoc { id: string; name: string; version?: string; watermark: boolean; downloadable: boolean; folder_id?: string; url: string | null }
 interface DocSection { key: string; label: string; documents: PortalDoc[] }
@@ -85,7 +91,7 @@ export default function StartupDossierPage() {
   // to badge already-scored rows, DocScorePanel reads/writes the focused
   // one. Fetched once docs are known — investor-private, never touches any
   // founder-facing payload.
-  const [docScores, setDocScores] = useState<Record<string, DocScore>>({});
+  const [docScores, setDocScores] = useState<Record<string, DocScoreEntry>>({});
   useEffect(() => {
     if (!docs) return;
     fetch(`/api/portal/doc-scores?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => setDocScores(d.scores ?? {})).catch(() => {});
@@ -568,14 +574,16 @@ export default function StartupDossierPage() {
                   <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">Rate this document</summary>
                   <div className="border-t border-gray-100 p-2">
                     <DocScorePanel orgId={orgId} documentId={focusedDoc.id} documentName={focusedDoc.name}
-                      initial={docScores[focusedDoc.id] ?? null}
-                      onSaved={(id, s) => setDocScores((prev) => ({ ...prev, [id]: s }))} />
+                      initial={docScores[focusedDoc.id]?.current ?? null}
+                      needsReRate={docScores[focusedDoc.id]?.needsReRate} history={docScores[focusedDoc.id]?.history}
+                      onSaved={(id, s) => setDocScores((prev) => ({ ...prev, [id]: { current: s, needsReRate: false, history: prev[id]?.history ?? [] } }))} />
                   </div>
                 </details>
                 <div className="hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
                   <DocScorePanel orgId={orgId} documentId={focusedDoc.id} documentName={focusedDoc.name}
-                    initial={docScores[focusedDoc.id] ?? null}
-                    onSaved={(id, s) => setDocScores((prev) => ({ ...prev, [id]: s }))} />
+                    initial={docScores[focusedDoc.id]?.current ?? null}
+                    needsReRate={docScores[focusedDoc.id]?.needsReRate} history={docScores[focusedDoc.id]?.history}
+                    onSaved={(id, s) => setDocScores((prev) => ({ ...prev, [id]: { current: s, needsReRate: false, history: prev[id]?.history ?? [] } }))} />
                 </div>
               </>
             )}
@@ -628,7 +636,7 @@ export default function StartupDossierPage() {
           </>
         )}
         {tab === 'documents' && (
-          <DocumentsTab hasAccess={card.hasDataRoomAccess} docs={docs} sharedInMessages={messagesInfo?.messages ?? []}
+          <DocumentsTab orgId={orgId} hasAccess={card.hasDataRoomAccess} docs={docs} sharedInMessages={messagesInfo?.messages ?? []}
             trackEvaluate={trackEvaluate} docScores={docScores} focusedDocId={focusedDoc?.id ?? null}
             onFocusDoc={(id, name) => setFocusedDoc({ id, name })} />
         )}
@@ -666,11 +674,12 @@ export default function StartupDossierPage() {
   }
 }
 
-function DocumentsTab({ hasAccess, docs, sharedInMessages, trackEvaluate, docScores, focusedDocId, onFocusDoc }: {
+function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate, docScores, focusedDocId, onFocusDoc }: {
+  orgId: string;
   hasAccess: boolean; docs: { sections: DocSection[]; pendingNdaCount: number } | null; sharedInMessages: DealMessage[];
   // Prompt 347 §B — off (all four undefined/false) means zero change from
   // before this prompt: no score badges, no "Rate" affordance.
-  trackEvaluate?: boolean; docScores?: Record<string, DocScore>; focusedDocId?: string | null;
+  trackEvaluate?: boolean; docScores?: Record<string, DocScoreEntry>; focusedDocId?: string | null;
   onFocusDoc?: (id: string, name: string) => void;
 }) {
   if (!hasAccess) {
@@ -694,14 +703,26 @@ function DocumentsTab({ hasAccess, docs, sharedInMessages, trackEvaluate, docSco
   // Prompt 347 §B — "documents already evaluated show the score in the doc
   // list, only for the investor" — a small badge, nothing rendered at all
   // when the mode is off or the document has no score yet.
-  function ScoreBadge({ documentId }: { documentId: string }) {
+  // Prompt 355 §A.1 — now a BUTTON: clicking it focuses the document, which
+  // reopens DocScorePanel pre-filled from `initial` (the exact same prop
+  // "Open" already used to populate) — consult and rectify, not just an
+  // informational badge. A document whose founder-uploaded new version
+  // outdated the old rating shows an amber "Update?" state instead of the
+  // stale score, distinct from "Rate" (never rated) and from a real score.
+  function ScoreBadge({ documentId, documentName }: { documentId: string; documentName: string }) {
     if (!trackEvaluate) return null;
     const s = docScores?.[documentId];
+    const isFocused = focusedDocId === documentId;
+    const label = s?.current ? `★ ${s.current.score}/10` : s?.needsReRate ? '⚠ Update?' : 'Rate';
     return (
-      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-        focusedDocId === documentId ? 'bg-[#0E7490] text-white' : s ? 'border border-amber-200 bg-amber-50 text-amber-700' : 'border border-dashed border-gray-200 text-gray-400'}`}>
-        {s ? `★ ${s.score}/10` : 'Rate'}
-      </span>
+      <button onClick={() => onFocusDoc?.(documentId, documentName)}
+        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+          isFocused ? 'bg-[#0E7490] text-white'
+            : s?.current ? 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+              : s?.needsReRate ? 'border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200'
+                : 'border border-dashed border-gray-200 text-gray-400 hover:border-gray-400'}`}>
+        {label}
+      </button>
     );
   }
 
@@ -738,7 +759,8 @@ function DocumentsTab({ hasAccess, docs, sharedInMessages, trackEvaluate, docSco
                       Open{d.version && ` · ${d.version}`}{d.watermark && ' · watermarked'}{!d.downloadable && ' · view only, no download'}
                     </div>
                   </div>
-                  <ScoreBadge documentId={d.id} />
+                  <ScoreBadge documentId={d.id} documentName={d.name} />
+                  <SherlockSummaryButton orgId={orgId} documentId={d.id} />
                   <button onClick={() => openDoc(d)} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">Open</button>
                 </div>
               ))}
@@ -756,7 +778,8 @@ function DocumentsTab({ hasAccess, docs, sharedInMessages, trackEvaluate, docSco
                 <div key={d.id} className="flex items-center gap-3 rounded-lg border border-gray-100 p-3">
                   <span className="text-lg">▤</span>
                   <div className="flex-1 text-sm font-medium">{d.name}</div>
-                  <ScoreBadge documentId={d.id} />
+                  <ScoreBadge documentId={d.id} documentName={d.name} />
+                  <SherlockSummaryButton orgId={orgId} documentId={d.id} />
                   <button onClick={() => openDoc(d)} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">Open</button>
                 </div>
               ))}

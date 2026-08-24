@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rawExtractionToData, extractionToFacts, programFacts } from './document-extraction';
+import { rawExtractionToData, extractionToFacts, programFacts, rawExtractionToSummary } from './document-extraction';
 
 describe('rawExtractionToData — nunca confia cegamente na forma devolvida pelo modelo', () => {
   it('mapeia um extraction bem formado', () => {
@@ -77,5 +77,32 @@ describe('extractionToFacts / programFacts — o pool de comparação para a lig
   it('programFacts inclui só programs — uma entidade nomeada sozinha nunca justifica um claim novo', () => {
     const facts = programFacts(extraction, 'doc-1', 'Grant Agreement.pdf');
     expect(facts).toEqual([{ documentId: 'doc-1', documentName: 'Grant Agreement.pdf', page: 1, label: 'WomenTechEU' }]);
+  });
+});
+
+describe('rawExtractionToSummary — Prompt 355, the second output of the same tool call', () => {
+  it('extracts a well-formed summary and highlights', () => {
+    const out = rawExtractionToSummary({ summary: 'This is a signed grant agreement.', highlights: ['€75,000 grant', 'Signed 2022-06-01'] });
+    expect(out).toEqual({ summary: 'This is a signed grant agreement.', highlights: ['€75,000 grant', 'Signed 2022-06-01'] });
+  });
+
+  it('never trusts the model blindly — missing/malformed fields become null/empty, never throw', () => {
+    expect(rawExtractionToSummary({})).toEqual({ summary: null, highlights: [] });
+    expect(rawExtractionToSummary(null)).toEqual({ summary: null, highlights: [] });
+    expect(rawExtractionToSummary({ summary: 42, highlights: 'not an array' })).toEqual({ summary: null, highlights: [] });
+  });
+
+  it('drops blank/whitespace-only highlight entries', () => {
+    const out = rawExtractionToSummary({ summary: 'x', highlights: ['real one', '   ', ''] });
+    expect(out.highlights).toEqual(['real one']);
+  });
+
+  it('caps highlights at 3, even if the model returns more', () => {
+    const out = rawExtractionToSummary({ summary: 'x', highlights: ['a', 'b', 'c', 'd', 'e'] });
+    expect(out.highlights).toHaveLength(3);
+  });
+
+  it('treats an empty-string summary as null, not an empty-but-present value', () => {
+    expect(rawExtractionToSummary({ summary: '   ', highlights: [] }).summary).toBeNull();
   });
 });

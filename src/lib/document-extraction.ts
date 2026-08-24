@@ -91,8 +91,23 @@ export const EXTRACTION_TOOL_SCHEMA = {
     },
     document_reference: { type: 'string', description: 'The document\'s own number/reference/project code, if it has one.' },
     is_signed: { type: 'boolean', description: 'Whether the document appears to be signed (a signature, stamp, or signature block filled in).' },
+    // Prompt 355 §C — same pass, a second output: a plain-language summary
+    // for whoever is EVALUATING this document (an investor), not the
+    // structured facts above. Kept in the SAME tool call (one download/
+    // truncate/Claude call, two outputs) rather than a second request —
+    // parsed separately (rawExtractionToSummary below) and written to its
+    // own table (document_summaries), never mixed into DocumentExtractionData
+    // itself, which stays deliberately narrow (see this file's own header).
+    summary: {
+      type: 'string',
+      description: 'An honest, plain-language summary of what this document actually says, in about 6 sentences — never inventing anything not in the text.',
+    },
+    highlights: {
+      type: 'array', items: { type: 'string' },
+      description: '2-3 short highlight bullets — the most notable concrete facts from the document.',
+    },
   },
-  required: ['document_type', 'named_entities', 'programs', 'dates', 'amounts'],
+  required: ['document_type', 'named_entities', 'programs', 'dates', 'amounts', 'summary', 'highlights'],
 };
 
 interface RawNamedEntity { name?: unknown; kind?: unknown; page?: unknown }
@@ -151,6 +166,47 @@ export function rawExtractionToData(raw: unknown, pagesRead: number, totalPages:
     isSigned: typeof r.is_signed === 'boolean' ? r.is_signed : null,
     pagesRead, totalPages, partial: pagesRead < totalPages,
   };
+}
+
+// Prompt 355 §B/C — the summary half of the SAME raw tool-call response
+// rawExtractionToData parses above. Kept as its own pure function (never
+// folded into DocumentExtractionData) so the founder-only extraction record
+// and the investor-facing summary stay two genuinely separate values from
+// the moment the response is parsed, not just two separate tables fed from
+// one blob. Caps mirror company-media.ts's own caption cap discipline —
+// generous, not unbounded.
+export interface ExtractedSummary { summary: string | null; highlights: string[] }
+
+// Prompt 355 §C — a LIGHTER tool schema for the summary-only call path
+// (a document that already has a claims extraction for this exact content,
+// just never got a summary): only ever needs summary+highlights, never
+// re-pays for or re-derives the full claims-extraction shape above.
+export const SUMMARY_TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary: {
+      type: 'string',
+      description: 'An honest, plain-language summary of what this document actually says, in about 6 sentences — never inventing anything not in the text.',
+    },
+    highlights: {
+      type: 'array', items: { type: 'string' },
+      description: '2-3 short highlight bullets — the most notable concrete facts from the document.',
+    },
+  },
+  required: ['summary', 'highlights'],
+};
+const SUMMARY_MAX_LEN = 2000;
+const HIGHLIGHT_MAX_LEN = 300;
+const MAX_HIGHLIGHTS = 3;
+
+export function rawExtractionToSummary(raw: unknown): ExtractedSummary {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as { summary?: unknown; highlights?: unknown };
+  const summary = typeof r.summary === 'string' && r.summary.trim() ? r.summary.trim().slice(0, SUMMARY_MAX_LEN) : null;
+  const highlights = Array.isArray(r.highlights)
+    ? r.highlights.filter((h): h is string => typeof h === 'string' && h.trim().length > 0)
+      .slice(0, MAX_HIGHLIGHTS).map((h) => h.trim().slice(0, HIGHLIGHT_MAX_LEN))
+    : [];
+  return { summary, highlights };
 }
 
 // The comparison pool company-claims.ts's findDocumentLinkCandidate and
