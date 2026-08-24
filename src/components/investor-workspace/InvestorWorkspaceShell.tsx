@@ -182,37 +182,33 @@ export function InvestorWorkspaceShell({
   // lê count, e o painel recebe o resultado inteiro como prop.
   const investorActions = useInvestorActions();
 
-  // Prompt 337 — 5 groups, mirroring the founder shell's own grouping
-  // grammar (shell.tsx's NAV, group: 1..5). WorkspaceSidebar already draws
-  // a divider wherever `group` changes between consecutive items — it was
-  // simply never set here before, so it never fired. Group 3 (My Network,
-  // Messages) and part of group 4 (Dashboard) are reserved for Prompt 340;
-  // ordering here already leaves their slots so 340 doesn't reorder
-  // anything else. MatchDeal is deliberately NOT a nav item — it only ever
-  // lives in the QR-pairing header affordance (WorkspaceHeader's
-  // matchDeal prop, below) per Nuno's explicit decision. 'archive' is gone
-  // as a tab — see PipelinePanel's own "Archived" filter.
+  // Prompt 343 — Nuno's own final regrouping, replacing Prompt 337's:
+  // 1: About alone · 2: Data room/Pipeline · 3: Dashboard/Evaluation tools ·
+  // 4: Actions required/Agenda · 5: My Network/Messages · 6: Plans/Support.
+  // MatchDeal is deliberately NOT a nav item — it only ever lives in the
+  // QR-pairing header affordance (WorkspaceHeader's matchDeal prop, below)
+  // per Nuno's explicit decision. 'archive' is gone as a tab — see
+  // PipelinePanel's own "Archived" filter.
   const messagesUnread = useInvestorMessagesUnreadCount();
 
   const NAV: { key: Tab; label: string; icon: string; group: number }[] = [
     { key: 'about', label: aboutLabel, icon: '⋯', group: 1 },
     // Prompt 337/338 — renamed from "Access granted": grows into the full
     // read-only mirror of the founder's own Vault Data Room in Prompt 338.
-    { key: 'access', label: 'Data room', icon: '⚿', group: 1 },
+    { key: 'access', label: 'Data room', icon: '⚿', group: 2 },
     { key: 'pipeline', label: 'Pipeline', icon: '▤', group: 2 },
-    { key: 'actions', label: 'Actions required', icon: '⚑', group: 2 },
-    { key: 'agenda', label: 'Agenda', icon: '◔', group: 2 },
-    // Prompt 340 Block C/D — same Group 3 the founder side's My
-    // Network/Messages already occupy conceptually; reserved by Prompt 337.
-    { key: 'network', label: 'My Network', icon: '⇄', group: 3 },
-    { key: 'messages', label: 'Messages', icon: '✉', group: 3 },
     // Prompt 340 Block A — own-data-only funnel/agenda/follow-on summary.
-    { key: 'dashboard', label: 'Dashboard', icon: '▥', group: 4 },
+    { key: 'dashboard', label: 'Dashboard', icon: '▥', group: 3 },
     // P131-B — Ownership calculator (promoted from a per-card button to a
     // real page) + Equity simulator, structured to grow with more tools.
-    { key: 'evaluation', label: 'Evaluation tools', icon: '⚖', group: 4 },
-    { key: 'plans', label: 'Plans & billing', icon: '◈', group: 5 },
-    { key: 'support', label: 'Support', icon: '☎', group: 5 },
+    { key: 'evaluation', label: 'Evaluation tools', icon: '⚖', group: 3 },
+    { key: 'actions', label: 'Actions required', icon: '⚑', group: 4 },
+    { key: 'agenda', label: 'Agenda', icon: '◔', group: 4 },
+    // Prompt 340 Block C/D.
+    { key: 'network', label: 'My Network', icon: '⇄', group: 5 },
+    { key: 'messages', label: 'Messages', icon: '✉', group: 5 },
+    { key: 'plans', label: 'Plans & billing', icon: '◈', group: 6 },
+    { key: 'support', label: 'Support', icon: '☎', group: 6 },
   ];
 
   const tourKey = TOUR_KEY_BY_TAB[tab];
@@ -237,6 +233,7 @@ export function InvestorWorkspaceShell({
         brandName={BRAND_NAME}
         subtitle="Investor Workspace"
         items={navItems}
+        groupStyle="cards"
         footer={
           <>
             {identityStatus && (

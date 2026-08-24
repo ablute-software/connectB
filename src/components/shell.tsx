@@ -262,6 +262,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         brandName={BRAND_NAME}
         subtitle="Investor Relations"
         items={sidebarItems}
+        groupStyle="cards"
         afterItems={
           <>
             {/* Prompt 331 — the visible trigger is now helpSupportNavItem
