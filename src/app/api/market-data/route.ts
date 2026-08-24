@@ -1,4 +1,4 @@
-// Prompt 360 Part A — "Market data — your sector": GET assembles the gate +
+// Prompt 360 Part A — "Market data": GET assembles the gate +
 // all three sources; POST saves the founder's own structured "Added by you"
 // facts. Fail-closed: the gate is re-checked HERE, not just in the client
 // overlay — a request past the gate with missing minimums is refused, same
@@ -72,12 +72,13 @@ export async function GET() {
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-  const [{ data: org }, { data: claims }, marketDocs, marketDataAvail, researchAvail] = await Promise.all([
+  const [{ data: org }, { data: claims }, marketDocs, marketDataAvail, researchAvail, docCounts] = await Promise.all([
     admin.from('orgs').select('sectors, sectors_other, stage, one_liner').eq('id', orgId).maybeSingle(),
     admin.from('company_claims').select('id, category, status').eq('org_id', orgId).eq('status', 'accepted'),
     marketDocumentItems(admin, orgId),
     orgMarketDataAvailable(),
     marketResearchItemsAvailable(),
+    documentReadCounts(admin, orgId),
   ]);
 
   const orgRow = (org ?? {}) as { sectors: string[] | null; sectors_other: string | null; stage: string | null; one_liner: string | null };
@@ -94,7 +95,7 @@ export async function GET() {
   let researchItems: unknown[] = [];
   if (gate.eligible && researchAvail) {
     const { data } = await admin.from('market_research_items')
-      .select('id, section, title, detail, source_url, confidence, status')
+      .select('id, section, title, detail, source_url, confidence, status, source_kind, document_id, page')
       .eq('org_id', orgId).eq('status', 'pending').order('section', { ascending: true });
     researchItems = data ?? [];
   }
@@ -103,7 +104,29 @@ export async function GET() {
     available: true, gate, sectors, stage: orgRow.stage,
     fromYourDocuments: gate.eligible ? marketDocs : [],
     addedByYou, researchItems,
+    // Prompt 370 §B — the three-state empty-state contract: docsExtracted
+    // === 0 with docsTotal > 0 means "not read yet" (never "nothing
+    // found" — that was the false negative the founder caught, since it
+    // reads as "we looked and there's nothing" instead of "we haven't
+    // looked at all").
+    docCounts: { ...docCounts, docsWithMarketContent: marketDocs.length },
   });
+}
+
+// Prompt 370 §B — the counts MarketDataPanel needs to tell "nothing
+// market-related found in what WAS read" apart from "nothing has been
+// read at all yet" (the exact false-negative the founder caught: the old
+// copy said the former when the truth was the latter, because malicious-
+// scan-gated documents had literally never been extracted).
+async function documentReadCounts(admin: SupabaseClient, orgId: string) {
+  const [{ count: docsTotal }, { count: docsReadable }, { count: docsExtracted }] = await Promise.all([
+    admin.from('documents').select('id', { count: 'exact', head: true }).eq('org_id', orgId),
+    admin.from('documents').select('id', { count: 'exact', head: true }).eq('org_id', orgId).eq('malware_scan_status', 'clean'),
+    (await documentExtractionsAvailable())
+      ? admin.from('document_extractions').select('document_id', { count: 'exact', head: true }).eq('org_id', orgId).eq('status', 'completed')
+      : Promise.resolve({ count: 0 }),
+  ]);
+  return { docsTotal: docsTotal ?? 0, docsReadable: docsReadable ?? 0, docsExtracted: docsExtracted ?? 0 };
 }
 
 export async function POST(req: Request) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkMarketDataGate } from './market-data-gate';
+import { checkMarketDataGate, marketDataEmptyState } from './market-data-gate';
 
 const COMPLETE = { sectors: ['Digital Health'], stage: 'seed', oneLiner: 'We do X.' };
 
@@ -26,5 +26,24 @@ describe('checkMarketDataGate — Prompt 360 §A.3', () => {
   it('sectors: null and sectors: [] are treated identically', () => {
     expect(checkMarketDataGate({ ...COMPLETE, sectors: null }, true, false).eligible).toBe(false);
     expect(checkMarketDataGate({ ...COMPLETE, sectors: [] }, true, false).eligible).toBe(false);
+  });
+});
+
+describe('marketDataEmptyState — Prompt 370 §B, the three honest states', () => {
+  it('has_content whenever anything market-related was found, regardless of counts', () => {
+    expect(marketDataEmptyState({ docsTotal: 10, docsExtracted: 0 }, 1)).toBe('has_content');
+  });
+
+  it('not_read — the exact false negative the founder caught: extracted=0 with real documents on file is NEVER "nothing found"', () => {
+    expect(marketDataEmptyState({ docsTotal: 67, docsExtracted: 0 }, 0)).toBe('not_read');
+  });
+
+  it('nothing_found only once documents have actually been read', () => {
+    expect(marketDataEmptyState({ docsTotal: 67, docsExtracted: 67 }, 0)).toBe('nothing_found');
+  });
+
+  it('no_documents when the Vault itself is empty', () => {
+    expect(marketDataEmptyState({ docsTotal: 0, docsExtracted: 0 }, 0)).toBe('no_documents');
+    expect(marketDataEmptyState(null, 0)).toBe('no_documents');
   });
 });

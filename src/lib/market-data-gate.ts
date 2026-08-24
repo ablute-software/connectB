@@ -26,3 +26,20 @@ export function checkMarketDataGate(
   }
   return { eligible: missing.length === 0, missing };
 }
+
+// Prompt 370 §B — the "From your documents" card's three honest states
+// (plus the zero-documents edge case of state 2), extracted as a pure
+// function so the exact bug the founder caught — "nothing found" shown
+// when the truth was "never read" — has a test that can't silently regress
+// inside JSX conditionals. NEVER 'nothing_found' when docsExtracted === 0
+// and docsTotal > 0 — that combination is 'not_read', full stop.
+export type MarketDataEmptyState = 'not_read' | 'no_documents' | 'nothing_found' | 'has_content';
+
+export function marketDataEmptyState(
+  docCounts: { docsTotal: number; docsExtracted: number } | null, docsWithMarketContentCount: number,
+): MarketDataEmptyState {
+  if (docsWithMarketContentCount > 0) return 'has_content';
+  if (docCounts && docCounts.docsExtracted === 0 && docCounts.docsTotal > 0) return 'not_read';
+  if (!docCounts || docCounts.docsTotal === 0) return 'no_documents';
+  return 'nothing_found';
+}

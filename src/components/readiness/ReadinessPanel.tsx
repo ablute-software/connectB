@@ -29,7 +29,7 @@ const TABS = [
   // ser a leitura que alimenta tudo o resto; o gating por tier é o bloco 6.
   { key: 'blueprint', label: 'Pitch Blueprint' },
   // Prompt 360 Part A — its own tab, between Blueprint and Action plan.
-  { key: 'market_data', label: 'Market data — your sector' },
+  { key: 'market_data', label: 'Market data' },
   { key: 'plan', label: 'Action plan' },
   { key: 'train', label: 'Train' },
   { key: 'history', label: 'History' },

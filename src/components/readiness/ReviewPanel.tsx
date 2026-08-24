@@ -722,17 +722,17 @@ export function ReviewPanel() {
         )}
       </Card>
 
-      {/* Prompt 360 Part A — the full "Market data — your sector" experience
-          (three sources, curation, Sherlock research) moved to its own
-          top-level tab (ReadinessPanel.tsx). This card is a quick, one-shot
-          AI benchmark — kept, renamed to avoid the title collision, since
+      {/* Prompt 360 Part A — the full "Market data" experience (three
+          sources, curation, Sherlock research) moved to its own top-level
+          tab (ReadinessPanel.tsx). This card is a quick, one-shot AI
+          benchmark — kept, renamed to avoid the title collision, since
           it's a genuinely different, cheaper tool than the new tab's
           curated canvas, not a duplicate of it. */}
       <Card title={<span className="inline-flex items-center gap-2">Quick market benchmark (AI report) {caps && !caps.reviewTopTierTools && <PlanBadge tier="motherfunding" />}</span>}>
         <p className="mb-2 text-xs text-gray-500">
           A one-shot AI report on your market/sector — size and direction, where a company at your stage typically sits, the
           metrics investors in this space benchmark on, and comparable companies. For sourced, curated research you can
-          build on over time, see the <a href="/readiness?tab=market_data" className="text-[#0E7490] underline">Market data — your sector</a> tab.
+          build on over time, see the <a href="/readiness?tab=market_data" className="text-[#0E7490] underline">Market data</a> tab.
         </p>
         {!caps?.ai ? <ComingSoon /> : !caps.reviewTopTierTools ? <TopTierLocked /> : (
           <>
