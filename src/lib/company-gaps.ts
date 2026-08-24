@@ -799,3 +799,49 @@ export function routeAnswer(rule: GapRule, option: string | undefined, hasFreeTe
   if (hasFreeText || !option) return { kind: 'claim' };
   return OPTION_ROUTING[rule]?.[option] ?? { kind: 'claim' };
 }
+
+// ---------------------------------------------------------------------------
+// Prompt 358 Phase 3.2 — "a question BUDGET: perguntar é caro." Before this,
+// the founder-facing queue was every open gap, in whatever order detectGaps
+// happened to produce them, with no notion of "worth asking first." Ranking
+// is pure and deterministic — by severity, then a fixed rule order for ties
+// — so the same claims always produce the same top-N, and the founder never
+// sees an item reshuffle to a different position between two loads of the
+// same data.
+const SEVERITY_RANK: Record<GapSeverity, number> = { critical: 0, high: 1, medium: 2 };
+const RULE_ORDER: GapRule[] = ['G1', 'G6', 'G3', 'G3b', 'G3c', 'G7', 'G2', 'G8', 'G4', 'G5'];
+
+export function rankGaps(gaps: Gap[]): Gap[] {
+  return [...gaps].sort((a, b) => {
+    const bySeverity = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
+    if (bySeverity !== 0) return bySeverity;
+    return RULE_ORDER.indexOf(a.rule) - RULE_ORDER.indexOf(b.rule);
+  });
+}
+
+// The 5-item cap Phase 3.2 asks for, as one shared constant — the
+// interrogation queue and the Knowledge Health panel's "would strengthen"
+// block both read this, never two independently-chosen numbers.
+export const GAP_QUESTION_BUDGET = 5;
+
+// Prompt 358 Phase 3.1 — a short, investor-neutral reason WHY answering this
+// specific rule's gap would strengthen the dossier, for the Knowledge Health
+// panel (never shown to investors themselves — founder-only, like every
+// other gap-engine surface). Deliberately distinct from Gap.message (which
+// describes what's missing); this describes what closing it buys.
+const IMPACT_WHY: Record<GapRule, string> = {
+  G1: 'Paid traction is the single strongest signal investors look for — nothing else substitutes for money already at risk.',
+  G2: 'A vague mention reads as filler; a name, date and outcome turns it into something an investor could actually verify.',
+  G3: 'Investors back teams as much as ideas — a clear "why this team wins" answers the question they\'re silently asking anyway.',
+  G3b: 'A founder with no narrative reads as passive or absent — even a short answer changes that.',
+  G3c: 'An unowned critical function is a real risk flag investors will ask about if you don\'t address it first.',
+  G4: 'Backing this with a document raises it to a class investors treat as externally verified, not just asserted.',
+  G5: 'A stale claim risks being wrong by the time an investor checks it — confirming it keeps your dossier trustworthy.',
+  G6: 'An ask without a use-of-funds story reads as a number, not a plan — investors fund plans.',
+  G7: 'A central claim with nothing else supporting it is the first thing a sharp investor will probe.',
+  G8: 'Numbers that disagree across your own materials undermine trust in everything else you say.',
+};
+
+export function impactWhy(rule: GapRule): string {
+  return IMPACT_WHY[rule] ?? 'Closing this makes your dossier more complete.';
+}

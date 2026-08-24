@@ -20,13 +20,15 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import type { Contradiction } from '@/lib/action-plan';
 import { ReportView, type StructuredReport } from './ReportView';
 import { GapInterrogation, type GapView } from './GapInterrogation';
+import { KnowledgeHealthPanel } from './KnowledgeHealthPanel';
 import { pickCurrentGap } from '@/lib/gap-rotation';
+import { GAP_QUESTION_BUDGET } from '@/lib/company-gaps';
 import { PlanBadge } from '@/components/PlanBadge';
 import { planName, REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
 import { can, type OrgRole } from '@/lib/permissions';
 import { SwotVisualCard } from './SwotVisualCard';
 import { ClarificationBullet } from './ClarificationBullet';
-import type { SwotData } from '@/lib/types';
+import type { SwotData, CompanyClaim } from '@/lib/types';
 import { clarificationsByKey, clarificationKey, upsertClarification, type ReviewClarification } from '@/lib/review-clarifications';
 import { splitFundraisingExecution } from '@/lib/founder-report-split';
 import { InvestorFeedbackCard } from './InvestorFeedbackCard';
@@ -123,8 +125,15 @@ export function ReviewPanel() {
   // NOT already hold (company_claims and company_facts are separate tables;
   // /api/review/investability only ever received the latter).
   const [acceptedClaimStatements, setAcceptedClaimStatements] = useState<string[]>([]);
+  // Prompt 358 Phase 3.1 — the Knowledge Health panel needs the full claims
+  // (documentRefs, status), not just accepted statements.
+  const [claims, setClaims] = useState<CompanyClaim[]>([]);
   const [showInterrogation, setShowInterrogation] = useState(false);
   const [gapBusy, setGapBusy] = useState(false);
+  // Prompt 358 Phase 3.2 — "perguntar é caro": the interrogation flow only
+  // ever pulls from the top GAP_QUESTION_BUDGET-ranked gaps by default; the
+  // founder has to explicitly ask for more.
+  const [showAllGaps, setShowAllGaps] = useState(false);
   // Prompt 358 Phase 2.3 — "the founder sees this happening, never silent":
   // when a free-text answer got merged into the existing claim instead of
   // becoming a new one, this says so, once, right after it happens.
@@ -144,6 +153,7 @@ export function ReviewPanel() {
       if (body.available) {
         setGaps(body.gaps ?? []);
         setGapAnalysisId(body.analysis?.id);
+        setClaims((body.claims ?? []) as CompanyClaim[]);
         setAcceptedClaimStatements(
           ((body.claims ?? []) as { status: string; statement: string }[])
             .filter((c) => c.status === 'accepted').map((c) => c.statement),
@@ -153,7 +163,11 @@ export function ReviewPanel() {
   }
   useEffect(loadGaps, []);
 
-  const currentGap = pickCurrentGap(gaps, skippedKeys);
+  // Prompt 358 Phase 3.2 — the interrogation flow only ever pulls from the
+  // budgeted pool by default; "Ask me more" (below) lifts the cap for this
+  // session view, never persisted.
+  const budgetedGaps = showAllGaps ? gaps : gaps.slice(0, GAP_QUESTION_BUDGET);
+  const currentGap = pickCurrentGap(budgetedGaps, skippedKeys);
 
   async function submitGapAnswer(opts: { option?: string; answer?: string; dismissed: boolean; category?: string }) {
     const gap = currentGap;
@@ -404,17 +418,29 @@ export function ReviewPanel() {
           </button>
         </Card>
       )}
-      {showInterrogation && currentGap && (
-        <Card title={<span className="text-[#0E7490]">What&apos;s missing ({gaps.length} left)</span>}>
-          {routingNote && <p className="mb-2 text-xs text-[#0E7490]">{routingNote}</p>}
-          <GapInterrogation key={currentGap.key} gap={currentGap} remaining={gaps.length} busy={gapBusy}
-            onSubmit={submitGapAnswer} onAttachDocument={attachDocument} onReconcileConfirm={reconcileConfirm} />
-          <button onClick={() => setShowInterrogation(false)} className="mt-2 text-xs text-gray-400 hover:underline">
-            Close — I&apos;ll finish this later
-          </button>
+      {showInterrogation && (
+        <Card title={<span className="text-[#0E7490]">Knowledge health</span>}>
+          <KnowledgeHealthPanel claims={claims} gaps={gaps} />
+          {currentGap && (
+            <div className="mt-3 border-t border-gray-100 pt-3">
+              {routingNote && <p className="mb-2 text-xs text-[#0E7490]">{routingNote}</p>}
+              <GapInterrogation key={currentGap.key} gap={currentGap} remaining={budgetedGaps.length} busy={gapBusy}
+                onSubmit={submitGapAnswer} onAttachDocument={attachDocument} onReconcileConfirm={reconcileConfirm} />
+            </div>
+          )}
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            {!showAllGaps && gaps.length > budgetedGaps.length && (
+              <button onClick={() => setShowAllGaps(true)} className="text-xs text-[#0E7490] hover:underline">
+                Ask me more ({gaps.length - budgetedGaps.length} more available)
+              </button>
+            )}
+            <button onClick={() => setShowInterrogation(false)} className="text-xs text-gray-400 hover:underline">
+              Close — I&apos;ll finish this later
+            </button>
+          </div>
         </Card>
       )}
-      {showInterrogation && !currentGap && (
+      {showInterrogation && !currentGap && gaps.length === 0 && (
         <Card title={<span className="text-emerald-700">All caught up</span>}>
           <p className="text-sm text-gray-600">No pending questions right now. Run review below to see the updated result.</p>
           <button onClick={() => setShowInterrogation(false)} className="mt-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50">

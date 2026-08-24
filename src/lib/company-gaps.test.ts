@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   detectGaps, ruleG1, ruleG2, ruleG3, ruleG3b, ruleG3c, ruleG4, ruleG5, ruleG6, ruleG7, ruleG8,
-  templateFor, QUESTION_TEMPLATES, routeAnswer, type GapContext,
+  templateFor, QUESTION_TEMPLATES, routeAnswer, rankGaps, impactWhy, GAP_QUESTION_BUDGET, type Gap, type GapContext,
 } from './company-gaps';
 import { normalizeAtom } from './company-claims';
 import type { CompanyClaim, ClaimCategory, ClaimSourceKind, ClaimStatus } from './types';
@@ -616,5 +616,38 @@ describe('routeAnswer — Prompt 358 Phase 1: which answers are claims, and whic
 
   it('an unrecognized rule/option combination defaults to claim, never silently drops an answer', () => {
     expect(routeAnswer('G8', undefined, false)).toEqual({ kind: 'claim' });
+  });
+});
+
+describe('rankGaps / impactWhy — Prompt 358 Phase 3.2: a question budget needs a stable ranking', () => {
+  function gap(rule: Gap['rule'], severity: Gap['severity']): Gap {
+    return { rule, severity, message: `${rule} message`, relatedClaimIds: [] };
+  }
+
+  it('orders critical before high before medium', () => {
+    const ranked = rankGaps([gap('G4', 'medium'), gap('G1', 'critical'), gap('G6', 'high')]);
+    expect(ranked.map((g) => g.rule)).toEqual(['G1', 'G6', 'G4']);
+  });
+
+  it('is deterministic for ties on the same severity — same input, same order, every time', () => {
+    const gaps = [gap('G5', 'medium'), gap('G4', 'medium'), gap('G2', 'high')];
+    expect(rankGaps(gaps).map((g) => g.rule)).toEqual(rankGaps([...gaps].reverse()).map((g) => g.rule));
+  });
+
+  it('never mutates the input array', () => {
+    const gaps = [gap('G4', 'medium'), gap('G1', 'critical')];
+    const copy = [...gaps];
+    rankGaps(gaps);
+    expect(gaps).toEqual(copy);
+  });
+
+  it('GAP_QUESTION_BUDGET is 5 — "perguntar é caro"', () => {
+    expect(GAP_QUESTION_BUDGET).toBe(5);
+  });
+
+  it('impactWhy returns a real, non-generic reason for every rule the templates cover', () => {
+    for (const t of QUESTION_TEMPLATES) {
+      expect(impactWhy(t.rule)).not.toBe('Closing this makes your dossier more complete.');
+    }
   });
 });

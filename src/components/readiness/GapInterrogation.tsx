@@ -37,6 +37,9 @@ export interface GapView {
   // spread verbatim into the JSON) — declared here so TypeScript callers
   // can rely on it too.
   relatedClaimIds: string[];
+  // Prompt 358 Phase 3.1 — short, investor-neutral reason this gap is worth
+  // closing, for the Knowledge Health panel's "would strengthen" list.
+  why: string;
   // Prompt 358 Phase 2.1 — a medium-confidence reconciliation match the
   // engine already found for this (G4-only) gap, if any. null for every
   // other rule and whenever nothing plausible was found.

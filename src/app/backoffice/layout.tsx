@@ -22,6 +22,8 @@ const NAV = [
   { href: '/backoffice/support', label: 'Customer Support' },
   // Prompt 293 §2/§3 — new AI Costs tab, single source ai_call_log (0202).
   { href: '/backoffice/costs', label: 'AI Costs' },
+  // Prompt 358 Phase 3.3 — gap-interrogation engine health (gap_reconciliations/gap_questions).
+  { href: '/backoffice/gap-engine-health', label: 'Gap Engine Health' },
   { href: '/backoffice/promo-codes', label: 'Promo Codes & Offers' },
   { href: '/backoffice/plan-requests', label: 'Plan Requests' },
 ];

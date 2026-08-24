@@ -15,8 +15,10 @@ import Link from 'next/link';
 import { Card } from '@/components/ui';
 import type { CompanyClaim, ClaimCategory } from '@/lib/types';
 import { GapInterrogation, type GapView } from './GapInterrogation';
+import { KnowledgeHealthPanel } from './KnowledgeHealthPanel';
 import { isWastedStrongClaim } from '@/lib/company-claims';
 import { pickCurrentGap } from '@/lib/gap-rotation';
+import { GAP_QUESTION_BUDGET } from '@/lib/company-gaps';
 
 interface BlueprintState {
   available: boolean;
@@ -91,6 +93,8 @@ export function BlueprintPanel() {
   // without this the same gap just came right back as gaps[0]. Session-
   // local rotation only — never a persisted dismissal.
   const [skippedKeys, setSkippedKeys] = useState<Set<string>>(new Set());
+  // Prompt 358 Phase 3.2 — same budget cap as ReviewPanel.tsx's own copy.
+  const [showAllGaps, setShowAllGaps] = useState(false);
 
   function load() {
     fetch('/api/blueprint').then((r) => r.json()).then(setState).catch(() => setState(null));
@@ -119,7 +123,9 @@ export function BlueprintPanel() {
     } finally { setBusy(false); }
   }
 
-  const gap = state?.gaps ? pickCurrentGap(state.gaps, skippedKeys) : undefined;
+  const allGaps = state?.gaps ?? [];
+  const budgetedGaps = showAllGaps ? allGaps : allGaps.slice(0, GAP_QUESTION_BUDGET);
+  const gap = pickCurrentGap(budgetedGaps, skippedKeys);
 
   async function submitAnswer(opts: { option?: string; answer?: string; dismissed: boolean; category?: string }) {
     if (!gap) return;
@@ -245,12 +251,24 @@ export function BlueprintPanel() {
       </Card>
 
       {/* §3 — o interrogatório: uma pergunta de cada vez (GapInterrogation,
-          shared with ReviewPanel.tsx — Prompt 298 §1). */}
-      {gap && (
-        <Card title={<span className="text-[#0E7490]">What&apos;s missing ({state.gaps.length} left)</span>}>
-          {routingNote && <p className="mb-2 text-xs text-[#0E7490]">{routingNote}</p>}
-          <GapInterrogation key={gap.key} gap={gap} remaining={state.gaps.length} busy={busy}
-            onSubmit={submitAnswer} onAttachDocument={attachDocument} onReconcileConfirm={reconcileConfirm} />
+          shared with ReviewPanel.tsx — Prompt 298 §1). Prompt 358 Phase 3.1 —
+          the Knowledge Health panel replaces the old "N left" framing;
+          Phase 3.2's budget caps which gaps the flow below can pull from. */}
+      {(allGaps.length > 0 || state.claims.some((c) => c.status === 'accepted')) && (
+        <Card title={<span className="text-[#0E7490]">Knowledge health</span>}>
+          <KnowledgeHealthPanel claims={state.claims} gaps={allGaps} />
+          {gap && (
+            <div className="mt-3 border-t border-gray-100 pt-3">
+              {routingNote && <p className="mb-2 text-xs text-[#0E7490]">{routingNote}</p>}
+              <GapInterrogation key={gap.key} gap={gap} remaining={budgetedGaps.length} busy={busy}
+                onSubmit={submitAnswer} onAttachDocument={attachDocument} onReconcileConfirm={reconcileConfirm} />
+            </div>
+          )}
+          {!showAllGaps && allGaps.length > budgetedGaps.length && (
+            <button onClick={() => setShowAllGaps(true)} className="mt-2 text-xs text-[#0E7490] hover:underline">
+              Ask me more ({allGaps.length - budgetedGaps.length} more available)
+            </button>
+          )}
         </Card>
       )}
 

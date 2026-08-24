@@ -18,7 +18,7 @@ import { claimsAvailable, blueprintAnalysesAvailable } from '@/lib/blueprint-cap
 import { readKnowledgeSources, readExistingClaims, hasAnyVaultDocument } from '@/lib/company-knowledge-db';
 import { knowledgeToAtoms, newAtoms } from '@/lib/company-knowledge';
 import { normalizeAtom, findDuplicateCandidate } from '@/lib/company-claims';
-import { detectGaps, templateFor, gapKey } from '@/lib/company-gaps';
+import { detectGaps, templateFor, gapKey, rankGaps, impactWhy } from '@/lib/company-gaps';
 import { gapReconciliationsAvailable } from '@/lib/document-extraction-capability';
 import { runReconciliationForOrg, readReconcilableDocuments } from '@/lib/reconciliation';
 
@@ -144,10 +144,9 @@ export async function GET() {
     available: true,
     analysesAvailable: await blueprintAnalysesAvailable(),
     claims: claimsWithDuplicates,
-    gaps: gaps
-      .filter((g) => !answeredRules.has(gapKey(g)))
+    gaps: rankGaps(gaps.filter((g) => !answeredRules.has(gapKey(g))))
       .map((g) => ({
-        ...g, key: gapKey(g), prompt: templateFor(g),
+        ...g, key: gapKey(g), prompt: templateFor(g), why: impactWhy(g.rule),
         reconciliationSuggestion: g.rule === 'G4' ? (reconciliationByClaimId.get(g.relatedClaimIds[0]) ?? null) : null,
       })),
     analysis,
