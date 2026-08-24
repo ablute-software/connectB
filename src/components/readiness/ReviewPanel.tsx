@@ -29,6 +29,7 @@ import { ClarificationBullet } from './ClarificationBullet';
 import type { SwotData } from '@/lib/types';
 import { clarificationsByKey, clarificationKey, upsertClarification, type ReviewClarification } from '@/lib/review-clarifications';
 import { splitFundraisingExecution } from '@/lib/founder-report-split';
+import { InvestorFeedbackCard } from './InvestorFeedbackCard';
 
 interface ReviewRun { id: string; score: number | null; summary: string | null; report: InvestabilityReport; created_at: string }
 interface InvestabilityReport extends SwotData { score: number; summary: string; risks: string[]; recommendations: string[] }
@@ -376,6 +377,8 @@ export function ReviewPanel() {
           </button>
         </Card>
       )}
+
+      <InvestorFeedbackCard />
 
       <SwotVisualCard
         data={latest?.report ? {

@@ -5,6 +5,7 @@
 // are configured per-startup from here too. Nothing here is ever visible
 // to the founder — position, delta magnitude, thresholds are all private.
 import { useEffect, useState } from 'react';
+import { WatsonEvaluationSupport } from './WatsonEvaluationSupport';
 
 interface ChangedField { field: string; label: string; from: unknown; to: unknown }
 interface WatchItem {
@@ -144,8 +145,9 @@ export function WatchingPanel({ onOpenStartup }: { onOpenStartup: (orgId: string
                   </button>
                 </div>
               )}
-              <div className="mt-2">
+              <div className="mt-2 space-y-2">
                 <ThresholdEditor orgId={it.orgId} />
+                <WatsonEvaluationSupport orgId={it.orgId} />
               </div>
             </div>
           );

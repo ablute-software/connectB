@@ -19,6 +19,7 @@ import {
 import { FollowOnBadge } from '@/components/FollowOnBadge';
 import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
 import { DocScorePanel, type DocScore } from '@/components/investor-workspace/DocScorePanel';
+import { WatsonEvaluationSupport } from '@/components/investor-workspace/WatsonEvaluationSupport';
 
 interface LevelRow { level: 2 | 3; status: 'granted' | 'pending' | 'denied' }
 interface PortalDoc { id: string; name: string; version?: string; watermark: boolean; downloadable: boolean; folder_id?: string; url: string | null }
@@ -409,10 +410,14 @@ export default function StartupDossierPage() {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr_260px] lg:items-start">
             <details className="rounded-lg border border-gray-200 bg-white lg:hidden">
               <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">Your scorecard</summary>
-              <div className="border-t border-gray-100 p-2"><ScorecardPanel orgId={orgId} /></div>
+              <div className="border-t border-gray-100 p-2 space-y-2">
+                <ScorecardPanel orgId={orgId} />
+                <WatsonEvaluationSupport orgId={orgId} />
+              </div>
             </details>
-            <div className="hidden lg:sticky lg:top-24 lg:block">
+            <div className="hidden lg:sticky lg:top-24 lg:block lg:space-y-2">
               <ScorecardPanel orgId={orgId} />
+              <WatsonEvaluationSupport orgId={orgId} />
             </div>
 
             <div className="min-w-0">{renderTabContent()}</div>
