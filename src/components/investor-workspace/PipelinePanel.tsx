@@ -7,6 +7,7 @@ import { Fragment, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { InteractionLogDrawer } from './InteractionLogDrawer';
 import { ArchivePanel } from './ArchivePanel';
+import { WatchingPanel } from './WatchingPanel';
 import { FollowOnBadge } from '../FollowOnBadge';
 import type { FollowOnPayload } from '@/lib/network';
 
@@ -74,13 +75,15 @@ interface PipelineResponse { linked: boolean; waves?: Wave[]; usualCoInvestors?:
 
 const REASON_MAX_LEN = 1000;
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
-type StatusFilterValue = 'all' | 'open' | 'interested' | 'passed' | 'archived';
+type StatusFilterValue = 'all' | 'open' | 'interested' | 'passed' | 'archived' | 'watching';
 const STATUS_FILTERS: { value: StatusFilterValue; label: string }[] = [
   { value: 'all', label: 'All' }, { value: 'open', label: 'No decision' }, { value: 'interested', label: 'Interested' }, { value: 'passed', label: 'Passed' },
   // Prompt 337 — the standalone "Archive" tab is gone; same content
   // (ArchivePanel, unchanged), same source of truth, reached as a filter
   // pill here instead — the investor shell no longer has a 9th tab for it.
   { value: 'archived', label: 'Archived' },
+  // Prompt 348 — same "reached as a filter pill, not its own tab" pattern.
+  { value: 'watching', label: 'Watching' },
 ];
 
 function fmtEur(n: number | null) {
@@ -201,6 +204,12 @@ export function PipelinePanel({ onOpenStartup }: {
   const [archivedCount, setArchivedCount] = useState<number | null>(null);
   useEffect(() => {
     fetch('/api/portal/archive').then((r) => r.json()).then((d) => setArchivedCount((d.entries ?? []).length)).catch(() => setArchivedCount(null));
+  }, []);
+  // Prompt 348 — same reasoning as archivedCount above: watches are their
+  // own table (investor_watches), not a subset of `waves`.
+  const [watchingCount, setWatchingCount] = useState<number | null>(null);
+  useEffect(() => {
+    fetch('/api/portal/watchlist').then((r) => r.json()).then((d) => setWatchingCount((d.items ?? []).length)).catch(() => setWatchingCount(null));
   }, []);
   // Prompt 121 §2.3 — sector/geography/stage filters, composed with the
   // existing status filter and the wave doseamento: filtering only decides
@@ -448,7 +457,7 @@ export function PipelinePanel({ onOpenStartup }: {
           <button key={f.value} onClick={() => setStatusFilter(f.value)}
             title={f.value === 'all' ? 'Passed and Archived live in their own filters.' : undefined}
             className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${statusFilter === f.value ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-            {f.label}{f.value === 'archived' && archivedCount != null ? ` (${archivedCount})` : ''}
+            {f.label}{f.value === 'archived' && archivedCount != null ? ` (${archivedCount})` : ''}{f.value === 'watching' && watchingCount != null ? ` (${watchingCount})` : ''}
           </button>
         ))}
       </div>
@@ -459,6 +468,8 @@ export function PipelinePanel({ onOpenStartup }: {
       <p className="text-[11px] text-gray-400">Passed and Archived live in their own filters.</p>
       {statusFilter === 'archived' ? (
         <ArchivePanel />
+      ) : statusFilter === 'watching' ? (
+        <WatchingPanel onOpenStartup={onOpenStartup} />
       ) : (
       <>
       {/* Prompt 121 §2.3 — sector/geography/stage filters. Composed with the

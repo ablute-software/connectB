@@ -90,6 +90,43 @@ export default function StartupDossierPage() {
   }, [!!docs, orgId]);
   const [focusedDoc, setFocusedDoc] = useState<{ id: string; name: string } | null>(null);
 
+  // Prompt 348 §A/§B — "Watching closely". Fetched once eligibility is
+  // known, independent of the active tab (same reasoning as messagesInfo).
+  const [watchInfo, setWatchInfo] = useState<{
+    status: 'none' | 'requested' | 'active';
+    changedFields?: { field: string; label: string; from: unknown; to: unknown }[];
+    newClass1Statements?: string[]; newClass2Statements?: string[]; newRoadmapCount?: number;
+  } | null>(null);
+  const [watchBusy, setWatchBusy] = useState(false);
+  // Prompt 348 §D — founder-authored updates addressed to this investor,
+  // through the private watching channel (never My Network).
+  const [watchUpdates, setWatchUpdates] = useState<{ id: string; body: string; createdAt: string }[]>([]);
+  useEffect(() => {
+    if (data === 'not-found' || !data) return;
+    fetch(`/api/portal/watch-updates?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => setWatchUpdates(d.updates ?? [])).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, orgId]);
+  function loadWatch() {
+    fetch(`/api/portal/watch?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then(setWatchInfo).catch(() => {});
+  }
+  useEffect(() => {
+    if (data === 'not-found' || !data) return;
+    loadWatch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, orgId]);
+
+  async function requestWatchThisStartup() {
+    setWatchBusy(true);
+    try {
+      await fetch('/api/portal/watch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId }) });
+      loadWatch();
+    } finally { setWatchBusy(false); }
+  }
+  async function markWatchSeenHere() {
+    await fetch('/api/portal/watch', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId }) });
+    loadWatch();
+  }
+
   useEffect(() => {
     if (!authEnabled) { setSessionEmail(null); return; }
     browserClient().auth.getUser().then(({ data }) => setSessionEmail(data.user?.email?.toLowerCase() ?? null));
@@ -241,6 +278,18 @@ export default function StartupDossierPage() {
               className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium ${trackEvaluate ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-200 text-gray-700 hover:border-[#0E7490]'}`}>
               📝 Track &amp; Evaluate{trackEvaluate ? ' · on' : ''}
             </button>
+            {/* Prompt 348 §A — double opt-in: this only ever creates a
+                'requested' row; the founder accepts/declines separately. */}
+            {watchInfo?.status === 'active' ? (
+              <span className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-500">👁 Watching</span>
+            ) : watchInfo?.status === 'requested' ? (
+              <span className="rounded-lg border border-dashed border-gray-200 px-2.5 py-1.5 text-xs text-gray-400">Watch requested</span>
+            ) : (
+              <button onClick={requestWatchThisStartup} disabled={watchBusy}
+                className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490] disabled:opacity-40">
+                👁 Watch this startup
+              </button>
+            )}
             <Link href={`/portal?tab=evaluation&orgId=${orgId}`}
               className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
               🧮 Equity calculator
@@ -395,7 +444,43 @@ export default function StartupDossierPage() {
     return (
       <>
         {tab === 'overview' && (
-          <DossierOverviewSections card={card} level={level} dossier={dossier} onRequestLevel={requestLevel} levelBusy={levelBusy} scorecardOrgId={card.orgId} />
+          <>
+            {/* Prompt 348 §B — "no topo do Overview", never touching
+                DossierOverviewSections itself (shared by other callers that
+                have nothing to do with watching). Only ever shown for an
+                ACTIVE watch with a real delta — never invented, always
+                citing the actual changed field or claim. */}
+            {watchInfo?.status === 'active' && (
+              (watchInfo.changedFields?.length ?? 0) + (watchInfo.newClass1Statements?.length ?? 0)
+                + (watchInfo.newClass2Statements?.length ?? 0) + (watchInfo.newRoadmapCount ?? 0) > 0
+            ) && (
+              <div className="mb-4 rounded-lg border border-amber-100 bg-amber-50/50 p-3 text-sm">
+                <p className="font-semibold text-gray-800">What changed since your last visit</p>
+                <ul className="mt-1.5 space-y-0.5 text-xs text-gray-700">
+                  {(watchInfo.changedFields ?? []).map((f) => (
+                    <li key={f.field}>{f.label} changed.</li>
+                  ))}
+                  {(watchInfo.newClass1Statements ?? []).map((s, i) => <li key={`c1-${i}`}>New class-1 evidence: {s}</li>)}
+                  {(watchInfo.newClass2Statements ?? []).map((s, i) => <li key={`c2-${i}`}>New class-2 evidence: {s}</li>)}
+                  {!!watchInfo.newRoadmapCount && <li>{watchInfo.newRoadmapCount} roadmap milestone{watchInfo.newRoadmapCount === 1 ? '' : 's'} changed.</li>}
+                </ul>
+                <button onClick={markWatchSeenHere} className="mt-2 rounded-lg border border-amber-200 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-white">
+                  Mark as seen
+                </button>
+              </div>
+            )}
+            {watchUpdates.length > 0 && (
+              <div className="mb-4 space-y-2">
+                {watchUpdates.map((u) => (
+                  <div key={u.id} className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Update from the founder · {new Date(u.createdAt).toLocaleDateString()}</p>
+                    <p className="mt-1 whitespace-pre-wrap text-gray-700">{u.body}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <DossierOverviewSections card={card} level={level} dossier={dossier} onRequestLevel={requestLevel} levelBusy={levelBusy} scorecardOrgId={card.orgId} />
+          </>
         )}
         {tab === 'documents' && (
           <DocumentsTab hasAccess={card.hasDataRoomAccess} docs={docs} sharedInMessages={messagesInfo?.messages ?? []}

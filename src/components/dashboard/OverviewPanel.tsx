@@ -20,7 +20,7 @@ import { MatchDealVisibilityBanner } from './MatchDealVisibilityBanner';
 // the "about the company" page. InvestorQACard/RoundUpdatesCard/
 // SoftCommitsCard share the same characteristic but weren't named in the
 // request — left in place, flagged in the report for a follow-up decision.
-import { InvestorDecisionsCard, InterestLevelRequestsCard } from '@/components/company/InvestorEngagementCards';
+import { InvestorDecisionsCard, InterestLevelRequestsCard, WatchersCard, WatchUpdatesCard } from '@/components/company/InvestorEngagementCards';
 import { OutreachSettingsCard } from '@/components/company/OutreachSettingsCard';
 import type { EntityStatus } from '@/lib/types';
 
@@ -254,6 +254,8 @@ export function OverviewPanel() {
 
       <InvestorDecisionsCard />
       <InterestLevelRequestsCard />
+      <WatchersCard />
+      <WatchUpdatesCard />
       <OutreachSettingsCard canEdit={canEditOutreach} />
     </div>
   );

@@ -295,3 +295,115 @@ export function SoftCommitsCard() {
     </Card>
   );
 }
+
+// Prompt 348 §A — "Watching closely", founder side: transparency (who is
+// following, name + status only — never notes/ratings/orderings, none of
+// which this table or query ever contains) plus accept/decline/revoke.
+// Same pending/decided split as InterestLevelRequestsCard above.
+interface Watcher { watchId: string; investorName: string; status: 'requested' | 'active' | 'declined' | 'revoked'; requestedAt: string; decidedAt: string | null }
+
+export function WatchersCard() {
+  const [watchers, setWatchers] = useState<Watcher[] | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  function load() {
+    fetch('/api/founder/watches').then((r) => r.json()).then((d) => setWatchers(d.watchers ?? []));
+  }
+  useEffect(load, []);
+
+  async function act(watchId: string, action: 'accept' | 'decline' | 'revoke') {
+    setBusyId(watchId);
+    try {
+      await fetch('/api/founder/watches', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ watchId, action }),
+      });
+      load();
+    } finally { setBusyId(null); }
+  }
+
+  if (!watchers || watchers.length === 0) return null;
+  const pending = watchers.filter((w) => w.status === 'requested');
+  const active = watchers.filter((w) => w.status === 'active');
+
+  return (
+    <Card title="Watching your progress">
+      <p className="mb-2 text-xs text-gray-400">
+        Investors who asked to follow changes to what you already share with them — never your pipeline stages, notes, or how they rank you.
+      </p>
+      <div className="space-y-2">
+        {pending.map((w) => (
+          <div key={w.watchId} className="rounded-lg border border-gray-100 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium text-gray-800">{w.investorName}</span>
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Pending</span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-gray-400">Requested {new Date(w.requestedAt).toLocaleDateString()}</p>
+            <div className="mt-2 flex items-center gap-2">
+              <button onClick={() => act(w.watchId, 'accept')} disabled={busyId === w.watchId}
+                className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">Accept</button>
+              <button onClick={() => act(w.watchId, 'decline')} disabled={busyId === w.watchId}
+                className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">Decline</button>
+            </div>
+          </div>
+        ))}
+        {active.map((w) => (
+          <div key={w.watchId} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 p-3">
+            <div>
+              <span className="text-sm font-medium text-gray-800">{w.investorName}</span>
+              <p className="text-[11px] text-gray-400">Watching since {w.decidedAt ? new Date(w.decidedAt).toLocaleDateString() : '—'}</p>
+            </div>
+            <button onClick={() => act(w.watchId, 'revoke')} disabled={busyId === w.watchId}
+              className="text-xs text-gray-400 hover:text-[#B00000] disabled:opacity-40">Revoke</button>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+// Prompt 348 §D — private updates to watchers, never the My Network feed.
+export function WatchUpdatesCard() {
+  const [watcherCount, setWatcherCount] = useState<number | null>(null);
+  const [body, setBody] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [sentAt, setSentAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch('/api/founder/watches').then((r) => r.json()).then((d) => setWatcherCount((d.watchers ?? []).filter((w: Watcher) => w.status === 'active').length));
+  }, []);
+
+  if (!watcherCount) return null;
+
+  // Prompt 348 §D — the backend already supports naming a subset
+  // (recipientInvestorCatalogEntityIds on watch_updates); this pass only
+  // wires "send to all active watchers" — per-investor selection needs
+  // catalog entity ids surfaced to this card, left for a follow-up rather
+  // than a half-built picker here.
+  async function send() {
+    if (!body.trim()) return;
+    setBusy(true);
+    try {
+      await fetch('/api/founder/watch-updates', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ body: body.trim() }),
+      });
+      setBody(''); setSentAt(Date.now());
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <Card title="Update your watchers">
+      <p className="mb-2 text-xs text-gray-400">
+        A short note straight to your {watcherCount} active watcher{watcherCount === 1 ? '' : 's'} — private, never posted to
+        My Network. Progress is usually described in percentages, not exact amounts, unless you&apos;ve turned on exact
+        round progress in Settings.
+      </p>
+      <textarea value={body} onChange={(e) => setBody(e.target.value.slice(0, 2000))} rows={3}
+        placeholder="What's new since they last checked in?" className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
+      {sentAt && Date.now() - sentAt < 3000 && <p className="mt-1.5 text-xs font-medium text-emerald-700">Sent ✓</p>}
+      <button onClick={send} disabled={busy || !body.trim()}
+        className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+        {busy ? 'Sending…' : 'Send update'}
+      </button>
+    </Card>
+  );
+}

@@ -24,7 +24,11 @@ export function patchTouchesArchiveRelevantFields(patch: Record<string, unknown>
   return ARCHIVE_RELEVANT_ORG_FIELDS.some((f) => f in patch);
 }
 
-export async function captureSnapshot(admin: SupabaseClient, orgId: string, reason: 'first_contact' | 'archived' | 'manual' | 'regenerated') {
+// Prompt 348 — pulled out of captureSnapshot so "Watching closely" can read
+// the CURRENT state for a delta comparison without inserting a new
+// startup_profile_snapshots row on every read (a GET shouldn't write).
+// captureSnapshot itself is unchanged in behavior, just calls this now.
+export async function readSnapshotData(admin: SupabaseClient, orgId: string): Promise<SnapshotData> {
   // round_valuation_basis is only added to the select once the propose-only
   // migration (0111) has landed — an explicit column name Postgrest doesn't
   // recognize fails the WHOLE select, unlike a plain `null` for a column
@@ -42,7 +46,11 @@ export async function captureSnapshot(admin: SupabaseClient, orgId: string, reas
         ).eq('id', orgId).single(),
     admin.from('org_traction_metrics').select('label, value').eq('org_id', orgId).order('sort_order', { ascending: true }),
   ]);
-  const data: SnapshotData = { ...(org as unknown as SnapshotData), traction: metrics ?? [] };
+  return { ...(org as unknown as SnapshotData), traction: metrics ?? [] };
+}
+
+export async function captureSnapshot(admin: SupabaseClient, orgId: string, reason: 'first_contact' | 'archived' | 'manual' | 'regenerated') {
+  const data = await readSnapshotData(admin, orgId);
   const { data: row } = await admin.from('startup_profile_snapshots').insert({ org_id: orgId, reason, data }).select('id').single();
   return { id: row!.id as string, data };
 }
