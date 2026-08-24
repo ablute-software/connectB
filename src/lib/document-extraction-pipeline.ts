@@ -132,9 +132,12 @@ async function callSummaryModel(
 // hash steps extractDocument and ensureDocumentSummary both need before
 // doing anything AI-related. Factored out so the two never drift on what
 // counts as "safe to read".
-interface PreparedDocument { docRow: { id: string; name: string; storage_path: string }; bytes: Buffer; sha256: string }
+// Prompt 357 §B — exported: "Fill with Watson"/"Call Sherlock" need the exact
+// same download+scan-gate+truncate guard for arbitrary Vault documents (CVs),
+// never a second, parallel "is this file safe to read" check.
+export interface PreparedDocument { docRow: { id: string; name: string; storage_path: string }; bytes: Buffer; sha256: string }
 
-async function prepareDocumentForAi(
+export async function prepareDocumentForAi(
   admin: SupabaseClient, orgId: string, documentId: string,
 ): Promise<{ ok: true; prepared: PreparedDocument } | { ok: false; skippedReason: ExtractionSkipReason }> {
   if (!(await malwareScanAvailable())) return { ok: false, skippedReason: 'scan_unavailable' };

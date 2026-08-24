@@ -13,6 +13,7 @@ import type { SwotData, RoadmapPeriodKind } from '@/lib/types';
 import type { ReviewCategory } from '@/lib/review-clarifications';
 import { shouldShowMiniPitchTeaser } from '@/lib/mini-pitch';
 import { resolveInitialTabFromHash } from '@/lib/dossier-tabs';
+import { isTeamSummaryRedundant } from '@/lib/team-summary';
 import { MediaGallery, type GalleryItem } from './MediaGallery';
 
 export interface Card {
@@ -226,20 +227,28 @@ export function DossierOverviewSections({
             claim, never invent confidence it hasn't earned. A disputed
             badge is already absent from this array entirely (server-side,
             projectBadgesForInvestor) — there is nothing to special-case
-            here for that state. */}
+            here for that state.
+            Prompt 357 §C2 — given its own discrete labeled block (icon +
+            name + verified state) instead of sitting inline as unlabeled
+            pills, same "bloco discreto e bonito" ask; read-only, no edit
+            affordance, no internal state (verification_note/disputed) ever
+            reaches this far — projectBadgesForInvestor already stripped it. */}
         {dossier.badges && dossier.badges.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {dossier.badges.map((b) => (
-              <span key={b.id}
-                title={b.verificationStatus === 'verified' ? undefined : 'Not yet verified'}
-                className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                  b.verificationStatus === 'verified'
-                    ? 'border-cyan-200 bg-cyan-50 text-[#0E7490]'
-                    : 'border-gray-200 bg-gray-50 text-gray-400 opacity-60 grayscale'
-                }`}>
-                {b.name}{b.year ? ` (${b.year})` : ''}
-              </span>
-            ))}
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <h3 className="text-xs font-semibold text-gray-500">Badges &amp; awards</h3>
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {dossier.badges.map((b) => (
+                <span key={b.id}
+                  title={b.verificationStatus === 'verified' ? 'Verified' : 'Not yet verified'}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                    b.verificationStatus === 'verified'
+                      ? 'border-cyan-200 bg-cyan-50 text-[#0E7490]'
+                      : 'border-gray-200 bg-gray-50 text-gray-400 opacity-60 grayscale'
+                  }`}>
+                  🏅 {b.name}{b.year ? ` (${b.year})` : ''}{b.verificationStatus === 'verified' && <span aria-hidden>✓</span>}
+                </span>
+              ))}
+            </div>
           </div>
         )}
         <MediaGallery items={companyMedia} />
@@ -400,7 +409,19 @@ export function DossierOverviewSections({
       node: (
         <div id="team" data-section="Team" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-gray-900">Team</h2>
-          {overview?.team_summary && <p className="mt-1 text-sm text-gray-700">{overview.team_summary}</p>}
+          {/* Prompt 357 §A — confirmed bug: team_summary sometimes holds
+              literally "Name — Title" for one of the members listed right
+              below, showing that same person twice. (1) Its own identity
+              here — a labeled intro block, never rendered like a member
+              row. (2) Suppressed outright when it's trivially redundant
+              with a listed member's own name+title (isTeamSummaryRedundant,
+              pure/tested) — a real summary sentence is never affected. */}
+          {overview?.team_summary && !isTeamSummaryRedundant(overview.team_summary, team) && (
+            <div className="mt-1 rounded-lg bg-gray-50 px-2.5 py-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Team overview</p>
+              <p className="mt-0.5 text-sm text-gray-700">{overview.team_summary}</p>
+            </div>
+          )}
           {team.length > 0 ? (
             <ul className="mt-2 space-y-1.5">
               {team.map((p) => (

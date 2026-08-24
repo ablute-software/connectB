@@ -59,18 +59,31 @@ export function CompanyPanel() {
 
   if (companyProfile === null) return <p className="text-sm text-gray-400">Loading…</p>;
 
+  // Prompt 357 §C1 — Badges & awards moves out of the vertical flow into a
+  // fixed right-hand column, in the space that was previously just dead
+  // white margin (max-w-3xl on a page with much more room) — same sticky-
+  // contained-column pattern as the Track & Evaluate sidebar (352/356):
+  // reserved grid space, sticky WITHIN its own column (never escaping it),
+  // its own max-height + internal scroll so a long badge list can't grow
+  // past the viewport. Below `lg`, it drops into the normal vertical flow
+  // (no responsive column story needed at that width). Both branches below
+  // share this same wrapper — only the left column's content differs.
   if (!companyProfile) {
     return (
-      <div className="max-w-3xl space-y-4">
-        <p className="text-xs text-gray-400">
-          The redesigned Identity/Team/Round profile activates once migration 0037 is applied. Here&apos;s what&apos;s editable today.
-        </p>
-        <OrganisationCard />
-        <BadgesCard canEdit={canEdit} orgId={db.org.id} />
-        <PhotosMediaCard canEdit={canEdit} />
-        <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
-        <StartupAxisClassifications />
-        <DemoResetCard />
+      <div className="grid grid-cols-1 gap-4 lg:max-w-5xl lg:grid-cols-[1fr_300px] lg:items-start">
+        <div className="space-y-4">
+          <p className="text-xs text-gray-400">
+            The redesigned Identity/Team/Round profile activates once migration 0037 is applied. Here&apos;s what&apos;s editable today.
+          </p>
+          <OrganisationCard />
+          <PhotosMediaCard canEdit={canEdit} />
+          <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
+          <StartupAxisClassifications />
+          <DemoResetCard />
+        </div>
+        <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+          <BadgesCard canEdit={canEdit} orgId={db.org.id} />
+        </div>
       </div>
     );
   }
@@ -78,42 +91,46 @@ export function CompanyPanel() {
   const { pct, missing } = calcCompanyCompleteness(db.org, db.companyPeople);
 
   return (
-    <div className="max-w-3xl space-y-4">
-      <div data-tour-id="settings-completeness">
-        <CompletenessBar pct={pct} missing={missing} orgId={db.org.id} onFlash={setFlashId} />
+    <div className="grid grid-cols-1 gap-4 lg:max-w-5xl lg:grid-cols-[1fr_300px] lg:items-start">
+      <div className="space-y-4">
+        <div data-tour-id="settings-completeness">
+          <CompletenessBar pct={pct} missing={missing} orgId={db.org.id} onFlash={setFlashId} />
+        </div>
+        <RoadmapCard canEdit={canEdit} available={roadmapAvailable} />
+        <div id="settings-identity" data-tour-id="settings-identity">
+          <IdentityCard canEdit={canEdit} missing={missing} flashId={flashId} />
+        </div>
+        <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
+        <PhotosMediaCard canEdit={canEdit} />
+        <div id="settings-round" data-tour-id="settings-round">
+          <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
+          {/* Prompt 212 §B.3 — logo a seguir a ronda actual, porque a pergunta
+              que o founder faz e "quanto ja levantei" vs "quanto estou a
+              levantar", e as duas tem de estar lado a lado para nao voltarem a
+              confundir-se. */}
+          {canEdit && <PreviousFundingCard />}
+        </div>
+        <MiniPitchCard canEdit={canEdit} />
+        <div data-tour-id="settings-traction">
+          <TractionCard canEdit={canEdit} />
+        </div>
+        <DataroomChecklistCard />
+        {/* Prompt 327 Pedido A — InvestorDecisionsCard/InterestLevelRequestsCard/
+            OutreachSettingsCard moved to the Dashboard Overview tab: they're
+            operational RESULTS of the Sherlock relationship, not facts the
+            company declares about itself. SoftCommitsCard/RoundUpdatesCard/
+            InvestorQACard stayed here for now (not named in the request) —
+            flagged in the report as arguably sharing the same characteristic. */}
+        <SoftCommitsCard />
+        <RoundUpdatesCard />
+        <InvestorQACard />
+        <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
+        <StartupAxisClassifications />
+        <DemoResetCard />
       </div>
-      <RoadmapCard canEdit={canEdit} available={roadmapAvailable} />
-      <div id="settings-identity" data-tour-id="settings-identity">
-        <IdentityCard canEdit={canEdit} missing={missing} flashId={flashId} />
+      <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+        <BadgesCard canEdit={canEdit} orgId={db.org.id} />
       </div>
-      <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
-      <BadgesCard canEdit={canEdit} orgId={db.org.id} />
-      <PhotosMediaCard canEdit={canEdit} />
-      <div id="settings-round" data-tour-id="settings-round">
-        <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
-        {/* Prompt 212 §B.3 — logo a seguir a ronda actual, porque a pergunta
-            que o founder faz e "quanto ja levantei" vs "quanto estou a
-            levantar", e as duas tem de estar lado a lado para nao voltarem a
-            confundir-se. */}
-        {canEdit && <PreviousFundingCard />}
-      </div>
-      <MiniPitchCard canEdit={canEdit} />
-      <div data-tour-id="settings-traction">
-        <TractionCard canEdit={canEdit} />
-      </div>
-      <DataroomChecklistCard />
-      {/* Prompt 327 Pedido A — InvestorDecisionsCard/InterestLevelRequestsCard/
-          OutreachSettingsCard moved to the Dashboard Overview tab: they're
-          operational RESULTS of the Sherlock relationship, not facts the
-          company declares about itself. SoftCommitsCard/RoundUpdatesCard/
-          InvestorQACard stayed here for now (not named in the request) —
-          flagged in the report as arguably sharing the same characteristic. */}
-      <SoftCommitsCard />
-      <RoundUpdatesCard />
-      <InvestorQACard />
-      <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
-      <StartupAxisClassifications />
-      <DemoResetCard />
     </div>
   );
 }

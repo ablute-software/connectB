@@ -10,6 +10,7 @@ import { Card } from '@/components/ui';
 import { CompletenessField } from './CompletenessField';
 import type { CompletenessField as Field } from '@/lib/companyCompleteness';
 import type { CompanyPerson } from '@/lib/types';
+import { TeamAiFillPanel } from './TeamAiFillPanel';
 
 const BLANK = { full_name: '', title: '', is_founder: false, linkedin_url: '', email: '', bio: '', photo_url: '' };
 
@@ -119,6 +120,8 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
           </div>
         </div>
       )}
+
+      {canEdit && people.length > 0 && <TeamAiFillPanel orgId={org.id} people={people} updateCompanyPerson={updateCompanyPerson} />}
 
       <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-gray-100 pt-3">
         <CompletenessField id="team.employee_count" label="Total employees" missing={missingIds.has('team.employee_count')} flashing={flashId === 'team.employee_count'}>
