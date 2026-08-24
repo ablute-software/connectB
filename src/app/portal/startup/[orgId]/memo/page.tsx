@@ -23,14 +23,34 @@ interface Overview { description?: string | null; one_liner?: string | null }
 interface Card {
   name: string; oneLiner: string | null; sectors: string[]; stage: string | null;
   roundTargetEur: number | null; roundMinTicketEur: number | null;
+  // Prompt 354 §D — relationship state/dates, already on the SAME card the
+  // dossier itself reads (nothing new fetched for these two).
+  status: 'open' | 'passed' | 'interested'; decidedAt: string | null; decidedByMe: boolean | null;
 }
 interface Dossier { overview?: Overview; team?: TeamMember[] }
 interface MemoData { card: Card; dossier: Dossier }
 
+// Prompt 354 §D — "Your private evaluation — never shared": the investor's
+// OWN scorecard/doc-ratings/ticket-and-deal-signals/reminders for this
+// startup, printed as a clearly separate second half of the memo. Every one
+// of these is already investor-private data this session's own routes
+// serve back to the SAME investor who's asking — nothing founder-private
+// enters through this page (root privacy rule is about the OTHER
+// direction: founder data reaching investors, not an investor's own notes
+// reaching themselves).
+interface ScorecardItem { criteriaId: string; label: string; weight: number; score: number | null; note: string | null }
+interface DocScoreEntry { score: number; note: string | null }
+interface ReminderItem { id: string; orgId: string | null; title: string; due_at: string | null }
+
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
+const CONSIDERING_LABEL: Record<string, string> = { lead: 'Leading', co_lead: 'Following', both: 'Both' };
+const INSTRUMENT_LABELS: Record<string, string> = { equity: 'Equity', safe: 'SAFE', convertible_note: 'Convertible note', venture_debt: 'Venture debt', grant: 'Grant / subsidy', revenue_based: 'Revenue-based' };
 
 function fmtEur(n: number | null | undefined) {
   return n == null ? null : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
+}
+function fmtDate(iso: string | null | undefined) {
+  return iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
 }
 
 export default function DealMemoPage() {
@@ -38,6 +58,12 @@ export default function DealMemoPage() {
   const orgId = params.orgId;
   const [sessionEmail, setSessionEmail] = useState<string | null | undefined>(undefined);
   const [data, setData] = useState<MemoData | null | 'not-found'>(null);
+  const [scorecard, setScorecard] = useState<ScorecardItem[]>([]);
+  const [docScores, setDocScores] = useState<Record<string, DocScoreEntry>>({});
+  const [docNames, setDocNames] = useState<Record<string, string>>({});
+  const [ticketSignal, setTicketSignal] = useState<{ range_label: string } | null>(null);
+  const [dealSignal, setDealSignal] = useState<{ considering: string | null; instruments: string[] } | null>(null);
+  const [reminders, setReminders] = useState<ReminderItem[]>([]);
 
   useEffect(() => {
     if (!authEnabled) { setSessionEmail(null); return; }
@@ -47,6 +73,21 @@ export default function DealMemoPage() {
   useEffect(() => {
     if (sessionEmail === undefined || sessionEmail === null) return;
     fetch(`/api/portal/startup/${orgId}`).then(async (r) => (r.status === 404 ? 'not-found' as const : r.json())).then(setData);
+    // Prompt 354 §D — the private half of the memo, one fetch per already-
+    // existing route (scorecard, doc-scores, ticket/deal signals via the
+    // same /api/portal/access the dossier itself uses, reminders).
+    fetch(`/api/portal/scorecard/scores?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => setScorecard(d.items ?? [])).catch(() => {});
+    fetch(`/api/portal/doc-scores?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => setDocScores(d.scores ?? {})).catch(() => {});
+    fetch(`/api/portal/access?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => {
+      setTicketSignal(d.currentTicketSignal ?? null);
+      setDealSignal(d.currentDealSignal ?? null);
+      const names: Record<string, string> = {};
+      for (const doc of (d.documents ?? []) as { id: string; name: string }[]) names[doc.id] = doc.name;
+      setDocNames(names);
+    }).catch(() => {});
+    fetch('/api/portal/tasks').then((r) => r.json()).then((d) => {
+      setReminders(((d.tasks ?? []) as ReminderItem[]).filter((t) => t.orgId === orgId));
+    }).catch(() => {});
   }, [sessionEmail, orgId]);
 
   if (authEnabled && sessionEmail === undefined) return <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>;
@@ -87,6 +128,14 @@ export default function DealMemoPage() {
           {card.stage && <span>{STAGE_LABELS[card.stage] ?? card.stage}</span>}
           {card.sectors.length > 0 && <span>{card.sectors.join(', ')}</span>}
         </div>
+        {/* Prompt 354 §D.2 — a real investment memo names who prepared it
+            and when, plus a confidentiality note; the old print-out had
+            neither. sessionEmail is the "who" until named-contact
+            (level 3) — good enough for "prepared by", never used elsewhere
+            on this page as an identity claim. */}
+        <p className="mt-2 text-xs text-gray-500">
+          Prepared by {sessionEmail ?? 'you'} on {fmtDate(new Date().toISOString())} — confidential, for your own use only.
+        </p>
       </div>
 
       <div className="rounded-lg border border-gray-200 p-4 print:border-0 print:p-0">
@@ -120,6 +169,68 @@ export default function DealMemoPage() {
           </ul>
         ) : (
           <p className="mt-1 text-sm text-gray-400">Not shared yet.</p>
+        )}
+      </div>
+
+      {/* Prompt 354 §D.1 — clearly separate second half: everything above
+          this line is the base (public-tier) memo the founder's own
+          dossier already shows at this disclosure level; everything below
+          is the investor's OWN private evaluation, never shared with or
+          derivable by the startup. Regra raiz intocada: this composes only
+          what the investor already sees (above) plus what is theirs
+          (below) — nothing founder-private-derived enters here. */}
+      <div className="border-t-2 border-dashed border-gray-300 pt-4 print:break-before-page">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-[#0E7490]">Your private evaluation — never shared</h2>
+
+        <div className="mt-3 rounded-lg border border-gray-200 p-4 print:border-0 print:p-0">
+          <h3 className="text-sm font-semibold text-gray-900">Relationship</h3>
+          <p className="mt-1 text-sm text-gray-700">
+            {card.status === 'passed' ? 'Passed' : card.status === 'interested' ? 'Interest expressed' : 'Under review'}
+            {fmtDate(card.decidedAt) && ` on ${fmtDate(card.decidedAt)}`}
+            {card.decidedByMe === false && ' (by a colleague at your firm)'}
+          </p>
+          {ticketSignal && <p className="mt-1 text-sm text-gray-700">Ticket range considered: <b>{ticketSignal.range_label}</b></p>}
+          {dealSignal?.considering && <p className="mt-1 text-sm text-gray-700">Considering: <b>{CONSIDERING_LABEL[dealSignal.considering] ?? dealSignal.considering}</b></p>}
+          {dealSignal && dealSignal.instruments.length > 0 && (
+            <p className="mt-1 text-sm text-gray-700">Type of investment: <b>{dealSignal.instruments.map((v) => INSTRUMENT_LABELS[v] ?? v).join(', ')}</b></p>
+          )}
+        </div>
+
+        {scorecard.length > 0 && (
+          <div className="mt-3 rounded-lg border border-gray-200 p-4 print:border-0 print:p-0">
+            <h3 className="text-sm font-semibold text-gray-900">Your scorecard</h3>
+            <ul className="mt-2 space-y-1">
+              {scorecard.map((it) => (
+                <li key={it.criteriaId} className="text-sm text-gray-700">
+                  {it.label} (weight {it.weight}): <b>{it.score ?? 'not scored'}</b>{it.note && <span className="text-gray-500"> — {it.note}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {Object.keys(docScores).length > 0 && (
+          <div className="mt-3 rounded-lg border border-gray-200 p-4 print:border-0 print:p-0">
+            <h3 className="text-sm font-semibold text-gray-900">Your document ratings</h3>
+            <ul className="mt-2 space-y-1">
+              {Object.entries(docScores).map(([docId, s]) => (
+                <li key={docId} className="text-sm text-gray-700">
+                  {docNames[docId] ?? 'Document'}: <b>{s.score}/10</b>{s.note && <span className="text-gray-500"> — {s.note}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {reminders.length > 0 && (
+          <div className="mt-3 rounded-lg border border-gray-200 p-4 print:border-0 print:p-0">
+            <h3 className="text-sm font-semibold text-gray-900">Reminders</h3>
+            <ul className="mt-2 space-y-1">
+              {reminders.map((r) => (
+                <li key={r.id} className="text-sm text-gray-700">{r.title}{fmtDate(r.due_at) && ` — due ${fmtDate(r.due_at)}`}</li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
 

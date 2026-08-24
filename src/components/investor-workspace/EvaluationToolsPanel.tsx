@@ -565,8 +565,26 @@ export function EvaluationToolsPanel({ initialOrgId }: {
 
   // A shortcut from a Pipeline card (item 4 of P131-B) opens straight into
   // the calculator with that startup already selected.
+  //
+  // Prompt 354 §C — the dossier's own "Equity calculator" deep link used to
+  // land here with NOTHING selected whenever the target startup's Pipeline
+  // WAVE wasn't unlocked yet: /api/portal/pipeline zeroes out a locked
+  // wave's `items` entirely (route.ts's own wave-dosage gate), so `cards`
+  // never contained that org even though the investor was legitimately
+  // looking at its full dossier a moment earlier. Fetching that one org
+  // directly (the same route the dossier page itself already used to get
+  // there) and merging it in sidesteps the wave gate for exactly the
+  // startup the investor already has real access to — never a bypass for
+  // any OTHER org, since selectedOrgId only ever comes from initialOrgId
+  // here, not from user input.
   useEffect(() => {
-    if (initialOrgId) { setSelectedOrgId(initialOrgId); setTool('calculator'); }
+    if (!initialOrgId) return;
+    setSelectedOrgId(initialOrgId); setTool('calculator');
+    fetch(`/api/portal/startup/${initialOrgId}`).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (!d?.card) return;
+      const c = d.card as { orgId: string; name: string; oneLiner: string | null; sectors: string[]; stage: string | null; roundTargetEur: number | null; roundValuationEur: number | null; roundValuationBasis?: ValuationBasis | null; matchScore: number; matchReasons: string[] };
+      setCards((prev) => (prev.some((p) => p.orgId === c.orgId) ? prev : [...prev, c]));
+    }).catch(() => {});
   }, [initialOrgId]);
 
   return (

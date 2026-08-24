@@ -21,6 +21,7 @@ import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
 import { DocScorePanel, type DocScore } from '@/components/investor-workspace/DocScorePanel';
 import { WatsonEvaluationSupport } from '@/components/investor-workspace/WatsonEvaluationSupport';
 import { Tooltip } from '@/components/ui';
+import { computeDilution, type ValuationBasis } from '@/lib/dilution';
 
 interface LevelRow { level: 2 | 3; status: 'granted' | 'pending' | 'denied' }
 interface PortalDoc { id: string; name: string; version?: string; watermark: boolean; downloadable: boolean; folder_id?: string; url: string | null }
@@ -105,6 +106,13 @@ export default function StartupDossierPage() {
   // 'stop' are the micro-confirms for undoing a pending request or ending
   // an active one. Local UI state only — nothing here is itself a request.
   const [watchConfirm, setWatchConfirm] = useState<'request' | 'cancel' | 'stop' | null>(null);
+  // Prompt 354 §C — inline mini equity calculator, expanded in the free
+  // space right below the header on click (no modal — never `fixed`, per
+  // the usual overlay containing-block trap). '' means "not yet touched by
+  // the investor" so it can default to the deal's own min ticket once the
+  // card loads, without fighting a value they already typed.
+  const [equityCalcOpen, setEquityCalcOpen] = useState(false);
+  const [equityTicket, setEquityTicket] = useState('');
   // Prompt 348 §D — founder-authored updates addressed to this investor,
   // through the private watching channel (never My Network).
   const [watchUpdates, setWatchUpdates] = useState<{ id: string; body: string; createdAt: string }[]>([]);
@@ -294,11 +302,18 @@ export default function StartupDossierPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* Prompt 347 — off by default (until the remembered preference
-                loads), zero layout change with the mode off: no empty
-                columns, no CLS. */}
+            {/* Prompt 354 §A — visual hierarchy: Track & Evaluate is the
+                PRIMARY action (solid teal, matches the house's primary
+                button style elsewhere — e.g. "Express interest" below —
+                and stays visibly filled once on, not just a tinted
+                outline). Watch is secondary; Equity calculator/Export deal
+                memo are tertiary (own smaller group further right); Data
+                room state is a non-interactive chip (§A.4), never styled
+                like a button. Prompt 347 — off by default (until the
+                remembered preference loads), zero layout change with the
+                mode off: no empty columns, no CLS. */}
             <button onClick={toggleTrackEvaluate}
-              className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium ${trackEvaluate ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-200 text-gray-700 hover:border-[#0E7490]'}`}>
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${trackEvaluate ? 'bg-[#0E7490] text-white ring-2 ring-[#0E7490] ring-offset-1' : 'bg-[#0E7490] text-white hover:bg-[#0c637b]'}`}>
               📝 Track &amp; Evaluate{trackEvaluate ? ' · on' : ''}
             </button>
             {/* Prompt 348 §A — double opt-in: this only ever creates a
@@ -349,29 +364,80 @@ export default function StartupDossierPage() {
                 </div>
               </div>
             ) : (
-              <Tooltip text="Ask the founder's permission to follow this startup's progress — you'll be notified of changes to what they already share with you. Nothing new is disclosed.">
+              // Prompt 354 §B — the tooltip now leads with the literal
+              // warning Nuno asked for (what watching costs you, before
+              // what it gives you); the confirm dialog above still carries
+              // both this sentence and 352's own reassurance line.
+              <Tooltip text="Watching moves this startup out of your active pipeline analysis — you won't be evaluating it right now, but you'll receive alerts when something you can see changes. Click when you want surveillance only.">
                 <button onClick={() => setWatchConfirm('request')} disabled={watchBusy}
                   className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490] disabled:opacity-40">
                   👁 Watch this startup
                 </button>
               </Tooltip>
             )}
-            <Link href={`/portal?tab=evaluation&orgId=${orgId}`}
-              className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
-              🧮 Equity calculator
-            </Link>
-            <Link href={`/portal/startup/${orgId}/memo`}
-              className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
-              📄 Export deal memo
-            </Link>
+            {/* Prompt 354 §A — tertiary group: smaller, lighter than the
+                secondary Watch control above. */}
+            <div className="flex items-center gap-1.5 border-l border-gray-200 pl-2">
+              <button onClick={() => setEquityCalcOpen((v) => !v)}
+                className="rounded-lg px-2 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700">
+                🧮 Equity calculator
+              </button>
+              <Link href={`/portal/startup/${orgId}/memo`}
+                className="rounded-lg px-2 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700">
+                📄 Export deal memo
+              </Link>
+            </div>
+            {/* Prompt 354 §A.4 — STATE, not an action: no button border, no
+                hover-as-action affordance, so it stops inviting the kind of
+                accidental click "Watch" used to get before 352-B. */}
             {card.hasDataRoomAccess ? (
-              <span className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-500">Data room open</span>
+              <span className="px-1 text-xs text-gray-400">● Data room open</span>
             ) : (
-              <span className="rounded-lg border border-dashed border-gray-200 px-2.5 py-1.5 text-xs text-gray-400">Access granted by the founder</span>
+              <span className="px-1 text-xs text-gray-300">○ Access granted by the founder</span>
             )}
             {card.isArchived && <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500">📦 Archived</span>}
           </div>
         </div>
+
+        {/* Prompt 354 §C — the mini equity calculator: expands inline in
+            the free space right below the header, no modal, never
+            `fixed` (same containing-block discipline as everywhere else
+            in this app). Pre-filled from the deal's own data already on
+            this page — never a second fetch for numbers we already have.
+            Reuses computeDilution (dilution.ts) — the SAME math
+            ReturnScenarioTool/EvaluationTools use, never reimplemented. */}
+        {equityCalcOpen && (
+          <div className="mt-2 max-w-sm rounded-lg border border-gray-200 bg-white p-3">
+            {card.roundValuationEur == null ? (
+              <p className="text-xs text-gray-500">No valuation on file for {card.name}&apos;s round yet — the calculator needs one.</p>
+            ) : (() => {
+              const ticketEur = Number(equityTicket || card.roundMinTicketEur || 50000) || 0;
+              const result = computeDilution({
+                ticketEur, roundValuationEur: card.roundValuationEur, roundTargetEur: card.roundTargetEur ?? 0,
+                valuationBasis: (card.roundValuationBasis ?? 'pre_money') as ValuationBasis, futureRoundDilutionsPct: [],
+              });
+              return (
+                <>
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                    Your ticket
+                    <input type="number" value={equityTicket || String(card.roundMinTicketEur ?? 50000)}
+                      onChange={(e) => setEquityTicket(e.target.value)}
+                      className="w-28 rounded border border-gray-300 px-2 py-1 text-xs" />
+                  </label>
+                  <p className="mt-2 text-sm text-gray-900">
+                    ≈ <b className="text-[#0E7490]">{result.ownershipAfterThisRoundPct.toFixed(2)}%</b> ownership after this round
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-gray-400">
+                    Post-money {fmtEur(result.postMoneyEur)} · {(card.roundValuationBasis ?? 'pre_money') === 'post_money' ? 'post-money' : 'pre-money'} valuation on file
+                  </p>
+                </>
+              );
+            })()}
+            <Link href={`/portal?tab=evaluation&orgId=${orgId}`} className="mt-2 inline-block text-xs font-medium text-[#0E7490] hover:underline">
+              Full calculator →
+            </Link>
+          </div>
+        )}
 
         {actionError && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
 
