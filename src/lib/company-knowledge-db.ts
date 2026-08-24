@@ -19,7 +19,7 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { KnowledgeSources } from './company-knowledge';
 import type { CompanyClaim, ClaimCategory, ClaimSpecificity, ClaimSourceKind, ClaimStatus, EvidenceClass, DocumentRef } from './types';
-import { documentRefsAvailable } from './document-extraction-capability';
+import { documentRefsAvailable, gapDispositionAvailable } from './document-extraction-capability';
 
 export async function readKnowledgeSources(admin: SupabaseClient, orgId: string): Promise<KnowledgeSources> {
   const [facts, org, fundingRounds, milestones, roadmapCategories, people, clarifications] = await Promise.all([
@@ -83,6 +83,21 @@ export async function readExistingClaims(admin: SupabaseClient, orgId: string): 
     : await admin.from('company_claims')
       .select('id, category, statement, evidence_class, specificity, source_kind, source_ref, status, updated_at')
       .eq('org_id', orgId).order('created_at', { ascending: true });
+  // Prompt 358 Phase 1 — a separate, lightweight query rather than a THIRD
+  // select-string branch: gapDispositionAvailable is orthogonal to
+  // withDocumentRefs (they shipped in different migrations), and the
+  // "two literal select strings" constraint above already means adding a
+  // second independent toggle would require FOUR literal branches. Merging
+  // by id after a plain id+gap_disposition fetch is simpler and no less
+  // correct.
+  const withGapDisposition = await gapDispositionAvailable();
+  const gapDispositionById = new Map<string, string | null>();
+  if (withGapDisposition && (data ?? []).length > 0) {
+    const { data: dispositionRows } = await admin.from('company_claims')
+      .select('id, gap_disposition').eq('org_id', orgId);
+    for (const r of dispositionRows ?? []) gapDispositionById.set(r.id as string, (r.gap_disposition as string | null) ?? null);
+  }
+
   return (data ?? []).map((c) => ({
     id: c.id as string,
     category: c.category as ClaimCategory,
@@ -94,5 +109,6 @@ export async function readExistingClaims(admin: SupabaseClient, orgId: string): 
     status: c.status as ClaimStatus,
     updatedAt: c.updated_at as string,
     documentRefs: withDocumentRefs ? (((c as unknown as { document_refs?: DocumentRef[] }).document_refs) ?? []) : [],
+    gapDisposition: (gapDispositionById.get(c.id as string) ?? null) as CompanyClaim['gapDisposition'],
   }));
 }

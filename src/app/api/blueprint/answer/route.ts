@@ -1,26 +1,37 @@
 // Prompt 219 bloco 3 §3 (Prompt 223) — a resposta do founder a uma pergunta
 // de lacuna.
 //
-// A decisão do 219 §2, aqui em código: NÃO existe tabela de respostas. Uma
-// resposta É um claim novo, com source_kind='founder_answer' e
-// status='accepted' — o founder acabou de a escrever, não há mais ninguém
-// para a aceitar. A classificação (classe/especificidade) é DERIVADA pelo
-// normalizeAtom sobre o texto que ele escreveu, nunca escolhida por ele:
-// é isso que faz uma resposta vaga continuar a contar como vaga.
+// Prompt 358 Phase 1 — "nenhuma pergunta ao founder sem antes o motor ter
+// tentado responder-lhe sozinho... perguntar é o último recurso, e cada
+// pergunta é um recurso escasso" — a metade mecânica disso: uma resposta
+// deixou de SER um claim novo por omissão. routeAnswer (company-gaps.ts)
+// decide, a partir da regra + a opção escolhida + se há texto livre, o que
+// a resposta realmente é:
+//   'claim'           — comportamento antigo, inalterado: um claim novo,
+//                       source_kind='founder_answer', status='accepted'.
+//   'dismiss'         — sem facto novo (ex. "No one yet"); grava-se como
+//                       respondida no registo da análise, NUNCA um claim.
+//   'refresh_claim'   — G5 "Still true": actualiza o updated_at do claim
+//                       EXISTENTE, nunca duplica.
+//   'set_disposition' — grava a decisão do founder directamente no claim
+//                       existente (migration 0234) — nunca um segundo claim
+//                       só para a segurar.
+// 'attach_document' (G4 "Yes — I will attach it") não passa por aqui: é um
+// fluxo à parte, /api/blueprint/link-document, porque a resposta real é o
+// próprio documento, nunca texto.
 //
-// "Dispensar" (dismiss) grava na análise mas NÃO grava claim: não responder
-// não é conhecimento novo, e inventar um claim vazio poluiria a base.
+// "Dispensar" (dismiss explícito do founder, campo body.dismissed) continua
+// a não gravar claim nenhum — sem mudanças nesse caminho.
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { claimsAvailable, blueprintAnalysesAvailable } from '@/lib/blueprint-capability';
+import { gapDispositionAvailable } from '@/lib/document-extraction-capability';
 import { normalizeAtom } from '@/lib/company-claims';
+import { routeAnswer, type GapRule } from '@/lib/company-gaps';
 import type { ClaimCategory } from '@/lib/types';
 
-// A categoria em que a resposta aterra, por regra. É o assunto da PERGUNTA,
-// não uma escolha do founder — quem responde "quem lidera a técnica" está a
-// falar de equipa, esteja o texto como estiver.
 const CATEGORIES: ClaimCategory[] = [
   'problema', 'solucao', 'prova_tecnica', 'validacao_externa',
   'tracao_gtm', 'equipa', 'mercado_timing', 'funding', 'ask',
@@ -35,10 +46,19 @@ const CATEGORY_BY_RULE: Record<string, ClaimCategory> = {
   G4: 'prova_tecnica',
   G5: 'solucao',
   G6: 'funding',
-  // G8 (Prompt 310 §B) — a round-value clarification is itself a statement
-  // about the round's own terms.
   G8: 'ask',
 };
+
+async function recordAsked(admin: SupabaseClient, orgId: string, analysisId: string | undefined, entry: Record<string, unknown>) {
+  if (!analysisId || !(await blueprintAnalysesAvailable())) return;
+  const { data: current } = await admin.from('blueprint_analyses')
+    .select('questions_asked').eq('id', analysisId).eq('org_id', orgId).maybeSingle();
+  const asked = Array.isArray(current?.questions_asked) ? current.questions_asked as unknown[] : [];
+  await admin.from('blueprint_analyses').update({
+    questions_asked: [...asked, { ...entry, at: new Date().toISOString() }],
+    updated_at: new Date().toISOString(),
+  }).eq('id', analysisId).eq('org_id', orgId);
+}
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -54,7 +74,8 @@ export async function POST(req: Request) {
   if (!(await claimsAvailable())) return NextResponse.json({ ok: false, error: 'not configured' });
 
   const body = await req.json().catch(() => ({})) as {
-    gapKey?: string; rule?: string; answer?: string; option?: string; category?: string; analysisId?: string; dismissed?: boolean;
+    gapKey?: string; rule?: string; answer?: string; option?: string; category?: string;
+    analysisId?: string; dismissed?: boolean; relatedClaimIds?: string[];
   };
   if (!body.gapKey || !body.rule) return NextResponse.json({ ok: false, error: 'gapKey and rule are required.' }, { status: 400 });
 
@@ -64,55 +85,70 @@ export async function POST(req: Request) {
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-  // A frase é a opção escolhida e o texto livre, juntos: a opção sozinha
-  // ("LOI signed") não tem sinais para medir, o texto livre sozinho perde o
-  // enquadramento. Juntos dão ao measureSpecificity o que ele precisa.
-  const parts = [body.option?.trim(), body.answer?.trim()].filter(Boolean);
-  const statement = parts.join(' — ');
+  if (body.dismissed) {
+    await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: false, dismissed: true });
+    return NextResponse.json({ ok: true });
+  }
 
-  if (!body.dismissed) {
-    if (!statement) return NextResponse.json({ ok: false, error: 'An answer is required.' }, { status: 400 });
-    // Prompt 299 §2 — G7 spans several categories, so its gap carries the
-    // ORIGINAL claim's own category through (gap.meta.category) rather than
-    // relying on the one-category-per-rule map below, which can't express
-    // "depends which claim this gap was about." Prompt 310 §A gave G4 the
-    // same treatment once it started spanning four categories instead of
-    // one. Validated against the same allowlist as every other category
-    // input in this codebase.
-    const category = (body.category && (CATEGORIES as string[]).includes(body.category)
-      ? body.category as ClaimCategory : (CATEGORY_BY_RULE[body.rule] ?? 'solucao'));
-    const n = normalizeAtom({
-      category,
-      statement,
-      sourceKind: 'founder_answer',
-      // O sourceRef amarra a resposta à lacuna que a provocou — é assim
-      // que o GET sabe não voltar a perguntar (sem tabela de perguntas).
-      sourceRef: `gap:${body.gapKey}`,
-    });
-    const { error } = await admin.from('company_claims').insert({
-      org_id: orgId, category: n.category, statement: n.statement,
-      evidence_class: n.evidenceClass, specificity: n.specificity,
-      source_kind: n.sourceKind, source_ref: n.sourceRef,
-      status: 'accepted', analysis_id: body.analysisId ?? null,
-    });
+  const option = body.option?.trim() || undefined;
+  const answerText = body.answer?.trim() || undefined;
+  const routing = routeAnswer(body.rule as GapRule, option, !!answerText);
+  const targetClaimId = body.relatedClaimIds?.[0];
+
+  if (routing.kind === 'dismiss') {
+    // Prompt 358 §1.1 — a non-informative chip alone ("No one yet", "No
+    // longer applies", …): nothing was learned, so nothing is written to
+    // company_claims — recorded exactly like an explicit dismiss.
+    await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false, disposition: 'dismiss' });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (routing.kind === 'refresh_claim') {
+    if (!targetClaimId) return NextResponse.json({ ok: false, error: 'No claim to refresh.' }, { status: 400 });
+    const { error } = await admin.from('company_claims').update({ updated_at: new Date().toISOString() })
+      .eq('id', targetClaimId).eq('org_id', orgId);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false, disposition: 'refresh' });
+    return NextResponse.json({ ok: true });
   }
 
-  // O registo do interrogatório, quando a 0179 existir. Lido inteiro e
-  // reescrito inteiro — ver o comentário da própria migração.
-  if (body.analysisId && await blueprintAnalysesAvailable()) {
-    const { data: current } = await admin.from('blueprint_analyses')
-      .select('questions_asked').eq('id', body.analysisId).eq('org_id', orgId).maybeSingle();
-    const asked = Array.isArray(current?.questions_asked) ? current.questions_asked as unknown[] : [];
-    await admin.from('blueprint_analyses').update({
-      questions_asked: [...asked, {
-        key: body.gapKey, rule: body.rule,
-        answered: !body.dismissed, dismissed: !!body.dismissed,
-        at: new Date().toISOString(),
-      }],
-      updated_at: new Date().toISOString(),
-    }).eq('id', body.analysisId).eq('org_id', orgId);
+  if (routing.kind === 'set_disposition') {
+    if (!targetClaimId) return NextResponse.json({ ok: false, error: 'No claim to update.' }, { status: 400 });
+    if (!(await gapDispositionAvailable())) return NextResponse.json({ ok: false, error: 'not configured' });
+    const { error } = await admin.from('company_claims').update({ gap_disposition: routing.disposition, updated_at: new Date().toISOString() })
+      .eq('id', targetClaimId).eq('org_id', orgId);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false, disposition: routing.disposition });
+    return NextResponse.json({ ok: true });
   }
 
+  if (routing.kind === 'attach_document') {
+    // The client is expected to route this option to /api/blueprint/link-document
+    // instead of ever calling this route with it — reaching here is a
+    // client bug, not a valid state to silently paper over.
+    return NextResponse.json({ ok: false, error: 'This answer needs a document — use the attach-document flow.' }, { status: 400 });
+  }
+
+  // routing.kind === 'claim' — unchanged behavior: a real claim, derived
+  // (never chosen) classification, same as always.
+  const parts = [option, answerText].filter(Boolean);
+  const statement = parts.join(' — ');
+  if (!statement) return NextResponse.json({ ok: false, error: 'An answer is required.' }, { status: 400 });
+
+  const category = (body.category && (CATEGORIES as string[]).includes(body.category)
+    ? body.category as ClaimCategory : (CATEGORY_BY_RULE[body.rule] ?? 'solucao'));
+  const n = normalizeAtom({
+    category, statement, sourceKind: 'founder_answer',
+    sourceRef: `gap:${body.gapKey}`,
+  });
+  const { error } = await admin.from('company_claims').insert({
+    org_id: orgId, category: n.category, statement: n.statement,
+    evidence_class: n.evidenceClass, specificity: n.specificity,
+    source_kind: n.sourceKind, source_ref: n.sourceRef,
+    status: 'accepted', analysis_id: body.analysisId ?? null,
+  });
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false });
   return NextResponse.json({ ok: true });
 }

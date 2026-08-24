@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   detectGaps, ruleG1, ruleG2, ruleG3, ruleG3b, ruleG3c, ruleG4, ruleG5, ruleG6, ruleG7, ruleG8,
-  templateFor, QUESTION_TEMPLATES, type GapContext,
+  templateFor, QUESTION_TEMPLATES, routeAnswer, type GapContext,
 } from './company-gaps';
 import { normalizeAtom } from './company-claims';
 import type { CompanyClaim, ClaimCategory, ClaimSourceKind, ClaimStatus } from './types';
@@ -15,7 +15,10 @@ const NOW = new Date('2026-08-17T12:00:00Z');
 // os testes usam a classificação real, nunca valores escritos à mão.
 function claim(
   id: string, category: ClaimCategory, statement: string,
-  over: { sourceKind?: ClaimSourceKind; status?: ClaimStatus; updatedAt?: string; documentRefs?: CompanyClaim['documentRefs'] } = {},
+  over: {
+    sourceKind?: ClaimSourceKind; status?: ClaimStatus; updatedAt?: string;
+    documentRefs?: CompanyClaim['documentRefs']; gapDisposition?: CompanyClaim['gapDisposition'];
+  } = {},
 ): CompanyClaim {
   const sourceKind = over.sourceKind ?? 'fact';
   const n = normalizeAtom({ category, statement, sourceKind });
@@ -23,7 +26,7 @@ function claim(
     id, category, statement, sourceKind,
     evidenceClass: n.evidenceClass, specificity: n.specificity,
     status: over.status ?? 'accepted', updatedAt: over.updatedAt ?? '2026-08-01T00:00:00Z',
-    documentRefs: over.documentRefs,
+    documentRefs: over.documentRefs, gapDisposition: over.gapDisposition,
   };
 }
 
@@ -239,6 +242,21 @@ describe('G4 — claim aceite sem documento no Vault (Prompt 311 §A: lido direc
       claims.find((c) => c.id === g.relatedClaimIds[0])?.category ?? '',
     ))).toBe(true);
   });
+
+  // Prompt 358 Phase 1 — a founder's honest "no document exists/will
+  // exist" answer must close G4 for good, same as a real document link.
+  it.each(['no_document', 'document_pending'] as const)(
+    'gapDisposition=%s suppresses G4 permanently, same as a real document link',
+    (disposition) => {
+      const claimWithDisposition = claim('team-x', 'equipa', 'Jane Doe, CTO (founder). Ex-Google, 8 years in ML.', { gapDisposition: disposition });
+      expect(ruleG4([claimWithDisposition], ctx())).toEqual([]);
+    },
+  );
+
+  it('a claim with no disposition and no document still asks — the fix never silently loosens the real gate', () => {
+    const claimWithout = claim('team-x', 'equipa', 'Jane Doe, CTO (founder). Ex-Google, 8 years in ML.', { gapDisposition: null });
+    expect(ruleG4([claimWithout], ctx())).toHaveLength(1);
+  });
 });
 
 describe('G5 — staleness', () => {
@@ -302,6 +320,15 @@ describe('G7 — claim central isolado (Prompt 299 §2)', () => {
 
   it('não dispara sobre claims propostos (só claims aceites contam)', () => {
     expect(ruleG7([{ ...VISITA_RESPONDIDA, status: 'proposed' }])).toEqual([]);
+  });
+
+  // Prompt 358 Phase 1 — "Confirmed, it stays as-is" must stop the SAME
+  // claim from being re-flagged as isolated forever; without this the
+  // founder's own confirmation is powerless against a rule that keeps
+  // re-detecting the exact same isolation on every reload.
+  it('gapDisposition=confirmed suppresses G7 for that claim, even though nothing else corroborates it', () => {
+    const confirmed = { ...VISITA_RESPONDIDA, gapDisposition: 'confirmed' as const };
+    expect(ruleG7([confirmed])).toEqual([]);
   });
 
   it('não dispara sobre classe 4/5 fora de problema/solucao — mecanismo/decoração não pretendem ser "a" alegação central', () => {
@@ -516,5 +543,56 @@ describe('templateFor — os templates são dados, preenchidos por meta', () => 
     const t = templateFor(ruleG3c([PREMIO], ctx())[0]);
     expect(t.question).toBe('Who leads the technical side?');
     expect(t.options).toContain('No one yet');
+  });
+
+  it('G7 options are English — the Portuguese leak from Prompt 299 is fixed', () => {
+    const t = QUESTION_TEMPLATES.find((x) => x.rule === 'G7')!;
+    expect(t.options).toEqual(['I\'ll develop this further', 'Confirmed, it stays as-is', 'Actually, it\'s not that central']);
+  });
+});
+
+// Prompt 358 Phase 1 — routeAnswer is the exact decision that used to be
+// missing: it's what /api/blueprint/answer consults BEFORE ever touching
+// company_claims. Every case here is a real chip from QUESTION_TEMPLATES,
+// checked against the exact "no free text" condition that used to insert
+// it verbatim as a new claim.
+describe('routeAnswer — Prompt 358 Phase 1: which answers are claims, and which are not', () => {
+  it('free text always routes to a real claim, regardless of which chip (if any) was also picked', () => {
+    expect(routeAnswer('G1', 'Not yet', true)).toEqual({ kind: 'claim' });
+    expect(routeAnswer('G4', 'No document yet', true)).toEqual({ kind: 'claim' });
+    expect(routeAnswer('G7', undefined, true)).toEqual({ kind: 'claim' });
+  });
+
+  it('the fixture bugs from Nuno\'s real session: "Not yet" / "yes, there is"-style fillers never become claims', () => {
+    expect(routeAnswer('G1', 'Not yet', false)).toEqual({ kind: 'dismiss' });
+    expect(routeAnswer('G2', 'No follow-up yet', false)).toEqual({ kind: 'dismiss' });
+    expect(routeAnswer('G3c', 'No one yet', false)).toEqual({ kind: 'dismiss' });
+    expect(routeAnswer('G5', 'No longer applies', false)).toEqual({ kind: 'dismiss' });
+    expect(routeAnswer('G7', 'I\'ll develop this further', false)).toEqual({ kind: 'dismiss' });
+    expect(routeAnswer('G7', 'Actually, it\'s not that central', false)).toEqual({ kind: 'dismiss' });
+  });
+
+  it('G4\'s three options each route somewhere real, never as verbatim claim text', () => {
+    expect(routeAnswer('G4', 'Yes — I will attach it', false)).toEqual({ kind: 'attach_document' });
+    expect(routeAnswer('G4', 'It exists but is not in the Vault yet', false)).toEqual({ kind: 'set_disposition', disposition: 'document_pending' });
+    expect(routeAnswer('G4', 'No document yet', false)).toEqual({ kind: 'set_disposition', disposition: 'no_document' });
+  });
+
+  it('G5 "Still true" refreshes the existing claim instead of creating a duplicate', () => {
+    expect(routeAnswer('G5', 'Still true', false)).toEqual({ kind: 'refresh_claim' });
+  });
+
+  it('G7 "Confirmed, it stays as-is" sets a disposition, never a claim', () => {
+    expect(routeAnswer('G7', 'Confirmed, it stays as-is', false)).toEqual({ kind: 'set_disposition', disposition: 'confirmed' });
+  });
+
+  it('a chip that IS the substance (no filler) still becomes a real claim — G3\'s narrative options, G1\'s real traction answers', () => {
+    expect(routeAnswer('G1', 'Yes — paying customer', false)).toEqual({ kind: 'claim' });
+    expect(routeAnswer('G3', 'We have complementary skills', false)).toEqual({ kind: 'claim' });
+    expect(routeAnswer('G6', 'Hiring', false)).toEqual({ kind: 'claim' });
+  });
+
+  it('an unrecognized rule/option combination defaults to claim, never silently drops an answer', () => {
+    expect(routeAnswer('G8', undefined, false)).toEqual({ kind: 'claim' });
   });
 });

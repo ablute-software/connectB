@@ -128,11 +128,25 @@ export function BlueprintPanel() {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           gapKey: gap.key, rule: gap.rule, option: opts.option, answer: opts.answer, category: opts.category,
-          analysisId: state?.analysis?.id, dismissed: opts.dismissed,
+          analysisId: state?.analysis?.id, dismissed: opts.dismissed, relatedClaimIds: gap.relatedClaimIds,
         }),
       });
       const body = await res.json().catch(() => ({}));
       if (body.ok === false) { setError(body.error ?? 'Something went wrong.'); return; }
+      load();
+    } finally { setBusy(false); }
+  }
+
+  // Prompt 358 Phase 1 — same attach-document flow as ReviewPanel.tsx's own
+  // copy (never a text claim for G4's "Yes — I will attach it").
+  async function attachDocument(claimId: string, documentId: string) {
+    if (!gap) return;
+    setBusy(true); setError(null);
+    try {
+      await fetch('/api/blueprint/link-document', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ claimId, documentId, gapKey: gap.key, analysisId: state?.analysis?.id }),
+      });
       load();
     } finally { setBusy(false); }
   }
@@ -218,7 +232,8 @@ export function BlueprintPanel() {
           shared with ReviewPanel.tsx — Prompt 298 §1). */}
       {gap && (
         <Card title={<span className="text-[#0E7490]">What&apos;s missing ({state.gaps.length} left)</span>}>
-          <GapInterrogation key={gap.key} gap={gap} remaining={state.gaps.length} busy={busy} onSubmit={submitAnswer} />
+          <GapInterrogation key={gap.key} gap={gap} remaining={state.gaps.length} busy={busy}
+            onSubmit={submitAnswer} onAttachDocument={attachDocument} />
         </Card>
       )}
 

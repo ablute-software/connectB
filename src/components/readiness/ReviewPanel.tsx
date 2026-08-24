@@ -159,7 +159,26 @@ export function ReviewPanel() {
     try {
       await fetch('/api/blueprint/answer', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ gapKey: gap.key, rule: gap.rule, option: opts.option, answer: opts.answer, category: opts.category, analysisId: gapAnalysisId, dismissed: opts.dismissed }),
+        body: JSON.stringify({
+          gapKey: gap.key, rule: gap.rule, option: opts.option, answer: opts.answer, category: opts.category,
+          analysisId: gapAnalysisId, dismissed: opts.dismissed, relatedClaimIds: gap.relatedClaimIds,
+        }),
+      });
+      loadGaps();
+    } finally { setGapBusy(false); }
+  }
+
+  // Prompt 358 Phase 1 — G4's "Yes — I will attach it" never becomes a text
+  // claim: the real answer is the document itself, linked via the SAME
+  // atomic RPC document-extraction-linking.ts already uses.
+  async function attachDocument(claimId: string, documentId: string) {
+    const gap = currentGap;
+    if (!gap) return;
+    setGapBusy(true);
+    try {
+      await fetch('/api/blueprint/link-document', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ claimId, documentId, gapKey: gap.key, analysisId: gapAnalysisId }),
       });
       loadGaps();
     } finally { setGapBusy(false); }
@@ -357,13 +376,14 @@ export function ReviewPanel() {
           </p>
           <button onClick={() => setShowInterrogation(true)}
             className="mt-2 rounded-lg bg-[#B00000] px-3 py-1.5 text-sm font-medium text-white">
-            Começar agora
+            Start now
           </button>
         </Card>
       )}
       {showInterrogation && currentGap && (
         <Card title={<span className="text-[#0E7490]">What&apos;s missing ({gaps.length} left)</span>}>
-          <GapInterrogation key={currentGap.key} gap={currentGap} remaining={gaps.length} busy={gapBusy} onSubmit={submitGapAnswer} />
+          <GapInterrogation key={currentGap.key} gap={currentGap} remaining={gaps.length} busy={gapBusy}
+            onSubmit={submitGapAnswer} onAttachDocument={attachDocument} />
           <button onClick={() => setShowInterrogation(false)} className="mt-2 text-xs text-gray-400 hover:underline">
             Close — I&apos;ll finish this later
           </button>

@@ -569,6 +569,11 @@ export interface CompanyClaim {
   // a 'proposed' claim; absent everywhere else.
   possibleDuplicateOf?: { id: string; statement: string } | null;
   documentRefs?: DocumentRef[];
+  // Prompt 358 Phase 1 — a founder decision about THIS claim's evidence
+  // story that closes a gap without ever creating a second claim to hold
+  // it (migration 0234). See gap-disposition-related comments in
+  // company-gaps.ts for exactly which gaps read this and how.
+  gapDisposition?: 'no_document' | 'document_pending' | 'confirmed' | null;
 }
 
 // Prompt 213 §D — item estruturado do roadmap (items_v2 na 0177).

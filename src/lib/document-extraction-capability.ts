@@ -17,3 +17,10 @@ export const documentRefsAvailable = makeCapabilityProbe(async (admin) => {
   const { error } = await admin.from('company_claims').select('document_refs').limit(1);
   return !error;
 });
+
+// Prompt 358 Phase 1 — migration 0234's gap_disposition column, same
+// probe-gated pattern.
+export const gapDispositionAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('company_claims').select('gap_disposition').limit(1);
+  return !error;
+});

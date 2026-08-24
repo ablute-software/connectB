@@ -212,8 +212,15 @@ const G4_DOCUMENTABLE_CATEGORIES = new Set<ClaimCategory>(['prova_tecnica', 'val
 // ablute_ "Carla Dias is a WomenTechEU awardee" claim is category `equipa`,
 // which hasVaultDocuments never covered (by design, see the comment above) —
 // only a per-claim link like this one can.
+// Prompt 358 Phase 1 — a founder-recorded disposition ('no_document' or
+// 'document_pending') is ALSO "covered", same as a real document link: the
+// founder was asked, answered honestly that no document exists (or exists
+// outside the Vault), and that answer must close the gap for good — never
+// re-ask the same "is there a document?" question forever just because the
+// honest answer wasn't itself a document.
 function hasDocumentBacking(c: CompanyClaim): boolean {
-  return Array.isArray(c.documentRefs) && c.documentRefs.length > 0;
+  return (Array.isArray(c.documentRefs) && c.documentRefs.length > 0)
+    || c.gapDisposition === 'no_document' || c.gapDisposition === 'document_pending';
 }
 
 export function ruleG4(claims: CompanyClaim[], context: GapContext): Gap[] {
@@ -311,6 +318,12 @@ export function ruleG7(claims: CompanyClaim[]): Gap[] {
 
   const gaps: Gap[] = [];
   for (const c of candidates) {
+    // Prompt 358 Phase 1 — "Confirmed, it stays as-is" (G7's own third
+    // option) is the founder explicitly saying "yes, I know it's isolated,
+    // and I'm not developing it further" — re-flagging the SAME claim as
+    // isolated forever after that answer is exactly the infinite-reask bug
+    // this phase exists to kill.
+    if (c.gapDisposition === 'confirmed') continue;
     const sameCategoryElsewhere = accepted.some((o) => o.id !== c.id && o.category === c.category);
     if (sameCategoryElsewhere) continue; // nível 1 já encontrou corroboração
 
@@ -680,7 +693,10 @@ export const QUESTION_TEMPLATES: QuestionTemplate[] = [
   {
     rule: 'G7',
     question: 'You said: "{statement}". This is central to your pitch but doesn\'t appear anywhere else — want to clarify/develop it, or confirm it stays as-is?',
-    options: ['Vou desenvolver isto', 'Confirmo que fica só assim', 'Na verdade não é assim tão central'],
+    // Prompt 358 Phase 1 — these three were left in Portuguese since the
+    // rule shipped (Prompt 299 §2); every other template in this file is
+    // English, and this is a global-platform, English-language product.
+    options: ['I\'ll develop this further', 'Confirmed, it stays as-is', 'Actually, it\'s not that central'],
     freeTextLabel: 'Add detail, or say why it stands fine alone',
   },
   {
@@ -703,4 +719,63 @@ export function templateFor(gap: Gap): { question: string; options: string[]; fr
   }
   const fill = (s: string) => s.replace(/\{(\w+)\}/g, (_, key: string) => gap.meta?.[key] ?? `{${key}}`);
   return { question: fill(t.question), options: t.options, freeTextLabel: t.freeTextLabel };
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 358 Phase 1 — "responses are not claims by default." Confirmed
+// live: choosing a plain non-informative chip like "Not yet" or "No
+// document yet" (no free text added) used to be inserted VERBATIM as a
+// brand-new company_claims row — for a documentable category, immediately
+// re-tripping G4 ("accepted but undocumented") on the very claim the
+// answer just created, which is why the "N left" counter climbed WHILE the
+// founder was answering it.
+//
+// routeAnswer is the single place that decides what a (rule, chip) answer
+// with no free text actually means — inserting a new claim is the
+// EXCEPTION now (kept for chips that are themselves the substance, e.g.
+// G1's "Yes — paying customer" or G3's narrative options), not the default.
+// Free text always means real information was added, so it always routes
+// to 'claim' regardless of which chip was also picked — matches the
+// existing statement-building behavior (chip + free text joined with
+// " — "), just no longer bypassed for a chip-alone non-answer.
+export type AnswerRouting =
+  | { kind: 'claim' }
+  // No new fact, no claim — recorded as answered (like an explicit dismiss)
+  // so the interrogation queue can move on, but nothing is invented.
+  | { kind: 'dismiss' }
+  // G5 "Still true" — the founder re-affirmed the EXISTING claim; refresh
+  // its updatedAt so G5's own staleness clock restarts, never a new row.
+  | { kind: 'refresh_claim' }
+  // G4 "Yes — I will attach it" — an intent, not a fact yet. The real
+  // answer is the document itself: the UI opens a Vault picker and links
+  // it via document_refs (link_claim_document_ref, migration 0208),
+  // never a text claim reading "Yes — I will attach it".
+  | { kind: 'attach_document' }
+  // Records the founder's decision directly on the EXISTING claim
+  // (migration 0234) instead of ever creating a second row to hold it.
+  | { kind: 'set_disposition'; disposition: NonNullable<CompanyClaim['gapDisposition']> };
+
+const OPTION_ROUTING: Partial<Record<GapRule, Record<string, AnswerRouting>>> = {
+  G1: { 'Not yet': { kind: 'dismiss' } },
+  G2: { 'No follow-up yet': { kind: 'dismiss' } },
+  G3c: { 'No one yet': { kind: 'dismiss' } },
+  G4: {
+    'Yes — I will attach it': { kind: 'attach_document' },
+    'It exists but is not in the Vault yet': { kind: 'set_disposition', disposition: 'document_pending' },
+    'No document yet': { kind: 'set_disposition', disposition: 'no_document' },
+  },
+  G5: {
+    'Still true': { kind: 'refresh_claim' },
+    'No longer applies': { kind: 'dismiss' },
+  },
+  G7: {
+    'I\'ll develop this further': { kind: 'dismiss' },
+    'Confirmed, it stays as-is': { kind: 'set_disposition', disposition: 'confirmed' },
+    'Actually, it\'s not that central': { kind: 'dismiss' },
+  },
+};
+
+export function routeAnswer(rule: GapRule, option: string | undefined, hasFreeText: boolean): AnswerRouting {
+  if (hasFreeText || !option) return { kind: 'claim' };
+  return OPTION_ROUTING[rule]?.[option] ?? { kind: 'claim' };
 }
