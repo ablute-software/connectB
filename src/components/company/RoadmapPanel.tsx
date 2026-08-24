@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { authEnabled } from '@/lib/supabase';
+import { useConfirm } from '@/lib/confirm';
 import { Card, TermHint, Toggle } from '@/components/ui';
 import { RoadmapCanvas } from './RoadmapCanvas';
 import { CategoryManager } from './RoadmapCard';
@@ -39,6 +40,7 @@ const DEMO_STORAGE_KEY = 'ablute-crm-demo-v3';
 
 export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
   const { db, updateOrg, addRoadmapCategory, addRoadmapEvent, updateRoadmapEvent, removeRoadmapEvent } = useStore();
+  const confirm = useConfirm();
   // Prompt 359 §A.3 — seeding the defaults races the demo store's OWN
   // localStorage hydration: DemoStoreProvider starts `db` at the bare seed
   // (roadmapCategories: []) and only replaces it with what's actually saved
@@ -88,8 +90,8 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
     const { error: err } = await updateRoadmapEvent(id, patch);
     if (err) setError(err);
   }
-  function handleRemove(id: string) {
-    if (window.confirm('Remove this event?')) removeRoadmapEvent(id);
+  async function handleRemove(id: string) {
+    if (await confirm({ message: 'Remove this event?', destructive: true })) removeRoadmapEvent(id);
   }
 
   return (

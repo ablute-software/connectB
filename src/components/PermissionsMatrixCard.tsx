@@ -8,12 +8,14 @@
 import { useEffect, useState } from 'react';
 import { Card, Tooltip } from '@/components/ui';
 import { useStore } from '@/lib/store';
+import { useConfirm } from '@/lib/confirm';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { ORG_ROLES, ROLE_LABELS, type OrgRole } from '@/lib/permissions';
 import { MATRIX_CAPABILITIES, resolveMatrix, type MatrixCapability } from '@/lib/org-permissions';
 
 export function PermissionsMatrixCard() {
   const { db } = useStore();
+  const confirm = useConfirm();
   const [visible, setVisible] = useState(false);
   const [matrix, setMatrix] = useState<Record<MatrixCapability, OrgRole[]> | null>(null);
   const [saving, setSaving] = useState(false);
@@ -65,7 +67,7 @@ export function PermissionsMatrixCard() {
   }
 
   async function resetVaultPins() {
-    if (!window.confirm("Reset everyone's Vault Data Room code? They'll all be asked to set (or skip) a new one on their next visit.")) return;
+    if (!(await confirm({ message: "Reset everyone's Vault Data Room code? They'll all be asked to set (or skip) a new one on their next visit." }))) return;
     setPinResetBusy(true); setPinResetMsg('');
     const { error } = await browserClient().rpc('vault_pin_reset_org', { p_org_id: db.org.id });
     setPinResetBusy(false);

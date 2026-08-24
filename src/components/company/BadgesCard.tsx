@@ -7,6 +7,7 @@
 // exactly what an investor would see for each badge.
 import { useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/ui';
+import { useConfirm } from '@/lib/confirm';
 import { createPortal } from 'react-dom';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
@@ -33,6 +34,7 @@ function Modal({ onClose, children }: { onClose: () => void; children: React.Rea
 }
 
 export function BadgesCard({ canEdit, orgId }: { canEdit: boolean; orgId: string }) {
+  const confirm = useConfirm();
   const [badges, setBadges] = useState<Badge[] | null>(null);
   const [logoUrls, setLogoUrls] = useState<Map<string, string>>(new Map());
   const [docs, setDocs] = useState<DocOption[]>([]);
@@ -119,8 +121,8 @@ export function BadgesCard({ canEdit, orgId }: { canEdit: boolean; orgId: string
       }).finally(() => setBusy(false));
   }
 
-  function remove(id: string) {
-    if (!window.confirm('Delete this badge? This can’t be undone.')) return;
+  async function remove(id: string) {
+    if (!(await confirm({ message: 'Delete this badge? This can’t be undone.', destructive: true }))) return;
     setBusy(true);
     fetch(`/api/company-badges/${id}`, { method: 'DELETE' }).then((r) => r.json()).then((b) => {
       if (!b.ok) { setError(b.error); return; }

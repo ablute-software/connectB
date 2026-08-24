@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
+import { useConfirm } from '@/lib/confirm';
 import { Card } from '@/components/ui';
 import { authEnabled } from '@/lib/supabase';
 import { can, type OrgRole } from '@/lib/permissions';
@@ -52,10 +53,11 @@ function RoadmapMiniPreview({ available }: { available: boolean }) {
 
 function DemoResetCard() {
   const { resetDemo } = useStore();
+  const confirm = useConfirm();
   if (authEnabled) return null;
   return (
     <Card title="Demo data">
-      <button onClick={() => { if (window.confirm('Reset all demo data to the seeded pipeline?')) resetDemo(); }}
+      <button onClick={async () => { if (await confirm({ message: 'Reset all demo data to the seeded pipeline?', destructive: true })) resetDemo(); }}
         className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-[#B00000] hover:bg-red-50">
         Reset demo to seed
       </button>

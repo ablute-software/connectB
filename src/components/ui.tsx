@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { Entity, EntityStatus, FitScore, Person } from '@/lib/types';
 import { PreflightCheck, preflightSummary } from '@/lib/rules';
 import { useStore } from '@/lib/store';
+import { useConfirm } from '@/lib/confirm';
 import { ReportFraudModal } from './ReportFraudModal';
 
 export const BRAND = '#0E7490';
@@ -242,6 +243,7 @@ export function MatchDealProfileBadge() {
 
 export function HardFilterBanner({ entity }: { entity: Entity }) {
   const { resolveHardFilter } = useStore();
+  const confirm = useConfirm();
   const [reporting, setReporting] = useState(false);
   // Prompt 285 §2 — "this may be a mistake", independent of `reporting`
   // above (that's the original report modal, this is the post-report
@@ -388,8 +390,8 @@ export function HardFilterBanner({ entity }: { entity: Entity }) {
             "freeze anyway?" guard (RelationshipSummaryCard.tsx) — never
             the serious modal below, which is reserved for the fraud
             report. */}
-        <button onClick={() => {
-          if (window.confirm(`Mark "${entity.name}" as not a fit? This moves them out of both Frozen and Stand by into their own Not applicable view. You can revert any time from here.`)) {
+        <button onClick={async () => {
+          if (await confirm({ message: `Mark "${entity.name}" as not a fit? This moves them out of both Frozen and Stand by into their own Not applicable view. You can revert any time from here.` })) {
             resolveHardFilter(entity.id, 'resolved_not_a_fit');
           }
         }}

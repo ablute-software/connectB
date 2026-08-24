@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
+import { useConfirm } from '@/lib/confirm';
 import { Card, EntityLink, PersonEmailBlock, PreflightCard, VerBadge } from '@/components/ui';
 import { browserClient } from '@/lib/supabase';
 import { preflight } from '@/lib/rules';
@@ -13,6 +14,7 @@ import { personCompleteness } from '@/lib/completeness';
 export default function PersonPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const { db, setDoNotContact, updatePerson } = useStore();
+  const confirm = useConfirm();
   const router = useRouter();
   const person = db.people.find((p) => p.id === id);
   if (!person) return <div className="text-gray-500">Person not found.</div>;
@@ -179,8 +181,8 @@ export default function PersonPage({ params }: { params: { id: string } }) {
             </dl>
             {!person.do_not_contact && (
               <button
-                onClick={() => {
-                  if (window.confirm('Hides all contact fields, blocks outbounds permanently and purges research fields. No override. Proceed?')) {
+                onClick={async () => {
+                  if (await confirm({ message: 'Hides all contact fields, blocks outbounds permanently and purges research fields. No override. Proceed?', destructive: true })) {
                     setDoNotContact(person.id);
                   }
                 }}

@@ -64,6 +64,7 @@ import { detectPastRound, type PastRoundHint } from '@/lib/round-propagation';
 import { readItems, itemCategoryLabel, CATEGORY_COLORS, CATEGORY_SHAPES, COLOR_STYLES, SHAPE_STYLES, GENERAL_LABEL, type CategoryColor, type CategoryShape } from '@/lib/roadmap-categories';
 import type { RoadmapItemV2, RoadmapCategory } from '@/lib/types';
 import { Card, TermHint, Toggle } from '@/components/ui';
+import { useConfirm } from '@/lib/confirm';
 import { AiSupportButton } from './AiSupportButton';
 import type { RoadmapMilestone, RoadmapPeriodKind } from '@/lib/types';
 import { periodHasPassed, periodLabel, sortRoadmapPeriods, type RoadmapPeriod } from '@/lib/roadmap';
@@ -509,6 +510,7 @@ function MilestoneForm({ draft, setDraft, onSave, onCancel, saving, err, categor
 
 export function RoadmapCard({ canEdit, available }: { canEdit: boolean; available: boolean }) {
   const { db, updateOrg, addRoadmapMilestone, updateRoadmapMilestone, removeRoadmapMilestone, addFundingRound } = useStore();
+  const confirm = useConfirm();
 
   const [adding, setAdding] = useState(false);
   const [addDraft, setAddDraft] = useState<MilestoneDraft>(BLANK_DRAFT);
@@ -629,7 +631,7 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
         editable={canEdit}
         onAddClick={() => { setAdding(true); setEditingId(null); }}
         onEditClick={startEdit}
-        onRemoveClick={(m) => { if (window.confirm('Remove this milestone?')) removeRoadmapMilestone(m.id); }}
+        onRemoveClick={async (m) => { if (await confirm({ message: 'Remove this milestone?', destructive: true })) removeRoadmapMilestone(m.id); }}
         categories={db.roadmapCategories}
       />
 

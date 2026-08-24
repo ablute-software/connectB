@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import type { Entity, PassReasonCategory } from '@/lib/types';
 import { useStore } from '@/lib/store';
+import { useConfirm } from '@/lib/confirm';
 import {
   STAGE_LABEL, STAGE_ORDER, relationshipSummary, nextBestAction, nextContactPerson, needsReopenTrigger, stageExits, PASS_REASON_CATEGORIES,
   type WhoseTurn, type Health, type DealMessageTouch,
@@ -140,6 +141,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   historySlot?: ReactNode;
 }) {
   const { db, setRelationshipStage, undoStageChange, setEntityStatus, addTask, toggleTask, updateTask, updateEntity, logInteraction, addRejectionCode } = useStore();
+  const confirm = useConfirm();
   // Prompt 251-B "Fase 0" — inline shortcut to fill entities.reopen_trigger
   // straight from the Sherlock Tip, for the one case (needsReopenTrigger)
   // where nothing is registered yet. null = not editing.
@@ -452,7 +454,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
                     que de facto aconteceu: nunca responderam. Prompt 233
                     §B — SEMPRE disponível, pela mesma razão do pass: é
                     exactamente o caso que faltava sem "Mark dormant". */}
-                <button role="menuitem" onClick={() => {
+                <button role="menuitem" onClick={async () => {
                     setMenuOpen(false);
                     // Prompt 269 §1 — an OPEN investor_interest task means a
                     // real expressed interest is waiting on a reply.
@@ -463,7 +465,7 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
                     // this confirm is that acknowledgment. Cancel leaves the
                     // entity and the task exactly as they were.
                     const hasOpenInterest = db.tasks.some((t) => t.entity_id === entity.id && !t.done && t.source === 'investor_interest');
-                    if (hasOpenInterest && !window.confirm("This investor expressed interest and you haven't responded — freeze anyway?")) return;
+                    if (hasOpenInterest && !(await confirm({ message: "This investor expressed interest and you haven't responded — freeze anyway?" }))) return;
                     setEntityStatus(entity.id, 'dormant', exits.parkLabel === 'cold' ? 'Cold — no reply' : 'Frozen — no continuity');
                     applyPlan(planPark(entity, db.tasks, new Date()));
                   }}

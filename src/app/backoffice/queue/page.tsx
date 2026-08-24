@@ -6,6 +6,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Card, Tooltip } from '@/components/ui';
+import { useConfirm } from '@/lib/confirm';
 import { classifyConflict, type ConflictClass } from '@/lib/contribution-diff';
 import { SuspiciousAccountsTab } from '@/components/backoffice/SuspiciousAccountsTab';
 import { FraudFlagsTab } from '@/components/backoffice/FraudFlagsTab';
@@ -78,6 +79,7 @@ function formatFieldValue(value: unknown): string {
 }
 
 function ContributionsTab() {
+  const confirm = useConfirm();
   const [items, setItems] = useState<Contribution[] | null>(null);
   const [err, setErr] = useState('');
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -149,8 +151,8 @@ function ContributionsTab() {
   // specifically, not a blanket "approve everything" button.
   const highConfidenceAi = pendingAll.filter((c) => c.source === 'ai' && (c.confidence ?? 0) >= 0.8);
 
-  function bulkApproveHighConfidence() {
-    if (!window.confirm(`Approve ${highConfidenceAi.length} AI-sourced contribution${highConfidenceAi.length === 1 ? '' : 's'} at ≥80% confidence?`)) return;
+  async function bulkApproveHighConfidence() {
+    if (!(await confirm({ message: `Approve ${highConfidenceAi.length} AI-sourced contribution${highConfidenceAi.length === 1 ? '' : 's'} at ≥80% confidence?` }))) return;
     bulkReview(highConfidenceAi.map((c) => c.id), 'verified');
   }
 
@@ -300,6 +302,7 @@ type ConsensusItem = {
 // 'verified' rows are already visible to founders and shown read-only,
 // for audit only.
 function ContributionsByUsersTab() {
+  const confirm = useConfirm();
   const [items, setItems] = useState<ConsensusItem[] | null>(null);
   const [err, setErr] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -355,8 +358,8 @@ function ContributionsByUsersTab() {
   // reject without waiting for a 2nd org" phrasing implies for that case.
   const concordant = pending.filter((i) => i.sourceCount >= 2);
 
-  function confirmBulk() {
-    if (!window.confirm(`Approve ${concordant.length} field${concordant.length === 1 ? '' : 's'} with 2+ independently reporting orgs?`)) return;
+  async function confirmBulk() {
+    if (!(await confirm({ message: `Approve ${concordant.length} field${concordant.length === 1 ? '' : 's'} with 2+ independently reporting orgs?` }))) return;
     bulkApprove(concordant.map((i) => i.id));
   }
 

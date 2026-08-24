@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card, PersonLink } from '@/components/ui';
+import { useConfirm } from '@/lib/confirm';
 import type { DocVisibility, Folder, FolderKind } from '@/lib/types';
 import {
   collectFolderSelectionKeys, cycleGrantState,
@@ -65,6 +66,7 @@ function DocumentsPageInner() {
     createFolder, renameFolder, deleteFolder, addGrant, revokeGrant, recordNdaUpload,
     invitePersonForGrant,
   } = useStore();
+  const confirm = useConfirm();
   // P78 Bloco 1 — "sit alongside Documents & Data Room", read as a tab
   // within the same page area rather than a separate route: both views
   // read the same useStore() db, just organized differently (folder-first
@@ -375,8 +377,8 @@ function DocumentsPageInner() {
     }
     return [...map.values()];
   }, [visibleGrants]);
-  function revokeAllInGroup(group: typeof grantGroups[number], label: string) {
-    if (!window.confirm(`Revoke all ${group.grants.length} grant(s) for ${label}? This cannot be undone.`)) return;
+  async function revokeAllInGroup(group: typeof grantGroups[number], label: string) {
+    if (!(await confirm({ message: `Revoke all ${group.grants.length} grant(s) for ${label}? This cannot be undone.`, destructive: true }))) return;
     for (const g of group.grants) revokeGrant(g.id);
   }
 
@@ -600,8 +602,8 @@ function DocumentsPageInner() {
     setDetailsOpenId(null);
   }
 
-  function confirmDeleteDoc(d: { id: string; name: string }) {
-    if (window.confirm(`Delete "${d.name}"? This removes the file from storage and cannot be undone.`)) {
+  async function confirmDeleteDoc(d: { id: string; name: string }) {
+    if (await confirm({ message: `Delete "${d.name}"? This removes the file from storage and cannot be undone.`, destructive: true })) {
       deleteDocument(d.id);
     }
   }
@@ -702,13 +704,13 @@ function DocumentsPageInner() {
     setNewFolderName(''); setNewFolderParent('');
   }
 
-  function confirmDeleteFolder(f: Folder) {
+  async function confirmDeleteFolder(f: Folder) {
     setFolderErr('');
-    if (!window.confirm(`Delete folder "${f.name}"?`)) return;
+    if (!(await confirm({ message: `Delete folder "${f.name}"?`, destructive: true }))) return;
     try {
       deleteFolder(f.id, false);
     } catch (e) {
-      const move = window.confirm(`${(e as Error).message}\n\nMove its contents to the parent folder instead?`);
+      const move = await confirm({ message: `${(e as Error).message}\n\nMove its contents to the parent folder instead?` });
       if (move) {
         try { deleteFolder(f.id, true); } catch (e2) { setFolderErr((e2 as Error).message); }
       }

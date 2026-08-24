@@ -22,16 +22,18 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
+import { useConfirm } from '@/lib/confirm';
 
 export function VaultKillSwitch() {
   const { db, updateOrg } = useStore();
+  const confirm = useConfirm();
   const frozenAt = db.org.vault_access_frozen_at ?? null;
   const [confirming, setConfirming] = useState(false);
 
-  function unfreeze() {
-    if (!window.confirm(
-      'Restore Vault access for every investor with an active grant? Nothing was lost while it was off — this just turns their existing access back on.',
-    )) return;
+  async function unfreeze() {
+    if (!(await confirm({
+      message: 'Restore Vault access for every investor with an active grant? Nothing was lost while it was off — this just turns their existing access back on.',
+    }))) return;
     updateOrg({ vault_access_frozen_at: null });
   }
 

@@ -29,6 +29,7 @@
 // that's permanently inert. Flagged as a deviation, not silently applied.
 import { useMemo, useState } from 'react';
 import { useStore } from '@/lib/store';
+import { useConfirm } from '@/lib/confirm';
 import { Card } from '@/components/ui';
 import { computeCellEffect, findEffectiveGrant, type CellEffect } from '@/lib/people-access-matrix';
 import type { Folder, PortalSection } from '@/lib/types';
@@ -64,6 +65,7 @@ function fmtDate(iso?: string) {
 
 export function PeopleAccessPanel() {
   const { db, addGrant, revokeGrant } = useStore();
+  const confirm = useConfirm();
   // Prompt 204 §A — a arvore que findEffectiveGrant precisa para saber que um
   // grant numa pasta-mae cobre as subpastas.
   const folderTree = db.folders.map((f) => ({ id: f.id, parent_id: f.parent_id }));
@@ -134,12 +136,15 @@ export function PeopleAccessPanel() {
     setGrantTarget(null);
   }
 
-  function revokeForItem(kind: 'folder' | 'doc', id: string, name: string) {
+  async function revokeForItem(kind: 'folder' | 'doc', id: string, name: string) {
     const active = db.grants.filter((g) =>
       g.person_id && selectedPersonIds.has(g.person_id) && !g.revoked_at
       && (kind === 'doc' ? g.document_id === id : g.folder_id === id && !g.document_id));
     if (!active.length) return;
-    const ok = window.confirm(`Revoke access to "${name}" for ${active.length} ${active.length === 1 ? 'person' : 'people'} at ${selectedEntity?.name ?? 'this entity'}?`);
+    const ok = await confirm({
+      message: `Revoke access to "${name}" for ${active.length} ${active.length === 1 ? 'person' : 'people'} at ${selectedEntity?.name ?? 'this entity'}?`,
+      destructive: true,
+    });
     if (!ok) return;
     active.forEach((g) => revokeGrant(g.id));
   }
