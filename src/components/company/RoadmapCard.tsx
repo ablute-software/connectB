@@ -653,7 +653,7 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
   );
 }
 
-function CategoryManager() {
+export function CategoryManager() {
   const { db, addRoadmapCategory, removeRoadmapCategory } = useStore();
   const [label, setLabel] = useState('');
   const [color, setColor] = useState<CategoryColor>('teal');

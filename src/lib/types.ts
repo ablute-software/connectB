@@ -214,6 +214,33 @@ export interface RoadmapMilestone {
   updated_at: string;
 }
 
+// Prompt 359 — the roadmap CANVAS's own unit: a real event with a real date
+// and a real row identity (unlike RoadmapMilestone's items_v2, a JSON blob
+// with no per-item id — see migration 0237's own comment on why that made
+// per-event drag/click/evidence-linking impossible). Evolves the existing
+// model rather than replacing it: category_id is the SAME roadmap_categories
+// FK RoadmapItemV2 already used, and migration 0237 converts every existing
+// milestone item into one of these, losing nothing.
+export type RoadmapDatePrecision = 'exact' | 'approx' | 'quarter';
+export type RoadmapEventStatus = 'done' | 'planned';
+export interface RoadmapEvent {
+  id: string;
+  org_id: string;
+  title: string;
+  description?: string | null;
+  date: string; // ISO date (YYYY-MM-DD)
+  date_precision: RoadmapDatePrecision;
+  end_date?: string | null; // set only for a period event (drag-created)
+  status: RoadmapEventStatus;
+  category_id?: string | null;
+  document_id?: string | null;
+  badge_id?: string | null;
+  media_id?: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // Prompt 166 — the four SWOT bullet-list categories, shared by:
 // review_runs.report (strengths/weaknesses always existed; opportunities/
 // threats added in Prompt 166 §A), the founder-facing SwotVisualCard, and
@@ -1007,6 +1034,7 @@ export interface Db {
   roadmapMilestones: RoadmapMilestone[];
   fundingRounds: FundingRound[];
   roadmapCategories: RoadmapCategory[];
+  roadmapEvents: RoadmapEvent[];
   rejectionCodes: RejectionCode[];
   interactionEdits: InteractionEdit[];
   orgAxisClassifications: OrgAxisClassification[];

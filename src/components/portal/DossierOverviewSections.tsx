@@ -8,8 +8,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { SwotQuadrant } from '@/components/readiness/SwotVisualCard';
-import { ResponsiveRoadmap } from '@/components/company/ResponsiveRoadmap';
-import type { SwotData, RoadmapPeriodKind } from '@/lib/types';
+import { RoadmapCanvas } from '@/components/company/RoadmapCanvas';
+import type { SwotData } from '@/lib/types';
 import type { ReviewCategory } from '@/lib/review-clarifications';
 import { shouldShowMiniPitchTeaser } from '@/lib/mini-pitch';
 import { resolveInitialTabFromHash } from '@/lib/dossier-tabs';
@@ -61,7 +61,12 @@ export interface Dossier {
   canMessageNamedPerson?: boolean; canRequestDataRoom?: boolean;
   swot?: SwotData;
   founderClarifications?: { category: ReviewCategory; text: string }[];
-  roadmap?: { period_kind: RoadmapPeriodKind; period_year: number; period_quarter?: number; items: string[]; items_v2?: { text: string; category_id: string | null }[] }[];
+  // Prompt 359 Block E — one row per roadmap_events event (never the legacy
+  // per-period milestones shape). document_id is present only when this
+  // investor is also at documentTitles' own disclosure tier (level >= 2) —
+  // see dossier-fetch.ts's own comment on why that's the right gate to reuse
+  // rather than a new one.
+  roadmap?: { id: string; title: string; description?: string; date: string; end_date?: string; status: 'done' | 'planned'; category_id?: string; document_id?: string }[];
   roadmapCategories?: { id: string; label: string; color: string; shape: string }[];
   // Prompt 326 — already fully masked (projectBadgesForInvestor): disputed
   // badges and internal fields (verification_note, evidence_document_id)
@@ -306,20 +311,32 @@ export function DossierOverviewSections({
   // Prompt 167 §C.4 — same positioning logic as SWOT above: a quick
   // summary belongs near the top, before the round's financial details.
   // dossier.roadmap is present (possibly an empty array) once level + the
-  // founder's toggle both allow it — RoadmapTimeline itself handles zero
-  // milestones by showing just the founding node, same as it does
-  // founder-side in RoadmapCard.tsx. editable={false} and no callbacks: no
-  // "+", no edit/remove hover-actions here.
+  // founder's toggle both allow it. Prompt 359 Block E — renders the SAME
+  // RoadmapCanvas the founder edits, editable={false} and no callbacks: no
+  // click-to-create, no drag, no "+", one component for both sides so they
+  // can never visually diverge. An evidence chip's document_id is only ever
+  // present in the payload when this investor is ALSO at documentTitles'
+  // own level (dossier-fetch.ts's own gate) — resolveDocChip just looks the
+  // name up in the SAME documentTitles list already fetched for that tier,
+  // never a second disclosure decision made client-side.
   if (dossier.roadmap) {
+    const docNameById = new Map((dossier.documentTitles ?? []).map((d) => [d.id, d.name]));
     sections.push({
       id: 'roadmap', label: 'Roadmap',
       node: (
         <div id="roadmap" data-section="Roadmap" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-gray-900">Roadmap</h2>
           <div className="mt-2">
-            {/* Prompt 213 §C — ajusta a largura (piso 11px); acima disso a
-                lupa por ano. O slider deixou de ser o mecanismo primario. */}
-            <ResponsiveRoadmap foundedYear={overview?.founded_year ?? null} milestones={dossier.roadmap} categories={dossier.roadmapCategories ?? []} />
+            <RoadmapCanvas
+              events={dossier.roadmap}
+              categories={dossier.roadmapCategories ?? []}
+              foundedYear={overview?.founded_year ?? null}
+              editable={false}
+              resolveDocChip={(documentId) => {
+                const name = docNameById.get(documentId);
+                return name ? { name, visible: true } : null;
+              }}
+            />
           </div>
         </div>
       ),

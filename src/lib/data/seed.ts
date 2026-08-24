@@ -448,7 +448,7 @@ export const seed: Db = {
   ndas: [],
   documentVersions: [],
   reawakeningProposals: [],
-  roadmapMilestones: [], fundingRounds: [], roadmapCategories: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
+  roadmapMilestones: [], fundingRounds: [], roadmapCategories: [], roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
 
   // ===== v3: platform catalog + packs (demo). Catalog facts are minimal public
   // info and must be re-verified by the team before real distribution. =====

@@ -7,7 +7,7 @@ import { createContext, useContext } from 'react';
 import type {
   AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, CompanyPerson, Db,
   Direction, DocumentItem, DocVisibility, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
-  PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory,
+  PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory, RoadmapEvent,
   RejectionCode, InteractionEdit, OrgAxisClassification } from './types';
 import type { NeglectOutcome } from './neglect-evaluation';
 
@@ -261,6 +261,12 @@ export interface StoreApi {
   // Prompt 213 §D — categorias de eventos do roadmap.
   addRoadmapCategory: (c: Omit<RoadmapCategory, 'id' | 'org_id' | 'created_at'>) => Promise<{ error?: string }>;
   removeRoadmapCategory: (id: string) => Promise<{ error?: string }>;
+  // Prompt 359 — the roadmap CANVAS's own CRUD, a real per-event row
+  // (unlike RoadmapMilestone's items_v2 blob) so drag/click/evidence-linking
+  // have something with an id to act on.
+  addRoadmapEvent: (e: Omit<RoadmapEvent, 'id' | 'org_id' | 'sort_order' | 'created_at' | 'updated_at'>) => Promise<{ error?: string; id?: string }>;
+  updateRoadmapEvent: (id: string, patch: Partial<RoadmapEvent>) => Promise<{ error?: string }>;
+  removeRoadmapEvent: (id: string) => void;
   addFundingRound: (r: Omit<FundingRound, 'id' | 'org_id' | 'created_at'>) => Promise<{ error?: string }>;
   removeFundingRound: (id: string) => Promise<{ error?: string }>;
   setNextStepTask: (entityId: string, taskId: string | undefined) => void;

@@ -17,6 +17,9 @@ import type { DossierMediaItem } from './dossier-fetch';
 // FounderClarificationFull above: period_kind/period_year/period_quarter/
 // items only, never created_at/updated_at/sort_order or any other internal
 // column off company_roadmap_milestones.
+// Kept for the type's own historical record (nothing constructs one of
+// these anymore — see RoadmapEventFull below) rather than deleted, same
+// "DB history stays honest" reasoning as migration 0237's own comment.
 export interface RoadmapMilestoneFull {
   period_kind: RoadmapPeriodKind;
   period_year: number;
@@ -24,6 +27,23 @@ export interface RoadmapMilestoneFull {
   items: string[];
   // Prompt 213 §D (3/3) — itens estruturados, para o filtro por categoria.
   items_v2?: { text: string; category_id: string | null }[];
+}
+
+// Prompt 359 Block E — the investor-facing projection of a roadmap_events
+// row: exactly what an investor may ever see, never org_id/sort_order/
+// created_at/updated_at. document_id travels through unprojected — whether
+// it's actually SHOWN as a chip is a separate, per-investor disclosure
+// decision (data-room-investor-view.ts's effectiveGrantForDoc), made by the
+// caller at render time, never baked into the fetch itself.
+export interface RoadmapEventFull {
+  id: string;
+  title: string;
+  description?: string | null;
+  date: string;
+  end_date?: string | null;
+  status: 'done' | 'planned';
+  category_id?: string | null;
+  document_id?: string | null;
 }
 
 // Conteudo escrito pelo founder PARA mostrar (nome, cor, forma) — nada
@@ -155,10 +175,12 @@ export function projectDossier(
   // Prompt 167 §C — same visible+level gate shape as swot above (a per-org
   // toggle, not purely level-derived, so — like swot — deliberately absent
   // from the static LEVEL_FIELDS table). Unlike founderClarifications,
-  // there's no "hide if empty" rule here: a roadmap with zero milestones
-  // yet still shows the (always-present) founding node, so an empty array
-  // is a legitimate, real state to project, not a signal to omit the key.
-  roadmap?: { visible: boolean; milestones: RoadmapMilestoneFull[]; categories?: RoadmapCategoryFull[] } | null,
+  // there's no "hide if empty" rule here: a roadmap with zero events yet
+  // still shows the (always-present) founding node, so an empty array is a
+  // legitimate, real state to project, not a signal to omit the key.
+  // Prompt 359 Block E — `milestones` -> `events`, reading roadmap_events
+  // (the canvas's own per-event rows) instead of company_roadmap_milestones.
+  roadmap?: { visible: boolean; events: RoadmapEventFull[]; categories?: RoadmapCategoryFull[] } | null,
   // Prompt 326 Pedido E — same shape of exception as swot/roadmap above,
   // but visible at EVERY level including 0 (the recommendation: badges are
   // positive, non-sensitive claims, the same "reason to click Interested"
@@ -203,7 +225,7 @@ export function projectDossier(
     }
   }
   if (level >= 1 && roadmap?.visible) {
-    out.roadmap = roadmap.milestones;
+    out.roadmap = roadmap.events;
     // So viaja com o roadmap visivel — uma categoria sem marcos que a usem
     // nao revela nada, mas tambem nao serve de nada.
     if (roadmap.categories && roadmap.categories.length > 0) out.roadmapCategories = roadmap.categories;

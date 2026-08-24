@@ -14,7 +14,7 @@ import { getInteractionTimeline } from './investor-interaction-log';
 import { vaultFrozenForOrg } from './data-room-server';
 import { sanitizeInvestorSwot } from './investor-safe-swot';
 import type {
-  InterestLevel, FullDossierData, FounderClarificationFull, RoadmapMilestoneFull, RoadmapCategoryFull,
+  InterestLevel, FullDossierData, FounderClarificationFull, RoadmapEventFull, RoadmapCategoryFull,
 } from './investor-interest-level';
 import type { SwotData } from './types';
 import type { ReviewCategory } from './review-clarifications';
@@ -31,7 +31,7 @@ export interface DossierRawData {
   // itself has never needed it, since an investor is never shown a reason,
   // only the section or its absence.
   swotToggleOn: boolean;
-  roadmap: { visible: boolean; milestones: RoadmapMilestoneFull[]; categories?: RoadmapCategoryFull[] } | null;
+  roadmap: { visible: boolean; events: RoadmapEventFull[]; categories?: RoadmapCategoryFull[] } | null;
   roadmapToggleOn: boolean;
   founderClarifications: FounderClarificationFull[];
   // Prompt 326 — fetched and projected regardless of level (Pedido E's own
@@ -153,26 +153,35 @@ export async function fetchDossierRawData(
 
   // Roadmap. Only ever fetched at level >= 1, only when the founder's own
   // toggle is on — same "not fetched-then-hidden" discipline as swot/
-  // overview above. Selects only period_kind/period_year/period_quarter/
-  // items(_v2) — never created_at/updated_at/sort_order.
-  let roadmap: { visible: boolean; milestones: RoadmapMilestoneFull[]; categories?: RoadmapCategoryFull[] } | null = null;
+  // overview above. Prompt 359 Block E — reads roadmap_events (the canvas's
+  // own per-event rows) instead of the legacy company_roadmap_milestones;
+  // selects only the investor-safe fields (never org_id/sort_order/
+  // created_at/updated_at).
+  let roadmap: { visible: boolean; events: RoadmapEventFull[]; categories?: RoadmapCategoryFull[] } | null = null;
   let roadmapToggleOn = true;
   if (level >= 1) {
     const { data: orgRow } = await admin.from('orgs').select('roadmap_visible_to_investors').eq('id', orgId).maybeSingle();
     roadmapToggleOn = (orgRow?.roadmap_visible_to_investors as boolean | null | undefined) ?? true;
     if (roadmapToggleOn) {
-      const [{ data: milestoneRows }, { data: categoryRows }] = await Promise.all([
-        admin.from('company_roadmap_milestones')
-          .select('period_kind, period_year, period_quarter, items, items_v2').eq('org_id', orgId).order('period_year', { ascending: true }),
+      const [{ data: eventRows }, { data: categoryRows }] = await Promise.all([
+        admin.from('roadmap_events')
+          .select('id, title, description, date, end_date, status, category_id, document_id').eq('org_id', orgId).order('date', { ascending: true }),
         admin.from('roadmap_categories')
           .select('id, label, color, shape').eq('org_id', orgId).order('created_at', { ascending: true }),
       ]);
       roadmap = {
         visible: true,
-        milestones: (milestoneRows ?? []).map((r) => ({
-          period_kind: r.period_kind as RoadmapMilestoneFull['period_kind'], period_year: r.period_year as number,
-          period_quarter: (r.period_quarter as number | null) ?? undefined, items: (r.items as string[] | null) ?? [],
-          items_v2: (r.items_v2 as { text: string; category_id: string | null }[] | null) ?? undefined,
+        events: (eventRows ?? []).map((r) => ({
+          id: r.id as string, title: r.title as string, description: (r.description as string | null) ?? undefined,
+          date: r.date as string, end_date: (r.end_date as string | null) ?? undefined,
+          status: r.status as RoadmapEventFull['status'], category_id: (r.category_id as string | null) ?? undefined,
+          // Prompt 359 Block E — the evidence chip names a specific
+          // document, same disclosure tier as documentTitles below (level
+          // >= 2, and never while the vault kill switch is on) — a level-1
+          // investor sees the roadmap ITSELF but not which document backs
+          // an entry, same as they see zero document titles anywhere else
+          // in the dossier at that level.
+          document_id: level >= 2 ? ((r.document_id as string | null) ?? undefined) : undefined,
         })),
         categories: (categoryRows ?? []).map((c) => ({
           id: c.id as string, label: c.label as string, color: c.color as string, shape: c.shape as string,

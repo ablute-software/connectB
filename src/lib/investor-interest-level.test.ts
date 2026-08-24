@@ -153,28 +153,30 @@ describe('projectDossier — founderClarifications', () => {
 
 // Prompt 167 §C — the roadmap gate: level >= 1 AND
 // roadmap_visible_to_investors, same shape as swot's own gate above. Unlike
-// founderClarifications, an empty milestone list is a real, projectable
-// state (the founding node is always there), not a "hide the section" signal.
+// founderClarifications, an empty event list is a real, projectable state
+// (the founding node is always there), not a "hide the section" signal.
+// Prompt 359 Block E — milestones -> events (roadmap_events, not the
+// legacy company_roadmap_milestones), same gate logic unchanged.
 describe('projectDossier — roadmap', () => {
-  const MILESTONES = [{ period_kind: 'year' as const, period_year: 2026, items: ['Reach breakeven'] }];
+  const EVENTS = [{ id: 'e1', title: 'Reach breakeven', date: '2026-01-01', status: 'planned' as const }];
 
   it('level 0, visible=true — still absent (level gate wins)', () => {
-    const result = projectDossier(0, FULL, false, null, null, { visible: true, milestones: MILESTONES });
+    const result = projectDossier(0, FULL, false, null, null, { visible: true, events: EVENTS });
     expect('roadmap' in result).toBe(false);
   });
 
   it('level 1, visible=true — present, exactly what the caller passed', () => {
-    const result = projectDossier(1, FULL, false, null, null, { visible: true, milestones: MILESTONES });
-    expect(result.roadmap).toEqual(MILESTONES);
+    const result = projectDossier(1, FULL, false, null, null, { visible: true, events: EVENTS });
+    expect(result.roadmap).toEqual(EVENTS);
   });
 
   it('level 1, visible=false — absent regardless of level', () => {
-    const result = projectDossier(3, FULL, false, null, null, { visible: false, milestones: MILESTONES });
+    const result = projectDossier(3, FULL, false, null, null, { visible: false, events: EVENTS });
     expect('roadmap' in result).toBe(false);
   });
 
-  it('visible=true with zero milestones — present as an EMPTY array, not absent', () => {
-    const result = projectDossier(1, FULL, false, null, null, { visible: true, milestones: [] });
+  it('visible=true with zero events — present as an EMPTY array, not absent', () => {
+    const result = projectDossier(1, FULL, false, null, null, { visible: true, events: [] });
     expect('roadmap' in result).toBe(true);
     expect(result.roadmap).toEqual([]);
   });

@@ -12,7 +12,7 @@ import type {
   AccessGrant, Automation, AutomationRun, CatalogEntity, Channel, Classification, CompanyFact, CompanyPerson, Db, DocumentItem,
   DocumentVersion, DocumentView, Entity, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
-  RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory,
+  RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory, RoadmapEvent,
   RejectionCode, InteractionEdit, OrgAxisClassification } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
@@ -32,7 +32,7 @@ const EMPTY_DB: Db = {
   folders: [], documents: [], grants: [], views: [], templates: [], automations: [],
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
   documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [],
-  rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
+  roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -79,7 +79,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     runsRes, aiReviewsRes, catalogRes, packsRes, packItemsRes, unlocksRes,
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
     documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes, roadmapMilestonesRes,
-    fundingRoundsRes, roadmapCategoriesRes, rejectionCodesRes, interactionEditsRes, orgAxisClassificationsRes,
+    fundingRoundsRes, roadmapCategoriesRes, roadmapEventsRes, rejectionCodesRes, interactionEditsRes, orgAxisClassificationsRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -130,6 +130,9 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     sb.from('company_roadmap_milestones').select('*').eq('org_id', orgId).order('period_year', { ascending: true }),
     sb.from('funding_rounds').select('*').eq('org_id', orgId).order('closed_year', { ascending: true }),
     sb.from('roadmap_categories').select('*').eq('org_id', orgId).order('created_at', { ascending: true }),
+    // Prompt 359 — roadmap_events (0237). Same missing-table-safe pattern
+    // as company_facts/ndas above. Ordered by date — the canvas's own axis.
+    sb.from('roadmap_events').select('*').eq('org_id', orgId).order('date', { ascending: true }),
     // Prompt 251/253 Bloco A — rejection_codes (0184). Same missing-table-
     // safe pattern as company_facts/ndas above.
     sb.from('rejection_codes').select('*').eq('org_id', orgId),
@@ -203,6 +206,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     roadmapMilestones: ((roadmapMilestonesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RoadmapMilestone>(r)),
     fundingRounds: ((fundingRoundsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<FundingRound>(r)),
     roadmapCategories: ((roadmapCategoriesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RoadmapCategory>(r)),
+    roadmapEvents: ((roadmapEventsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RoadmapEvent>(r)),
     rejectionCodes: ((rejectionCodesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RejectionCode>(r)),
     interactionEdits: ((interactionEditsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<InteractionEdit>(r)),
     orgAxisClassifications: ((orgAxisClassificationsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<OrgAxisClassification>(r)),
@@ -842,6 +846,39 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const prev = dbRef.current;
       commit({ ...prev, roadmapMilestones: prev.roadmapMilestones.filter((r) => r.id !== id) });
       persist(sb.from('company_roadmap_milestones').delete().eq('id', id), 'removeRoadmapMilestone');
+    },
+
+    // Prompt 359 — the roadmap canvas's own CRUD, direct-to-Supabase same as
+    // every other org-scoped table here (RLS via is_org_member does the
+    // real access control; no server route needed for a plain scalar
+    // update like this one — unlike company_claims.document_refs, there's
+    // no array-append race to guard against here, since document_id is a
+    // single FK column, not an array).
+    async addRoadmapEvent(e) {
+      const prev = dbRef.current;
+      const sortOrder = prev.roadmapEvents.length
+        ? Math.max(...prev.roadmapEvents.map((x) => x.sort_order)) + 1 : 0;
+      const now = new Date().toISOString();
+      const row: RoadmapEvent = { ...e, id: uuid(), org_id: prev.org.id, sort_order: sortOrder, created_at: now, updated_at: now };
+      const o = orgIdRef.current;
+      if (o) {
+        const { error } = await sb.from('roadmap_events').insert({ ...row, org_id: o });
+        if (error) return { error: error.message };
+      }
+      commit({ ...prev, roadmapEvents: [...prev.roadmapEvents, row] });
+      return { id: row.id };
+    },
+    async updateRoadmapEvent(id, patch) {
+      const { error } = await sb.from('roadmap_events').update(nullify(patch)).eq('id', id);
+      if (error) return { error: error.message };
+      const prev = dbRef.current;
+      commit({ ...prev, roadmapEvents: prev.roadmapEvents.map((r) => (r.id === id ? { ...r, ...patch, updated_at: new Date().toISOString() } : r)) });
+      return {};
+    },
+    removeRoadmapEvent(id) {
+      const prev = dbRef.current;
+      commit({ ...prev, roadmapEvents: prev.roadmapEvents.filter((r) => r.id !== id) });
+      persist(sb.from('roadmap_events').delete().eq('id', id), 'removeRoadmapEvent');
     },
 
     setEntityStatus(id: string, status: EntityStatus, reason?: string) {

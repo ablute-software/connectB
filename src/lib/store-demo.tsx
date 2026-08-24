@@ -5,7 +5,7 @@
 // StoreApi contract (locks, follow-up tasks, overrides, runs semantics).
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  AccessGrant, AutomationRun, CompanyFact, Db, DocumentItem, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory,
+  AccessGrant, AutomationRun, CompanyFact, Db, DocumentItem, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory, RoadmapEvent,
   InteractionEdit, OrgAxisClassification } from './types';
 import { seed } from './data/seed';
 import { revisitTasksToClose } from './exit-effects';
@@ -389,6 +389,24 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     },
     removeRoadmapMilestone(id) {
       setDb((prev) => ({ ...prev, roadmapMilestones: prev.roadmapMilestones.filter((r) => r.id !== id) }));
+    },
+
+    // Prompt 359 — demo-mode roadmap events: local state only, same shape.
+    async addRoadmapEvent(e) {
+      const id = uid('re');
+      setDb((prev) => {
+        const sortOrder = prev.roadmapEvents.length ? Math.max(...prev.roadmapEvents.map((x) => x.sort_order)) + 1 : 0;
+        const now = new Date().toISOString();
+        return { ...prev, roadmapEvents: [...prev.roadmapEvents, { ...e, id, org_id: prev.org.id, sort_order: sortOrder, created_at: now, updated_at: now } as RoadmapEvent] };
+      });
+      return { id };
+    },
+    async updateRoadmapEvent(id, patch) {
+      setDb((prev) => ({ ...prev, roadmapEvents: prev.roadmapEvents.map((r) => (r.id === id ? { ...r, ...patch, updated_at: new Date().toISOString() } : r)) }));
+      return {};
+    },
+    removeRoadmapEvent(id) {
+      setDb((prev) => ({ ...prev, roadmapEvents: prev.roadmapEvents.filter((r) => r.id !== id) }));
     },
 
     setEntityStatus(id, status, reason) {

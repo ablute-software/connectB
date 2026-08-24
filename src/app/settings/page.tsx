@@ -20,6 +20,7 @@ import { PermissionsMatrixCard } from '@/components/PermissionsMatrixCard';
 import { ImportPanel } from '@/components/settings/ImportPanel';
 import { NeedsReviewPanel } from '@/components/queue/NeedsReviewPanel';
 import { CompanyPanel } from '@/components/company/CompanyPanel';
+import { RoadmapPanel } from '@/components/company/RoadmapPanel';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { APP_URL } from '@/lib/brand';
 import { PageTour } from '@/components/onboarding/PageTour';
@@ -368,6 +369,11 @@ function SettingsInner() {
 
   const tabs = [
     { key: 'company', label: 'Company', glow: companyComplete, glowTitle: 'Profile 100% complete' },
+    // Prompt 359 Block A — Roadmap gets its own sub-tab, between Company and
+    // Import history: it used to be a card buried inside Company (a mini
+    // preview stays there, linking here), but a canvas the founder draws on
+    // deserves the same top-level billing as the rest of "About [startup]".
+    { key: 'roadmap', label: 'Roadmap' },
     // Needs review lives INSIDE this tab now (see importSubtab below) — its
     // pending count still surfaces here so it isn't lost a level down.
     { key: 'import-history', label: 'Import history', badge: reviewBadge },
@@ -403,7 +409,7 @@ function SettingsInner() {
       <VisibilityToggle kind="startup" />
       <Tabs items={tabs} active={effectiveTab} onChange={setTab} />
       {/* Anchors (data-tour-id) live inside CompanyPanel, on the default "company" tab only. */}
-      {effectiveTab !== 'automations' && effectiveTab !== 'import-history' && effectiveTab !== 'team' && (
+      {effectiveTab !== 'automations' && effectiveTab !== 'import-history' && effectiveTab !== 'team' && effectiveTab !== 'roadmap' && (
         <PageTour pageKey="guide_settings" />
       )}
       {effectiveTab === 'automations' && (
@@ -418,7 +424,8 @@ function SettingsInner() {
         </div>
       )}
       {effectiveTab === 'team' && <TeamPanel />}
-      {effectiveTab !== 'automations' && effectiveTab !== 'import-history' && effectiveTab !== 'team' && <CompanyPanel />}
+      {effectiveTab === 'roadmap' && <RoadmapPanel canEdit={!authEnabled || can(orgRole, 'manage_org_settings')} />}
+      {effectiveTab !== 'automations' && effectiveTab !== 'import-history' && effectiveTab !== 'team' && effectiveTab !== 'roadmap' && <CompanyPanel />}
     </div>
   );
 }

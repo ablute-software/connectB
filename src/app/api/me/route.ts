@@ -31,6 +31,7 @@ import { planEntitlements, WATSON_DRAFT_QUOTA, REVIEW_QUOTA } from '@/lib/plans'
 import { stripeConfigured } from '@/lib/stripe-env';
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { aiReviewDocumentLinkAvailable } from '@/lib/ai-review-document-link-capability';
+import { roadmapEventsAvailable } from '@/lib/document-extraction-capability';
 
 export async function GET(req: NextRequest) {
   const capabilities = {
@@ -43,6 +44,9 @@ export async function GET(req: NextRequest) {
     reviewRuns: await reviewRunsAvailable(),
     reviewClarifications: await reviewClarificationsAvailable(),
     companyRoadmap: await companyRoadmapAvailable(),
+    // Prompt 359 — migration 0237's roadmap_events table (the canvas, not
+    // the legacy per-period milestones companyRoadmap above still gates).
+    roadmapEvents: await roadmapEventsAvailable(),
     permissionMatrix: await permissionMatrixAvailable(),
     documentOrdering: await documentOrderingAvailable(),
     documentVersions: await documentVersionsAvailable(),

@@ -5,6 +5,7 @@
 // Capability-gated on companyProfile (migration 0037): until applied, falls
 // back to the old Organisation card unchanged — never a broken form.
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled } from '@/lib/supabase';
@@ -13,7 +14,6 @@ import { OrganisationCard } from '@/components/OrganisationCard';
 import { CompanyFactsPanel } from '@/components/CompanyFactsPanel';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { CompletenessBar } from './CompletenessBar';
-import { RoadmapCard } from './RoadmapCard';
 import { IdentityCard } from './IdentityCard';
 import { BadgesCard } from './BadgesCard';
 import { PhotosMediaCard } from './PhotosMediaCard';
@@ -25,6 +25,30 @@ import { TractionCard } from './TractionCard';
 import { DataroomChecklistCard } from './DataroomChecklistCard';
 import { InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEngagementCards';
 import { StartupAxisClassifications } from './StartupAxisClassifications';
+
+// Prompt 359 Block A — RoadmapCard is GONE from here: the roadmap is now
+// its own top-level "Roadmap" tab (settings/page.tsx), not a card in this
+// vertical flow. This is the mini-preview the prompt asks for in its place
+// — one line, a link out, nothing this panel needs to keep rendering the
+// canvas itself for.
+function RoadmapMiniPreview({ available }: { available: boolean }) {
+  const { db } = useStore();
+  if (!available) return null;
+  const total = db.roadmapEvents.length;
+  const done = db.roadmapEvents.filter((e) => e.status === 'done').length;
+  return (
+    <Card title="Roadmap">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-gray-500">
+          {total === 0 ? 'No events yet.' : `${done} done · ${total - done} planned`}
+        </p>
+        <Link href="/settings?tab=roadmap" className="text-xs font-medium text-[#0E7490] hover:underline">
+          View roadmap →
+        </Link>
+      </div>
+    </Card>
+  );
+}
 
 function DemoResetCard() {
   const { resetDemo } = useStore();
@@ -51,7 +75,7 @@ export function CompanyPanel() {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => {
       setOrgRole(me.orgRole ?? null);
       setCompanyProfile(!!me.capabilities?.companyProfile);
-      setRoadmapAvailable(!!me.capabilities?.companyRoadmap);
+      setRoadmapAvailable(!!me.capabilities?.roadmapEvents);
     }).catch(() => setCompanyProfile(false));
   }, []);
 
@@ -96,7 +120,7 @@ export function CompanyPanel() {
         <div data-tour-id="settings-completeness">
           <CompletenessBar pct={pct} missing={missing} orgId={db.org.id} onFlash={setFlashId} />
         </div>
-        <RoadmapCard canEdit={canEdit} available={roadmapAvailable} />
+        <RoadmapMiniPreview available={roadmapAvailable} />
         <div id="settings-identity" data-tour-id="settings-identity">
           <IdentityCard canEdit={canEdit} missing={missing} flashId={flashId} />
         </div>

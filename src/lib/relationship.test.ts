@@ -24,7 +24,7 @@ function makeDb(entities: Entity[], interactions: Interaction[] = []): Db {
     entities, people: [], personAffiliations: [], interactions,
     tasks: [], relationshipState: [], overrides: [], folders: [], documents: [],
     grants: [], views: [], templates: [], automations: [], runs: [], aiReviews: [], companyFacts: [], ndas: [], documentVersions: [], reawakeningProposals: [],
-    companyPeople: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
+    companyPeople: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [], roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
   };
 }
 

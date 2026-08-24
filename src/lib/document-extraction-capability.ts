@@ -37,3 +37,15 @@ export const gapQuestionsAvailable = makeCapabilityProbe(async (admin) => {
   const { error } = await admin.from('gap_questions').select('id').limit(1);
   return !error;
 });
+
+// Prompt 359 Block D — migration 0238's suggestion memory.
+export const roadmapEventSuggestionsAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('roadmap_event_suggestions').select('id').limit(1);
+  return !error;
+});
+
+// Prompt 359 Block A — migration 0237's roadmap_events table.
+export const roadmapEventsAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('roadmap_events').select('id').limit(1);
+  return !error;
+});
