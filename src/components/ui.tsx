@@ -28,7 +28,20 @@ export function Tooltip({ text, children, side = 'top', block }: {
   }[side];
 
   return (
-    <span className={`relative ${block ? 'block w-full' : 'inline-flex'}`} onMouseEnter={open} onMouseLeave={close} onFocus={open} onBlur={close}>
+    // Prompt 362 — the default (non-block) wrapper is `inline-flex`, and a
+    // flex item's `min-width` defaults to `auto`, which refuses to shrink
+    // below its content's own minimum width — inside a `table-fixed`
+    // column or a narrow flex cell, this has the EXACT same effect as
+    // `white-space: nowrap` (Prompt 286's fix removed the one literal
+    // nowrap in the Pipeline table, but never touched this — a flex-sizing
+    // block, not a text-wrapping one, so grepping for `whitespace-nowrap`
+    // never would have found it). `min-w-0` is the standard fix: it keeps
+    // `inline-flex` (and every existing alignment/positioning behavior
+    // Tooltip already has elsewhere in the app) completely unchanged, and
+    // only removes the refusal-to-shrink — confirmed against the real
+    // worst case (StatusPill showing "in conversation" in the Pipeline
+    // table's 9%-wide Status column).
+    <span className={`relative min-w-0 ${block ? 'block w-full' : 'inline-flex'}`} onMouseEnter={open} onMouseLeave={close} onFocus={open} onBlur={close}>
       {children}
       {show && (
         <span role="tooltip"
