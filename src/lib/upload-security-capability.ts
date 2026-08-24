@@ -32,3 +32,9 @@ export const supportAttachmentScanAvailable = makeCapabilityProbe(async (admin) 
   const { error } = await admin.from('support_attachment_scans').select('id').limit(1);
   return !error;
 });
+
+// Prompt 353 — migration 0231's malware_scan_status column on company_media.
+export const companyMediaScanAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('company_media').select('malware_scan_status').limit(1);
+  return !error;
+});

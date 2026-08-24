@@ -86,4 +86,20 @@ describe('detectAllowedKind', () => {
     const svgXml = Buffer.from('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"></svg>');
     expect(detectAllowedKind(svgXml, 'photo.svg')).toBeNull();
   });
+
+  // Prompt 353 — mp4/webm added for the company media gallery's video
+  // upload path.
+  it('aceita MP4 pela assinatura ftyp no offset 4', () => {
+    const mp4 = bytes(0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d);
+    expect(detectAllowedKind(mp4, 'clip.mp4')).toBe('mp4');
+  });
+
+  it('aceita WEBM pela assinatura EBML', () => {
+    expect(detectAllowedKind(bytes(0x1a, 0x45, 0xdf, 0xa3), 'clip.webm')).toBe('webm');
+  });
+
+  it('rejeita um mp4/webm cujo conteúdo não bate com a extensão', () => {
+    expect(detectAllowedKind(bytes(0x1a, 0x45, 0xdf, 0xa3), 'clip.mp4')).toBeNull();
+    expect(detectAllowedKind(bytes(0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70), 'clip.webm')).toBeNull();
+  });
 });

@@ -11,6 +11,7 @@ import type { SwotData, RoadmapPeriodKind } from './types';
 import type { ReviewCategory } from './review-clarifications';
 import type { BadgePublic } from './company-badges';
 import type { MiniPitchSlideProjected } from './mini-pitch';
+import type { DossierMediaItem } from './dossier-fetch';
 
 // Prompt 167 §C.5 — explicit field-by-field projection, same discipline as
 // FounderClarificationFull above: period_kind/period_year/period_quarter/
@@ -176,6 +177,13 @@ export function projectDossier(
   // the caller (projectMiniPitchForInvestor, mini-pitch.ts) before it ever
   // reaches here.
   miniPitch?: MiniPitchSlideProjected[] | null,
+  // Prompt 353 — company photos & videos. Already filtered to clean/scanned
+  // items and signed by the caller (fetchDossierRawData) before reaching
+  // here. Split by category below: Company/Technology ride with About
+  // (Discovery-visible, same as badges — About itself already shows
+  // something at every level), Team rides with the Team section's own
+  // level>=2 gate, never level-gated a second, DIFFERENT way here.
+  media?: DossierMediaItem[] | null,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { level };
   if (level >= 1) out.overview = full.overview;
@@ -186,6 +194,14 @@ export function projectDossier(
   if (level >= 1 && swot?.visible && swot.data) out.swot = swot.data;
   if (level >= 1 && founderClarifications && founderClarifications.length > 0) out.founderClarifications = founderClarifications;
   if (badges && badges.length > 0) out.badges = badges;
+  if (media && media.length > 0) {
+    const aboutMedia = media.filter((m) => m.category === 'company' || m.category === 'technology');
+    if (aboutMedia.length > 0) out.aboutMedia = aboutMedia;
+    if (level >= 2) {
+      const teamMedia = media.filter((m) => m.category === 'team');
+      if (teamMedia.length > 0) out.teamMedia = teamMedia;
+    }
+  }
   if (level >= 1 && roadmap?.visible) {
     out.roadmap = roadmap.milestones;
     // So viaja com o roadmap visivel — uma categoria sem marcos que a usem

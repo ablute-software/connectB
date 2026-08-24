@@ -29,7 +29,7 @@ import { computeAndStoreOverviewSnapshot } from '@/lib/metrics-snapshot';
 import { recheckPendingMalwareScans, recheckPendingScansGeneric, recheckMatchdealPhotoScans } from '@/lib/upload-security';
 import {
   malwareScanAvailable, investorVerificationScanAvailable, ndaScanAvailable,
-  matchdealPhotoScanAvailable, supportAttachmentScanAvailable,
+  matchdealPhotoScanAvailable, supportAttachmentScanAvailable, companyMediaScanAvailable,
 } from '@/lib/upload-security-capability';
 
 // Prompt 201 §3 — limiar de sinal, não de aborto.
@@ -127,7 +127,7 @@ export async function GET() {
       return null;
     }
   }
-  const [investorDocs, ndas, matchdealPhotos, supportAttachments] = await Promise.all([
+  const [investorDocs, ndas, matchdealPhotos, supportAttachments, companyMedia] = await Promise.all([
     runSecondarySweep('investorVerificationDocuments', async () => (await investorVerificationScanAvailable())
       ? recheckPendingScansGeneric(admin, { table: 'investor_verification_documents', idColumn: 'id', hashColumn: 'content_sha256', statusColumn: 'malware_scan_status', checkedAtColumn: 'malware_scan_checked_at' })
       : { checked: 0, resolved: 0, flagged: 0 }),
@@ -139,8 +139,14 @@ export async function GET() {
     runSecondarySweep('supportAttachments', async () => (await supportAttachmentScanAvailable())
       ? recheckPendingScansGeneric(admin, { table: 'support_attachment_scans', idColumn: 'id', hashColumn: 'content_sha256', statusColumn: 'malware_scan_status', checkedAtColumn: 'malware_scan_checked_at' })
       : { checked: 0, resolved: 0, flagged: 0 }),
+    // Prompt 353 — company_media's own images/videos, same daily re-check.
+    // video_link rows never enter this sweep (they're written 'clean' at
+    // insert time, never 'pending' — nothing to re-check).
+    runSecondarySweep('companyMedia', async () => (await companyMediaScanAvailable())
+      ? recheckPendingScansGeneric(admin, { table: 'company_media', idColumn: 'id', hashColumn: 'content_sha256', statusColumn: 'malware_scan_status', checkedAtColumn: 'malware_scan_checked_at' })
+      : { checked: 0, resolved: 0, flagged: 0 }),
   ]);
-  const secondaryMalwareScanSweep = { investorVerificationDocuments: investorDocs, ndas, matchdealPhotos, supportAttachments };
+  const secondaryMalwareScanSweep = { investorVerificationDocuments: investorDocs, ndas, matchdealPhotos, supportAttachments, companyMedia };
 
   // TODO: implement server-side automation-rules tick — see src/lib/rules.ts
   // (pure functions, ready to reuse). Unchanged scope from before this prompt.

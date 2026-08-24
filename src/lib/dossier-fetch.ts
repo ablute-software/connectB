@@ -46,6 +46,19 @@ export interface DossierRawData {
   // route (level >= 1 investorContext callers); the founder's own preview
   // route reads the draft separately, outside this function.
   miniPitch: MiniPitchSlideProjected[] | null;
+  // Prompt 353 — company photos & videos, fetched at every level (same
+  // "Discovery-visible by design" treatment as badges above) — level-gating
+  // happens in projectDossier per category, since Team-category media
+  // shouldn't reach an investor before the Team section itself does.
+  // Never includes an item that hasn't cleared malware scanning (fail-
+  // closed, same rule as documents) — filtered in the query itself, not
+  // after the fact.
+  media: DossierMediaItem[];
+}
+
+export interface DossierMediaItem {
+  id: string; category: 'company' | 'technology' | 'team'; caption: string;
+  kind: 'image' | 'video_upload' | 'video_link'; url: string;
 }
 
 // `investorContext` is null for a caller with no real investor on the other
@@ -213,5 +226,31 @@ export async function fetchDossierRawData(
     }
   }
 
-  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications, badges, miniPitch };
+  // Prompt 353 — company photos & videos. `.eq('malware_scan_status', 'clean')`
+  // in the query itself, not a JS filter after the fact — an unscanned or
+  // flagged item never leaves the database, same fail-closed discipline
+  // /api/portal/access applies to documents (toPortalDoc's own malware
+  // check). video_link rows are written 'clean' at insert time (nothing to
+  // scan), so this one filter covers both sources uniformly.
+  const { data: mediaRows } = await admin.from('company_media')
+    .select('id, kind, category, caption, storage_path, external_url')
+    .eq('org_id', orgId).eq('malware_scan_status', 'clean').order('sort_order', { ascending: true });
+  const media: DossierMediaItem[] = [];
+  for (const m of mediaRows ?? []) {
+    let itemUrl: string | null = null;
+    if (m.kind === 'video_link') {
+      itemUrl = m.external_url as string;
+    } else if (m.storage_path) {
+      const { data: signed } = await admin.storage.from('data-room').createSignedUrl(m.storage_path as string, 300);
+      itemUrl = signed?.signedUrl ?? null;
+    }
+    if (itemUrl) {
+      media.push({
+        id: m.id as string, category: m.category as DossierMediaItem['category'],
+        caption: m.caption as string, kind: m.kind as DossierMediaItem['kind'], url: itemUrl,
+      });
+    }
+  }
+
+  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications, badges, miniPitch, media };
 }

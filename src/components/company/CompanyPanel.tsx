@@ -16,6 +16,7 @@ import { CompletenessBar } from './CompletenessBar';
 import { RoadmapCard } from './RoadmapCard';
 import { IdentityCard } from './IdentityCard';
 import { BadgesCard } from './BadgesCard';
+import { PhotosMediaCard } from './PhotosMediaCard';
 import { MiniPitchCard } from './MiniPitchCard';
 import { StartupTeamCard } from './StartupTeamCard';
 import { RoundCard } from './RoundCard';
@@ -66,6 +67,7 @@ export function CompanyPanel() {
         </p>
         <OrganisationCard />
         <BadgesCard canEdit={canEdit} orgId={db.org.id} />
+        <PhotosMediaCard canEdit={canEdit} />
         <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
         <StartupAxisClassifications />
         <DemoResetCard />
@@ -86,6 +88,7 @@ export function CompanyPanel() {
       </div>
       <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
       <BadgesCard canEdit={canEdit} orgId={db.org.id} />
+      <PhotosMediaCard canEdit={canEdit} />
       <div id="settings-round" data-tour-id="settings-round">
         <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
         {/* Prompt 212 §B.3 — logo a seguir a ronda actual, porque a pergunta

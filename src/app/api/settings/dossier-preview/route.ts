@@ -50,7 +50,7 @@ export async function GET(req: Request) {
   // pick this in silence).
   const shareEmail = level >= 3;
 
-  const dossier = projectDossier(level, raw.full, shareEmail, raw.swot, raw.founderClarifications, raw.roadmap, raw.badges, raw.miniPitch);
+  const dossier = projectDossier(level, raw.full, shareEmail, raw.swot, raw.founderClarifications, raw.roadmap, raw.badges, raw.miniPitch, raw.media);
 
   // Prompt 339 §B/§D — same existence-only signal the real Pipeline card
   // carries (investor-pipeline.ts), fetched here directly since this

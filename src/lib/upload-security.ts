@@ -42,11 +42,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // separate, easy-to-get-wrong undertaking; a profile photo has no genuine
 // need to be a vector graphic, so the simplest correct fix is to just not
 // allow it through this allowlist at all, for every caller.
-export type AllowedFileKind = 'pdf' | 'docx' | 'xlsx' | 'pptx' | 'doc' | 'xls' | 'ppt' | 'jpg' | 'png' | 'gif' | 'webp' | 'csv' | 'txt' | 'md';
+// Prompt 353 — mp4/webm added for the company media gallery's own video
+// uploads (never any other caller's allowlist — the ext->kind map below is
+// what actually gates which callers can even ask for these).
+export type AllowedFileKind = 'pdf' | 'docx' | 'xlsx' | 'pptx' | 'doc' | 'xls' | 'ppt' | 'jpg' | 'png' | 'gif' | 'webp' | 'csv' | 'txt' | 'md' | 'mp4' | 'webm';
 
 const EXT_KIND: Record<string, AllowedFileKind> = {
   pdf: 'pdf', docx: 'docx', xlsx: 'xlsx', pptx: 'pptx', doc: 'doc', xls: 'xls', ppt: 'ppt',
   jpg: 'jpg', jpeg: 'jpg', png: 'png', gif: 'gif', webp: 'webp', csv: 'csv', txt: 'txt', md: 'md',
+  mp4: 'mp4', webm: 'webm',
 };
 
 function extOf(filename: string): string {
@@ -91,6 +95,13 @@ export function detectAllowedKind(bytes: Buffer, filename: string): AllowedFileK
     return expectedKind === 'webp' ? 'webp' : null; // RIFF....WEBP — bytes 4-7 are a file-size field, skipped
   }
   if ((expectedKind === 'csv' || expectedKind === 'txt' || expectedKind === 'md') && looksLikeText(bytes)) return expectedKind;
+  // Prompt 353 — MP4: an `ftyp` box at byte offset 4 (the preceding 4 bytes
+  // are a box-size field that varies per file, never a fixed signature).
+  // WebM/Matroska: the EBML header magic number.
+  if (bytes.length >= 8 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+    return expectedKind === 'mp4' ? 'mp4' : null;
+  }
+  if (bytesStartWith(bytes, [0x1a, 0x45, 0xdf, 0xa3])) return expectedKind === 'webm' ? 'webm' : null;
   return null;
 }
 

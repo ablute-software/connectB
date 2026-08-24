@@ -14,6 +14,7 @@ import type { SwotData, RoadmapPeriodKind } from '@/lib/types';
 import type { ReviewCategory } from '@/lib/review-clarifications';
 import { shouldShowMiniPitchTeaser } from '@/lib/mini-pitch';
 import { resolveInitialTabFromHash } from '@/lib/dossier-tabs';
+import { MediaGallery, type GalleryItem } from './MediaGallery';
 
 export interface Card {
   orgId: string; name: string; oneLiner: string | null; description: string | null;
@@ -70,6 +71,14 @@ export interface Dossier {
   // class taxonomy (projectMiniPitchForInvestor); absent unless the founder
   // has both reached level 1 AND actually activated a mini-pitch.
   miniPitch?: { kind: 'hook' | 'whyNow' | 'proof' | 'team' | 'ask'; title?: string; body: string }[];
+  // Prompt 353 — company photos & videos, already split by category and
+  // level-gated server-side (projectDossier): aboutMedia covers both
+  // Company (brand/office/product-in-context) and Technology/IP items,
+  // teamMedia is absent below level 2 (same gate the Team section itself
+  // has). Never present on the compact Pipeline card — this dossier-only
+  // shape has no equivalent there.
+  aboutMedia?: { id: string; category: 'company' | 'technology'; caption: string; kind: 'image' | 'video_upload' | 'video_link'; url: string }[];
+  teamMedia?: { id: string; category: 'team'; caption: string; kind: 'image' | 'video_upload' | 'video_link'; url: string }[];
 }
 
 const MINI_PITCH_SLIDE_LABEL: Record<'hook' | 'whyNow' | 'proof' | 'team' | 'ask', string> = {
@@ -157,6 +166,14 @@ export function DossierOverviewSections({
   const hasTeam = team.length > 0 || (overview && (overview.team_summary || overview.representative_name));
   const traction = dossier.tractionDetailed && Object.keys(dossier.tractionDetailed).length > 0
     ? Object.entries(dossier.tractionDetailed) : [];
+  // Prompt 353 — placement decision, documented: Technology/IP media gets
+  // its own labeled "Product & technology" block within the About tab
+  // (never a separate top-level pill — the Overview doesn't have a
+  // technology SECTION of its own, just this sub-block), Company media
+  // sits directly under the About text with no extra heading.
+  const companyMedia: GalleryItem[] = (dossier.aboutMedia ?? []).filter((m) => m.category === 'company');
+  const technologyMedia: GalleryItem[] = (dossier.aboutMedia ?? []).filter((m) => m.category === 'technology');
+  const teamMedia: GalleryItem[] = dossier.teamMedia ?? [];
 
   // Prompt 351 — real tabs instead of anchors-with-scroll. Sections are
   // built here, in order, by the exact same conditions the old vertical
@@ -221,6 +238,13 @@ export function DossierOverviewSections({
                 {b.name}{b.year ? ` (${b.year})` : ''}
               </span>
             ))}
+          </div>
+        )}
+        <MediaGallery items={companyMedia} />
+        {technologyMedia.length > 0 && (
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <h3 className="text-xs font-semibold text-gray-500">Product & technology</h3>
+            <MediaGallery items={technologyMedia} />
           </div>
         )}
       </div>
@@ -411,6 +435,7 @@ export function DossierOverviewSections({
               Request contact →
             </button>
           )}
+          <MediaGallery items={teamMedia} />
         </div>
       ),
     });
