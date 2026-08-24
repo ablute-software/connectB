@@ -75,6 +75,12 @@ function toDateInputValue(d: Date) {
 
 export function InvestorAgendaPanel() {
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  // Prompt 340 Block B — parity gap with the founder side's own type-filter
+  // chips (AgendaPanel.tsx): agenda-sourced entries (meetings/round
+  // closes/follow-ups) are always tagged 'other' by agendaToEntry, so they
+  // only ever show up under the "All"/"Other" chips — same behavior as the
+  // founder side treating any task without a finer action_type.
+  const [typeFilter, setTypeFilter] = useState<ActionType | 'all'>('all');
   const [tasks, setTasks] = useState<InvestorTaskItem[] | null>(null);
   const [startups, setStartups] = useState<Startup[]>([]);
   const [agendaItems, setAgendaItems] = useState<AgendaItem[] | null>(null);
@@ -135,10 +141,14 @@ export function InvestorAgendaPanel() {
     load();
   }
 
-  const entries = useMemo(() => [
+  const allEntries = useMemo(() => [
     ...(tasks ?? []).map(taskToEntry),
     ...(agendaItems ?? []).map(agendaToEntry),
   ], [tasks, agendaItems]);
+  const entries = useMemo(
+    () => typeFilter === 'all' ? allEntries : allEntries.filter((e) => e.actionType === typeFilter),
+    [allEntries, typeFilter],
+  );
 
   const days = useMemo(() => {
     const first = new Date(month);
@@ -187,7 +197,7 @@ export function InvestorAgendaPanel() {
   }
 
   if (!tasks || !agendaItems || !todayItems) return <p className="text-sm text-gray-400">Loading…</p>;
-  if (entries.length === 0 && todayItems.length === 0) {
+  if (allEntries.length === 0 && todayItems.length === 0) {
     return (
       <div className="mx-auto mt-16 max-w-sm rounded-lg border border-gray-200 bg-white p-6 text-center">
         <p className="text-sm text-gray-600">No meetings yet — express interest on a startup to start a conversation.</p>
@@ -200,7 +210,23 @@ export function InvestorAgendaPanel() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-gray-900">Agenda</h1>
-        <a href="/api/portal/agenda/ical" className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:border-[#0E7490]">Export .ics</a>
+        <a data-tour-id="agenda-export" href="/api/portal/agenda/ical" className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:border-[#0E7490]">Export .ics</a>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        <button onClick={() => setTypeFilter('all')}
+          className={`rounded-full px-2.5 py-1 text-xs font-medium ${typeFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+          All ({allEntries.length})
+        </button>
+        {ACTION_TYPES.map((at) => {
+          const count = allEntries.filter((e) => e.actionType === at).length;
+          return (
+            <button key={at} onClick={() => setTypeFilter(at)}
+              className={`rounded-full px-2.5 py-1 text-xs font-medium ${typeFilter === at ? 'ring-2 ring-offset-1 ring-gray-400' : 'hover:opacity-80'} ${ACTION_TYPE_COLOR[at]}`}>
+              {ACTION_TYPE_LABEL[at]} ({count})
+            </button>
+          );
+        })}
       </div>
 
       {todayItems.length > 0 && (
@@ -221,7 +247,7 @@ export function InvestorAgendaPanel() {
             <h2 className="text-base font-semibold text-gray-900">{month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h2>
             <button onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className="rounded border border-gray-300 px-2 py-1 text-sm">→</button>
           </div>
-          <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200 text-xs">
+          <div data-tour-id="agenda-grid" className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200 text-xs">
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
               <div key={d} className="bg-gray-50 px-2 py-1 font-medium text-gray-500">{d}</div>
             ))}
@@ -254,7 +280,7 @@ export function InvestorAgendaPanel() {
           </Card>
         </div>
 
-        <div className="space-y-3">
+        <div data-tour-id="agenda-rail" className="space-y-3">
           {[{ label: 'OVERDUE', items: overdue, cls: 'text-[#B00000]' },
             { label: 'DUE TODAY', items: dueToday, cls: 'text-gray-900' },
             { label: 'THIS WEEK', items: week, cls: 'text-gray-600' },

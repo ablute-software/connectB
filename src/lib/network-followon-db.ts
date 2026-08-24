@@ -152,7 +152,10 @@ export async function dismissFollowOnRequest(admin: SupabaseClient, params: { or
     .eq('org_id', params.orgId).eq('investor_catalog_entity_id', params.investorCatalogEntityId).is('resolved_at', null);
 }
 
-export interface InvestedRelationshipForInvestor { orgId: string; orgName: string; investorCatalogEntityId: string; hasActiveSignal: boolean; visibility: FollowOnVisibility | null }
+// Prompt 340 §A.3 — expiresAt added so Dashboard can show "active follow-on,
+// with expirations" without a second query shape; network/page.tsx doesn't
+// read it today but isn't broken by gaining it.
+export interface InvestedRelationshipForInvestor { orgId: string; orgName: string; investorCatalogEntityId: string; hasActiveSignal: boolean; visibility: FollowOnVisibility | null; expiresAt: string | null }
 
 // The investor's own management view: every startup they hold a verified
 // 'invested' relationship with (across all orgs, not just ones asking),
@@ -167,6 +170,6 @@ export async function getInvestedRelationshipsForInvestor(admin: SupabaseClient,
     .map((r) => ({
       orgId: r.org_id, orgName: r.orgs?.name ?? 'A startup', investorCatalogEntityId,
       hasActiveSignal: isFollowOnActive({ expiresAt: r.followon_expires_at, revokedAt: r.followon_revoked_at }, now),
-      visibility: r.followon_visibility,
+      visibility: r.followon_visibility, expiresAt: r.followon_expires_at,
     }));
 }

@@ -318,6 +318,37 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
       body: 'Switch the whole grid between monthly and annual pricing. Requesting a different tier doesn\'t charge you automatically — the team applies it manually.',
     },
   ],
+  // Prompt 340 Block A/B/D — three new investor tabs, each getting the same
+  // short "what is this for" guide every other investor tab already has
+  // (TOUR_KEY_BY_TAB). My Network reuses guide_network as-is (below) rather
+  // than a fourth copy, since it mounts the exact same component/DOM the
+  // founder side's own tour already anchors to.
+  guide_investor_dashboard: [
+    {
+      selector: 'investor-dashboard-root',
+      title: 'Your own numbers, nothing compared',
+      body: 'Your pipeline funnel, upcoming round closes, your active follow-on signals, and your recent activity — never anything about how one startup stacks up against another.',
+    },
+  ],
+  guide_investor_agenda: [
+    {
+      selector: 'agenda-grid',
+      title: 'Meetings, round closes and follow-ups, together',
+      body: 'One calendar for everything on your radar — the ones you can\'t check off yourself (round closes) sit alongside tasks you create.',
+    },
+    {
+      selector: 'agenda-rail',
+      title: 'Overdue, today, this week, done',
+      body: 'The same four-group breakdown as the grid, just as a list — click a group to expand it.',
+    },
+  ],
+  guide_investor_messages: [
+    {
+      selector: 'investor-messages-root',
+      title: 'One inbox, every startup',
+      body: 'Every conversation you\'ve started, across your whole pipeline, in one place — pick one on the left to read and reply.',
+    },
+  ],
   // Prompt 335 §C — "nem eu entendo os ícones": one step per My Network nav
   // item plus the right-hand panel, explaining WHAT EACH IS FOR, not just
   // what it's called. Anchored to the real desktop sidebar/panel

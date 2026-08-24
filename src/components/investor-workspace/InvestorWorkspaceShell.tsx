@@ -11,6 +11,18 @@ import { InvestorAgendaPanel } from './InvestorAgendaPanel';
 import { AccessGrantedPanel } from './AccessGrantedPanel';
 import { InvestorPlansPanel } from './InvestorPlansPanel';
 import { EvaluationToolsPanel } from './EvaluationToolsPanel';
+import { InvestorDashboardPanel } from './InvestorDashboardPanel';
+import { MessagesPanel, useInvestorMessagesUnreadCount } from './MessagesPanel';
+// Prompt 340 Block C — My Network reuses the founder side's OWN component
+// wholesale (same 6-section nav, same /api/network/* endpoints) rather than
+// a second implementation: NetworkPage already branches on
+// state.myActorKind === 'investor' throughout (referral candidates,
+// follow-on section, group-kind options), and its one founder-only call
+// (updateOrg, the network_discoverable toggle) is already gated behind
+// myActorKind === 'founder' — see that file's own Suggestions card — so it
+// never fires for an investor session. useStore() itself is safe anywhere
+// in the app (StoreProvider wraps the root layout unconditionally).
+import NetworkPage from '@/app/network/page';
 import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
 import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { PageTour } from '@/components/onboarding/PageTour';
@@ -31,7 +43,9 @@ import { InvestorReminderPopup } from '@/components/portal/InvestorReminderPopup
 // component, just reached a different way — see PipelinePanel's own
 // comment). The Tab union drops it; nothing else references 'archive' as
 // a tab value anymore.
-export type Tab = 'pipeline' | 'actions' | 'about' | 'access' | 'agenda' | 'plans' | 'evaluation' | 'support';
+// Prompt 340 — adds 'dashboard' (Group 4), 'network' and 'messages' (Group
+// 3), filling the slots the Prompt 337 comment below already reserved.
+export type Tab = 'pipeline' | 'actions' | 'about' | 'access' | 'agenda' | 'plans' | 'evaluation' | 'support' | 'dashboard' | 'network' | 'messages';
 
 const COMPLETENESS_GATE = 50;
 
@@ -43,6 +57,10 @@ const COMPLETENESS_GATE = 50;
 // current DOM, so a guide can't reach across tabs that aren't mounted.
 const TOUR_KEY_BY_TAB: Partial<Record<Tab, string>> = {
   pipeline: 'guide_investor_pipeline', about: 'guide_investor_about', access: 'guide_investor_access', plans: 'guide_investor_plans',
+  // Prompt 340 — dashboard/agenda/messages get their own short guide;
+  // network reuses guide_network as-is (same DOM the founder side's own
+  // tour already anchors to, since it's the exact same component).
+  dashboard: 'guide_investor_dashboard', agenda: 'guide_investor_agenda', messages: 'guide_investor_messages', network: 'guide_network',
 };
 
 export function InvestorWorkspaceShell({
@@ -173,6 +191,8 @@ export function InvestorWorkspaceShell({
   // lives in the QR-pairing header affordance (WorkspaceHeader's
   // matchDeal prop, below) per Nuno's explicit decision. 'archive' is gone
   // as a tab — see PipelinePanel's own "Archived" filter.
+  const messagesUnread = useInvestorMessagesUnreadCount();
+
   const NAV: { key: Tab; label: string; icon: string; group: number }[] = [
     { key: 'about', label: aboutLabel, icon: '⋯', group: 1 },
     // Prompt 337/338 — renamed from "Access granted": grows into the full
@@ -181,6 +201,12 @@ export function InvestorWorkspaceShell({
     { key: 'pipeline', label: 'Pipeline', icon: '▤', group: 2 },
     { key: 'actions', label: 'Actions required', icon: '⚑', group: 2 },
     { key: 'agenda', label: 'Agenda', icon: '◔', group: 2 },
+    // Prompt 340 Block C/D — same Group 3 the founder side's My
+    // Network/Messages already occupy conceptually; reserved by Prompt 337.
+    { key: 'network', label: 'My Network', icon: '⇄', group: 3 },
+    { key: 'messages', label: 'Messages', icon: '✉', group: 3 },
+    // Prompt 340 Block A — own-data-only funnel/agenda/follow-on summary.
+    { key: 'dashboard', label: 'Dashboard', icon: '▥', group: 4 },
     // P131-B — Ownership calculator (promoted from a per-card button to a
     // real page) + Equity simulator, structured to grow with more tools.
     { key: 'evaluation', label: 'Evaluation tools', icon: '⚖', group: 4 },
@@ -197,7 +223,8 @@ export function InvestorWorkspaceShell({
     key: n.key, icon: n.icon, label: n.label, group: n.group,
     active: tab === n.key, emphasize: n.key === 'about',
     badge: n.key === 'support' && unreadSupport > 0 ? unreadSupport
-      : n.key === 'actions' && investorActions.count > 0 ? investorActions.count : undefined,
+      : n.key === 'actions' && investorActions.count > 0 ? investorActions.count
+      : n.key === 'messages' && messagesUnread > 0 ? messagesUnread : undefined,
     onSelect: () => setTab(n.key),
   }));
 
@@ -261,7 +288,10 @@ export function InvestorWorkspaceShell({
             about: a 4-column grid inside 768px would squeeze each card to
             ~183px. Only the Plans tab needs the wider container; every
             other tab keeps the original width unchanged. */}
-        <main className={`mx-auto p-4 md:p-8 ${tab === 'plans' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+        {/* Prompt 340 — 'network' joins 'plans' in the wide container: it
+            mounts NetworkPage as-is, which assumes the founder shell's own
+            max-w-6xl content column (aside + flex-1 layout). */}
+        <main className={`mx-auto p-4 md:p-8 ${tab === 'plans' || tab === 'network' ? 'max-w-6xl' : 'max-w-3xl'}`}>
           {tab === 'pipeline' && (
             !gateOpen ? (
               <EmptyState
@@ -312,6 +342,9 @@ export function InvestorWorkspaceShell({
           {tab === 'agenda' && <InvestorAgendaPanel />}
           {tab === 'support' && <SupportTicketsPanel />}
           {tab === 'plans' && <InvestorPlansPanel />}
+          {tab === 'dashboard' && <InvestorDashboardPanel />}
+          {tab === 'messages' && <MessagesPanel />}
+          {tab === 'network' && <NetworkPage />}
         </main>
       </div>
       {/* Prompt 127 Bloco A (addenda §3) — this workspace never had a mobile
