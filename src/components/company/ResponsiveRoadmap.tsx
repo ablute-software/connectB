@@ -2,18 +2,23 @@
 // Prompt 213 §C — o invólucro responsivo do RoadmapTimeline, para o lado do
 // investidor. A regra: ajustar à largura, nunca ao slider.
 //
-// A decisão de escala vive em roadmap-fit.ts (pura, testada); aqui mede-se o
-// contentor (ResizeObserver — a letra ajusta IMEDIATAMENTE ao redimensionar)
-// e desenha-se o que ela decide.
-//
-// A escala aplica-se por `zoom`, não `transform: scale()`, e a escolha é
-// deliberada: `zoom` participa no layout (sem compensações de largura/altura
-// à mão) e — a razão que interessa ao CLAUDE.md — NÃO transforma o elemento
-// em containing block de descendentes `position: fixed`. Um `transform` aqui
-// seria plantar exactamente a armadilha contra a qual a regra do overlay
-// avisa, à espera do primeiro popover que alguém montasse lá dentro.
-// (Confirmado antes de escrever: o subtree do timeline não tem hoje nenhum
-// fixed — mas a regra existe porque "hoje" muda três ficheiros mais tarde.)
+// Prompt 352 §C — o `zoom` que este ficheiro aplicava (ver git history para
+// o comentário original) foi REMOVIDO: fitRoadmap assumia que todos os
+// marcos tinham de caber numa única linha (natural = columnCount *
+// NATURAL_COLUMN_PX, columnCount = total de marcos), cálculo que ficou
+// desactualizado quando o Prompt 327 deu ao próprio RoadmapTimeline a
+// capacidade de se dividir em várias linhas (useColumnsPerRow, com piso de 2
+// colunas) — a mesma lógica que já corre, sem qualquer zoom, no lado do
+// founder (RoadmapCard.tsx chama RoadmapTimeline directamente). Com muitos
+// marcos e uma coluna estreita (o caso do modo Track & Evaluate, 260-300px),
+// esse cálculo entrava em modo "lens" e aplicava um zoom que, medido DENTRO
+// de um contentor já zoomado, é exactamente o tipo de interacção
+// ResizeObserver+zoom que produz medições inconsistentes — o candidato mais
+// provável para os cartões cortados/afunilados reportados. Sem o zoom, o
+// investidor vê o MESMO mecanismo de fit (largura real da coluna,
+// quebra-em-linhas, nunca scroll horizontal) que o founder já usa —
+// `fitRoadmap` continua a decidir apenas SE os chips de "lupa por ano" valem
+// a pena mostrar, nunca mais uma escala aplicada ao DOM.
 import { useEffect, useRef, useState } from 'react';
 import { RoadmapTimeline } from '@/components/company/RoadmapCard';
 import { fitRoadmap, lensYears, filterToYear, type PeriodLike } from '@/lib/roadmap-fit';
@@ -105,12 +110,12 @@ export function ResponsiveRoadmap<T extends PeriodLike & { items: string[]; item
         </div>
       )}
 
-      {/* `zoom` não é standard antigo mas é hoje universal (Firefox 126+);
-          onde faltar, o pior caso é o timeline renderizar a tamanho natural
-          com o scroll de sempre — degradação honesta, não quebra. */}
-      <div style={fit.scale < 1 ? ({ zoom: fit.scale } as React.CSSProperties) : undefined}>
-        <RoadmapTimeline foundedYear={foundedYear} milestones={visible} editable={false} categories={categories.map((c) => ({ id: c.id, label: c.label, color: c.color ?? 'gray', shape: c.shape ?? 'rounded' }))} />
-      </div>
+      {/* Prompt 352 §C — RoadmapTimeline directly, no zoom wrapper: it
+          measures and wraps into rows on its own (Prompt 327), the same
+          mechanism the founder-side RoadmapCard.tsx already relies on with
+          no wrapper at all. This occupies the real width of whatever column
+          it's placed in, exactly like the founder's own view. */}
+      <RoadmapTimeline foundedYear={foundedYear} milestones={visible} editable={false} categories={categories.map((c) => ({ id: c.id, label: c.label, color: c.color ?? 'gray', shape: c.shape ?? 'rounded' }))} />
     </div>
   );
 }

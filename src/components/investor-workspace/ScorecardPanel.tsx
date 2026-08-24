@@ -47,11 +47,20 @@ export function ScorecardPanel({ orgId }: { orgId: string }) {
       </div>
       <p className="mt-0.5 text-xs text-gray-400">Private to you — never shown to the startup.</p>
       {error && <p className="mt-2 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-[#B00000]">{error}</p>}
-      <ul className="mt-2 space-y-2">
+      <ul className="mt-2 space-y-2.5">
         {items.map((it) => (
-          <li key={it.criteriaId} className="flex items-center gap-2 text-sm">
-            <span className="flex-1 text-gray-700">{it.label}</span>
-            <div className="flex gap-0.5" role="group" aria-label={`Score for ${it.label}`}>
+          // Prompt 352 §A — was a single `flex items-center` row sharing
+          // space between the label (flex-1) and 11 fixed h-5 w-5 score
+          // buttons with no wrap: in the Track & Evaluate sidebar (as
+          // narrow as ~260-300px) that row's natural width (well over
+          // 300px for the buttons alone) overflowed the column and
+          // visually bled into the center content next to it — confirmed
+          // by comparison with DocScorePanel's own near-identical row,
+          // which already used `flex-wrap` and never had this bug. Label
+          // now sits on its own line; the button row wraps.
+          <li key={it.criteriaId} className="text-sm">
+            <span className="text-gray-700">{it.label}</span>
+            <div className="mt-1 flex flex-wrap gap-0.5" role="group" aria-label={`Score for ${it.label}`}>
               {Array.from({ length: 11 }, (_, n) => n).map((n) => (
                 <button key={n} disabled={busyId === it.criteriaId} onClick={() => setScore(it.criteriaId, n)}
                   title={String(n)}

@@ -460,9 +460,20 @@ export function DossierOverviewSections({
           or below, no scroll-down. Replaces the old anchor-scroll SectionNav
           (which discovered sections via [data-section] DOM query + an
           IntersectionObserver scroll-spy); a single pill row disappears
-          when there's only one section, same as before. */}
+          when there's only one section, same as before.
+          Prompt 352 §A — deliberately NOT sticky: it used to be `sticky
+          top-0 z-20`, which outranked every other sticky header in the app
+          (the established convention everywhere else is z-10 — confirmed by
+          grep) and, since the dossier page's own header is ALSO sticky at
+          top-0 with a height that varies by state (passed/interested/
+          confirming), no fixed top offset could reliably clear it — the
+          two would overlap and this nav's higher z-index painted it over
+          the page header while scrolling. With 351 showing only one
+          section's content at a time, each tab's content is short enough
+          that this bar being always-visible isn't worth reintroducing that
+          risk for. */}
       {sections.length > 1 && (
-        <nav className="sticky top-0 z-20 -mx-1 mb-3 flex gap-1 overflow-x-auto border-b border-gray-200 bg-[#F7F9FA]/95 px-1 py-2 backdrop-blur">
+        <nav className="-mx-1 mb-3 flex gap-1 overflow-x-auto border-b border-gray-200 bg-[#F7F9FA]/95 px-1 py-2">
           {sections.map((s) => (
             <button key={s.id} onClick={() => selectTab(s.id)}
               className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-colors ${

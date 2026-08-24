@@ -20,6 +20,7 @@ import { FollowOnBadge } from '@/components/FollowOnBadge';
 import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
 import { DocScorePanel, type DocScore } from '@/components/investor-workspace/DocScorePanel';
 import { WatsonEvaluationSupport } from '@/components/investor-workspace/WatsonEvaluationSupport';
+import { Tooltip } from '@/components/ui';
 
 interface LevelRow { level: 2 | 3; status: 'granted' | 'pending' | 'denied' }
 interface PortalDoc { id: string; name: string; version?: string; watermark: boolean; downloadable: boolean; folder_id?: string; url: string | null }
@@ -99,6 +100,11 @@ export default function StartupDossierPage() {
     newClass1Statements?: string[]; newClass2Statements?: string[]; newRoadmapCount?: number;
   } | null>(null);
   const [watchBusy, setWatchBusy] = useState(false);
+  // Prompt 352 §B — never a request fired by a bare click: 'request' shows
+  // the explanation + Confirm/Cancel before anything is sent; 'cancel'/
+  // 'stop' are the micro-confirms for undoing a pending request or ending
+  // an active one. Local UI state only — nothing here is itself a request.
+  const [watchConfirm, setWatchConfirm] = useState<'request' | 'cancel' | 'stop' | null>(null);
   // Prompt 348 §D — founder-authored updates addressed to this investor,
   // through the private watching channel (never My Network).
   const [watchUpdates, setWatchUpdates] = useState<{ id: string; body: string; createdAt: string }[]>([]);
@@ -120,6 +126,22 @@ export default function StartupDossierPage() {
     setWatchBusy(true);
     try {
       await fetch('/api/portal/watch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId }) });
+      loadWatch();
+    } finally { setWatchBusy(false); }
+  }
+  async function confirmRequestWatch() {
+    setWatchConfirm(null);
+    await requestWatchThisStartup();
+  }
+  // Prompt 352 §B — cancels a still-pending request (the server deletes the
+  // row outright — nothing for the founder to have ever seen survives) or
+  // ends an active watch (the server revokes it, same effect the founder's
+  // own "Stop watching" already has via /api/founder/watches).
+  async function cancelWatch() {
+    setWatchBusy(true);
+    try {
+      await fetch('/api/portal/watch', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ orgId }) });
+      setWatchConfirm(null);
       loadWatch();
     } finally { setWatchBusy(false); }
   }
@@ -280,16 +302,59 @@ export default function StartupDossierPage() {
               📝 Track &amp; Evaluate{trackEvaluate ? ' · on' : ''}
             </button>
             {/* Prompt 348 §A — double opt-in: this only ever creates a
-                'requested' row; the founder accepts/declines separately. */}
+                'requested' row; the founder accepts/declines separately.
+                Prompt 352 §B — never fired by a bare click (explanation +
+                confirm first), and both "Watching"/"Watch requested" are now
+                clickable to undo — they used to be dead <span>s, which read
+                as a stuck state with no way back. */}
             {watchInfo?.status === 'active' ? (
-              <span className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-500">👁 Watching</span>
+              watchConfirm === 'stop' ? (
+                <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1">
+                  <span className="text-xs text-gray-600">Stop watching?</span>
+                  <button onClick={cancelWatch} disabled={watchBusy} className="text-xs font-medium text-[#B00000] hover:underline disabled:opacity-40">Stop</button>
+                  <button onClick={() => setWatchConfirm(null)} className="text-xs text-gray-400 hover:underline">Keep</button>
+                </div>
+              ) : (
+                <button onClick={() => setWatchConfirm('stop')}
+                  className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-500 hover:border-[#B00000] hover:text-[#B00000]">
+                  👁 Watching
+                </button>
+              )
             ) : watchInfo?.status === 'requested' ? (
-              <span className="rounded-lg border border-dashed border-gray-200 px-2.5 py-1.5 text-xs text-gray-400">Watch requested</span>
+              watchConfirm === 'cancel' ? (
+                <div className="flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 bg-white px-2 py-1">
+                  <span className="text-xs text-gray-500">Cancel watch request?</span>
+                  <button onClick={cancelWatch} disabled={watchBusy} className="text-xs font-medium text-[#B00000] hover:underline disabled:opacity-40">Cancel it</button>
+                  <button onClick={() => setWatchConfirm(null)} className="text-xs text-gray-400 hover:underline">Keep</button>
+                </div>
+              ) : (
+                <button onClick={() => setWatchConfirm('cancel')}
+                  className="rounded-lg border border-dashed border-gray-200 px-2.5 py-1.5 text-xs text-gray-400 hover:border-gray-400 hover:text-gray-500">
+                  Watch requested
+                </button>
+              )
+            ) : watchConfirm === 'request' ? (
+              <div className="max-w-[260px] rounded-lg border border-gray-200 bg-white px-3 py-2">
+                <p className="text-xs text-gray-600">
+                  Watching moves this startup out of your active pipeline analysis — you won&apos;t be evaluating it right
+                  now, but you&apos;ll receive alerts when something you can see changes.
+                </p>
+                <p className="mt-1 text-[11px] text-gray-400">Nothing new is disclosed — only changes to what the founder already shares with you.</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <button onClick={() => setWatchConfirm(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+                  <button onClick={confirmRequestWatch} disabled={watchBusy}
+                    className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
+                    Confirm
+                  </button>
+                </div>
+              </div>
             ) : (
-              <button onClick={requestWatchThisStartup} disabled={watchBusy}
-                className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490] disabled:opacity-40">
-                👁 Watch this startup
-              </button>
+              <Tooltip text="Ask the founder's permission to follow this startup's progress — you'll be notified of changes to what they already share with you. Nothing new is disclosed.">
+                <button onClick={() => setWatchConfirm('request')} disabled={watchBusy}
+                  className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490] disabled:opacity-40">
+                  👁 Watch this startup
+                </button>
+              </Tooltip>
             )}
             <Link href={`/portal?tab=evaluation&orgId=${orgId}`}
               className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
@@ -407,7 +472,16 @@ export default function StartupDossierPage() {
           // survives navigation, exactly as required. Mobile (below lg):
           // stacked, collapsible via <details> — never a second parallel
           // layout, just the same content, disclosed instead of always-open.
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr_260px] lg:items-start">
+          // Prompt 352 §A — real grid columns with RESERVED space (never
+          // absolute/floating over the center): 260px_1fr_260px widened to
+          // 300px_1fr_300px, per the request not to squeeze the center.
+          // Sticky columns get their own max-height + internal scroll
+          // (`overflow-y-auto`) so a tall scorecard/doc-score column can
+          // never grow past the viewport and spill into content below it —
+          // it scrolls WITHIN its own column instead. The `lg` breakpoint
+          // (1024px) is where 3 real columns stop fitting comfortably;
+          // below it, the stacked/accordion layout takes over, unchanged.
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_1fr_300px] lg:items-start">
             <details className="rounded-lg border border-gray-200 bg-white lg:hidden">
               <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">Your scorecard</summary>
               <div className="border-t border-gray-100 p-2 space-y-2">
@@ -415,7 +489,7 @@ export default function StartupDossierPage() {
                 <WatsonEvaluationSupport orgId={orgId} />
               </div>
             </details>
-            <div className="hidden lg:sticky lg:top-24 lg:block lg:space-y-2">
+            <div className="hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-6rem)] lg:space-y-2 lg:overflow-y-auto">
               <ScorecardPanel orgId={orgId} />
               <WatsonEvaluationSupport orgId={orgId} />
             </div>
@@ -432,7 +506,7 @@ export default function StartupDossierPage() {
                       onSaved={(id, s) => setDocScores((prev) => ({ ...prev, [id]: s }))} />
                   </div>
                 </details>
-                <div className="hidden lg:sticky lg:top-24 lg:block">
+                <div className="hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
                   <DocScorePanel orgId={orgId} documentId={focusedDoc.id} documentName={focusedDoc.name}
                     initial={docScores[focusedDoc.id] ?? null}
                     onSaved={(id, s) => setDocScores((prev) => ({ ...prev, [id]: s }))} />

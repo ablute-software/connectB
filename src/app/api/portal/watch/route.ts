@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
 import { pipelineEligibleOrgIds } from '@/lib/investor-pipeline';
-import { requestWatch, findWatch, markWatchSeen, getSnapshotData } from '@/lib/investor-watching-db';
+import { requestWatch, findWatch, markWatchSeen, getSnapshotData, revokeWatch } from '@/lib/investor-watching-db';
 import { captureSnapshot, readSnapshotData } from '@/lib/startup-snapshot';
 import { computeSnapshotDelta } from '@/lib/investor-watching';
 import { assertNotViewer } from '@/lib/developer-viewer';
@@ -107,4 +107,45 @@ export async function PATCH(req: Request) {
   await admin.from('investor_watches').update({ baseline_snapshot_id: snapshotId }).eq('id', watch.id);
   await markWatchSeen(admin, watch.id);
   return NextResponse.json({ ok: true });
+}
+
+// Prompt 352 §B — investor-initiated undo, for both directions: cancel a
+// still-pending request (before the founder has responded at all — the row
+// is deleted outright, so a since-cancelled request never surfaces on the
+// founder's own /api/founder/watches list, same as if it never happened),
+// or stop an already-active watch (revoked, same effect the founder's own
+// "Stop watching" action already has — confirmed existing via
+// /api/founder/watches's POST action='revoke').
+export async function DELETE(req: Request) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
+
+  const sb = await serverClient();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
+
+  const body = await req.json().catch(() => ({})) as { orgId?: string };
+  if (!body.orgId) return NextResponse.json({ ok: false, error: 'orgId is required.' }, { status: 400 });
+
+  const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
+  if (!investorCatalogEntityId) return NextResponse.json({ ok: false, error: 'No linked investor organization.' }, { status: 403 });
+
+  const watch = await findWatch(admin, body.orgId, investorCatalogEntityId);
+  if (!watch) return NextResponse.json({ ok: false, error: 'No watch found.' }, { status: 404 });
+
+  if (watch.status === 'requested') {
+    const { error } = await admin.from('investor_watches').delete().eq('id', watch.id);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, status: 'none' });
+  }
+  if (watch.status === 'active') {
+    const result = await revokeWatch(admin, watch.id, body.orgId, user.id);
+    if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
+    return NextResponse.json({ ok: true, status: 'none' });
+  }
+  return NextResponse.json({ ok: false, error: 'Nothing to cancel.' }, { status: 400 });
 }
