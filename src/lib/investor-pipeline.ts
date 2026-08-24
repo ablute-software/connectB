@@ -342,12 +342,25 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       referredByName: referrerNameByOrgId.get(org.id as string) ?? null,
       followOnSignals: followOnSignalsByOrg.get(org.id as string) ?? [],
       isArchived: archivedOrgIds.has(org.id as string),
-      // Prompt 345 §B — set below, after this array exists (needs its own
-      // async resolution per interested card). Placeholder here so the
-      // field is always present on the type; never used before that loop.
+      // Prompt 345 §B/§C — set below, after this array exists (needs its
+      // own async resolution per interested card). Placeholders here so
+      // both fields are always present on the type; never read before that.
       canWithdrawInterest: false,
+      hasConversation: false,
     };
   }).sort((a, b) => b.matchScore - a.matchScore);
+
+  // Prompt 345 §C — the interested-card status line's "In conversation"
+  // signal: deal_threads.last_message_at is non-null the moment either
+  // side has sent a message, so this is a single batched read, no separate
+  // deal_messages count needed.
+  const interestedOrgIds = cards.filter((c) => c.status === 'interested').map((c) => c.orgId as string);
+  if (interestedOrgIds.length > 0 && investorCatalogEntityId) {
+    const { data: threads } = await admin.from('deal_threads').select('startup_org_id, last_message_at')
+      .eq('investor_catalog_entity_id', investorCatalogEntityId).in('startup_org_id', interestedOrgIds);
+    const conversingOrgIds = new Set((threads ?? []).filter((t) => t.last_message_at).map((t) => t.startup_org_id as string));
+    for (const c of cards) if (conversingOrgIds.has(c.orgId as string)) c.hasConversation = true;
+  }
 
   // Prompt 345 §B — "Withdraw interest": whether the window is still open,
   // computed HERE (not lazily on expand) because P134-A's own acceptance

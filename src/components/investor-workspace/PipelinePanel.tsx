@@ -65,6 +65,9 @@ interface Card {
   // every status other than 'interested' with a real decision. Computed
   // server-side at Pipeline-load time (never lazily on expand).
   canWithdrawInterest?: boolean;
+  // Prompt 345 §C.1 — "In conversation" for the interested-card status
+  // line: at least one deal_messages row exists in the thread, either side.
+  hasConversation?: boolean;
 }
 // Item 14 — a locked wave's `items` now arrives empty from the server
 // (/api/portal/pipeline strips real card data for any wave with
@@ -94,6 +97,15 @@ function fmtDecidedAt(iso: string | null | undefined, decidedByMe: boolean | nul
   const date = new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   const who = decidedByMe == null ? '' : decidedByMe ? ' by you' : ' by a colleague at your firm';
   return ` on ${date}${who}`;
+}
+
+// Prompt 345 §C.1 — "não há botões para consultar o estado": the most
+// advanced signal already on the card, read in order (a real conversation
+// implies access was granted at some point, so it wins outright).
+function interestResponseLabel(c: Card): string {
+  if (c.hasConversation) return 'In conversation';
+  if (c.hasDataRoomAccess) return 'Access granted';
+  return 'No response yet';
 }
 
 // Item 14 — replaces the old opacity-50 treatment, which left the real
@@ -181,7 +193,10 @@ export function PipelinePanel({
   // P133 (item 10) — which card's Interaction log drawer is open, if any.
   const [interactionLogOrgId, setInteractionLogOrgId] = useState<string | null>(null);
   const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
-  const [remindedOrgId, setRemindedOrgId] = useState<string | null>(null);
+  // Prompt 345 §C.2 — reload-proof now: keyed off the Agenda's own
+  // investor_followups rows (kind 'follow_up', not done), not an ephemeral
+  // client flag that forgot itself on refresh.
+  const [followupsByOrg, setFollowupsByOrg] = useState<Record<string, { id: string; date: string }>>({});
   // Prompt 345 §B — separate from `confirming` (pass/interest) on purpose:
   // that state drives a bigger reason-collecting box; this is a one-line
   // "are you sure?" per the prompt's own copy.
@@ -211,11 +226,18 @@ export function PipelinePanel({
   // /api/portal/agenda), so this is a second, once-on-mount fetch rather
   // than pipeline reload traffic.
   const [meetingsCount, setMeetingsCount] = useState<number | null>(null);
-  useEffect(() => {
-    fetch('/api/portal/agenda').then((r) => r.json())
-      .then((d) => setMeetingsCount((d.items ?? []).filter((i: { kind: string }) => i.kind === 'meeting').length))
-      .catch(() => setMeetingsCount(null));
-  }, []);
+  // Prompt 345 §C.2 — same fetch, now also builds the reload-proof
+  // reminder map (see followupsByOrg above) instead of a second call.
+  function loadAgenda() {
+    fetch('/api/portal/agenda').then((r) => r.json()).then((d) => {
+      const items = (d.items ?? []) as { kind: string; orgId?: string; followupId?: string; date: string }[];
+      setMeetingsCount(items.filter((i) => i.kind === 'meeting').length);
+      const followups: Record<string, { id: string; date: string }> = {};
+      for (const i of items) if (i.kind === 'follow_up' && i.orgId && i.followupId) followups[i.orgId] = { id: i.followupId, date: i.date };
+      setFollowupsByOrg(followups);
+    }).catch(() => { setMeetingsCount(null); setFollowupsByOrg({}); });
+  }
+  useEffect(loadAgenda, []);
   // Prompt 164 B — this member's own weighted scorecard average per org
   // (same formula ScorecardPanel computes, aggregated server-side), so the
   // score stops living only on the isolated dossier page. Absent for any
@@ -310,7 +332,15 @@ export function PipelinePanel({
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ orgId, remindAt }),
     });
-    setRemindedOrgId(orgId);
+    loadAgenda();
+  }
+
+  // Prompt 345 §C.2 — cancel, not "mark done": this reminder was never
+  // acted on. DELETE (added alongside PATCH's own "mark done") on the same
+  // investor_followups table.
+  async function cancelReminder(followupId: string) {
+    await fetch(`/api/portal/agenda?id=${encodeURIComponent(followupId)}`, { method: 'DELETE' });
+    loadAgenda();
   }
 
   // Archive (prompt 60) — manual archive, distinct from a pass: the
@@ -587,8 +617,8 @@ export function PipelinePanel({
                       {c.status === 'passed' ? (
                         <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500">Passed</span>
                       ) : c.status === 'interested' ? (
-                        <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]">
-                          Interested{fmtDecidedAt(c.decidedAt, c.decidedByMe)}
+                        <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]" title={interestResponseLabel(c)}>
+                          Interested{fmtDecidedAt(c.decidedAt, c.decidedByMe)} · {interestResponseLabel(c)}
                         </span>
                       ) : c.viaReferral ? (
                         <span className="rounded-full bg-purple-50 px-2 py-1 text-[11px] font-medium text-purple-700"
@@ -634,7 +664,7 @@ export function PipelinePanel({
                       {c.status === 'passed' ? (
                         <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500">Passed</span>
                       ) : c.status === 'interested' ? (
-                        <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]">Interested{fmtDecidedAt(c.decidedAt, c.decidedByMe)}</span>
+                        <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]">Interested{fmtDecidedAt(c.decidedAt, c.decidedByMe)} · {interestResponseLabel(c)}</span>
                       ) : c.viaReferral ? (
                         <span className="rounded-full bg-purple-50 px-2 py-1 text-[11px] font-medium text-purple-700">Referred{c.referredByName ? ` by ${c.referredByName}` : ''}</span>
                       ) : c.viaGrant || c.viaDecision ? (
@@ -786,8 +816,15 @@ export function PipelinePanel({
                           className="rounded-lg bg-[#0E7490] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
                           Express interest
                         </button>
-                        {remindedOrgId === c.orgId ? (
-                          <span className="text-xs text-gray-400">Reminder set for 2 weeks</span>
+                        {/* Prompt 345 §C.2 — the concrete date, reload-proof
+                            (followupsByOrg, from the Agenda's own storage),
+                            with a × to cancel outright rather than a session
+                            flag that forgot itself on refresh. */}
+                        {followupsByOrg[c.orgId] ? (
+                          <span className="flex items-center gap-1 text-xs text-gray-400">
+                            Reminder: {new Date(followupsByOrg[c.orgId].date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                            <button onClick={() => cancelReminder(followupsByOrg[c.orgId].id)} title="Cancel reminder" className="text-gray-400 hover:text-[#B00000]">×</button>
+                          </span>
                         ) : (
                           <button onClick={() => remindIn2Weeks(c.orgId)} className="text-xs text-gray-400 hover:underline">
                             Remind me in 2 weeks

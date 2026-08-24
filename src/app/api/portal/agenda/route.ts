@@ -79,3 +79,32 @@ export async function PATCH(req: Request) {
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
+
+// Prompt 345 §C.2 — "cancel", distinct from PATCH's "mark done": a
+// cancelled reminder was never acted on, so it shouldn't leave a done=true
+// row reading as completed anywhere a caller filters on that column
+// (PATCH's own semantics, used by the Agenda's own "Done" action on a
+// follow-up). Deleted outright instead.
+export async function DELETE(req: Request) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' }, { status: 200 });
+
+  const sb = await serverClient();
+  const { data: { user } } = await sb.auth.getUser();
+  const email = user?.email?.trim().toLowerCase();
+  if (!user || !email) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
+
+  const viewerBlock = await assertNotViewer(sb, req);
+  if (viewerBlock) return viewerBlock;
+
+  const id = new URL(req.url).searchParams.get('id');
+  if (!id) return NextResponse.json({ ok: false, error: 'id is required.' }, { status: 400 });
+
+  const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Same ownership check as PATCH — investor_email match, since this table
+  // has no other RLS access for investors (migration 0060's own header).
+  const { error } = await admin.from('investor_followups').delete().eq('id', id).eq('investor_email', email);
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
