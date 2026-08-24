@@ -62,6 +62,16 @@ interface PortalSnapshot {
   // computed server-side; the progress bar reads this, never the raw
   // manually-entered field alone.
   securedShown?: number | null; softCommittedEur?: number;
+  // Prompt 339 §D — same intro pitch (325) DossierOverviewSections already
+  // shows at Level 0 on the standalone dossier route; this inline
+  // workspace view is a materially different, older UI (grant/data-room
+  // tooling, not the disclosure-ladder dossier) that never went through
+  // DossierOverviewSections at all — converging THIS specific piece (the
+  // company framing) rather than replacing the whole view, which would be
+  // a much larger, riskier rewrite outside this prompt's real scope.
+  intro_problem?: string | null; intro_solution?: string | null;
+  // Existence only, never content — fail-closed teaser, never a slide.
+  hasMiniPitch?: boolean;
 }
 interface PortalData {
   orgName: string | null; senderEmail?: string | null; pendingNdaCount: number;
@@ -146,7 +156,7 @@ function fmtEur(n: number | null | undefined) {
   return n != null ? `€${n.toLocaleString('en-US')}` : null;
 }
 
-function SnapshotCard({ s }: { s: PortalSnapshot }) {
+function SnapshotCard({ s, orgId }: { s: PortalSnapshot; orgId?: string }) {
   const stageLabel = s.stage === 'other' ? (s.stage_other || 'Other') : STAGE_LABELS[s.stage ?? ''] ?? s.stage;
   const location = [s.hq_city, s.country].filter(Boolean).join(', ');
   const instruments = (s.round_instruments ?? []).map((v) => INSTRUMENT_LABELS[v] ?? v)
@@ -166,11 +176,30 @@ function SnapshotCard({ s }: { s: PortalSnapshot }) {
     <div className="rounded-lg border border-gray-200 bg-white p-5">
       <h1 className="text-lg font-bold text-gray-900">{s.name}</h1>
       {s.one_liner && <p className="mt-0.5 text-sm text-gray-600">{s.one_liner}</p>}
+      {/* Prompt 339 §D — same intro pitch DossierOverviewSections shows on
+          the standalone dossier route; converged into this older, separate
+          workspace view too (see PortalSnapshot's own comment on why the
+          rest of that view isn't being replaced wholesale). */}
+      {(s.intro_problem || s.intro_solution) && (
+        <div className="mt-1.5 space-y-0.5">
+          {s.intro_problem && <p className="text-sm text-gray-700"><span className="font-semibold text-gray-500">Problem: </span>{s.intro_problem}</p>}
+          {s.intro_solution && <p className="text-sm text-gray-700"><span className="font-semibold text-gray-500">Solution: </span>{s.intro_solution}</p>}
+        </div>
+      )}
       <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
         {stageLabel && <span>{stageLabel}</span>}
         {(s.sectors ?? []).length > 0 && <span>{(s.sectors ?? []).join(', ')}</span>}
         {location && <span>{location}</span>}
       </div>
+      {/* Fail-closed, existence only — never a slide of the pitch itself
+          rendered a second time in a second component; links out to the
+          real dossier route (DossierOverviewSections' own MiniPitchSlides)
+          rather than duplicating that rendering here. */}
+      {s.hasMiniPitch && orgId && (
+        <p className="mt-2 text-xs text-[#0E7490]">
+          ✨ This startup has a mini-pitch available. <Link href={`/portal/startup/${orgId}`} className="hover:underline">View it in their full dossier →</Link>
+        </p>
+      )}
 
       {hasRoundData ? (
         <div className="mt-4 border-t border-gray-100 pt-4">
@@ -406,7 +435,7 @@ export default function PortalPage() {
     const startupCard = (
       <div className="space-y-4">
         {authEnabled && real?.orgId && <RoundUpdatesFeed orgId={real.orgId} />}
-        {authEnabled && real?.snapshot && <SnapshotCard s={real.snapshot} />}
+        {authEnabled && real?.snapshot && <SnapshotCard s={real.snapshot} orgId={real.orgId} />}
         {authEnabled && real?.orgId && (
           <TicketSelector orgId={real.orgId} current={real.currentTicketSignal} />
         )}
@@ -598,7 +627,7 @@ export default function PortalPage() {
                 MatchDeal deck, metrics/hype/top-matches) is what still
                 protects real founders/aggregates from genuinely test-
                 cohort accounts. */}
-            {authEnabled && real?.snapshot && <SnapshotCard s={real.snapshot} />}
+            {authEnabled && real?.snapshot && <SnapshotCard s={real.snapshot} orgId={real.orgId} />}
             {authEnabled && real?.orgId && (
               <TicketSelector orgId={real.orgId} current={real.currentTicketSignal} />
             )}

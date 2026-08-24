@@ -13,12 +13,20 @@ import { SwotQuadrant } from '@/components/readiness/SwotVisualCard';
 import { ResponsiveRoadmap } from '@/components/company/ResponsiveRoadmap';
 import type { SwotData, RoadmapPeriodKind } from '@/lib/types';
 import type { ReviewCategory } from '@/lib/review-clarifications';
+import { shouldShowMiniPitchTeaser } from '@/lib/mini-pitch';
 
 export interface Card {
   orgId: string; name: string; oneLiner: string | null; description: string | null;
   // Prompt 325 — additional to oneLiner, Discovery-visible, absent (not
   // empty string) when the founder hasn't filled it in.
   introProblem?: string; introSolution?: string;
+  // Prompt 339 §B — existence only, never content: lets Level 0 show a
+  // discreet "pitch available, express interest to unlock" signal without
+  // revealing a single slide or even a slide count. Fail-closed: absent
+  // (or false) means no mini-pitch was ever activated, and the block below
+  // simply doesn't render — never a "not available yet" placeholder (that
+  // would be exposing the founder's own gap, not the investor's).
+  hasMiniPitch?: boolean;
   sectors: string[]; stage: string | null; hqCity: string | null; country: string | null;
   roundTargetEur: number | null; roundMinTicketEur: number | null; roundValuationEur: number | null;
   roundValuationBasis: 'pre_money' | 'post_money' | null; roundInstruments: string[];
@@ -170,6 +178,18 @@ export function DossierOverviewSections({
             {card.introProblem && <p className="text-sm text-gray-700"><span className="font-semibold text-gray-500">Problem: </span>{card.introProblem}</p>}
             {card.introSolution && <p className="text-sm text-gray-700"><span className="font-semibold text-gray-500">Solution: </span>{card.introSolution}</p>}
           </div>
+        )}
+        {/* Prompt 339 §B — signals a locked mini-pitch WITHOUT revealing it:
+            only ever shown at Level 0 (once level >= 1, the real slides
+            render below instead — MiniPitchSlides, never both at once) and
+            only when the founder has actually activated one. Fail-closed:
+            no mini-pitch at all means this block simply isn't here, never
+            a "no pitch yet" placeholder that would expose the founder's own
+            gap to the one audience it isn't theirs to show. */}
+        {shouldShowMiniPitchTeaser(level, card.hasMiniPitch) && (
+          <p className="mt-2 rounded-lg bg-[#E8F4F8] px-2.5 py-1.5 text-xs text-[#0E7490]">
+            ✨ Pitch available — express interest to unlock the startup&apos;s pitch.
+          </p>
         )}
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400">
           {card.sectors.length > 0 && <span>{card.sectors.join(', ')}</span>}

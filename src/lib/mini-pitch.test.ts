@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   filterEligibleClaims, selectProofClaims, selectWhyNowClaims, selectTeamClaims, buildMiniPitchPlan,
-  checkMiniPitchGate, computeMiniPitchInputSnapshot, projectMiniPitchForInvestor, type MiniPitchClaim,
+  checkMiniPitchGate, computeMiniPitchInputSnapshot, projectMiniPitchForInvestor, shouldShowMiniPitchTeaser, type MiniPitchClaim,
 } from './mini-pitch';
 
 function claim(overrides: Partial<MiniPitchClaim> & Pick<MiniPitchClaim, 'id' | 'category' | 'evidenceClass'>): MiniPitchClaim {
@@ -215,5 +215,25 @@ describe('projectMiniPitchForInvestor — strips internal taxonomy before it rea
   it('omits the title key entirely when absent, never an empty string', () => {
     const projected = projectMiniPitchForInvestor([{ kind: 'hook', body: 'Text.' }]);
     expect(projected[0]).not.toHaveProperty('title');
+  });
+});
+
+describe('shouldShowMiniPitchTeaser — Prompt 339 §B, fail-closed by construction', () => {
+  it('shows at level 0 when a mini-pitch has been activated', () => {
+    expect(shouldShowMiniPitchTeaser(0, true)).toBe(true);
+  });
+
+  it('never shows at level 0 when no mini-pitch was ever activated', () => {
+    expect(shouldShowMiniPitchTeaser(0, false)).toBe(false);
+  });
+
+  it('never shows when hasMiniPitch is undefined (absent field, never treated as true)', () => {
+    expect(shouldShowMiniPitchTeaser(0, undefined)).toBe(false);
+  });
+
+  it('never shows at level 1+ even with an activated mini-pitch — the real slides render instead, never both', () => {
+    expect(shouldShowMiniPitchTeaser(1, true)).toBe(false);
+    expect(shouldShowMiniPitchTeaser(2, true)).toBe(false);
+    expect(shouldShowMiniPitchTeaser(3, true)).toBe(false);
   });
 });

@@ -52,8 +52,15 @@ export async function GET(req: Request) {
 
   const dossier = projectDossier(level, raw.full, shareEmail, raw.swot, raw.founderClarifications, raw.roadmap, raw.badges, raw.miniPitch);
 
+  // Prompt 339 §B/§D — same existence-only signal the real Pipeline card
+  // carries (investor-pipeline.ts), fetched here directly since this
+  // preview's own `card` is built client-side from the founder's local
+  // store, not from getPipelineWaves.
+  const { data: pitchRow } = await admin.from('org_mini_pitches').select('activated_at').eq('org_id', orgId).maybeSingle();
+  const hasMiniPitch = !!pitchRow?.activated_at;
+
   return NextResponse.json({
-    ok: true, level, dossier,
+    ok: true, level, dossier, hasMiniPitch,
     // Pedido 1 — a toggled-off section must be distinguishable from "not
     // unlocked at this level yet" so the preview page can render "off,
     // here's the switch" instead of just omitting the section like the real

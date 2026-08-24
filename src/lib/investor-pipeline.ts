@@ -270,6 +270,16 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     followOnSignalsByOrg.set(pair.orgId, list);
   }
 
+  // Prompt 339 §B — existence only, never content, never level-gated: the
+  // compact card is the Level-0-visible tier both callers already use, so
+  // this is the one place a "pitch available" teaser can be computed
+  // without waiting on/duplicating the level>=1 gate fetchDossierRawData
+  // applies to the pitch's actual slides.
+  const { data: activatedPitchRows } = orgIds.length
+    ? await admin.from('org_mini_pitches').select('org_id').in('org_id', orgIds).not('activated_at', 'is', null)
+    : { data: [] as { org_id: string }[] };
+  const orgIdsWithMiniPitch = new Set((activatedPitchRows ?? []).map((r) => r.org_id as string));
+
   const cards = (orgs ?? []).map((org) => {
     const round: StartupRound = {
       sectors: org.sectors ?? [], stage: org.stage, country: org.country,
@@ -290,6 +300,7 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       // additional to oneLiner. Same absent-key discipline as the rest of
       // this card object's optional fields.
       ...projectIntroPitch({ introProblem: org.intro_problem as string | null, introSolution: org.intro_solution as string | null }),
+      hasMiniPitch: orgIdsWithMiniPitch.has(org.id as string),
       sectors: org.sectors ?? [], stage: org.stage,
       hqCity: org.hq_city, country: org.country, roundTargetEur: org.round_target_eur,
       roundMinTicketEur: org.round_min_ticket_eur, roundValuationEur: org.round_valuation_eur,

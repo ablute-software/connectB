@@ -33,7 +33,13 @@ export default function DossierPreviewPage() {
   const { db } = useStore();
   // Pedido: "abre sempre no nível máximo (3)".
   const [level, setLevel] = useState<Level>(3);
-  const [data, setData] = useState<{ dossier: Dossier; swotToggleOn: boolean; roadmapToggleOn: boolean } | null>(null);
+  const [data, setData] = useState<{ dossier: Dossier; swotToggleOn: boolean; roadmapToggleOn: boolean; hasMiniPitch: boolean } | null>(null);
+  // Prompt 339 §C — reuses checkMiniPitchGate's own missing labels (334)
+  // rather than a second "what's needed" computation.
+  const [miniPitchGate, setMiniPitchGate] = useState<{ eligible: boolean; missing: { label: string; href: string }[] } | null>(null);
+  useEffect(() => {
+    fetch('/api/mini-pitch').then((r) => r.json()).then((b) => setMiniPitchGate(b.ok ? b.gate : null)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +67,7 @@ export default function DossierPreviewPage() {
     matchScore: 0, matchReasons: [], status: 'open', passReason: null, decidedAt: null, decidedByMe: null,
     trackingCount: 0, hasDataRoomAccess: false, viaGrant: false, viaDecision: false, isArchived: false,
     ...projectIntroPitch({ introProblem: db.org.intro_problem, introSolution: db.org.intro_solution }),
+    hasMiniPitch: data?.hasMiniPitch ?? false,
   };
 
   return (
@@ -97,10 +104,24 @@ export default function DossierPreviewPage() {
           renders). Informative, not alarming — same direct tone as the rest
           of this preview's own copy. */}
       {level === 0 && (
-        <p className="mt-3 max-w-2xl text-xs text-gray-500">
-          This is all an investor sees before expressing interest. Filling in your intro pitch below is the difference
-          between a one-liner and a reason to click.
-        </p>
+        <div className="mt-3 max-w-2xl space-y-1.5 text-xs text-gray-500">
+          <p>
+            This is all an investor sees before expressing interest. Filling in your intro pitch below is the difference
+            between a one-liner and a reason to click.
+          </p>
+          {/* Prompt 339 §C(1) — exactly what's missing and where to fix it,
+              for both of the two pieces this prompt is about. */}
+          {!(db.org.intro_problem?.trim() && db.org.intro_solution?.trim()) && (
+            <p>Missing: your intro pitch (problem &amp; solution) — <Link href="/settings?tab=company" className="text-[#0E7490] hover:underline">fill it in</Link>.</p>
+          )}
+          {!data?.hasMiniPitch && (
+            <p>
+              At Level 1 (once an investor expresses interest), a mini-pitch would give them a real reason to keep going.
+              {miniPitchGate?.eligible === false && <> Not yet possible: missing {miniPitchGate.missing.map((m) => m.label).join(', ')}.</>}
+              {miniPitchGate?.eligible === true && <> You have enough to generate one — <Link href="/settings?tab=company" className="text-[#0E7490] hover:underline">do it in Settings</Link>.</>}
+            </p>
+          )}
+        </div>
       )}
 
       <div className="mt-4">

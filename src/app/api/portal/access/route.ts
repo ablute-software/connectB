@@ -64,21 +64,21 @@ async function buildSnapshot(admin: SupabaseClient, orgId: string) {
   // runtime-conditional string) so supabase-js's column-name type inference
   // still works in both branches.
   const basisAvailable = await roundValuationBasisAvailable();
-  const [{ data: org }, { data: metrics }, { data: confirmedCommits }] = await Promise.all([
+  const [{ data: org }, { data: metrics }, { data: confirmedCommits }, { data: pitchRow }] = await Promise.all([
     basisAvailable
       ? admin.from('orgs').select(
           'name, one_liner, description, stage, stage_other, sectors, hq_city, country, '
           + 'round_raising, round_target_eur, round_secured_eur, round_min_ticket_eur, round_instruments, '
           + 'round_progress_visible_to_investors, '
           + 'round_instrument_other, round_valuation_eur, round_valuation_basis, round_runway_months, round_runway_post_months, '
-          + 'round_target_close_date, round_use_of_funds, round_flexible',
+          + 'round_target_close_date, round_use_of_funds, round_flexible, intro_problem, intro_solution',
         ).eq('id', orgId).single()
       : admin.from('orgs').select(
           'name, one_liner, description, stage, stage_other, sectors, hq_city, country, '
           + 'round_raising, round_target_eur, round_secured_eur, round_min_ticket_eur, round_instruments, '
           + 'round_progress_visible_to_investors, '
           + 'round_instrument_other, round_valuation_eur, round_runway_months, round_runway_post_months, '
-          + 'round_target_close_date, round_use_of_funds, round_flexible',
+          + 'round_target_close_date, round_use_of_funds, round_flexible, intro_problem, intro_solution',
         ).eq('id', orgId).single(),
     admin.from('org_traction_metrics').select('id, label, value').eq('org_id', orgId).order('sort_order', { ascending: true }),
     // Prompt 56 Bloco 3 — confirmed soft commits ADD ON TOP of the
@@ -87,9 +87,15 @@ async function buildSnapshot(admin: SupabaseClient, orgId: string) {
     // double-counts and the founder's own figure stays exactly what they
     // typed.
     admin.from('investor_soft_commits').select('amount_eur').eq('org_id', orgId).eq('confirmed_by_founder', true),
+    // Prompt 339 §B — existence only, never content: lets the workspace's
+    // own inline startup view show the same fail-closed "Pitch available"
+    // teaser DossierOverviewSections shows at Level 0, without leaking a
+    // single slide of the pitch itself.
+    admin.from('org_mini_pitches').select('activated_at').eq('org_id', orgId).maybeSingle(),
   ]);
   if (!org) return null;
   const orgRecord = org as unknown as Record<string, unknown>;
+  orgRecord.hasMiniPitch = !!pitchRow?.activated_at;
 
   // Prompt 212 §A — o founder decide se o progresso da ronda sai para o
   // investidor. Desligado, os campos NAO VAO na resposta: nao e

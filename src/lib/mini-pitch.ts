@@ -184,3 +184,14 @@ export interface MiniPitchSlideProjected { kind: MiniPitchSlideKind; title?: str
 export function projectMiniPitchForInvestor(slides: StoredMiniPitchSlide[]): MiniPitchSlideProjected[] {
   return slides.map((s) => ({ kind: s.kind, ...(s.title ? { title: s.title } : {}), body: s.body }));
 }
+
+// ---------------------------------------------------------------------------
+// Prompt 339 §B — the Level 0 "pitch available, express interest to unlock"
+// teaser. Fail-closed by construction: true only at Level 0 (once level >=
+// 1 the real slides render instead — never both at once) AND only when the
+// founder actually activated a mini-pitch. Extracted as its own pure
+// function purely so this exact gating logic is unit-testable without
+// mounting DossierOverviewSections.
+export function shouldShowMiniPitchTeaser(level: number, hasMiniPitch: boolean | undefined): boolean {
+  return level === 0 && !!hasMiniPitch;
+}

@@ -36,6 +36,16 @@ export const COMPLETENESS_FIELDS: CompletenessField[] = [
   { id: 'identity.sectors', label: 'Sector / vertical', weight: 6, card: 'identity', isFilled: (o) => (o.sectors?.length ?? 0) > 0 || !!o.sectors_other },
   { id: 'identity.one_liner', label: 'One-liner', weight: 8, card: 'identity', isFilled: (o) => !!o.one_liner?.trim() },
   { id: 'identity.description', label: 'Short description', weight: 5, card: 'identity', isFilled: (o) => !!o.description?.trim() },
+  // Prompt 339 §C — the intro pitch (325) is exactly what an investor sees
+  // at Level 0, the same completeness-bar visibility tier as one_liner
+  // above; "Mini-pitch generated & activated" is NOT added here on
+  // purpose — that state lives in org_mini_pitches, a separate table this
+  // function has no access to (it only ever reads `Org`/`CompanyPerson`),
+  // so folding it into this synchronous score would mean either a new
+  // async signature here or a stale/wrong bar. MiniPitchCard.tsx already
+  // surfaces the equivalent "what's missing" via checkMiniPitchGate's own
+  // labels+hrefs — that's this feature's real home, not this bar.
+  { id: 'identity.intro_pitch', label: 'Intro pitch (problem & solution)', weight: 6, card: 'identity', isFilled: (o) => !!o.intro_problem?.trim() && !!o.intro_solution?.trim() },
   { id: 'identity.logo', label: 'Logo', weight: 2, card: 'identity', isFilled: (o) => !!o.logo_url },
   { id: 'identity.postal_code', label: 'Postal code', weight: 1, card: 'identity', isFilled: (o) => !!o.postal_code?.trim() },
   // Prompt 85 Correction 1 — product/company maturity, NOT the round's
