@@ -125,6 +125,10 @@ export function ReviewPanel() {
   const [acceptedClaimStatements, setAcceptedClaimStatements] = useState<string[]>([]);
   const [showInterrogation, setShowInterrogation] = useState(false);
   const [gapBusy, setGapBusy] = useState(false);
+  // Prompt 358 Phase 2.3 — "the founder sees this happening, never silent":
+  // when a free-text answer got merged into the existing claim instead of
+  // becoming a new one, this says so, once, right after it happens.
+  const [routingNote, setRoutingNote] = useState<string | null>(null);
   // Prompt 309 — "Skip this one" bug: dismissing never writes a claim (by
   // design, per blueprint/answer/route.ts's own comment — not answering
   // isn't new knowledge), so the exact same gap came right back as gaps[0]
@@ -156,14 +160,19 @@ export function ReviewPanel() {
     if (!gap) return;
     if (opts.dismissed) setSkippedKeys((prev) => new Set(prev).add(gap.key));
     setGapBusy(true);
+    setRoutingNote(null);
     try {
-      await fetch('/api/blueprint/answer', {
+      const res = await fetch('/api/blueprint/answer', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           gapKey: gap.key, rule: gap.rule, option: opts.option, answer: opts.answer, category: opts.category,
           analysisId: gapAnalysisId, dismissed: opts.dismissed, relatedClaimIds: gap.relatedClaimIds,
         }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (data.routedAs === 'amend_target_claim') {
+        setRoutingNote('Added to the existing claim rather than creating a new one.');
+      }
       loadGaps();
     } finally { setGapBusy(false); }
   }
@@ -179,6 +188,21 @@ export function ReviewPanel() {
       await fetch('/api/blueprint/link-document', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ claimId, documentId, gapKey: gap.key, analysisId: gapAnalysisId }),
+      });
+      loadGaps();
+    } finally { setGapBusy(false); }
+  }
+
+  // Prompt 358 Phase 2.1 — the founder's one-click reply to a reconciliation
+  // suggestion: confirm links the document (same as attachDocument above,
+  // just already found by the engine); dismiss tells reconciliation.ts to
+  // never re-suggest that same match.
+  async function reconcileConfirm(claimId: string, confirm: boolean) {
+    setGapBusy(true);
+    try {
+      await fetch('/api/blueprint/reconcile-confirm', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ claimId, confirm }),
       });
       loadGaps();
     } finally { setGapBusy(false); }
@@ -382,8 +406,9 @@ export function ReviewPanel() {
       )}
       {showInterrogation && currentGap && (
         <Card title={<span className="text-[#0E7490]">What&apos;s missing ({gaps.length} left)</span>}>
+          {routingNote && <p className="mb-2 text-xs text-[#0E7490]">{routingNote}</p>}
           <GapInterrogation key={currentGap.key} gap={currentGap} remaining={gaps.length} busy={gapBusy}
-            onSubmit={submitGapAnswer} onAttachDocument={attachDocument} />
+            onSubmit={submitGapAnswer} onAttachDocument={attachDocument} onReconcileConfirm={reconcileConfirm} />
           <button onClick={() => setShowInterrogation(false)} className="mt-2 text-xs text-gray-400 hover:underline">
             Close — I&apos;ll finish this later
           </button>

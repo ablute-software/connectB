@@ -16,6 +16,8 @@ import {
   type DocumentExtractionData,
 } from './document-extraction';
 import { linkExtractionToClaims } from './document-extraction-linking';
+import { runReconciliationForOrg } from './reconciliation';
+import { gapReconciliationsAvailable } from './document-extraction-capability';
 
 export type ExtractionSkipReason =
   | 'scan_unavailable' | 'not_found' | 'not_clean' | 'not_pdf' | 'too_large' | 'download_failed' | 'pdf_parse_failed' | 'claude_failed';
@@ -183,6 +185,7 @@ export async function extractDocument(
   if (existing) {
     const extraction = existing.extracted as DocumentExtractionData;
     const linkOutcome = await linkExtractionToClaims(admin, orgId, documentId, docRow.name, extraction);
+    if (await gapReconciliationsAvailable()) void runReconciliationForOrg(admin, apiKey, orgId);
     return { ok: true, alreadyExtracted: true, extraction, ...linkOutcome };
   }
 
@@ -231,6 +234,14 @@ export async function extractDocument(
   }
 
   const linkOutcome = await linkExtractionToClaims(admin, orgId, documentId, docRow.name, extraction);
+  // Prompt 358 Phase 2.1 — "reconciliation must also run on every document
+  // upload" (Prompt 358's own §2.1): the mechanical link above only catches
+  // literal name/program overlap; this is its semantic counterpart, run
+  // once per fresh extraction. Fire-and-forget from this caller's own
+  // perspective too — extractDocument itself is already only ever awaited
+  // by callers that don't block a user-facing response on it (the
+  // fire-and-forget upload trigger, and the backfill script).
+  if (await gapReconciliationsAvailable()) void runReconciliationForOrg(admin, apiKey, orgId);
   return { ok: true, extraction, costEur: computeCostEur(model, usage), ...linkOutcome };
 }
 

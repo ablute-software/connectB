@@ -182,6 +182,28 @@ describe('G4 — claim aceite sem documento no Vault (Prompt 311 §A: lido direc
     expect(ruleG4([withEmptyRefs], ctx())).toHaveLength(1);
   });
 
+  // Prompt 358 Phase 2.4 — a judgment ("we have complementary skills") is
+  // never a documentary gap: there is no paper that proves a subjective
+  // team-fit claim. This is the exact real-session bug: G3's own chip
+  // option, chosen alone, became this literal equipa claim, which G4 then
+  // asked to be "documented" — a question with no sensible answer.
+  it.each([
+    'We have complementary skills',
+    'We have unique domain access',
+    'We have built this before',
+  ])('nunca pede documento para um julgamento de equipa: "%s"', (statement) => {
+    expect(ruleG4([claim('judg1', 'equipa', statement)], ctx())).toEqual([]);
+  });
+
+  it('um claim de equipa com facto verificável continua a gerar G4 mesmo perto de linguagem de julgamento', () => {
+    // "great team" sozinho é julgamento; um facto verificável ao lado não é
+    // — mas a frase inteira contém a marca de julgamento, por isso este
+    // teste confirma a exclusão é deliberadamente larga (falso negativo
+    // aceite, ver o comentário em isTeamJudgment) em vez de garantir o
+    // oposto.
+    expect(ruleG4([claim('judg2', 'equipa', 'Jane Doe, CTO, ex-Google — great team fit.')], ctx())).toEqual([]);
+  });
+
   // Aditivo, não substitutivo: hasVaultDocuments continua a suprimir
   // prova_tecnica mesmo quando o claim não tem documentRefs próprio (o caso
   // de um documento não-PDF, que nunca é extraído — "só PDF por agora").

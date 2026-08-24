@@ -37,12 +37,16 @@ export interface GapView {
   // spread verbatim into the JSON) — declared here so TypeScript callers
   // can rely on it too.
   relatedClaimIds: string[];
+  // Prompt 358 Phase 2.1 — a medium-confidence reconciliation match the
+  // engine already found for this (G4-only) gap, if any. null for every
+  // other rule and whenever nothing plausible was found.
+  reconciliationSuggestion: { matchedDocumentId: string; matchedDocumentName: string; evidenceQuote: string | null; reasoning: string | null } | null;
 }
 
 interface VaultDocOption { id: string; name: string }
 
 export function GapInterrogation({
-  gap, remaining, busy, onSubmit, onAttachDocument,
+  gap, remaining, busy, onSubmit, onAttachDocument, onReconcileConfirm,
 }: {
   gap: GapView;
   remaining: number;
@@ -53,6 +57,9 @@ export function GapInterrogation({
   // flow yet still compiles (the option would just fall through to a
   // normal text answer, same as before this prompt, rather than crash).
   onAttachDocument?: (claimId: string, documentId: string) => void | Promise<void>;
+  // Prompt 358 Phase 2.1 — confirm or dismiss gap.reconciliationSuggestion.
+  // Optional for the same reason as onAttachDocument above.
+  onReconcileConfirm?: (claimId: string, confirm: boolean) => void | Promise<void>;
 }) {
   const [option, setOption] = useState('');
   const [answer, setAnswer] = useState('');
@@ -62,6 +69,7 @@ export function GapInterrogation({
   const [vaultDocs, setVaultDocs] = useState<VaultDocOption[] | null>(null);
   const [selectedDocId, setSelectedDocId] = useState('');
   const [attaching, setAttaching] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
 
   const showDocPicker = option === ATTACH_DOCUMENT_OPTION && !!onAttachDocument;
 
@@ -77,6 +85,14 @@ export function GapInterrogation({
     try {
       await onAttachDocument(gap.relatedClaimIds[0], selectedDocId);
     } finally { setAttaching(false); }
+  }
+
+  async function respondToSuggestion(confirm: boolean) {
+    if (!onReconcileConfirm) return;
+    setReconciling(true);
+    try {
+      await onReconcileConfirm(gap.relatedClaimIds[0], confirm);
+    } finally { setReconciling(false); }
   }
 
   async function assist() {
@@ -103,6 +119,29 @@ export function GapInterrogation({
         <p className="text-sm font-medium text-gray-900">{gap.prompt.question}</p>
       </div>
       <p className="mt-1 text-xs text-gray-500">{gap.message}</p>
+
+      {gap.reconciliationSuggestion && onReconcileConfirm && (
+        // Prompt 358 Phase 2.1 — "no question before the engine tried to
+        // answer it itself": a medium-confidence match the reconciliation
+        // pass already found, surfaced as a one-click confirm rather than
+        // making the founder go find the document themselves.
+        <div className="mt-2 rounded-lg border border-[#0E7490]/30 bg-[#E8F4F8] p-2.5">
+          <p className="text-xs text-[#0E7490]">
+            We think <span className="font-medium">{gap.reconciliationSuggestion.matchedDocumentName}</span> might already cover this.
+            {gap.reconciliationSuggestion.reasoning ? ` ${gap.reconciliationSuggestion.reasoning}` : ''}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button onClick={() => respondToSuggestion(true)} disabled={reconciling || busy}
+              className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+              Yes, that&apos;s it
+            </button>
+            <button onClick={() => respondToSuggestion(false)} disabled={reconciling || busy}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+              No, that&apos;s not it
+            </button>
+          </div>
+        </div>
+      )}
 
       {gap.prompt.options.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">

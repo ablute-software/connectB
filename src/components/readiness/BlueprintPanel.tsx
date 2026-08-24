@@ -82,6 +82,8 @@ export function BlueprintPanel() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<{ statement: string; category: string }>({ statement: '', category: 'solucao' });
   const [error, setError] = useState<string | null>(null);
+  // Prompt 358 Phase 2.3 — same "never silent" note as ReviewPanel.tsx.
+  const [routingNote, setRoutingNote] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   // Prompt 309 — same "Skip this one" fix as ReviewPanel.tsx (shares this
@@ -122,7 +124,7 @@ export function BlueprintPanel() {
   async function submitAnswer(opts: { option?: string; answer?: string; dismissed: boolean; category?: string }) {
     if (!gap) return;
     if (opts.dismissed) setSkippedKeys((prev) => new Set(prev).add(gap.key));
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setRoutingNote(null);
     try {
       const res = await fetch('/api/blueprint/answer', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -133,6 +135,7 @@ export function BlueprintPanel() {
       });
       const body = await res.json().catch(() => ({}));
       if (body.ok === false) { setError(body.error ?? 'Something went wrong.'); return; }
+      if (body.routedAs === 'amend_target_claim') setRoutingNote('Added to the existing claim rather than creating a new one.');
       load();
     } finally { setBusy(false); }
   }
@@ -146,6 +149,19 @@ export function BlueprintPanel() {
       await fetch('/api/blueprint/link-document', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ claimId, documentId, gapKey: gap.key, analysisId: state?.analysis?.id }),
+      });
+      load();
+    } finally { setBusy(false); }
+  }
+
+  // Prompt 358 Phase 2.1 — same one-click reconciliation reply as
+  // ReviewPanel.tsx's own copy.
+  async function reconcileConfirm(claimId: string, confirm: boolean) {
+    setBusy(true); setError(null);
+    try {
+      await fetch('/api/blueprint/reconcile-confirm', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ claimId, confirm }),
       });
       load();
     } finally { setBusy(false); }
@@ -232,8 +248,9 @@ export function BlueprintPanel() {
           shared with ReviewPanel.tsx — Prompt 298 §1). */}
       {gap && (
         <Card title={<span className="text-[#0E7490]">What&apos;s missing ({state.gaps.length} left)</span>}>
+          {routingNote && <p className="mb-2 text-xs text-[#0E7490]">{routingNote}</p>}
           <GapInterrogation key={gap.key} gap={gap} remaining={state.gaps.length} busy={busy}
-            onSubmit={submitAnswer} onAttachDocument={attachDocument} />
+            onSubmit={submitAnswer} onAttachDocument={attachDocument} onReconcileConfirm={reconcileConfirm} />
         </Card>
       )}
 

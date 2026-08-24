@@ -223,8 +223,28 @@ function hasDocumentBacking(c: CompanyClaim): boolean {
     || c.gapDisposition === 'no_document' || c.gapDisposition === 'document_pending';
 }
 
+// Prompt 358 Phase 2.4 — "presumption of truth": what the founder states is
+// presumed true; only a VERIFIABLE FACT (title, award, contract, patent,
+// metric) can have a documentary gap. A JUDGMENT (team complementarity,
+// vision, mechanism) never can — there is no document that proves "we have
+// complementary skills" the way a contract proves a partnership. This closes
+// the exact hole Nuno's real session hit: G3's own chip options ("We have
+// complementary skills", "We have unique domain access", "We have built
+// this before") are judgments by construction — choosing one with no free
+// text creates an `equipa` claim whose entire content IS the judgment
+// phrase, which G4 then nonsensically asked to be documented. Deliberately
+// narrow (exact phrases + a short list of equivalent narrative markers),
+// same discipline as COMPLEMENTARITY above it: a false negative here just
+// means G4 asks a question that gets a 'no_document'/'document_pending'
+// disposition (Phase 1's fix already makes that a one-time cost, not a
+// loop) — a false positive would silently hide a real documentary gap.
+const TEAM_JUDGMENT = /\b(complementary skills?|unique domain access|built this before|great team|strong team|right team|work well together|trust each other)\b/i;
+function isTeamJudgment(c: CompanyClaim): boolean {
+  return c.category === 'equipa' && TEAM_JUDGMENT.test(c.statement);
+}
+
 export function ruleG4(claims: CompanyClaim[], context: GapContext): Gap[] {
-  const documentable = claims.filter((c) => G4_DOCUMENTABLE_CATEGORIES.has(c.category));
+  const documentable = claims.filter((c) => G4_DOCUMENTABLE_CATEGORIES.has(c.category) && !isTeamJudgment(c));
   return documentable
     .filter((c) => c.status === 'accepted'
       && !hasDocumentBacking(c)

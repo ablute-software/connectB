@@ -24,3 +24,16 @@ export const gapDispositionAvailable = makeCapabilityProbe(async (admin) => {
   const { error } = await admin.from('company_claims').select('gap_disposition').limit(1);
   return !error;
 });
+
+// Prompt 358 Phase 2 — migration 0235's two tables. Separate probes for the
+// same reason as above: the reconciliation engine only ever needs
+// gap_reconciliations, and the question ledger only ever needs gap_questions.
+export const gapReconciliationsAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('gap_reconciliations').select('id').limit(1);
+  return !error;
+});
+
+export const gapQuestionsAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('gap_questions').select('id').limit(1);
+  return !error;
+});

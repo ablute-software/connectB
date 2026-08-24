@@ -1066,7 +1066,16 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     renameDocument(id: string, name: string) {
       const prev = dbRef.current;
       commit({ ...prev, documents: prev.documents.map((d) => d.id === id ? { ...d, name } : d) });
-      if (orgIdRef.current) persist(sb.from('documents').update({ name }).eq('id', id), 'renameDocument');
+      if (orgIdRef.current) {
+        persist(sb.from('documents').update({ name }).eq('id', id), 'renameDocument');
+        // Prompt 358 Phase 2.1 — a rename can be the ONLY signal that turns a
+        // vague filename into real evidence for an existing claim (the
+        // motivating fixture: renaming a file to "Woman In Tech Agreement").
+        // Fire-and-forget, same shape as triggerDocumentExtraction — never
+        // blocks the rename itself, and the route degrades to a no-op if
+        // migration 0235 or the Anthropic key isn't available.
+        fetch('/api/blueprint/reconcile', { method: 'POST' }).catch(() => { /* never blocks the rename */ });
+      }
     },
 
     updateDocumentDetails(id: string, details: string) {

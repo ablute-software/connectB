@@ -19,6 +19,8 @@ import { readKnowledgeSources, readExistingClaims, hasAnyVaultDocument } from '@
 import { knowledgeToAtoms, newAtoms } from '@/lib/company-knowledge';
 import { normalizeAtom, findDuplicateCandidate } from '@/lib/company-claims';
 import { detectGaps, templateFor, gapKey } from '@/lib/company-gaps';
+import { gapReconciliationsAvailable } from '@/lib/document-extraction-capability';
+import { runReconciliationForOrg, readReconcilableDocuments } from '@/lib/reconciliation';
 
 async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
   const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
@@ -59,13 +61,59 @@ export async function GET() {
   if (!orgId) return NextResponse.json(empty);
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const claims = await readExistingClaims(admin, orgId);
+  let claims = await readExistingClaims(admin, orgId);
 
   // As lacunas correm sobre o que CONTA: propostos + aceites. Rejeitados
   // ficam de fora — o founder já disse que não, e uma regra a disparar
   // sobre um claim rejeitado seria pedir-lhe a mesma decisão outra vez.
-  const live = claims.filter((c) => c.status !== 'rejected');
-  const gaps = detectGaps(live, await gapContext(admin, orgId));
+  let live = claims.filter((c) => c.status !== 'rejected');
+  const ctx = await gapContext(admin, orgId);
+
+  // Prompt 358 Phase 2.1 — "no question to the founder before the engine has
+  // tried to answer it itself." Before generating the G4 question queue,
+  // give the reconciliation engine a shot at every claim G4 would otherwise
+  // ask about — reused verbatim (ruleG4's own filter) rather than a second,
+  // possibly drifting definition of "documentable and not yet backed".
+  // High-confidence matches get linked here and disappear from G4 entirely;
+  // that's why claims/live are re-read afterward when anything actually
+  // changed, so the SAME request's gap list reflects it.
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (await gapReconciliationsAvailable()) {
+    const outcome = await runReconciliationForOrg(admin, apiKey, orgId);
+    if (outcome.ran && outcome.autoLinked > 0) {
+      claims = await readExistingClaims(admin, orgId);
+      live = claims.filter((c) => c.status !== 'rejected');
+    }
+  }
+
+  const gaps = detectGaps(live, ctx);
+
+  // Prompt 358 Phase 2.1 — a 'suggested' (medium-confidence) reconciliation
+  // match rides along with its G4 gap so the UI can offer a one-click
+  // confirm instead of (or alongside) the usual document picker — the
+  // founder still decides, but never has to go find the document themselves
+  // when the engine already found a plausible one.
+  let reconciliationByClaimId = new Map<string, { matchedDocumentId: string; matchedDocumentName: string; evidenceQuote: string | null; reasoning: string | null }>();
+  if (await gapReconciliationsAvailable()) {
+    const g4ClaimIds = gaps.filter((g) => g.rule === 'G4').map((g) => g.relatedClaimIds[0]).filter(Boolean);
+    if (g4ClaimIds.length > 0) {
+      const [{ data: suggestions }, docs] = await Promise.all([
+        admin.from('gap_reconciliations').select('claim_id, matched_document_id, evidence_quote, reasoning')
+          .eq('org_id', orgId).eq('status', 'suggested').in('claim_id', g4ClaimIds),
+        readReconcilableDocuments(admin, orgId),
+      ]);
+      const docNameById = new Map(docs.map((d) => [d.id, d.name]));
+      reconciliationByClaimId = new Map(
+        ((suggestions ?? []) as { claim_id: string; matched_document_id: string | null; evidence_quote: string | null; reasoning: string | null }[])
+          .filter((s) => s.matched_document_id && docNameById.has(s.matched_document_id))
+          .map((s) => [s.claim_id, {
+            matchedDocumentId: s.matched_document_id as string,
+            matchedDocumentName: docNameById.get(s.matched_document_id as string) as string,
+            evidenceQuote: s.evidence_quote, reasoning: s.reasoning,
+          }]),
+      );
+    }
+  }
 
   // Nunca perguntar o que já tem resposta aceite: uma lacuna cuja pergunta
   // já foi respondida (existe claim founder_answer aceite dessa regra)
@@ -98,7 +146,10 @@ export async function GET() {
     claims: claimsWithDuplicates,
     gaps: gaps
       .filter((g) => !answeredRules.has(gapKey(g)))
-      .map((g) => ({ ...g, key: gapKey(g), prompt: templateFor(g) })),
+      .map((g) => ({
+        ...g, key: gapKey(g), prompt: templateFor(g),
+        reconciliationSuggestion: g.rule === 'G4' ? (reconciliationByClaimId.get(g.relatedClaimIds[0]) ?? null) : null,
+      })),
     analysis,
   });
 }

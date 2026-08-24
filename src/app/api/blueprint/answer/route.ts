@@ -27,9 +27,10 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { claimsAvailable, blueprintAnalysesAvailable } from '@/lib/blueprint-capability';
-import { gapDispositionAvailable } from '@/lib/document-extraction-capability';
+import { gapDispositionAvailable, gapQuestionsAvailable } from '@/lib/document-extraction-capability';
 import { normalizeAtom } from '@/lib/company-claims';
 import { routeAnswer, type GapRule } from '@/lib/company-gaps';
+import { routeFreeTextAnswer } from '@/lib/answer-routing';
 import type { ClaimCategory } from '@/lib/types';
 
 const CATEGORIES: ClaimCategory[] = [
@@ -60,9 +61,30 @@ async function recordAsked(admin: SupabaseClient, orgId: string, analysisId: str
   }).eq('id', analysisId).eq('org_id', orgId);
 }
 
+// Prompt 358 Phase 2.2 — the durable ledger (gap_questions, migration 0235),
+// separate from blueprint_analyses.questions_asked above (which is scoped
+// to ONE analysis run and only exists when that migration is applied).
+// unique(org_id, gap_key) makes "never ask the same question twice" a DB
+// invariant rather than something every caller has to remember to check —
+// upserted, not inserted, so answering the same gap_key again (should never
+// happen given /api/blueprint's own answeredRules filter, but this is the
+// backstop) updates the existing row instead of violating the constraint.
+async function recordGapQuestion(
+  admin: SupabaseClient, orgId: string, claimId: string | null, gapKey: string, rule: string,
+  questionText: string, disposition: string,
+) {
+  if (!(await gapQuestionsAvailable())) return;
+  const now = new Date().toISOString();
+  await admin.from('gap_questions').upsert({
+    org_id: orgId, claim_id: claimId, gap_key: gapKey, rule, question_text: questionText,
+    asked_at: now, answered_at: now, disposition,
+  }, { onConflict: 'org_id,gap_key' });
+}
+
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!url || !serviceKey) return NextResponse.json({ ok: false, error: 'not configured' });
 
   const sb = await serverClient();
@@ -87,6 +109,7 @@ export async function POST(req: Request) {
 
   if (body.dismissed) {
     await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: false, dismissed: true });
+    await recordGapQuestion(admin, orgId, body.relatedClaimIds?.[0] ?? null, body.gapKey, body.rule, `Gap ${body.rule} (${body.gapKey})`, 'dismissed_explicit');
     return NextResponse.json({ ok: true });
   }
 
@@ -94,12 +117,14 @@ export async function POST(req: Request) {
   const answerText = body.answer?.trim() || undefined;
   const routing = routeAnswer(body.rule as GapRule, option, !!answerText);
   const targetClaimId = body.relatedClaimIds?.[0];
+  const questionText = `Gap ${body.rule} (${body.gapKey})`;
 
   if (routing.kind === 'dismiss') {
     // Prompt 358 §1.1 — a non-informative chip alone ("No one yet", "No
     // longer applies", …): nothing was learned, so nothing is written to
     // company_claims — recorded exactly like an explicit dismiss.
     await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false, disposition: 'dismiss' });
+    await recordGapQuestion(admin, orgId, targetClaimId ?? null, body.gapKey, body.rule, questionText, 'dismiss');
     return NextResponse.json({ ok: true });
   }
 
@@ -109,6 +134,7 @@ export async function POST(req: Request) {
       .eq('id', targetClaimId).eq('org_id', orgId);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false, disposition: 'refresh' });
+    await recordGapQuestion(admin, orgId, targetClaimId, body.gapKey, body.rule, questionText, 'refresh');
     return NextResponse.json({ ok: true });
   }
 
@@ -119,6 +145,7 @@ export async function POST(req: Request) {
       .eq('id', targetClaimId).eq('org_id', orgId);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false, disposition: routing.disposition });
+    await recordGapQuestion(admin, orgId, targetClaimId, body.gapKey, body.rule, questionText, routing.disposition);
     return NextResponse.json({ ok: true });
   }
 
@@ -129,11 +156,38 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'This answer needs a document — use the attach-document flow.' }, { status: 400 });
   }
 
-  // routing.kind === 'claim' — unchanged behavior: a real claim, derived
-  // (never chosen) classification, same as always.
+  // routing.kind === 'claim' — a real claim by default, UNLESS Phase 2.3's
+  // routing decides free text is just amending the claim this gap was
+  // already about (never silent either way — routedAs/reasoning always
+  // come back in the response so the UI can tell the founder what happened).
   const parts = [option, answerText].filter(Boolean);
   const statement = parts.join(' — ');
   if (!statement) return NextResponse.json({ ok: false, error: 'An answer is required.' }, { status: 400 });
+
+  if (answerText && targetClaimId && apiKey) {
+    const { data: targetRow } = await admin.from('company_claims').select('id, statement')
+      .eq('id', targetClaimId).eq('org_id', orgId).maybeSingle();
+    if (targetRow?.statement) {
+      try {
+        const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
+        const decision = await routeFreeTextAnswer(apiKey, model, orgId, body.rule, targetRow.statement as string, answerText);
+        if (decision.destination === 'amend_target_claim') {
+          const merged = `${targetRow.statement} ${answerText}`.trim();
+          const { error } = await admin.from('company_claims')
+            .update({ statement: merged, updated_at: new Date().toISOString() })
+            .eq('id', targetClaimId).eq('org_id', orgId);
+          if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+          await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false, disposition: 'amend_target_claim' });
+          await recordGapQuestion(admin, orgId, targetClaimId, body.gapKey, body.rule, questionText, 'amend_target_claim');
+          return NextResponse.json({ ok: true, routedAs: 'amend_target_claim', reasoning: decision.reasoning });
+        }
+      } catch (e) {
+        // AI routing failing must never block the founder's answer — falls
+        // through to the ORIGINAL, always-correct default: a new claim.
+        console.error('[blueprint/answer] routeFreeTextAnswer failed', (e as Error).message);
+      }
+    }
+  }
 
   const category = (body.category && (CATEGORIES as string[]).includes(body.category)
     ? body.category as ClaimCategory : (CATEGORY_BY_RULE[body.rule] ?? 'solucao'));
@@ -150,5 +204,6 @@ export async function POST(req: Request) {
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false });
-  return NextResponse.json({ ok: true });
+  await recordGapQuestion(admin, orgId, targetClaimId ?? null, body.gapKey, body.rule, questionText, 'new_claim');
+  return NextResponse.json({ ok: true, routedAs: 'new_claim' });
 }
