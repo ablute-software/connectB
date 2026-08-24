@@ -5,15 +5,15 @@
 // reconstruction that could quietly drift from it. Every type/const the
 // section markup depends on moved here too, so there is exactly one
 // definition of "what this looks like" for both callers.
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { SectionNav } from '@/components/SectionNav';
 import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
 import { SwotQuadrant } from '@/components/readiness/SwotVisualCard';
 import { ResponsiveRoadmap } from '@/components/company/ResponsiveRoadmap';
 import type { SwotData, RoadmapPeriodKind } from '@/lib/types';
 import type { ReviewCategory } from '@/lib/review-clarifications';
 import { shouldShowMiniPitchTeaser } from '@/lib/mini-pitch';
+import { resolveInitialTabFromHash } from '@/lib/dossier-tabs';
 
 export interface Card {
   orgId: string; name: string; oneLiner: string | null; description: string | null;
@@ -158,12 +158,18 @@ export function DossierOverviewSections({
   const traction = dossier.tractionDetailed && Object.keys(dossier.tractionDetailed).length > 0
     ? Object.entries(dossier.tractionDetailed) : [];
 
-  return (
-    <div id="dossier-overview" className="space-y-4">
-      {/* Prompt 213 §B — le-se como abas, comporta-se como ancoras: clicar
-          salta a seccao, o scroll destaca a activa, e o dossier continua a
-          poder ser percorrido (ou impresso) de uma ponta a outra. */}
-      <SectionNav containerId="dossier-overview" />
+  // Prompt 351 — real tabs instead of anchors-with-scroll. Sections are
+  // built here, in order, by the exact same conditions the old vertical
+  // stack used — a single source of truth for "what exists," never a
+  // second list that could drift (same reasoning the old SectionNav's own
+  // comment gave for discovering sections in the DOM instead of a parallel
+  // array; this replaces DOM-discovery with array-building for the same
+  // reason: exactly one place decides what's there).
+  const sections: { id: string; label: string; node: ReactNode }[] = [];
+
+  sections.push({
+    id: 'about', label: 'About',
+    node: (
       <div id="about" data-section="About" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
         <h2 className="text-sm font-semibold text-gray-900">About</h2>
         {/* §A — a pagina e larga, o paragrafo nao: texto corrido acima de
@@ -218,27 +224,39 @@ export function DossierOverviewSections({
           </div>
         )}
       </div>
+    ),
+  });
 
-      {/* Prompt 334 — the mini-pitch, right after About: the concrete "here's
-          the case" an investor at Level 1 sees, before SWOT/roadmap/round
-          detail. Absent entirely unless the founder both reached this level
-          AND activated a mini-pitch (dossier.miniPitch is server-gated on
-          both, dossier-fetch.ts) — no placeholder, no "not activated yet"
-          message shown to an investor (that message belongs to the founder's
-          own settings page, never here). */}
-      {dossier.miniPitch && dossier.miniPitch.length > 0 && <MiniPitchSlides slides={dossier.miniPitch} />}
+  // Prompt 334 — the mini-pitch, right after About: the concrete "here's
+  // the case" an investor at Level 1 sees, before SWOT/roadmap/round
+  // detail. Absent entirely unless the founder both reached this level
+  // AND activated a mini-pitch (dossier.miniPitch is server-gated on
+  // both, dossier-fetch.ts) — no placeholder, no "not activated yet"
+  // message shown to an investor (that message belongs to the founder's
+  // own settings page, never here).
+  if (dossier.miniPitch && dossier.miniPitch.length > 0) {
+    sections.push({ id: 'mini-pitch', label: 'Pitch', node: <MiniPitchSlides slides={dossier.miniPitch} /> });
+  }
 
-      {/* Prompt 166 §D.4 — right after the About/summary block, before the
-          round's financial details: a quick strategic read comes before the
-          numbers. Server-gated (dossier.swot is absent unless both the
-          level and the founder's toggle allow it) — no "hidden" message
-          when it's off, consistent with every other gated section here. */}
-      {dossier.swot ? (
+  // Prompt 166 §D.4 — right after the About/summary block, before the
+  // round's financial details: a quick strategic read comes before the
+  // numbers. Server-gated (dossier.swot is absent unless both the level
+  // and the founder's toggle allow it) — no "hidden" message when it's
+  // off, consistent with every other gated section here.
+  if (dossier.swot) {
+    sections.push({
+      id: 'swot', label: 'SWOT',
+      node: (
         <div id="swot" data-section="SWOT" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-[#0E7490]">SWOT snapshot</h2>
           <div className="mt-2"><SwotQuadrant data={dossier.swot} /></div>
         </div>
-      ) : swotOffHref && level >= 1 ? (
+      ),
+    });
+  } else if (swotOffHref && level >= 1) {
+    sections.push({
+      id: 'swot', label: 'SWOT',
+      node: (
         <div id="swot" data-section="SWOT" className="scroll-mt-16 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-gray-400">SWOT snapshot</h2>
@@ -246,16 +264,21 @@ export function DossierOverviewSections({
           </div>
           <p className="mt-1 text-xs text-gray-400">Off — investors in contact with you won&apos;t see this until you turn it on.</p>
         </div>
-      ) : null}
+      ),
+    });
+  }
 
-      {/* Prompt 167 §C.4 — same positioning logic as SWOT above: a quick
-          summary belongs near the top, before the round's financial
-          details. dossier.roadmap is present (possibly an empty array) once
-          level + the founder's toggle both allow it — RoadmapTimeline
-          itself handles zero milestones by showing just the founding node,
-          same as it does founder-side in RoadmapCard.tsx. editable={false}
-          and no callbacks: no "+", no edit/remove hover-actions here. */}
-      {dossier.roadmap ? (
+  // Prompt 167 §C.4 — same positioning logic as SWOT above: a quick
+  // summary belongs near the top, before the round's financial details.
+  // dossier.roadmap is present (possibly an empty array) once level + the
+  // founder's toggle both allow it — RoadmapTimeline itself handles zero
+  // milestones by showing just the founding node, same as it does
+  // founder-side in RoadmapCard.tsx. editable={false} and no callbacks: no
+  // "+", no edit/remove hover-actions here.
+  if (dossier.roadmap) {
+    sections.push({
+      id: 'roadmap', label: 'Roadmap',
+      node: (
         <div id="roadmap" data-section="Roadmap" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-gray-900">Roadmap</h2>
           <div className="mt-2">
@@ -264,7 +287,12 @@ export function DossierOverviewSections({
             <ResponsiveRoadmap foundedYear={overview?.founded_year ?? null} milestones={dossier.roadmap} categories={dossier.roadmapCategories ?? []} />
           </div>
         </div>
-      ) : roadmapOffHref && level >= 1 ? (
+      ),
+    });
+  } else if (roadmapOffHref && level >= 1) {
+    sections.push({
+      id: 'roadmap', label: 'Roadmap',
+      node: (
         <div id="roadmap" data-section="Roadmap" className="scroll-mt-16 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-gray-400">Roadmap</h2>
@@ -272,13 +300,18 @@ export function DossierOverviewSections({
           </div>
           <p className="mt-1 text-xs text-gray-400">Off — investors in contact with you won&apos;t see this until you turn it on.</p>
         </div>
-      ) : null}
+      ),
+    });
+  }
 
-      {/* Prompt 168 §D — server-gated absence: this key only exists at all
-          when N > 0 (projectDossier's own rule), so there's no "0
-          clarifications" state to render here — the section simply isn't
-          there, same as the rest of this page's disclosure-ladder sections. */}
-      {dossier.founderClarifications && dossier.founderClarifications.length > 0 && (
+  // Prompt 168 §D — server-gated absence: this key only exists at all
+  // when N > 0 (projectDossier's own rule), so there's no "0
+  // clarifications" state to render here — the section simply isn't
+  // there, same as the rest of this page's disclosure-ladder sections.
+  if (dossier.founderClarifications && dossier.founderClarifications.length > 0) {
+    sections.push({
+      id: 'clarifications', label: 'Clarifications',
+      node: (
         <div id="clarifications" data-section="Clarifications" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-gray-900">Founder clarifications</h2>
           <p className="mt-1 text-xs text-gray-500">
@@ -293,9 +326,14 @@ export function DossierOverviewSections({
             ))}
           </ul>
         </div>
-      )}
+      ),
+    });
+  }
 
-      {(card.roundTargetEur != null || card.roundValuationEur != null || card.roundMinTicketEur != null || card.roundInstruments.length > 0) && (
+  if (card.roundTargetEur != null || card.roundValuationEur != null || card.roundMinTicketEur != null || card.roundInstruments.length > 0) {
+    sections.push({
+      id: 'round', label: 'Round',
+      node: (
         <div id="round" data-section="Round" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-gray-900">Round</h2>
           <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
@@ -310,9 +348,14 @@ export function DossierOverviewSections({
             {card.roundInstruments.length > 0 && <div><dt className="text-xs text-gray-400">Instrument</dt><dd>{card.roundInstruments.join(', ')}</dd></div>}
           </dl>
         </div>
-      )}
+      ),
+    });
+  }
 
-      {hasMarket && (
+  if (hasMarket) {
+    sections.push({
+      id: 'market', label: 'Market',
+      node: (
         <div id="market" data-section="Market" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-gray-900">Market</h2>
           <dl className="mt-2 grid grid-cols-3 gap-x-4 gap-y-2 text-sm">
@@ -321,67 +364,120 @@ export function DossierOverviewSections({
             {overview!.som_eur != null && <div><dt className="text-xs text-gray-400">SOM</dt><dd>{fmtEur(overview!.som_eur)}</dd></div>}
           </dl>
         </div>
+      ),
+    });
+  }
+
+  if (level >= 2 && hasTeam) {
+    sections.push({
+      id: 'team', label: 'Team',
+      node: (
+        <div id="team" data-section="Team" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-gray-900">Team</h2>
+          {overview?.team_summary && <p className="mt-1 text-sm text-gray-700">{overview.team_summary}</p>}
+          {team.length > 0 ? (
+            <ul className="mt-2 space-y-1.5">
+              {team.map((p) => (
+                <li key={p.id} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="text-gray-700">
+                    {p.fullName}{p.title && <span className="text-gray-400"> — {p.title}</span>}
+                    {p.isFounder && <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[10px] font-semibold text-[#0E7490]">Founder</span>}
+                    {p.email && <span className="ml-1.5 text-gray-400">· {p.email}</span>}
+                  </span>
+                  {p.linkedinUrl && (
+                    <a href={p.linkedinUrl} target="_blank" rel="noreferrer" className="shrink-0 text-[#0E7490] hover:underline">LinkedIn</a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <>
+              {overview?.representative_name && (
+                <p className="mt-1 text-xs text-gray-500">
+                  {overview.representative_name}
+                  {overview.representative_linkedin && (
+                    <> · <a href={overview.representative_linkedin} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">LinkedIn</a></>
+                  )}
+                </p>
+              )}
+              {(overview?.founders ?? []).map((f, i) => (
+                <p key={i} className="mt-1 text-xs text-gray-500">{f.full_name}{f.title && ` — ${f.title}`}</p>
+              ))}
+            </>
+          )}
+          {!readOnly && !dossier.canMessageNamedPerson && team.length > 0 && (
+            <button onClick={() => onRequestLevel?.(3)} disabled={levelBusy}
+              className="mt-2 text-xs text-[#0E7490] hover:underline disabled:opacity-40">
+              Request contact →
+            </button>
+          )}
+        </div>
+      ),
+    });
+  }
+
+  if (level >= 2 && traction.length > 0) {
+    sections.push({
+      id: 'traction', label: 'Traction',
+      node: (
+        <div id="traction" data-section="Traction" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-gray-900">Traction</h2>
+          <div className="mt-2 flex flex-wrap gap-4">
+            {traction.map(([label, value]) => (
+              <div key={label}><div className="text-xs text-gray-400">{label}</div><div className="text-sm font-semibold text-gray-900">{String(value)}</div></div>
+            ))}
+          </div>
+        </div>
+      ),
+    });
+  }
+
+  const sectionIds = sections.map((s) => s.id);
+  const [activeId, setActiveId] = useState('about');
+
+  // Prompt 351 — deep-links: opening with #round selects the Round tab.
+  // Read once on mount only — a later change to the URL hash from outside
+  // this component (there isn't one today) is deliberately not tracked,
+  // same scope as the old SectionNav's own scroll-spy only ever ran client-side.
+  useEffect(() => {
+    setActiveId(resolveInitialTabFromHash(window.location.hash, sectionIds, 'about'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function selectTab(id: string) {
+    setActiveId(id);
+    // replaceState, never pushState — switching tabs must not grow browser
+    // history (Prompt 351's own requirement: "sem entradas de histórico por clique").
+    window.history.replaceState(null, '', `#${id}`);
+  }
+
+  const active = sections.find((s) => s.id === activeId) ?? sections[0];
+
+  return (
+    <div id="dossier-overview" className="space-y-4">
+      {/* Prompt 351 — real tabs: clicking a pill shows ONLY that section's
+          content, immediately below the pill row — no other sections above
+          or below, no scroll-down. Replaces the old anchor-scroll SectionNav
+          (which discovered sections via [data-section] DOM query + an
+          IntersectionObserver scroll-spy); a single pill row disappears
+          when there's only one section, same as before. */}
+      {sections.length > 1 && (
+        <nav className="sticky top-0 z-20 -mx-1 mb-3 flex gap-1 overflow-x-auto border-b border-gray-200 bg-[#F7F9FA]/95 px-1 py-2 backdrop-blur">
+          {sections.map((s) => (
+            <button key={s.id} onClick={() => selectTab(s.id)}
+              className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                activeId === s.id ? 'bg-[#0E7490] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+              {s.label}
+            </button>
+          ))}
+        </nav>
       )}
+
+      {active?.node}
 
       {scorecardOrgId && <ScorecardPanel orgId={scorecardOrgId} />}
 
-      {level >= 2 ? (
-        <>
-          {hasTeam && (
-            <div id="team" data-section="Team" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
-              <h2 className="text-sm font-semibold text-gray-900">Team</h2>
-              {overview?.team_summary && <p className="mt-1 text-sm text-gray-700">{overview.team_summary}</p>}
-              {team.length > 0 ? (
-                <ul className="mt-2 space-y-1.5">
-                  {team.map((p) => (
-                    <li key={p.id} className="flex items-center justify-between gap-2 text-xs">
-                      <span className="text-gray-700">
-                        {p.fullName}{p.title && <span className="text-gray-400"> — {p.title}</span>}
-                        {p.isFounder && <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[10px] font-semibold text-[#0E7490]">Founder</span>}
-                        {p.email && <span className="ml-1.5 text-gray-400">· {p.email}</span>}
-                      </span>
-                      {p.linkedinUrl && (
-                        <a href={p.linkedinUrl} target="_blank" rel="noreferrer" className="shrink-0 text-[#0E7490] hover:underline">LinkedIn</a>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <>
-                  {overview?.representative_name && (
-                    <p className="mt-1 text-xs text-gray-500">
-                      {overview.representative_name}
-                      {overview.representative_linkedin && (
-                        <> · <a href={overview.representative_linkedin} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">LinkedIn</a></>
-                      )}
-                    </p>
-                  )}
-                  {(overview?.founders ?? []).map((f, i) => (
-                    <p key={i} className="mt-1 text-xs text-gray-500">{f.full_name}{f.title && ` — ${f.title}`}</p>
-                  ))}
-                </>
-              )}
-              {!readOnly && !dossier.canMessageNamedPerson && team.length > 0 && (
-                <button onClick={() => onRequestLevel?.(3)} disabled={levelBusy}
-                  className="mt-2 text-xs text-[#0E7490] hover:underline disabled:opacity-40">
-                  Request contact →
-                </button>
-              )}
-            </div>
-          )}
-
-          {traction.length > 0 && (
-            <div id="traction" data-section="Traction" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
-              <h2 className="text-sm font-semibold text-gray-900">Traction</h2>
-              <div className="mt-2 flex flex-wrap gap-4">
-                {traction.map(([label, value]) => (
-                  <div key={label}><div className="text-xs text-gray-400">{label}</div><div className="text-sm font-semibold text-gray-900">{String(value)}</div></div>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
-      ) : level === 1 ? (
+      {level === 1 && (
         <div className="rounded-lg border border-dashed border-gray-200 bg-white p-4 text-center">
           <p className="text-sm text-gray-600">
             {readOnly
@@ -395,7 +491,7 @@ export function DossierOverviewSections({
             </button>
           )}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
