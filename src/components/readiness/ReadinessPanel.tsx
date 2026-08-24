@@ -18,6 +18,7 @@ import { useTabParam } from '@/lib/use-tab';
 import { REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
 import { ReviewPanel } from './ReviewPanel';
 import { BlueprintPanel } from './BlueprintPanel';
+import { MarketDataPanel } from './MarketDataPanel';
 import { ActionPlanPanel } from './ActionPlanPanel';
 import { TrainPanel } from './TrainPanel';
 import { HistoryPanel } from './HistoryPanel';
@@ -27,6 +28,8 @@ const TABS = [
   // Prompt 219 bloco 3 — o motor de narrativa. Fica a seguir a Review por
   // ser a leitura que alimenta tudo o resto; o gating por tier é o bloco 6.
   { key: 'blueprint', label: 'Pitch Blueprint' },
+  // Prompt 360 Part A — its own tab, between Blueprint and Action plan.
+  { key: 'market_data', label: 'Market data — your sector' },
   { key: 'plan', label: 'Action plan' },
   { key: 'train', label: 'Train' },
   { key: 'history', label: 'History' },
@@ -78,6 +81,7 @@ function ReadinessInner() {
         <div className={locked ? 'pointer-events-none select-none space-y-4 blur-[2px]' : 'space-y-4'} aria-hidden={locked}>
           {activeTab === 'review' && <ReviewPanel />}
           {activeTab === 'blueprint' && <BlueprintPanel />}
+          {activeTab === 'market_data' && <MarketDataPanel />}
           {activeTab === 'plan' && <ActionPlanPanel />}
           {activeTab === 'train' && <TrainPanel />}
           {activeTab === 'history' && <HistoryPanel />}

@@ -8,3 +8,10 @@ export const aiReviewDocumentLinkAvailable = makeCapabilityProbe(async (admin) =
   const { error } = await admin.from('ai_reviews').select('document_version').limit(1);
   return !error;
 });
+
+// Prompt 360 Part B — migration 0240's second document slot, for
+// cross_document_review specifically (every other kind never uses it).
+export const aiReviewDocumentLinkBAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('ai_reviews').select('document_id_b').limit(1);
+  return !error;
+});

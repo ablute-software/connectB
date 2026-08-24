@@ -99,10 +99,11 @@ export function ReviewPanel() {
   const [marketResult, setMarketResult] = useState('');
   const [marketLoading, setMarketLoading] = useState(false);
 
-  const [crossKindA, setCrossKindA] = useState<DocKind>('deck_review');
-  const [crossTextA, setCrossTextA] = useState('');
-  const [crossKindB, setCrossKindB] = useState<DocKind>('financial_plan_review');
-  const [crossTextB, setCrossTextB] = useState('');
+  // Prompt 360 Part B — two real Vault documents, never pasted text; the
+  // "kind" concept is gone from this card entirely (the document's own name
+  // is the label now).
+  const [crossDocA, setCrossDocA] = useState('');
+  const [crossDocB, setCrossDocB] = useState('');
   const [crossResult, setCrossResult] = useState<Contradiction[] | null>(null);
   const [crossErr, setCrossErr] = useState('');
   const [crossLoading, setCrossLoading] = useState(false);
@@ -342,7 +343,7 @@ export function ReviewPanel() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           kind: 'cross_document_review',
-          kindA: crossKindA, draftA: crossTextA, kindB: crossKindB, draftB: crossTextB,
+          documentIdA: crossDocA, documentIdB: crossDocB,
           context: { ...companyContext, facts: confirmedFacts },
         }),
       });
@@ -351,6 +352,13 @@ export function ReviewPanel() {
       if (data.review) { setCrossErr(data.review); return; } // configured:false fallback text
       setCrossResult(data.contradictions as Contradiction[]);
     } catch (e) { setCrossErr((e as Error).message); } finally { setCrossLoading(false); }
+  }
+
+  // Prompt 360 Part B — "Check another pair" immediately after a result:
+  // clears the picked documents and result, never the loading/error UI
+  // pattern used elsewhere, so the founder can start over in one click.
+  function resetCrossDocument() {
+    setCrossDocA(''); setCrossDocB(''); setCrossResult(null); setCrossErr('');
   }
 
   async function runInvestability() {
@@ -649,66 +657,79 @@ export function ReviewPanel() {
 
       <Card title={<span className="inline-flex items-center gap-2">Cross-document check — find contradictions {caps && !caps.reviewTopTierTools && <PlanBadge tier="motherfunding" />}</span>}>
         <p className="mb-2 text-xs text-gray-500">
-          Paste two different documents (e.g. your business plan and your financial plan) and the AI flags only genuine
-          contradictions — each backed by an exact quote from both sides. Feeds the Contradictions section in Action plan.
+          Pick two documents from your Vault and the AI flags only genuine contradictions — each backed by an exact quote
+          from both sides. Feeds the Contradictions section in Action plan.
         </p>
         {!caps?.ai ? <ComingSoon /> : !caps.reviewTopTierTools ? <TopTierLocked /> : (
           <>
             <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <select value={crossKindA} onChange={(e) => setCrossKindA(e.target.value as DocKind)}
-                  className="mb-2 w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
-                  {DOC_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
-                </select>
-                <textarea value={crossTextA} onChange={(e) => setCrossTextA(e.target.value)} rows={6}
-                  placeholder="Paste Document A…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
-              </div>
-              <div>
-                <select value={crossKindB} onChange={(e) => setCrossKindB(e.target.value as DocKind)}
-                  className="mb-2 w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
-                  {DOC_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
-                </select>
-                <textarea value={crossTextB} onChange={(e) => setCrossTextB(e.target.value)} rows={6}
-                  placeholder="Paste Document B…" className="w-full rounded border border-gray-300 p-2 text-sm font-mono" />
-              </div>
+              <select value={crossDocA} onChange={(e) => setCrossDocA(e.target.value)}
+                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
+                <option value="">Document A…</option>
+                {db.documents.filter((d) => d.storage_path && /\.pdf$/i.test(d.name)).map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}{d.version ? ` (${d.version})` : ''}</option>
+                ))}
+              </select>
+              <select value={crossDocB} onChange={(e) => setCrossDocB(e.target.value)}
+                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm">
+                <option value="">Document B…</option>
+                {db.documents.filter((d) => d.storage_path && /\.pdf$/i.test(d.name)).map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}{d.version ? ` (${d.version})` : ''}</option>
+                ))}
+              </select>
             </div>
-            {crossKindA === crossKindB && (
-              <p className="mt-2 text-xs text-amber-600">Pick two different document types — comparing a document to itself isn&apos;t a real contradiction.</p>
+            {crossDocA && crossDocA === crossDocB && (
+              <p className="mt-2 text-xs text-amber-600">Pick two different documents — comparing a document to itself isn&apos;t a real contradiction.</p>
             )}
-            <button disabled={!crossTextA || !crossTextB || crossKindA === crossKindB || crossLoading} onClick={checkCrossDocument}
+            <button disabled={!crossDocA || !crossDocB || crossDocA === crossDocB || crossLoading} onClick={checkCrossDocument}
               className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-              {crossLoading ? 'Checking…' : 'Check for contradictions'}
+              {crossLoading ? 'Checking…' : 'Find contradictions'}
             </button>
             {crossErr && <p className="mt-2 text-xs text-[#B00000]">{crossErr}</p>}
             {crossResult && (
-              crossResult.length === 0 ? (
-                <p className="mt-3 text-xs text-gray-500">No genuine contradictions found between these two documents.</p>
-              ) : (
-                <ul className="mt-3 space-y-3">
-                  {crossResult.map((c, i) => (
-                    <li key={i} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-gray-800">{c.text}</p>
-                        <span className={`shrink-0 text-xs font-semibold uppercase ${SEVERITY_COLOR[c.severity]}`}>{c.severity}</span>
-                      </div>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                        <div className="rounded border border-amber-200 bg-white p-2 text-xs text-gray-700">&ldquo;{c.sideA.quote}&rdquo;</div>
-                        <div className="rounded border border-amber-200 bg-white p-2 text-xs text-gray-700">&ldquo;{c.sideB.quote}&rdquo;</div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )
+              <>
+                {crossResult.length === 0 ? (
+                  <p className="mt-3 text-xs text-gray-500">No genuine contradictions found between these two documents.</p>
+                ) : (
+                  <ul className="mt-3 space-y-3">
+                    {crossResult.map((c, i) => (
+                      <li key={i} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-gray-800">{c.text}</p>
+                          <span className={`shrink-0 text-xs font-semibold uppercase ${SEVERITY_COLOR[c.severity]}`}>{c.severity}</span>
+                        </div>
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          <div className="rounded border border-amber-200 bg-white p-2 text-xs text-gray-700">
+                            <p className="mb-1 font-medium text-gray-500">{c.sideA.kind}</p>&ldquo;{c.sideA.quote}&rdquo;
+                          </div>
+                          <div className="rounded border border-amber-200 bg-white p-2 text-xs text-gray-700">
+                            <p className="mb-1 font-medium text-gray-500">{c.sideB.kind}</p>&ldquo;{c.sideB.quote}&rdquo;
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <button onClick={resetCrossDocument} className="mt-3 text-xs font-medium text-[#0E7490] hover:underline">
+                  Check another pair
+                </button>
+              </>
             )}
           </>
         )}
       </Card>
 
-      <Card title={<span className="inline-flex items-center gap-2">Market data — your sector {caps && !caps.reviewTopTierTools && <PlanBadge tier="motherfunding" />}</span>}>
+      {/* Prompt 360 Part A — the full "Market data — your sector" experience
+          (three sources, curation, Sherlock research) moved to its own
+          top-level tab (ReadinessPanel.tsx). This card is a quick, one-shot
+          AI benchmark — kept, renamed to avoid the title collision, since
+          it's a genuinely different, cheaper tool than the new tab's
+          curated canvas, not a duplicate of it. */}
+      <Card title={<span className="inline-flex items-center gap-2">Quick market benchmark (AI report) {caps && !caps.reviewTopTierTools && <PlanBadge tier="motherfunding" />}</span>}>
         <p className="mb-2 text-xs text-gray-500">
-          Benchmarks YOUR OWN market/sector: size and direction, where a company at your stage typically sits, the metrics
-          investors in this space benchmark on, and comparable companies. Every item is marked for verification; specifics
-          are never invented. Grounded on your company facts.
+          A one-shot AI report on your market/sector — size and direction, where a company at your stage typically sits, the
+          metrics investors in this space benchmark on, and comparable companies. For sourced, curated research you can
+          build on over time, see the <a href="/readiness?tab=market_data" className="text-[#0E7490] underline">Market data — your sector</a> tab.
         </p>
         {!caps?.ai ? <ComingSoon /> : !caps.reviewTopTierTools ? <TopTierLocked /> : (
           <>

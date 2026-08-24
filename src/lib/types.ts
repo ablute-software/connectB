@@ -559,8 +559,14 @@ export type ClaimCategory =
   | 'problema' | 'solucao' | 'prova_tecnica' | 'validacao_externa'
   | 'tracao_gtm' | 'equipa' | 'mercado_timing' | 'funding' | 'ask';
 export type ClaimSpecificity = 'high' | 'medium' | 'low';
+// Prompt 360 Part A — 'web_research': a founder accepted a Sherlock research
+// item (migration 0241). Deliberately distinct from 'vault_doc' (which
+// specifically routes through Vault-visibility checks elsewhere, e.g.
+// mini-pitch.ts's filterEligibleClaims — a web-sourced claim must never go
+// through that) and from 'fact' (no documented meaning distinct from
+// founder_answer).
 export type ClaimSourceKind =
-  | 'fact' | 'vault_doc' | 'roadmap' | 'profile' | 'funding_round' | 'founder_answer';
+  | 'fact' | 'vault_doc' | 'roadmap' | 'profile' | 'funding_round' | 'founder_answer' | 'web_research';
 
 // Prompt 219 bloco 2 — o claim PERSISTIDO (espelho client-side da linha de
 // company_claims, migração 0176): o que as regras de deteção de lacunas
