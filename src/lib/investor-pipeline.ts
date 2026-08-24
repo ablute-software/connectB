@@ -12,6 +12,7 @@ import { resolveActorDisplays } from './network-db';
 import { getActiveFollowOnPairs } from './network-followon-db';
 import { shapeFollowOnPayload, type FollowOnPayload } from './network';
 import { projectIntroPitch } from './investor-interest-level';
+import { canWithdrawInterest, resolveWithdrawWindowSignals } from './investor-interest-withdrawal';
 
 const WAVE_SIZE = 8;
 const TRACKING_WINDOW_DAYS = 30;
@@ -341,8 +342,36 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       referredByName: referrerNameByOrgId.get(org.id as string) ?? null,
       followOnSignals: followOnSignalsByOrg.get(org.id as string) ?? [],
       isArchived: archivedOrgIds.has(org.id as string),
+      // Prompt 345 §B — set below, after this array exists (needs its own
+      // async resolution per interested card). Placeholder here so the
+      // field is always present on the type; never used before that loop.
+      canWithdrawInterest: false,
     };
   }).sort((a, b) => b.matchScore - a.matchScore);
+
+  // Prompt 345 §B — "Withdraw interest": whether the window is still open,
+  // computed HERE (not lazily on expand) because P134-A's own acceptance
+  // criterion is that expanding a card never fetches. Only for cards with a
+  // REAL decision (decidedAt set — a legacy swipe-only 'like' predates
+  // investor_relationship_decisions and was never tracked with a founder
+  // task/notification to withdraw in the first place). Team emails resolved
+  // once, reused for every such card, not once per card.
+  const withdrawableCards = cards.filter((c) => c.status === 'interested' && c.decidedAt);
+  if (withdrawableCards.length > 0 && investorCatalogEntityId) {
+    const { data: teamRows } = await admin.from('matchdeal_investor_members').select('user_id')
+      .eq('catalog_entity_id', investorCatalogEntityId).eq('status', 'active');
+    const teamEmails = await Promise.all((teamRows ?? []).map(async (r) => {
+      const { data } = await admin.auth.admin.getUserById(r.user_id as string);
+      return data?.user?.email ?? null;
+    }));
+    const investorEmails = [...new Set([email, ...teamEmails.filter((e): e is string => !!e)])];
+    await Promise.all(withdrawableCards.map(async (c) => {
+      const signals = await resolveWithdrawWindowSignals(admin, {
+        orgId: c.orgId as string, investorCatalogEntityId, decidedAt: c.decidedAt as string, investorEmails,
+      });
+      c.canWithdrawInterest = canWithdrawInterest(signals);
+    }));
+  }
 
   // P132-A — a relationship card (grant and/or decision) is never subject
   // to the discovery wave-gate: the relationship already exists, so there's

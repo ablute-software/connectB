@@ -61,6 +61,10 @@ interface Card {
   // state, so the badge survives a reload just like everything else here.
   isArchived?: boolean;
   trackingCount: number; hasDataRoomAccess: boolean;
+  // Prompt 345 §B — whether the withdraw window is still open; false for
+  // every status other than 'interested' with a real decision. Computed
+  // server-side at Pipeline-load time (never lazily on expand).
+  canWithdrawInterest?: boolean;
 }
 // Item 14 — a locked wave's `items` now arrives empty from the server
 // (/api/portal/pipeline strips real card data for any wave with
@@ -178,6 +182,10 @@ export function PipelinePanel({
   const [interactionLogOrgId, setInteractionLogOrgId] = useState<string | null>(null);
   const [busyOrgId, setBusyOrgId] = useState<string | null>(null);
   const [remindedOrgId, setRemindedOrgId] = useState<string | null>(null);
+  // Prompt 345 §B — separate from `confirming` (pass/interest) on purpose:
+  // that state drives a bigger reason-collecting box; this is a one-line
+  // "are you sure?" per the prompt's own copy.
+  const [confirmingWithdrawOrgId, setConfirmingWithdrawOrgId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
   // Prompt 337 — count for the "Archived" filter pill. A separate small
   // fetch rather than deriving from `data.waves` cards' own `isArchived`
@@ -323,6 +331,24 @@ export function PipelinePanel({
       // sign anything went wrong. Every failure now surfaces on this card.
       if (!res.ok || body.ok === false) setCardError(orgId, body.error ?? 'Could not archive — please try again.');
       else setArchivedToastOrgId(orgId);
+      load();
+    } finally { setBusyOrgId(null); }
+  }
+
+  // Prompt 345 §B — the window check runs again server-side on this exact
+  // call; the button only ever having been shown (c.canWithdrawInterest)
+  // isn't the real gate.
+  async function withdrawInterest(orgId: string) {
+    setBusyOrgId(orgId);
+    setCardError(orgId, null);
+    try {
+      const res = await fetch('/api/portal/pipeline/withdraw-interest', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.ok === false) setCardError(orgId, body.error ?? 'Could not withdraw — please try again.');
+      else setConfirmingWithdrawOrgId(null);
       load();
     } finally { setBusyOrgId(null); }
   }
@@ -685,6 +711,23 @@ export function PipelinePanel({
                           className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
                           Archive
                         </button>
+                        {/* Prompt 345 §B — discreet, next to the rest of the
+                            row rather than a primary action: withdrawing is
+                            an edge case, not the expected path. */}
+                        {confirmingWithdrawOrgId === c.orgId ? (
+                          <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                            The founder hasn&apos;t seen this yet — withdraw?
+                            <button onClick={() => withdrawInterest(c.orgId)} disabled={busyOrgId === c.orgId}
+                              className="font-medium text-[#B00000] hover:underline disabled:opacity-40">Yes</button>
+                            <button onClick={() => setConfirmingWithdrawOrgId(null)} className="text-gray-400 hover:underline">No</button>
+                          </span>
+                        ) : c.canWithdrawInterest ? (
+                          <button onClick={() => setConfirmingWithdrawOrgId(c.orgId)} className="text-xs text-gray-400 hover:underline">
+                            Withdraw interest
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-400">The founder has already responded — this can no longer be withdrawn.</span>
+                        )}
                       </div>
                     ) : wave.unlocked && confirming?.orgId === c.orgId ? (
                       // AP-07/08 — a confirmation step before either decision
