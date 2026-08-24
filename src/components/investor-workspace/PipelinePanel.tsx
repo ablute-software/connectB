@@ -152,7 +152,22 @@ export function PipelinePanel({
   // local state, no request is ever sent.
   const [confirming, setConfirming] = useState<{ orgId: string; action: 'pass' | 'interest' } | null>(null);
   const [reasonDraft, setReasonDraft] = useState('');
-  const [actionError, setActionError] = useState<string | null>(null);
+  // Prompt 345 §A.2 — per-card now, not one global banner floating above
+  // the whole wave list: archiveManually used to fail 403 with nothing
+  // shown anywhere (the response body was never read), and even act()'s own
+  // error rendered far from the card that caused it on a long list. Keyed
+  // by orgId so each card's own error is independent and never bleeds onto
+  // a different card's retry.
+  const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
+  function setCardError(orgId: string, message: string | null) {
+    setActionErrors((prev) => {
+      if (message === null) {
+        if (!(orgId in prev)) return prev;
+        const next = { ...prev }; delete next[orgId]; return next;
+      }
+      return { ...prev, [orgId]: message };
+    });
+  }
   // Item 8 — archiving worked (the entry landed in the Archive tab fine)
   // but gave zero feedback where the click happened: same card, same
   // buttons, nothing. The persistent "Archived" badge (isArchived, from the
@@ -247,7 +262,7 @@ export function PipelinePanel({
   useEffect(load, []);
 
   function startConfirm(orgId: string, action: 'pass' | 'interest') {
-    setActionError(null);
+    setCardError(orgId, null);
     setReasonDraft('');
     setConfirming({ orgId, action });
   }
@@ -259,7 +274,7 @@ export function PipelinePanel({
 
   async function act(orgId: string, action: 'pass' | 'interest', reason?: string) {
     setBusyOrgId(orgId);
-    setActionError(null);
+    setCardError(orgId, null);
     try {
       const res = await fetch('/api/portal/pipeline', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -269,7 +284,7 @@ export function PipelinePanel({
       if (!res.ok || body.ok === false) {
         // AP-14 — a teammate may have decided first; surface it plainly and
         // reload so this card reflects the actual (org-level) outcome.
-        setActionError(body.error ?? 'Something went wrong — please try again.');
+        setCardError(orgId, body.error ?? 'Something went wrong — please try again.');
       } else {
         setConfirming(null);
         setReasonDraft('');
@@ -295,12 +310,19 @@ export function PipelinePanel({
   async function archiveManually(orgId: string) {
     setBusyOrgId(orgId);
     setArchivedToastOrgId(null);
+    setCardError(orgId, null);
     try {
       const res = await fetch('/api/portal/archive', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ archiveOrgId: orgId }),
       });
-      if (res.ok) setArchivedToastOrgId(orgId);
+      const body = await res.json().catch(() => ({}));
+      // Prompt 345 §A.2 — this used to check only res.ok and never read the
+      // body: a 403 (wrong authorization predicate, fixed in the route
+      // itself) failed completely silently, same click, same button, no
+      // sign anything went wrong. Every failure now surfaces on this card.
+      if (!res.ok || body.ok === false) setCardError(orgId, body.error ?? 'Could not archive — please try again.');
+      else setArchivedToastOrgId(orgId);
       load();
     } finally { setBusyOrgId(null); }
   }
@@ -350,8 +372,12 @@ export function PipelinePanel({
   // AP-13 — "All" keeps Prompt 60's existing behaviour (passed cards live
   // in Archive, not duplicated here); "Passed" is the one filter that
   // deliberately surfaces them back in this view anyway.
+  // Prompt 345 §A.3 — isArchived excluded from "All" the same way, on its
+  // own terms: an archived card no longer necessarily has status 'passed'
+  // (archiving stopped writing a pass swipe), so this can't be left to
+  // fall out of the status check above by accident anymore.
   function passesFilter(c: Card) {
-    if (statusFilter === 'all' ? c.status === 'passed' : c.status !== statusFilter) return false;
+    if (statusFilter === 'all' ? (c.status === 'passed' || c.isArchived) : c.status !== statusFilter) return false;
     if (sectorFilter !== 'all' && !c.sectors.includes(sectorFilter)) return false;
     if (countryFilter !== 'all' && c.country !== countryFilter) return false;
     if (stageFilter !== 'all' && c.stage !== stageFilter) return false;
@@ -442,7 +468,6 @@ export function PipelinePanel({
         )}
       </div>
       {data.usualCoInvestors && <p className="text-xs text-gray-400">Usually co-invests with: {data.usualCoInvestors}</p>}
-      {actionError && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
 
       {/* Prompt 127 §3 — before this, the only hint that comparison existed
           at all was the per-card checkbox itself, with zero invitation to
@@ -633,6 +658,13 @@ export function PipelinePanel({
                         <span>Archived — you&apos;ll find it in the Archive tab.</span>
                         <button onClick={() => setStatusFilter('archived')} className="font-medium text-[#0E7490] hover:underline">Go to Archive →</button>
                       </div>
+                    )}
+                    {/* Prompt 345 §A.2 — same visual pattern as the confirm
+                        box's own error state, right on the card that caused
+                        it, regardless of which action (Express interest,
+                        Pass, Archive) failed. */}
+                    {actionErrors[c.orgId] && (
+                      <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionErrors[c.orgId]}</p>
                     )}
 
                     {c.status === 'passed' ? (

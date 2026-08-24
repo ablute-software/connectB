@@ -7,7 +7,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { activeGrantOrgIds, resolveInvestorCatalogEntityId, resolveInvestorProfile } from '@/lib/portal-access';
+import { resolveInvestorCatalogEntityId, resolveInvestorProfile } from '@/lib/portal-access';
+import { pipelineEligibleOrgIds } from '@/lib/investor-pipeline';
 import { createArchiveEntry, getArchiveEntries } from '@/lib/investor-archive';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
@@ -50,25 +51,25 @@ export async function POST(req: Request) {
   if (body.archiveOrgId) {
     const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
     const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
-    const orgIds = await activeGrantOrgIds(admin, email, person?.id ?? null);
-    if (!orgIds.includes(body.archiveOrgId)) return NextResponse.json({ ok: false, error: 'No active access to this org.' }, { status: 403 });
+    // Prompt 345 §A.1 — this used to require activeGrantOrgIds (a data-room
+    // grant), which a wave/discovery card never has (P120) — every archive
+    // attempt on a non-granted card failed this check and 403'd, silently
+    // (the client never surfaced the response body; see PipelinePanel.tsx's
+    // own fix for that half). The real authorization question is "is this
+    // org in MY eligible Pipeline at all", the same union GET
+    // /api/portal/pipeline already computes — reused via
+    // pipelineEligibleOrgIds, never a second parallel eligibility check.
+    const orgIds = await pipelineEligibleOrgIds(admin, user.id, email, person?.id ?? null);
+    if (!orgIds.includes(body.archiveOrgId)) return NextResponse.json({ ok: false, error: 'This startup is not in your Pipeline.' }, { status: 403 });
     const { error } = await createArchiveEntry(admin, body.archiveOrgId, email, 'manual', body.reason ?? null);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
-    // Same swipe graph a pass writes to (see /api/portal/pipeline) — Pipeline's
-    // card status derives from matchdeal_swipes, so a manual archive has to
-    // land there too or the card would keep showing as open.
-    const investorProfile = await resolveInvestorProfile(admin, user.id);
-    if (investorProfile) {
-      const { data: startupProfile } = await admin.from('matchdeal_profiles').select('id').eq('kind', 'startup').eq('membership_id', body.archiveOrgId).maybeSingle();
-      if (startupProfile) {
-        await admin.from('matchdeal_swipes').upsert(
-          { actor_profile_id: investorProfile.id, target_profile_id: startupProfile.id, direction: 'pass', pass_reason: 'other' },
-          { onConflict: 'actor_profile_id,target_profile_id' },
-        );
-      }
-    }
-
+    // Prompt 345 §A.3 — no longer writes a pass swipe. Archiving tidies up;
+    // it never decides (AP-06 stays the only path to a real Pass). The
+    // Pipeline's own GET (getPipelineWaves) now reads investor_archive_entries
+    // directly and sets isArchived on the card — that flag is what excludes
+    // an archived card from the "All" filter now, not a borrowed pass swipe
+    // that also (wrongly) painted the card "Passed".
     return NextResponse.json({ ok: true });
   }
 

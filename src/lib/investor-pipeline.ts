@@ -143,6 +143,16 @@ export async function pipelineEligibleOrgIds(admin: SupabaseClient, userId: stri
   return [...new Set([...published, ...granted, ...(decisions ?? []).map((d) => d.org_id as string), ...referredOrgIds])];
 }
 
+// Prompt 345 §A.3 — pure, unit-tested on its own: whether a still-`open`
+// card should nonetheless count as "treated" for wave-dosage purposes.
+// Archiving no longer writes a pass swipe (see /api/portal/archive), so a
+// card can be simultaneously isArchived AND status 'open' — without this,
+// that card would sit forever as untreated and block every wave behind it.
+// Tidying up IS treating it (Nuno's own call, documented in the prompt).
+export function isTreatedForWaveDosage(card: { status: string; isArchived?: boolean }): boolean {
+  return card.status !== 'open' || !!card.isArchived;
+}
+
 export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient, userId: string, email: string) {
   const investorProfile = await resolveInvestorProfile(admin, userId);
   if (!investorProfile) return { linked: false as const };
@@ -398,7 +408,7 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   }
   for (let i = 0; i < admittedDiscoveryCards.length; i += WAVE_SIZE) {
     const items = admittedDiscoveryCards.slice(i, i + WAVE_SIZE);
-    const priorTreated = admittedDiscoveryCards.slice(0, i).every((c) => c.status !== 'open');
+    const priorTreated = admittedDiscoveryCards.slice(0, i).every(isTreatedForWaveDosage);
     waves.push({ index: waves.length, items, unlocked: i === 0 || priorTreated });
   }
 
