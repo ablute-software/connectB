@@ -474,7 +474,14 @@ function DetailPopover({ target, categories, editable, documents, onClose, onUpd
             )}
           </div>
           <div className="mt-2.5 flex justify-between gap-2 border-t border-gray-100 pt-2">
-            <button onClick={() => onRemove?.(ev.id)} className="text-xs text-gray-400 hover:text-[#B00000]">Delete</button>
+            {/* Prompt 368 — onRemove resolves optimistically in both stores
+                (the event disappears from db.roadmapEvents immediately),
+                but nothing closed THIS popover — `target.event` is a
+                frozen reference, never re-synced with the live list, so
+                the card stayed on screen showing an already-deleted event.
+                Closing right after the delete matches what clicking
+                "Close" already does. */}
+            <button onClick={async () => { await onRemove?.(ev.id); onClose(); }} className="text-xs text-gray-400 hover:text-[#B00000]">Delete</button>
             <div className="flex gap-2">
               <button onClick={onClose} className="rounded border border-gray-300 px-2.5 py-1 text-xs">Close</button>
               <button disabled={saving} onClick={save} className="rounded bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">

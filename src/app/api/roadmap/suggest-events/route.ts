@@ -17,6 +17,7 @@ import { roadmapEventSuggestionsAvailable, roadmapEventsAvailable, documentExtra
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { isDuplicateRoadmapEvent } from '@/lib/roadmap-duplicate';
 
 async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
   const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
@@ -24,13 +25,24 @@ async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: 
 }
 
 interface KnowledgeItem { kind: string; text: string; documentId?: string | null }
+interface ExistingRoadmapItem { title: string; date: string }
 
-async function buildKnowledge(admin: SupabaseClient, orgId: string): Promise<{ items: KnowledgeItem[]; signature: string }> {
-  const [{ data: org }, { data: badges }, { data: rounds }, extractionsAvail] = await Promise.all([
+async function buildKnowledge(
+  admin: SupabaseClient, orgId: string,
+): Promise<{ items: KnowledgeItem[]; existingRoadmap: ExistingRoadmapItem[]; signature: string }> {
+  const [{ data: org }, { data: badges }, { data: rounds }, extractionsAvail, { data: roadmapRows }] = await Promise.all([
     admin.from('orgs').select('founded_year, one_liner, round_target_eur, round_target_close_date').eq('id', orgId).maybeSingle(),
     admin.from('company_badges').select('id, name, year, evidence_document_id, verification_status').eq('org_id', orgId),
     admin.from('funding_rounds').select('id, label, amount_eur, closed_year, investor_name').eq('org_id', orgId),
     documentExtractionsAvailable(),
+    // Prompt 368 — the roadmap's OWN existing events, never read here
+    // before: without this, the model (and the mechanical backstop below)
+    // have no way to know "WomenTechEU prize" is already on the roadmap
+    // when asked to propose events from the matching company_badges row,
+    // and propose it again under a slightly different title. id+updated_at
+    // feed the signature so adding this new source invalidates passes that
+    // ran before it existed — same reasoning as every other signature part.
+    admin.from('roadmap_events').select('id, title, date, updated_at').eq('org_id', orgId),
   ]);
 
   const items: KnowledgeItem[] = [];
@@ -69,8 +81,14 @@ async function buildKnowledge(admin: SupabaseClient, orgId: string): Promise<{ i
     }
   }
 
+  const existingRoadmap: ExistingRoadmapItem[] = ((roadmapRows ?? []) as { id: string; title: string; date: string; updated_at: string | null }[])
+    .map((r) => {
+      sigParts.push(`existing:${r.id}:${r.updated_at ?? ''}`);
+      return { title: r.title, date: r.date };
+    });
+
   const signature = createHash('sha256').update(sigParts.sort().join('|')).digest('hex');
-  return { items, signature };
+  return { items, existingRoadmap, signature };
 }
 
 export async function GET() {
@@ -89,7 +107,7 @@ export async function GET() {
   if (!orgId) return NextResponse.json(empty);
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { items, signature } = await buildKnowledge(admin, orgId);
+  const { items, existingRoadmap, signature } = await buildKnowledge(admin, orgId);
 
   // Has ANY row been generated under this exact knowledge signature yet?
   // If so, skip the AI call entirely and just return whatever's still
@@ -102,7 +120,7 @@ export async function GET() {
 
   if (!alreadyRanForThisSignature && apiKey && items.length > 0) {
     try {
-      await runSuggestionPass(admin, apiKey, orgId, items, signature);
+      await runSuggestionPass(admin, apiKey, orgId, items, existingRoadmap, signature);
     } catch (e) {
       console.error('[roadmap/suggest-events] AI pass failed', (e as Error).message);
     }
@@ -116,10 +134,19 @@ export async function GET() {
 }
 
 async function runSuggestionPass(
-  admin: SupabaseClient, apiKey: string, orgId: string, items: KnowledgeItem[], signature: string,
+  admin: SupabaseClient, apiKey: string, orgId: string, items: KnowledgeItem[],
+  existingRoadmap: ExistingRoadmapItem[], signature: string,
 ): Promise<void> {
   const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
   const knowledgeText = items.map((i) => `- [${i.kind}] ${i.text}`).join('\n');
+  // Prompt 368 — a NEGATIVE list, never fed in as more "propose more of
+  // this" material: these are facts the roadmap already has, in whatever
+  // words the founder or a prior pass used, and the model must recognise
+  // the SAME fact under different wording (a badge and its award date is
+  // exactly the case that shipped the bug this fixes).
+  const existingText = existingRoadmap.length > 0
+    ? `\n\nAlready on the roadmap — do NOT propose an event describing the same fact as any of these, even with different wording:\n${existingRoadmap.map((r) => `- "${r.title}" (${r.date})`).join('\n')}`
+    : '';
 
   const system = 'You propose roadmap events for a startup founder from exactly the company knowledge given — never invent '
     + 'a date, name, or fact not present in it. Each event needs: a short title, a date (best available — a year alone is '
@@ -127,8 +154,8 @@ async function runSuggestionPass(
     + 'quarter), a category_label choosing the closest fit from: Technology & Product, Market & Commercial, Funding, '
     + 'Team & Company, Regulatory & IP (or empty string if none fit), and — when the knowledge item came from a specific '
     + 'document — that document\'s exact document_id so it can be linked as evidence. Propose only real, specific events; '
-    + 'never a vague placeholder. ' + DOCUMENT_CONTENT_INSTRUCTION;
-  const userText = `Company knowledge:\n${wrapDocumentContent(knowledgeText)}\n\nPropose roadmap events.`;
+    + 'never a vague placeholder, and never one already on the roadmap (see the list below, if any). ' + DOCUMENT_CONTENT_INSTRUCTION;
+  const userText = `Company knowledge:\n${wrapDocumentContent(knowledgeText)}${existingText}\n\nPropose roadmap events.`;
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -180,6 +207,12 @@ async function runSuggestionPass(
     const categoryLabel = typeof e.category_label === 'string' && e.category_label.trim() ? e.category_label.trim() : null;
     const documentId = typeof e.document_id === 'string' && knownDocIds.has(e.document_id) ? e.document_id : null;
     const reasoning = typeof e.reasoning === 'string' ? e.reasoning.trim() : null;
+    // Prompt 368 — the mechanical backstop: the system prompt above is the
+    // first line of defense, not the only one. A candidate describing the
+    // same fact as an existing roadmap event (same year, strong word-stem
+    // overlap on the title — see roadmap-duplicate.ts) never gets inserted,
+    // regardless of what the model returned.
+    if (isDuplicateRoadmapEvent({ title, date }, existingRoadmap)) continue;
     // Signature per candidate = the shared knowledge signature this pass
     // ran under, plus the candidate's own identity — so a re-run under an
     // UNCHANGED knowledge signature never touches rows the founder already
