@@ -6,7 +6,7 @@ import {
   detectGaps, ruleG1, ruleG2, ruleG3, ruleG3b, ruleG3c, ruleG4, ruleG5, ruleG6, ruleG7, ruleG8,
   templateFor, QUESTION_TEMPLATES, routeAnswer, rankGaps, impactWhy, GAP_QUESTION_BUDGET, type Gap, type GapContext,
 } from './company-gaps';
-import { normalizeAtom } from './company-claims';
+import { normalizeAtom, joinChipAndFreeText } from './company-claims';
 import type { CompanyClaim, ClaimCategory, ClaimSourceKind, ClaimStatus } from './types';
 
 const NOW = new Date('2026-08-17T12:00:00Z');
@@ -53,6 +53,21 @@ describe('G1 — tração sem compromisso pago', () => {
 
   it('não dispara com um cliente pagante', () => {
     expect(ruleG1([claim('t2', 'tracao_gtm', 'paid pilot with Hospital de Braga, invoiced €12,000')])).toEqual([]);
+  });
+
+  // Prompt 363 — the exact scenario the founder hit: an honest "Not yet" +
+  // LOI text is a real, saved answer, but it doesn't put money at risk, so
+  // the rule MUST keep firing. This is the fixture /api/blueprint/answer's
+  // stillOpen check is built on: the same statement construction
+  // (joinChipAndFreeText) feeding the same rule (ruleG1) the route re-runs
+  // after inserting the claim.
+  it('uma resposta honesta "Not yet" + LOIs continua a disparar — stillOpen', () => {
+    const statement = joinChipAndFreeText('Not yet', 'we have LOIs for our first pilots.');
+    expect(statement).toBe('Not yet — we have LOIs for our first pilots.');
+    const answered = claim('t3', 'tracao_gtm', statement, { sourceKind: 'founder_answer' });
+    const gaps = ruleG1([answered]);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0].rule).toBe('G1');
   });
 });
 

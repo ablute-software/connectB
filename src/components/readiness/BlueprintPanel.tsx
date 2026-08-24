@@ -141,9 +141,13 @@ export function BlueprintPanel() {
         }),
       });
       const body = await res.json().catch(() => ({}));
-      if (body.ok === false) { setError(body.error ?? 'Something went wrong.'); return; }
+      if (body.ok === false) { setError(body.error ?? 'Something went wrong.'); throw new Error(body.error ?? 'Something went wrong.'); }
       if (body.routedAs === 'amend_target_claim') setRoutingNote('Added to the existing claim rather than creating a new one.');
       load();
+      // Prompt 363 — G1/G6 can legitimately stay open after an honest,
+      // saved answer; GapInterrogation needs this to show the "already told
+      // us" mode instead of a blank form for the same question.
+      return { stillOpen: body.stillOpen as boolean | undefined, reason: body.reason as string | undefined };
     } finally { setBusy(false); }
   }
 

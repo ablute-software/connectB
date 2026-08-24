@@ -11,7 +11,7 @@
 // can know this — AI can improve their own wording, never invent the
 // answer). The role comes from the server (/api/blueprint/gap-assist),
 // never guessed client-side.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { browserClient } from '@/lib/supabase';
 
 const SEVERITY_STYLE: Record<string, string> = { critical: 'bg-red-100 text-red-800', high: 'bg-amber-100 text-amber-800', medium: 'bg-gray-100 text-gray-600' };
@@ -54,7 +54,14 @@ export function GapInterrogation({
   gap: GapView;
   remaining: number;
   busy: boolean;
-  onSubmit: (opts: { option?: string; answer?: string; dismissed: boolean; category?: string }) => void | Promise<void>;
+  // Prompt 363 — the caller reports back whether the saved answer actually
+  // closed the gap (stillOpen === false / undefined) or the underlying fact
+  // legitimately still doesn't exist (stillOpen === true, with a reason to
+  // show). A thrown/rejected promise means the save failed — this component
+  // then keeps the founder's text rather than clearing it, since the parent
+  // already surfaces the error separately.
+  onSubmit: (opts: { option?: string; answer?: string; dismissed: boolean; category?: string })
+    => void | { stillOpen?: boolean; reason?: string } | Promise<void | { stillOpen?: boolean; reason?: string }>;
   // Prompt 358 Phase 1 — only G4 ever calls this (its "Yes — I will attach
   // it" option); optional so a caller that hasn't wired the Vault-picker
   // flow yet still compiles (the option would just fall through to a
@@ -73,8 +80,50 @@ export function GapInterrogation({
   const [selectedDocId, setSelectedDocId] = useState('');
   const [attaching, setAttaching] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  // Prompt 363 — set when the saved answer's rule (G1/G6) still fires
+  // afterward: the founder answered honestly but the underlying fact
+  // (paid traction, real use-of-funds) genuinely doesn't exist yet. Persists
+  // for the life of THIS mounted instance (the gap's key doesn't change
+  // just because a new claim was appended — see the file header on
+  // gapKey's discriminator) rather than being tied to key changing.
+  const [stillOpenInfo, setStillOpenInfo] = useState<{ reason: string; answerText: string } | null>(null);
+  const savedFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (savedFlashTimer.current) clearTimeout(savedFlashTimer.current); }, []);
 
   const showDocPicker = option === ATTACH_DOCUMENT_OPTION && !!onAttachDocument;
+
+  async function submitAnswer() {
+    const citedAnswer = [option, answer.trim()].filter(Boolean).join(' — ');
+    setSubmitting(true);
+    try {
+      const result = await onSubmit({ option: option || undefined, answer: answer || undefined, dismissed: false, category: gap.meta?.category });
+      // Always clear on success, regardless of whether gap.key changes next
+      // render — the founder's own report was seeing their old text sit
+      // here looking un-saved, not actually losing it.
+      setOption(''); setAnswer(''); setAssistRole(null);
+      if (result?.stillOpen) {
+        setStillOpenInfo({ reason: result.reason ?? '', answerText: citedAnswer });
+      } else {
+        setStillOpenInfo(null);
+        setSavedFlash(true);
+        if (savedFlashTimer.current) clearTimeout(savedFlashTimer.current);
+        savedFlashTimer.current = setTimeout(() => setSavedFlash(false), 2500);
+      }
+    } catch {
+      // Save failed — the parent already surfaces its own error banner.
+      // Keep the founder's text so they don't have to retype it.
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function hideStillOpen() {
+    setStillOpenInfo(null);
+    await onSubmit({ dismissed: true });
+  }
 
   useEffect(() => {
     if (!showDocPicker || vaultDocs !== null) return;
@@ -123,42 +172,66 @@ export function GapInterrogation({
       </div>
       <p className="mt-1 text-xs text-gray-500">{gap.message}</p>
 
+      {stillOpenInfo ? (
+        // Prompt 363 §2 — the structural mode: the founder already answered
+        // this honestly, but the underlying fact (paid traction, real
+        // use-of-funds) still doesn't exist, so the RULE keeps firing. This
+        // is never re-presented as a blank question again — that read as
+        // "the app forgot my answer" in the actual report that triggered
+        // this. Quotes the founder's own words back, explains why this is
+        // still open in the SAME wording the Knowledge Health panel uses
+        // (gap.why, verbatim, via the server's `reason`), and offers only
+        // "hide for now" — never the chips/textarea asking the same thing.
+        <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-2.5">
+          {stillOpenInfo.answerText && (
+            <p className="text-xs text-gray-500">
+              You already told us: <span className="italic text-gray-700">&ldquo;{stillOpenInfo.answerText}&rdquo;</span>
+            </p>
+          )}
+          <p className="mt-1.5 text-xs text-gray-700">{stillOpenInfo.reason}</p>
+          <button onClick={hideStillOpen} disabled={busy}
+            className="mt-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+            Got it, hide for now
+          </button>
+        </div>
+      ) : (
+        <>
       {gap.reconciliationSuggestion && onReconcileConfirm && (
         // Prompt 358 Phase 2.1 — "no question before the engine tried to
         // answer it itself": a medium-confidence match the reconciliation
         // pass already found, surfaced as a one-click confirm rather than
         // making the founder go find the document themselves.
-        <div className="mt-2 rounded-lg border border-[#0E7490]/30 bg-[#E8F4F8] p-2.5">
-          <p className="text-xs text-[#0E7490]">
-            We think <span className="font-medium">{gap.reconciliationSuggestion.matchedDocumentName}</span> might already cover this.
-            {gap.reconciliationSuggestion.reasoning ? ` ${gap.reconciliationSuggestion.reasoning}` : ''}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button onClick={() => respondToSuggestion(true)} disabled={reconciling || busy}
-              className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-              Yes, that&apos;s it
-            </button>
-            <button onClick={() => respondToSuggestion(false)} disabled={reconciling || busy}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
-              No, that&apos;s not it
-            </button>
+          <div className="mt-2 rounded-lg border border-[#0E7490]/30 bg-[#E8F4F8] p-2.5">
+            <p className="text-xs text-[#0E7490]">
+              We think <span className="font-medium">{gap.reconciliationSuggestion.matchedDocumentName}</span> might already cover this.
+              {gap.reconciliationSuggestion.reasoning ? ` ${gap.reconciliationSuggestion.reasoning}` : ''}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button onClick={() => respondToSuggestion(true)} disabled={reconciling || busy}
+                className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                Yes, that&apos;s it
+              </button>
+              <button onClick={() => respondToSuggestion(false)} disabled={reconciling || busy}
+                className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                No, that&apos;s not it
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {gap.prompt.options.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {gap.prompt.options.map((o) => (
-            <button key={o} onClick={() => setOption(o === option ? '' : o)}
-              className={`rounded-full border px-2.5 py-1 text-xs ${
-                o === option ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-              {o}
-            </button>
-          ))}
-        </div>
-      )}
+        {gap.prompt.options.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {gap.prompt.options.map((o) => (
+              <button key={o} onClick={() => setOption(o === option ? '' : o)}
+                className={`rounded-full border px-2.5 py-1 text-xs ${
+                  o === option ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                {o}
+              </button>
+            ))}
+          </div>
+        )}
 
-      {showDocPicker ? (
+        {showDocPicker ? (
         // Prompt 358 Phase 1 — the real answer here is a document, never
         // text: "Yes — I will attach it" opens a picker over the Vault's
         // own documents instead of a free-text box, and the button links
@@ -193,19 +266,20 @@ export function GapInterrogation({
             className="mt-2 w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm" />
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <button onClick={() => onSubmit({ option: option || undefined, answer: answer || undefined, dismissed: false, category: gap.meta?.category })}
-              disabled={busy || (!option && !answer.trim())}
+            <button onClick={submitAnswer}
+              disabled={busy || submitting || (!option && !answer.trim())}
               className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-              Save answer
+              {submitting ? 'Saving…' : 'Save answer'}
             </button>
-            <button onClick={() => onSubmit({ dismissed: true })} disabled={busy}
+            <button onClick={() => onSubmit({ dismissed: true })} disabled={busy || submitting}
               className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
               Skip this one
             </button>
-            <button onClick={assist} disabled={assisting || busy}
+            <button onClick={assist} disabled={assisting || busy || submitting}
               className="rounded-lg border border-[#0E7490] px-3 py-1.5 text-xs font-medium text-[#0E7490] hover:bg-[#E8F4F8] disabled:opacity-40">
               {assisting ? 'Thinking…' : answer.trim() ? 'AI: polish my wording' : 'AI: draft from what we already know'}
             </button>
+            {savedFlash && <span className="text-xs font-medium text-green-700">Saved ✓</span>}
           </div>
           <p className="mt-1.5 text-[11px] text-gray-400">
             {assistRole === 'polish' && 'AI improved your own wording — no new facts were added.'}
@@ -213,6 +287,8 @@ export function GapInterrogation({
             {!assistRole && 'Your answer becomes a claim in your own words. Its strength is measured from what you write — never chosen.'}
           </p>
           {assistErr && <p className="mt-1 text-[11px] text-amber-700">{assistErr}</p>}
+        </>
+      )}
         </>
       )}
       {remaining > 1 && <p className="mt-1 text-[11px] text-gray-400">{remaining - 1} more after this one.</p>}

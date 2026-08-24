@@ -29,8 +29,9 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { claimsAvailable, blueprintAnalysesAvailable } from '@/lib/blueprint-capability';
 import { gapDispositionAvailable, gapQuestionsAvailable } from '@/lib/document-extraction-capability';
 import { normalizeAtom, joinChipAndFreeText } from '@/lib/company-claims';
-import { routeAnswer, type GapRule } from '@/lib/company-gaps';
+import { routeAnswer, ruleG1, ruleG6, impactWhy, type GapRule } from '@/lib/company-gaps';
 import { routeFreeTextAnswer } from '@/lib/answer-routing';
+import { readExistingClaims } from '@/lib/company-knowledge-db';
 import type { ClaimCategory } from '@/lib/types';
 
 const CATEGORIES: ClaimCategory[] = [
@@ -69,6 +70,37 @@ async function recordAsked(admin: SupabaseClient, orgId: string, analysisId: str
 // upserted, not inserted, so answering the same gap_key again (should never
 // happen given /api/blueprint's own answeredRules filter, but this is the
 // backstop) updates the existing row instead of violating the constraint.
+// Prompt 363 — G1 and G6 are the two structural rules that can legitimately
+// keep firing after an honest, saved answer (the founder told the truth,
+// but the underlying fact — paid traction, a real use-of-funds — still
+// doesn't exist). Re-running the rule against the just-updated claims after
+// the write is the mechanical way to tell "still structurally open" apart
+// from "the app forgot your answer", which is what Prompt 363 reports the
+// UI looked like without this. Only these two rules need it: G3/G3b/G3c
+// close via 2.4's presumption-of-truth, G4/G5/G7/G8 close via
+// set_disposition/dismiss/refresh_claim, which never re-fire once answered.
+const STILL_OPEN_CLOSES_WHEN: Partial<Record<GapRule, string>> = {
+  G1: 'you have a paying customer or signed purchase order, not before',
+  G6: 'the ask is backed by a real use-of-funds and a real why-now, not just a number',
+};
+
+async function checkStillOpen(
+  admin: SupabaseClient, orgId: string, rule: string,
+): Promise<{ stillOpen: boolean; reason?: string } | null> {
+  const closesWhen = STILL_OPEN_CLOSES_WHEN[rule as GapRule];
+  if (!closesWhen) return null;
+  const claims = await readExistingClaims(admin, orgId);
+  const live = claims.filter((c) => c.status !== 'rejected');
+  const gaps = rule === 'G1' ? ruleG1(live) : ruleG6(live);
+  if (gaps.length === 0) return { stillOpen: false };
+  // Prompt 363 §3 — opens with gap.why verbatim (the exact sentence the
+  // Knowledge Health panel already shows for this rule) so the two surfaces
+  // never read as two different systems saying similar-but-different
+  // things, then adds the one thing `why` doesn't say: what specifically
+  // still has to happen for THIS rule to close.
+  return { stillOpen: true, reason: `${impactWhy(rule as GapRule)} It stays open until ${closesWhen}.` };
+}
+
 async function recordGapQuestion(
   admin: SupabaseClient, orgId: string, claimId: string | null, gapKey: string, rule: string,
   questionText: string, disposition: string,
@@ -178,7 +210,8 @@ export async function POST(req: Request) {
           if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
           await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false, disposition: 'amend_target_claim' });
           await recordGapQuestion(admin, orgId, targetClaimId, body.gapKey, body.rule, questionText, 'amend_target_claim');
-          return NextResponse.json({ ok: true, routedAs: 'amend_target_claim', reasoning: decision.reasoning });
+          const stillOpenAmend = await checkStillOpen(admin, orgId, body.rule);
+          return NextResponse.json({ ok: true, routedAs: 'amend_target_claim', reasoning: decision.reasoning, ...stillOpenAmend });
         }
       } catch (e) {
         // AI routing failing must never block the founder's answer — falls
@@ -204,5 +237,6 @@ export async function POST(req: Request) {
 
   await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false });
   await recordGapQuestion(admin, orgId, targetClaimId ?? null, body.gapKey, body.rule, questionText, 'new_claim');
-  return NextResponse.json({ ok: true, routedAs: 'new_claim' });
+  const stillOpenNew = await checkStillOpen(admin, orgId, body.rule);
+  return NextResponse.json({ ok: true, routedAs: 'new_claim', ...stillOpenNew });
 }

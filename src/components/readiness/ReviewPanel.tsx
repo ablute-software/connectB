@@ -186,10 +186,13 @@ export function ReviewPanel() {
         }),
       });
       const data = await res.json().catch(() => ({}));
+      if (data.ok === false) throw new Error(data.error ?? 'Something went wrong.');
       if (data.routedAs === 'amend_target_claim') {
         setRoutingNote('Added to the existing claim rather than creating a new one.');
       }
       loadGaps();
+      // Prompt 363 — see BlueprintPanel.tsx's submitAnswer for why.
+      return { stillOpen: data.stillOpen as boolean | undefined, reason: data.reason as string | undefined };
     } finally { setGapBusy(false); }
   }
 
