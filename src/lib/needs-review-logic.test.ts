@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  classifyMechanically, decideAutoApply, invertTriageAction, isPlaceholderDate,
-  looksLikeMetadataCard, parseMetadataCard, parsePersonHint, suggestDateFromContent,
+  classifyFragment, classifyMechanically, decideAutoApply, invertTriageAction, isPlaceholderDate,
+  looksLikeMetadataCard, mergeCandidates, mergeFragmentIntoTarget, parseMetadataCard, parsePersonHint, suggestDateFromContent,
   type TriageAction,
 } from './needs-review-logic';
 import type { Interaction } from './types';
@@ -194,5 +194,77 @@ describe('invertTriageAction', () => {
   it('inverts an added interaction by removing it', () => {
     const action: TriageAction = { type: 'addInteraction', interactionId: 'i-new' };
     expect(invertTriageAction(action)).toEqual([{ kind: 'removeInteraction', id: 'i-new' }]);
+  });
+});
+
+describe('classifyFragment — Prompt 371 §3b', () => {
+  it('a bare "HH:MM" is a time fragment (the reported "13:18" case)', () => {
+    expect(classifyFragment('13:18')).toBe('time');
+    expect(classifyFragment(' 9:05 ')).toBe('time');
+  });
+
+  it('an "HHhMM" reading is also a time fragment', () => {
+    expect(classifyFragment('13h18')).toBe('time');
+  });
+
+  it('a bare date is a date fragment', () => {
+    expect(classifyFragment('25 de maio de 2022')).toBe('date');
+  });
+
+  it('ordinary prose mentioning a date is text, not a bare date fragment', () => {
+    expect(classifyFragment('Falámos a 25 de maio de 2022 sobre o pitch e o founder ficou de enviar o deck atualizado.')).toBe('text');
+  });
+
+  it('a name or short note is text', () => {
+    expect(classifyFragment('Duarte Mineiro')).toBe('text');
+  });
+});
+
+describe('mergeFragmentIntoTarget — Prompt 371 §3b', () => {
+  it('a time fragment overwrites the target time, preserving its day', () => {
+    const fragment = interaction({ id: 'frag', entity_id: 'e1', direction: 'in', occurred_at: '2018-01-01T00:00:00.000Z', content: '13:18' });
+    const target = interaction({ id: 'target', entity_id: 'e1', direction: 'in', occurred_at: '2018-12-21T09:00:00.000Z', content: 'Atendeu Pedro Santos.' });
+    const result = mergeFragmentIntoTarget(fragment, target);
+    expect(result.targetPatch).toEqual({ occurred_at: '2018-12-21T13:18:00.000Z' });
+  });
+
+  it('a date fragment corrects the target date', () => {
+    const fragment = interaction({ id: 'frag', entity_id: 'e1', direction: 'in', occurred_at: '2018-01-01T00:00:00.000Z', content: '25 de maio de 2022' });
+    const target = interaction({ id: 'target', entity_id: 'e1', direction: 'in', occurred_at: '2018-01-01T00:00:00.000Z', content: 'Reunião remota.' });
+    expect(mergeFragmentIntoTarget(fragment, target).targetPatch).toEqual({ occurred_at: '2022-05-25T12:00:00.000Z' });
+  });
+
+  it('plain text is appended to the target content with " / "', () => {
+    const fragment = interaction({ id: 'frag', entity_id: 'e1', direction: 'in', occurred_at: '2018-01-01T00:00:00.000Z', content: 'fiquei de enviar pitch ao cuidado de duarte mineiro' });
+    const target = interaction({ id: 'target', entity_id: 'e1', direction: 'in', occurred_at: '2018-12-21T09:00:00.000Z', content: 'Atendeu pedro santos' });
+    expect(mergeFragmentIntoTarget(fragment, target).targetPatch).toEqual({ content: 'Atendeu pedro santos / fiquei de enviar pitch ao cuidado de duarte mineiro' });
+  });
+
+  it('appending to an empty target content does not leave a stray separator', () => {
+    const fragment = interaction({ id: 'frag', entity_id: 'e1', direction: 'in', occurred_at: '2018-01-01T00:00:00.000Z', content: 'Duarte Mineiro' });
+    const target = interaction({ id: 'target', entity_id: 'e1', direction: 'in', occurred_at: '2018-12-21T09:00:00.000Z', content: '' });
+    expect(mergeFragmentIntoTarget(fragment, target).targetPatch).toEqual({ content: 'Duarte Mineiro' });
+  });
+});
+
+describe('mergeCandidates', () => {
+  it('excludes the fragment itself and stage_change rows, sorted most-recent-first', () => {
+    const frag = interaction({ id: 'frag', entity_id: 'e1', direction: 'in', occurred_at: '2018-01-01T00:00:00.000Z', content: '13:18' });
+    const older = interaction({ id: 'older', entity_id: 'e1', direction: 'in', occurred_at: '2018-06-01T00:00:00.000Z', content: 'older note' });
+    const newer = interaction({ id: 'newer', entity_id: 'e1', direction: 'in', occurred_at: '2018-12-21T09:00:00.000Z', content: 'Atendeu pedro santos' });
+    const stageChange = interaction({ id: 'sc', entity_id: 'e1', direction: 'in', occurred_at: '2019-01-01T00:00:00.000Z', channel: 'stage_change', content: 'Stage changed to Engaged.' });
+    const result = mergeCandidates(frag, [frag, older, newer, stageChange]);
+    expect(result.map((i) => i.id)).toEqual(['newer', 'older']);
+  });
+});
+
+describe('invertTriageAction — mergeFragment', () => {
+  it('restores the target fields and re-adds the fragment', () => {
+    const fragment = interaction({ id: 'frag', entity_id: 'e1', direction: 'in', occurred_at: '2018-01-01T00:00:00.000Z', content: '13:18', needs_review: true });
+    const action: TriageAction = { type: 'mergeFragment', fragment, targetId: 'target', prevTargetPatch: { occurred_at: '2018-12-21T09:00:00.000Z' } };
+    expect(invertTriageAction(action)).toEqual([
+      { kind: 'updateInteraction', id: 'target', patch: { occurred_at: '2018-12-21T09:00:00.000Z' } },
+      { kind: 'restoreInteraction', interaction: fragment },
+    ]);
   });
 });

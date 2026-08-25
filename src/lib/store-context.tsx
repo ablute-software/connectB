@@ -96,6 +96,11 @@ export interface StoreApi {
   addInteraction: (input: {
     entity_id: string; person_id?: string; occurred_at: string;
     direction: Direction; channel: Channel; content: string; classification?: Classification;
+    // Prompt 371 §3b — needed so undoing a fragment merge can restore the
+    // absorbed row exactly as it was (still pending review), not as a fresh
+    // untouched interaction. Both stores already just spread this input, so
+    // no store-implementation change is needed, only the type.
+    needs_review?: boolean; classified_by?: 'ai' | 'mechanical'; source?: 'manual' | 'import';
   }) => Interaction;
   // Undo primitives for the triage toolkit (un-add a backfilled interaction,
   // un-create a person routed from an item). Never used for real pipeline

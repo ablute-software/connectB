@@ -156,6 +156,71 @@ export function parsePersonHint(content: string): { name?: string; email?: strin
   return { name, email };
 }
 
+// ---- Fragment merge ("Belongs to…", Prompt 371 §3b) ----
+// Import formats are infinite (OneNote, Notes, whatever editor a founder
+// happened to use) — this deliberately never tries to parse by SOURCE
+// FORMAT. The durable approach is a parser of CONTENT (what does this short
+// fragment actually look like — a bare time, a bare date, or just text?)
+// producing a confirmable proposal, the same "app assembles, founder
+// confirms" shape as every other CERNE-aligned feature in this codebase.
+export type FragmentKind = 'time' | 'date' | 'text';
+
+// "13:18" or "13h18" and nothing else — a lone clock reading, the exact
+// OneNote artifact the founder reported (the call's time, orphaned from
+// the note describing the call itself).
+const BARE_TIME_RE = /^(\d{1,2})[:h](\d{2})$/i;
+// A fragment short enough that a parsed date plausibly IS the whole
+// fragment, not prose that happens to mention one in passing.
+const MAX_BARE_DATE_LENGTH = 40;
+
+export function classifyFragment(content: string): FragmentKind {
+  const trimmed = content.trim();
+  if (BARE_TIME_RE.test(trimmed)) return 'time';
+  if (trimmed.length <= MAX_BARE_DATE_LENGTH && suggestDateFromContent(trimmed)) return 'date';
+  return 'text';
+}
+
+export interface FragmentMergeResult {
+  targetPatch: Partial<Interaction>;
+}
+
+// Pure: given a fragment interaction and the target it belongs to, compute
+// the patch the target needs. Never mutates, never decides removal — the
+// caller (NeedsReviewPanel) owns pushUndo/removeInteraction so the whole
+// operation stays one undoable unit.
+export function mergeFragmentIntoTarget(fragment: Interaction, target: Interaction): FragmentMergeResult {
+  const kind = classifyFragment(fragment.content);
+  if (kind === 'time') {
+    const m = fragment.content.trim().match(BARE_TIME_RE);
+    if (m) {
+      const hh = m[1].padStart(2, '0');
+      const mm = m[2];
+      const day = target.occurred_at.slice(0, 10);
+      return { targetPatch: { occurred_at: `${day}T${hh}:${mm}:00.000Z` } };
+    }
+  }
+  if (kind === 'date') {
+    const iso = suggestDateFromContent(fragment.content.trim());
+    if (iso) return { targetPatch: { occurred_at: `${iso}T12:00:00.000Z` } };
+  }
+  // Prompt 371 §3b — same " / " separator the source import format already
+  // uses for concatenated fields (looksLikeMetadataCard's own convention),
+  // so a merged fragment reads consistently with everything else on screen.
+  const existing = target.content?.trim() ?? '';
+  const merged = existing ? `${existing} / ${fragment.content.trim()}` : fragment.content.trim();
+  return { targetPatch: { content: merged } };
+}
+
+// A short list of merge candidates for the "Juntar a outra interação"
+// picker: same entity, never the fragment itself, never a stage_change
+// (that's a system-recorded transition, not a note a fragment could
+// plausibly belong to), most recent first.
+export function mergeCandidates(fragment: Interaction, threadForEntity: Interaction[]): Interaction[] {
+  return threadForEntity
+    .filter((i) => i.id !== fragment.id && i.channel !== 'stage_change')
+    .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
+}
+
 // ---- Undo (single-step, session-scoped) ----
 // Every triage action captures the prior state it needs to reverse, and
 // invertTriageAction turns that into a list of primitive store operations.
@@ -164,7 +229,13 @@ export type UndoOp =
   | { kind: 'updateInteraction'; id: string; patch: Partial<Interaction> }
   | { kind: 'removeInteraction'; id: string }
   | { kind: 'removePerson'; id: string }
-  | { kind: 'updateEntity'; id: string; patch: Partial<Entity> };
+  | { kind: 'updateEntity'; id: string; patch: Partial<Entity> }
+  // Prompt 371 §3b — the inverse of a merge's removeInteraction: re-adds the
+  // absorbed fragment. A NEW id is generated (addInteraction's contract
+  // everywhere else in this file already works this way — there is no
+  // "recreate with the same id" primitive in the store) — functionally
+  // identical to the founder, who never sees raw ids.
+  | { kind: 'restoreInteraction'; interaction: Interaction };
 
 export type TriageAction =
   // Covers classify, clear-flag, and every inline field edit — they are all
@@ -177,7 +248,10 @@ export type TriageAction =
   // restore the entity fields and re-flag the item.
   | { type: 'routeEntityData'; entityId: string; interactionId: string; prevEntity: Partial<Entity>; prevNeedsReview: boolean }
   // A brand-new interaction was added to the thread: remove it.
-  | { type: 'addInteraction'; interactionId: string };
+  | { type: 'addInteraction'; interactionId: string }
+  // Prompt 371 §3b — a fragment was absorbed into a target interaction:
+  // restore the target's prior fields and bring the fragment itself back.
+  | { type: 'mergeFragment'; fragment: Interaction; targetId: string; prevTargetPatch: Partial<Interaction> };
 
 export function invertTriageAction(action: TriageAction): UndoOp[] {
   switch (action.type) {
@@ -195,5 +269,10 @@ export function invertTriageAction(action: TriageAction): UndoOp[] {
       ];
     case 'addInteraction':
       return [{ kind: 'removeInteraction', id: action.interactionId }];
+    case 'mergeFragment':
+      return [
+        { kind: 'updateInteraction', id: action.targetId, patch: action.prevTargetPatch },
+        { kind: 'restoreInteraction', interaction: action.fragment },
+      ];
   }
 }

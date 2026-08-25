@@ -22,14 +22,27 @@
 // classifyInteraction — deliberately: these are historical imported memories,
 // and one old "interested" reply shouldn't flip the entity's live pipeline
 // status. That also makes every action cleanly reversible.
+//
+// Prompt 371 — import source formats are infinite (OneNote, Notes, whatever
+// editor a founder happened to use) — this deliberately NEVER grows a
+// parser per source format as its main strategy. The durable path is a
+// parser of CONTENT (needs-review-logic.ts's classifyFragment: is this
+// short leftover a bare time, a bare date, or just text?) producing a
+// confirmable proposal — the founder confirms a reading, never structures
+// raw data by hand. "Belongs to…" (mergeFragmentIntoTarget) is the first,
+// manual-only instance of that shape: a fragment like a lone "13:18" gets
+// folded into the real interaction it's the timestamp for. A dedicated
+// importer for a specific tool's export format may still be worth building
+// one day as a convenience shortcut — it should never be a requirement for
+// this screen to handle a format it hasn't seen before.
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink, Tooltip } from '@/components/ui';
 import { QuickCreatePerson } from '@/components/QuickCreatePerson';
 import type { Channel, Classification, Direction, Interaction } from '@/lib/types';
 import {
-  classifyMechanically, decideAutoApply, invertTriageAction, isPlaceholderDate,
-  looksLikeMetadataCard, parseMetadataCard, parsePersonHint, suggestDateFromContent,
+  classifyFragment, classifyMechanically, decideAutoApply, invertTriageAction, isPlaceholderDate,
+  looksLikeMetadataCard, mergeCandidates, mergeFragmentIntoTarget, parseMetadataCard, parsePersonHint, suggestDateFromContent,
   type AiClassificationProposal, type TriageAction, type UndoOp,
 } from '@/lib/needs-review-logic';
 
@@ -61,13 +74,19 @@ const CLASSIFIED_BY_STYLE: Record<'ai' | 'mechanical', string> = {
   mechanical: 'bg-gray-100 text-gray-600',
 };
 
-type PanelKind = 'edit' | 'person' | 'entityData' | 'addInteraction';
+type PanelKind = 'edit' | 'person' | 'entityData' | 'addInteraction' | 'belongsTo';
 
 export function NeedsReviewPanel() {
   const {
     db, classifyInteraction, clearNeedsReview, revertToNeedsReview, applyMetadataCard,
     updateInteraction, addInteraction, removeInteraction, removePerson, updateEntity,
   } = useStore();
+
+  // Prompt 371 §1 — items where "r · No real signal" was clicked but the
+  // item stayed in the queue (placeholder date, nothing to settle it) — so
+  // the inline explanation renders instead of the founder seeing nothing
+  // happen. Cleared automatically once the item actually leaves the queue.
+  const [noSignalStuck, setNoSignalStuck] = useState<Set<string>>(new Set());
 
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
   const [contactFieldsAvailable, setContactFieldsAvailable] = useState(false);
@@ -105,6 +124,11 @@ export function NeedsReviewPanel() {
     else if (op.kind === 'removeInteraction') removeInteraction(op.id);
     else if (op.kind === 'removePerson') removePerson(op.id);
     else if (op.kind === 'updateEntity') updateEntity(op.id, op.patch);
+    else if (op.kind === 'restoreInteraction') {
+      const { id: _discard, ...rest } = op.interaction;
+      void _discard;
+      addInteraction(rest);
+    }
   }
   function performUndo() {
     if (!lastAction) return;
@@ -175,9 +199,35 @@ export function NeedsReviewPanel() {
     pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, `Classified: ${classification}`);
   }
   function confirmNoSignal(item: Interaction) {
+    const stillStuck = isPlaceholderDate(item.occurred_at);
     const prev = { needs_review: item.needs_review };
-    updateInteraction(item.id, { needs_review: isPlaceholderDate(item.occurred_at) });
-    pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, 'No signal — resolved');
+    updateInteraction(item.id, { needs_review: stillStuck });
+    pushUndo({ type: 'editInteraction', interactionId: item.id, prev }, stillStuck ? 'No signal — date still unconfirmed' : 'No signal — resolved');
+    // Prompt 371 §1 — a fragment with no date of its own can't "resolve the
+    // date" by being told it has no signal; never leave that silent.
+    setNoSignalStuck((prev2) => {
+      const next = new Set(prev2);
+      if (stillStuck) next.add(item.id); else next.delete(item.id);
+      return next;
+    });
+  }
+
+  // Prompt 371 §3b — "Belongs to…": absorb a short fragment into the real
+  // interaction it belongs to. classifyFragment/mergeFragmentIntoTarget do
+  // the content-shape reasoning (needs-review-logic.ts); this only wires it
+  // to the store + undo, mirroring every other triage action here.
+  function openBelongsTo(item: Interaction) {
+    setPanel({ itemId: item.id, kind: 'belongsTo' });
+  }
+  function mergeIntoTarget(fragment: Interaction, target: Interaction) {
+    const { targetPatch } = mergeFragmentIntoTarget(fragment, target);
+    const prevTargetPatch: Partial<Interaction> = {};
+    for (const key of Object.keys(targetPatch) as (keyof Interaction)[]) (prevTargetPatch as Record<string, unknown>)[key] = target[key];
+    updateInteraction(target.id, targetPatch);
+    removeInteraction(fragment.id);
+    pushUndo({ type: 'mergeFragment', fragment, targetId: target.id, prevTargetPatch }, 'Fragment merged into interaction');
+    setNoSignalStuck((prev) => { const next = new Set(prev); next.delete(fragment.id); return next; });
+    setPanel(null);
   }
 
   function openEdit(item: Interaction) {
@@ -392,9 +442,20 @@ export function NeedsReviewPanel() {
       else if (e.key === 'k') setItemIndex((i) => Math.max(i - 1, 0));
       else if (e.key === 'J' || e.key === 'n') switchEntity(1);
       else if (e.key === 'K' || e.key === 'p') switchEntity(-1);
+      // Prompt 371 §B — CONFIRMED root cause of "edit does nothing on
+      // AI-classified cards": it never was the click handler (openEdit has
+      // no needs_review gate and works via mouse on every card in the
+      // thread — reproduced live). The 'e' KEYBOARD shortcut is what's
+      // actually scoped: `focused` is only ever an item from the PENDING
+      // queue (pendingItems[itemIndex]), so pressing 'e' while looking at
+      // an already-classified card silently does nothing — no such item is
+      // ever `focused`. That silent no-op is what read as "edit is inert."
+      // The click path needed no fix; the hint text below is corrected so
+      // it stops implying the shortcut works everywhere the button does.
       else if (e.key === 'e' && focused) openEdit(focused);
       else if (e.key === 'a') acceptAllProposals();
       else if (e.key === 'r' && focused) confirmNoSignal(focused);
+      else if (e.key === 'm' && focused) openBelongsTo(focused);
       else {
         const hit = CLASSIFY_KEYS.find((c) => c.key === e.key);
         if (hit && focused) classify(focused, hit.classification);
@@ -462,7 +523,8 @@ export function NeedsReviewPanel() {
       )}
 
       <p className="text-xs text-gray-400">
-        Keyboard: <b>j</b>/<b>k</b> item · <b>J</b>/<b>K</b> entity · <b>1</b>/<b>2</b>/<b>3</b> classify · <b>r</b> no signal · <b>e</b> edit · <b>a</b> accept proposals · <b>u</b> undo.
+        Keyboard (focused pending item only — click e/m/edit works on any card): <b>j</b>/<b>k</b> item · <b>J</b>/<b>K</b> entity ·
+        {' '}<b>1</b>/<b>2</b>/<b>3</b> classify · <b>r</b> no signal · <b>e</b> edit · <b>m</b> belongs to… · <b>a</b> accept proposals · <b>u</b> undo.
       </p>
 
       <div className="flex gap-4">
@@ -580,13 +642,57 @@ export function NeedsReviewPanel() {
                           ))}
                           <button onClick={() => confirmNoSignal(item)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">r · No real signal</button>
                         </div>
+                        {/* Prompt 371 §1 — "r" with an honest outcome: a
+                            fragment with no date of its own (the "13:18"
+                            case) can never satisfy the "date confirmed"
+                            half of leaving the queue by being told it has
+                            no signal — say so instead of doing nothing
+                            visibly. */}
+                        {noSignalStuck.has(item.id) && (
+                          <p className="mt-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+                            Still here because the date isn&apos;t confirmed — {suggestion ? (
+                              <button onClick={() => acceptDateSuggestion(item, suggestion)} className="font-semibold underline hover:no-underline">use the suggested date {suggestion}</button>
+                            ) : 'fix the date with e · edit'}, or <button onClick={() => openBelongsTo(item)} className="font-semibold underline hover:no-underline">join it to the interaction it belongs to</button>.
+                          </p>
+                        )}
                         <div className="mt-2 flex flex-wrap gap-2 text-xs">
                           <button onClick={() => setPanel({ itemId: item.id, kind: 'person' })} className="rounded border border-gray-200 px-2 py-1 text-gray-600 hover:bg-gray-50">👤 Create person from this</button>
                           <button onClick={() => saveEntityData(item)} className="rounded border border-gray-200 px-2 py-1 text-gray-600 hover:bg-gray-50">🏢 Save as entity data</button>
                           <button onClick={() => openAddInteraction(item)} className="rounded border border-gray-200 px-2 py-1 text-gray-600 hover:bg-gray-50">➕ Add interaction to thread</button>
+                          <button onClick={() => openBelongsTo(item)} className="rounded border border-gray-200 px-2 py-1 text-gray-600 hover:bg-gray-50">m · 🧩 Belongs to another interaction</button>
                         </div>
                       </>
                     )}
+
+                    {panel?.itemId === item.id && panel.kind === 'belongsTo' && (() => {
+                      const candidates = mergeCandidates(item, thread);
+                      const kind = classifyFragment(item.content);
+                      return (
+                        <div className="mt-2 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-2 text-xs">
+                          <p className="text-gray-500">
+                            {kind === 'time' && 'Looks like a bare time — it will set the target\'s time of day, keeping its date.'}
+                            {kind === 'date' && 'Looks like a bare date — it will correct the target\'s date.'}
+                            {kind === 'text' && `It will be appended to the target's content ("… / ${item.content.trim()}").`}
+                          </p>
+                          {candidates.length === 0 ? (
+                            <p className="text-gray-400">No other interactions in this dossier to join it to.</p>
+                          ) : (
+                            <ul className="max-h-56 space-y-1 overflow-y-auto">
+                              {candidates.map((c) => (
+                                <li key={c.id}>
+                                  <button onClick={() => mergeIntoTarget(item, c)}
+                                    className="w-full rounded border border-gray-200 bg-white px-2 py-1.5 text-left hover:border-[#0E7490] hover:bg-cyan-50">
+                                    <span className="font-medium text-gray-700">{isPlaceholderDate(c.occurred_at) ? 'date to confirm' : c.occurred_at.slice(0, 10)}</span>
+                                    <span className="ml-2 text-gray-500">{c.content.slice(0, 80)}</span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          <button onClick={() => setPanel(null)} className="rounded border border-gray-300 bg-white px-2 py-1">Cancel</button>
+                        </div>
+                      );
+                    })()}
 
                     {panel?.itemId === item.id && panel.kind === 'person' && entity && (() => {
                       const hint = parsePersonHint(item.content);
