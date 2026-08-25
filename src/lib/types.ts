@@ -644,6 +644,12 @@ export interface RoadmapCategory {
   label: string;
   color: string;
   shape: string;
+  // Prompt 382 — founder-controlled, persistent. false hides this
+  // category's lane and events from BOTH the founder canvas and the
+  // investor dossier. Never present on the investor-facing projection
+  // (RoadmapCategoryFull) — an investor never needs to know a category IS
+  // toggleable, only receives what's already on.
+  visible: boolean;
   created_at?: string;
 }
 

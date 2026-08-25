@@ -356,12 +356,16 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     async addRoadmapCategory(c) {
       setDb((prev) => ({
         ...prev,
-        roadmapCategories: [...prev.roadmapCategories, { ...c, id: uid('rc'), org_id: prev.org.id, created_at: new Date().toISOString() } as RoadmapCategory],
+        roadmapCategories: [...prev.roadmapCategories, { visible: true, ...c, id: uid('rc'), org_id: prev.org.id, created_at: new Date().toISOString() } as RoadmapCategory],
       }));
       return {};
     },
     async removeRoadmapCategory(id) {
       setDb((prev) => ({ ...prev, roadmapCategories: prev.roadmapCategories.filter((c) => c.id !== id) }));
+      return {};
+    },
+    async updateRoadmapCategory(id, patch) {
+      setDb((prev) => ({ ...prev, roadmapCategories: prev.roadmapCategories.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
       return {};
     },
     async addFundingRound(r) {

@@ -264,8 +264,15 @@ export interface StoreApi {
   // Prompt 212 §B.3 — rondas anteriores. Fonte única: quem mostra capital
   // já levantado lê daqui, nunca de uma cópia.
   // Prompt 213 §D — categorias de eventos do roadmap.
-  addRoadmapCategory: (c: Omit<RoadmapCategory, 'id' | 'org_id' | 'created_at'>) => Promise<{ error?: string }>;
+  // `visible` optional on add — new categories default to on (matches the
+  // column's own DB default), so existing call sites that don't pass it
+  // keep working unchanged.
+  addRoadmapCategory: (c: Omit<RoadmapCategory, 'id' | 'org_id' | 'created_at' | 'visible'> & { visible?: boolean }) => Promise<{ error?: string }>;
   removeRoadmapCategory: (id: string) => Promise<{ error?: string }>;
+  // Prompt 382 §B — partial patch, same discipline as updateRoadmapEvent:
+  // lets the founder fix label/color/shape without delete-and-recreate
+  // (a useful side effect, not the ask) and flip `visible`.
+  updateRoadmapCategory: (id: string, patch: Partial<Pick<RoadmapCategory, 'label' | 'color' | 'shape' | 'visible'>>) => Promise<{ error?: string }>;
   // Prompt 359 — the roadmap CANVAS's own CRUD, a real per-event row
   // (unlike RoadmapMilestone's items_v2 blob) so drag/click/evidence-linking
   // have something with an id to act on.

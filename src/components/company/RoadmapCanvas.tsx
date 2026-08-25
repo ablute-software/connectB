@@ -15,10 +15,19 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
 import {
   xFromDate, dateFromX, snapToMonth, densityLevelForLane, clusterByProximity, zoomWindow,
-  matchesTimeToggle, type ZoomLevel, type TimeToggle, type Cluster,
+  matchesTimeToggle, matchesCategoryVisibility, type ZoomLevel, type TimeToggle, type Cluster,
 } from '@/lib/roadmap-canvas';
 import { COLOR_STYLES, SHAPE_STYLES, GENERAL_LABEL, type CategoryColor, type CategoryShape } from '@/lib/roadmap-categories';
-import type { RoadmapCategory, RoadmapEventStatus } from '@/lib/types';
+import type { RoadmapEventStatus } from '@/lib/types';
+
+// Narrower than the full RoadmapCategory (src/lib/types.ts), same discipline
+// as CanvasEvent below: the investor side passes RoadmapCategoryFull (no
+// `visible` field at all — an investor-facing shape never needs to know a
+// category IS toggleable, per Prompt 382 §E) while the founder side passes
+// the real RoadmapCategory straight through. `visible` optional and
+// defaulting to shown covers both — the investor side's rows are already
+// pre-filtered server-side, so it never has an invisible one to represent.
+export interface CanvasCategory { id: string; label: string; color: string; shape: string; visible?: boolean }
 
 const LANE_HEIGHT = 56;
 const DRAG_THRESHOLD_PX = 5;
@@ -52,7 +61,7 @@ export interface CanvasEvent {
 
 interface RoadmapCanvasProps {
   events: CanvasEvent[];
-  categories: RoadmapCategory[];
+  categories: CanvasCategory[];
   foundedYear: number | null;
   editable: boolean;
   documents?: CanvasDocOption[];
@@ -66,7 +75,7 @@ interface RoadmapCanvasProps {
 interface Lane { id: string; label: string; color: CategoryColor; shape: CategoryShape }
 const GENERAL_LANE: Lane = { id: '__general', label: GENERAL_LABEL, color: 'gray', shape: 'rounded' };
 
-function laneFor(categories: RoadmapCategory[], categoryId: string | null | undefined): Lane {
+function laneFor(categories: CanvasCategory[], categoryId: string | null | undefined): Lane {
   if (!categoryId) return GENERAL_LANE;
   const c = categories.find((x) => x.id === categoryId);
   return c ? { id: c.id, label: c.label, color: c.color as CategoryColor, shape: c.shape as CategoryShape } : GENERAL_LANE;
@@ -121,7 +130,10 @@ export function RoadmapCanvas({
   const view = zoom === 'all' ? domain : zoomWindow(zoom, focus, domain.start, domain.end);
   const viewWidth = Math.max(width, 1);
 
-  const filtered = events.filter((e) => matchesTimeToggle(e.status, timeToggle));
+  // Prompt 382 §D — two independent cuts on the same list: time toggle and
+  // per-category visibility. lanesUsed/domain both derive from `filtered`,
+  // so an off category's lane and its width simply stop existing.
+  const filtered = events.filter((e) => matchesTimeToggle(e.status, timeToggle) && matchesCategoryVisibility(e.category_id, categories));
 
   const lanesUsed = useMemo(() => {
     const byId = new Map<string, Lane>();
@@ -383,7 +395,7 @@ function EventMark({ cluster, density, lane, editable, onOpenDetail, onExpandClu
 }
 
 function CreatePopover({ draft, categories, onCancel, onSave }: {
-  draft: DraftEvent; categories: RoadmapCategory[];
+  draft: DraftEvent; categories: CanvasCategory[];
   onCancel: () => void;
   onSave: (input: { title: string; date: string; end_date?: string | null; status: RoadmapEventStatus; category_id: string | null; date_precision?: 'exact' | 'approx' | 'quarter' }) => void | Promise<void>;
 }) {
@@ -434,7 +446,7 @@ function CreatePopover({ draft, categories, onCancel, onSave }: {
 }
 
 function DetailPopover({ target, categories, editable, documents, onClose, onUpdate, onRemove, resolveDocChip }: {
-  target: DetailTarget; categories: RoadmapCategory[]; editable: boolean; documents: CanvasDocOption[];
+  target: DetailTarget; categories: CanvasCategory[]; editable: boolean; documents: CanvasDocOption[];
   onClose: () => void;
   onUpdate?: (id: string, patch: Partial<CanvasEvent>) => void | Promise<void>;
   onRemove?: (id: string) => void;

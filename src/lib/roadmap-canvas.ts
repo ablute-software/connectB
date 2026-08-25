@@ -115,6 +115,30 @@ export function matchesTimeToggle(status: 'done' | 'planned', toggle: TimeToggle
 }
 
 // ---------------------------------------------------------------------------
+// Prompt 382 §D — the persistent per-category on/off switch. A second cut
+// on the SAME `filtered` list matchesTimeToggle already produces (not a
+// second pass) — one more condition, same as timeToggle sits alongside it.
+// `lanesUsed` and `domain` both derive from `filtered`, so an off category's
+// lane disappears from the canvas and stops occupying domain width, for
+// free, by construction — same "des-zooma ao desaparecer" precedent already
+// written for the old milestone-based filter in roadmap-categories.ts.
+//
+// General (category_id null, or an id that no longer resolves to a saved
+// category) is never a saved row — roadmap-categories.ts's own words: "não
+// é uma categoria gravada — é a ausência de uma" — so it is never subject
+// to this cut, with no exception and no phantom `visible` flag invented for
+// it.
+export function matchesCategoryVisibility(
+  categoryId: string | null | undefined,
+  categories: { id: string; visible?: boolean }[],
+): boolean {
+  if (!categoryId) return true;
+  const category = categories.find((c) => c.id === categoryId);
+  if (!category) return true;
+  return category.visible !== false;
+}
+
+// ---------------------------------------------------------------------------
 // Prompt 359 Block A — pure half of the data migration (0237's own SQL does
 // the real one-time backfill; this is the equivalent logic exposed as a
 // testable function so "migração sem perder nada" has a unit test, not only

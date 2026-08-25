@@ -784,7 +784,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     // rather than needing an awaited-before-commit round trip).
     async addRoadmapCategory(c) {
       const prev = dbRef.current;
-      const row: RoadmapCategory = { ...c, id: uuid(), org_id: prev.org.id, created_at: new Date().toISOString() };
+      const row: RoadmapCategory = { visible: true, ...c, id: uuid(), org_id: prev.org.id, created_at: new Date().toISOString() };
       const o = orgIdRef.current;
       if (o) {
         const { error } = await sb.from('roadmap_categories').insert({ ...row, org_id: o });
@@ -803,6 +803,13 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       // lookup-miss como General (roadmap-categories.ts) — o contrato que
       // faz apagar ser seguro sem triggers.
       commit({ ...prev, roadmapCategories: prev.roadmapCategories.filter((c) => c.id !== id) });
+      return {};
+    },
+    async updateRoadmapCategory(id, patch) {
+      const { error } = await sb.from('roadmap_categories').update(patch).eq('id', id);
+      if (error) return { error: error.message };
+      const prev = dbRef.current;
+      commit({ ...prev, roadmapCategories: prev.roadmapCategories.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
       return {};
     },
     async addFundingRound(r) {

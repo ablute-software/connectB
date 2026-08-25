@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   xFromDate, dateFromX, snapToMonth, densityLevel, densityLevelForLane, clusterByProximity,
-  zoomWindow, matchesTimeToggle, migrateMilestoneToEvents,
+  zoomWindow, matchesTimeToggle, matchesCategoryVisibility, migrateMilestoneToEvents,
 } from './roadmap-canvas';
 
 describe('xFromDate / dateFromX — a linear scale, both directions agree', () => {
@@ -121,6 +121,41 @@ describe('matchesTimeToggle — Past/Future/Both (§C.3)', () => {
   it('future only matches planned', () => {
     expect(matchesTimeToggle('planned', 'future')).toBe(true);
     expect(matchesTimeToggle('done', 'future')).toBe(false);
+  });
+});
+
+describe('matchesCategoryVisibility (Prompt 382 §D) — the persistent per-category on/off cut', () => {
+  const categories = [
+    { id: 'c1', visible: true },
+    { id: 'c2', visible: false },
+  ];
+
+  it('an event in a visible category matches', () => {
+    expect(matchesCategoryVisibility('c1', categories)).toBe(true);
+  });
+
+  it('an event in an OFF category is excluded', () => {
+    expect(matchesCategoryVisibility('c2', categories)).toBe(false);
+  });
+
+  it('General (category_id null) is never excluded — it is not a saved category at all', () => {
+    expect(matchesCategoryVisibility(null, categories)).toBe(true);
+    expect(matchesCategoryVisibility(undefined, categories)).toBe(true);
+  });
+
+  it('an unresolvable category id (e.g. a deleted category) reads as General — never excluded', () => {
+    expect(matchesCategoryVisibility('does-not-exist', categories)).toBe(true);
+  });
+
+  it('with no category off at all, behaviour is identical to today — nothing regresses', () => {
+    const allOn = [{ id: 'c1', visible: true }, { id: 'c2', visible: true }];
+    expect(matchesCategoryVisibility('c1', allOn)).toBe(true);
+    expect(matchesCategoryVisibility('c2', allOn)).toBe(true);
+    expect(matchesCategoryVisibility(null, allOn)).toBe(true);
+  });
+
+  it('a category with visible omitted (undefined) defaults to shown', () => {
+    expect(matchesCategoryVisibility('c3', [{ id: 'c3' }])).toBe(true);
   });
 });
 

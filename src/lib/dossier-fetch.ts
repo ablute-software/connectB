@@ -192,26 +192,42 @@ export async function fetchDossierRawData(
       const [{ data: eventRows }, { data: categoryRows }] = await Promise.all([
         admin.from('roadmap_events')
           .select('id, title, description, date, end_date, status, category_id, document_id').eq('org_id', orgId).order('date', { ascending: true }),
+        // Prompt 382 §E — `visible` selected here ONLY to filter, never
+        // forwarded to the investor-facing shape below (RoadmapCategoryFull
+        // has no such field) — an investor never needs to know a category
+        // IS toggleable, only receives what's already on.
         admin.from('roadmap_categories')
-          .select('id, label, color, shape').eq('org_id', orgId).order('created_at', { ascending: true }),
+          .select('id, label, color, shape, visible').eq('org_id', orgId).order('created_at', { ascending: true }),
       ]);
+      // Fail-closed at the query, same discipline this file already applies
+      // to document_id (level gate above) and to market-data groups: an off
+      // category's events are never fetched-then-hidden client-side, and
+      // events with category_id=null (General) are never touched by this
+      // cut — General is not a saved row (roadmap-categories.ts).
+      const visibleCategoryIds = new Set(
+        (categoryRows ?? []).filter((c) => c.visible !== false).map((c) => c.id as string),
+      );
       roadmap = {
         visible: true,
-        events: (eventRows ?? []).map((r) => ({
-          id: r.id as string, title: r.title as string, description: (r.description as string | null) ?? undefined,
-          date: r.date as string, end_date: (r.end_date as string | null) ?? undefined,
-          status: r.status as RoadmapEventFull['status'], category_id: (r.category_id as string | null) ?? undefined,
-          // Prompt 359 Block E — the evidence chip names a specific
-          // document, same disclosure tier as documentTitles below (level
-          // >= 2, and never while the vault kill switch is on) — a level-1
-          // investor sees the roadmap ITSELF but not which document backs
-          // an entry, same as they see zero document titles anywhere else
-          // in the dossier at that level.
-          document_id: level >= 2 ? ((r.document_id as string | null) ?? undefined) : undefined,
-        })),
-        categories: (categoryRows ?? []).map((c) => ({
-          id: c.id as string, label: c.label as string, color: c.color as string, shape: c.shape as string,
-        })),
+        events: (eventRows ?? [])
+          .filter((r) => !r.category_id || visibleCategoryIds.has(r.category_id as string))
+          .map((r) => ({
+            id: r.id as string, title: r.title as string, description: (r.description as string | null) ?? undefined,
+            date: r.date as string, end_date: (r.end_date as string | null) ?? undefined,
+            status: r.status as RoadmapEventFull['status'], category_id: (r.category_id as string | null) ?? undefined,
+            // Prompt 359 Block E — the evidence chip names a specific
+            // document, same disclosure tier as documentTitles below (level
+            // >= 2, and never while the vault kill switch is on) — a level-1
+            // investor sees the roadmap ITSELF but not which document backs
+            // an entry, same as they see zero document titles anywhere else
+            // in the dossier at that level.
+            document_id: level >= 2 ? ((r.document_id as string | null) ?? undefined) : undefined,
+          })),
+        categories: (categoryRows ?? [])
+          .filter((c) => c.visible !== false)
+          .map((c) => ({
+            id: c.id as string, label: c.label as string, color: c.color as string, shape: c.shape as string,
+          })),
       };
     }
   }

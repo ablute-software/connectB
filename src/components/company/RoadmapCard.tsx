@@ -656,7 +656,7 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
 }
 
 export function CategoryManager() {
-  const { db, addRoadmapCategory, removeRoadmapCategory } = useStore();
+  const { db, addRoadmapCategory, removeRoadmapCategory, updateRoadmapCategory } = useStore();
   const [label, setLabel] = useState('');
   const [color, setColor] = useState<CategoryColor>('teal');
   const [shape, setShape] = useState<CategoryShape>('rounded');
@@ -672,10 +672,16 @@ export function CategoryManager() {
       {db.roadmapCategories.length > 0 && (
         <ul className="mt-2 space-y-1">
           {db.roadmapCategories.map((c) => (
-            <li key={c.id} className="flex items-center gap-2 text-xs">
+            <li key={c.id} className={`flex items-center gap-2 text-xs ${c.visible === false ? 'opacity-50' : ''}`}>
               <span aria-hidden
                 className={`h-3 w-3 shrink-0 ${COLOR_STYLES[c.color as CategoryColor]?.dot ?? 'bg-gray-400'} ${SHAPE_STYLES[c.shape as CategoryShape] ?? 'rounded-lg'}`} />
               <span className="text-gray-700">{c.label}</span>
+              {/* Prompt 382 — persistent, not a session filter: off here
+                  turns off the lane on BOTH the founder canvas and the
+                  investor dossier (same shared RoadmapCanvas component).
+                  Off never removes the category from this list — only
+                  "remove" below does that for real. */}
+              <Toggle checked={c.visible !== false} onChange={(v) => updateRoadmapCategory(c.id, { visible: v })} />
               {/* Apagar é seguro sem confirmação pesada: os itens que
                   apontavam para cá passam a ler-se General — nada se perde
                   além da etiqueta (contrato da 0177). */}
