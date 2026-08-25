@@ -6,7 +6,9 @@
 // matches a name already on the founder's own roster (company_people),
 // exactly the same "never invent a person" guardrail investor-facing
 // extraction already applies to programs/named_entities.
-export interface RosterMember { id: string; fullName: string; title: string | null }
+import { removeFactSentencesFromBio, stripUnverifiedHqClaims, detectFoundedYearConflict, capConfidenceOnConflict } from './team-bio-guard';
+
+export interface RosterMember { id: string; fullName: string; title: string | null; currentBio?: string | null }
 export interface TeamBioDraft { personId: string; personName: string; bio: string }
 export interface TeamFillResult { members: TeamBioDraft[]; teamSynergy: string | null }
 
@@ -40,7 +42,13 @@ export const TEAM_FILL_TOOL_SCHEMA = {
 // person's background" would map to) — the founder approves each one
 // before it ever becomes part of a bio, never auto-inserted.
 export interface TeamFactProposal { personId: string; personName: string; statement: string; confidence: number; sourceUrl: string }
-export interface TeamResearchResult extends TeamFillResult { facts: TeamFactProposal[] }
+// Prompt 376 §C — a web fact that disagrees with data the app already
+// trusts (e.g. orgs.founded_year), surfaced as an explicit two-sided
+// question — never an assumption that either side is the correct one (the
+// real ablute_ case: the web said 2019, the app said 2020, and 2019 was the
+// one that was actually right).
+export interface TeamFactConflict { personId: string; personName: string; statement: string; sourceUrl: string; field: 'founded_year'; webValue: number; appValue: number }
+export interface TeamResearchResult extends TeamFillResult { facts: TeamFactProposal[]; conflicts: TeamFactConflict[] }
 
 export const TEAM_RESEARCH_TOOL_SCHEMA = {
   type: 'object',
@@ -102,19 +110,55 @@ export function rawTeamFillToResult(raw: unknown, roster: RosterMember[]): TeamF
 
 interface RawFact { person_name?: unknown; statement?: unknown; confidence?: unknown; source_url?: unknown }
 
-export function rawTeamResearchToResult(raw: unknown, roster: RosterMember[]): TeamResearchResult {
+export interface TeamResearchOrgContext { hqCity?: string | null; foundedYear?: number | null }
+
+export function rawTeamResearchToResult(raw: unknown, roster: RosterMember[], orgContext: TeamResearchOrgContext = {}): TeamResearchResult {
   const base = rawTeamFillToResult(raw, roster);
   const byNormalizedName = new Map(roster.map((m) => [normalizeName(m.fullName), m]));
   const r = (raw && typeof raw === 'object' ? raw : {}) as { facts?: unknown };
-  const facts: TeamFactProposal[] = [];
+  const rawFacts: TeamFactProposal[] = [];
   if (Array.isArray(r.facts)) {
     for (const f of r.facts as RawFact[]) {
       if (!f || typeof f.person_name !== 'string' || typeof f.statement !== 'string' || !f.statement.trim()) continue;
       if (typeof f.confidence !== 'number' || !isHttpUrl(f.source_url)) continue;
       const match = byNormalizedName.get(normalizeName(f.person_name));
       if (!match) continue;
-      facts.push({ personId: match.id, personName: match.fullName, statement: f.statement.trim(), confidence: f.confidence, sourceUrl: f.source_url });
+      rawFacts.push({ personId: match.id, personName: match.fullName, statement: f.statement.trim(), confidence: f.confidence, sourceUrl: f.source_url });
     }
   }
-  return { ...base, facts };
+
+  // Prompt 376 §C — detect a fact that disagrees with orgs.founded_year
+  // BEFORE deciding its final confidence; a conflicting fact is capped,
+  // never left at whatever the model happened to report (the real ablute_
+  // case reported 100% confidence for a claim that turned out to be right,
+  // but the app had no way to know that in advance — the conflict itself is
+  // what must lower the presented confidence, regardless of which side
+  // later turns out correct).
+  const conflicts: TeamFactConflict[] = [];
+  const facts = rawFacts.map((f) => {
+    const yearConflict = detectFoundedYearConflict(f.statement, orgContext.foundedYear ?? null);
+    if (!yearConflict) return f;
+    conflicts.push({
+      personId: f.personId, personName: f.personName, statement: f.statement, sourceUrl: f.sourceUrl,
+      field: 'founded_year', webValue: yearConflict.webYear, appValue: yearConflict.appYear,
+    });
+    return { ...f, confidence: capConfidenceOnConflict(f.confidence) };
+  });
+
+  // Prompt 376 §B/§D — every bio, cleaned the same way regardless of
+  // whether it came with matching facts: (1) any sentence substantially
+  // overlapping an UNAPPROVED fact is stripped (the fact stays in facts[],
+  // where the founder actually reviews it) and (2) any HQ/location claim
+  // that doesn't match what the org already has on file is stripped too —
+  // the real ablute_ "headquarters in Porto" case had no backing fact at
+  // all, so this check runs independently of §B's fact-overlap removal.
+  const factStatementsByPerson = new Map<string, string[]>();
+  for (const f of facts) factStatementsByPerson.set(f.personId, [...(factStatementsByPerson.get(f.personId) ?? []), f.statement]);
+  const members = base.members.map((m) => {
+    const afterFacts = removeFactSentencesFromBio(m.bio, factStatementsByPerson.get(m.personId) ?? []);
+    const afterHq = stripUnverifiedHqClaims(afterFacts.bio, orgContext.hqCity ?? null);
+    return { ...m, bio: afterHq.bio };
+  });
+
+  return { members, teamSynergy: base.teamSynergy, facts, conflicts };
 }

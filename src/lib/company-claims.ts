@@ -97,7 +97,17 @@ const OUTCOME = /\b(signed|agreed|contracted|loi|mou|pilot|purchase|renewed|depl
 // chave de comparação razoável — mas um futuro leitor não deve assumir que
 // isto devolve sempre o nome completo.
 export function extractNamedEntity(statement: string): string | null {
-  return NAMED_ENTITY.exec(statement)?.[0] ?? null;
+  return extractNamedEntities(statement)[0] ?? null;
+}
+
+// Prompt 376 §A — exported so team-bio-guard.ts's loss-check can compare
+// EVERY named entity a bio mentions, not just the first (extractNamedEntity
+// above is the pre-existing single-match convenience wrapper, kept for its
+// existing callers). Same regex, same known limitation (a name opening the
+// sentence is only captured from its second word on — see extractNamedEntity's
+// own comment) — deduped, since a long bio can repeat the same name.
+export function extractNamedEntities(statement: string): string[] {
+  return [...new Set((statement.match(new RegExp(NAMED_ENTITY, 'g')) ?? []))];
 }
 
 export function measureSpecificity(statement: string): { level: ClaimSpecificity; signals: SpecificitySignals } {

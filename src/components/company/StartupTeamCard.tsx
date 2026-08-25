@@ -121,7 +121,7 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
         </div>
       )}
 
-      {canEdit && people.length > 0 && <TeamAiFillPanel orgId={org.id} people={people} updateCompanyPerson={updateCompanyPerson} />}
+      {canEdit && people.length > 0 && <TeamAiFillPanel orgId={org.id} org={org} people={people} updateCompanyPerson={updateCompanyPerson} updateOrg={updateOrg} />}
 
       <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-gray-100 pt-3">
         <CompletenessField id="team.employee_count" label="Total employees" missing={missingIds.has('team.employee_count')} flashing={flashId === 'team.employee_count'}>
