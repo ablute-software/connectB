@@ -19,12 +19,23 @@ const GENERIC_AI_ERROR = 'AI assist failed — try again in a moment.';
 // misleading here — retrying cannot succeed until the limit changes.
 const USAGE_LIMIT_AI_ERROR = 'AI tools are temporarily unavailable — they\'ll be back soon.';
 
+// Prompt 378 — caught live on production while verifying the honest-failure
+// contract. The real error the account hit on 2026-08-25 was "Your credit
+// balance is too low to access the Anthropic API. Please go to Plans &
+// Billing to upgrade or purchase credits." — which contains no "usage
+// limit", so it fell through to the generic "try again in a moment" and the
+// founder would retry forever against a call that cannot succeed. Same
+// operational class, same honest message; only the detector was too narrow.
+// Deliberately still says nothing about billing/account state to the
+// client — that's the caller's own operational problem, not the founder's.
+const BLOCKED_PATTERNS = /usage limit|credit balance is too low|insufficient (?:credit|quota)|billing/i;
+
 function isUsageLimitError(rawBody: string): boolean {
   try {
     const parsed = JSON.parse(rawBody) as { error?: { type?: string; message?: string } };
-    return parsed?.error?.type === 'invalid_request_error' && /usage limit/i.test(parsed?.error?.message ?? '');
+    return parsed?.error?.type === 'invalid_request_error' && BLOCKED_PATTERNS.test(parsed?.error?.message ?? '');
   } catch {
-    return /usage limit/i.test(rawBody);
+    return BLOCKED_PATTERNS.test(rawBody);
   }
 }
 

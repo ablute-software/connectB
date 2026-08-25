@@ -48,4 +48,27 @@ describe('providerErrorMessage', () => {
     const raw = JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'max_tokens is too large.' } });
     expect(providerErrorMessage('[test]', raw)).toBe('AI assist failed — try again in a moment.');
   });
+
+  // Prompt 378 — the VERBATIM error the account actually returned on
+  // 2026-08-25, caught while verifying on production. It says nothing about
+  // a "usage limit", so the original detector missed it and the founder got
+  // "try again in a moment" for a call that could never succeed.
+  it('detects the credit-balance shape (the real 2026-08-25 outage), not just "usage limit"', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const raw = JSON.stringify({
+      type: 'error',
+      error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.' },
+    });
+    expect(providerErrorMessage('[test]', raw)).toBe('AI tools are temporarily unavailable — they\'ll be back soon.');
+  });
+
+  it('never leaks billing/account wording to the client even when it detects it', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const raw = JSON.stringify({
+      type: 'error',
+      error: { type: 'invalid_request_error', message: 'Your credit balance is too low. Please go to Plans & Billing to upgrade or purchase credits.' },
+    });
+    const message = providerErrorMessage('[test]', raw);
+    expect(message).not.toMatch(/credit|billing|balance|purchase/i);
+  });
 });
