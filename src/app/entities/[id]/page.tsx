@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { Card, FitTag, HardFilterBanner, MatchDealProfileBadge, PersonLink, StatusPill, VerBadge, WaveTag, fmtEur } from '@/components/ui';
 import { computeEntitySummaryPrefill, matchEntityToCatalog } from '@/lib/entity-catalog-prefill';
@@ -103,6 +104,12 @@ export default function EntityPage({ params }: { params: { id: string } }) {
     messages: DealMessage[];
   }>({ canMessage: false, investorCatalogEntityId: null, investorName: null, messages: [] });
   const [messagingOpen, setMessagingOpen] = useState(false);
+  // Block F — a "Request NDA via message" link (from the document-request
+  // review page) lands here with a draft body pre-filled but NEVER sent
+  // automatically: it opens the same drawer/composer the founder always
+  // uses, they still have to review it and press Send themselves.
+  const searchParams = useSearchParams();
+  const ndaDraft = searchParams.get('ndaDraft');
   // Prompt 319 Pedido C.4 — "ask about follow-on interest", only where a
   // verified invested relationship already exists (server re-checks this;
   // the button just doesn't render for anything else).
@@ -138,6 +145,10 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity?.id]);
+
+  useEffect(() => {
+    if (ndaDraft && messaging.canMessage) setMessagingOpen(true);
+  }, [ndaDraft, messaging.canMessage]);
 
   // Prompt 275 §3 — scrolls to and briefly highlights the row a founder
   // just promoted from the Team card's key_people fallback via "Add as
@@ -602,6 +613,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         <MessageInvestorDrawer
           entityId={entity.id} investorCatalogEntityId={messaging.investorCatalogEntityId}
           investorName={messaging.investorName ?? entity.name} open={messagingOpen} onClose={() => setMessagingOpen(false)}
+          initialBody={ndaDraft ?? undefined}
         />
       )}
     </div>

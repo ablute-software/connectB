@@ -11,13 +11,15 @@ import { DealThreadView } from '@/components/deal-messages/DealThreadView';
 import { useStore } from '@/lib/store';
 
 export function MessageInvestorDrawer({
-  investorName, entityId, investorCatalogEntityId, open, onClose,
+  investorName, entityId, investorCatalogEntityId, open, onClose, initialBody,
 }: {
   investorName: string;
   entityId: string;
   investorCatalogEntityId: string;
   open: boolean;
   onClose: () => void;
+  // Block F — an NDA-request draft, review-before-send (see DealThreadView).
+  initialBody?: string;
 }) {
   // Prompt 210 §A.1 — o DealThreadView ja sabia anexar (attachableDocuments,
   // usado no lado do investidor); o que faltava era o drawer do founder
@@ -53,6 +55,7 @@ export function MessageInvestorDrawer({
             postUrl="/api/founder/messages"
             extraPostBody={{ investorCatalogEntityId }}
             attachableDocuments={attachable}
+            initialBody={initialBody}
           />
           {/* Prompt 210 §A.3 — nao ha anexo directo do PC, de proposito: tudo
               o que circula tem de estar na Vault (view-only, versionado, com

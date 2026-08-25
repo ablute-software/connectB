@@ -490,7 +490,7 @@ function DocumentsPageInner() {
     setTimeout(() => setCopiedGuestLinkFor((cur) => (cur === invitedEmail ? null : cur)), 2000);
   }
 
-  async function uploadNda(file: File, inv: { personId?: string; email?: string }) {
+  async function uploadNda(file: File, inv: { personId?: string; email?: string; documentId?: string }) {
     try {
       const sb = browserClient();
       const path = `${db.org.id}/ndas/${crypto.randomUUID()}-${sanitizeStorageKey(file.name)}`;
@@ -498,7 +498,7 @@ function DocumentsPageInner() {
       if (error) throw error;
       const res = await fetch('/api/data-room/nda-upload', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ storagePath: path, fileName: file.name, personId: inv.personId, granteeEmail: inv.email }),
+        body: JSON.stringify({ storagePath: path, fileName: file.name, personId: inv.personId, granteeEmail: inv.email, documentId: inv.documentId }),
       });
       const body = await res.json();
       if (!body.ok) throw new Error(body.error ?? 'Upload failed');
@@ -509,17 +509,28 @@ function DocumentsPageInner() {
   }
 
   const pendingNdaInvestors = useMemo(() => {
-    const map = new Map<string, { personId?: string; email?: string; label: string; count: number }>();
+    // Block F — when every pending grant for this investor locks the SAME
+    // single document, the upload is scoped to it (documentId passed
+    // through to nda-upload, which then only unlocks that one grant); a
+    // mix of documents/folders falls back to the pre-existing org-wide
+    // unlock, unchanged.
+    const map = new Map<string, { personId?: string; email?: string; label: string; count: number; documentIds: Set<string> }>();
     for (const g of confirmedActiveGrants) {
       if (!g.nda_required || g.nda_accepted_at) continue;
       const key = g.person_id ?? g.grantee_email ?? '';
       if (!key) continue;
       const label = g.person_id ? (db.people.find((p) => p.id === g.person_id)?.full_name ?? 'Unknown') : (g.grantee_email ?? '');
       const existing = map.get(key);
-      map.set(key, { personId: g.person_id, email: g.grantee_email, label, count: (existing?.count ?? 0) + 1 });
+      const documentIds = existing?.documentIds ?? new Set<string>();
+      if (g.document_id) documentIds.add(g.document_id);
+      map.set(key, { personId: g.person_id, email: g.grantee_email, label, count: (existing?.count ?? 0) + 1, documentIds });
     }
-    return [...map.values()];
-  }, [confirmedActiveGrants, db.people]);
+    return [...map.values()].map((v) => ({
+      personId: v.personId, email: v.email, label: v.label, count: v.count,
+      documentId: v.documentIds.size === 1 ? [...v.documentIds][0] : undefined,
+      documentName: v.documentIds.size === 1 ? db.documents.find((d) => d.id === [...v.documentIds][0])?.name : undefined,
+    }));
+  }, [confirmedActiveGrants, db.people, db.documents]);
 
   // File size isn't a DB column — Supabase Storage already tracks it, so a
   // single listing of the org's prefix is cheaper than a schema change.
@@ -1563,10 +1574,12 @@ function DocumentsPageInner() {
                 {pendingNdaInvestors.map((inv) => (
                   <li key={inv.personId ?? inv.email} className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{inv.label}</span>
-                    <span className="text-xs text-gray-400">{inv.count} item{inv.count === 1 ? '' : 's'} locked until the signed NDA is on file</span>
+                    <span className="text-xs text-gray-400">
+                      {inv.documentName ? `"${inv.documentName}" locked` : `${inv.count} item${inv.count === 1 ? '' : 's'} locked`} until the signed NDA is on file
+                    </span>
                     <label className="ml-auto cursor-pointer rounded-lg border border-cyan-200 px-2.5 py-1 text-xs text-cyan-800 hover:bg-cyan-50">
                       Upload signed NDA
-                      <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadNda(f, { personId: inv.personId, email: inv.email }); }} />
+                      <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadNda(f, { personId: inv.personId, email: inv.email, documentId: inv.documentId }); }} />
                     </label>
                   </li>
                 ))}

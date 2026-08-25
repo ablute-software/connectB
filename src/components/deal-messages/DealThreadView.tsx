@@ -55,7 +55,7 @@ function fmtDateTime(iso: string) {
 }
 
 export function DealThreadView({
-  viewerSide, fetchUrl, postUrl, extraPostBody, attachableDocuments, disabled, disabledReason,
+  viewerSide, fetchUrl, postUrl, extraPostBody, attachableDocuments, disabled, disabledReason, initialBody,
 }: {
   viewerSide: 'investor' | 'founder';
   fetchUrl: string;
@@ -71,10 +71,14 @@ export function DealThreadView({
   attachableDocuments?: AttachableDoc[];
   disabled?: boolean;
   disabledReason?: string;
+  // Block F — pre-fills the composer (e.g. an NDA-request draft) without
+  // ever sending it: the founder still has to review/edit and press Send,
+  // same as typing it themselves. Never sent automatically.
+  initialBody?: string;
 }) {
   const [messages, setMessages] = useState<DealMessage[] | null>(null);
   const [otherLastReadAt, setOtherLastReadAt] = useState<string | null>(null);
-  const [body, setBody] = useState('');
+  const [body, setBody] = useState(initialBody ?? '');
   const [linkLabel, setLinkLabel] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
   const [draftLinks, setDraftLinks] = useState<{ label: string; url: string }[]>([]);

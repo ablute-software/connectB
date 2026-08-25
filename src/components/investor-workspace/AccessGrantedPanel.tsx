@@ -18,6 +18,24 @@ interface ExpiredCard { orgId: string; orgName: string; expiredAt: string | null
 interface RequestedCard { orgId: string; orgName: string; status: 'pending' | 'declined'; requestedAt: string; respondedAt: string | null }
 interface AccessGrantedResponse { granted: GrantedCard[]; requested: RequestedCard[]; expired: ExpiredCard[] }
 
+// Prompt 372 Block G — the investor's own status view of documents they
+// asked for. Deliberately carries NOTHING about founder activity (no
+// response times, no counts, no percentages) — only what happened to each
+// item of THIS investor's own request.
+interface DocRequestItem {
+  id: string; label: string; status: 'pending' | 'granted' | 'promised' | 'declined';
+  fulfilledDocumentName: string | null; promisedFor: string | null; declineReason: string | null; resolutionNote: string | null;
+}
+interface DocRequestCard { orgId: string; orgName: string; id: string; message: string | null; requestedAt: string; items: DocRequestItem[] }
+
+const ITEM_STATUS_LABEL: Record<DocRequestItem['status'], string> = {
+  pending: 'Waiting on founder', granted: 'Granted', promised: 'Promised', declined: 'Declined',
+};
+const ITEM_STATUS_STYLE: Record<DocRequestItem['status'], string> = {
+  pending: 'bg-amber-50 text-amber-700', granted: 'bg-emerald-50 text-emerald-700',
+  promised: 'bg-[#E8F4F8] text-[#0E7490]', declined: 'bg-gray-100 text-gray-500',
+};
+
 const LEVEL_LABEL: Record<0 | 1 | 2 | 3, string> = {
   0: 'Level 0 · Discovery', 1: 'Level 1 · Interested', 2: 'Level 2 · Full profile', 3: 'Level 3 · Contact granted',
 };
@@ -39,6 +57,7 @@ function OrgAvatar({ name, logoUrl }: { name: string; logoUrl: string | null }) 
 export function AccessGrantedPanel() {
   const [subTab, setSubTab] = useState<SubTab>('granted');
   const [data, setData] = useState<AccessGrantedResponse | null>(null);
+  const [docRequests, setDocRequests] = useState<DocRequestCard[] | null>(null);
   const [accessRequestsAvailable, setAccessRequestsAvailable] = useState(false);
   const [requestingOrgId, setRequestingOrgId] = useState<string | null>(null);
   const [justRequested, setJustRequested] = useState<Set<string>>(new Set());
@@ -53,6 +72,26 @@ export function AccessGrantedPanel() {
   }
   useEffect(load, []);
 
+  // Block G — document requests are keyed per org (the API needs an
+  // orgId), so gather every org this investor has ever touched (granted,
+  // requested-for-access, or expired) and fetch each one's document
+  // requests separately, then flatten. Small N in practice (one investor's
+  // own pipeline of startups), so N small fetches beats a new cross-org
+  // endpoint just for this.
+  useEffect(() => {
+    if (!data) return;
+    const orgs = new Map<string, string>();
+    for (const c of data.granted) orgs.set(c.orgId, c.orgName);
+    for (const c of data.requested) orgs.set(c.orgId, c.orgName);
+    for (const c of data.expired) orgs.set(c.orgId, c.orgName);
+    if (orgs.size === 0) { setDocRequests([]); return; }
+    Promise.all([...orgs.entries()].map(([orgId, orgName]) =>
+      fetch(`/api/portal/document-requests?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json())
+        .then((d) => (d.requests ?? []).map((r: { id: string; message: string | null; requestedAt: string; items: DocRequestItem[] }) => ({ orgId, orgName, ...r })))
+        .catch(() => []),
+    )).then((lists) => setDocRequests(lists.flat())).catch(() => setDocRequests([]));
+  }, [data]);
+
   async function requestAgain(orgId: string) {
     setRequestingOrgId(orgId);
     try {
@@ -66,9 +105,12 @@ export function AccessGrantedPanel() {
 
   if (!data) return <p className="text-sm text-gray-400">Loading…</p>;
 
+  const pendingDocRequestItemCount = (docRequests ?? []).reduce(
+    (n, r) => n + r.items.filter((i) => i.status === 'pending').length, 0,
+  );
   const SUB_TABS: { value: SubTab; label: string; count?: number }[] = [
     { value: 'granted', label: 'Granted', count: data.granted.length },
-    { value: 'requested', label: 'Requested', count: data.requested.filter((r) => r.status === 'pending').length },
+    { value: 'requested', label: 'Requested', count: data.requested.filter((r) => r.status === 'pending').length + pendingDocRequestItemCount },
     { value: 'expired', label: 'Expired', count: data.expired.length },
   ];
 
@@ -133,9 +175,14 @@ export function AccessGrantedPanel() {
                       </button>
                       {expanded && (
                         <div className="mt-3 space-y-3 border-t border-gray-100 pt-3">
-                          <a href={`/portal/startup/${card.orgId}?tab=documents`} className="text-xs font-medium text-[#0E7490] hover:underline">
-                            Open in {card.orgName}&apos;s dossier →
-                          </a>
+                          <div className="flex items-center gap-3">
+                            <a href={`/portal/startup/${card.orgId}?tab=documents`} className="text-xs font-medium text-[#0E7490] hover:underline">
+                              Open in {card.orgName}&apos;s dossier →
+                            </a>
+                            <a href={`/portal/startup/${card.orgId}?tab=documents`} className="text-xs text-gray-400 hover:text-[#0E7490] hover:underline">
+                              Request more documents
+                            </a>
+                          </div>
                           {card.pendingNdaCount > 0 && (
                             <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
                               Awaiting NDA — {card.pendingNdaCount} item{card.pendingNdaCount === 1 ? '' : 's'} below will unlock once your signed NDA is on file.
@@ -185,7 +232,7 @@ export function AccessGrantedPanel() {
           <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6 text-center">
             <p className="text-sm text-gray-500">Coming soon — this tab will show access you&apos;ve requested but the founder hasn&apos;t granted yet.</p>
           </div>
-        ) : data.requested.length === 0 ? (
+        ) : data.requested.length === 0 && (docRequests ?? []).length === 0 ? (
           <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6 text-center">
             <p className="text-sm text-gray-500">No pending requests right now.</p>
           </div>
@@ -204,6 +251,46 @@ export function AccessGrantedPanel() {
                 </div>
               </div>
             ))}
+            {/* Block G — document requests, per item. Never shows anything
+                about founder activity: no response time, no counts beyond
+                "n of N resolved" for THIS investor's own request. */}
+            {(docRequests ?? []).map((r) => {
+              const resolvedCount = r.items.filter((i) => i.status !== 'pending').length;
+              return (
+                <div key={r.id} className="rounded-lg border border-gray-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">{r.orgName} · document request</div>
+                      <div className="text-xs text-gray-400">
+                        requested {fmtDate(r.requestedAt)} · {resolvedCount} of {r.items.length} resolved
+                      </div>
+                    </div>
+                  </div>
+                  {r.message && <p className="mt-2 text-xs italic text-gray-500">&quot;{r.message}&quot;</p>}
+                  <ul className="mt-2 space-y-1.5">
+                    {r.items.map((item) => (
+                      <li key={item.id} className="flex items-center justify-between gap-2 text-sm">
+                        <span className="text-gray-700">{item.label}</span>
+                        <div className="flex items-center gap-2">
+                          {item.status === 'promised' && item.promisedFor && (
+                            <span className="text-[11px] text-gray-400">by {fmtDate(item.promisedFor)}</span>
+                          )}
+                          {item.status === 'declined' && item.declineReason && (
+                            <span className="text-[11px] text-gray-400" title={item.declineReason}>{item.declineReason}</span>
+                          )}
+                          {item.status === 'granted' && item.fulfilledDocumentName && (
+                            <span className="text-[11px] text-gray-400">{item.fulfilledDocumentName}</span>
+                          )}
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${ITEM_STATUS_STYLE[item.status]}`}>
+                            {ITEM_STATUS_LABEL[item.status]}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
           </div>
         )
       )}

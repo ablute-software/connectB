@@ -18,8 +18,14 @@ import { providerErrorMessage } from '@/lib/ai-provider-error';
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
-  const { storagePath, fileName, personId, entityId, granteeEmail } = await req.json() as {
+  const { storagePath, fileName, personId, entityId, granteeEmail, documentId } = await req.json() as {
     storagePath?: string; fileName?: string; personId?: string; entityId?: string; granteeEmail?: string;
+    // Block F — an NDA scoped to ONE document (e.g. a due_diligence item
+    // from a document request). When set, the unlock below only stamps the
+    // grant for that document, not every nda_required grant this person
+    // has org-wide — a document-specific NDA shouldn't silently open
+    // unrelated locked documents.
+    documentId?: string;
   };
   if (!storagePath || (!personId && !entityId && !granteeEmail)) {
     return NextResponse.json({ ok: false, error: 'storagePath and a subject (personId/entityId/granteeEmail) are required' }, { status: 400 });
@@ -149,23 +155,28 @@ export async function POST(req: NextRequest) {
   const { data: row, error } = await admin.from('ndas').insert({
     org_id: orgId, person_id: personId ?? null, entity_id: resolvedEntityId ?? null, grantee_email: granteeEmail ?? null,
     storage_path: storagePath, file_name: fileName ?? null, uploaded_by: user.email ?? null,
-    match_status, match_notes: match_notes ?? null,
+    match_status, match_notes: match_notes ?? null, document_id: documentId ?? null,
     ...(scanColumnsAvailable ? { malware_scan_status: scanVerdict.status, malware_scan_checked_at: new Date().toISOString(), content_sha256: sha256Hex(bytes) } : {}),
   }).select().single();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
   // Unlock: every active nda_required grant for this grantee that hasn't
   // already been accepted gets stamped now — regardless of the match
-  // verdict above (never a block; the founder decides).
+  // verdict above (never a block; the founder decides). Block F — when this
+  // NDA is scoped to one document, only that document's grant unlocks;
+  // otherwise (the pre-existing entity/person-wide NDA case) every
+  // nda_required grant for this grantee unlocks, unchanged.
   const orParts: string[] = [];
   if (personId) orParts.push(`person_id.eq.${personId}`);
   if (granteeEmail) orParts.push(`grantee_email.eq.${granteeEmail}`);
   let unlockedGrantIds: string[] = [];
   if (orParts.length) {
-    const { data: unlocked } = await admin.from('access_grants')
+    let query = admin.from('access_grants')
       .update({ nda_accepted_at: new Date().toISOString() })
       .eq('org_id', orgId).eq('nda_required', true).is('nda_accepted_at', null).is('revoked_at', null)
-      .or(orParts.join(',')).select('id');
+      .or(orParts.join(','));
+    if (documentId) query = query.eq('document_id', documentId);
+    const { data: unlocked } = await query.select('id');
     unlockedGrantIds = (unlocked ?? []).map((g) => g.id as string);
   }
 

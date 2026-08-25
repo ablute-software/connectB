@@ -21,6 +21,7 @@ import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
 import { DocScorePanel, type DocScore, type DocScoreHistoryEntry } from '@/components/investor-workspace/DocScorePanel';
 import { WatsonEvaluationSupport } from '@/components/investor-workspace/WatsonEvaluationSupport';
 import { SherlockSummaryButton } from '@/components/investor-workspace/SherlockSummaryButton';
+import { DocumentRequestPicker } from '@/components/DocumentRequestPicker';
 import { Tooltip } from '@/components/ui';
 import { computeDilution, type ValuationBasis } from '@/lib/dilution';
 
@@ -691,8 +692,11 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
 }) {
   if (!hasAccess) {
     return (
-      <div className="mx-auto mt-8 max-w-sm rounded-lg border border-dashed border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
-        🔒 Access to documents is granted by the founder — express interest to start the conversation.
+      <div className="mx-auto mt-8 max-w-sm space-y-3 text-center">
+        <div className="rounded-lg border border-dashed border-gray-200 bg-white p-6 text-sm text-gray-500">
+          🔒 Access to documents is granted by the founder — express interest to start the conversation.
+        </div>
+        <DocumentRequestPicker orgId={orgId} />
       </div>
     );
   }
@@ -801,6 +805,8 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
           )}
         </div>
       )}
+
+      <DocumentRequestPicker orgId={orgId} />
     </div>
   );
 }

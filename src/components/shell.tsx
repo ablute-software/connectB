@@ -17,6 +17,7 @@ import { DeveloperViewerFrame } from '@/components/DeveloperViewerFrame';
 import { OrphanAccountRepair } from '@/components/OrphanAccountRepair';
 import { ReminderPopup } from '@/components/ReminderPopup';
 import { InvestorInterestPopup } from '@/components/InvestorInterestPopup';
+import { DocumentRequestPopup } from '@/components/DocumentRequestPopup';
 import { useBottomNavRef } from '@/lib/bottom-nav-context';
 import { BRAND_NAME } from '@/lib/brand';
 import { useUsageHeartbeat } from '@/lib/use-usage-heartbeat';
@@ -358,6 +359,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <TermsGateModal />
       <ReminderPopup />
       <InvestorInterestPopup />
+      <DocumentRequestPopup />
     </div>
     </OnboardingProvider>
   );

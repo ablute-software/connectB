@@ -38,9 +38,13 @@ function LogForm() {
   // already allows (interactions.person_id was already nullable).
   const [noSpecificPerson, setNoSpecificPerson] = useState(false);
   const [showQuickCreate, setShowQuickCreate] = useState(false);
-  const [direction, setDirection] = useState<'out' | 'in'>('out');
+  // Prompt 372 Block D — "Ver pedido" opens this pre-filled (inbound,
+  // today, the investor's request verbatim) so the request becomes part of
+  // the relationship's real history, same additive query-param pattern
+  // entity/person already use above — never a separate open mechanism.
+  const [direction, setDirection] = useState<'out' | 'in'>(sp.get('direction') === 'in' ? 'in' : 'out');
   const [channel, setChannel] = useState<Channel>('linkedin_dm');
-  const [content, setContent] = useState('');
+  const [content, setContent] = useState(sp.get('content') ?? '');
   // Prompt 202 §A.1 — arranca VAZIA, não em 'awaiting'. O default silencioso
   // é a primeira metade do bug real: o pass da Adara Ventures (2026-08-05)
   // ficou gravado como "awaiting" porque o founder não mexeu no campo, e sem
@@ -58,7 +62,7 @@ function LogForm() {
   // Prompt 49 §5 — when the interaction itself happened. Optional, blank =
   // now (the store's existing default); the calendar widget already exists
   // for "3 · Next action", this reuses the same UI a step earlier.
-  const [whatDate, setWhatDate] = useState('');
+  const [whatDate, setWhatDate] = useState(sp.get('date') ?? '');
   const [nextAction, setNextAction] = useState('');
   const [nextDue, setNextDue] = useState('');
   const [nextActionType, setNextActionType] = useState<ActionType>('other');
