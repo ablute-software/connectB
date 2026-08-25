@@ -134,19 +134,30 @@ describe('scanWithVirusTotal — Prompt 375: hash-only, never submits content', 
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('a 401 is a configuration error, never "pending" — the exact bug this prompt fixes', async () => {
+  // Prompt 372 follow-up — a 401/403 resolves to 'local_only', NOT
+  // 'not_scanned': local validation (magic bytes etc.) already passed by
+  // the time this runs, and 'not_scanned' feeds prepareDocumentForAi's
+  // gate, which refuses it. Marking an auth failure 'not_scanned' would
+  // mean an expired/revoked key silently stops the whole knowledge engine
+  // platform-wide for every new upload — the auth failure itself must
+  // stay loud (console.error, asserted below), but the document's own
+  // status reflects what actually happened to IT.
+  it('a 401 is a configuration error, never "pending" — but the document still ends up local_only, never blocked', async () => {
     process.env.VIRUSTOTAL_API_KEY = 'invalid-short-key';
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const verdict = await scanWithVirusTotal(Buffer.from('hello'));
-    expect(verdict.status).toBe('not_scanned');
+    expect(verdict.status).toBe('local_only');
     expect(verdict.provider).toBeNull();
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
   it('a 403 is treated the same as a 401', async () => {
     process.env.VIRUSTOTAL_API_KEY = 'invalid-short-key';
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }));
     const verdict = await scanWithVirusTotal(Buffer.from('hello'));
-    expect(verdict.status).toBe('not_scanned');
+    expect(verdict.status).toBe('local_only');
     expect(verdict.provider).toBeNull();
   });
 

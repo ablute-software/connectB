@@ -161,8 +161,22 @@ export async function scanWithVirusTotal(bytes: Buffer): Promise<ScanVerdict> {
       // caused the exact incident this prompt fixes — the daily cron would
       // have re-tried the same broken credentials forever, reporting
       // nothing wrong, while looking like a real scan was in progress.
+      //
+      // Prompt 372 follow-up — the STATUS this resolves to is 'local_only',
+      // not 'not_scanned'. By the time this function runs, the caller has
+      // already passed local validation (detectAllowedKind — magic bytes,
+      // declared type, size); a broken/expired/revoked VIRUSTOTAL_API_KEY
+      // is a fact about the OPTIONAL external check, not about whether the
+      // document itself was validated. 'not_scanned' feeds
+      // prepareDocumentForAi's gate, which refuses it — so marking an
+      // auth failure 'not_scanned' would mean a key that quietly expires
+      // one day silently stops the entire knowledge engine, platform-wide,
+      // for every NEW upload from that moment on, with the loud log/
+      // backoffice signal below as the only trace. The auth failure stays
+      // exactly as loud; the document's own status reflects what actually
+      // happened to IT (locally validated, never externally verified).
       console.error(`[upload-security] VirusTotal auth failed (${lookup.status}) — check VIRUSTOTAL_API_KEY. Falling back to local-only validation.`);
-      return { status: 'not_scanned', provider: null, detail: `VirusTotal authentication failed (${lookup.status}) — scanner misconfigured, not scanned.` };
+      return { status: 'local_only', provider: null, detail: `VirusTotal authentication failed (${lookup.status}) — scanner misconfigured; validated locally instead.` };
     }
     // 429 (rate limit) / 5xx — a real, legitimate "try again later" from
     // VT's own infrastructure, worth the daily cron's cheap re-lookup.

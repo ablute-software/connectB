@@ -33,8 +33,14 @@ async function scanWithVirusTotal(bytes) {
     }
     if (lookup.status === 404) return { status: 'local_only', provider: null, detail: 'hash unknown to VirusTotal (expected)', sha256 };
     if (lookup.status === 401 || lookup.status === 403) {
+      // Prompt 372 follow-up — 'local_only', not 'not_scanned': local
+      // validation (magic bytes etc.) already happened before this ever
+      // ran; a broken key is a fact about the OPTIONAL external check, not
+      // about the document. 'not_scanned' would feed the extraction gate's
+      // refusal and quietly block the file. Kept in sync with
+      // upload-security.ts's own scanWithVirusTotal.
       console.error(`VirusTotal auth failed (${lookup.status}) — check VIRUSTOTAL_API_KEY.`);
-      return { status: 'not_scanned', provider: null, detail: `auth failed (${lookup.status})`, sha256 };
+      return { status: 'local_only', provider: null, detail: `auth failed (${lookup.status}) — validated locally instead`, sha256 };
     }
     return { status: 'pending', provider: 'virustotal', detail: `temporary failure (${lookup.status})`, sha256 };
   } catch (e) {
@@ -51,7 +57,7 @@ async function main() {
   console.log(`Found ${rows.length} document_versions rows to scan for ablute_ (hash-only, no file content ever sent).`);
   console.log(vtKey ? 'VIRUSTOTAL_API_KEY is set — will do a hash lookup per file.' : 'No VIRUSTOTAL_API_KEY — every file resolves to local_only directly, no network calls.');
 
-  const results = { clean: 0, local_only: 0, flagged: [], not_scanned_authfail: 0, pending: 0, skipped: [] };
+  const results = { clean: 0, local_only: 0, authFailedLocalOnly: 0, flagged: [], pending: 0, skipped: [] };
   let i = 0;
   for (const v of rows) {
     i++;
@@ -74,18 +80,20 @@ async function main() {
     }).eq('id', v.document_id).eq('storage_path', v.storage_path);
 
     if (verdict.status === 'clean') results.clean++;
-    else if (verdict.status === 'local_only') results.local_only++;
+    else if (verdict.status === 'local_only') {
+      results.local_only++;
+      if (verdict.detail.includes('auth failed')) results.authFailedLocalOnly++;
+    }
     else if (verdict.status === 'flagged') results.flagged.push({ storagePath: v.storage_path, detail: verdict.detail });
-    else if (verdict.status === 'not_scanned') results.not_scanned_authfail++;
     else results.pending++;
   }
 
   console.log('\n=== Hash-only retro-scan complete ===');
   console.log(`local_only (validated locally, never submitted): ${results.local_only}`);
+  console.log(`  — of which via a VirusTotal AUTH FAILURE (check VIRUSTOTAL_API_KEY — still local_only, never blocked): ${results.authFailedLocalOnly}`);
   console.log(`clean (already known to VT, no detections): ${results.clean}`);
   console.log(`flagged: ${results.flagged.length}`);
   if (results.flagged.length) console.log(JSON.stringify(results.flagged, null, 2));
-  console.log(`not_scanned (auth failure — check key): ${results.not_scanned_authfail}`);
   console.log(`pending (temporary VT failure — cron will retry): ${results.pending}`);
   console.log(`skipped: ${results.skipped.length}`);
   if (results.skipped.length) console.log(JSON.stringify(results.skipped, null, 2));
