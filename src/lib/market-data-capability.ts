@@ -19,3 +19,29 @@ export const marketDocumentExtractionAvailable = makeCapabilityProbe(async (admi
   const { error } = await admin.from('market_research_items').select('source_kind, document_id, page, structured').limit(1);
   return !error;
 });
+
+// Prompt 373 — migration 0246's new tables/columns.
+export const orgMarketRingsAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('org_market_rings').select('id').limit(1);
+  return !error;
+});
+
+export const orgCompetitorsAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('org_competitors').select('id').limit(1);
+  return !error;
+});
+
+export const marketCompanyExtendedFieldsAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('market_companies').select('company_type, life_status, latest_news').limit(1);
+  return !error;
+});
+
+export const marketCompanyFlagsAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('market_company_flags').select('id').limit(1);
+  return !error;
+});
+
+export const marketGroupsVisibilityAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('orgs').select('market_groups_visible_to_investors').limit(1);
+  return !error;
+});

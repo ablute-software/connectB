@@ -20,6 +20,22 @@ import type { SwotData } from './types';
 import type { ReviewCategory } from './review-clarifications';
 import { projectBadgesForInvestor, type BadgePublic } from './company-badges';
 import { projectMiniPitchForInvestor, type MiniPitchSlideProjected, type StoredMiniPitchSlide } from './mini-pitch';
+import { projectMarketDataForInvestor, MARKET_GROUP_KEYS, type MarketGroupKey, type MarketInvestorPayload } from './market-data-investor-projection';
+
+export interface DossierMarketRing {
+  ring: string; label: string; definition: string | null; buyer: string | null; geography: string | null;
+  sizeValueEur: number | null; sizeYear: number | null; sizeMethod: string | null; sizeSourceUrl: string | null;
+  growthPct: number | null; growthPeriod: string | null;
+}
+export interface DossierMarketCompetitor {
+  name: string; domain: string | null; companyType: string | null; description: string | null; positioning: string | null;
+  lastRoundType: string | null; lastRoundAmountEur: number | null; lastRoundDate: string | null;
+  lastKnownValuationEur: number | null; sourceUrl: string | null;
+}
+export interface DossierMarketRound {
+  investorName: string; companyName: string; amountEur: number | null; investedAt: string | null; roundType: string | null;
+}
+export interface DossierMarketResearchItem { title: string; detail: string; sourceUrl: string | null }
 
 export interface DossierRawData {
   full: FullDossierData;
@@ -54,6 +70,16 @@ export interface DossierRawData {
   // closed, same rule as documents) — filtered in the query itself, not
   // after the fact.
   media: DossierMediaItem[];
+  // Prompt 373 §F — group-by-group publish. `visibleGroups` (which the
+  // founder chose) travels alongside the actual data for the same reason
+  // swotToggleOn does above: a caller explaining an absence needs to know
+  // whether a group is off vs. simply empty. Fail-closed by omission — a
+  // group's DATA is only ever queried when its key is in visibleGroups (see
+  // fetchDossierRawData's own market block), never fetched-then-hidden.
+  market: { visibleGroups: MarketGroupKey[] } & Partial<{
+    rings: DossierMarketRing[]; competitors: DossierMarketCompetitor[]; rounds: DossierMarketRound[];
+    trends: DossierMarketResearchItem[]; regulatory: DossierMarketResearchItem[]; definition: DossierMarketResearchItem[];
+  }>;
 }
 
 export interface DossierMediaItem {
@@ -190,6 +216,87 @@ export async function fetchDossierRawData(
     }
   }
 
+  // Prompt 373 §F — Market data, group by group. `market_groups_visible_to_
+  // investors` is unconditionally read (it's a cheap, always-present column,
+  // same as roadmap/swot's own toggle reads above) but each GROUP's actual
+  // data is only queried when its key is present — the "not fetched-then-
+  // hidden" discipline this file's header describes, applied per-group
+  // instead of per-section. §0.1 is what makes this investor-facing at all
+  // possible now (see migration 0246's own header for the full reasoning);
+  // §F.5 still applies in full: nothing here ever reads passes, outreach
+  // counts, or pipeline stats — only the founder's own market research.
+  let visibleGroups: MarketGroupKey[] = [];
+  const marketFull: MarketInvestorPayload = {};
+  if (level >= 1) {
+    const { data: orgRow } = await admin.from('orgs').select('market_groups_visible_to_investors').eq('id', orgId).maybeSingle();
+    visibleGroups = ((orgRow?.market_groups_visible_to_investors as string[] | null) ?? [])
+      .filter((g): g is MarketGroupKey => (MARKET_GROUP_KEYS as string[]).includes(g));
+
+    if (visibleGroups.includes('rings')) {
+      const { data: rows } = await admin.from('org_market_rings')
+        .select('ring, label, definition, buyer, geography, size_value_eur, size_year, size_method, size_source_url, growth_pct, growth_period')
+        .eq('org_id', orgId).eq('status', 'accepted');
+      marketFull.rings = (rows ?? []).map((r) => ({
+        ring: r.ring as string, label: r.label as string, definition: r.definition as string | null,
+        buyer: r.buyer as string | null, geography: r.geography as string | null,
+        sizeValueEur: r.size_value_eur as number | null, sizeYear: r.size_year as number | null,
+        sizeMethod: r.size_method as string | null, sizeSourceUrl: r.size_source_url as string | null,
+        growthPct: r.growth_pct as number | null, growthPeriod: r.growth_period as string | null,
+      })) as DossierMarketRing[];
+    }
+
+    let competitorCompanyIds: string[] = [];
+    if (visibleGroups.includes('competitors') || visibleGroups.includes('rounds')) {
+      const { data: rows } = await admin.from('org_competitors')
+        .select('positioning, market_company_id, market_companies(name, domain, company_type, description, last_round_type, last_round_amount_eur, last_round_date, last_known_valuation_eur, source_url)')
+        .eq('org_id', orgId);
+      competitorCompanyIds = ((rows ?? []) as { market_company_id: string }[]).map((r) => r.market_company_id);
+      if (visibleGroups.includes('competitors')) {
+        marketFull.competitors = ((rows ?? []) as Record<string, unknown>[]).map((r) => {
+          const mc = (r.market_companies as Record<string, unknown> | null) ?? {};
+          return {
+            name: (mc.name as string) ?? 'Unknown', domain: (mc.domain as string | null) ?? null,
+            companyType: (mc.company_type as string | null) ?? null, description: (mc.description as string | null) ?? null,
+            positioning: r.positioning as string | null,
+            lastRoundType: (mc.last_round_type as string | null) ?? null, lastRoundAmountEur: (mc.last_round_amount_eur as number | null) ?? null,
+            lastRoundDate: (mc.last_round_date as string | null) ?? null, lastKnownValuationEur: (mc.last_known_valuation_eur as number | null) ?? null,
+            sourceUrl: (mc.source_url as string | null) ?? null,
+          };
+        }) as DossierMarketCompetitor[];
+      }
+    }
+
+    if (visibleGroups.includes('rounds') && competitorCompanyIds.length > 0) {
+      // Same "don't .in() a long id list" gotcha as competitor-investments/
+      // route.ts — this list is small (this org's own declared competitors)
+      // so it's a non-issue here, but filtering in memory keeps the same
+      // discipline as every other reader of this table.
+      const { data: rows } = await admin.from('investor_investments')
+        .select('company_id, amount_eur, invested_at, round_type, catalog_entities(name), market_companies(name)');
+      const companyIdSet = new Set(competitorCompanyIds);
+      marketFull.rounds = ((rows ?? []) as Record<string, unknown>[])
+        .filter((r) => companyIdSet.has(r.company_id as string))
+        .map((r) => ({
+          investorName: (r.catalog_entities as { name?: string } | null)?.name ?? 'Unknown investor',
+          companyName: (r.market_companies as { name?: string } | null)?.name ?? 'a competitor',
+          amountEur: r.amount_eur as number | null, investedAt: r.invested_at as string | null, roundType: r.round_type as string | null,
+        })) as DossierMarketRound[];
+    }
+
+    for (const [group, section] of [['trends', 'trends'], ['regulatory', 'regulatory'], ['definition', 'definition']] as const) {
+      if (!visibleGroups.includes(group)) continue;
+      const { data: rows } = await admin.from('market_research_items')
+        .select('title, detail, source_url').eq('org_id', orgId).eq('section', section).eq('status', 'accepted');
+      marketFull[group] = ((rows ?? []) as { title: string; detail: string; source_url: string | null }[])
+        .map((r) => ({ title: r.title, detail: r.detail, sourceUrl: r.source_url }));
+    }
+  }
+  // Defense-in-depth (this file's own root-cause lesson, see header): even
+  // though only enabled groups were ever queried above, project again
+  // before returning — a group's data can never leave this function unless
+  // its key survives BOTH the query gate and this final filter.
+  const market = { visibleGroups, ...projectMarketDataForInvestor(visibleGroups, marketFull) } as DossierRawData['market'];
+
   // Founder clarifications. `.eq('visible_to_investors', true)` in the
   // query itself, not a JS filter after the fact — a hidden clarification
   // never leaves the database. Selects ONLY category + clarification_text.
@@ -264,5 +371,5 @@ export async function fetchDossierRawData(
     }
   }
 
-  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications, badges, miniPitch, media };
+  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications, badges, miniPitch, media, market };
 }

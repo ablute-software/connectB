@@ -67,5 +67,7 @@ export async function GET(req: Request) {
     // investor-facing route does (which has no reason to ever explain an
     // absence to an investor).
     swotToggleOn: raw.swotToggleOn, roadmapToggleOn: raw.roadmapToggleOn,
+    // Prompt 373 §F — same "see it like an investor" preview treatment.
+    market: raw.market,
   });
 }

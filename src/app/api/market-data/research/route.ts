@@ -20,26 +20,43 @@ import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 
-type Section = 'definition' | 'sizing' | 'growth' | 'players' | 'rounds' | 'trends' | 'regulatory';
-const SECTIONS: Section[] = ['definition', 'sizing', 'growth', 'players', 'rounds', 'trends', 'regulatory'];
+import { SECTIONS, type Section } from '@/lib/market-research-sections';
+
+// Prompt 373 §D — "a button per section": each section's own targeted
+// instruction, so scoping to one section actually narrows what the model
+// looks for instead of just filtering a full-sweep result down to it —
+// narrower search, fewer tokens, a real (not cosmetic) per-section cost.
+const SECTION_INSTRUCTION: Record<Section, string> = {
+  definition: 'the definition and scope of this market/category — what it includes and excludes.',
+  sizing: 'market size estimates (TAM/SAM/SOM-style figures), each with its range, year, geography and basis plainly stated — never a bare number.',
+  growth: 'the growth rate of this market, with the period and source it comes from.',
+  players: 'the key competitors/players in this space — real companies, not categories.',
+  rounds: 'comparable recent funding rounds in the same sector/stage/geography — what an investor will ask you to benchmark against.',
+  trends: 'the trends and drivers shaping this market right now.',
+  regulatory: 'any relevant regulatory notes or requirements for this market.',
+};
 
 interface RawItem {
   section?: string; title?: string; detail?: string; source_url?: string; confidence?: string;
 }
 
-async function callResearchModel(apiKey: string, model: string, orgId: string, sectors: string[], country: string | null, stage: string | null) {
+async function callResearchModel(
+  apiKey: string, model: string, orgId: string, sectors: string[], country: string | null, stage: string | null, section: Section | null,
+) {
+  const sections = section ? [section] : SECTIONS;
   const system = 'You are a research assistant for an early-stage startup founder preparing to raise capital. You search the '
     + 'public web and propose market-research items with a real, working source URL for each one — you never fabricate a '
-    + 'number, a competitor, or a source, and you never rely on prior/training knowledge without verifying it via a fresh '
-    + 'web search. Every item needs: section (one of definition, sizing, growth, players, rounds, trends, regulatory), a '
+    + `number, a competitor, or a source, and you never rely on prior/training knowledge without verifying it via a fresh `
+    + `web search. Every item needs: section (${sections.length === 1 ? `always "${sections[0]}"` : `one of ${sections.join(', ')}`}), a `
     + 'short title, a one-2-sentence detail, the source URL you found it on, and a confidence (high/medium/low). A market '
     + 'size estimate should state its range and basis plainly in the detail text (e.g. "€2-4B TAM, varies by report '
-    + 'methodology") rather than pretending false precision. You finish every research task by calling propose_market_items, '
-    + 'even if you found nothing for a section (simply omit that section\'s items). ' + DOCUMENT_CONTENT_INSTRUCTION;
+    + 'methodology") rather than pretending false precision. Analyst reports (Gartner/IDC/Frost etc.) are usually behind a '
+    + 'paywall — if you can only see a SECOND-HAND citation of one (never the report itself), say so plainly in the detail '
+    + 'and note it is a secondary source. A self-computed estimate (e.g. bottom-up from a unit count × price) is legitimate '
+    + 'ONLY if you show the actual arithmetic in the detail text — never a number with no visible method. You finish every '
+    + 'research task by calling propose_market_items, even if you found nothing (simply omit items). ' + DOCUMENT_CONTENT_INSTRUCTION;
   const prompt = `Sector(s): ${sectors.join(', ')}. ${country ? `Geography: ${country}.` : ''} ${stage ? `Stage: ${stage}.` : ''}\n\n`
-    + 'Research this sector: definition/scope, market size estimates (with ranges and sources), growth rate, key '
-    + 'competitors/players, comparable recent funding rounds (same sector/stage/geography — what an investor asks about), '
-    + 'trends/drivers, and any relevant regulatory notes. Propose items via propose_market_items.';
+    + `Research ${sections.map((s) => SECTION_INSTRUCTION[s]).join(' Also research ')} Propose items via propose_market_items.`;
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -48,7 +65,7 @@ async function callResearchModel(apiKey: string, model: string, orgId: string, s
       model, max_tokens: 4000, system,
       messages: [{ role: 'user', content: prompt }],
       tools: [
-        { type: 'web_search_20250305', name: 'web_search', max_uses: 8 },
+        { type: 'web_search_20250305', name: 'web_search', max_uses: section ? 4 : 8 },
         {
           name: 'propose_market_items',
           description: 'Return the researched market items, each with a real source URL.',
@@ -60,7 +77,7 @@ async function callResearchModel(apiKey: string, model: string, orgId: string, s
                 items: {
                   type: 'object',
                   properties: {
-                    section: { type: 'string', enum: SECTIONS },
+                    section: { type: 'string', enum: sections },
                     title: { type: 'string' },
                     detail: { type: 'string' },
                     source_url: { type: 'string' },
@@ -79,7 +96,11 @@ async function callResearchModel(apiKey: string, model: string, orgId: string, s
   });
   if (!res.ok) throw new Error(providerErrorMessage('[market-data/research]', await res.text()));
   const data = await res.json();
-  void logAiCall({ route: '/api/market-data/research', purpose: 'market_research', model, usage: data.usage, orgId });
+  // Prompt 373 §D — a distinct purpose per section (market_research_sizing,
+  // market_research_players, ...) so /api/market-data/research/estimate can
+  // show a real per-section cost history, and so ai_call_log's per-founder
+  // accounting stays as granular as the buttons the founder actually clicks.
+  void logAiCall({ route: '/api/market-data/research', purpose: section ? `market_research_${section}` : 'market_research', model, usage: data.usage, orgId });
   const toolUse = (data.content as { type: string; name?: string; input?: unknown }[])
     .filter((b) => b.type === 'tool_use' && b.name === 'propose_market_items').pop();
   const items = (toolUse?.input as { items?: RawItem[] } | undefined)?.items ?? [];
@@ -91,12 +112,17 @@ async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: 
   return (data?.org_id as string | undefined) ?? null;
 }
 
-async function runResearchPass(admin: SupabaseClient, apiKey: string, orgId: string, sectors: string[], country: string | null, stage: string | null) {
-  const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
-  const signature = createHash('sha256').update(`${sectors.slice().sort().join(',')}|${country ?? ''}`).digest('hex');
+function signatureFor(sectors: string[], country: string | null, section: Section | null): string {
+  return createHash('sha256').update(`${sectors.slice().sort().join(',')}|${country ?? ''}|${section ?? 'all'}`).digest('hex');
+}
 
-  const { items, costEur } = await callResearchModel(apiKey, model, orgId, sectors, country, stage);
-  void costEur;
+async function runResearchPass(
+  admin: SupabaseClient, apiKey: string, orgId: string, sectors: string[], country: string | null, stage: string | null, section: Section | null,
+) {
+  const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
+  const signature = signatureFor(sectors, country, section);
+
+  const { items, costEur } = await callResearchModel(apiKey, model, orgId, sectors, country, stage, section);
 
   for (const item of items) {
     const title = item.title?.trim();
@@ -113,7 +139,7 @@ async function runResearchPass(admin: SupabaseClient, apiKey: string, orgId: str
       status: 'pending', updated_at: new Date().toISOString(),
     }, { onConflict: 'org_id,section,title', ignoreDuplicates: true });
   }
-  return signature;
+  return { signature, costEur };
 }
 
 export async function GET(req: Request) {
@@ -154,24 +180,33 @@ export async function GET(req: Request) {
   const gate = checkMarketDataGate({ sectors, stage: orgRow.stage, oneLiner: orgRow.one_liner }, true, hasMarketOrSolutionClaim);
   if (!gate.eligible || sectors.length === 0) return NextResponse.json({ available: true, items: [], gate });
 
-  const signature = createHash('sha256').update(`${sectors.slice().sort().join(',')}|${orgRow.country ?? ''}`).digest('hex');
+  // Prompt 373 §D — a button per section: ?section=X scopes the whole pass
+  // (cache signature included) to just that one section. Omitting it keeps
+  // the original full-sweep behavior for any caller that predates this.
+  const sectionParam = new URL(req.url).searchParams.get('section');
+  const section: Section | null = sectionParam && (SECTIONS as string[]).includes(sectionParam) ? (sectionParam as Section) : null;
+  const signature = signatureFor(sectors, orgRow.country, section);
   const forceRefresh = new URL(req.url).searchParams.get('force') === '1';
 
   const { data: existing } = await admin.from('market_research_items')
     .select('run_signature').eq('org_id', orgId).limit(1);
   const cached = (existing ?? []).some((r) => r.run_signature === signature);
 
+  let costEur: number | null = null;
   if (apiKey && (forceRefresh || !cached)) {
     try {
-      await runResearchPass(admin, apiKey, orgId, sectors, orgRow.country, orgRow.stage);
+      const result = await runResearchPass(admin, apiKey, orgId, sectors, orgRow.country, orgRow.stage, section);
+      costEur = result.costEur;
     } catch (e) {
       console.error('[market-data/research] AI pass failed', (e as Error).message);
     }
   }
 
-  const { data: items } = await admin.from('market_research_items')
+  let query = admin.from('market_research_items')
     .select('id, section, title, detail, source_url, confidence, status, source_accessed_at')
-    .eq('org_id', orgId).eq('status', 'pending').order('section', { ascending: true });
+    .eq('org_id', orgId).eq('status', 'pending');
+  if (section) query = query.eq('section', section);
+  const { data: items } = await query.order('section', { ascending: true });
 
-  return NextResponse.json({ available: true, items: items ?? [], gate });
+  return NextResponse.json({ available: true, items: items ?? [], gate, costEur });
 }

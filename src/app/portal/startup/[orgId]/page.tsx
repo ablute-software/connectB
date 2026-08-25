@@ -34,6 +34,27 @@ interface LevelRow { level: 2 | 3; status: 'granted' | 'pending' | 'denied' }
 interface PortalDoc { id: string; name: string; version?: string; watermark: boolean; downloadable: boolean; folder_id?: string; url: string | null }
 interface DocSection { key: string; label: string; documents: PortalDoc[] }
 
+// Prompt 373 §F — mirrors dossier-fetch.ts's own DossierRawData['market']
+// shape; every field optional except visibleGroups (absent = not
+// published, per that toggle).
+interface MarketRingPublic {
+  ring: string; label: string; definition: string | null; buyer: string | null; geography: string | null;
+  sizeValueEur: number | null; sizeYear: number | null; sizeMethod: string | null; sizeSourceUrl: string | null;
+  growthPct: number | null; growthPeriod: string | null;
+}
+interface MarketCompetitorPublic {
+  name: string; domain: string | null; companyType: string | null; description: string | null; positioning: string | null;
+  lastRoundType: string | null; lastRoundAmountEur: number | null; lastRoundDate: string | null;
+  lastKnownValuationEur: number | null; sourceUrl: string | null;
+}
+interface MarketRoundPublic { investorName: string; companyName: string; amountEur: number | null; investedAt: string | null; roundType: string | null }
+interface MarketResearchItemPublic { title: string; detail: string; sourceUrl: string | null }
+interface MarketDossierData {
+  visibleGroups: string[];
+  rings?: MarketRingPublic[]; competitors?: MarketCompetitorPublic[]; rounds?: MarketRoundPublic[];
+  trends?: MarketResearchItemPublic[]; regulatory?: MarketResearchItemPublic[]; definition?: MarketResearchItemPublic[];
+}
+
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
 const REASON_MAX_LEN = 1000;
 
@@ -49,15 +70,21 @@ export default function StartupDossierPage() {
   const orgId = params.orgId;
 
   const [sessionEmail, setSessionEmail] = useState<string | null | undefined>(undefined);
-  const [data, setData] = useState<{ card: Card; pioneerBadge?: boolean; level: 0 | 1 | 2 | 3; levelRows: LevelRow[]; dossier: Dossier } | null | 'not-found'>(null);
+  const [data, setData] = useState<{
+    card: Card; pioneerBadge?: boolean; level: 0 | 1 | 2 | 3; levelRows: LevelRow[]; dossier: Dossier;
+    // Prompt 373 §F — group-by-group published Market data; visibleGroups
+    // is always present (possibly empty), each group key only present when
+    // the founder actually published it.
+    market?: MarketDossierData;
+  } | null | 'not-found'>(null);
   // Prompt 216 §C — os itens do "Actions required" apontam para
   // /portal/startup/{orgId}?tab=messages|documents; o inicializador lê o
   // query param diretamente (window, client-only) em vez de useSearchParams
   // para não obrigar a página inteira a um boundary de Suspense.
-  const [tab, setTab] = useState<'overview' | 'documents' | 'messages' | 'activity'>(() => {
+  const [tab, setTab] = useState<'overview' | 'documents' | 'messages' | 'activity' | 'market'>(() => {
     if (typeof window === 'undefined') return 'overview';
     const t = new URLSearchParams(window.location.search).get('tab');
-    return t === 'documents' || t === 'messages' || t === 'activity' ? t : 'overview';
+    return t === 'documents' || t === 'messages' || t === 'activity' || t === 'market' ? t : 'overview';
   });
   const [levelBusy, setLevelBusy] = useState(false);
   const [levelError, setLevelError] = useState<string | null>(null);
@@ -280,7 +307,7 @@ export default function StartupDossierPage() {
   }
   if (!data) return <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>;
 
-  const { card, pioneerBadge, level, levelRows, dossier } = data;
+  const { card, pioneerBadge, level, levelRows, dossier, market } = data;
   const level3Row = levelRows.find((r) => r.level === 3);
 
   return (
@@ -526,6 +553,15 @@ export default function StartupDossierPage() {
               {t}
             </button>
           ))}
+          {/* Prompt 373 §F — only shown once the founder has published at
+              least one Market data group; never an empty tab an investor
+              would click into and find nothing. */}
+          {(market?.visibleGroups.length ?? 0) > 0 && (
+            <button onClick={() => setTab('market')}
+              className={`rounded-full px-3 py-1 text-xs font-medium ${tab === 'market' ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+              Market
+            </button>
+          )}
         </div>
       </div>
 
@@ -669,6 +705,7 @@ export default function StartupDossierPage() {
             </div>
           </div>
         )}
+        {tab === 'market' && market && <MarketTab market={market} />}
         {tab === 'activity' && (
           <InteractionLogTimeline orgId={orgId} journey={{
             messages: messagesInfo?.messages ?? [],
@@ -807,6 +844,100 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
       )}
 
       <DocumentRequestPicker orgId={orgId} />
+    </div>
+  );
+}
+
+// Prompt 373 §F — the investor-facing half of the founder's group-by-group
+// publish toggle. Renders EXACTLY the groups the API returned (already
+// fail-closed server-side, dossier-fetch.ts's own market block) — this
+// component never decides visibility itself, only display. Sources are
+// always shown alongside whatever is published, per §F.3's own requirement
+// ("exactly as he sees it, sources visible").
+function MarketTab({ market }: { market: MarketDossierData }) {
+  const fmtEurM = (v: number | null) => (v == null ? null : `€${v.toLocaleString()}`);
+  return (
+    <div className="max-w-3xl space-y-4">
+      {market.rings && market.rings.length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-gray-900">Market, in layers</h2>
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            {market.rings.map((r) => (
+              <div key={r.ring} className="rounded-lg border border-gray-100 p-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{r.ring}</p>
+                <p className="mt-0.5 text-sm font-medium text-gray-800">{r.label}</p>
+                {r.definition && <p className="mt-0.5 text-xs text-gray-500">{r.definition}</p>}
+                <p className="mt-1 text-sm text-gray-700">
+                  {r.sizeValueEur != null ? `${fmtEurM(r.sizeValueEur)}${r.sizeYear ? ` (${r.sizeYear})` : ''}` : <span className="text-gray-400">No sourced figure</span>}
+                </p>
+                {r.sizeSourceUrl && <a href={r.sizeSourceUrl} target="_blank" rel="noreferrer" className="block truncate text-[11px] text-[#0E7490] underline">source</a>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {market.definition && market.definition.length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-gray-900">Definition & scope</h2>
+          <ul className="mt-2 space-y-2">
+            {market.definition.map((i, idx) => (
+              <li key={idx} className="text-sm text-gray-700">
+                {i.title} — <span className="text-gray-500">{i.detail}</span>
+                {i.sourceUrl && <a href={i.sourceUrl} target="_blank" rel="noreferrer" className="ml-1 text-[11px] text-[#0E7490] underline">source</a>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {market.competitors && market.competitors.length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-gray-900">Competitors</h2>
+          <div className="mt-2 space-y-2">
+            {market.competitors.map((c, idx) => (
+              <div key={idx} className="rounded-lg border border-gray-100 p-2.5">
+                <p className="text-sm font-medium text-gray-800">{c.name}{c.companyType && <span className="ml-1 text-xs text-gray-400">({c.companyType})</span>}</p>
+                {c.description && <p className="mt-0.5 text-xs text-gray-600">{c.description}</p>}
+                {c.positioning && <p className="mt-0.5 text-xs italic text-gray-500">{c.positioning}</p>}
+                {c.lastRoundType && <p className="mt-0.5 text-xs text-gray-500">Last round: {c.lastRoundType}{c.lastRoundAmountEur ? ` — ${fmtEurM(c.lastRoundAmountEur)}` : ''}</p>}
+                {c.sourceUrl && <a href={c.sourceUrl} target="_blank" rel="noreferrer" className="block truncate text-[11px] text-[#0E7490] underline">source</a>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {market.rounds && market.rounds.length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-gray-900">Comparable rounds</h2>
+          <ul className="mt-2 space-y-1">
+            {market.rounds.map((r, idx) => (
+              <li key={idx} className="text-xs text-gray-700">
+                {r.investorName} → {r.companyName}{r.roundType ? `, ${r.roundType}` : ''}{r.amountEur ? ` — ${fmtEurM(r.amountEur)}` : ''}{r.investedAt ? ` (${r.investedAt.slice(0, 4)})` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {(['trends', 'regulatory'] as const).map((group) => {
+        const items = market[group];
+        if (!items || items.length === 0) return null;
+        return (
+          <div key={group} className="rounded-lg border border-gray-200 bg-white p-4">
+            <h2 className="text-sm font-semibold capitalize text-gray-900">{group}</h2>
+            <ul className="mt-2 space-y-2">
+              {items.map((i, idx) => (
+                <li key={idx} className="text-sm text-gray-700">
+                  {i.title} — <span className="text-gray-500">{i.detail}</span>
+                  {i.sourceUrl && <a href={i.sourceUrl} target="_blank" rel="noreferrer" className="ml-1 text-[11px] text-[#0E7490] underline">source</a>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
     </div>
   );
 }

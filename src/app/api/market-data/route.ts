@@ -5,6 +5,13 @@
 // "never trust a single layer for a gate" discipline as every other
 // mechanical gate in this codebase (checkMiniPitchGate's own server
 // enforcement in /api/mini-pitch/route.ts is the precedent).
+//
+// Prompt 373 §0.1 — this data is no longer permanently founder-only; it CAN
+// reach an investor, but only through the separate, explicit publish path
+// (/api/market-data/visibility + dossier-fetch.ts's own market block),
+// never through this route. This route stays exactly what it always was —
+// the founder's own read/write surface — it just isn't the last word on
+// investor visibility any more.
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';

@@ -1,11 +1,7 @@
 'use client';
 // Prompt 360 Part A — "Market data": three sources on one founder-curated
-// canvas. Founder-side only (§A4) — nothing here is investor-facing;
-// TAM/SAM/SOM-style market-sizing numbers and competitor comparisons stay
-// exactly where the founder put them, never flowing into the investor
-// dossier, an export, or any AI prompt whose output an investor could see.
-// company-knowledge.ts's own closed source list is unchanged by this
-// feature — a founder who accepts a research item gets a real
+// canvas. company-knowledge.ts's own closed source list is unchanged by
+// this feature — a founder who accepts a research item gets a real
 // company_claims row (feeding Blueprint/mini-pitch through the EXISTING,
 // already-audited claims pipeline), not a new investor-facing path.
 //
@@ -16,12 +12,29 @@
 // documents", a founder-picked, focused AI pass over Vault documents that
 // turns them into the SAME accept/edit/reject proposals research items
 // already use, pre-filling "Added by you" instead of leaving it blank.
+//
+// Prompt 373 §0.1 — REVOKES the prior "never investor-facing" rule (Nuno,
+// 2026-08-25). The CLAUDE.md root privacy rule is untouched by this: it
+// bans performance the PLATFORM derives about the founder (passes, outreach
+// counts, pipeline stats — observation about them, never theirs to give),
+// never content the founder themselves researches and writes. Market
+// analysis is squarely the second kind, same as a pitch deck — so it now
+// goes behind the founder's own publish toggle (§F, one group at a time,
+// closed by default — see MarketPublishToggle.tsx and migration 0246's own
+// header for the full reasoning). Do not read the absence of a blanket ban
+// here as a bug.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
 import { PlanBadge } from '@/components/PlanBadge';
 import { browserClient } from '@/lib/supabase';
 import { marketDataEmptyState } from '@/lib/market-data-gate';
+import { MarketRingsCard } from './market/MarketRingsCard';
+import { CompetitorsCard } from './market/CompetitorsCard';
+import { InvestorBridgeCard } from './market/InvestorBridgeCard';
+import { InvestorLensCard } from './market/InvestorLensCard';
+import { MarketPublishToggle } from './market/MarketPublishToggle';
+import { SectionResearchButtons } from './market/SectionResearchButtons';
 
 interface Gate { eligible: boolean; missing: { key: string; label: string; href: string }[] }
 interface DocItem { documentId: string; documentName: string; label: string }
@@ -62,7 +75,7 @@ export function MarketDataPanel() {
   const [added, setAdded] = useState<AddedByYou>(BLANK_ADDED);
   const [savingAdded, setSavingAdded] = useState(false);
   const [researchItems, setResearchItems] = useState<ResearchItem[] | null>(null);
-  const [researching, setResearching] = useState(false);
+  const [sectionResearchCost, setSectionResearchCost] = useState<number | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [docCounts, setDocCounts] = useState<DocCounts | null>(null);
 
@@ -133,15 +146,6 @@ export function MarketDataPanel() {
     } finally { setSavingAdded(false); }
   }
 
-  async function research(force: boolean) {
-    setResearching(true);
-    try {
-      const res = await fetch(`/api/market-data/research${force ? '?force=1' : ''}`);
-      const body = await res.json();
-      if (body.items) setResearchItems(body.items);
-    } finally { setResearching(false); }
-  }
-
   async function respond(id: string, action: 'accept' | 'reject') {
     setBusyId(id);
     try {
@@ -168,9 +172,10 @@ export function MarketDataPanel() {
   return (
     <div className="max-w-4xl space-y-4">
       <p className="text-xs text-gray-500">
-        Founder-only. Nothing here — market size, competitor notes, comparable rounds — ever reaches an investor. Use what
-        you learn to improve what&apos;s already investor-facing (your Market text, claims with a source), by hand.
+        Closed by default — nothing here reaches an investor until you publish it, group by group, below. Everything you
+        publish shows exactly as you see it, sources included.
       </p>
+      <MarketPublishToggle />
 
       <div className="relative">
         {!gate.eligible && (
@@ -367,20 +372,17 @@ export function MarketDataPanel() {
             </p>
             {/* Prompt 370 — this card is web research only; document-sourced
                 proposals render in "From your documents" above, where the
-                founder is already looking at what came from the Vault. */}
+                founder is already looking at what came from the Vault.
+                Prompt 373 §D — one button per section, cost shown up front
+                (from real platform history) and reported after each run. */}
+            <SectionResearchButtons onDone={(cost) => { setSectionResearchCost(cost); load(); }} />
+            {sectionResearchCost !== null && (
+              <p className="mt-1.5 text-[11px] text-gray-400">Last section cost ≈ €{sectionResearchCost.toFixed(3)}.</p>
+            )}
             {(() => { const webItems = (researchItems ?? []).filter((i) => i.source_kind !== 'document'); return (
             <>
-            <button disabled={researching} onClick={() => research(webItems.length > 0)}
-              className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-              {researching ? 'Researching…' : 'Research my sector'}
-            </button>
-            {webItems.length > 0 && (
-              <button disabled={researching} onClick={() => research(true)} className="ml-2 text-xs text-[#0E7490] hover:underline">
-                Refresh
-              </button>
-            )}
-            {researchItems !== null && webItems.length === 0 && !researching && (
-              <p className="mt-2 text-xs text-gray-400">No pending suggestions — click above to research your sector.</p>
+            {researchItems !== null && webItems.length === 0 && (
+              <p className="mt-2 text-xs text-gray-400">No pending suggestions — click a section above to research it.</p>
             )}
             {webItems.length > 0 && (
               <div className="mt-3 space-y-2">
@@ -410,6 +412,22 @@ export function MarketDataPanel() {
             )}
             </>
             ); })()}
+          </Card>
+
+          <Card title="Market rings">
+            <MarketRingsCard />
+          </Card>
+
+          <Card title="Competitors">
+            <CompetitorsCard />
+          </Card>
+
+          <Card title="Investors of your competitors → your pipeline">
+            <InvestorBridgeCard />
+          </Card>
+
+          <Card title="The investor's lens">
+            <InvestorLensCard />
           </Card>
         </div>
       </div>

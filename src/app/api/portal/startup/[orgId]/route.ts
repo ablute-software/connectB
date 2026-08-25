@@ -89,5 +89,8 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   // UI. toInvestorFacingLevelRows keeps only {level, status} — everything
   // the client actually uses (the "Request contact"/"waiting"/"declined"
   // buttons key off status alone).
-  return NextResponse.json({ card, pioneerBadge, level, levelRows: toInvestorFacingLevelRows(levelRows), dossier });
+  // Prompt 373 §F — already fail-closed group-by-group inside
+  // fetchDossierRawData itself (see that function's own market block);
+  // passed through as-is, never re-filtered here, same as swot/roadmap.
+  return NextResponse.json({ card, pioneerBadge, level, levelRows: toInvestorFacingLevelRows(levelRows), dossier, market: raw.market });
 }
