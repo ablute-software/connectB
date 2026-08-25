@@ -131,18 +131,91 @@ export type StrengthenDimension = 'who' | 'when' | 'outcome';
 const STRUCTURED_SOURCE_KINDS = new Set<ClaimSourceKind>(['profile', 'funding_round']);
 const STRUCTURED_CATEGORIES = new Set<ClaimCategory>(['ask', 'funding']);
 
+// Prompt 374 §B — a real amount (€100k, $2M, "50 mil euros"...) is the third
+// leg of "this is a concluded, verifiable fact" alongside a named entity and
+// a date. Deliberately separate from measureSpecificity's own `hasNumber`
+// (used everywhere for the high/medium/low score): widening that shared
+// signal to "looks like money" would silently shift specificity scoring for
+// every claim in the app, not just this one card's "outcome" question.
+const AMOUNT_OR_MONEY = /(?:[€$£]\s?\d|\b\d+(?:[.,]\d+)?\s?(?:k|m|mil|milhão|milhões|million)\b|\bEUR\b)/i;
+
+// Prompt 374 §B — the real ablute_ case: "We have raised 100k in 2020 as
+// pre-seed investment from Portugal Ventures" got told "Missing: the
+// outcome" even though it names who (Portugal Ventures), when (2020) and
+// how much (100k) — there is no outcome PENDING, it's a fact that already
+// happened. Two independent fixes, either one alone would have silenced
+// this exact case (the claim's category was ALSO wrong — 'solucao' instead
+// of 'funding' — see the claim route's category-edit comment):
+//   1. "outcome" is only ever asked of categories where an outcome concept
+//      applies at all — an ongoing relationship (a pilot, a test, a
+//      partnership) can stall or land; a problem statement or a team bio
+//      never has an "outcome" to report.
+//   2. even within those categories, a claim that already names who + when
+//      + a real amount is self-evidently concluded — asking it for an
+//      "outcome" on top is asking a closed fact to justify itself twice.
+const OUTCOME_RELEVANT_CATEGORIES = new Set<ClaimCategory>(['tracao_gtm', 'validacao_externa']);
+
 export function strengthenGaps(
   c: { category: ClaimCategory; statement: string; sourceKind: ClaimSourceKind },
 ): StrengthenDimension[] | null {
   if (STRUCTURED_SOURCE_KINDS.has(c.sourceKind) || STRUCTURED_CATEGORIES.has(c.category)) return null;
   const { signals } = measureSpecificity(c.statement);
   const isDecoration = DECORATION.test(c.statement);
+  const isConcludedFact = signals.hasNamedEntity && signals.hasDate && AMOUNT_OR_MONEY.test(c.statement);
   const missing: StrengthenDimension[] = [];
   if (!signals.hasNamedEntity) missing.push('who');
   if (!signals.hasDate) missing.push('when');
   // A prize/award IS the outcome — never ask a decoration claim for one.
-  if (!isDecoration && !signals.hasOutcome) missing.push('outcome');
+  if (!isDecoration && !isConcludedFact && OUTCOME_RELEVANT_CATEGORIES.has(c.category) && !signals.hasOutcome) {
+    missing.push('outcome');
+  }
   return missing.length > 0 ? missing : null;
+}
+
+// Prompt 374 §B — "each card explains itself": investor-facing framing for
+// WHY a missing dimension matters, plus a concrete example of what would
+// fill it in. Never references the claim's actual text (that stays the
+// card's job) — this is the generic, dimension-level explanation.
+export const DIMENSION_EXPLANATION: Record<StrengthenDimension, { why: string; example: string }> = {
+  who: {
+    why: "An investor can't verify this without knowing WHO exactly was involved.",
+    example: 'e.g. "Hospital de Braga" instead of "a hospital".',
+  },
+  when: {
+    why: "An investor can't tell if this is recent or years old without a date.",
+    example: 'e.g. "started in March 2026" instead of no date at all.',
+  },
+  outcome: {
+    why: "An investor can't tell what actually happened — a conversation isn't a result.",
+    example: 'e.g. "signed a paid pilot" instead of describing the conversation that led to it.',
+  },
+};
+
+// Prompt 374 §A — the count Review/Blueprint's one-line summary needs,
+// exported so it uses the EXACT SAME eligibility rule as the real panel
+// (StrengthenClaimsPanel, now living only in the Action plan tab) instead
+// of a second, possibly drifting copy of "accepted, not dismissed, and
+// strengthenGaps says so".
+export function claimsNeedingStrengthening(
+  claims: { status: string; category: ClaimCategory; statement: string; sourceKind: ClaimSourceKind; strengthenDismissedAt?: string | null }[],
+): number {
+  return claims.filter((c) => c.status === 'accepted' && !c.strengthenDismissedAt && strengthenGaps(c) !== null).length;
+}
+
+// Prompt 374 §B — "de onde veio este claim": today the founder has no way to
+// tell why a given sentence is sitting in front of them. Mechanical, never
+// guessed — sourceKind is a real, stored column (migration 0176).
+export function claimProvenanceLabel(c: { sourceKind: ClaimSourceKind; sourceRef?: string | null }): string {
+  switch (c.sourceKind) {
+    case 'vault_doc': return 'From a document in your Vault';
+    case 'roadmap': return 'From your roadmap';
+    case 'profile': return 'From your company profile';
+    case 'funding_round': return 'From a funding round you logged';
+    case 'founder_answer': return c.sourceRef?.startsWith('gap:') ? 'From a question you answered' : 'From your own answer';
+    case 'fact': return 'From a confirmed company fact';
+    case 'web_research': return 'From Sherlock web research you accepted';
+    default: return 'Origin unknown';
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,16 @@
+-- Prompt 374 §C — "Strengthen your claims" needs an exit: today there is no
+-- way to take a card off the list without either accepting an AI rewrite or
+-- rejecting the claim outright (which the app's own "if it exists it's
+-- authentic" rule already forbids doing lightly — see feedback memory on
+-- never purging real records). "Está bem assim" needs a THIRD outcome that
+-- touches neither the claim's status nor its text: dismiss the strengthen
+-- suggestion, permanently, without pretending the claim was ever rejected
+-- or re-edited.
+--
+-- Nullable timestamp, same convention as every other lifecycle marker on
+-- this table (updated_at, and gap_disposition's sibling columns) — null
+-- means "never dismissed", a real timestamp means "the founder dismissed
+-- this on that date and it should never resurface here again". Reversible
+-- by construction: clearing it back to null (the route's own
+-- 'undismiss_strengthen' action) is a full, lossless undo.
+alter table company_claims add column if not exists strengthen_dismissed_at timestamptz;

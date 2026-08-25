@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyEvidence, measureSpecificity, normalizeAtom, isWastedStrongClaim, rankForNarrative, weakClaimCoachingNote,
   extractNamedEntity, findDuplicateCandidate, findDocumentLinkCandidate, proposeClaimFromDocumentFact, strengthenGaps,
-  joinChipAndFreeText, type RawAtom,
+  joinChipAndFreeText, claimProvenanceLabel, type RawAtom,
 } from './company-claims';
 import type { CompanyClaim } from './types';
 
@@ -302,6 +302,52 @@ describe('strengthenGaps (Prompt 358 §3.4) — o que falta EXACTAMENTE, nunca u
   it('sourceKind de campo estruturado (profile/funding_round) nunca aparece, seja qual for a categoria', () => {
     expect(strengthenGaps({ category: 'mercado_timing', sourceKind: 'profile', statement: 'Operating in Digital Health from Portugal.' })).toBeNull();
     expect(strengthenGaps({ category: 'funding', sourceKind: 'funding_round', statement: 'Previous round of €500k closed in 2023.' })).toBeNull();
+  });
+
+  // Prompt 374 §B — a fixture real e verbatim do Nuno: "Missing: the
+  // outcome." num facto já concluído (quem + quando + montante), sem
+  // outcome nenhum pendente.
+  it('a fixture real de Portugal Ventures: quem+quando+montante — nunca pede outcome', () => {
+    expect(strengthenGaps({
+      category: 'solucao', sourceKind: 'roadmap',
+      statement: 'We have raised 100k in 2020 as pre-seed investment from Portugal Ventures before this round, '
+        + 'these 100k are not part of the 300k we are currently raising.',
+    })).toBeNull();
+  });
+
+  it('mesmo fora de solucao — validacao_externa com quem+quando+montante também não pede outcome', () => {
+    expect(strengthenGaps({
+      category: 'validacao_externa', sourceKind: 'roadmap',
+      statement: 'Portugal Ventures invested €100k in us in 2020.',
+    })).toBeNull();
+  });
+
+  it('"outcome" só é pedido a categorias onde faz sentido (tracao_gtm/validacao_externa) — nunca a problema/solucao/equipa/mercado_timing, mesmo com quem+quando', () => {
+    expect(strengthenGaps({ category: 'problema', sourceKind: 'fact',
+      statement: 'Hospital Central reported the same hygiene gap in March 2026.' })).toBeNull();
+    expect(strengthenGaps({ category: 'equipa', sourceKind: 'fact',
+      statement: 'Carla Dias joined as CTO in March 2026.' })).toBeNull();
+  });
+
+  it('validacao_externa vago (sem quem/quando/montante) continua a pedir outcome — a excepção não vira regra geral', () => {
+    expect(strengthenGaps({ category: 'validacao_externa', sourceKind: 'fact',
+      statement: 'A large hospital group is evaluating our product.' })).toEqual(['who', 'when', 'outcome']);
+  });
+});
+
+describe('claimProvenanceLabel (Prompt 374 §B) — de onde veio este claim', () => {
+  it('mapeia cada sourceKind real a uma frase legível', () => {
+    expect(claimProvenanceLabel({ sourceKind: 'vault_doc' })).toMatch(/Vault/);
+    expect(claimProvenanceLabel({ sourceKind: 'roadmap' })).toMatch(/roadmap/);
+    expect(claimProvenanceLabel({ sourceKind: 'profile' })).toMatch(/profile/);
+    expect(claimProvenanceLabel({ sourceKind: 'funding_round' })).toMatch(/funding round/);
+    expect(claimProvenanceLabel({ sourceKind: 'fact' })).toMatch(/confirmed company fact/);
+    expect(claimProvenanceLabel({ sourceKind: 'web_research' })).toMatch(/Sherlock web research/);
+  });
+
+  it('founder_answer distingue uma resposta a uma lacuna de uma resposta livre', () => {
+    expect(claimProvenanceLabel({ sourceKind: 'founder_answer', sourceRef: 'gap:G4' })).toMatch(/question you answered/);
+    expect(claimProvenanceLabel({ sourceKind: 'founder_answer', sourceRef: null })).toMatch(/your own answer/);
   });
 });
 

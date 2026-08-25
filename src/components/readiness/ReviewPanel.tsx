@@ -21,7 +21,8 @@ import type { Contradiction } from '@/lib/action-plan';
 import { ReportView, type StructuredReport } from './ReportView';
 import { GapInterrogation, type GapView } from './GapInterrogation';
 import { KnowledgeHealthPanel } from './KnowledgeHealthPanel';
-import { StrengthenClaimsPanel } from './StrengthenClaimsPanel';
+import { claimsNeedingStrengthening } from '@/lib/company-claims';
+import Link from 'next/link';
 import { pickCurrentGap } from '@/lib/gap-rotation';
 import { GAP_QUESTION_BUDGET } from '@/lib/company-gaps';
 import { PlanBadge } from '@/components/PlanBadge';
@@ -452,10 +453,16 @@ export function ReviewPanel() {
           </div>
         </Card>
       )}
-      {claims.length > 0 && (
-        <Card title={<span className="text-[#0E7490]">Strengthen your claims</span>}>
-          <StrengthenClaimsPanel claims={claims} onApplied={loadGaps} />
-        </Card>
+      {/* Prompt 374 §A — the full panel now lives only in the Action plan
+          tab (see StrengthenClaimsPanel's own header for why: three
+          independently-fetching copies of the same feature was the real
+          mechanism behind a "duplicate card" bug report). Here, just a
+          count and a way to get there. */}
+      {claimsNeedingStrengthening(claims) > 0 && (
+        <Link href="/readiness?tab=plan"
+          className="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-xs text-gray-600 hover:border-[#0E7490] hover:text-[#0E7490]">
+          {claimsNeedingStrengthening(claims)} claim{claimsNeedingStrengthening(claims) === 1 ? '' : 's'} could be stronger — fix in Action plan →
+        </Link>
       )}
       {showInterrogation && !currentGap && gaps.length === 0 && (
         <Card title={<span className="text-emerald-700">All caught up</span>}>

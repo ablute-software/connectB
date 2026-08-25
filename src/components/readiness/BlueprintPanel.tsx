@@ -16,8 +16,7 @@ import { Card } from '@/components/ui';
 import type { CompanyClaim, ClaimCategory } from '@/lib/types';
 import { GapInterrogation, type GapView } from './GapInterrogation';
 import { KnowledgeHealthPanel } from './KnowledgeHealthPanel';
-import { StrengthenClaimsPanel } from './StrengthenClaimsPanel';
-import { isWastedStrongClaim } from '@/lib/company-claims';
+import { isWastedStrongClaim, claimsNeedingStrengthening } from '@/lib/company-claims';
 import { pickCurrentGap } from '@/lib/gap-rotation';
 import { GAP_QUESTION_BUDGET } from '@/lib/company-gaps';
 
@@ -277,10 +276,13 @@ export function BlueprintPanel() {
         </Card>
       )}
 
-      {state.claims.length > 0 && (
-        <Card title={<span className="text-[#0E7490]">Strengthen your claims</span>}>
-          <StrengthenClaimsPanel claims={state.claims} onApplied={load} />
-        </Card>
+      {/* Prompt 374 §A — see StrengthenClaimsPanel's own header: the full
+          panel now lives only in the Action plan tab. */}
+      {claimsNeedingStrengthening(state.claims) > 0 && (
+        <Link href="/readiness?tab=plan"
+          className="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-xs text-gray-600 hover:border-[#0E7490] hover:text-[#0E7490]">
+          {claimsNeedingStrengthening(state.claims)} claim{claimsNeedingStrengthening(state.claims) === 1 ? '' : 's'} could be stronger — fix in Action plan →
+        </Link>
       )}
 
       {/* §4 — aceitação dos claims propostos. Prompt 299 §1 — bulk COM

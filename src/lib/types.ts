@@ -624,6 +624,10 @@ export interface CompanyClaim {
   // it (migration 0234). See gap-disposition-related comments in
   // company-gaps.ts for exactly which gaps read this and how.
   gapDisposition?: 'no_document' | 'document_pending' | 'confirmed' | null;
+  // Prompt 374 §C — "Está bem assim": the founder dismissed this claim's
+  // strengthen suggestion permanently, without touching its status or text
+  // (migration 0245). Null/undefined means never dismissed.
+  strengthenDismissedAt?: string | null;
 }
 
 // Prompt 213 §D — item estruturado do roadmap (items_v2 na 0177).

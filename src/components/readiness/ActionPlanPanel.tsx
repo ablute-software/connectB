@@ -28,10 +28,10 @@ import {
   genuineContradictions, findMatchingSolution, type Severity, type Action, type AiReviewRow, type ActionCluster, type Contradiction,
 } from '@/lib/action-plan';
 import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
-import { weakClaimCoachingNote, CATEGORY_LABEL } from '@/lib/company-claims';
-import type { ClaimCategory, ClaimSpecificity } from '@/lib/types';
-
-interface WeakClaimRow { id: string; category: ClaimCategory; statement: string; note: string }
+import { StrengthenClaimsPanel } from './StrengthenClaimsPanel';
+import { VaultStrengthBarometer } from './VaultStrengthBarometer';
+import { vaultStrength, topVaultSuggestion } from '@/lib/vault-strength';
+import type { CompanyClaim } from '@/lib/types';
 
 const TYPE_LABEL: Record<'weakness' | 'risk' | 'recommendation', string> = { weakness: 'Weakness', risk: 'Risk', recommendation: 'Recommendation' };
 const SEVERITY_COLOR: Record<Severity, string> = { high: 'text-[#B00000]', medium: 'text-amber-600', low: 'text-gray-500' };
@@ -141,7 +141,7 @@ export function ActionPlanPanel() {
   const { db, addDocumentVersion } = useStore();
   const [reviews, setReviews] = useState<AiReviewRow[]>([]);
   const [contradictions, setContradictions] = useState<Contradiction[]>([]);
-  const [weakClaims, setWeakClaims] = useState<WeakClaimRow[]>([]);
+  const [claims, setClaims] = useState<CompanyClaim[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [loading, setLoading] = useState(true);
   const [documentVersionsAvailable, setDocumentVersionsAvailable] = useState(false);
@@ -171,24 +171,16 @@ export function ActionPlanPanel() {
     });
   }, [db.org.id]);
 
-  // Prompt 307 §B2 — a claim de baixa especificidade vira coaching AQUI (o
-  // founder já vem a esta aba por recomendações), nunca no material do
-  // investidor. RLS scoped (company_claims_org_members, migração 0176),
-  // mesmo padrão de leitura directa que ai_reviews/review_runs acima —
-  // um erro (tabela ainda não aplicada nalgum ambiente) degrada para [],
-  // nunca rebenta a aba.
-  useEffect(() => {
+  // Prompt 374 §A — "Strengthen your claims" now lives ONLY here (see
+  // StrengthenClaimsPanel's own header for why three independently-fetching
+  // copies of this was the real mechanism behind a "duplicate card" bug
+  // report). Fetched via the same /api/blueprint route Review/Blueprint use
+  // — never a third, independent shape of the same data.
+  function loadClaims() {
     if (!authEnabled || !db.org.id) return;
-    browserClient().from('company_claims').select('id, category, statement, specificity')
-      .eq('org_id', db.org.id).eq('status', 'accepted')
-      .then(({ data }) => {
-        const rows = (data ?? []) as { id: string; category: ClaimCategory; statement: string; specificity: ClaimSpecificity }[];
-        const withNotes = rows
-          .map((c) => ({ id: c.id, category: c.category, statement: c.statement, note: weakClaimCoachingNote(c) }))
-          .filter((c): c is WeakClaimRow => c.note !== null);
-        setWeakClaims(withNotes);
-      });
-  }, [db.org.id]);
+    fetch('/api/blueprint').then((r) => r.json()).then((body) => setClaims((body.claims ?? []) as CompanyClaim[])).catch(() => {});
+  }
+  useEffect(loadClaims, [db.org.id]);
 
   const actions = extractActions(reviews);
   const clusters = clusterActions(actions).sort((a, b) => clusterPriority(b) - clusterPriority(a));
@@ -198,20 +190,31 @@ export function ActionPlanPanel() {
 
   const checklist = dataroomChecklist(db.folders, db.documents);
   const missingCount = checklist.filter((c) => !c.present).length;
+  const strength = vaultStrength(db.folders, db.documents, new Date());
+  const suggestion = topVaultSuggestion(db.folders, db.documents, new Date());
 
   if (loading) return <Card title="Action plan"><p className="text-sm text-gray-400">Loading…</p></Card>;
 
   return (
     <>
+      {/* Prompt 374 §F — three plain-language questions, one line each: what
+          this is, where it comes from, what the founder gains. No jargon
+          ("clusters", "severity ranking") in this fixed block — that detail
+          moves to the dynamic paragraph below it. */}
       <Card title="Action plan">
+        <ul className="space-y-0.5 text-xs text-gray-500">
+          <li><span className="font-medium text-gray-700">What this is:</span> the list of what to do next so your dossier holds up under scrutiny.</li>
+          <li><span className="font-medium text-gray-700">Where it comes from:</span> mechanical gaps found in your own facts and documents — never AI guessing.</li>
+          <li><span className="font-medium text-gray-700">What you gain:</span> what changes, in what an investor sees, once you fix each one.</li>
+        </ul>
         {clusters.length === 0 ? (
-          <p className="text-xs text-gray-500">
+          <p className="mt-2 text-xs text-gray-500">
             No document reviews yet — run one or two in the Review tab and the priority actions that come out of them
             will show up here as a single ranked list, deduplicated across documents.
           </p>
         ) : (
           <>
-            <p className="text-xs text-gray-500">
+            <p className="mt-2 text-xs text-gray-500">
               {clusters.length} distinct {clusters.length === 1 ? 'item' : 'items'} from {reviews.length} document{reviews.length === 1 ? '' : 's'}{' '}
               reviewed, ranked by how often the same issue shows up across documents, then by severity.
             </p>
@@ -274,40 +277,32 @@ export function ActionPlanPanel() {
         </Card>
       )}
 
-      {weakClaims.length > 0 && (
-        <Card title="Strengthen your claims">
-          <p className="text-xs text-gray-500">
-            These claims are written broadly, so they carry less weight than they could — the fix is yours: add a
-            name, a date, or the outcome, or point to a different example instead. This never changes what
-            investors see on its own; it&apos;s just for you.
-          </p>
-          <ul className="mt-2 space-y-2">
-            {weakClaims.map((c) => (
-              <li key={c.id} className="rounded-lg border border-gray-200 bg-white p-3">
-                <p className="text-xs font-medium text-gray-400">{CATEGORY_LABEL[c.category]}</p>
-                <p className="mt-0.5 text-sm text-gray-800">&ldquo;{c.statement}&rdquo;</p>
-                <p className="mt-1 text-xs text-gray-500">{c.note}</p>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
+      <Card title="Strengthen your claims">
+        <StrengthenClaimsPanel claims={claims} onApplied={loadClaims} />
+      </Card>
 
       <Card title="Data Room completeness">
-        <p className="mb-2 text-xs text-gray-500">
-          No AI, just a structural check against a standard due-diligence checklist — the same &quot;how complete is your
-          profile/data room&quot; signal the Hype Startup formula uses, but with the concrete list of what to add.
-        </p>
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-gray-700">{checklist.length - missingCount} of {checklist.length} present</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="mb-2 text-xs text-gray-500">
+              No AI, just a structural check against a standard due-diligence checklist — the same &quot;how complete is your
+              profile/data room&quot; signal the Hype Startup formula uses, but with the concrete list of what to add.
+            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium text-gray-700">{checklist.length - missingCount} of {checklist.length} present</p>
+            </div>
+            <ul className="mt-2 space-y-1">
+              {checklist.map((c) => (
+                <li key={c.label} className={`text-xs ${c.present ? 'text-emerald-700' : 'text-gray-400'}`}>
+                  {c.present ? '✓' : '·'} {c.label}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="border-t border-gray-100 pt-4 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
+            <VaultStrengthBarometer strength={strength} suggestion={suggestion} />
+          </div>
         </div>
-        <ul className="mt-2 space-y-1">
-          {checklist.map((c) => (
-            <li key={c.label} className={`text-xs ${c.present ? 'text-emerald-700' : 'text-gray-400'}`}>
-              {c.present ? '✓' : '·'} {c.label}
-            </li>
-          ))}
-        </ul>
       </Card>
     </>
   );

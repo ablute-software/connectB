@@ -18,3 +18,9 @@ export const blueprintAnalysesAvailable = makeCapabilityProbe(async (admin) => {
   const { error } = await admin.from('blueprint_analyses').select('id').limit(1);
   return !error;
 });
+
+// Prompt 374 §C — migration 0245's strengthen_dismissed_at column.
+export const strengthenDismissAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('company_claims').select('strengthen_dismissed_at').limit(1);
+  return !error;
+});

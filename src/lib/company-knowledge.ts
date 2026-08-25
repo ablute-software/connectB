@@ -290,10 +290,17 @@ export function knowledgeToAtoms(sources: KnowledgeSources): RawAtom[] {
 // comentário sempre disse que isto fazia. Comparação por texto normalizado
 // — os sourceRef mudam quando a linha de origem é reescrita, o texto é o
 // que o founder reconhece.
+// Prompt 374 §E — exported so the acceptance-time duplicate guard
+// (/api/blueprint/claim's 'accept'/'edit' actions) uses the EXACT SAME
+// normalization as ingestion-time dedup, rather than a second definition
+// that could silently drift from this one.
+export function normalizeStatement(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 export function isAlreadyKnown(atom: RawAtom, existing: { statement: string; status: string }[]): boolean {
-  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
-  const key = norm(atom.statement);
-  return existing.some((c) => norm(c.statement) === key);
+  const key = normalizeStatement(atom.statement);
+  return existing.some((c) => normalizeStatement(c.statement) === key);
 }
 
 export function newAtoms(atoms: RawAtom[], existing: { statement: string; status: string }[]): RawAtom[] {

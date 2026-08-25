@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { KnowledgeSources } from './company-knowledge';
 import type { CompanyClaim, ClaimCategory, ClaimSpecificity, ClaimSourceKind, ClaimStatus, EvidenceClass, DocumentRef } from './types';
 import { documentRefsAvailable, gapDispositionAvailable } from './document-extraction-capability';
+import { strengthenDismissAvailable } from './blueprint-capability';
 
 export async function readKnowledgeSources(admin: SupabaseClient, orgId: string): Promise<KnowledgeSources> {
   const [facts, org, fundingRounds, milestones, roadmapCategories, people, clarifications] = await Promise.all([
@@ -98,6 +99,18 @@ export async function readExistingClaims(admin: SupabaseClient, orgId: string): 
     for (const r of dispositionRows ?? []) gapDispositionById.set(r.id as string, (r.gap_disposition as string | null) ?? null);
   }
 
+  // Prompt 374 §C — same "separate lightweight query" pattern as gap
+  // disposition above, for the same reason: orthogonal migration, and the
+  // two-literal-select-string constraint already caps this file at two
+  // branches for the main select.
+  const withStrengthenDismissed = await strengthenDismissAvailable();
+  const strengthenDismissedById = new Map<string, string | null>();
+  if (withStrengthenDismissed && (data ?? []).length > 0) {
+    const { data: dismissedRows } = await admin.from('company_claims')
+      .select('id, strengthen_dismissed_at').eq('org_id', orgId);
+    for (const r of dismissedRows ?? []) strengthenDismissedById.set(r.id as string, (r.strengthen_dismissed_at as string | null) ?? null);
+  }
+
   return (data ?? []).map((c) => ({
     id: c.id as string,
     category: c.category as ClaimCategory,
@@ -110,5 +123,6 @@ export async function readExistingClaims(admin: SupabaseClient, orgId: string): 
     updatedAt: c.updated_at as string,
     documentRefs: withDocumentRefs ? (((c as unknown as { document_refs?: DocumentRef[] }).document_refs) ?? []) : [],
     gapDisposition: (gapDispositionById.get(c.id as string) ?? null) as CompanyClaim['gapDisposition'],
+    strengthenDismissedAt: strengthenDismissedById.get(c.id as string) ?? null,
   }));
 }
