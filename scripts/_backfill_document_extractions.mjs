@@ -277,7 +277,23 @@ async function extractOne(orgId, doc) {
   const extraction = rawExtractionToData(toolUse.input, pagesRead, totalPages);
   await admin.from('document_extractions').upsert({ org_id: orgId, document_id: doc.id, sha256, model, extracted: extraction, status: 'completed' }, { onConflict: 'document_id,sha256' });
   const linkOutcome = await linkExtractionToClaims(orgId, doc.id, doc.name, extraction);
-  return { extracted: true, costEur: computeCostEur(model, data.usage), ...linkOutcome };
+  const costEur = computeCostEur(model, data.usage);
+  // Prompt 375 follow-up — this script computed cost locally for months
+  // but never wrote it to ai_call_log, unlike every route-based AI call in
+  // the app (ai-cost-log.ts's logAiCall). That left per-founder cost
+  // accounting silently incomplete for every backfill run — confirmed live
+  // (25/08/2026): 58 real extractions, €2.35 real spend, ZERO rows in
+  // ai_call_log until retroactively inserted by hand. `purpose` is
+  // deliberately distinct from the live route's 'document_extraction' so
+  // a cost report can always tell an operator-run backfill apart from a
+  // founder-triggered upload — never blocking the real extraction result
+  // if this write fails (fire-and-forget, same posture as logAiCall itself).
+  await admin.from('ai_call_log').insert({
+    route: 'scripts/_backfill_document_extractions.mjs', purpose: 'document_extraction_backfill', model,
+    tokens_in: data.usage?.input_tokens ?? null, tokens_out: data.usage?.output_tokens ?? null,
+    cost_eur: costEur, org_id: orgId, target_type: 'document', target_id: doc.id,
+  }).then(({ error: logError }) => { if (logError) console.error(`[ai_call_log] insert failed for ${doc.id}:`, logError.message); });
+  return { extracted: true, costEur, ...linkOutcome };
 }
 
 // --- main ---
@@ -296,12 +312,19 @@ const limit = limitArg ? Number(limitArg.slice('--limit='.length)) : null;
 const confirmedAllOrgs = args.includes('--yes-all-orgs');
 const SAFE_UNSCOPED_LIMIT = 20;
 
-let query = admin.from('documents').select('id, org_id, name, storage_path').eq('malware_scan_status', 'clean').ilike('name', '%.pdf');
+// Prompt 375 — 'local_only' (validated locally, never submitted anywhere —
+// the normal state for a private document now, see upload-security.ts's
+// own header) is exactly as eligible as 'clean'. This script had its OWN
+// copy of the old clean-only gate, same class of bug as the app code's own
+// prepareDocumentForAi before this prompt fixed it — a script that still
+// said "clean-scanned PDF" while every real document sat at 'local_only'
+// would have found and processed exactly zero.
+let query = admin.from('documents').select('id, org_id, name, storage_path').in('malware_scan_status', ['clean', 'local_only']).ilike('name', '%.pdf');
 if (argOrgId) query = query.eq('org_id', argOrgId);
 const { data: allCandidates, error } = await query;
 if (error) throw error;
 
-console.log(`Found ${allCandidates.length} clean-scanned PDF(s)${argOrgId ? ` for org ${argOrgId}` : ' across all orgs'}.`);
+console.log(`Found ${allCandidates.length} clean/local_only PDF(s)${argOrgId ? ` for org ${argOrgId}` : ' across all orgs'}.`);
 
 if (!argOrgId && allCandidates.length > SAFE_UNSCOPED_LIMIT && !confirmedAllOrgs) {
   console.log(`Refusing to run unscoped across ${allCandidates.length} documents without --yes-all-orgs (safety threshold: ${SAFE_UNSCOPED_LIMIT}).`);
