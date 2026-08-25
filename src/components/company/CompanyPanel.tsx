@@ -1,24 +1,36 @@
 'use client';
-// Company tab redesign — orchestrates the completeness bar + the five
-// cards, in the spec's order: Identity, Team, Round, Company facts (moved
-// to the end of its own group), Outreach settings (last, most operational).
-// Capability-gated on companyProfile (migration 0037): until applied, falls
-// back to the old Organisation card unchanged — never a broken form.
+// Company tab redesign — orchestrates the seven sections: Identity, Team,
+// Round, Previous funding, Traction metrics, Facts & Clarifications, My
+// data room. Capability-gated on companyProfile (migration 0037): until
+// applied, falls back to the old Organisation card unchanged — never a
+// broken form.
+//
+// Prompt 377 §B — CompletenessBar, canEdit and the completeness `missing`
+// list are now owned by the PAGE (settings/page.tsx), not this panel: the
+// page's own header (title/link, VisibilityToggle, main tab bar) became
+// `position: sticky` so it stops scrolling away, and CompletenessBar joined
+// it there (per the prompt's own layout spec) — since they now live in the
+// same sticky block, computing completeness once at the page level and
+// passing it down here avoids two independent `/api/me`/completeness
+// computations silently drifting. This is `position: sticky` within the
+// normal page flow, not a `position: fixed` overlay — CLAUDE.md's
+// createPortal rule for full-viewport overlays doesn't apply here.
+//
+// The sub-menu and the badges column are BOTH `position: sticky` at the
+// SAME top offset as the page header's own sticky block (SETTINGS_HEADER_OFFSET_PX,
+// kept in one place and imported by both files so the two can never drift
+// apart) — the content column has no special CSS of its own; it scrolls
+// with the page like anything else, which is exactly what "only the
+// content column scrolls" means once the other three are pinned via sticky.
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { useConfirm } from '@/lib/confirm';
 import { Card } from '@/components/ui';
 import { authEnabled } from '@/lib/supabase';
-import { can, type OrgRole } from '@/lib/permissions';
 import { OrganisationCard } from '@/components/OrganisationCard';
 import { CompanyFactsPanel } from '@/components/CompanyFactsPanel';
-import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
-import { CompletenessBar } from './CompletenessBar';
 import { IdentityCard } from './IdentityCard';
 import { BadgesCard } from './BadgesCard';
-import { PhotosMediaCard } from './PhotosMediaCard';
-import { MiniPitchCard } from './MiniPitchCard';
 import { StartupTeamCard } from './StartupTeamCard';
 import { RoundCard } from './RoundCard';
 import { PreviousFundingCard } from '@/components/PreviousFundingCard';
@@ -26,30 +38,19 @@ import { TractionCard } from './TractionCard';
 import { DataroomChecklistCard } from './DataroomChecklistCard';
 import { InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEngagementCards';
 import { StartupAxisClassifications } from './StartupAxisClassifications';
+import { CompanySubMenu, type CompanySection } from './CompanySubMenu';
+import { SETTINGS_HEADER_OFFSET_PX } from './settings-layout';
+import type { CompletenessField } from '@/lib/companyCompleteness';
 
-// Prompt 359 Block A — RoadmapCard is GONE from here: the roadmap is now
-// its own top-level "Roadmap" tab (settings/page.tsx), not a card in this
-// vertical flow. This is the mini-preview the prompt asks for in its place
-// — one line, a link out, nothing this panel needs to keep rendering the
-// canvas itself for.
-function RoadmapMiniPreview({ available }: { available: boolean }) {
-  const { db } = useStore();
-  if (!available) return null;
-  const total = db.roadmapEvents.length;
-  const done = db.roadmapEvents.filter((e) => e.status === 'done').length;
-  return (
-    <Card title="Roadmap">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-gray-500">
-          {total === 0 ? 'No events yet.' : `${done} done · ${total - done} planned`}
-        </p>
-        <Link href="/settings?tab=roadmap" className="text-xs font-medium text-[#0E7490] hover:underline">
-          View roadmap →
-        </Link>
-      </div>
-    </Card>
-  );
-}
+const SECTIONS: CompanySection[] = [
+  { key: 'identity', label: 'Identity', anchorId: 'settings-identity' },
+  { key: 'team', label: 'Team', anchorId: 'settings-team' },
+  { key: 'round', label: 'Round', anchorId: 'settings-round' },
+  { key: 'previous-funding', label: 'Previous funding', anchorId: 'settings-previous-funding' },
+  { key: 'traction', label: 'Traction metrics', anchorId: 'settings-traction' },
+  { key: 'facts', label: 'Facts & Clarifications', anchorId: 'settings-facts' },
+  { key: 'data-room', label: 'My data room', anchorId: 'settings-data-room' },
+];
 
 function DemoResetCard() {
   const { resetDemo } = useStore();
@@ -66,24 +67,27 @@ function DemoResetCard() {
   );
 }
 
-export function CompanyPanel() {
+export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashId }: {
+  canEdit: boolean; companyProfileAvailable: boolean | null; missing: CompletenessField[]; flashId: string | null;
+}) {
   const { db } = useStore();
-  const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
-  const [companyProfile, setCompanyProfile] = useState<boolean | null>(null);
-  const [roadmapAvailable, setRoadmapAvailable] = useState(false);
-  const [flashId, setFlashId] = useState<string | null>(null);
+  const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
 
+  // Prompt 377 §B — direct navigation to e.g. /settings#settings-round (the
+  // existing external links from OverviewPanel/TodayPanel/RoadmapCard) has
+  // to land in the right section even though sections now live below a
+  // sticky header rather than at the top of the page's own scroll — the
+  // browser's native on-load hash-scroll still works here (this IS the
+  // page's own scroll container, nothing nested), but a fresh navigation
+  // can race the page's own async data load, so this re-checks once the
+  // content column itself is mounted.
   useEffect(() => {
-    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => {
-      setOrgRole(me.orgRole ?? null);
-      setCompanyProfile(!!me.capabilities?.companyProfile);
-      setRoadmapAvailable(!!me.capabilities?.roadmapEvents);
-    }).catch(() => setCompanyProfile(false));
-  }, []);
+    if (!contentEl || typeof window === 'undefined' || !window.location.hash) return;
+    const id = window.location.hash.slice(1);
+    document.getElementById(id)?.scrollIntoView({ block: 'start' });
+  }, [contentEl]);
 
-  const canEdit = !authEnabled || can(orgRole, 'manage_org_settings');
-
-  if (companyProfile === null) return <p className="text-sm text-gray-400">Loading…</p>;
+  if (companyProfileAvailable === null) return <p className="text-sm text-gray-400">Loading…</p>;
 
   // Prompt 357 §C1 — Badges & awards moves out of the vertical flow into a
   // fixed right-hand column, in the space that was previously just dead
@@ -94,7 +98,7 @@ export function CompanyPanel() {
   // past the viewport. Below `lg`, it drops into the normal vertical flow
   // (no responsive column story needed at that width). Both branches below
   // share this same wrapper — only the left column's content differs.
-  if (!companyProfile) {
+  if (!companyProfileAvailable) {
     return (
       <div className="grid grid-cols-1 gap-4 lg:max-w-5xl lg:grid-cols-[1fr_300px] lg:items-start">
         <div className="space-y-4">
@@ -102,7 +106,6 @@ export function CompanyPanel() {
             The redesigned Identity/Team/Round profile activates once migration 0037 is applied. Here&apos;s what&apos;s editable today.
           </p>
           <OrganisationCard />
-          <PhotosMediaCard canEdit={canEdit} />
           <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
           <StartupAxisClassifications />
           <DemoResetCard />
@@ -114,47 +117,68 @@ export function CompanyPanel() {
     );
   }
 
-  const { pct, missing } = calcCompanyCompleteness(db.org, db.companyPeople);
-
   return (
-    <div className="grid grid-cols-1 gap-4 lg:max-w-5xl lg:grid-cols-[1fr_300px] lg:items-start">
-      <div className="space-y-4">
-        <div data-tour-id="settings-completeness">
-          <CompletenessBar pct={pct} missing={missing} orgId={db.org.id} onFlash={setFlashId} />
-        </div>
-        <RoadmapMiniPreview available={roadmapAvailable} />
-        <div id="settings-identity" data-tour-id="settings-identity">
+    // Prompt 377 §B — sub-menu (left, sticky) · content (middle, the only
+    // column that visibly scrolls, since it's the only one WITHOUT its own
+    // sticky/overflow rules) · badges (right, sticky, unchanged behavior
+    // from before this prompt). Below `lg`, all three fall back to plain
+    // stacked flow — a fixed left sub-menu makes no sense on a narrow
+    // screen, so CompanySubMenu itself renders as a horizontal scrolling
+    // chip row there instead (see that component).
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[160px_1fr_300px] lg:items-start">
+      {/* Prompt 377 §B — the sticky offset is a CSS variable, not a plain
+          inline style, precisely so it only ever takes effect through the
+          `lg:`-prefixed classes below (top/max-height inline styles applied
+          unconditionally would also clip/shift the mobile chip-row layout,
+          which never uses sticky/overflow at all). */}
+      <div className="lg:sticky lg:top-[var(--settings-header-offset)] lg:overflow-y-auto lg:[max-height:calc(100vh-var(--settings-header-offset)-1rem)]"
+        style={{ '--settings-header-offset': `${SETTINGS_HEADER_OFFSET_PX}px` } as React.CSSProperties}>
+        <CompanySubMenu sections={SECTIONS} scrollRoot={contentEl} />
+      </div>
+
+      {/* Prompt 377 §B — scroll-margin-top on every section anchor, not just
+          a JS scroll-offset calculation: this way EVERY way a section can be
+          reached (CompanySubMenu's own scrollIntoView, a native #hash
+          landing, the browser's own back/forward restoring a scroll
+          position) lands below the sticky header instead of underneath it,
+          with no separate offset math to keep in sync at each call site. */}
+      <div ref={setContentEl} className="space-y-4">
+        <div id="settings-identity" data-tour-id="settings-identity" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
           <IdentityCard canEdit={canEdit} missing={missing} flashId={flashId} />
         </div>
-        <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
-        <PhotosMediaCard canEdit={canEdit} />
-        <div id="settings-round" data-tour-id="settings-round">
+
+        <div id="settings-team" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+          <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
+        </div>
+
+        <div id="settings-round" data-tour-id="settings-round" className="space-y-4" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
           <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
-          {/* Prompt 212 §B.3 — logo a seguir a ronda actual, porque a pergunta
-              que o founder faz e "quanto ja levantei" vs "quanto estou a
-              levantar", e as duas tem de estar lado a lado para nao voltarem a
-              confundir-se. */}
+          <RoundUpdatesCard />
+          <SoftCommitsCard />
+        </div>
+
+        <div id="settings-previous-funding" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
           {canEdit && <PreviousFundingCard />}
         </div>
-        <MiniPitchCard canEdit={canEdit} />
-        <div data-tour-id="settings-traction">
+
+        <div id="settings-traction" data-tour-id="settings-traction" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
           <TractionCard canEdit={canEdit} />
         </div>
-        <DataroomChecklistCard />
-        {/* Prompt 327 Pedido A — InvestorDecisionsCard/InterestLevelRequestsCard/
-            OutreachSettingsCard moved to the Dashboard Overview tab: they're
-            operational RESULTS of the Sherlock relationship, not facts the
-            company declares about itself. SoftCommitsCard/RoundUpdatesCard/
-            InvestorQACard stayed here for now (not named in the request) —
-            flagged in the report as arguably sharing the same characteristic. */}
-        <SoftCommitsCard />
-        <RoundUpdatesCard />
-        <InvestorQACard />
-        <Card title="Company facts & Clarifications"><CompanyFactsPanel /></Card>
-        <StartupAxisClassifications />
-        <DemoResetCard />
+
+        <div id="settings-facts" className="space-y-4" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+          <Card title="Facts & Clarifications"><CompanyFactsPanel /></Card>
+          <InvestorQACard />
+          <StartupAxisClassifications />
+          <DemoResetCard />
+        </div>
+
+        <div id="settings-data-room" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+          <DataroomChecklistCard />
+        </div>
       </div>
-      <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+
+      <div className="lg:sticky lg:top-[var(--settings-header-offset)] lg:overflow-y-auto lg:[max-height:calc(100vh-var(--settings-header-offset)-1rem)]"
+        style={{ '--settings-header-offset': `${SETTINGS_HEADER_OFFSET_PX}px` } as React.CSSProperties}>
         <BadgesCard canEdit={canEdit} orgId={db.org.id} />
       </div>
     </div>

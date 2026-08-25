@@ -21,6 +21,10 @@ import { ImportPanel } from '@/components/settings/ImportPanel';
 import { NeedsReviewPanel } from '@/components/queue/NeedsReviewPanel';
 import { CompanyPanel } from '@/components/company/CompanyPanel';
 import { RoadmapPanel } from '@/components/company/RoadmapPanel';
+import { PhotosMediaCard } from '@/components/company/PhotosMediaCard';
+import { MiniPitchCard } from '@/components/company/MiniPitchCard';
+import { CompletenessBar } from '@/components/company/CompletenessBar';
+import { SETTINGS_HEADER_OFFSET_PX } from '@/components/company/settings-layout';
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { APP_URL } from '@/lib/brand';
 import { PageTour } from '@/components/onboarding/PageTour';
@@ -349,26 +353,38 @@ function TeamPanel() {
   );
 }
 
+// Prompt 377 §A.4 — the two negative guards ("render X unless the tab is one
+// of these known ones") share ONE list now instead of two hand-copied
+// `!==` chains — the exact bug the prompt calls out: a tab added to one
+// chain but not the other either runs the tour where its anchors don't
+// exist, or renders CompanyPanel underneath the new tab's own content.
+const NON_COMPANY_TABS = ['automations', 'import-history', 'team', 'roadmap', 'photos-media', 'matchdeal'] as const;
+
 function SettingsInner() {
   useTrackPageView('/settings');
   const [tab, setTab] = useTabParam('company');
   const [importSubtab, setImportSubtab] = useTabParam('history', 'subtab');
   const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
+  const [companyProfileAvailable, setCompanyProfileAvailable] = useState<boolean | null>(null);
+  const [flashId, setFlashId] = useState<string | null>(null);
   const { db } = useStore();
   useEffect(() => {
-    if (!authEnabled) return;
-    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => setOrgRole(me.orgRole ?? null)).catch(() => {});
+    if (!authEnabled) { setCompanyProfileAvailable(false); return; }
+    fetch('/api/me', { cache: 'no-store' }).then((r) => r.json()).then((me) => {
+      setOrgRole(me.orgRole ?? null);
+      setCompanyProfileAvailable(!!me.capabilities?.companyProfile);
+    }).catch(() => setCompanyProfileAvailable(false));
   }, []);
 
-  // Profile Strength (v0.3) — same calc CompanyPanel's own bar uses. Only
-  // ever reaches 100 once migration 0037 is applied (the new fields don't
-  // exist before that), so this naturally stays dark pre-migration with no
-  // extra gating needed.
-  const companyComplete = calcCompanyCompleteness(db.org, db.companyPeople).pct === 100;
+  // Prompt 377 §B — CompletenessBar joined the page's own sticky header
+  // (see this component's return below); computed once here so CompanyPanel
+  // never needs its own independent completeness calc/fetch.
+  const { pct, missing } = calcCompanyCompleteness(db.org, db.companyPeople);
+  const canEditCompany = !authEnabled || can(orgRole, 'manage_org_settings');
   const reviewBadge = needsReviewBadge(db);
 
   const tabs = [
-    { key: 'company', label: 'Company', glow: companyComplete, glowTitle: 'Profile 100% complete' },
+    { key: 'company', label: 'Company', glow: pct === 100, glowTitle: 'Profile 100% complete' },
     // Prompt 359 Block A — Roadmap gets its own sub-tab, between Company and
     // Import history: it used to be a card buried inside Company (a mini
     // preview stays there, linking here), but a canvas the founder draws on
@@ -377,11 +393,17 @@ function SettingsInner() {
     // Needs review lives INSIDE this tab now (see importSubtab below) — its
     // pending count still surfaces here so it isn't lost a level down.
     { key: 'import-history', label: 'Import history', badge: reviewBadge },
+    // Prompt 377 §A.1 — moved out of the Company vertical flow into its own
+    // top-level tab, between Import history and Automations.
+    { key: 'photos-media', label: 'Photos & media' },
     { key: 'automations', label: 'Automations' },
     // "App access" — who can log into this workspace (roster/invites/
     // permissions). Distinct from Company's own Team card (who the startup
     // is) — renamed so the two stop reading as duplicates.
     { key: 'team', label: 'App access' },
+    // Prompt 377 §A.2 — moved out of the Company vertical flow, at the very
+    // end of the bar.
+    { key: 'matchdeal', label: 'MatchDeal' },
   ];
 
   // Old bookmarks/links to ?tab=needs-review (its former top-level slot)
@@ -389,6 +411,7 @@ function SettingsInner() {
   // without needing a redirect or ever 404ing.
   const effectiveTab = tab === 'needs-review' ? 'import-history' : tab;
   const effectiveSubtab = tab === 'needs-review' ? 'needs-review' : importSubtab;
+  const isCompanyTab = !(NON_COMPANY_TABS as readonly string[]).includes(effectiveTab);
 
   const importSubtabs = [
     { key: 'history', label: 'History' },
@@ -397,21 +420,35 @@ function SettingsInner() {
 
   return (
     <div>
-      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-bold">About {db.org.name || 'your company'}</h1>
-        {/* Prompt 306 — persistent entry point into the read-only "see how
-            investors see this profile" preview. */}
-        <Link href="/settings/preview"
-          className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
-          👁 See how investors see this profile
-        </Link>
+      {/* Prompt 377 §B — "the header stays fixed": title/link,
+          VisibilityToggle, the main tab bar, and (on the Company tab)
+          CompletenessBar all live in this one sticky block, at the SAME
+          top offset (0 — this is the topmost sticky element) that
+          CompanyPanel's own sub-menu/badges columns are measured against
+          (settings-layout.ts's SETTINGS_HEADER_OFFSET_PX = this block's own
+          rendered height). `position: sticky` in normal page flow, not a
+          `position: fixed` overlay — CLAUDE.md's createPortal rule for
+          full-viewport overlays doesn't apply here. */}
+      <div className="lg:sticky lg:top-0 lg:z-20 lg:bg-[#F7F9FA] lg:pb-2">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-lg font-bold">About {db.org.name || 'your company'}</h1>
+          {/* Prompt 306 — persistent entry point into the read-only "see how
+              investors see this profile" preview. */}
+          <Link href="/settings/preview"
+            className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+            👁 See how investors see this profile
+          </Link>
+        </div>
+        <VisibilityToggle kind="startup" />
+        <Tabs items={tabs} active={effectiveTab} onChange={setTab} />
+        {isCompanyTab && companyProfileAvailable && (
+          <div className="mt-2" data-tour-id="settings-completeness">
+            <CompletenessBar pct={pct} missing={missing} orgId={db.org.id} onFlash={setFlashId} />
+          </div>
+        )}
       </div>
-      <VisibilityToggle kind="startup" />
-      <Tabs items={tabs} active={effectiveTab} onChange={setTab} />
       {/* Anchors (data-tour-id) live inside CompanyPanel, on the default "company" tab only. */}
-      {effectiveTab !== 'automations' && effectiveTab !== 'import-history' && effectiveTab !== 'team' && effectiveTab !== 'roadmap' && (
-        <PageTour pageKey="guide_settings" />
-      )}
+      {isCompanyTab && <PageTour pageKey="guide_settings" />}
       {effectiveTab === 'automations' && (
         <Card title="Automations">
           <AutomationsPanel orgRole={authEnabled ? orgRole : undefined} />
@@ -423,9 +460,13 @@ function SettingsInner() {
           {effectiveSubtab === 'needs-review' ? <NeedsReviewPanel /> : <ImportPanel />}
         </div>
       )}
+      {effectiveTab === 'photos-media' && <PhotosMediaCard canEdit={canEditCompany} />}
       {effectiveTab === 'team' && <TeamPanel />}
-      {effectiveTab === 'roadmap' && <RoadmapPanel canEdit={!authEnabled || can(orgRole, 'manage_org_settings')} />}
-      {effectiveTab !== 'automations' && effectiveTab !== 'import-history' && effectiveTab !== 'team' && effectiveTab !== 'roadmap' && <CompanyPanel />}
+      {effectiveTab === 'roadmap' && <RoadmapPanel canEdit={canEditCompany} />}
+      {effectiveTab === 'matchdeal' && <MiniPitchCard canEdit={canEditCompany} />}
+      {isCompanyTab && (
+        <CompanyPanel canEdit={canEditCompany} companyProfileAvailable={companyProfileAvailable} missing={missing} flashId={flashId} />
+      )}
     </div>
   );
 }

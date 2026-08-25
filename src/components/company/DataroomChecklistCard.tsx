@@ -32,7 +32,11 @@ export function DataroomChecklistCard() {
   if (!data) return null;
 
   return (
-    <Card title="Your data room, through the investor's eyes">
+    // Prompt 377 §B.2 — title shortened to "My data room"; the dropped
+    // explanation ("through the investor's eyes") moves to a small caption
+    // in the body instead of disappearing outright.
+    <Card title="My data room">
+      <p className="mb-2 text-[11px] text-gray-400">Through the investor&apos;s eyes.</p>
       {data.lastActive && (
         <p className="mb-3 text-xs text-gray-500">
           Last activity: {timeAgo(data.lastActive.lastViewedAt as string)}, viewed <b>{data.lastActive.label}</b>
