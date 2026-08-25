@@ -9,6 +9,9 @@ import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { SwotQuadrant } from '@/components/readiness/SwotVisualCard';
 import { RoadmapCanvas } from '@/components/company/RoadmapCanvas';
+import { RoadmapEventDetailPanel } from '@/components/company/RoadmapEventDetailPanel';
+import { GLASS_CARD } from '@/components/company/roadmap-visual';
+import { roadmapFont } from '@/lib/fonts';
 import type { SwotData } from '@/lib/types';
 import type { ReviewCategory } from '@/lib/review-clarifications';
 import { shouldShowMiniPitchTeaser } from '@/lib/mini-pitch';
@@ -145,6 +148,11 @@ export function DossierOverviewSections({
   // omission (Pedido 3) — the real investor page never passes these.
   swotOffHref?: string; roadmapOffHref?: string;
 }) {
+  // Prompt 385 §B — selection is lifted (RoadmapCanvas's own contract), so
+  // the detail panel can render beside Categories... except the investor
+  // dossier has no Categories card (never editable here), so the panel just
+  // sits below the canvas on its own, full width.
+  const [selectedRoadmapId, setSelectedRoadmapId] = useState<string | null>(null);
   const overview = dossier.overview;
   const hasMarket = overview && (overview.tam_eur != null || overview.sam_eur != null || overview.som_eur != null);
   const team = dossier.team ?? [];
@@ -298,23 +306,34 @@ export function DossierOverviewSections({
   // never a second disclosure decision made client-side.
   if (dossier.roadmap) {
     const docNameById = new Map((dossier.documentTitles ?? []).map((d) => [d.id, d.name]));
+    const resolveDocChip = (documentId: string) => {
+      const name = docNameById.get(documentId);
+      return name ? { name, visible: true } : null;
+    };
+    const selectedRoadmapEvent = selectedRoadmapId ? dossier.roadmap.find((e) => e.id === selectedRoadmapId) ?? null : null;
     sections.push({
       id: 'roadmap', label: 'Roadmap',
       node: (
-        <div id="roadmap" data-section="Roadmap" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-gray-900">Roadmap</h2>
-          <div className="mt-2">
+        <div id="roadmap" data-section="Roadmap" className={`${roadmapFont.className} scroll-mt-16 space-y-4`}>
+          <div className={`${GLASS_CARD} p-5`}>
+            <h2 className="mb-3 text-[15px] font-semibold text-[#131b2e]">Roadmap</h2>
             <RoadmapCanvas
               events={dossier.roadmap}
               categories={dossier.roadmapCategories ?? []}
               foundedYear={overview?.founded_year ?? null}
               editable={false}
-              resolveDocChip={(documentId) => {
-                const name = docNameById.get(documentId);
-                return name ? { name, visible: true } : null;
-              }}
+              selectedId={selectedRoadmapId}
+              onSelect={setSelectedRoadmapId}
             />
           </div>
+          {dossier.roadmap.length > 0 && (
+            <RoadmapEventDetailPanel
+              event={selectedRoadmapEvent}
+              categories={dossier.roadmapCategories ?? []}
+              editable={false}
+              resolveDocChip={resolveDocChip}
+            />
+          )}
         </div>
       ),
     });

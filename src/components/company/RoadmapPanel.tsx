@@ -4,14 +4,31 @@
 // visibility toggle + category manager that used to live inside RoadmapCard
 // (moved here now that Roadmap is a top-level tab, not a card inside
 // Company — see settings/page.tsx).
+//
+// Prompt 385 — the premium visual pass: glass cards, "Prism on White"
+// tokens, Geist (scoped to this tab only — src/lib/fonts.ts), and the new
+// layout the mockup specifies — canvas on top, then Categories (1 col)
+// beside the event detail panel (3 col), then Suggested events full width.
+// Selection is lifted here (selectedId) rather than owned inside
+// RoadmapCanvas, so the detail panel can live in this component's own DOM
+// tree, beside Categories, below the canvas — outside RoadmapCanvas's own
+// subtree, per the mockup's layout. `selectedEvent` is looked up from
+// db.roadmapEvents BY ID on every render rather than kept as a captured
+// object — the exact fix for the stale-reference bug Prompt 368's own
+// comment (now removed from RoadmapCanvas.tsx) documented: after a delete,
+// the id simply stops resolving and the panel falls back to its own empty
+// state, with nothing to remember to clear.
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { authEnabled } from '@/lib/supabase';
 import { useConfirm } from '@/lib/confirm';
-import { Card, TermHint, Toggle } from '@/components/ui';
+import { TermHint } from '@/components/ui';
+import { roadmapFont } from '@/lib/fonts';
 import { RoadmapCanvas } from './RoadmapCanvas';
+import { RoadmapEventDetailPanel } from './RoadmapEventDetailPanel';
 import { CategoryManager } from './RoadmapCard';
 import { SuggestedEventsPanel } from './SuggestedEventsPanel';
+import { GLASS_CARD, GLASS_PILL } from './roadmap-visual';
 import type { RoadmapEventStatus } from '@/lib/types';
 
 // Prompt 359 §A.3 — the default lanes an investor actually reads a company
@@ -81,6 +98,8 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
   }, [canEdit, db.roadmapCategories.length]);
 
   const [error, setError] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedEvent = selectedId ? db.roadmapEvents.find((e) => e.id === selectedId) ?? null : null;
 
   async function handleCreate(input: { title: string; date: string; end_date?: string | null; status: RoadmapEventStatus; category_id: string | null; document_id?: string | null; date_precision?: 'exact' | 'approx' | 'quarter' }) {
     const { error: err } = await addRoadmapEvent({ ...input, date_precision: input.date_precision ?? 'exact' });
@@ -94,38 +113,69 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
     if (await confirm({ message: 'Remove this event?', destructive: true })) removeRoadmapEvent(id);
   }
 
+  const hasEvents = db.roadmapEvents.length > 0;
+
   return (
-    <div className="max-w-4xl space-y-4">
-      <Card title={<span className="inline-flex items-center gap-1">Roadmap <TermHint text="Your company's history and plan, drawn on a timeline." /></span>}>
-        <div id="roadmap-visibility-toggle" className="mb-3 flex scroll-mt-16 flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-gray-400">Click anywhere on a lane to add an event; drag to create a period; drag an event to move it.</p>
-          {canEdit && (
-            <Toggle checked={db.org.roadmap_visible_to_investors ?? true}
-              onChange={(v) => updateOrg({ roadmap_visible_to_investors: v })}
-              label={
-                <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-                  Let investors you&apos;re in contact with see this roadmap
-                  <TermHint text="Visible to any investor at level 1+ (they've expressed interest or you've granted access) once this is on." />
-                </span>
-              } />
-          )}
+    <div className={`${roadmapFont.className} max-w-6xl space-y-6`}>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-[32px] font-semibold tracking-[-0.02em] text-[#131b2e]">
+            Roadmap <TermHint text="Your company's history and plan, drawn on a timeline." />
+          </h1>
+          <p className="mt-0.5 text-sm text-[#434656]">Strategic trajectory and key milestones.</p>
         </div>
+        {canEdit && (
+          <label id="roadmap-visibility-toggle" className={`flex scroll-mt-16 cursor-pointer items-center gap-3 px-5 py-2.5 text-xs font-medium text-[#434656] ${GLASS_PILL}`}>
+            <span className="relative inline-flex">
+              <input type="checkbox" checked={db.org.roadmap_visible_to_investors ?? true}
+                onChange={(e) => updateOrg({ roadmap_visible_to_investors: e.target.checked })} className="peer sr-only" />
+              <span className="h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-[#0041c8]" />
+              <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              Share Roadmap with Investors
+              <TermHint text="Visible to any investor at level 1+ (they've expressed interest or you've granted access) once this is on." />
+            </span>
+          </label>
+        )}
+      </header>
 
-        {error && <p className="mb-2 text-xs text-[#B00000]">{error}</p>}
+      {error && <p className="text-xs text-[#ba1a1a]">{error}</p>}
 
+      <div className={`${GLASS_CARD} min-h-[160px] p-5`}>
+        <p className="mb-3 text-xs text-[#434656]/70">
+          Click anywhere on a lane to add an event; drag to create a period; drag an event to move it; click a bar to see its details.
+        </p>
         <RoadmapCanvas
           events={db.roadmapEvents}
           categories={db.roadmapCategories}
           foundedYear={db.org.founded_year ?? null}
           editable={canEdit}
-          documents={db.documents.map((d) => ({ id: d.id, name: d.name }))}
           onCreate={handleCreate}
           onUpdate={handleUpdate}
-          onRemove={handleRemove}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
         />
+      </div>
 
-        {canEdit && <CategoryManager />}
-      </Card>
+      {hasEvents && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+          <div className="lg:col-span-1">
+            <CategoryManager />
+          </div>
+          <div className="lg:col-span-3">
+            <RoadmapEventDetailPanel
+              event={selectedEvent}
+              categories={db.roadmapCategories}
+              editable={canEdit}
+              documents={db.documents.map((d) => ({ id: d.id, name: d.name }))}
+              onUpdate={handleUpdate}
+              onRemove={handleRemove}
+            />
+          </div>
+        </div>
+      )}
+      {!hasEvents && canEdit && <CategoryManager />}
 
       {canEdit && <SuggestedEventsPanel onAdd={handleCreate} />}
     </div>

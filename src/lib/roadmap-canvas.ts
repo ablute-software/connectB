@@ -139,6 +139,61 @@ export function matchesCategoryVisibility(
 }
 
 // ---------------------------------------------------------------------------
+// Prompt 385 §B.2 — the three-state model the detail panel shows (COMPLETED/
+// PLANNED/IN PROGRESS), derived from the two real states the DB stores
+// ('done'/'planned') plus whether "now" falls inside the event's own period —
+// never a third stored value. A point event (no end_date) is only ever
+// completed or planned; IN PROGRESS only exists for a period with an end
+// date that "now" is currently inside.
+export type EventState = 'completed' | 'planned' | 'in_progress';
+
+export function derivedEventState(
+  status: 'done' | 'planned', date: string, endDate: string | null | undefined, now: Date,
+): EventState {
+  if (status === 'done') return 'completed';
+  if (endDate) {
+    const start = new Date(date).getTime();
+    const end = new Date(endDate).getTime();
+    const t = now.getTime();
+    if (t >= start && t <= end) return 'in_progress';
+  }
+  return 'planned';
+}
+
+// Prompt 385 §A.4 — the quarter header label format from the mockup
+// ("Q1 '24"), derived from a plain ISO date — never a separate stored field.
+export function quarterLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  const q = Math.floor(d.getUTCMonth() / 3) + 1;
+  const yy = String(d.getUTCFullYear()).slice(-2);
+  return `Q${q} '${yy}`;
+}
+
+// Prompt 385 §A.4 — the quarter header row: every calendar quarter the
+// [start, end] view window touches, in order, each with its own [start, end]
+// boundary dates so the caller can position it with the same xFromDate scale
+// the rest of the canvas already uses. Pure/testable on purpose, same
+// discipline as everything else in this file — the component only turns
+// these into pixels and JSX.
+export interface QuarterSpan { start: Date; end: Date; label: string }
+
+export function quartersInRange(start: Date, end: Date): QuarterSpan[] {
+  if (end.getTime() <= start.getTime()) return [];
+  const spans: QuarterSpan[] = [];
+  let y = start.getUTCFullYear();
+  let q = Math.floor(start.getUTCMonth() / 3);
+  while (true) {
+    const qStart = new Date(Date.UTC(y, q * 3, 1));
+    const qEnd = new Date(Date.UTC(y, q * 3 + 3, 1));
+    if (qStart.getTime() >= end.getTime()) break;
+    spans.push({ start: qStart, end: qEnd, label: quarterLabel(qStart.toISOString()) });
+    q += 1;
+    if (q > 3) { q = 0; y += 1; }
+  }
+  return spans;
+}
+
+// ---------------------------------------------------------------------------
 // Prompt 359 Block A — pure half of the data migration (0237's own SQL does
 // the real one-time backfill; this is the equivalent logic exposed as a
 // testable function so "migração sem perder nada" has a unit test, not only

@@ -2,7 +2,70 @@ import { describe, expect, it } from 'vitest';
 import {
   xFromDate, dateFromX, snapToMonth, densityLevel, densityLevelForLane, clusterByProximity,
   zoomWindow, matchesTimeToggle, matchesCategoryVisibility, migrateMilestoneToEvents,
+  derivedEventState, quarterLabel, quartersInRange,
 } from './roadmap-canvas';
+
+describe('derivedEventState — the three-state model the detail panel shows', () => {
+  const now = new Date('2024-06-15T00:00:00Z');
+
+  it('done is always completed, period or point', () => {
+    expect(derivedEventState('done', '2024-01-01', null, now)).toBe('completed');
+    expect(derivedEventState('done', '2024-01-01', '2024-12-01', now)).toBe('completed');
+  });
+
+  it('planned with no end date is planned, never in_progress', () => {
+    expect(derivedEventState('planned', '2024-01-01', null, now)).toBe('planned');
+  });
+
+  it('planned with now inside [date, end_date] is in_progress', () => {
+    expect(derivedEventState('planned', '2024-01-01', '2024-12-01', now)).toBe('in_progress');
+  });
+
+  it('planned with a period entirely in the future is planned, not in_progress', () => {
+    expect(derivedEventState('planned', '2025-01-01', '2025-06-01', now)).toBe('planned');
+  });
+
+  it('planned with a period already fully past is still planned (never done implicitly)', () => {
+    expect(derivedEventState('planned', '2023-01-01', '2023-06-01', now)).toBe('planned');
+  });
+
+  it('boundaries are inclusive', () => {
+    expect(derivedEventState('planned', '2024-06-15', '2024-12-01', now)).toBe('in_progress');
+    expect(derivedEventState('planned', '2024-01-01', '2024-06-15', now)).toBe('in_progress');
+  });
+});
+
+describe('quarterLabel', () => {
+  it('formats an ISO date as "Q<n> \'<yy>"', () => {
+    expect(quarterLabel('2024-01-15')).toBe("Q1 '24");
+    expect(quarterLabel('2024-04-01')).toBe("Q2 '24");
+    expect(quarterLabel('2024-09-30')).toBe("Q3 '24");
+    expect(quarterLabel('2024-12-31')).toBe("Q4 '24");
+  });
+});
+
+describe('quartersInRange', () => {
+  it('lists every quarter the window touches, in order', () => {
+    const spans = quartersInRange(new Date('2023-11-15T00:00:00Z'), new Date('2024-04-10T00:00:00Z'));
+    expect(spans.map((s) => s.label)).toEqual(["Q4 '23", "Q1 '24", "Q2 '24"]);
+  });
+
+  it('a window entirely inside one quarter still lists that quarter', () => {
+    const spans = quartersInRange(new Date('2024-02-01T00:00:00Z'), new Date('2024-02-20T00:00:00Z'));
+    expect(spans.map((s) => s.label)).toEqual(["Q1 '24"]);
+  });
+
+  it('a degenerate (empty) window produces no spans', () => {
+    const d = new Date('2024-01-01T00:00:00Z');
+    expect(quartersInRange(d, d)).toEqual([]);
+  });
+
+  it('each span\'s [start, end) actually bounds a calendar quarter', () => {
+    const [q] = quartersInRange(new Date('2024-05-01T00:00:00Z'), new Date('2024-05-02T00:00:00Z'));
+    expect(q.start.toISOString()).toBe('2024-04-01T00:00:00.000Z');
+    expect(q.end.toISOString()).toBe('2024-07-01T00:00:00.000Z');
+  });
+});
 
 describe('xFromDate / dateFromX — a linear scale, both directions agree', () => {
   const start = new Date('2020-01-01T00:00:00Z');

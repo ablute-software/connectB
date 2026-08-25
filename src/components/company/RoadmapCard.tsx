@@ -68,6 +68,7 @@ import { useConfirm } from '@/lib/confirm';
 import { AiSupportButton } from './AiSupportButton';
 import type { RoadmapMilestone, RoadmapPeriodKind } from '@/lib/types';
 import { periodHasPassed, periodLabel, sortRoadmapPeriods, type RoadmapPeriod } from '@/lib/roadmap';
+import { GLASS_CARD } from './roadmap-visual';
 
 const QUARTERS = [1, 2, 3, 4] as const;
 // Prompt 185 §B.5 — year-kind nodes (Founded included — it's inherently a
@@ -655,6 +656,12 @@ export function RoadmapCard({ canEdit, available }: { canEdit: boolean; availabl
   );
 }
 
+// Prompt 385 §C.1 — restyled as the compact glass card from the mockup
+// ("Categories": dot + name, toggle in its own right-aligned column, never
+// glued to the name, discreet "remove"). Same component, same data/actions
+// (382's persistent per-category toggle, 0177's safe-delete-to-General) —
+// only the presentation changes; CategoryManager is unchanged as an export
+// so RoadmapPanel/RoadmapCard both keep mounting it exactly as before.
 export function CategoryManager() {
   const { db, addRoadmapCategory, removeRoadmapCategory, updateRoadmapCategory } = useStore();
   const [label, setLabel] = useState('');
@@ -662,53 +669,53 @@ export function CategoryManager() {
   const [shape, setShape] = useState<CategoryShape>('rounded');
 
   return (
-    <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50/60 p-3">
-      <p className="text-xs font-medium text-gray-600">Event categories</p>
-      <p className="mt-0.5 text-[11px] text-gray-400">
-        Tag milestones so investors can filter your roadmap — rounds, prototype, GTM, whatever fits.
-        Untagged items read as {GENERAL_LABEL}.
+    <div className={`${GLASS_CARD} p-4`}>
+      <h3 className="text-[15px] font-semibold text-[#131b2e]">Categories</h3>
+      <p className="mt-0.5 text-[11px] text-[#434656]">
+        Tag milestones so investors can filter your roadmap. Untagged items read as {GENERAL_LABEL}.
       </p>
 
       {db.roadmapCategories.length > 0 && (
-        <ul className="mt-2 space-y-1">
+        <ul className="mt-3 space-y-2.5">
           {db.roadmapCategories.map((c) => (
-            <li key={c.id} className={`flex items-center gap-2 text-xs ${c.visible === false ? 'opacity-50' : ''}`}>
+            <li key={c.id} className={`flex items-center gap-2 text-[13px] ${c.visible === false ? 'opacity-50' : ''}`}>
               <span aria-hidden
-                className={`h-3 w-3 shrink-0 ${COLOR_STYLES[c.color as CategoryColor]?.dot ?? 'bg-gray-400'} ${SHAPE_STYLES[c.shape as CategoryShape] ?? 'rounded-lg'}`} />
-              <span className="text-gray-700">{c.label}</span>
+                className={`h-2.5 w-2.5 shrink-0 ${COLOR_STYLES[c.color as CategoryColor]?.dot ?? 'bg-gray-400'} ${SHAPE_STYLES[c.shape as CategoryShape] ?? 'rounded-lg'}`} />
+              <span className="min-w-0 flex-1 truncate text-[#131b2e]">{c.label}</span>
               {/* Prompt 382 — persistent, not a session filter: off here
                   turns off the lane on BOTH the founder canvas and the
                   investor dossier (same shared RoadmapCanvas component).
                   Off never removes the category from this list — only
-                  "remove" below does that for real. */}
+                  "remove" below does that for real. Its own right-aligned
+                  column (never glued to the name) per §C.1. */}
               <Toggle checked={c.visible !== false} onChange={(v) => updateRoadmapCategory(c.id, { visible: v })} />
               {/* Apagar é seguro sem confirmação pesada: os itens que
                   apontavam para cá passam a ler-se General — nada se perde
                   além da etiqueta (contrato da 0177). */}
               <button onClick={() => removeRoadmapCategory(c.id)}
-                className="ml-auto text-[11px] text-gray-400 hover:text-[#B00000]">remove</button>
+                className="text-[11px] text-[#434656]/50 hover:text-[#ba1a1a]">remove</button>
             </li>
           ))}
         </ul>
       )}
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Investment rounds"
-          className="w-44 rounded border border-gray-300 px-2 py-1 text-xs" />
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[#c3c5d9]/30 pt-3">
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Add new category"
+          className="min-w-0 flex-1 rounded-lg border border-[#c3c5d9] px-2 py-1 text-xs" />
         <select value={color} onChange={(e) => setColor(e.target.value as CategoryColor)}
-          className="rounded border border-gray-300 px-1.5 py-1 text-xs">
+          className="rounded-lg border border-[#c3c5d9] px-1.5 py-1 text-xs">
           {CATEGORY_COLORS.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
         <select value={shape} onChange={(e) => setShape(e.target.value as CategoryShape)}
-          className="rounded border border-gray-300 px-1.5 py-1 text-xs">
+          className="rounded-lg border border-[#c3c5d9] px-1.5 py-1 text-xs">
           {CATEGORY_SHAPES.map((sh) => <option key={sh} value={sh}>{sh}</option>)}
         </select>
-        <span aria-hidden className={`h-3.5 w-3.5 ${COLOR_STYLES[color].dot} ${SHAPE_STYLES[shape]}`} />
         <button
           disabled={!label.trim()}
+          aria-label="Add category"
           onClick={async () => { await addRoadmapCategory({ label: label.trim(), color, shape }); setLabel(''); }}
-          className="rounded bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
-          Add
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0041c8] text-sm font-bold text-white disabled:opacity-40">
+          +
         </button>
       </div>
     </div>

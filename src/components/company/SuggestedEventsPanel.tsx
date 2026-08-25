@@ -5,7 +5,7 @@
 // offers each as a one-click Add/Ignore card. Cold-start framing (§D.3):
 // with an empty roadmap this is the FIRST thing the founder sees here.
 import { useEffect, useState } from 'react';
-import { Card } from '@/components/ui';
+import { GLASS_CARD, LABEL_CAPS } from './roadmap-visual';
 import type { RoadmapEventStatus } from '@/lib/types';
 
 interface Suggestion {
@@ -52,32 +52,44 @@ export function SuggestedEventsPanel({ onAdd }: {
 
   if (suggestions === null || suggestions.length === 0) return null;
 
+  // Prompt 385 §C.2 — full-width, 3-per-row grid (1-2 on narrow screens),
+  // same data/actions (Add/Ignore, the real reasoning text) as before —
+  // only the presentation moves from a stacked list to the mockup's card
+  // grid, and the section itself moves to the bottom of the tab (the
+  // caller's layout, not this component's).
   return (
-    <Card title={<span className="text-[#0E7490]">Suggested events</span>}>
-      <p className="mb-2 text-xs text-gray-500">
-        We found {suggestions.length} event{suggestions.length === 1 ? '' : 's'} in your documents and profile — add them?
-      </p>
-      <div className="space-y-2">
+    <div className={`${GLASS_CARD} p-6`}>
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-[15px] font-semibold text-[#131b2e]">Suggested events</h3>
+        <span className="text-xs text-[#434656]">
+          {suggestions.length} found in your documents and profile
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {suggestions.map((s) => (
-          <div key={s.id} className="flex items-start justify-between gap-2 rounded-lg border border-gray-200 p-2.5">
-            <div className="min-w-0">
-              <p className="text-sm text-gray-800">{s.title}</p>
-              <p className="text-xs text-gray-400">{s.date}{s.category_label ? ` · ${s.category_label}` : ''}</p>
-              {s.reasoning && <p className="mt-0.5 text-[11px] text-gray-400">{s.reasoning}</p>}
+          <div key={s.id} className="rounded-2xl border border-[#c3c5d9]/40 bg-white/50 p-3.5 transition-colors hover:border-[#0041c8]/30">
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <span aria-hidden className="flex h-7 w-7 items-center justify-center rounded-full bg-[#0041c8]/10 text-[#0041c8]">●</span>
+              {s.category_label && (
+                <span className={`${LABEL_CAPS} rounded bg-[#0041c8]/10 px-2 py-1 text-[#0041c8]`}>{s.category_label}</span>
+              )}
             </div>
-            <div className="flex shrink-0 gap-1.5">
+            <p className="text-sm font-semibold text-[#131b2e]">{s.title}</p>
+            <p className="mt-0.5 text-xs text-[#434656]">{s.date}</p>
+            {s.reasoning && <p className="mt-1.5 text-[11px] text-[#434656]/80">{s.reasoning}</p>}
+            <div className="mt-3 flex gap-1.5">
               <button disabled={busyId === s.id} onClick={() => respond(s.id, 'add')}
-                className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
-                Add ✓
+                className="flex-1 rounded-lg bg-[#0041c8] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                + Add to Roadmap
               </button>
               <button disabled={busyId === s.id} onClick={() => respond(s.id, 'ignore')}
-                className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
-                Ignore
+                className="rounded-lg border border-[#c3c5d9] px-2.5 py-1.5 text-xs text-[#434656] hover:bg-white disabled:opacity-40">
+                Dismiss
               </button>
             </div>
           </div>
         ))}
       </div>
-    </Card>
+    </div>
   );
 }
