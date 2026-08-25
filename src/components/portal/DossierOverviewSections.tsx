@@ -15,6 +15,7 @@ import { shouldShowMiniPitchTeaser } from '@/lib/mini-pitch';
 import { resolveInitialTabFromHash } from '@/lib/dossier-tabs';
 import { isTeamSummaryRedundant } from '@/lib/team-summary';
 import { MediaGallery, type GalleryItem } from './MediaGallery';
+import { MiniPitchDeck } from '@/components/mini-pitch/MiniPitchSlideView';
 
 export interface Card {
   orgId: string; name: string; oneLiner: string | null; description: string | null;
@@ -75,7 +76,10 @@ export interface Dossier {
   // Prompt 334 — already stripped of claim ids and the internal evidence-
   // class taxonomy (projectMiniPitchForInvestor); absent unless the founder
   // has both reached level 1 AND actually activated a mini-pitch.
-  miniPitch?: { kind: 'hook' | 'whyNow' | 'proof' | 'team' | 'ask'; title?: string; body: string }[];
+  // Prompt 379 §D — imageUrl/imageCaption are RESOLVED server-side
+  // (dossier-fetch.ts) from the slide's media id; the id itself never
+  // reaches the client.
+  miniPitch?: { kind: 'hook' | 'whyNow' | 'proof' | 'team' | 'ask'; title?: string; body: string; imageUrl?: string | null; imageCaption?: string | null }[];
   // Prompt 353 — company photos & videos, already split by category and
   // level-gated server-side (projectDossier): aboutMedia covers both
   // Company (brand/office/product-in-context) and Technology/IP items,
@@ -86,44 +90,17 @@ export interface Dossier {
   teamMedia?: { id: string; category: 'team'; caption: string; kind: 'image' | 'video_upload' | 'video_link'; url: string }[];
 }
 
-const MINI_PITCH_SLIDE_LABEL: Record<'hook' | 'whyNow' | 'proof' | 'team' | 'ask', string> = {
-  hook: 'Why us', whyNow: 'Why now', proof: 'Proof', team: 'Team', ask: 'The ask',
-};
-
-// Prompt 334 — a small horizontal slide navigator, local to this file since
-// nothing else needs the shape yet. Deliberately no autoplay: an investor
-// reads at their own pace, and autoplay would fight anyone using the dots
-// to go back and re-read one slide.
+// Prompt 334 — a small horizontal slide navigator. Deliberately no autoplay:
+// an investor reads at their own pace, and autoplay would fight anyone using
+// the dots to go back and re-read one slide.
+//
+// Prompt 379 §B — the markup moved verbatim into the SHARED
+// MiniPitchDeck (components/mini-pitch/MiniPitchSlideView.tsx) so the
+// founder's own MatchDeal preview renders the exact same component instead
+// of a second copy that drifts. Nothing about what the investor sees
+// changed; this is now a thin adapter.
 function MiniPitchSlides({ slides }: { slides: NonNullable<Dossier['miniPitch']> }) {
-  const [i, setI] = useState(0);
-  const slide = slides[i];
-  return (
-    <div id="mini-pitch" data-section="Pitch" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-gray-900">{MINI_PITCH_SLIDE_LABEL[slide.kind]}</h2>
-        <span className="shrink-0 text-[11px] text-gray-400">{i + 1} of {slides.length}</span>
-      </div>
-      {slide.title && <p className="mt-1 text-sm font-medium text-gray-700">{slide.title}</p>}
-      <p className="mt-1 max-w-prose text-sm text-gray-700">{slide.body}</p>
-      <div className="mt-3 flex items-center gap-3">
-        <button onClick={() => setI((n) => Math.max(0, n - 1))} disabled={i === 0}
-          className="text-xs font-medium text-[#0E7490] hover:underline disabled:cursor-not-allowed disabled:text-gray-300 disabled:no-underline">
-          ← Back
-        </button>
-        <div className="flex gap-1">
-          {slides.map((_, idx) => (
-            <button key={idx} onClick={() => setI(idx)} aria-label={`Slide ${idx + 1}`}
-              className={`h-1.5 w-1.5 rounded-full ${idx === i ? 'bg-[#0E7490]' : 'bg-gray-200'}`} />
-          ))}
-        </div>
-        <button onClick={() => setI((n) => Math.min(slides.length - 1, n + 1))} disabled={i === slides.length - 1}
-          className="text-xs font-medium text-[#0E7490] hover:underline disabled:cursor-not-allowed disabled:text-gray-300 disabled:no-underline">
-          Next →
-        </button>
-      </div>
-      <p className="mt-2 text-[10px] text-gray-400">Generated from company-provided data.</p>
-    </div>
-  );
+  return <MiniPitchDeck slides={slides} />;
 }
 
 export const CLARIFICATION_CAPTION: Record<ReviewCategory, string> = {

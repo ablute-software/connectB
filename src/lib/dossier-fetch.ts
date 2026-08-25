@@ -338,7 +338,34 @@ export async function fetchDossierRawData(
     const { data: pitchRow } = await admin.from('org_mini_pitches')
       .select('slides, activated_at').eq('org_id', orgId).maybeSingle();
     if (pitchRow?.activated_at) {
-      miniPitch = projectMiniPitchForInvestor((pitchRow.slides as StoredMiniPitchSlide[] | null) ?? []);
+      const projected = projectMiniPitchForInvestor((pitchRow.slides as StoredMiniPitchSlide[] | null) ?? []);
+      // Prompt 379 §D — resolve each slide's optional image the SAME
+      // fail-closed way company media is resolved below: only this org's
+      // own images, only scan-passed ones, signed at read time. A slide
+      // whose image was deleted (or never passed scanning) simply loses the
+      // image and still renders — never a broken link, never an unscanned
+      // file reaching an investor.
+      const mediaIds = [...new Set(projected.map((s) => s.mediaId).filter((id): id is string => !!id))];
+      const signedById = new Map<string, { url: string; caption: string }>();
+      if (mediaIds.length > 0) {
+        const { data: pitchMedia } = await admin.from('company_media')
+          .select('id, caption, storage_path')
+          .eq('org_id', orgId).eq('kind', 'image').in('id', mediaIds)
+          .in('malware_scan_status', ['clean', 'local_only']);
+        for (const m of pitchMedia ?? []) {
+          if (!m.storage_path) continue;
+          const { data: signed } = await admin.storage.from('data-room').createSignedUrl(m.storage_path as string, 300);
+          if (signed?.signedUrl) signedById.set(m.id as string, { url: signed.signedUrl, caption: m.caption as string });
+        }
+      }
+      miniPitch = projected.map((s) => {
+        const media = s.mediaId ? signedById.get(s.mediaId) : undefined;
+        // mediaId itself never travels to the client — only the resolved
+        // URL, so an investor can't enumerate the org's media by id.
+        const { mediaId: _dropped, ...rest } = s;
+        void _dropped;
+        return { ...rest, imageUrl: media?.url ?? null, imageCaption: media?.caption ?? null };
+      });
     }
   }
 

@@ -141,14 +141,41 @@ export interface MiniPitchOrgInput {
 export interface MiniPitchGateMissingField { key: string; label: string; href: string }
 export interface MiniPitchGateResult { eligible: boolean; missing: MiniPitchGateMissingField[] }
 
+// Prompt 379 §A — every gate link used to be the identical
+// '/settings?tab=company', which lands on the top of the Company tab and, in
+// the founder's own words, "does precisely nothing". Each now points at the
+// section anchor (Prompt 377) AND names the exact field to flash, via the
+// `?flash=` parameter settings/page.tsx reads.
+//
+// NO `#section` fragment here, deliberately — and this is the opposite of
+// what it looks like it should be. The flash already scrolls to the exact
+// FIELD, which lives inside the right section, so the anchor adds nothing;
+// and when both are present the browser's own native jump to the anchor
+// fires LATE (after hydration, after the cards finish loading) and undoes
+// the flash scroll, leaving the highlighted field hundreds of pixels below
+// the fold. Measured directly in live verification: with the anchor the
+// field ended at top=747 in a 720px viewport every time, across three
+// different scroll strategies; without it, top=344, in view. The anchor
+// links used elsewhere (OverviewPanel/TodayPanel/RoadmapCard →
+// #settings-round / #settings-identity) are unaffected — they carry no
+// `flash` and still scroll by anchor exactly as before.
+//
+// Destinations verified by reading the cards, not assumed: `stage` and
+// `round_target_eur` are edited in RoundCard, NOT in Identity —
+// `identity.current_phase` is a different field (product maturity). The
+// flash ids are CompletenessField ids, not org column names.
+function settingsFlash(fieldId: string): string {
+  return `/settings?flash=${fieldId}`;
+}
+
 export function checkMiniPitchGate(org: MiniPitchOrgInput, eligibleClaims: MiniPitchClaim[]): MiniPitchGateResult {
   const missing: MiniPitchGateMissingField[] = [];
-  if (!org.oneLiner?.trim()) missing.push({ key: 'one_liner', label: 'One-liner', href: '/settings?tab=company' });
-  if (!org.sectors || org.sectors.length === 0) missing.push({ key: 'sectors', label: 'Sector', href: '/settings?tab=company' });
-  if (!org.stage) missing.push({ key: 'stage', label: 'Stage', href: '/settings?tab=company' });
-  if (org.roundTargetEur == null) missing.push({ key: 'round_target_eur', label: 'Round target', href: '/settings?tab=company' });
+  if (!org.oneLiner?.trim()) missing.push({ key: 'one_liner', label: 'One-liner', href: settingsFlash('identity.one_liner') });
+  if (!org.sectors || org.sectors.length === 0) missing.push({ key: 'sectors', label: 'Sector', href: settingsFlash('identity.sectors') });
+  if (!org.stage) missing.push({ key: 'stage', label: 'Stage', href: settingsFlash('round.stage') });
+  if (org.roundTargetEur == null) missing.push({ key: 'round_target_eur', label: 'Round target', href: settingsFlash('round.target') });
   if (!org.introProblem?.trim() || !org.introSolution?.trim()) {
-    missing.push({ key: 'intro_pitch', label: 'Intro pitch (problem & solution)', href: '/settings?tab=company' });
+    missing.push({ key: 'intro_pitch', label: 'Intro pitch (problem & solution)', href: settingsFlash('identity.intro_pitch') });
   }
   if (selectProofClaims(eligibleClaims).length === 0) {
     missing.push({ key: 'proof_claim', label: 'At least one usable claim for the Proof slide', href: '/readiness' });
@@ -178,11 +205,72 @@ export function computeMiniPitchInputSnapshot(org: MiniPitchOrgInput & { roundUs
 // from) before this ever reaches an investor. The founder's own preview
 // reads the richer stored shape directly; only this projected shape is
 // what dossier-fetch.ts forwards toward an investor.
-export interface StoredMiniPitchSlide { kind: MiniPitchSlideKind; title?: string; body: string; claimIds?: string[] }
-export interface MiniPitchSlideProjected { kind: MiniPitchSlideKind; title?: string; body: string }
+export interface StoredMiniPitchSlide {
+  kind: MiniPitchSlideKind; title?: string; body: string; claimIds?: string[];
+  // Prompt 379 §C — the founder rewrote this slide's text by hand. Marks it
+  // as work worth protecting: a regeneration must ASK before replacing it,
+  // never overwrite silently. Kept alongside claimIds on purpose —
+  // provenance survives an edit (§C.2).
+  founderEdited?: boolean;
+  // Prompt 379 §D — one optional image per slide, stored as a company_media
+  // id and resolved to a signed URL at render time. NEVER a URL in the
+  // jsonb: a deleted image must degrade the slide to text, not leave a
+  // broken link behind (§D.4).
+  mediaId?: string;
+}
+export interface MiniPitchSlideProjected {
+  kind: MiniPitchSlideKind; title?: string; body: string;
+  // mediaId is present on the projection ONLY between projectMiniPitchForInvestor
+  // and the server-side media resolution in dossier-fetch.ts; it is stripped
+  // there and replaced by the resolved fields below, so an investor never
+  // receives a raw media id to enumerate.
+  mediaId?: string;
+  imageUrl?: string | null;
+  imageCaption?: string | null;
+}
 
 export function projectMiniPitchForInvestor(slides: StoredMiniPitchSlide[]): MiniPitchSlideProjected[] {
-  return slides.map((s) => ({ kind: s.kind, ...(s.title ? { title: s.title } : {}), body: s.body }));
+  // Prompt 379 §C.4 — `founderEdited` is internal bookkeeping about HOW the
+  // slide was produced; an investor must never see which slides the founder
+  // rewrote by hand. Explicitly not spread: this builds the projected object
+  // field by field precisely so a new internal field added to the stored
+  // shape can never leak by default.
+  return slides.map((s) => ({
+    kind: s.kind,
+    ...(s.title ? { title: s.title } : {}),
+    body: s.body,
+    // mediaId IS investor-facing (it's how the deck shows the image), but
+    // it's only ever an id the server resolves — never a URL from the jsonb.
+    ...(s.mediaId ? { mediaId: s.mediaId } : {}),
+  }));
+}
+
+// Prompt 379 §C.3 — regeneration must respect the founder's own edits. This
+// decides, per slide, what a fresh generation should do; the ROUTE never
+// silently overwrites. `keepKinds` is what the founder explicitly chose to
+// keep (empty on a first regeneration, when the UI hasn't asked yet).
+export interface MiniPitchRegenChoice { kind: MiniPitchSlideKind; hadFounderEdit: boolean; kept: boolean }
+
+export function mergeRegeneratedSlides(
+  existing: StoredMiniPitchSlide[], regenerated: StoredMiniPitchSlide[], keepKinds: MiniPitchSlideKind[],
+): { slides: StoredMiniPitchSlide[]; choices: MiniPitchRegenChoice[] } {
+  const keep = new Set(keepKinds);
+  const existingByKind = new Map(existing.map((s) => [s.kind, s]));
+  const choices: MiniPitchRegenChoice[] = [];
+
+  const slides = regenerated.map((fresh) => {
+    const prior = existingByKind.get(fresh.kind);
+    const hadFounderEdit = !!prior?.founderEdited;
+    const kept = hadFounderEdit && keep.has(fresh.kind);
+    choices.push({ kind: fresh.kind, hadFounderEdit, kept });
+    if (!kept) return fresh;
+    // Keeping the founder's text, but taking the FRESH provenance: the
+    // claims behind the slide may legitimately have changed even when the
+    // wording the founder wrote is still the wording they want.
+    return { ...prior!, claimIds: fresh.claimIds, founderEdited: true };
+  });
+
+  return { slides, choices };
 }
 
 // ---------------------------------------------------------------------------

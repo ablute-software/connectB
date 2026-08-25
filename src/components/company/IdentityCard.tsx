@@ -170,14 +170,22 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
           {/* Prompt 325 — additional to the one-liner above, never
               required: the concrete "why click Interested" an investor
               sees at Discovery, before granting anything. */}
-          <CompletenessField id="identity.intro_problem" label={`Intro pitch — problem (optional, max ${INTRO_PITCH_MAX} characters)`} missing={false} flashing={false}>
+          {/* Prompt 379 §A — these two, plus the read-mode `identity.intro_pitch`
+              block below, now respond to a flash. The MatchDeal gate points
+              at `identity.intro_pitch` (the id the completeness registry
+              already uses); in EDIT mode that id has no element of its own,
+              so both halves of the intro pitch light up instead — which is
+              the honest target, since the gate wants both filled. */}
+          <CompletenessField id="identity.intro_problem" label={`Intro pitch — problem (optional, max ${INTRO_PITCH_MAX} characters)`} missing={false}
+            flashing={flashId === 'identity.intro_problem' || flashId === 'identity.intro_pitch'}>
             <input value={draft.intro_problem ?? ''} maxLength={INTRO_PITCH_MAX}
               onChange={(e) => setDraft({ ...draft, intro_problem: e.target.value })}
               placeholder="e.g. Founders waste months chasing investors who were never a fit."
               className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
             <span className="mt-0.5 self-end text-[10px] text-gray-400">{(draft.intro_problem ?? '').length}/{INTRO_PITCH_MAX}</span>
           </CompletenessField>
-          <CompletenessField id="identity.intro_solution" label="Intro pitch — solution (optional)" missing={false} flashing={false}>
+          <CompletenessField id="identity.intro_solution" label="Intro pitch — solution (optional)" missing={false}
+            flashing={flashId === 'identity.intro_solution' || flashId === 'identity.intro_pitch'}>
             <input value={draft.intro_solution ?? ''} maxLength={INTRO_PITCH_MAX}
               onChange={(e) => setDraft({ ...draft, intro_solution: e.target.value })}
               placeholder="e.g. We match founders to investors by real sector and stage fit."
@@ -256,12 +264,23 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
               <p className="text-xs text-amber-700">One-liner needed for 100%</p>
             )}
           </div>
-          {(org.intro_problem || org.intro_solution) && (
-            <div id="identity.intro_pitch" className="rounded p-1 text-sm">
-              {org.intro_problem && <p className="text-gray-700"><span className="font-semibold text-gray-500">Problem: </span>{org.intro_problem}</p>}
-              {org.intro_solution && <p className="text-gray-700"><span className="font-semibold text-gray-500">Solution: </span>{org.intro_solution}</p>}
-            </div>
-          )}
+          {/* Prompt 379 §A — this block used to render ONLY when the intro
+              pitch already existed, which is exactly backwards for a link
+              whose whole purpose is "you haven't filled this in yet": there
+              was no element with this id to scroll to at the one moment it
+              was needed. It now always renders, saying plainly what's
+              missing when empty, and responds to a flash. */}
+          <div id="identity.intro_pitch"
+            className={`rounded p-1 text-sm transition-colors duration-700 ${flashId === 'identity.intro_pitch' ? 'bg-amber-50 ring-2 ring-amber-300' : ''}`}>
+            {org.intro_problem && <p className="text-gray-700"><span className="font-semibold text-gray-500">Problem: </span>{org.intro_problem}</p>}
+            {org.intro_solution && <p className="text-gray-700"><span className="font-semibold text-gray-500">Solution: </span>{org.intro_solution}</p>}
+            {!org.intro_problem && !org.intro_solution && (
+              <p className="text-amber-700">
+                Intro pitch (problem &amp; solution) — needed for your MatchDeal mini-pitch.
+                {canEdit && <> Use <span className="font-medium">Edit</span> above to add it.</>}
+              </p>
+            )}
+          </div>
           <div id="identity.description" className={`rounded p-1 text-xs transition-colors duration-700 ${flashId === 'identity.description' ? 'bg-amber-50 ring-2 ring-amber-300' : ''}`}>
             {org.description ? <p className="text-gray-500">{org.description}</p> : missingIds.has('identity.description') && (
               <p className="text-amber-700">Short description needed for 100%</p>

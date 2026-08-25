@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   filterEligibleClaims, selectProofClaims, selectWhyNowClaims, selectTeamClaims, buildMiniPitchPlan,
-  checkMiniPitchGate, computeMiniPitchInputSnapshot, projectMiniPitchForInvestor, shouldShowMiniPitchTeaser, type MiniPitchClaim,
+  checkMiniPitchGate, computeMiniPitchInputSnapshot, projectMiniPitchForInvestor, shouldShowMiniPitchTeaser,
+  mergeRegeneratedSlides, type MiniPitchClaim, type StoredMiniPitchSlide,
 } from './mini-pitch';
 
 function claim(overrides: Partial<MiniPitchClaim> & Pick<MiniPitchClaim, 'id' | 'category' | 'evidenceClass'>): MiniPitchClaim {
@@ -179,6 +180,48 @@ describe('checkMiniPitchGate', () => {
     expect(result.missing[0].href).toBeTruthy();
   });
 
+  // Prompt 379 §A — every profile link used to be the identical
+  // '/settings?tab=company', which lands at the top of the tab and does
+  // nothing useful. Each now names its section AND the field to flash.
+  it('each gate item links to its own section anchor and flashes its own field', () => {
+    const result = checkMiniPitchGate(
+      { oneLiner: null, sectors: [], stage: null, roundTargetEur: null, introProblem: null, introSolution: null },
+      [],
+    );
+    const byKey = Object.fromEntries(result.missing.map((m) => [m.key, m.href]));
+    expect(byKey.one_liner).toBe('/settings?flash=identity.one_liner');
+    expect(byKey.sectors).toBe('/settings?flash=identity.sectors');
+    // Verified by reading the cards, not assumed: stage and round target
+    // are edited in RoundCard, so they point at #settings-round.
+    expect(byKey.stage).toBe('/settings?flash=round.stage');
+    expect(byKey.round_target_eur).toBe('/settings?flash=round.target');
+    expect(byKey.intro_pitch).toBe('/settings?flash=identity.intro_pitch');
+    expect(byKey.proof_claim).toBe('/readiness');
+  });
+
+  // Prompt 379 §A — a flash link must carry NO `#section` fragment. With
+  // both, the browser's own late jump to the anchor undoes the flash scroll
+  // and the highlighted field ends up below the fold (measured live: 747px
+  // down in a 720px viewport). The flash alone lands it in view.
+  it('a flash link carries no fragment — the anchor would override the flash scroll', () => {
+    const result = checkMiniPitchGate(
+      { oneLiner: null, sectors: [], stage: null, roundTargetEur: null, introProblem: null, introSolution: null },
+      [],
+    );
+    for (const m of result.missing.filter((x) => x.href.includes('flash='))) {
+      expect(m.href).not.toContain('#');
+    }
+  });
+
+  it('no two gate items share the same href any more', () => {
+    const result = checkMiniPitchGate(
+      { oneLiner: null, sectors: [], stage: null, roundTargetEur: null, introProblem: null, introSolution: null },
+      [],
+    );
+    const hrefs = result.missing.map((m) => m.href);
+    expect(new Set(hrefs).size).toBe(hrefs.length);
+  });
+
   it('rejects when there is no usable claim for the Proof slide, even with a complete profile', () => {
     const result = checkMiniPitchGate(completeOrg, []);
     expect(result.eligible).toBe(false);
@@ -215,6 +258,52 @@ describe('projectMiniPitchForInvestor — strips internal taxonomy before it rea
   it('omits the title key entirely when absent, never an empty string', () => {
     const projected = projectMiniPitchForInvestor([{ kind: 'hook', body: 'Text.' }]);
     expect(projected[0]).not.toHaveProperty('title');
+  });
+
+  // Prompt 379 §C.4 — which slides the founder rewrote by hand is internal
+  // bookkeeping; an investor must never be able to tell.
+  it('never leaks founderEdited to the investor', () => {
+    const projected = projectMiniPitchForInvestor([{ kind: 'proof', body: 'Text.', founderEdited: true, claimIds: ['c1'] }]);
+    expect(projected[0]).not.toHaveProperty('founderEdited');
+    expect(projected[0]).not.toHaveProperty('claimIds');
+  });
+});
+
+describe('mergeRegeneratedSlides (379 §C.3) — a regeneration never silently eats a founder edit', () => {
+  const edited: StoredMiniPitchSlide[] = [
+    { kind: 'hook', body: 'My own careful wording.', founderEdited: true, claimIds: ['old'], mediaId: 'm1' },
+    { kind: 'ask', body: 'Generated ask.' },
+  ];
+  const fresh: StoredMiniPitchSlide[] = [
+    { kind: 'hook', body: 'Freshly generated hook.', claimIds: ['new'] },
+    { kind: 'ask', body: 'Fresh ask.' },
+  ];
+
+  it('reports which slides had a founder edit that the fresh run would replace', () => {
+    const { choices } = mergeRegeneratedSlides(edited, fresh, []);
+    expect(choices).toContainEqual({ kind: 'hook', hadFounderEdit: true, kept: false });
+    expect(choices).toContainEqual({ kind: 'ask', hadFounderEdit: false, kept: false });
+  });
+
+  it('keeping a slide preserves the founder text AND the image, but takes the fresh provenance', () => {
+    const { slides } = mergeRegeneratedSlides(edited, fresh, ['hook']);
+    const hook = slides.find((s) => s.kind === 'hook')!;
+    expect(hook.body).toBe('My own careful wording.');
+    expect(hook.mediaId).toBe('m1');
+    expect(hook.founderEdited).toBe(true);
+    // the claims behind the slide may legitimately have moved on
+    expect(hook.claimIds).toEqual(['new']);
+  });
+
+  it('a slide with no founder edit is always taken fresh, even if asked to keep it', () => {
+    const { slides } = mergeRegeneratedSlides(edited, fresh, ['ask']);
+    expect(slides.find((s) => s.kind === 'ask')!.body).toBe('Fresh ask.');
+  });
+
+  it('with no prior slides at all, everything is simply the fresh generation', () => {
+    const { slides, choices } = mergeRegeneratedSlides([], fresh, []);
+    expect(slides).toEqual(fresh);
+    expect(choices.every((c) => !c.hadFounderEdit)).toBe(true);
   });
 });
 

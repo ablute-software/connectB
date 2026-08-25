@@ -83,6 +83,15 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
   // content column itself is mounted.
   useEffect(() => {
     if (!contentEl || typeof window === 'undefined' || !window.location.hash) return;
+    // Prompt 379 §A — when the URL also carries a `?flash=<field>`, that
+    // field is the MORE PRECISE instruction and owns the scroll (the page
+    // handles it). Without this guard both effects run and this one, being
+    // last, scrolls to the top of the whole section — leaving the field
+    // that was supposed to be highlighted off-screen. Caught in live
+    // verification: the field flashed correctly but sat 747px below the
+    // fold, which is the same "took me there but didn't show me" failure
+    // this prompt exists to fix.
+    if (new URLSearchParams(window.location.search).get('flash')) return;
     const id = window.location.hash.slice(1);
     document.getElementById(id)?.scrollIntoView({ block: 'start' });
   }, [contentEl]);

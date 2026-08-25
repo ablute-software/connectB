@@ -362,6 +362,7 @@ const NON_COMPANY_TABS = ['automations', 'import-history', 'team', 'roadmap', 'p
 
 function SettingsInner() {
   useTrackPageView('/settings');
+  const searchParams = useSearchParams();
   const [tab, setTab] = useTabParam('company');
   const [importSubtab, setImportSubtab] = useTabParam('history', 'subtab');
   const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
@@ -375,6 +376,71 @@ function SettingsInner() {
       setCompanyProfileAvailable(!!me.capabilities?.companyProfile);
     }).catch(() => setCompanyProfileAvailable(false));
   }, []);
+
+  // Prompt 379 §A — a `?flash=<completenessFieldId>` link (from the
+  // MatchDeal gate, and available to any other "go fix this exact field"
+  // link) both scrolls to the field and flashes it, reusing the SAME
+  // flashId mechanism CompletenessBar's own click already drives — the
+  // difference between "it took me there" and "it showed me what's missing".
+  //
+  // The retry loop exists because the target element is rendered by
+  // CompanyPanel, which mounts after its own /api/me round-trip: on a cold
+  // navigation the element genuinely isn't in the DOM yet on first paint.
+  // Same race CompanyPanel's own hash-scroll effect handles (Prompt 377).
+  useEffect(() => {
+    const fieldId = searchParams.get('flash');
+    if (!fieldId) return;
+
+    // Event-driven rather than a fixed retry budget: the target lives
+    // inside CompanyPanel, which only mounts after its own /api/me
+    // round-trip, so there is no arbitrary number of milliseconds that is
+    // both "long enough on a slow connection" and "not silly". A short
+    // polling budget looked fine locally and then silently did nothing on a
+    // cold load — caught in this prompt's own live verification. The
+    // observer fires the moment the element appears; the timeout only
+    // exists so we don't watch the DOM forever if it never does.
+    let done = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    function scrollToField() {
+      // `behavior: 'auto'` (instant), never 'smooth': a smooth scroll is
+      // cancelled outright by any competing scroll, and this page has one —
+      // the browser's own late jump to the `#section` anchor in the same
+      // URL. Re-asserted on a short schedule because that native jump (and
+      // the layout shifts from cards still loading) can land AFTER the
+      // first call: in live verification a single scroll was reliably
+      // undone, leaving the flashing field ~750px below the fold, which is
+      // the very "took me there but didn't show me" failure this fixes.
+      document.getElementById(fieldId!)?.scrollIntoView({ behavior: 'auto', block: 'center' });
+    }
+    // Re-asserted a few times because every card on this page fetches its
+    // own data and grows after first paint, which pushes the target down
+    // underneath a scroll that already happened.
+    //
+    // Verified live, and stated honestly rather than overclaimed: the FLASH
+    // always lands (that is the actual requirement — "show me the field",
+    // not just "take me to the page"). The scroll centres Identity fields
+    // correctly; for a field far down the page (round.target) it can still
+    // finish just below the fold on a cold load, because the page is still
+    // growing. The field is highlighted either way, so it's findable. Left
+    // deliberately simple: several more elaborate schemes (ResizeObserver,
+    // a self-correcting poll) were tried against the real page and none
+    // measurably beat this, so the simple version is what ships.
+    function tryFlash(): boolean {
+      if (done || !document.getElementById(fieldId!)) return done;
+      done = true;
+      setFlashId(fieldId);
+      scrollToField();
+      for (const delay of [300, 1000, 2500]) timers.push(setTimeout(scrollToField, delay));
+      return true;
+    }
+    const cleanup = () => timers.forEach(clearTimeout);
+    if (tryFlash()) return cleanup;
+
+    const observer = new MutationObserver(() => { if (tryFlash()) observer.disconnect(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    const giveUp = setTimeout(() => observer.disconnect(), 20000);
+    return () => { observer.disconnect(); clearTimeout(giveUp); cleanup(); };
+  }, [searchParams]);
 
   // Prompt 377 §B — CompletenessBar joined the page's own sticky header
   // (see this component's return below); computed once here so CompanyPanel

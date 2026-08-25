@@ -16,7 +16,7 @@ import { logAiCall } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import {
-  filterEligibleClaims, checkMiniPitchGate, buildMiniPitchPlan, computeMiniPitchInputSnapshot,
+  filterEligibleClaims, checkMiniPitchGate, buildMiniPitchPlan, computeMiniPitchInputSnapshot, mergeRegeneratedSlides,
   type MiniPitchClaim, type MiniPitchSlideKind, type StoredMiniPitchSlide,
 } from '@/lib/mini-pitch';
 import type { ClaimCategory, ClaimSourceKind, ClaimSpecificity, ClaimStatus, DocumentRef, EvidenceClass } from '@/lib/types';
@@ -185,9 +185,35 @@ export async function GET(req: Request) {
   );
   const stale = !!stored && stored.input_snapshot !== currentSnapshot;
 
+  // Prompt 379 §D — resolve each slide's mediaId to a signed URL for the
+  // founder's own preview, plus the org's usable image library for the
+  // picker. Resolved HERE, at render time, never stored: an image deleted
+  // from Photos & media simply stops resolving and the slide degrades to
+  // text (§D.4) instead of leaving a broken link in the jsonb.
+  const slides = (stored?.slides as StoredMiniPitchSlide[] | null) ?? [];
+  const { data: mediaRows } = await admin.from('company_media')
+    .select('id, caption, storage_path')
+    .eq('org_id', orgId).eq('kind', 'image')
+    .in('malware_scan_status', ['clean', 'local_only'])
+    .order('sort_order', { ascending: true });
+
+  const library: { id: string; caption: string; url: string }[] = [];
+  for (const m of mediaRows ?? []) {
+    if (!m.storage_path) continue;
+    const { data: signed } = await admin.storage.from('data-room').createSignedUrl(m.storage_path as string, 300);
+    if (signed?.signedUrl) library.push({ id: m.id as string, caption: m.caption as string, url: signed.signedUrl });
+  }
+  const urlById = new Map(library.map((m) => [m.id, m]));
+
   return NextResponse.json({
-    ok: true, gate,
-    pitch: stored ? { slides: stored.slides, generatedAt: stored.generated_at, activatedAt: stored.activated_at, stale } : null,
+    ok: true, gate, mediaLibrary: library,
+    pitch: stored ? {
+      slides: slides.map((s) => {
+        const media = s.mediaId ? urlById.get(s.mediaId) : undefined;
+        return { ...s, imageUrl: media?.url ?? null, imageCaption: media?.caption ?? null };
+      }),
+      generatedAt: stored.generated_at, activatedAt: stored.activated_at, stale,
+    } : null,
   });
 }
 
@@ -197,7 +223,62 @@ export async function POST(req: Request) {
   const { admin, orgId } = auth;
 
   let activate = false;
-  try { activate = !!(await req.json())?.activate; } catch { /* no body = generate without activating */ }
+  let keepKinds: MiniPitchSlideKind[] = [];
+  let editSlide: { kind?: string; title?: string; body?: string; mediaId?: string | null } | null = null;
+  try {
+    const body = await req.json();
+    activate = !!body?.activate;
+    keepKinds = Array.isArray(body?.keepKinds) ? body.keepKinds as MiniPitchSlideKind[] : [];
+    editSlide = body?.editSlide ?? null;
+  } catch { /* no body = generate without activating */ }
+
+  // Prompt 379 §C — editing a single slide's CONTENT: no AI call, no cost,
+  // no regeneration. Writes the founder's text over that one slide, marks it
+  // founderEdited (so a later regeneration asks before replacing it) and
+  // preserves claimIds — provenance survives an edit.
+  if (editSlide?.kind) {
+    const { data: stored } = await admin.from('org_mini_pitches')
+      .select('slides, input_snapshot, generated_at, activated_at').eq('org_id', orgId).maybeSingle();
+    if (!stored) return NextResponse.json({ ok: false, error: 'No mini-pitch to edit yet.' }, { status: 400 });
+
+    // §D.4 — a mediaId is accepted ONLY if it's this org's own media and
+    // safe to serve; anything else is dropped rather than trusted from the
+    // client. Same fail-closed filter the investor dossier applies.
+    let mediaId: string | null | undefined = editSlide.mediaId;
+    if (mediaId) {
+      const { data: media } = await admin.from('company_media')
+        .select('id').eq('id', mediaId).eq('org_id', orgId).eq('kind', 'image')
+        .in('malware_scan_status', ['clean', 'local_only']).maybeSingle();
+      if (!media) mediaId = null;
+    }
+
+    const slides = ((stored.slides as StoredMiniPitchSlide[] | null) ?? []).map((s) => {
+      if (s.kind !== editSlide!.kind) return s;
+      const next: StoredMiniPitchSlide = {
+        ...s,
+        title: editSlide!.title?.trim() || undefined,
+        body: (editSlide!.body ?? s.body).trim(),
+        founderEdited: true,
+      };
+      if (mediaId) next.mediaId = mediaId;
+      else if (mediaId === null) delete next.mediaId;
+      return next;
+    });
+
+    const now = new Date().toISOString();
+    const { error } = await admin.from('org_mini_pitches').update({ slides, updated_at: now }).eq('org_id', orgId);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({
+      ok: true, configured: true,
+      pitch: {
+        slides, generatedAt: stored.generated_at, activatedAt: stored.activated_at,
+        // §C.3 — an edit is not a reason to call the pitch stale: the
+        // snapshot tracks the INPUTS (org profile + claims), which an edit
+        // doesn't touch. Recomputed honestly rather than forced.
+        stale: false,
+      },
+    });
+  }
 
   const { org, eligibleClaims } = await loadContext(admin, orgId);
   const gate = checkMiniPitchGate(
@@ -226,8 +307,15 @@ export async function POST(req: Request) {
   try {
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
     const synthesized = aiRequests.length > 0 ? await synthesizeSlides({ apiKey, model, orgId, requests: aiRequests }) : [];
-    const slides: StoredMiniPitchSlide[] = [...synthesized, askSlide]
+    const regenerated: StoredMiniPitchSlide[] = [...synthesized, askSlide]
       .sort((a, b) => plan.findIndex((p) => p.kind === a.kind) - plan.findIndex((p) => p.kind === b.kind));
+
+    // Prompt 379 §C.3 — never silently discard a founder's hand-written
+    // slide. mergeRegeneratedSlides keeps the ones they chose to keep and
+    // reports, per slide, which ones HAD an edit — so the card can ask.
+    const { data: priorRow } = await admin.from('org_mini_pitches').select('slides').eq('org_id', orgId).maybeSingle();
+    const priorSlides = (priorRow?.slides as StoredMiniPitchSlide[] | null) ?? [];
+    const { slides, choices } = mergeRegeneratedSlides(priorSlides, regenerated, keepKinds);
 
     const generatedAt = new Date().toISOString();
     const snapshot = computeMiniPitchInputSnapshot(
@@ -247,7 +335,10 @@ export async function POST(req: Request) {
     }, { onConflict: 'org_id' });
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
-    return NextResponse.json({ ok: true, configured: true, pitch: { slides, generatedAt, activatedAt, stale: false } });
+    // `choices` lets the card say "these slides you had edited were
+    // replaced — keep yours instead?" with a per-slide action, instead of
+    // the founder discovering the loss later.
+    return NextResponse.json({ ok: true, configured: true, choices, pitch: { slides, generatedAt, activatedAt, stale: false } });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
