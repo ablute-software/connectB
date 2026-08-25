@@ -3,8 +3,11 @@
 // meaningfully and are exercised via the route's own manual verification
 // instead). One test per real-world shape: correct file, spoofed extension,
 // disallowed type entirely, and the zip/office distinction.
-import { describe, expect, it } from 'vitest';
-import { detectAllowedKind } from './upload-security';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { detectAllowedKind, scanWithVirusTotal, checkVirusTotalKeyHealth } from './upload-security';
 
 function bytes(...b: number[]): Buffer { return Buffer.from(b); }
 
@@ -101,5 +104,112 @@ describe('detectAllowedKind', () => {
   it('rejeita um mp4/webm cujo conteúdo não bate com a extensão', () => {
     expect(detectAllowedKind(bytes(0x1a, 0x45, 0xdf, 0xa3), 'clip.mp4')).toBeNull();
     expect(detectAllowedKind(bytes(0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70), 'clip.webm')).toBeNull();
+  });
+});
+
+describe('scanWithVirusTotal — Prompt 375: hash-only, never submits content', () => {
+  const OLD_KEY = process.env.VIRUSTOTAL_API_KEY;
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    if (OLD_KEY === undefined) delete process.env.VIRUSTOTAL_API_KEY; else process.env.VIRUSTOTAL_API_KEY = OLD_KEY;
+  });
+
+  // The static guard the prompt explicitly asks for: fails the moment a
+  // FormData/POST-to-/files submission path is reintroduced, however it's
+  // written — this is a dated, deliberate product decision (see the
+  // function's own header comment), not something to "helpfully" restore.
+  it('contains no file-submission code path at all', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, 'upload-security.ts'), 'utf8');
+    expect(src).not.toContain('FormData');
+    expect(src).not.toMatch(/method:\s*['"]POST['"][^}]*\/files/s);
+  });
+
+  it('with no API key configured, degrades to local_only without any network call', async () => {
+    delete process.env.VIRUSTOTAL_API_KEY;
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const verdict = await scanWithVirusTotal(Buffer.from('hello'));
+    expect(verdict).toMatchObject({ status: 'local_only', provider: null });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('a 401 is a configuration error, never "pending" — the exact bug this prompt fixes', async () => {
+    process.env.VIRUSTOTAL_API_KEY = 'invalid-short-key';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }));
+    const verdict = await scanWithVirusTotal(Buffer.from('hello'));
+    expect(verdict.status).toBe('not_scanned');
+    expect(verdict.provider).toBeNull();
+  });
+
+  it('a 403 is treated the same as a 401', async () => {
+    process.env.VIRUSTOTAL_API_KEY = 'invalid-short-key';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+    const verdict = await scanWithVirusTotal(Buffer.from('hello'));
+    expect(verdict.status).toBe('not_scanned');
+    expect(verdict.provider).toBeNull();
+  });
+
+  it('a 404 (hash unknown — the normal case for a private document) resolves to local_only, never a submission', async () => {
+    process.env.VIRUSTOTAL_API_KEY = 'a-real-looking-key';
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    vi.stubGlobal('fetch', fetchSpy);
+    const verdict = await scanWithVirusTotal(Buffer.from('hello'));
+    expect(verdict.status).toBe('local_only');
+    expect(fetchSpy).toHaveBeenCalledTimes(1); // one lookup, nothing else
+  });
+
+  it('a 429 rate limit is a legitimate pending, worth the daily cron retry', async () => {
+    process.env.VIRUSTOTAL_API_KEY = 'a-real-looking-key';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 429 }));
+    const verdict = await scanWithVirusTotal(Buffer.from('hello'));
+    expect(verdict.status).toBe('pending');
+    expect(verdict.provider).toBe('virustotal');
+  });
+
+  it('a known hash with malicious detections is flagged, from the lookup alone', async () => {
+    process.env.VIRUSTOTAL_API_KEY = 'a-real-looking-key';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ data: { attributes: { last_analysis_stats: { malicious: 3, suspicious: 0 } } } }),
+    }));
+    const verdict = await scanWithVirusTotal(Buffer.from('hello'));
+    expect(verdict.status).toBe('flagged');
+  });
+
+  it('a known, clean hash resolves to clean', async () => {
+    process.env.VIRUSTOTAL_API_KEY = 'a-real-looking-key';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ data: { attributes: { last_analysis_stats: { malicious: 0, suspicious: 0 } } } }),
+    }));
+    const verdict = await scanWithVirusTotal(Buffer.from('hello'));
+    expect(verdict.status).toBe('clean');
+  });
+});
+
+describe('checkVirusTotalKeyHealth', () => {
+  const OLD_KEY = process.env.VIRUSTOTAL_API_KEY;
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    if (OLD_KEY === undefined) delete process.env.VIRUSTOTAL_API_KEY; else process.env.VIRUSTOTAL_API_KEY = OLD_KEY;
+  });
+
+  it('reports not configured when no key is set', async () => {
+    delete process.env.VIRUSTOTAL_API_KEY;
+    const result = await checkVirusTotalKeyHealth();
+    expect(result).toMatchObject({ configured: false, ok: false });
+  });
+
+  it('reports a bad key as configured but not ok', async () => {
+    process.env.VIRUSTOTAL_API_KEY = 'bad';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 401 }));
+    const result = await checkVirusTotalKeyHealth();
+    expect(result).toMatchObject({ configured: true, ok: false });
+  });
+
+  it('reports a working key as ok', async () => {
+    process.env.VIRUSTOTAL_API_KEY = 'good';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 }));
+    const result = await checkVirusTotalKeyHealth();
+    expect(result).toMatchObject({ configured: true, ok: true });
   });
 });

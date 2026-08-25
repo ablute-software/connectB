@@ -149,7 +149,14 @@ export async function prepareDocumentForAi(
     .eq('id', documentId).eq('org_id', orgId).maybeSingle();
   const docRow = doc as { id: string; name: string; storage_path: string | null; malware_scan_status: string | null } | null;
   if (!docRow || !docRow.storage_path) return { ok: false, skippedReason: 'not_found' };
-  if (docRow.malware_scan_status !== 'clean') return { ok: false, skippedReason: 'not_clean' };
+  // Prompt 375 §D — accepts 'clean' (VT already knew this exact hash) OR
+  // 'local_only' (validated locally — magic bytes, declared type matches
+  // content, size within limits — never submitted anywhere because it's a
+  // private founder document VT has never seen, which is the NORMAL case
+  // here). Still refuses 'flagged'/'not_scanned'/'pending' outright: the
+  // read is done by this app itself, not a third party, so local
+  // validation IS the real check for a document that was never shared.
+  if (docRow.malware_scan_status !== 'clean' && docRow.malware_scan_status !== 'local_only') return { ok: false, skippedReason: 'not_clean' };
   if (!/\.pdf$/i.test(docRow.name ?? docRow.storage_path)) return { ok: false, skippedReason: 'not_pdf' };
 
   const { data: blob, error: dlError } = await admin.storage.from('data-room').download(docRow.storage_path);

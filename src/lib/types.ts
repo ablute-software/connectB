@@ -548,7 +548,7 @@ export interface TaskItem {
   // ('investor_interest', 'interest_level_request') — they always existed
   // in the rows the store loads (select '*'); the type just didn't admit
   // them, so TodayPanel couldn't branch on them.
-  source?: 'suggested' | 'manual' | 'investor_interest' | 'interest_level_request';
+  source?: 'suggested' | 'manual' | 'investor_interest' | 'interest_level_request' | 'document_request';
   // Prompt 126 D — free-text detail from the "create appointment" modal
   // (migration 0123, propose-only). `reminder_at` is when the in-workspace
   // popup should next fire for this task; cleared by Dismiss (explicit
@@ -713,7 +713,12 @@ export interface DocumentItem {
   // 0205). 'not_scanned' is a real, honest value — never assume 'clean' for
   // a document created before this existed. Capability-gated:
   // src/lib/upload-security-capability.ts.
-  malware_scan_status?: 'not_scanned' | 'pending' | 'clean' | 'flagged';
+  // Prompt 375 — 'local_only' added: validated locally (magic bytes, type,
+  // size) with no external verdict, because this app never submits a
+  // private document's content to a third party. The normal outcome for a
+  // founder-specific file, not a lesser one — see upload-security.ts's header.
+  malware_scan_status?: 'not_scanned' | 'pending' | 'clean' | 'local_only' | 'flagged';
+  malware_scan_provider?: string | null;
 }
 
 // E7 — Google-Drive-style version history for a document. The document row's
@@ -730,7 +735,7 @@ export interface DocumentVersion {
   uploaded_at: string;
   uploaded_by?: string;
   // Prompt 301 §3 — migration 0205. See documents.malware_scan_status above.
-  malware_scan_status?: 'not_scanned' | 'pending' | 'clean' | 'flagged';
+  malware_scan_status?: 'not_scanned' | 'pending' | 'clean' | 'local_only' | 'flagged';
   content_sha256?: string;
 }
 

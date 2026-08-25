@@ -377,7 +377,11 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
   // the server re-checks both anyway, this is purely to skip a useless
   // request for every non-PDF upload (images, decks-as-pptx, etc.).
   function triggerDocumentExtraction(documentId: string, name: string, malwareScanStatus?: string) {
-    if (malwareScanStatus !== 'clean' || !/\.pdf$/i.test(name)) return;
+    // Prompt 375 — 'local_only' is the NORMAL outcome for a freshly
+    // uploaded private document now (hash-only scanning, never submitted
+    // externally) — gating this on 'clean' alone would silently stop
+    // auto-extraction from ever firing for a new upload again.
+    if ((malwareScanStatus !== 'clean' && malwareScanStatus !== 'local_only') || !/\.pdf$/i.test(name)) return;
     fetch('/api/data-room/extract-document', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ documentId }),

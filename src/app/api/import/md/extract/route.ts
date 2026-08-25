@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
       await admin.storage.from('data-room').remove([batch.storage_path as string]);
       throw new Error('This file\'s content doesn\'t match a Markdown/text file, or its extension isn\'t allowed.');
     }
-    const verdict = await scanWithVirusTotal(bytes, batch.file_name as string);
+    const verdict = await scanWithVirusTotal(bytes);
     if (verdict.status === 'flagged') {
       await admin.storage.from('data-room').remove([batch.storage_path as string]);
       throw new Error(`Upload blocked — ${verdict.detail}`);

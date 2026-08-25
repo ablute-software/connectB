@@ -121,7 +121,9 @@ export async function GET() {
 async function documentReadCounts(admin: SupabaseClient, orgId: string) {
   const [{ count: docsTotal }, { count: docsReadable }, { count: docsExtracted }] = await Promise.all([
     admin.from('documents').select('id', { count: 'exact', head: true }).eq('org_id', orgId),
-    admin.from('documents').select('id', { count: 'exact', head: true }).eq('org_id', orgId).eq('malware_scan_status', 'clean'),
+    // Prompt 375 — 'local_only' documents are just as readable by the app
+    // itself as 'clean' ones (see document-extraction-pipeline.ts's gate).
+    admin.from('documents').select('id', { count: 'exact', head: true }).eq('org_id', orgId).in('malware_scan_status', ['clean', 'local_only']),
     (await documentExtractionsAvailable())
       ? admin.from('document_extractions').select('document_id', { count: 'exact', head: true }).eq('org_id', orgId).eq('status', 'completed')
       : Promise.resolve({ count: 0 }),

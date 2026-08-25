@@ -76,6 +76,23 @@ persists server-side and each org sees only its own.
 
 - Investor "packs" unlock for a price (free during development). Add Stripe checkout + webhook to flip `pack_unlocks`. Keep the `catalog_deliveries` unique(org_id, catalog_id) ledger so the same investor is never delivered twice to one org.
 
+## Malware scanning — real external analysis (deferred, business decision needed)
+
+Prompt 375 (25/08/2026) moved this app to hash-only VirusTotal lookups
+permanently — Vault documents are confidential by definition, and VT's
+free/public API shares SUBMITTED file content with the security industry.
+No file content is ever sent externally now; a private document's honest
+status is `local_only` (validated locally: magic bytes, declared type,
+size), not a lesser "clean". If real third-party malware analysis of
+private file content is ever needed, the two real options are:
+- **VirusTotal Private Scanning** (paid, does not share submissions) — the
+  straightforward upgrade path, same API shape, different endpoint/tier.
+- **A self-hosted scanner** (e.g. ClamAV) — more operational surface, no
+  per-scan cost or third-party sharing at all.
+Both are Nuno's own business/cost decision, not implemented — do not add a
+submission call to any external scanner without that decision being made
+explicitly again.
+
 ## Cross-cutting / polish
 
 - Incorporate the refined design ideas from `ideias design.txt`.

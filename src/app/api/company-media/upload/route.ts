@@ -64,7 +64,7 @@ export async function POST(req: Request) {
         : 'This image type isn’t allowed (jpg/png/webp only), or its content doesn’t match its extension.',
     }, { status: 400 });
   }
-  const verdict = await scanWithVirusTotal(bytes, file.name);
+  const verdict = await scanWithVirusTotal(bytes);
   if (verdict.status === 'flagged') return NextResponse.json({ ok: false, error: `Upload blocked — ${verdict.detail}` }, { status: 400 });
 
   const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g, '_');

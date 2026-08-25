@@ -67,7 +67,10 @@ const TEAM_NAME_SIGNAL = /\b(team|cv|r[eé]sum[eé]|bio)\b/i;
 const PDF_EXTENSION = /\.pdf$/i;
 
 export function selectTeamDocumentCandidates(docs: CandidateDoc[], maxDocs: number): CandidateDoc[] {
-  const clean = docs.filter((d) => d.malwareScanStatus === 'clean' && PDF_EXTENSION.test(d.storagePath || d.name));
+  // Prompt 375 — 'local_only' counts as safe here too (see this file's own
+  // header note on the gate this mirrors — document-extraction-pipeline.ts
+  // accepts the same two statuses).
+  const clean = docs.filter((d) => (d.malwareScanStatus === 'clean' || d.malwareScanStatus === 'local_only') && PDF_EXTENSION.test(d.storagePath || d.name));
   const byPortalSection = clean.filter((d) => d.portalSection === 'team_governance');
   if (byPortalSection.length > 0) return byPortalSection.slice(0, maxDocs);
   const byName = clean.filter((d) => TEAM_NAME_SIGNAL.test(d.name) || (d.folderName ? TEAM_NAME_SIGNAL.test(d.folderName) : false));

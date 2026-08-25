@@ -59,7 +59,7 @@ export async function POST(req: Request) {
     if (!detectAllowedKind(bytes, f.name)) {
       return NextResponse.json({ ok: false, error: `${f.name} isn't an allowed image type, or its content doesn't match its extension.` }, { status: 400 });
     }
-    const verdict = await scanWithVirusTotal(bytes, f.name);
+    const verdict = await scanWithVirusTotal(bytes);
     if (verdict.status === 'flagged') {
       return NextResponse.json({ ok: false, error: `Upload blocked — ${verdict.detail}` }, { status: 400 });
     }

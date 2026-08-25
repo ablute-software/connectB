@@ -243,7 +243,10 @@ export async function fetchDossierRawData(
   // scan), so this one filter covers both sources uniformly.
   const { data: mediaRows } = await admin.from('company_media')
     .select('id, kind, category, caption, storage_path, external_url')
-    .eq('org_id', orgId).eq('malware_scan_status', 'clean').order('sort_order', { ascending: true });
+    // Prompt 375 — 'local_only' (validated locally, never submitted to a
+    // third party — the normal outcome for a private company photo/video
+    // now) is exactly as safe to serve as 'clean'; only 'flagged' blocks.
+    .eq('org_id', orgId).in('malware_scan_status', ['clean', 'local_only']).order('sort_order', { ascending: true });
   const media: DossierMediaItem[] = [];
   for (const m of mediaRows ?? []) {
     let itemUrl: string | null = null;

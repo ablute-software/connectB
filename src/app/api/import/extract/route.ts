@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
       await admin.storage.from('data-room').remove([batch.storage_path as string]);
       throw new Error('This file\'s content doesn\'t match its extension, or isn\'t an allowed type.');
     }
-    const uploadVerdict = await scanWithVirusTotal(bytes, batch.file_name as string);
+    const uploadVerdict = await scanWithVirusTotal(bytes);
     if (uploadVerdict.status === 'flagged') {
       await admin.storage.from('data-room').remove([batch.storage_path as string]);
       throw new Error(`Upload blocked — ${uploadVerdict.detail}`);

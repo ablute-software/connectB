@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       error: 'This file type isn’t allowed for an NDA (PDF or Office document only), or its content doesn’t match its extension.',
     }, { status: 400 });
   }
-  const scanVerdict = await scanWithVirusTotal(bytes, fileName ?? storagePath);
+  const scanVerdict = await scanWithVirusTotal(bytes);
   if (scanVerdict.status === 'flagged') {
     await admin.storage.from('data-room').remove([storagePath]);
     return NextResponse.json({ ok: false, error: `Upload blocked — ${scanVerdict.detail}` }, { status: 400 });

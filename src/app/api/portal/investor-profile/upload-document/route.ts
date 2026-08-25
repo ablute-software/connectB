@@ -56,7 +56,7 @@ export async function POST(req: Request) {
       error: 'This file type isn’t allowed (PDF or image only), or its content doesn’t match its extension.',
     }, { status: 400 });
   }
-  const verdict = await scanWithVirusTotal(bytes, file.name);
+  const verdict = await scanWithVirusTotal(bytes);
   if (verdict.status === 'flagged') {
     return NextResponse.json({ ok: false, error: `Upload blocked — ${verdict.detail}` }, { status: 400 });
   }

@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
     }, { status: 400 });
   }
 
-  const verdict = await scanWithVirusTotal(bytes, fileName);
+  const verdict = await scanWithVirusTotal(bytes);
   if (verdict.status === 'flagged') {
     return NextResponse.json({ ok: false, error: `Upload blocked — ${verdict.detail}` }, { status: 400 });
   }

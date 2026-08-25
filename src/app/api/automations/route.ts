@@ -26,7 +26,7 @@ import { deliverMonthlyForOrg, type MonthlyDeliveryOrgRow, type MonthlyDeliveryR
 import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { runPioneerExpiryJob } from '@/lib/pioneer-server';
 import { computeAndStoreOverviewSnapshot } from '@/lib/metrics-snapshot';
-import { recheckPendingMalwareScans, recheckPendingScansGeneric, recheckMatchdealPhotoScans } from '@/lib/upload-security';
+import { recheckPendingMalwareScans, retroscanNotScannedDocuments, recheckPendingScansGeneric, recheckMatchdealPhotoScans } from '@/lib/upload-security';
 import {
   malwareScanAvailable, investorVerificationScanAvailable, ndaScanAvailable,
   matchdealPhotoScanAvailable, supportAttachmentScanAvailable, companyMediaScanAvailable,
@@ -108,6 +108,18 @@ export async function GET() {
     console.error('[automations] daily malware-scan sweep failed:', e);
   }
 
+  // Prompt 369 §A3 — the gap that let 67 real documents sit
+  // 'not_scanned' forever (migration 0205 marked pre-existing rows that way
+  // and nothing ever scanned them afterward): a small, rate-limit-friendly
+  // trickle so a bulk-imported org's backlog drains on its own instead of
+  // needing a manual one-off script the next time this happens.
+  let retroscanSweep: { checked: number; resolved: number; flagged: number } | null = null;
+  try {
+    if (await malwareScanAvailable()) retroscanSweep = await retroscanNotScannedDocuments(admin);
+  } catch (e) {
+    console.error('[automations] daily not_scanned retro-scan sweep failed:', e);
+  }
+
   // Prompt 305 §A — same daily re-check, for the four secondary upload
   // paths Prompt 301's original sweep never covered.
   //
@@ -157,6 +169,7 @@ export async function GET() {
     pioneerBadges,
     metricsSnapshot,
     malwareScanSweep,
+    retroscanSweep,
     secondaryMalwareScanSweep,
   });
 }

@@ -105,14 +105,35 @@ export function detectAllowedKind(bytes: Buffer, filename: string): AllowedFileK
   return null;
 }
 
-export type ScanVerdict = { status: 'clean' | 'flagged' | 'pending'; provider: string | null; detail: string };
+// Prompt 375 — REPLACES the original submission strategy entirely, dated
+// 25/08/2026. This app is a Data Room: every file is confidential by
+// definition. VirusTotal's free/public API shares submitted file CONTENT
+// with the security industry — that's the exact reason VT sells a separate
+// paid "Private Scanning" product for anyone who doesn't want that shared.
+// Do NOT reintroduce a `POST /files` (or any body containing file bytes)
+// call here, however convenient it looks later — a confirmed incident
+// (Prompt 375) caught this about to happen for real: an invalid API key
+// accidentally prevented 65 real founder documents (contracts, a patent,
+// CVs with personal data) from being uploaded to VT's public feed, purely
+// by accident. The fix is not "use a working key" — it's "never submit
+// content at all." Only a SHA-256 hash — which reveals nothing about the
+// file's content — ever leaves this app toward VirusTotal.
+//
+// 'local_only' is the new, honest default outcome for a private document
+// VT has never seen (which is nearly always, for founder-specific files):
+// validated locally (magic bytes via detectAllowedKind, declared type
+// matches content, size within limits), no external verdict, because the
+// file was never shared to get one. 'flagged' still exists and still
+// blocks — a KNOWN-malicious hash is caught by the lookup alone, without
+// this app ever handing VT anything.
+export type ScanVerdict = { status: 'clean' | 'local_only' | 'flagged' | 'pending' | 'not_scanned'; provider: string | null; detail: string };
 
 const VT_BASE = 'https://www.virustotal.com/api/v3';
 
-export async function scanWithVirusTotal(bytes: Buffer, filename: string): Promise<ScanVerdict> {
+export async function scanWithVirusTotal(bytes: Buffer): Promise<ScanVerdict> {
   const apiKey = process.env.VIRUSTOTAL_API_KEY;
   if (!apiKey) {
-    return { status: 'pending', provider: null, detail: 'VIRUSTOTAL_API_KEY not configured — magic-byte check only, no malware scan performed.' };
+    return { status: 'local_only', provider: null, detail: 'VIRUSTOTAL_API_KEY not configured — local magic-byte validation only (by design: this app never submits file content externally).' };
   }
 
   const sha256 = createHash('sha256').update(bytes).digest('hex');
@@ -123,26 +144,52 @@ export async function scanWithVirusTotal(bytes: Buffer, filename: string): Promi
       const body = await lookup.json();
       const stats = body?.data?.attributes?.last_analysis_stats as { malicious?: number; suspicious?: number } | undefined;
       if ((stats?.malicious ?? 0) > 0 || (stats?.suspicious ?? 0) > 0) {
-        return { status: 'flagged', provider: 'virustotal', detail: `VirusTotal: ${stats?.malicious ?? 0} malicious, ${stats?.suspicious ?? 0} suspicious detections.` };
+        return { status: 'flagged', provider: 'virustotal', detail: `VirusTotal: ${stats?.malicious ?? 0} malicious, ${stats?.suspicious ?? 0} suspicious detections on a hash VT already knew.` };
       }
-      return { status: 'clean', provider: 'virustotal', detail: 'VirusTotal: no malicious/suspicious detections on a known file.' };
+      return { status: 'clean', provider: 'virustotal', detail: 'VirusTotal: this exact file hash is already known and has no malicious/suspicious detections.' };
     }
-    if (lookup.status !== 404) {
-      return { status: 'pending', provider: 'virustotal', detail: `VirusTotal lookup failed (${lookup.status}) — will re-check via the daily scan sweep.` };
+    if (lookup.status === 404) {
+      // The normal case for a private, founder-specific file: VT has never
+      // seen this hash. This is NOT a failure — it's expected, and it's
+      // exactly why this app never submits it to find out more.
+      return { status: 'local_only', provider: null, detail: 'Hash unknown to VirusTotal (expected for a private document) — validated locally, never submitted.' };
     }
-
-    // Unknown file — submit for analysis, but never wait for it to finish
-    // (VT scans can take minutes; not viable synchronously on a serverless
-    // function). Comes back 'pending'; the daily automations cron re-checks.
-    const form = new FormData();
-    form.append('file', new Blob([new Uint8Array(bytes)]), filename);
-    const submit = await fetch(`${VT_BASE}/files`, { method: 'POST', headers: { 'x-apikey': apiKey }, body: form });
-    if (!submit.ok) {
-      return { status: 'pending', provider: 'virustotal', detail: `VirusTotal submission failed (${submit.status}) — will retry via the daily scan sweep.` };
+    if (lookup.status === 401 || lookup.status === 403) {
+      // Prompt 375 §B — a config error, never "pending". Pending implies
+      // "VT is thinking about it"; 401/403 means the call never got past
+      // our own front door. Silently degrading this to 'pending' is what
+      // caused the exact incident this prompt fixes — the daily cron would
+      // have re-tried the same broken credentials forever, reporting
+      // nothing wrong, while looking like a real scan was in progress.
+      console.error(`[upload-security] VirusTotal auth failed (${lookup.status}) — check VIRUSTOTAL_API_KEY. Falling back to local-only validation.`);
+      return { status: 'not_scanned', provider: null, detail: `VirusTotal authentication failed (${lookup.status}) — scanner misconfigured, not scanned.` };
     }
-    return { status: 'pending', provider: 'virustotal', detail: 'New file submitted to VirusTotal — no verdict yet, re-checked by the daily scan sweep.' };
+    // 429 (rate limit) / 5xx — a real, legitimate "try again later" from
+    // VT's own infrastructure, worth the daily cron's cheap re-lookup.
+    return { status: 'pending', provider: 'virustotal', detail: `VirusTotal lookup temporarily failed (${lookup.status}) — will re-check via the daily scan sweep.` };
   } catch (e) {
     return { status: 'pending', provider: 'virustotal', detail: `VirusTotal call errored (${(e as Error).message}) — will retry via the daily scan sweep.` };
+  }
+}
+
+// Prompt 375 — a live, on-demand check of whether VIRUSTOTAL_API_KEY
+// actually authenticates, for the backoffice "scanner health" signal
+// (never silent — see scanWithVirusTotal's own 401/403 handling above).
+// Uses the SHA-256 of an empty buffer, a hash VT is guaranteed to have an
+// opinion on either way (known-empty-file entries exist in most AV
+// corpora) — this is a credential check, not a real document scan, and
+// sends no file content of any kind.
+export async function checkVirusTotalKeyHealth(): Promise<{ configured: boolean; ok: boolean; detail: string }> {
+  const apiKey = process.env.VIRUSTOTAL_API_KEY;
+  if (!apiKey) return { configured: false, ok: false, detail: 'VIRUSTOTAL_API_KEY is not set — running in local-only mode by design.' };
+  const emptyHash = createHash('sha256').update(Buffer.alloc(0)).digest('hex');
+  try {
+    const res = await fetch(`${VT_BASE}/files/${emptyHash}`, { headers: { 'x-apikey': apiKey } });
+    if (res.status === 401 || res.status === 403) return { configured: true, ok: false, detail: `VirusTotal rejected the configured key (HTTP ${res.status}).` };
+    if (res.ok || res.status === 404) return { configured: true, ok: true, detail: 'VirusTotal key authenticates correctly.' };
+    return { configured: true, ok: false, detail: `Unexpected VirusTotal response (HTTP ${res.status}).` };
+  } catch (e) {
+    return { configured: true, ok: false, detail: `Could not reach VirusTotal: ${(e as Error).message}` };
   }
 }
 
@@ -261,6 +308,56 @@ export async function recheckPendingScansGeneric(admin: SupabaseClient, config: 
 // Only re-does the cheap hash LOOKUP, never re-submits (that already
 // happened once, at upload time) — a file VT still hasn't resolved just
 // stays 'pending' for another day.
+// Prompt 369 §A3 — the gap the retro-scan fixed once should never reopen:
+// migration 0205 marked every pre-existing document_versions row
+// 'not_scanned' ("never claim retroactive safety" — the right call), but
+// nothing EVER scanned them afterward — recheckPendingMalwareScans above
+// only re-checks rows already 'pending' (a cheap hash lookup; they were
+// already downloaded and hashed once, at upload time). A 'not_scanned' row
+// has no content_sha256 yet, so it needs the FULL scan (download + magic
+// bytes + VirusTotal), not just a re-lookup — this is that path, small and
+// rate-limited (default 10/day) so a bulk-imported org's backlog drains
+// gradually via the existing daily cron rather than needing a second
+// manual one-off script the next time this happens. detectAllowedKind is
+// deliberately NOT enforced here (unlike verify-upload's synchronous
+// upload-time gate) — these are already-served, already-trusted historical
+// files; a kind mismatch on an old file is a data-quality question for
+// another day, not grounds to delete something a founder has been relying
+// on. Malware is the one thing this pass acts on.
+export async function retroscanNotScannedDocuments(admin: SupabaseClient, limit = 10): Promise<{ checked: number; resolved: number; flagged: number }> {
+  // Prompt 375 — no early return on a missing API key: hash-only mode
+  // works (and is the honest default) with or without VIRUSTOTAL_API_KEY —
+  // scanWithVirusTotal itself degrades to 'local_only' either way, never
+  // sending file content regardless of key state.
+  const { data: rows } = await admin.from('document_versions')
+    .select('id, document_id, storage_path').eq('malware_scan_status', 'not_scanned').limit(limit);
+  let resolved = 0, flagged = 0;
+  const now = new Date().toISOString();
+  for (const v of rows ?? []) {
+    const storagePath = v.storage_path as string | null;
+    if (!storagePath) continue;
+    const { data: blob, error } = await admin.storage.from('data-room').download(storagePath);
+    if (error || !blob) continue;
+    const bytes = Buffer.from(await blob.arrayBuffer());
+    const verdict = await scanWithVirusTotal(bytes);
+    const sha256 = sha256Hex(bytes);
+    resolved++;
+    if (verdict.status === 'flagged') flagged++;
+    await admin.from('document_versions').update({
+      malware_scan_status: verdict.status, malware_scan_checked_at: now,
+      malware_scan_provider: verdict.provider, content_sha256: sha256,
+    }).eq('id', v.id as string);
+    // Prompt 375 §B — the mirror now writes `malware_scan_provider` too,
+    // never just status/checked_at: the original omission is exactly what
+    // produced documents.provider=NULL next to
+    // document_versions.provider='virustotal' for the SAME 65 rows.
+    await admin.from('documents').update({
+      malware_scan_status: verdict.status, malware_scan_checked_at: now, malware_scan_provider: verdict.provider,
+    }).eq('id', v.document_id as string).eq('storage_path', storagePath);
+  }
+  return { checked: (rows ?? []).length, resolved, flagged };
+}
+
 export async function recheckPendingMalwareScans(admin: SupabaseClient): Promise<{ checked: number; resolved: number; flagged: number }> {
   const apiKey = process.env.VIRUSTOTAL_API_KEY;
   if (!apiKey) return { checked: 0, resolved: 0, flagged: 0 };

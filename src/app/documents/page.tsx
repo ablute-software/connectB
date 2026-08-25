@@ -549,7 +549,7 @@ function DocumentsPageInner() {
         addDocument({
           folder_id: selFolder, name: file.name, storage_path: verified.storagePath,
           is_view_only: true, visibility: docVisibility, watermark: false, downloadable: false,
-          malware_scan_status: verified.malwareScanStatus as 'not_scanned' | 'pending' | 'clean' | 'flagged' | undefined,
+          malware_scan_status: verified.malwareScanStatus as 'not_scanned' | 'pending' | 'clean' | 'local_only' | 'flagged' | undefined,
         });
       } catch (e) {
         failed.push(`${file.name}: ${(e as Error).message}`);
@@ -887,14 +887,34 @@ function DocumentsPageInner() {
                             </button>
                           ) : <span className="text-xs text-gray-400">{d.version}</span>
                         )}
+                        {/* Prompt 375 §E — an honest label per real state, not
+                            a lesser-vs-better spin: "verified locally" is the
+                            NORMAL case for a private document (never sent
+                            anywhere), and the tooltip says exactly that —
+                            this is a privacy feature, not a limitation. */}
                         {d.malware_scan_status === 'flagged' && (
                           <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-[#B00000]" title="Flagged by malware scan — not servable to anyone but you">
-                            ⚠ flagged
+                            ⚠ suspicious
                           </span>
                         )}
                         {d.malware_scan_status === 'pending' && (
-                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Malware scan still in progress">
+                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="VirusTotal is temporarily unavailable — this will retry automatically.">
                             scan pending
+                          </span>
+                        )}
+                        {d.malware_scan_status === 'not_scanned' && (
+                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500" title="Not yet verified.">
+                            not yet verified
+                          </span>
+                        )}
+                        {d.malware_scan_status === 'local_only' && (
+                          <span className="rounded bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-700" title="Your documents are never sent to external services — only a fingerprint (hash) is checked.">
+                            🔒 verified locally
+                          </span>
+                        )}
+                        {d.malware_scan_status === 'clean' && (
+                          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700" title="This exact file is already known to VirusTotal with no malicious detections.">
+                            ✓ verified externally
                           </span>
                         )}
                         {d.is_view_only
