@@ -69,6 +69,20 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
     setEditing(true);
   }
 
+  // Prompt 383 — a gate link (Prompt 379 §A) lands here with `flashId` set
+  // and the card in its default READ mode. For an empty field, read mode
+  // shows only a static "X needed" sentence — never an input — so the
+  // founder had nowhere to type; the real, correctly-flash-wired inputs
+  // only exist in edit mode. Auto-entering edit mode when the flash targets
+  // THIS card (an `identity.` id) puts the founder directly in front of a
+  // writable field instead of a dead end pointing at an Edit button that
+  // scrollIntoView may have pushed off-screen entirely. Read-mode itself is
+  // untouched for a normal visit with no flash.
+  useEffect(() => {
+    if (flashId?.startsWith('identity.') && !editing) startEdit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flashId]);
+
   function save() {
     if (sectorDraft.other !== null && !sectorDraft.other.trim()) {
       setSectorErr('Please specify the sector.');
@@ -175,23 +189,28 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
               at `identity.intro_pitch` (the id the completeness registry
               already uses); in EDIT mode that id has no element of its own,
               so both halves of the intro pitch light up instead — which is
-              the honest target, since the gate wants both filled. */}
-          <CompletenessField id="identity.intro_problem" label={`Intro pitch — problem (optional, max ${INTRO_PITCH_MAX} characters)`} missing={false}
-            flashing={flashId === 'identity.intro_problem' || flashId === 'identity.intro_pitch'}>
-            <input value={draft.intro_problem ?? ''} maxLength={INTRO_PITCH_MAX}
-              onChange={(e) => setDraft({ ...draft, intro_problem: e.target.value })}
-              placeholder="e.g. Founders waste months chasing investors who were never a fit."
-              className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
-            <span className="mt-0.5 self-end text-[10px] text-gray-400">{(draft.intro_problem ?? '').length}/{INTRO_PITCH_MAX}</span>
-          </CompletenessField>
-          <CompletenessField id="identity.intro_solution" label="Intro pitch — solution (optional)" missing={false}
-            flashing={flashId === 'identity.intro_solution' || flashId === 'identity.intro_pitch'}>
-            <input value={draft.intro_solution ?? ''} maxLength={INTRO_PITCH_MAX}
-              onChange={(e) => setDraft({ ...draft, intro_solution: e.target.value })}
-              placeholder="e.g. We match founders to investors by real sector and stage fit."
-              className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
-            <span className="mt-0.5 self-end text-[10px] text-gray-400">{(draft.intro_solution ?? '').length}/{INTRO_PITCH_MAX}</span>
-          </CompletenessField>
+              the honest target, since the gate wants both filled.
+              Prompt 383 — wrapped in a div carrying the SAME id so
+              CompanyPanel's scroll (which looks up `identity.intro_pitch`
+              literally) resolves in edit mode too, not only in read mode. */}
+          <div id="identity.intro_pitch">
+            <CompletenessField id="identity.intro_problem" label={`Intro pitch — problem (optional, max ${INTRO_PITCH_MAX} characters)`} missing={false}
+              flashing={flashId === 'identity.intro_problem' || flashId === 'identity.intro_pitch'}>
+              <input value={draft.intro_problem ?? ''} maxLength={INTRO_PITCH_MAX}
+                onChange={(e) => setDraft({ ...draft, intro_problem: e.target.value })}
+                placeholder="e.g. Founders waste months chasing investors who were never a fit."
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+              <span className="mt-0.5 self-end text-[10px] text-gray-400">{(draft.intro_problem ?? '').length}/{INTRO_PITCH_MAX}</span>
+            </CompletenessField>
+            <CompletenessField id="identity.intro_solution" label="Intro pitch — solution (optional)" missing={false}
+              flashing={flashId === 'identity.intro_solution' || flashId === 'identity.intro_pitch'}>
+              <input value={draft.intro_solution ?? ''} maxLength={INTRO_PITCH_MAX}
+                onChange={(e) => setDraft({ ...draft, intro_solution: e.target.value })}
+                placeholder="e.g. We match founders to investors by real sector and stage fit."
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+              <span className="mt-0.5 self-end text-[10px] text-gray-400">{(draft.intro_solution ?? '').length}/{INTRO_PITCH_MAX}</span>
+            </CompletenessField>
+          </div>
           <CompletenessField id="identity.description" label="Short description (2-3 sentences)" missing={missingIds.has('identity.description')} flashing={flashId === 'identity.description'}>
             <textarea value={draft.description ?? ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} rows={3}
               className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />

@@ -402,15 +402,23 @@ function SettingsInner() {
     let done = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
     function scrollToField() {
-      // `behavior: 'auto'` (instant), never 'smooth': a smooth scroll is
-      // cancelled outright by any competing scroll, and this page has one —
-      // the browser's own late jump to the `#section` anchor in the same
-      // URL. Re-asserted on a short schedule because that native jump (and
-      // the layout shifts from cards still loading) can land AFTER the
-      // first call: in live verification a single scroll was reliably
-      // undone, leaving the flashing field ~750px below the fold, which is
-      // the very "took me there but didn't show me" failure this fixes.
-      document.getElementById(fieldId!)?.scrollIntoView({ behavior: 'auto', block: 'center' });
+      // Prompt 383 — NOT scrollIntoView. Caught live: calling
+      // `scrollIntoView({block:'center'})` repeatedly on this exact page
+      // (needed because the target keeps moving as cards load — see below)
+      // is not idempotent here — each call moved the element FURTHER out of
+      // view than the last (traced live: top went -2674 -> -3869 -> -4286,
+      // then stayed wrong), instead of converging on centering it. Root
+      // cause not fully isolated (a scroll-anchoring/sticky-header
+      // interaction is the leading suspect, not confirmed), so rather than
+      // trust a browser API that measurably misbehaves on repeat calls
+      // here, this computes the target scroll position by hand from the
+      // element's own current geometry — verified live to be both correct
+      // AND idempotent (calling it twice in a row lands on the identical
+      // position, unlike scrollIntoView).
+      const el = document.getElementById(fieldId!);
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      window.scrollTo(0, window.scrollY + rect.top - (window.innerHeight / 2 - rect.height / 2));
     }
     // Re-asserted a few times because every card on this page fetches its
     // own data and grows after first paint, which pushes the target down

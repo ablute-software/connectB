@@ -65,6 +65,18 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
     setEditing(true);
   }
 
+  // Prompt 383 — same fix as IdentityCard: a gate link (379 §A) lands here
+  // with `flashId` set while the card is still in read mode, where an empty
+  // field is a static "—"/"needed for 100%" line, never an input. Auto-enter
+  // edit mode when the flash targets this card so the founder lands on a
+  // writable field. Unlike IdentityCard's `identity.intro_pitch`, every
+  // `round.*` id already has a matching element in BOTH modes (the read-mode
+  // <dl> maps the same ids), so no extra id-wrapping is needed here.
+  useEffect(() => {
+    if (flashId?.startsWith('round.') && !editing) startEdit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flashId]);
+
   function toggleInstrument(v: string) {
     if (!draft) return;
     setDraft({ ...draft, instruments: draft.instruments.includes(v) ? draft.instruments.filter((x) => x !== v) : [...draft.instruments, v] });
