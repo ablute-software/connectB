@@ -3,6 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { roundValuationBasisAvailable } from './round-valuation-basis-capability';
 import { providerErrorMessage } from './ai-provider-error';
+import { logAiCall } from './ai-cost-log';
 
 export interface SnapshotData {
   stage: string | null; sectors: string[]; one_liner: string | null; description: string | null;
@@ -104,6 +105,14 @@ export async function regenerateNowSummary(admin: SupabaseClient, orgId: string)
     return { skipped: 'ai_call_failed' };
   }
   const body = await res.json();
+  // Cost audit 2026-08-25 — this was the ONE real AI call in the app that
+  // never reached ai_call_log (confirmed by a full ledger + code sweep):
+  // it read body.content but never body.usage, so its spend was invisible
+  // in every per-founder cost figure. Notably it's also the only AI call
+  // triggered by an INVESTOR's action (archiving a startup) rather than the
+  // founder's own — so the org it bills to is the startup being archived,
+  // which is exactly the orgId already in scope here.
+  void logAiCall({ route: 'startup-snapshot', purpose: 'now_summary', model, usage: body?.usage, orgId });
   const text = body?.content?.[0]?.text?.trim();
   if (!text) return { skipped: 'ai_empty_response' };
 
