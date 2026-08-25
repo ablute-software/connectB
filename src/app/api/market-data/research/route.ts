@@ -41,10 +41,23 @@ const SECTION_INSTRUCTION: Record<Section, string> = {
   sizing: 'market size estimates (TAM/SAM/SOM-style figures), each with its range, year, geography and basis plainly stated — never a bare number.',
   growth: 'the growth rate of this market, with the period and source it comes from.',
   players: 'the key competitors/players in this space — real companies, not categories.',
-  rounds: 'comparable recent funding rounds in the same sector/stage/geography — what an investor will ask you to benchmark against.',
-  trends: 'the trends and drivers shaping this market right now.',
+  // Prompt 384 §F — these two were the only sections timing out (Vercel's
+  // 504 at maxDuration=60, confirmed via real runtime logs: a 42.8s success
+  // and an actual 60-80s/504 failure on the exact same open, multi-entity
+  // search). Narrowing the ask (a bounded count, explicit filters) shortens
+  // the search itself instead of just capping tool calls around the same
+  // open-ended brief.
+  rounds: 'the 3-5 most comparable recent funding rounds — same sector, same stage, Europe-first, last 24 months, one round per '
+    + 'company, only with a verifiable source. Skip anything older or unsourced rather than searching further for it. This is '
+    + 'the benchmark an investor will ask the founder to justify — a short, well-sourced list beats an exhaustive one.',
+  trends: 'the 3-4 most important demand/market drivers shaping this market right now, each with a concrete number attached '
+    + '(growth rate, adoption figure, spend figure, regulatory deadline, etc.) — never a vague trend with no figure behind it.',
   regulatory: 'any relevant regulatory notes or requirements for this market.',
 };
+
+// Prompt 384 §F — narrower budget for the two sections above only; the other
+// five stay at the original section?4:8 split (confirmed fine in production).
+const NARROW_SEARCH_BUDGET: Partial<Record<Section, number>> = { rounds: 3, trends: 3 };
 
 interface RawItem {
   section?: string; title?: string; detail?: string; source_url?: string; confidence?: string;
@@ -75,7 +88,7 @@ async function callResearchModel(
       model, max_tokens: 4000, system,
       messages: [{ role: 'user', content: prompt }],
       tools: [
-        { type: 'web_search_20250305', name: 'web_search', max_uses: section ? 4 : 8 },
+        { type: 'web_search_20250305', name: 'web_search', max_uses: section ? (NARROW_SEARCH_BUDGET[section] ?? 4) : 8 },
         {
           name: 'propose_market_items',
           description: 'Return the researched market items, each with a real source URL.',
