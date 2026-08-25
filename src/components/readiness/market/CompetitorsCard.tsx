@@ -5,6 +5,15 @@
 // row (§0.2 safeguard #3) — this component never decides that itself.
 import { useEffect, useState } from 'react';
 import { isStale } from '@/lib/market-data-gaps';
+import { vaultCitation } from '@/lib/market-rings';
+
+// Prompt 378 §C — a pending 'players' proposal, from either provenance:
+// document_id/page (the Vault extraction pass) or source_url (web research).
+interface PlayerSuggestion {
+  id: string; section: string; title: string; detail: string;
+  source_url: string | null; document_id?: string | null; page?: number | null;
+  structured?: Record<string, unknown> | null;
+}
 
 interface Company {
   id: string; name: string; domain: string | null; sectors: string[] | null; description: string | null;
@@ -21,7 +30,13 @@ interface CompetitorRow {
 const TYPE_LABEL: Record<string, string> = {
   startup: 'Startup', incumbent: 'Incumbent', academic_spinoff: 'Academic spin-off', adjacent: 'Adjacent', distributor: 'Distributor',
 };
-const LIFE_LABEL: Record<string, string> = { active: '🟢 Active', acquired: '🟡 Acquired', closed: '🔴 Closed' };
+// Prompt 378 §E.2 — colour, not an emoji prefix: the life signal has to be
+// readable at a glance in a list of cards.
+const LIFE_CHIP: Record<string, { label: string; cls: string }> = {
+  active: { label: 'Active', cls: 'bg-emerald-50 text-emerald-700' },
+  acquired: { label: 'Acquired', cls: 'bg-amber-50 text-amber-700' },
+  closed: { label: 'Closed', cls: 'bg-red-50 text-[#B00000]' },
+};
 
 function CompetitorCard({ c, onChanged }: { c: CompetitorRow; onChanged: () => void }) {
   const [positioning, setPositioning] = useState(c.positioning ?? '');
@@ -56,32 +71,56 @@ function CompetitorCard({ c, onChanged }: { c: CompetitorRow; onChanged: () => v
 
   const stale = isStale(c.company.updated_at, new Date());
 
+  // Prompt 378 §E.2 — a real card with hierarchy, not a flat stack of
+  // equal-weight lines: identity on top, money as its own bordered row,
+  // life signal as a COLOURED chip (green/amber/red, readable at a glance),
+  // and the source demoted to a quiet footer.
+  const lifeChip = c.company.life_status ? LIFE_CHIP[c.company.life_status] : null;
+
   return (
     <div className="rounded-lg border border-gray-200 p-3">
       <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold text-gray-900">{c.company.name}</p>
-          <p className="text-[11px] text-gray-400">
-            {c.company.domain} {c.company.company_type && `· ${TYPE_LABEL[c.company.company_type] ?? c.company.company_type}`}
-            {c.company.life_status && ` · ${LIFE_LABEL[c.company.life_status] ?? c.company.life_status}`}
-          </p>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="text-sm font-semibold text-gray-900">{c.company.name}</p>
+            {c.company.company_type && (
+              <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                {TYPE_LABEL[c.company.company_type] ?? c.company.company_type}
+              </span>
+            )}
+            {lifeChip && (
+              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${lifeChip.cls}`}>{lifeChip.label}</span>
+            )}
+          </div>
+          {c.company.domain && <p className="truncate text-[11px] text-gray-400">{c.company.domain}</p>}
         </div>
-        {stale && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] text-amber-700">ageing</span>}
+        {stale && <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] text-amber-700">ageing</span>}
       </div>
-      {c.company.description && <p className="mt-1 text-xs text-gray-600">{c.company.description}</p>}
+      {c.company.description && <p className="mt-1.5 text-xs text-gray-600">{c.company.description}</p>}
 
-      {(c.company.last_round_type || c.rounds.length > 0) && (
-        <div className="mt-1.5 rounded bg-gray-50 p-1.5 text-[11px] text-gray-600">
-          {c.company.last_round_type && (
-            <p>Last round: {c.company.last_round_type}{c.company.last_round_amount_eur ? ` — €${c.company.last_round_amount_eur.toLocaleString()}` : ''}{c.company.last_round_date ? ` (${c.company.last_round_date.slice(0, 4)})` : ''}</p>
-          )}
-          {c.company.last_known_valuation_eur && <p>Last known valuation: €{c.company.last_known_valuation_eur.toLocaleString()}</p>}
-          {c.rounds.length > 0 && <p>Known investors: {c.rounds.map((r) => r.catalog_entities?.name).filter(Boolean).join(', ')}</p>}
+      {/* Money — its own row, because "who funded them and how much" is the
+          single thing an investor comparison actually turns on. */}
+      {(c.company.last_round_type || c.company.last_known_valuation_eur || c.rounds.length > 0) && (
+        <div className="mt-2 rounded-lg border border-gray-100 bg-gray-50 px-2 py-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Money</p>
+          <div className="mt-0.5 space-y-0.5 text-[11px] text-gray-700">
+            {c.company.last_round_type && (
+              <p>
+                <span className="font-medium">{c.company.last_round_type}</span>
+                {c.company.last_round_amount_eur ? ` · €${c.company.last_round_amount_eur.toLocaleString()}` : ''}
+                {c.company.last_round_date ? ` · ${c.company.last_round_date.slice(0, 4)}` : ''}
+              </p>
+            )}
+            {c.company.last_known_valuation_eur && <p>Valuation €{c.company.last_known_valuation_eur.toLocaleString()}</p>}
+            {c.rounds.length > 0 && (
+              <p className="text-gray-500">Investors: {c.rounds.map((r) => r.catalog_entities?.name).filter(Boolean).join(', ')}</p>
+            )}
+          </div>
         </div>
       )}
 
       {c.company.latest_news && (
-        <p className="mt-1 text-[11px] text-gray-500">
+        <p className="mt-1.5 text-[11px] text-gray-500">
           Latest: {c.company.latest_news}{c.company.latest_news_date ? ` (${c.company.latest_news_date})` : ''}
           {c.company.latest_news_url && <a href={c.company.latest_news_url} target="_blank" rel="noreferrer" className="ml-1 text-[#0E7490] underline">source</a>}
         </p>
@@ -93,15 +132,21 @@ function CompetitorCard({ c, onChanged }: { c: CompetitorRow; onChanged: () => v
           className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" placeholder="e.g. We do continuous monitoring; they do point-in-time testing." />
       </label>
 
-      {c.company.source_url && (
-        <a href={c.company.source_url} target="_blank" rel="noreferrer" className="mt-1 block truncate text-[11px] text-[#0E7490] underline">{c.company.source_url}</a>
-      )}
-
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <button disabled={busy} onClick={save} className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">Save</button>
         <button disabled={busy} onClick={remove} className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">Remove</button>
         <button onClick={() => setFlagging((v) => !v)} className="text-xs text-gray-400 hover:underline">Flag a wrong fact</button>
       </div>
+
+      {/* §E.2 — the source, demoted to a quiet footer rather than competing
+          with the content above it. */}
+      {c.company.source_url && (
+        <p className="mt-2 border-t border-gray-100 pt-1.5">
+          <a href={c.company.source_url} target="_blank" rel="noreferrer" className="block truncate text-[10px] text-gray-400 hover:text-[#0E7490] hover:underline">
+            Source: {c.company.source_url}
+          </a>
+        </p>
+      )}
       {flagging && (
         <div className="mt-1.5 rounded border border-amber-200 bg-amber-50 p-2">
           <textarea value={flagReason} onChange={(e) => setFlagReason(e.target.value)} rows={2} placeholder="What's wrong, and how do you know?"
@@ -162,23 +207,49 @@ function AddCompetitorForm({ onAdded, prefill }: { onAdded: () => void; prefill?
   );
 }
 
-export function CompetitorsCard() {
+export function CompetitorsCard({ onChanged }: { onChanged?: () => void }) {
   const [competitors, setCompetitors] = useState<CompetitorRow[] | null>(null);
-  const [playerSuggestions, setPlayerSuggestions] = useState<{ id: string; title: string; detail: string; source_url: string | null }[]>([]);
+  const [playerSuggestions, setPlayerSuggestions] = useState<PlayerSuggestion[]>([]);
+  const [addError, setAddError] = useState('');
 
   function load() {
-    fetch('/api/market-data/competitors').then((r) => r.json()).then((body) => setCompetitors(body.competitors ?? [])).catch(() => setCompetitors([]));
-    fetch('/api/market-data/research').then((r) => r.json()).then((body) => {
-      setPlayerSuggestions(((body.items ?? []) as { section: string }[]).filter((i) => i.section === 'players') as never);
+    fetch('/api/market-data/competitors').then((r) => r.json()).then((body) => {
+      setCompetitors(body.competitors ?? []);
+      onChanged?.();
+    }).catch(() => setCompetitors([]));
+    // Prompt 378 §C — competitor proposals come from the DOCUMENT pass
+    // (the Competitive_Landscape extraction) as well as from web research;
+    // /api/market-data (the panel's own GET) already returns both kinds of
+    // pending item, and a document-sourced one carries document_id/page
+    // instead of a source_url. Reading them here is what lets the founder
+    // review real cards after one "build my portrait" click instead of
+    // starting from an empty list.
+    fetch('/api/market-data').then((r) => r.json()).then((body) => {
+      setPlayerSuggestions(((body.researchItems ?? []) as PlayerSuggestion[]).filter((i) => i.section === 'players'));
     }).catch(() => {});
   }
   useEffect(load, []);
 
-  async function acceptSuggestionAsCompetitor(item: { id: string; title: string; detail: string; source_url: string | null }) {
-    await fetch('/api/market-data/competitors', {
+  // Prompt 378 §C — a proposal from a Vault document carries no URL; its
+  // provenance is the document itself, passed as an internal citation
+  // (vaultCitation) so the shared library still records WHERE the fact came
+  // from without ever inventing a link. §0.2's "nothing enters without
+  // provenance" safeguard is satisfied either way.
+  async function acceptSuggestionAsCompetitor(item: PlayerSuggestion) {
+    const structuredName = (item.structured as { name?: string } | null)?.name;
+    const name = structuredName ?? item.title.replace(/^Competitor:\s*/i, '').trim();
+    const sourceUrl = item.source_url
+      ?? (item.document_id ? vaultCitation(item.document_id, item.page ?? null) : undefined);
+    const res = await fetch('/api/market-data/competitors', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'add', name: item.title, sourceUrl: item.source_url ?? undefined, description: item.detail, sourceQuality: 'secondary' }),
+      body: JSON.stringify({
+        action: 'add', name, sourceUrl, description: item.detail || undefined,
+        sourceQuality: item.document_id ? 'founder_document' : 'secondary',
+      }),
     });
+    const body = await res.json().catch(() => null);
+    if (!body?.ok) { setAddError(body?.error ?? 'Could not add this competitor.'); return; }
+    setAddError('');
     await fetch('/api/market-data/research/respond', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: item.id, action: 'accept' }) });
     load();
   }
@@ -193,15 +264,23 @@ export function CompetitorsCard() {
       </p>
       {playerSuggestions.length > 0 && (
         <div className="rounded-lg border border-cyan-100 bg-cyan-50/40 p-2">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">From Sherlock research — add as a competitor card</p>
+          <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">Proposed — review and add as a competitor card</p>
           {playerSuggestions.map((s) => (
             <div key={s.id} className="mt-1 flex items-center justify-between gap-2 text-xs">
-              <span className="text-gray-700">{s.title}</span>
+              <span className="min-w-0 text-gray-700">
+                <span className="truncate">{s.title.replace(/^Competitor:\s*/i, '')}</span>
+                {/* §C — say plainly whether this came from the founder's own
+                    document or from the web; they weigh them differently. */}
+                <span className="ml-1 text-[10px] text-gray-400">
+                  {s.document_id ? `from your own document${s.page != null ? `, p. ${s.page}` : ''}` : 'from web research'}
+                </span>
+              </span>
               <button onClick={() => acceptSuggestionAsCompetitor(s)} className="shrink-0 rounded-lg bg-[#0E7490] px-2 py-0.5 text-white">Add</button>
             </div>
           ))}
         </div>
       )}
+      {addError && <p className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-[#B00000]">{addError}</p>}
       {competitors.map((c) => <CompetitorCard key={c.id} c={c} onChanged={load} />)}
       <AddCompetitorForm onAdded={load} />
     </div>

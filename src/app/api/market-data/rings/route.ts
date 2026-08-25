@@ -9,7 +9,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { orgMarketRingsAvailable } from '@/lib/market-data-capability';
-import { proposeMarketRings, RING_ORDER, type RingKey, type SizingFact } from '@/lib/market-rings';
+import { proposeMarketRings, hasAnyKnowledge, vaultCitation, parseVaultCitation, RING_ORDER, type RingKey, type SizingFact } from '@/lib/market-rings';
 
 async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
   const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
@@ -17,15 +17,29 @@ async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: 
 }
 
 // Prompt 373 §A — "comes from the already-extracted documents + org
-// profile", never a fresh web call: sizing facts are pulled ONLY from
-// what's already sourced (org_market_data's own single scope/value/source
-// quartet, plus any accepted 'sizing'-section research item that carries a
-// source_url) — matching market-rings.ts's own guarantee that a ring never
-// gets a number without a source.
+// profile", never a fresh web call.
+//
+// Prompt 378 §B — this is where 373 broke its own promise. The old query
+// ended in `.not('source_url', 'is', null)`, and a DOCUMENT-sourced item
+// (the whole output of the "Read my documents" pass) has source_url NULL by
+// construction — its provenance lives in document_id/page instead. So every
+// fact the founder had already PAID to extract was filtered out here, and
+// all three rings showed "No sourced number" no matter what was in the
+// Vault. Now both provenances are accepted, and a document-sourced fact
+// carries an internal `doc:<id>#p<page>` citation (vaultCitation) rather
+// than a fabricated URL.
+//
+// It also stopped regex-scraping the amount out of the title: the
+// extraction pass already stored the exact {valueEur, currency, scope,
+// year} in `structured` (market-document-extract.ts) — reading the parsed
+// value is both correct and immune to title-format drift. The regex path
+// is kept ONLY for web-sourced items, which have no structured field.
 async function readSizingFacts(admin: SupabaseClient, orgId: string): Promise<SizingFact[]> {
   const [{ data: addedByYou }, { data: sizingItems }] = await Promise.all([
     admin.from('org_market_data').select('market_size_value_eur, market_size_scope, market_size_year, market_size_source').eq('org_id', orgId).maybeSingle(),
-    admin.from('market_research_items').select('title, detail, source_url').eq('org_id', orgId).eq('section', 'sizing').not('source_url', 'is', null),
+    admin.from('market_research_items')
+      .select('title, detail, source_url, source_kind, document_id, page, structured, documents(name)')
+      .eq('org_id', orgId).eq('section', 'sizing'),
   ]);
   const facts: SizingFact[] = [];
   const added = addedByYou as { market_size_value_eur: number | null; market_size_scope: string | null; market_size_year: number | null; market_size_source: string | null } | null;
@@ -35,15 +49,39 @@ async function readSizingFacts(admin: SupabaseClient, orgId: string): Promise<Si
       sourceUrl: added.market_size_source ?? null, method: 'report',
     });
   }
-  for (const item of (sizingItems ?? []) as { title: string; detail: string | null; source_url: string }[]) {
-    const amountMatch = (item.detail ?? item.title).match(/[€$£]\s?([\d.,]+)\s*(b|bn|billion|m|million|k)?/i);
+
+  for (const raw of (sizingItems ?? []) as Record<string, unknown>[]) {
+    const structured = (raw.structured ?? null) as { valueEur?: number | null; scope?: string; year?: number | null } | null;
+    const documentId = raw.document_id as string | null;
+    const page = (raw.page as number | null) ?? null;
+    const documentName = (raw.documents as { name?: string } | null)?.name ?? null;
+
+    // Document-sourced: exact values already parsed at extraction time.
+    if (documentId && structured?.valueEur != null && structured.scope) {
+      facts.push({
+        scopeLabel: structured.scope, valueEur: structured.valueEur, year: structured.year ?? null,
+        sourceUrl: vaultCitation(documentId, page), sourceDocumentName: documentName,
+        // A figure written in the founder's own market-sizing document is a
+        // report-style figure unless they say otherwise; they can correct
+        // the method on the ring itself (Accept/Edit).
+        method: 'report',
+      });
+      continue;
+    }
+
+    // Web-sourced: no structured field, and a real external URL is
+    // mandatory (unchanged from 373 — never a sourceless number).
+    const sourceUrl = raw.source_url as string | null;
+    if (!sourceUrl) continue;
+    const text = (raw.detail as string | null) ?? (raw.title as string);
+    const amountMatch = text.match(/[€$£]\s?([\d.,]+)\s*(b|bn|billion|m|million|k)?/i);
     if (!amountMatch) continue;
     let value = parseFloat(amountMatch[1].replace(/,/g, ''));
     const unit = (amountMatch[2] ?? '').toLowerCase();
     if (unit.startsWith('b')) value *= 1_000_000_000;
     else if (unit === 'm' || unit === 'million') value *= 1_000_000;
     else if (unit === 'k') value *= 1_000;
-    facts.push({ scopeLabel: item.title, valueEur: value, year: null, sourceUrl: item.source_url, method: 'report' });
+    facts.push({ scopeLabel: raw.title as string, valueEur: value, year: null, sourceUrl, method: 'report' });
   }
   return facts;
 }
@@ -63,7 +101,27 @@ export async function GET() {
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { data: rings } = await admin.from('org_market_rings').select('*').eq('org_id', orgId);
-  return NextResponse.json({ available: true, rings: rings ?? [] });
+
+  // Prompt 378 §B.2 — resolve `doc:<uuid>#p<n>` citations to a real document
+  // NAME here, server-side: the card must be able to say "from your
+  // Market_Sizing, p. 4" rather than rendering a raw uuid at the founder.
+  const rows = (rings ?? []) as Record<string, unknown>[];
+  const docIds = rows
+    .map((r) => parseVaultCitation(r.size_source_url as string | null)?.documentId)
+    .filter((id): id is string => !!id);
+  let nameById = new Map<string, string>();
+  if (docIds.length > 0) {
+    const { data: docs } = await admin.from('documents').select('id, name').in('id', [...new Set(docIds)]);
+    nameById = new Map(((docs ?? []) as { id: string; name: string }[]).map((d) => [d.id, d.name]));
+  }
+
+  return NextResponse.json({
+    available: true,
+    rings: rows.map((r) => {
+      const citation = parseVaultCitation(r.size_source_url as string | null);
+      return { ...r, source_document_name: citation ? nameById.get(citation.documentId) ?? null : null };
+    }),
+  });
 }
 
 export async function POST(req: Request) {
@@ -94,7 +152,20 @@ export async function POST(req: Request) {
     const orgRow = (org ?? {}) as { sectors: string[] | null; sectors_other: string | null; stage: string | null; country: string | null; one_liner: string | null };
     const sectors = [...(orgRow.sectors ?? []), orgRow.sectors_other?.trim()].filter(Boolean) as string[];
     const sizingFacts = await readSizingFacts(admin, orgId);
-    const proposals = proposeMarketRings({ sectors, stage: orgRow.stage, country: orgRow.country, oneLiner: orgRow.one_liner, sizingFacts });
+    const input = { sectors, stage: orgRow.stage, country: orgRow.country, oneLiner: orgRow.one_liner, sizingFacts };
+
+    // Prompt 378 §B.3 — with nothing read from the Vault and nothing
+    // accepted from research, proposing would emit three content-free
+    // template rings ("No sourced number" ×3) — which is exactly what the
+    // founder saw. Refuse, and say which step is missing instead.
+    if (!hasAnyKnowledge(input)) {
+      return NextResponse.json({
+        ok: false, needsPortrait: true,
+        error: 'I haven\'t read your market documents yet — build your market portrait first, then I can propose rings from what\'s actually in them.',
+      });
+    }
+
+    const proposals = proposeMarketRings(input);
 
     // Never overwrite a ring the founder already accepted/edited — a
     // "propose" click only fills in rings that don't exist yet or are

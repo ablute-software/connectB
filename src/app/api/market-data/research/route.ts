@@ -22,6 +22,16 @@ import { providerErrorMessage } from '@/lib/ai-provider-error';
 
 import { SECTIONS, type Section } from '@/lib/market-research-sections';
 
+// Prompt 378 §0 — THE production bug. This was the only AI route in the app
+// doing a web search without a maxDuration export: its siblings all have one
+// (team-sherlock-research 60, market-data/document-extract 60, gap-assist
+// 30). Without it Vercel applies the ~10s default and kills the function
+// mid-search — a web-search pass takes 30-120s — so on the real site this
+// feature could never once have completed, while locally (no limit) it
+// worked fine, which is exactly why it passed verification and still shipped
+// broken. Never add an AI/web-search route here without this export.
+export const maxDuration = 60;
+
 // Prompt 373 §D — "a button per section": each section's own targeted
 // instruction, so scoping to one section actually narrows what the model
 // looks for instead of just filtering a full-sweep result down to it —
@@ -192,13 +202,28 @@ export async function GET(req: Request) {
     .select('run_signature').eq('org_id', orgId).limit(1);
   const cached = (existing ?? []).some((r) => r.run_signature === signature);
 
+  // Prompt 378 §A.1 — a failure is REPORTED, never swallowed into a 200 with
+  // an empty list. The old shape (catch -> console.error -> 200 items:[])
+  // is precisely why the founder's clicks looked like "the button does
+  // nothing": the one party who could act on the error was the only one
+  // never told. Same class of bug as 371's silent "r" and 375's 401->pending.
   let costEur: number | null = null;
-  if (apiKey && (forceRefresh || !cached)) {
+  let ran = false;
+  if (!apiKey) {
+    return NextResponse.json({
+      available: true, items: [], gate, costEur: null, ran: false,
+      ok: false, aiError: 'AI isn\'t configured in this workspace yet.',
+    });
+  }
+  if (forceRefresh || !cached) {
     try {
       const result = await runResearchPass(admin, apiKey, orgId, sectors, orgRow.country, orgRow.stage, section);
       costEur = result.costEur;
+      ran = true;
     } catch (e) {
-      console.error('[market-data/research] AI pass failed', (e as Error).message);
+      // providerErrorMessage already sanitized this inside callResearchModel
+      // (never a raw provider body to the client — Prompt 307 §A).
+      return NextResponse.json({ available: true, items: [], gate, costEur: null, ran: false, ok: false, aiError: (e as Error).message });
     }
   }
 
@@ -208,5 +233,8 @@ export async function GET(req: Request) {
   if (section) query = query.eq('section', section);
   const { data: items } = await query.order('section', { ascending: true });
 
-  return NextResponse.json({ available: true, items: items ?? [], gate, costEur });
+  // `ran` distinguishes §A.2 ("we really searched and found nothing with a
+  // verifiable source") from a cache hit — the UI must never show the
+  // generic "no pending suggestions" for a real, paid-for empty result.
+  return NextResponse.json({ available: true, ok: true, items: items ?? [], gate, costEur, ran, cached: cached && !forceRefresh });
 }

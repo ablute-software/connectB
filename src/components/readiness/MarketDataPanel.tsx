@@ -34,7 +34,9 @@ import { CompetitorsCard } from './market/CompetitorsCard';
 import { InvestorBridgeCard } from './market/InvestorBridgeCard';
 import { InvestorLensCard } from './market/InvestorLensCard';
 import { MarketPublishToggle } from './market/MarketPublishToggle';
-import { SectionResearchButtons } from './market/SectionResearchButtons';
+import { SectionResearchButtons, SECTION_LABEL as RESEARCH_SECTION_LABEL, type SectionOutcome } from './market/SectionResearchButtons';
+import { MarketPortraitCard } from './market/MarketPortraitCard';
+import { PORTRAIT_DOC_HEURISTIC, MAX_PORTRAIT_DOCS } from '@/lib/market-portrait';
 
 interface Gate { eligible: boolean; missing: { key: string; label: string; href: string }[] }
 interface DocItem { documentId: string; documentName: string; label: string }
@@ -65,8 +67,10 @@ const BLANK_ADDED: AddedByYou = {
 // market material. A disclosed false-negative-only guess (same discipline
 // as the server's own MARKET_HEURISTIC in market-data/route.ts) — the
 // founder can add or remove any document from the picker regardless.
-const DOC_PRESELECT_HEURISTIC = /pitch|market|sizing|competitive|business.?plan|strategy/i;
-const MAX_DOCUMENT_PASS = 8;
+// Prompt 378 §D — now the SAME regex the server-side portrait pass uses
+// (market-portrait.ts), imported rather than a second copy that drifts.
+const DOC_PRESELECT_HEURISTIC = PORTRAIT_DOC_HEURISTIC;
+const MAX_DOCUMENT_PASS = MAX_PORTRAIT_DOCS;
 
 export function MarketDataPanel() {
   const [gate, setGate] = useState<Gate | null>(null);
@@ -75,7 +79,12 @@ export function MarketDataPanel() {
   const [added, setAdded] = useState<AddedByYou>(BLANK_ADDED);
   const [savingAdded, setSavingAdded] = useState(false);
   const [researchItems, setResearchItems] = useState<ResearchItem[] | null>(null);
-  const [sectionResearchCost, setSectionResearchCost] = useState<number | null>(null);
+  const [sectionOutcome, setSectionOutcome] = useState<SectionOutcome | null>(null);
+  // Prompt 378 §D — cold start / dead-card suppression. Counts come from the
+  // rings + competitors routes so a card with nothing behind it can be
+  // replaced by a single line instead of rendering as an empty box.
+  const [ringCount, setRingCount] = useState<number | null>(null);
+  const [competitorCount, setCompetitorCount] = useState<number | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [docCounts, setDocCounts] = useState<DocCounts | null>(null);
 
@@ -96,6 +105,12 @@ export function MarketDataPanel() {
       setResearchItems(body.researchItems ?? []);
       setDocCounts(body.docCounts ?? null);
     }).catch(() => {});
+    // Prompt 378 §D — how much material actually exists, so the dependent
+    // cards can render a one-line "what's missing" instead of an empty box.
+    fetch('/api/market-data/rings').then((r) => r.json())
+      .then((b) => setRingCount((b.rings ?? []).length)).catch(() => setRingCount(0));
+    fetch('/api/market-data/competitors').then((r) => r.json())
+      .then((b) => setCompetitorCount((b.competitors ?? []).length)).catch(() => setCompetitorCount(0));
   }
   useEffect(load, []);
 
@@ -194,6 +209,10 @@ export function MarketDataPanel() {
         )}
 
         <div className={!gate.eligible ? 'pointer-events-none select-none space-y-4 blur-[2px]' : 'space-y-4'} aria-hidden={!gate.eligible}>
+          {/* Prompt 378 §D — the first move, above everything else on a cold
+              start; afterwards it stays as the quieter "re-read documents". */}
+          <MarketPortraitCard coldStart={ringCount === 0 && competitorCount === 0} onDone={load} />
+
           <Card title="From your documents">
             {/* Prompt 370 §B — three honest states. State 1 is the exact
                 false negative the founder caught: "nothing found" implied
@@ -375,13 +394,24 @@ export function MarketDataPanel() {
                 founder is already looking at what came from the Vault.
                 Prompt 373 §D — one button per section, cost shown up front
                 (from real platform history) and reported after each run. */}
-            <SectionResearchButtons onDone={(cost) => { setSectionResearchCost(cost); load(); }} />
-            {sectionResearchCost !== null && (
-              <p className="mt-1.5 text-[11px] text-gray-400">Last section cost ≈ €{sectionResearchCost.toFixed(3)}.</p>
+            <SectionResearchButtons onDone={(outcome) => { setSectionOutcome(outcome); load(); }} />
+            {/* Prompt 378 §A — the three outcomes, all visible. No click ever
+                ends with the screen unchanged. */}
+            {sectionOutcome && (
+              <div className={`mt-2 rounded-lg border px-2.5 py-2 text-xs ${
+                sectionOutcome.kind === 'error' ? 'border-red-200 bg-red-50 text-[#B00000]'
+                  : sectionOutcome.kind === 'empty' ? 'border-amber-200 bg-amber-50 text-amber-800'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+                <span className="font-medium">{RESEARCH_SECTION_LABEL[sectionOutcome.section]}:</span>{' '}
+                {sectionOutcome.kind === 'error' ? sectionOutcome.message
+                  : sectionOutcome.kind === 'empty'
+                    ? `nothing with a verifiable source found in this section${sectionOutcome.costEur != null ? ` · €${sectionOutcome.costEur.toFixed(3)} spent` : ''}.`
+                    : `${sectionOutcome.count} item${sectionOutcome.count === 1 ? '' : 's'} found${sectionOutcome.costEur != null ? ` · €${sectionOutcome.costEur.toFixed(3)}` : ''}.`}
+              </div>
             )}
             {(() => { const webItems = (researchItems ?? []).filter((i) => i.source_kind !== 'document'); return (
             <>
-            {researchItems !== null && webItems.length === 0 && (
+            {researchItems !== null && webItems.length === 0 && !sectionOutcome && (
               <p className="mt-2 text-xs text-gray-400">No pending suggestions — click a section above to research it.</p>
             )}
             {webItems.length > 0 && (
@@ -415,20 +445,39 @@ export function MarketDataPanel() {
           </Card>
 
           <Card title="Market rings">
-            <MarketRingsCard />
+            <MarketRingsCard onChanged={load} />
           </Card>
 
           <Card title="Competitors">
-            <CompetitorsCard />
+            <CompetitorsCard onChanged={load} />
           </Card>
 
-          <Card title="Investors of your competitors → your pipeline">
-            <InvestorBridgeCard />
-          </Card>
+          {/* Prompt 378 §D — a card with nothing behind it is a dead box, not
+              a feature. The bridge needs competitors (with known investors)
+              and the lens needs rings or competitors to reason about; until
+              then each is ONE line naming the missing step, not an empty
+              card pretending to be content. */}
+          {competitorCount === 0 ? (
+            <p className="text-xs text-gray-400">
+              <span className="font-medium text-gray-500">Investors of your competitors:</span> add competitors above first —
+              their known investors are what this bridges into your pipeline.
+            </p>
+          ) : (
+            <Card title="Investors of your competitors → your pipeline">
+              <InvestorBridgeCard />
+            </Card>
+          )}
 
-          <Card title="The investor's lens">
-            <InvestorLensCard />
-          </Card>
+          {ringCount === 0 && competitorCount === 0 ? (
+            <p className="text-xs text-gray-400">
+              <span className="font-medium text-gray-500">The investor&apos;s lens:</span> once you have rings or competitors,
+              this says what an investor will ask about them.
+            </p>
+          ) : (
+            <Card title="The investor's lens">
+              <InvestorLensCard />
+            </Card>
+          )}
         </div>
       </div>
     </div>

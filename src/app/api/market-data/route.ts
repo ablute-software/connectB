@@ -102,7 +102,11 @@ export async function GET() {
   let researchItems: unknown[] = [];
   if (gate.eligible && researchAvail) {
     const { data } = await admin.from('market_research_items')
-      .select('id, section, title, detail, source_url, confidence, status, source_kind, document_id, page')
+      // Prompt 378 §C — `structured` carries the extraction's own parsed
+      // fields (a competitor's exact name, a sizing figure's value/scope/
+      // year). The Competitors card uses it to add a card under the real
+      // company name rather than re-deriving it from the display title.
+      .select('id, section, title, detail, source_url, confidence, status, source_kind, document_id, page, structured')
       .eq('org_id', orgId).eq('status', 'pending').order('section', { ascending: true });
     researchItems = data ?? [];
   }

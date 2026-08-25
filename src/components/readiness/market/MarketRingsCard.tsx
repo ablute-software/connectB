@@ -4,14 +4,18 @@
 // market-rings.ts's own header); the founder always has the final Accept/
 // Edit/Reject, ring by ring.
 import { useEffect, useState } from 'react';
-import { RING_ORDER, RING_LABEL, type RingKey } from '@/lib/market-rings';
+import { RING_ORDER, RING_LABEL, parseVaultCitation, type RingKey } from '@/lib/market-rings';
 import { isStale } from '@/lib/market-data-gaps';
+import { MarketRingsDiagram } from './MarketRingsDiagram';
 
 interface Ring {
   ring: RingKey; label: string; definition: string | null; buyer: string | null; geography: string | null;
   size_value_eur: number | null; size_year: number | null; size_method: string | null; size_source_url: string | null;
   growth_pct: number | null; growth_period: string | null; expansion_condition: string | null;
   origin: 'ai_proposed' | 'founder'; status: 'proposed' | 'accepted'; updated_at: string;
+  // Resolved server-side when the size came from a Vault document, so the
+  // card can name the document instead of showing a bare `doc:<uuid>`.
+  source_document_name?: string | null;
 }
 
 const SIZE_METHOD_LABEL: Record<string, string> = { bottom_up: 'Bottom-up', top_down: 'Top-down', report: 'Report' };
@@ -63,9 +67,24 @@ function RingRow({ ring, onChanged }: { ring: Ring | null; ringKey: RingKey; onC
               ? `€${ring.size_value_eur.toLocaleString()}${ring.size_year ? ` (${ring.size_year})` : ''} — ${SIZE_METHOD_LABEL[ring.size_method ?? ''] ?? 'unspecified method'}`
               : <span className="text-gray-400">No sourced number yet — better empty than invented.</span>}
           </p>
-          {ring.size_source_url && (
-            <a href={ring.size_source_url} target="_blank" rel="noreferrer" className="block truncate text-[11px] text-[#0E7490] underline">{ring.size_source_url}</a>
-          )}
+          {/* Prompt 378 §B.2 — a figure cited to one of the founder's own
+              Vault documents shows as a document reference, never as a link
+              (there is no URL to link to, and inventing one is exactly what
+              this feature must never do). */}
+          {(() => {
+            const citation = parseVaultCitation(ring.size_source_url);
+            if (citation) {
+              return (
+                <p className="text-[11px] text-gray-500">
+                  📄 From your own document{citation.page != null ? `, p. ${citation.page}` : ''}
+                  {ring.source_document_name ? ` — ${ring.source_document_name}` : ''}
+                </p>
+              );
+            }
+            return ring.size_source_url ? (
+              <a href={ring.size_source_url} target="_blank" rel="noreferrer" className="block truncate text-[11px] text-[#0E7490] underline">{ring.size_source_url}</a>
+            ) : null;
+          })()}
           {ring.expansion_condition && <p className="mt-1 text-[11px] text-gray-400">To expand: {ring.expansion_condition}</p>}
           <div className="mt-2 flex flex-wrap gap-1.5">
             {ring.status === 'proposed' && (
@@ -105,20 +124,31 @@ function RingRow({ ring, onChanged }: { ring: Ring | null; ringKey: RingKey; onC
   );
 }
 
-export function MarketRingsCard() {
+export function MarketRingsCard({ onChanged }: { onChanged?: () => void }) {
   const [rings, setRings] = useState<Ring[] | null>(null);
   const [proposing, setProposing] = useState(false);
+  const [proposeNote, setProposeNote] = useState('');
+  const [focused, setFocused] = useState<RingKey | null>(null);
 
   function load() {
-    fetch('/api/market-data/rings').then((r) => r.json()).then((body) => setRings(body.rings ?? [])).catch(() => setRings([]));
+    fetch('/api/market-data/rings').then((r) => r.json()).then((body) => {
+      setRings(body.rings ?? []);
+      onChanged?.();
+    }).catch(() => setRings([]));
   }
   useEffect(load, []);
 
   async function propose() {
-    setProposing(true);
+    setProposing(true); setProposeNote('');
     try {
-      await fetch('/api/market-data/rings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'propose' }) });
+      const res = await fetch('/api/market-data/rings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'propose' }) });
+      const body = await res.json().catch(() => null);
+      // Prompt 378 §B.3 — "I haven't read your documents yet" is an ANSWER,
+      // shown as such, not a click that silently produced nothing.
+      if (!body?.ok) { setProposeNote(body?.error ?? 'Could not propose rings — try again.'); return; }
       load();
+    } catch {
+      setProposeNote('Could not reach the server — try again.');
     } finally { setProposing(false); }
   }
 
@@ -132,17 +162,42 @@ export function MarketRingsCard() {
         serve today), <b>category</b> (the whole market). Each says what has to become true to expand to the next.
       </p>
       {rings.length === 0 ? (
-        <button disabled={proposing} onClick={propose} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-          {proposing ? 'Proposing…' : 'Propose my market rings'}
-        </button>
+        <>
+          <button disabled={proposing} onClick={propose} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+            {proposing ? 'Proposing…' : 'Propose my market rings'}
+          </button>
+          {proposeNote && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">{proposeNote}</p>}
+        </>
       ) : (
-        <div className="space-y-2">
-          {RING_ORDER.map((k) => <RingRow key={k} ring={byRing.get(k) ?? null} ringKey={k} onChanged={load} />)}
-          {rings.length < 3 && (
-            <button disabled={proposing} onClick={propose} className="text-xs text-[#0E7490] hover:underline disabled:opacity-40">
-              {proposing ? 'Proposing…' : 'Propose the missing ring(s)'}
-            </button>
-          )}
+        // Prompt 378 §E.1 — the diagram beside the editable rows: the shape
+        // carries the nesting relationship (which the stacked cards never
+        // did), the rows carry the detail and the editing.
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+          <div className="shrink-0 sm:w-[260px]">
+            <MarketRingsDiagram
+              rings={RING_ORDER.map((k) => {
+                const r = byRing.get(k);
+                return { ring: k, sizeValueEur: r?.size_value_eur ?? null, sizeYear: r?.size_year ?? null, accepted: r?.status === 'accepted' };
+              })}
+              onFocus={(ring) => {
+                setFocused(ring);
+                document.getElementById(`ring-${ring}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }}
+            />
+          </div>
+          <div className="flex-1 space-y-2">
+            {RING_ORDER.map((k) => (
+              <div key={k} id={`ring-${k}`} className={focused === k ? 'rounded-lg ring-2 ring-[#0E7490]' : undefined}>
+                <RingRow ring={byRing.get(k) ?? null} ringKey={k} onChanged={load} />
+              </div>
+            ))}
+            {rings.length < 3 && (
+              <button disabled={proposing} onClick={propose} className="text-xs text-[#0E7490] hover:underline disabled:opacity-40">
+                {proposing ? 'Proposing…' : 'Propose the missing ring(s)'}
+              </button>
+            )}
+            {proposeNote && <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">{proposeNote}</p>}
+          </div>
         </div>
       )}
     </div>
