@@ -587,7 +587,14 @@ export default function StartupDossierPage() {
       {/* Prompt 213 §A — o dossier vivia numa coluna de ~640px com laterais
           vazias enormes. Passa a largo; a restricao de leitura e do
           PARAGRAFO (max-w dentro do cartao do About), nao da pagina. */}
-      <main className={tab === 'messages' && !trackEvaluate ? 'mx-auto max-w-4xl p-4 md:p-8' : 'mx-auto max-w-6xl p-4 md:p-8'}>
+      {/* Prompt 390 §2 — max-w-6xl (1152px) was fixed regardless of whether
+          Track & Evaluate is on, leaving dead margins on a normal laptop
+          (~1440-1536px) while the 260px+260px side columns (389 §1) already
+          consumed nearly half of that 1152px budget — confirmed live as
+          the real cause behind "central column still narrow" after 389's
+          own fix. Widened only while the 3-column grid is actually in
+          play; every other mode keeps its existing width unchanged. */}
+      <main className={tab === 'messages' && !trackEvaluate ? 'mx-auto max-w-4xl p-4 md:p-8' : trackEvaluate ? 'mx-auto max-w-[1600px] p-4 md:p-8' : 'mx-auto max-w-6xl p-4 md:p-8'}>
         {trackEvaluate ? (
           // Prompt 347 §A/§B — the grid is a `sticky`-in-grid layout,
           // deliberately NOT `position: fixed` to the viewport (the
