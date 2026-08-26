@@ -44,38 +44,48 @@ export function ScorecardPanel({ orgId }: { orgId: string }) {
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <h2 className="text-sm font-semibold text-gray-900">Your scorecard</h2>
-          <TermHint text={HELP_TEXT} />
-        </div>
-        {overall != null && <span className="text-sm font-semibold text-[#0E7490]">{overall.toFixed(1)} / 10</span>}
-      </div>
-      <p className="mt-0.5 text-xs text-gray-400">Private to you — never shown to the startup.</p>
+      {/* Prompt 395 — "Your scorecard" belongs to Tabela 2 (below), not this
+          panel as a whole: it used to sit here, at the very top, reading as
+          the title of Tabela 1 (Relative importance) right underneath it —
+          the opposite of what 393 §2 asked for. This subtitle is the only
+          thing left at the panel level, since it genuinely applies to both
+          tables. */}
+      <p className="text-xs text-gray-400">Private to you — never shown to the startup.</p>
 
       {/* Tabela 1 — always here, even with zero criteria yet: this is the
           only place a first criterion gets created. Its own fetch is
           independent of the tab-scores one above (a small duplicate read,
           accepted for reusing the component as-is rather than re-plumbing
-          shared state across two different data shapes). */}
-      <div className="mt-3 border-t border-gray-100 pt-3">
+          shared state across two different data shapes). Its own title
+          ("Relative importance") lives inside ScorecardWeightsEditor. */}
+      <div className="mt-3">
         <ScorecardWeightsEditor onChanged={load} />
       </div>
 
       {/* Tabela 2 — read-only, only once there's something to show; a
           criterion that exists but was never scored anywhere still shows as
-          "not rated", never silently absent. */}
+          "not rated", never silently absent. "Your scorecard" is ITS title,
+          not the panel's. */}
       {hasCriteria && (
-        <ul className="mt-3 space-y-1.5 border-t border-gray-100 pt-3">
-          {values.map((v) => (
-            <li key={v.id} className="flex items-center justify-between gap-2 text-sm">
-              <span className="text-gray-700">{v.label}</span>
-              <span className={`font-medium ${v.value != null ? 'text-gray-800' : 'text-gray-300'}`}>
-                {v.value != null ? `${v.value.toFixed(1)} / 10` : 'not rated'}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-3 border-t border-gray-100 pt-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-sm font-semibold text-gray-900">Your scorecard</h2>
+              <TermHint text={HELP_TEXT} />
+            </div>
+            {overall != null && <span className="text-sm font-semibold text-[#0E7490]">{overall.toFixed(1)} / 10</span>}
+          </div>
+          <ul className="mt-2 space-y-1.5">
+            {values.map((v) => (
+              <li key={v.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-gray-700">{v.label}</span>
+                <span className={`font-medium ${v.value != null ? 'text-gray-800' : 'text-gray-300'}`}>
+                  {v.value != null ? `${v.value.toFixed(1)} / 10` : 'not rated'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
