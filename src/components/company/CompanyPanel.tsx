@@ -23,6 +23,7 @@
 // with the page like anything else, which is exactly what "only the
 // content column scrolls" means once the other three are pinned via sticky.
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import { useConfirm } from '@/lib/confirm';
 import { Card } from '@/components/ui';
@@ -40,7 +41,7 @@ import { InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEng
 import { StartupAxisClassifications } from './StartupAxisClassifications';
 import { CompanySubMenu, type CompanySection } from './CompanySubMenu';
 import { SETTINGS_HEADER_OFFSET_PX } from './settings-layout';
-import type { CompletenessField } from '@/lib/companyCompleteness';
+import { COMPLETENESS_FIELDS, type CompletenessField } from '@/lib/companyCompleteness';
 
 const SECTIONS: CompanySection[] = [
   { key: 'identity', label: 'Identity', anchorId: 'settings-identity' },
@@ -72,29 +73,61 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
 }) {
   const { db } = useStore();
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
+  // Prompt 394 §2 — sections used to all mount at once (scroll-and-anchor);
+  // now only ONE renders at a time, true tabs. `active` was previously
+  // local state inside CompanySubMenu, inferred from scroll position via an
+  // IntersectionObserver rooted on `contentEl` — that observer never fired,
+  // because the WINDOW scrolls this page, not `contentEl` itself, so the
+  // sidebar's highlighted item was permanently stuck on "Identity". Lifted
+  // here and now the single source of truth: a click sets it directly, no
+  // inference needed.
+  const [active, setActive] = useState<string>(SECTIONS[0].key);
 
   // Prompt 377 §B — direct navigation to e.g. /settings#settings-round (the
   // existing external links from OverviewPanel/TodayPanel/RoadmapCard) has
-  // to land in the right section even though sections now live below a
-  // sticky header rather than at the top of the page's own scroll — the
-  // browser's native on-load hash-scroll still works here (this IS the
-  // page's own scroll container, nothing nested), but a fresh navigation
-  // can race the page's own async data load, so this re-checks once the
-  // content column itself is mounted.
+  // to land in the right section. Prompt 394 §2 — since only the active
+  // section is mounted, the hash must first pick WHICH section to activate
+  // (matched against SECTIONS' own anchorId), then scroll once it has
+  // rendered — a plain scrollIntoView on mount no longer works because the
+  // target doesn't exist in the DOM until `active` says so.
   useEffect(() => {
-    if (!contentEl || typeof window === 'undefined' || !window.location.hash) return;
+    if (typeof window === 'undefined' || !window.location.hash) return;
     // Prompt 379 §A — when the URL also carries a `?flash=<field>`, that
-    // field is the MORE PRECISE instruction and owns the scroll (the page
-    // handles it). Without this guard both effects run and this one, being
-    // last, scrolls to the top of the whole section — leaving the field
-    // that was supposed to be highlighted off-screen. Caught in live
-    // verification: the field flashed correctly but sat 747px below the
-    // fold, which is the same "took me there but didn't show me" failure
-    // this prompt exists to fix.
+    // field is the MORE PRECISE instruction and owns both the section
+    // choice and the scroll (handled below and by the page). Without this
+    // guard both effects run and this one, being last, would win with a
+    // coarser "top of the section" target instead of the exact field.
     if (new URLSearchParams(window.location.search).get('flash')) return;
-    const id = window.location.hash.slice(1);
-    document.getElementById(id)?.scrollIntoView({ block: 'start' });
-  }, [contentEl]);
+    const anchorId = window.location.hash.slice(1);
+    const section = SECTIONS.find((s) => s.anchorId === anchorId);
+    if (section) setActive(section.key);
+  }, []);
+
+  // Prompt 394 §2 — once the target section has actually mounted (its `id`
+  // now exists), scroll to it. Runs on every `active` change, including
+  // clicks — a fresh section is short and starts right under the sticky
+  // header already, but this keeps a consistent landing spot regardless of
+  // how much the previous section had scrolled the page.
+  useEffect(() => {
+    if (!contentEl) return;
+    document.getElementById(SECTIONS.find((s) => s.key === active)?.anchorId ?? '')?.scrollIntoView({ block: 'start' });
+  }, [active, contentEl]);
+
+  // Prompt 379 §A / Prompt 394 §2 — `?flash=<completenessFieldId>` names a
+  // FIELD, not a section, but with true tabs the field's element only
+  // exists in the DOM once its own section is active. Reads the raw query
+  // param directly, NOT the `flashId` prop: the page's own flash effect
+  // only sets that prop once `document.getElementById(fieldId)` already
+  // finds the element — a deadlock with true tabs, since that element can't
+  // exist until this switches the section first. COMPLETENESS_FIELDS
+  // already records which card/section owns each field id (identity/team/
+  // round).
+  const flashParam = useSearchParams().get('flash');
+  useEffect(() => {
+    if (!flashParam) return;
+    const field = COMPLETENESS_FIELDS.find((f) => f.id === flashParam);
+    if (field) setActive(field.card);
+  }, [flashParam]);
 
   if (companyProfileAvailable === null) return <p className="text-sm text-gray-400">Loading…</p>;
 
@@ -142,48 +175,61 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
           which never uses sticky/overflow at all). */}
       <div className="lg:sticky lg:top-[var(--settings-header-offset)] lg:overflow-y-auto lg:[max-height:calc(100vh-var(--settings-header-offset)-1rem)]"
         style={{ '--settings-header-offset': `${SETTINGS_HEADER_OFFSET_PX}px` } as React.CSSProperties}>
-        <CompanySubMenu sections={SECTIONS} scrollRoot={contentEl} />
+        <CompanySubMenu sections={SECTIONS} active={active} onSelect={setActive} />
       </div>
 
-      {/* Prompt 377 §B — scroll-margin-top on every section anchor, not just
-          a JS scroll-offset calculation: this way EVERY way a section can be
-          reached (CompanySubMenu's own scrollIntoView, a native #hash
-          landing, the browser's own back/forward restoring a scroll
-          position) lands below the sticky header instead of underneath it,
-          with no separate offset math to keep in sync at each call site. */}
+      {/* Prompt 394 §2 — true tabs: only the active section mounts. `id` +
+          scroll-margin-top stay on each (still the hash/flash landing
+          target); `data-tour-id` moved to the sidebar's own buttons
+          (CompanySubMenu) since only ONE of these divs exists at a time —
+          the tour needs an anchor that's always resolvable. */}
       <div ref={setContentEl} className="space-y-4">
-        <div id="settings-identity" data-tour-id="settings-identity" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
-          <IdentityCard canEdit={canEdit} missing={missing} flashId={flashId} />
-        </div>
+        {active === 'identity' && (
+          <div id="settings-identity" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+            <IdentityCard canEdit={canEdit} missing={missing} flashId={flashId} />
+          </div>
+        )}
 
-        <div id="settings-team" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
-          <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
-        </div>
+        {active === 'team' && (
+          <div id="settings-team" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+            <StartupTeamCard canEdit={canEdit} missing={missing} flashId={flashId} />
+          </div>
+        )}
 
-        <div id="settings-round" data-tour-id="settings-round" className="space-y-4" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
-          <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
-          <RoundUpdatesCard />
-          <SoftCommitsCard />
-        </div>
+        {active === 'round' && (
+          <div id="settings-round" className="space-y-4" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+            <RoundCard canEdit={canEdit} missing={missing} flashId={flashId} />
+            <RoundUpdatesCard />
+            <SoftCommitsCard />
+          </div>
+        )}
 
-        <div id="settings-previous-funding" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
-          {canEdit && <PreviousFundingCard />}
-        </div>
+        {active === 'previous-funding' && (
+          <div id="settings-previous-funding" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+            {canEdit && <PreviousFundingCard />}
+          </div>
+        )}
 
-        <div id="settings-traction" data-tour-id="settings-traction" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
-          <TractionCard canEdit={canEdit} />
-        </div>
+        {active === 'traction' && (
+          <div id="settings-traction" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+            <TractionCard canEdit={canEdit} />
+          </div>
+        )}
 
-        <div id="settings-facts" className="space-y-4" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
-          <Card title="Facts & Clarifications"><CompanyFactsPanel /></Card>
-          <InvestorQACard />
-          <StartupAxisClassifications />
-          <DemoResetCard />
-        </div>
+        {active === 'facts' && (
+          <div id="settings-facts" className="space-y-4" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+            <Card title="Facts & Clarifications"><CompanyFactsPanel /></Card>
+            <InvestorQACard />
+            <StartupAxisClassifications />
+            <DemoResetCard />
+          </div>
+        )}
 
-        <div id="settings-data-room" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
-          <DataroomChecklistCard />
-        </div>
+        {active === 'data-room' && (
+          <div id="settings-data-room" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+            <DataroomChecklistCard />
+          </div>
+        )}
       </div>
 
       <div className="lg:sticky lg:top-[var(--settings-header-offset)] lg:overflow-y-auto lg:[max-height:calc(100vh-var(--settings-header-offset)-1rem)]"
