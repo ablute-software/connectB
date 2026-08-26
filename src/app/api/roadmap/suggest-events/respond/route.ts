@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
   const { data: suggestion } = await admin.from('roadmap_event_suggestions')
-    .select('id, title, date, date_precision, category_label, document_id')
+    .select('id, kind, title, date, date_precision, category_label, document_id')
     .eq('id', body.id).eq('org_id', orgId).eq('status', 'pending').maybeSingle();
   if (!suggestion) return NextResponse.json({ ok: false, error: 'Suggestion not found.' }, { status: 404 });
 
@@ -42,6 +42,19 @@ export async function POST(req: Request) {
       .eq('id', body.id).eq('org_id', orgId);
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
+  }
+
+  // Prompt 387 §D.3 — a question has no date, no category, nothing to
+  // insert as a real event on its own; "Add as event" just consumes the
+  // question (same lifecycle as an ignored/added event — it never comes
+  // back) and hands the client its own title back, to pre-fill the SAME
+  // create-event popover a manual "+ Add event" opens. The founder still
+  // supplies the actual date.
+  if (suggestion.kind === 'question') {
+    const { error } = await admin.from('roadmap_event_suggestions').update({ status: 'added', updated_at: new Date().toISOString() })
+      .eq('id', body.id).eq('org_id', orgId);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, question: { title: suggestion.title } });
   }
 
   // Prompt 359 — the actual roadmap_events INSERT happens client-side via

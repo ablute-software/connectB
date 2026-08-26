@@ -3,6 +3,7 @@ import {
   xFromDate, dateFromX, snapToMonth, densityLevel, densityLevelForLane, clusterByProximity,
   zoomWindow, matchesTimeToggle, matchesCategoryVisibility, migrateMilestoneToEvents,
   derivedEventState, quarterLabel, quartersInRange,
+  semesterLabel, semestersInRange, yearLabel, yearsInRange, headerGranularity,
 } from './roadmap-canvas';
 
 describe('derivedEventState — the three-state model the detail panel shows', () => {
@@ -64,6 +65,61 @@ describe('quartersInRange', () => {
     const [q] = quartersInRange(new Date('2024-05-01T00:00:00Z'), new Date('2024-05-02T00:00:00Z'));
     expect(q.start.toISOString()).toBe('2024-04-01T00:00:00.000Z');
     expect(q.end.toISOString()).toBe('2024-07-01T00:00:00.000Z');
+  });
+});
+
+describe('semesterLabel / semestersInRange', () => {
+  it('formats an ISO date as "S<n> \'<yy>"', () => {
+    expect(semesterLabel('2024-01-15')).toBe("S1 '24");
+    expect(semesterLabel('2024-06-30')).toBe("S1 '24");
+    expect(semesterLabel('2024-07-01')).toBe("S2 '24");
+    expect(semesterLabel('2024-12-31')).toBe("S2 '24");
+  });
+
+  it('lists every semester the window touches, in order', () => {
+    const spans = semestersInRange(new Date('2023-11-15T00:00:00Z'), new Date('2024-07-10T00:00:00Z'));
+    expect(spans.map((s) => s.label)).toEqual(["S2 '23", "S1 '24", "S2 '24"]);
+  });
+
+  it('each span\'s [start, end) bounds a calendar semester', () => {
+    const [s] = semestersInRange(new Date('2024-05-01T00:00:00Z'), new Date('2024-05-02T00:00:00Z'));
+    expect(s.start.toISOString()).toBe('2024-01-01T00:00:00.000Z');
+    expect(s.end.toISOString()).toBe('2024-07-01T00:00:00.000Z');
+  });
+});
+
+describe('yearLabel / yearsInRange', () => {
+  it('formats an ISO date as the full year', () => {
+    expect(yearLabel('2024-01-15')).toBe('2024');
+    expect(yearLabel('2027-12-31')).toBe('2027');
+  });
+
+  it('lists every year the window touches, in order', () => {
+    const spans = yearsInRange(new Date('2019-06-01T00:00:00Z'), new Date('2022-02-01T00:00:00Z'));
+    expect(spans.map((s) => s.label)).toEqual(['2019', '2020', '2021', '2022']);
+  });
+
+  it('each span\'s [start, end) bounds a calendar year', () => {
+    const [y] = yearsInRange(new Date('2024-05-01T00:00:00Z'), new Date('2024-05-02T00:00:00Z'));
+    expect(y.start.toISOString()).toBe('2024-01-01T00:00:00.000Z');
+    expect(y.end.toISOString()).toBe('2025-01-01T00:00:00.000Z');
+  });
+});
+
+describe('headerGranularity', () => {
+  it('quarter when there is enough room per quarter', () => {
+    expect(headerGranularity(56)).toBe('quarter');
+    expect(headerGranularity(200)).toBe('quarter');
+  });
+
+  it('semester in the middle band', () => {
+    expect(headerGranularity(55)).toBe('semester');
+    expect(headerGranularity(28)).toBe('semester');
+  });
+
+  it('year when quarters would be too cramped even in pairs', () => {
+    expect(headerGranularity(27)).toBe('year');
+    expect(headerGranularity(1)).toBe('year');
   });
 });
 

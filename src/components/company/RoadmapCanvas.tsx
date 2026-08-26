@@ -16,6 +16,7 @@ import { useMemo, useRef, useState, useEffect } from 'react';
 import {
   xFromDate, dateFromX, snapToMonth, clusterByProximity, zoomWindow,
   matchesTimeToggle, matchesCategoryVisibility, quarterLabel, quartersInRange,
+  semesterLabel, semestersInRange, yearLabel, yearsInRange, headerGranularity,
   type ZoomLevel, type TimeToggle, type Cluster,
 } from '@/lib/roadmap-canvas';
 import { SHAPE_STYLES, GENERAL_LABEL, type CategoryColor, type CategoryShape } from '@/lib/roadmap-categories';
@@ -92,6 +93,14 @@ interface RoadmapCanvasProps {
   // the mockup's layout — a spot outside this component's own DOM subtree.
   selectedId?: string | null;
   onSelect?: (id: string | null) => void;
+  // Prompt 387 §D.3 — "Add as event" on a question card opens this SAME
+  // create popover, pre-filled with a derived title, rather than a second
+  // creation flow to keep in sync. Set once by the caller; this component
+  // reports back via onPrefillConsumed the instant it's opened the draft,
+  // so the caller can clear its own trigger and never re-open it on an
+  // unrelated re-render.
+  prefillTitle?: string | null;
+  onPrefillConsumed?: () => void;
 }
 
 interface Lane { id: string; label: string; color: CategoryColor; shape: CategoryShape }
@@ -105,7 +114,7 @@ function laneFor(categories: CanvasCategory[], categoryId: string | null | undef
 
 // Prompt 359 §B.1/§B.2 — where a click/drag on empty lane space lands, as a
 // pending draft the popover then fills in.
-interface DraftEvent { laneId: string; date: string; end_date: string | null; x: number }
+interface DraftEvent { laneId: string; date: string; end_date: string | null; x: number; initialTitle?: string }
 
 function useContainerWidth(): [React.RefObject<HTMLDivElement>, number] {
   const ref = useRef<HTMLDivElement>(null);
@@ -122,6 +131,7 @@ function useContainerWidth(): [React.RefObject<HTMLDivElement>, number] {
 
 export function RoadmapCanvas({
   events, categories, foundedYear, editable, onCreate, onUpdate, now = new Date(), selectedId = null, onSelect,
+  prefillTitle = null, onPrefillConsumed,
 }: RoadmapCanvasProps) {
   const [containerRef, width] = useContainerWidth();
   const [zoom, setZoom] = useState<ZoomLevel>('all');
@@ -133,6 +143,13 @@ export function RoadmapCanvas({
   const [draft, setDraft] = useState<DraftEvent | null>(null);
   const [dragging, setDragging] = useState<{ id: string; edge?: 'start' | 'end' } | null>(null);
   const [expandedCluster, setExpandedCluster] = useState<{ laneId: string; events: CanvasEvent[]; x: number } | null>(null);
+
+  useEffect(() => {
+    if (!prefillTitle || !editable) return;
+    setDraft({ laneId: GENERAL_LANE.id, date: now.toISOString().slice(0, 10), end_date: null, x: 0, initialTitle: prefillTitle });
+    onPrefillConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillTitle]);
 
   // Domain: from the earlier of (founding year, earliest event) to the
   // later of (today, latest event) plus a little padding — a roadmap with
@@ -261,8 +278,23 @@ export function RoadmapCanvas({
 
   const todayX = xOf(now);
   const todayInView = todayX >= 0 && todayX <= viewWidth;
-  const currentQuarterLabel = quarterLabel(now.toISOString());
-  const quarters = viewWidth > 1 ? quartersInRange(view.start, view.end) : [];
+
+  // Prompt 387 §A — the header ruler picks its own granularity from how
+  // much room the CURRENT view actually gives each quarter, never from the
+  // total domain — a founder who zooms in with "+" earns quarters back the
+  // moment there's space, exactly what Nuno asked for ("até que se aplique
+  // '+'"). quartersInRange(view...).length is the real quarter count for
+  // THIS window regardless of which granularity ends up rendering.
+  const quarterCountInView = viewWidth > 1 ? quartersInRange(view.start, view.end).length : 0;
+  const pxPerQuarter = quarterCountInView > 0 ? viewWidth / quarterCountInView : 0;
+  const granularity = headerGranularity(pxPerQuarter);
+  const headerSpans = viewWidth <= 1 ? []
+    : granularity === 'quarter' ? quartersInRange(view.start, view.end)
+      : granularity === 'semester' ? semestersInRange(view.start, view.end)
+        : yearsInRange(view.start, view.end);
+  const currentHeaderLabel = granularity === 'quarter' ? quarterLabel(now.toISOString())
+    : granularity === 'semester' ? semesterLabel(now.toISOString())
+      : yearLabel(now.toISOString());
 
   return (
     <div>
@@ -302,14 +334,21 @@ export function RoadmapCanvas({
         </button>
       )}
 
-      {/* Prompt 385 §A.4 — the quarter header row; the ACTUAL quarter reads
-          primary text + underline, matching the mockup. */}
-      {quarters.length > 0 && (
-        <div className="mb-1 flex border-b border-[#c3c5d9]/40 text-[11px]">
-          {quarters.map((q) => {
-            const isActual = q.label === currentQuarterLabel;
-            const left = xOf(q.start);
-            const right = xOf(q.end);
+      {/* Prompt 385 §A.4 / 387 §A — the header row; the ACTUAL span reads
+          primary text + underline, matching the mockup. Granularity adapts
+          (quarter/semester/year) to how much room the view actually has.
+          §A.3 — every cell's [left, right) is clamped to [0, viewWidth]: a
+          span whose calendar boundary falls outside the view (the very
+          first/last one almost always does) must never draw past the
+          canvas's own right edge — confirmed live on the real ablute_
+          roadmap (2019→2027) that an un-clamped last cell drew ~40px past
+          the card's border. */}
+      {headerSpans.length > 0 && (
+        <div className="mb-1 flex overflow-hidden border-b border-[#c3c5d9]/40 text-[11px]">
+          {headerSpans.map((q) => {
+            const isActual = q.label === currentHeaderLabel;
+            const left = Math.max(0, xOf(q.start));
+            const right = Math.min(viewWidth, xOf(q.end));
             return (
               <div key={q.label} className={`relative shrink-0 border-r border-[#c3c5d9]/30 py-1.5 text-center font-semibold uppercase tracking-[0.05em] ${isActual ? 'bg-[#0041c8]/10 text-[#0041c8]' : 'text-[#434656]'}`}
                 style={{ width: Math.max(0, right - left) }}>
@@ -464,7 +503,7 @@ function CreatePopover({ draft, categories, onCancel, onSave }: {
   onCancel: () => void;
   onSave: (input: { title: string; date: string; end_date?: string | null; status: RoadmapEventStatus; category_id: string | null; date_precision?: 'exact' | 'approx' | 'quarter' }) => void | Promise<void>;
 }) {
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(draft.initialTitle ?? '');
   const [date, setDate] = useState(draft.date);
   const [endDate, setEndDate] = useState(draft.end_date ?? '');
   const [categoryId, setCategoryId] = useState<string>(draft.laneId === GENERAL_LANE.id ? '' : draft.laneId);

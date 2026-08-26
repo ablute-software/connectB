@@ -177,20 +177,66 @@ export function quarterLabel(dateStr: string): string {
 // these into pixels and JSX.
 export interface QuarterSpan { start: Date; end: Date; label: string }
 
-export function quartersInRange(start: Date, end: Date): QuarterSpan[] {
+// Prompt 387 §A — the shared walker behind quartersInRange/semestersInRange/
+// yearsInRange: every calendar span of `monthsPerSpan` months the window
+// touches, in order. Extracted once three near-identical loops would
+// otherwise exist (quarter=3 months, semester=6, year=12) — same discipline
+// as densityLevel/densityLevelForLane sharing one threshold table above.
+function spansInRange(start: Date, end: Date, monthsPerSpan: number, label: (spanStart: Date) => string): QuarterSpan[] {
   if (end.getTime() <= start.getTime()) return [];
   const spans: QuarterSpan[] = [];
   let y = start.getUTCFullYear();
-  let q = Math.floor(start.getUTCMonth() / 3);
+  let m = Math.floor(start.getUTCMonth() / monthsPerSpan) * monthsPerSpan;
   while (true) {
-    const qStart = new Date(Date.UTC(y, q * 3, 1));
-    const qEnd = new Date(Date.UTC(y, q * 3 + 3, 1));
-    if (qStart.getTime() >= end.getTime()) break;
-    spans.push({ start: qStart, end: qEnd, label: quarterLabel(qStart.toISOString()) });
-    q += 1;
-    if (q > 3) { q = 0; y += 1; }
+    const spanStart = new Date(Date.UTC(y, m, 1));
+    const spanEnd = new Date(Date.UTC(y, m + monthsPerSpan, 1));
+    if (spanStart.getTime() >= end.getTime()) break;
+    spans.push({ start: spanStart, end: spanEnd, label: label(spanStart) });
+    m += monthsPerSpan;
+    if (m >= 12) { m -= 12; y += 1; }
   }
   return spans;
+}
+
+export function quartersInRange(start: Date, end: Date): QuarterSpan[] {
+  return spansInRange(start, end, 3, (s) => quarterLabel(s.toISOString()));
+}
+
+// Prompt 387 §A — "S1 '24" / "S2 '24", the semester twin of quarterLabel.
+export function semesterLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  const s = d.getUTCMonth() < 6 ? 1 : 2;
+  const yy = String(d.getUTCFullYear()).slice(-2);
+  return `S${s} '${yy}`;
+}
+export function semestersInRange(start: Date, end: Date): QuarterSpan[] {
+  return spansInRange(start, end, 6, (s) => semesterLabel(s.toISOString()));
+}
+
+// Prompt 387 §A — the full year, e.g. "2024" — no apostrophe-shorthand at
+// this granularity, it's the one already used on the mockup/Founded node.
+export function yearLabel(dateStr: string): string {
+  return String(new Date(dateStr).getUTCFullYear());
+}
+export function yearsInRange(start: Date, end: Date): QuarterSpan[] {
+  return spansInRange(start, end, 12, (s) => yearLabel(s.toISOString()));
+}
+
+// Prompt 387 §A — "quando a linha do tempo for muito grande para caber...
+// em vez de Quarter teremos Semestre, ou apenas mesmo só o ano" (Nuno's own
+// words). Derived from how many pixels the CURRENT zoom actually gives each
+// quarter-width slice — not from the total domain — so "+" (zooming in)
+// genuinely earns quarters back the moment there's room, exactly the "até
+// que se aplique '+'" he asked for. Thresholds picked so a label never has
+// to squeeze below ~4 characters' worth of width; tuned against the real
+// ablute_ roadmap (2019→2027, ~33 quarters) during verification.
+export type HeaderGranularity = 'quarter' | 'semester' | 'year';
+const QUARTER_MIN_PX = 56;
+const SEMESTER_MIN_PX = 28;
+export function headerGranularity(pxPerQuarter: number): HeaderGranularity {
+  if (pxPerQuarter >= QUARTER_MIN_PX) return 'quarter';
+  if (pxPerQuarter >= SEMESTER_MIN_PX) return 'semester';
+  return 'year';
 }
 
 // ---------------------------------------------------------------------------

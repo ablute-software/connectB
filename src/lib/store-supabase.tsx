@@ -782,13 +782,24 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     // minus the dealdigger-limit rejection path (roadmap has no such
     // constraint, so these stay simple fire-and-forget-with-error-surfaced
     // rather than needing an awaited-before-commit round trip).
+    // Prompt 387 §B — each of these three now wraps its own network call in
+    // try/catch: a genuine network failure (offline, DNS, an aborted
+    // fetch) throws out of `sb.from(...)` rather than resolving to
+    // `{error}` — confirmed live by forcing `window.fetch` to reject.
+    // Before this, that throw propagated out of an un-awaited caller
+    // (CategoryManager's onClick) as an unhandled promise rejection —
+    // invisible to the founder, exactly the "não fez nada" Nuno described.
+    // Converting it to the same `{error}` shape as a real Supabase error
+    // means CategoryManager only ever has ONE case to handle, not two.
     async addRoadmapCategory(c) {
       const prev = dbRef.current;
       const row: RoadmapCategory = { visible: true, ...c, id: uuid(), org_id: prev.org.id, created_at: new Date().toISOString() };
       const o = orgIdRef.current;
       if (o) {
-        const { error } = await sb.from('roadmap_categories').insert({ ...row, org_id: o });
-        if (error) return { error: error.message };
+        try {
+          const { error } = await sb.from('roadmap_categories').insert({ ...row, org_id: o });
+          if (error) return { error: error.message };
+        } catch (e) { return { error: (e as Error).message || 'Could not reach the server — check your connection and try again.' }; }
       }
       commit({ ...prev, roadmapCategories: [...prev.roadmapCategories, row] });
       return {};
@@ -796,8 +807,10 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     async removeRoadmapCategory(id) {
       const prev = dbRef.current;
       if (orgIdRef.current) {
-        const { error } = await sb.from('roadmap_categories').delete().eq('id', id);
-        if (error) return { error: error.message };
+        try {
+          const { error } = await sb.from('roadmap_categories').delete().eq('id', id);
+          if (error) return { error: error.message };
+        } catch (e) { return { error: (e as Error).message || 'Could not reach the server — check your connection and try again.' }; }
       }
       // Os itens que apontavam para ela NAO se tocam: o leitor resolve o
       // lookup-miss como General (roadmap-categories.ts) — o contrato que
@@ -806,8 +819,10 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       return {};
     },
     async updateRoadmapCategory(id, patch) {
-      const { error } = await sb.from('roadmap_categories').update(patch).eq('id', id);
-      if (error) return { error: error.message };
+      try {
+        const { error } = await sb.from('roadmap_categories').update(patch).eq('id', id);
+        if (error) return { error: error.message };
+      } catch (e) { return { error: (e as Error).message || 'Could not reach the server — check your connection and try again.' }; }
       const prev = dbRef.current;
       commit({ ...prev, roadmapCategories: prev.roadmapCategories.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
       return {};

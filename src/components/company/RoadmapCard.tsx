@@ -667,6 +667,30 @@ export function CategoryManager() {
   const [label, setLabel] = useState('');
   const [color, setColor] = useState<CategoryColor>('teal');
   const [shape, setShape] = useState<CategoryShape>('rounded');
+  // Prompt 387 §B.1 — add/remove/toggle used to swallow whatever `{error}`
+  // the store returned: onClick={() => removeRoadmapCategory(c.id)} and the
+  // bare `await addRoadmapCategory(...)` above both discarded it outright.
+  // A founder whose action failed (network, RLS, anything) saw nothing
+  // change and nothing said why — exactly what Nuno described. Every path
+  // below now checks the result and shows it here, never silently.
+  const [catError, setCatError] = useState('');
+
+  async function handleAdd() {
+    setCatError('');
+    const { error } = await addRoadmapCategory({ label: label.trim(), color, shape });
+    if (error) { setCatError(error); return; }
+    setLabel('');
+  }
+  async function handleRemove(id: string) {
+    setCatError('');
+    const { error } = await removeRoadmapCategory(id);
+    if (error) setCatError(error);
+  }
+  async function handleToggle(id: string, v: boolean) {
+    setCatError('');
+    const { error } = await updateRoadmapCategory(id, { visible: v });
+    if (error) setCatError(error);
+  }
 
   return (
     <div className={`${GLASS_CARD} p-4`}>
@@ -674,6 +698,7 @@ export function CategoryManager() {
       <p className="mt-0.5 text-[11px] text-[#434656]">
         Tag milestones so investors can filter your roadmap. Untagged items read as {GENERAL_LABEL}.
       </p>
+      {catError && <p className="mt-1.5 text-[11px] text-[#ba1a1a]">{catError}</p>}
 
       {db.roadmapCategories.length > 0 && (
         <ul className="mt-3 space-y-2.5">
@@ -688,11 +713,11 @@ export function CategoryManager() {
                   Off never removes the category from this list — only
                   "remove" below does that for real. Its own right-aligned
                   column (never glued to the name) per §C.1. */}
-              <Toggle checked={c.visible !== false} onChange={(v) => updateRoadmapCategory(c.id, { visible: v })} />
+              <Toggle checked={c.visible !== false} onChange={(v) => void handleToggle(c.id, v)} />
               {/* Apagar é seguro sem confirmação pesada: os itens que
                   apontavam para cá passam a ler-se General — nada se perde
                   além da etiqueta (contrato da 0177). */}
-              <button onClick={() => removeRoadmapCategory(c.id)}
+              <button onClick={() => void handleRemove(c.id)}
                 className="text-[11px] text-[#434656]/50 hover:text-[#ba1a1a]">remove</button>
             </li>
           ))}
@@ -713,7 +738,7 @@ export function CategoryManager() {
         <button
           disabled={!label.trim()}
           aria-label="Add category"
-          onClick={async () => { await addRoadmapCategory({ label: label.trim(), color, shape }); setLabel(''); }}
+          onClick={() => void handleAdd()}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0041c8] text-sm font-bold text-white disabled:opacity-40">
           +
         </button>

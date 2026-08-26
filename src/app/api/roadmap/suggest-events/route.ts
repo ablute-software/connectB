@@ -126,9 +126,12 @@ export async function GET() {
     }
   }
 
+  // Prompt 387 §D — `kind` rides along so the client can split events from
+  // questions and apply its own priority rule (questions only when no
+  // event is pending) — never a second endpoint for the same table.
   const { data: pending } = await admin.from('roadmap_event_suggestions')
-    .select('id, title, date, date_precision, category_label, document_id, reasoning')
-    .eq('org_id', orgId).eq('status', 'pending').order('date', { ascending: true });
+    .select('id, kind, title, date, date_precision, category_label, document_id, reasoning')
+    .eq('org_id', orgId).eq('status', 'pending').order('date', { ascending: true, nullsFirst: false });
 
   return NextResponse.json({ available: true, suggestions: pending ?? [] });
 }
@@ -148,14 +151,26 @@ async function runSuggestionPass(
     ? `\n\nAlready on the roadmap — do NOT propose an event describing the same fact as any of these, even with different wording:\n${existingRoadmap.map((r) => `- "${r.title}" (${r.date})`).join('\n')}`
     : '';
 
+  // Prompt 387 §D — up to 3 open QUESTIONS alongside the events, each one
+  // grounded in a specific gap the knowledge given actually shows (never
+  // invented) — "the pitch deck mentions a pilot at Hospital X with no
+  // date" is a real question; "when did you start?" with nothing behind it
+  // is not. Fewer or zero questions is the correct answer when the
+  // knowledge doesn't support a concrete one.
   const system = 'You propose roadmap events for a startup founder from exactly the company knowledge given — never invent '
     + 'a date, name, or fact not present in it. Each event needs: a short title, a date (best available — a year alone is '
     + 'fine, use January 1st), date_precision ("exact" for a specific day, "approx" for a year-only guess, "quarter" for a '
     + 'quarter), a category_label choosing the closest fit from: Technology & Product, Market & Commercial, Funding, '
     + 'Team & Company, Regulatory & IP (or empty string if none fit), and — when the knowledge item came from a specific '
     + 'document — that document\'s exact document_id so it can be linked as evidence. Propose only real, specific events; '
-    + 'never a vague placeholder, and never one already on the roadmap (see the list below, if any). ' + DOCUMENT_CONTENT_INSTRUCTION;
-  const userText = `Company knowledge:\n${wrapDocumentContent(knowledgeText)}${existingText}\n\nPropose roadmap events.`;
+    + 'never a vague placeholder, and never one already on the roadmap (see the list below, if any). Separately, propose up '
+    + 'to 3 short QUESTIONS — each one grounded in something the knowledge given actually shows is incomplete or dated but '
+    + 'undated (e.g. a document mentions a pilot with no start date, or a founder is named without a join date). Each '
+    + 'question needs a short title (the question itself) and a reasoning explaining exactly which knowledge item it came '
+    + 'from. Never invent a name, company, or fact the question refers to — if nothing in the knowledge supports a concrete '
+    + 'question, return fewer than 3, or none at all. Never ask about anything already on the roadmap (see the list below, '
+    + 'if any). ' + DOCUMENT_CONTENT_INSTRUCTION;
+  const userText = `Company knowledge:\n${wrapDocumentContent(knowledgeText)}${existingText}\n\nPropose roadmap events and, separately, up to 3 grounded questions.`;
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -165,7 +180,7 @@ async function runSuggestionPass(
       messages: [{ role: 'user', content: userText }],
       tools: [{
         name: 'propose_events',
-        description: 'Return the proposed roadmap events.',
+        description: 'Return the proposed roadmap events and questions.',
         input_schema: {
           type: 'object',
           properties: {
@@ -182,6 +197,20 @@ async function runSuggestionPass(
                   reasoning: { type: 'string' },
                 },
                 required: ['title', 'date', 'date_precision', 'category_label', 'reasoning'],
+              },
+            },
+            // Prompt 387 §D — at most 3, each grounded in a real gap the
+            // knowledge shows — see the system prompt's own rule on this.
+            questions: {
+              type: 'array',
+              maxItems: 3,
+              items: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string', description: 'The question itself, short.' },
+                  reasoning: { type: 'string', description: 'Exactly which knowledge item this question comes from.' },
+                },
+                required: ['title', 'reasoning'],
               },
             },
           },
@@ -221,7 +250,24 @@ async function runSuggestionPass(
     const candidateKey = `${title.toLowerCase()}|${date}::${signature}`;
     await admin.from('roadmap_event_suggestions').upsert({
       org_id: orgId, signature: candidateKey, title, date, date_precision: datePrecision,
-      category_label: categoryLabel, document_id: documentId, reasoning, status: 'pending',
+      category_label: categoryLabel, document_id: documentId, reasoning, status: 'pending', kind: 'event',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'org_id,signature', ignoreDuplicates: true });
+  }
+
+  // Prompt 387 §D — question candidates, same upsert-on-signature discipline
+  // as events above (a dismissed question never comes back for the same
+  // knowledge signature). No date, no category, no document — just the
+  // question and where it came from.
+  const rawQuestions = ((toolUse?.input as { questions?: unknown[] } | undefined)?.questions ?? []).slice(0, 3) as Record<string, unknown>[];
+  for (const q of rawQuestions) {
+    const title = typeof q.title === 'string' ? q.title.trim() : '';
+    const reasoning = typeof q.reasoning === 'string' ? q.reasoning.trim() : '';
+    if (!title || !reasoning) continue;
+    const candidateKey = `question:${title.toLowerCase()}::${signature}`;
+    await admin.from('roadmap_event_suggestions').upsert({
+      org_id: orgId, signature: candidateKey, title, date: null,
+      category_label: null, document_id: null, reasoning, status: 'pending', kind: 'question',
       updated_at: new Date().toISOString(),
     }, { onConflict: 'org_id,signature', ignoreDuplicates: true });
   }

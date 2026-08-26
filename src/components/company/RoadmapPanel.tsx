@@ -100,17 +100,28 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
   const [error, setError] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedEvent = selectedId ? db.roadmapEvents.find((e) => e.id === selectedId) ?? null : null;
+  // Prompt 387 §D.3 — "Add as event" on a question card sets this; the
+  // canvas opens its own create popover pre-filled the moment it sees it,
+  // then reports back so it's cleared and never re-opens on its own.
+  const [prefillTitle, setPrefillTitle] = useState<string | null>(null);
 
+  // Prompt 387 §B.3 — this slot used to be sticky (never cleared) and, on
+  // an action that DID surface an error, showed the raw store message
+  // verbatim — Nuno's own screenshot had a bare "TypeError: Failed to
+  // fetch" sitting here. Every action now clears it on its own success and
+  // prefixes a failure with which action failed, never the raw exception.
   async function handleCreate(input: { title: string; date: string; end_date?: string | null; status: RoadmapEventStatus; category_id: string | null; document_id?: string | null; date_precision?: 'exact' | 'approx' | 'quarter' }) {
     const { error: err } = await addRoadmapEvent({ ...input, date_precision: input.date_precision ?? 'exact' });
-    if (err) setError(err);
+    setError(err ? `Couldn't add the event: ${err}` : '');
   }
   async function handleUpdate(id: string, patch: Parameters<typeof updateRoadmapEvent>[1]) {
     const { error: err } = await updateRoadmapEvent(id, patch);
-    if (err) setError(err);
+    setError(err ? `Couldn't save the event: ${err}` : '');
   }
   async function handleRemove(id: string) {
-    if (await confirm({ message: 'Remove this event?', destructive: true })) removeRoadmapEvent(id);
+    if (!(await confirm({ message: 'Remove this event?', destructive: true }))) return;
+    removeRoadmapEvent(id);
+    setError('');
   }
 
   const hasEvents = db.roadmapEvents.length > 0;
@@ -155,6 +166,8 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
           onUpdate={handleUpdate}
           selectedId={selectedId}
           onSelect={setSelectedId}
+          prefillTitle={prefillTitle}
+          onPrefillConsumed={() => setPrefillTitle(null)}
         />
       </div>
 
@@ -177,7 +190,7 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
       )}
       {!hasEvents && canEdit && <CategoryManager />}
 
-      {canEdit && <SuggestedEventsPanel onAdd={handleCreate} />}
+      {canEdit && <SuggestedEventsPanel onAdd={handleCreate} onAddAsEvent={setPrefillTitle} />}
     </div>
   );
 }
