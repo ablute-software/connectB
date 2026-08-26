@@ -347,6 +347,36 @@ export function nextBestAction(db: Db, entityId: string, now = new Date(), dealM
   return undefined;
 }
 
+// Prompt 396 §7 — "if the advice is to respond, the button to do it should
+// be right there" (Nuno's own words). A SIBLING to nextBestAction rather
+// than a change to its own return type on purpose: nextBestAction already
+// has ~30 existing assertions across this file's test suite asserting a
+// plain string (`.toBe`/`.toContain`) — reshaping it to `{ text, action }`
+// would touch every one of them for a change whose only NEW case is this
+// one (the other 4 cases §7 asks for either already have their own button,
+// unconditional on nextBestAction's text — "not contacted + green
+// pre-flight", "parked with + Set reopen trigger" — or don't derive from
+// nextBestAction's own branches at all — pending L3 interest and
+// unclassified replies are both already-known booleans at the call site,
+// no new derivation needed). This covers the one case that genuinely is a
+// new derivation from nextBestAction's own priority logic: overdue is the
+// exact situation whose advice is "go respond to someone", which needs a
+// resolved target person the caller doesn't otherwise compute.
+export type NextBestActionButton = { kind: 'follow_up'; personId: string };
+
+export function nextBestActionButton(db: Db, entityId: string, now = new Date(), dealMessageTouches: DealMessageTouch[] = []): NextBestActionButton | undefined {
+  const entity = db.entities.find((e) => e.id === entityId);
+  if (!entity) return undefined;
+  if (effectiveMode(db, entityId) !== 'active') return undefined;
+  const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > now;
+  if (locked) return undefined;
+
+  const summary = relationshipSummary(db, entityId, now, dealMessageTouches);
+  if (summary.whoseTurn !== 'overdue') return undefined;
+  const person = nextContactPerson(db, entityId);
+  return person ? { kind: 'follow_up', personId: person.id } : undefined;
+}
+
 // The recommended "tipo de compromisso" for a next-step task on this
 // (entity, person) — priority order matches the outreach-discipline rules
 // already enforced elsewhere, not a new judgment call:

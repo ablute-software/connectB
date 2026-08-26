@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { entityMode, effectiveMode, nextBestAction, nextContactPerson, nextPendingTaskDue, needsReopenTrigger } from './relationship';
+import { entityMode, effectiveMode, nextBestAction, nextBestActionButton, nextContactPerson, nextPendingTaskDue, needsReopenTrigger } from './relationship';
 import type { Db, Entity, Interaction, Person, TaskItem } from './types';
 
 // Prompt 205 §E — o caso confirmado por screenshot em "Test idividual":
@@ -379,5 +379,49 @@ describe('nextBestAction — a pagina inteira concorda', () => {
     const acao = nextBestAction(d, 'e1', NOW);
     expect(acao).toBe('Passed 10 days ago. No reopen trigger recorded — set one, or leave it closed.');
     expect(acao).not.toContain('Frozen');
+  });
+});
+
+// Prompt 396 §7 — the Sherlock Tip's advice gets an accompanying button
+// when there's an obvious target. This sibling function covers the one
+// NEW case (see relationship.ts's own comment on it for why it's separate
+// from nextBestAction itself): overdue follow-up needs a resolved person.
+describe('nextBestActionButton (396 §7)', () => {
+  const oldOutbound = { id: 'i1', entity_id: 'e1', direction: 'out', channel: 'email', content: '...', occurred_at: '2026-07-01T10:00:00.000Z' } as Interaction;
+
+  it('overdue com pessoa contactavel: follow_up com o id certo', () => {
+    const e = entity({ status: 'contacted' });
+    const p = person();
+    expect(nextBestActionButton(db(e, [], [oldOutbound], [], [], [p]), 'e1', NOW)).toEqual({ kind: 'follow_up', personId: 'p1' });
+  });
+
+  it('overdue sem ninguem contactavel: undefined, nao inventa alvo', () => {
+    const e = entity({ status: 'contacted' });
+    expect(nextBestActionButton(db(e, [], [oldOutbound]), 'e1', NOW)).toBeUndefined();
+  });
+
+  it('not overdue (whoseTurn "them", dentro do lock): sem botao', () => {
+    const e = entity({ status: 'contacted' });
+    const recent = { ...oldOutbound, occurred_at: '2026-08-10T10:00:00.000Z' };
+    const p = person();
+    expect(nextBestActionButton(db(e, [], [recent], [], [], [p]), 'e1', NOW)).toBeUndefined();
+  });
+
+  it('parked/closed: sem botao, mesmo com um outbound antigo', () => {
+    const e = entity({ status: 'dormant' });
+    const p = person();
+    expect(nextBestActionButton(db(e, [], [oldOutbound], [], [], [p]), 'e1', NOW)).toBeUndefined();
+  });
+
+  it('contact_lock activo: sem botao', () => {
+    const e = entity({ status: 'contacted', contact_lock_until: '2026-08-20' });
+    const p = person();
+    expect(nextBestActionButton(db(e, [], [oldOutbound], [], [], [p]), 'e1', NOW)).toBeUndefined();
+  });
+
+  it('not_contacted: sem toque nenhum, sem botao', () => {
+    const e = entity({ status: 'not_contacted' });
+    const p = person();
+    expect(nextBestActionButton(db(e, [], [], [], [], [p]), 'e1', NOW)).toBeUndefined();
   });
 });

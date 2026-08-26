@@ -7,7 +7,7 @@ import type { Entity, PassReasonCategory } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import { useConfirm } from '@/lib/confirm';
 import {
-  STAGE_LABEL, STAGE_ORDER, relationshipSummary, nextBestAction, nextContactPerson, needsReopenTrigger, stageExits, PASS_REASON_CATEGORIES,
+  STAGE_LABEL, STAGE_ORDER, relationshipSummary, nextBestAction, nextBestActionButton, nextContactPerson, needsReopenTrigger, stageExits, PASS_REASON_CATEGORIES,
   type WhoseTurn, type Health, type DealMessageTouch,
 } from '@/lib/relationship';
 import { LOCK_DAYS, preflight, preflightSummary } from '@/lib/rules';
@@ -120,7 +120,10 @@ export function RelationshipCompactLine({ entityId, neutral = false }: { entityI
 }
 
 // Full version for the entity page header.
-export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyRequest, onViewInHistory, dealMessageTouches = [], historySlot }: {
+export function RelationshipSummaryCard({
+  entity, onOpenThread, onClassifyRequest, onViewInHistory, dealMessageTouches = [], historySlot,
+  pendingInterest, canMessage, onOpenMessage,
+}: {
   entity: Entity; onOpenThread?: () => void;
   // Prompt 208 §D — pedido de "leva-me a resposta por classificar". O cartao
   // nao sabe desenhar o historico; quem sabe e o RecentInteractions, logo
@@ -139,6 +142,13 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // este cartão só lhe dá o lugar no layout. Evita a segunda lista (a
   // duplicação que o 240 criou) sem trazer para aqui a máquina toda.
   historySlot?: ReactNode;
+  // Prompt 396 §7 — the Sherlock Tip gets an actionable button when the
+  // advice has an obvious target. These three are already known by the
+  // caller (page.tsx) — no new derivation needed for them, unlike the
+  // overdue-follow-up case (nextBestActionButton, below).
+  pendingInterest?: boolean;
+  canMessage?: boolean;
+  onOpenMessage?: () => void;
 }) {
   const { db, setRelationshipStage, undoStageChange, setEntityStatus, addTask, toggleTask, updateTask, updateEntity, logInteraction, addRejectionCode } = useStore();
   const confirm = useConfirm();
@@ -188,6 +198,13 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   // Prompt 226 §4 — o Snooze tem menu próprio, ao lado do "Something else".
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const snoozeRef = useRef<HTMLDivElement>(null);
+  // Prompt 396 §3 — "Move to X / Snooze ▾ / Something else ▾" now sits
+  // behind a "＋"/"−" toggle, collapsed by default (pipeline's own
+  // expand/collapse pattern) — pure presentation, no condition/logic below
+  // changes (exits.show, canAdvance, parkedOrClosed, the two menus). A flow
+  // opened FROM inside the row (exitMode 'pass'/'decision-choose') already
+  // implies the row was open to be clicked, so it stays open.
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   useEffect(() => {
     if (!menuOpen && !snoozeOpen) return;
@@ -242,6 +259,8 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
   }
   const s = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
   const action = nextBestAction(db, entity.id, new Date(), dealMessageTouches);
+  // Prompt 396 §7 — the overdue-follow-up case's own button target.
+  const actionButton = nextBestActionButton(db, entity.id, new Date(), dealMessageTouches);
   // Prompt 254 — nextBestAction's not_contacted branch already names the
   // RESULT (ready / N issues); this recomputes the same preflight (cheap,
   // pure, no I/O — same call the People panel below already makes once per
@@ -362,7 +381,8 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
           continua disponível sempre que a relação está activa (233 §B), que
           era o caminho que faltava quando não há sugestão nenhuma. */}
       {!parkedOrClosed && exitMode === 'none' && (
-      <div data-tour-id="entity-actions" className="mt-3 flex flex-wrap items-center justify-end gap-1.5">
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5">
+        {actionsOpen && (<>
         {!confirmation && !dismissed && exits.show && exits.canAdvance && (
           <button onClick={() => {
               // Prompt 249 §A — Decision is no longer hidden from this
@@ -476,6 +496,16 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
             )}
           </div>
         )}
+        </>)}
+        {/* Prompt 396 §3 — collapsed by default; this control is what's
+            "in its place" (pipeline's own expand/collapse pattern). Always
+            in the DOM regardless of `actionsOpen`, so it's a stable tour
+            anchor even when the row above it isn't rendered. */}
+        <button data-tour-id="entity-actions" onClick={() => setActionsOpen((o) => !o)}
+          aria-expanded={actionsOpen} aria-label={actionsOpen ? 'Hide actions' : 'Show actions'}
+          className="rounded-full border border-gray-300 bg-white px-2 py-1 text-[10.5px] font-semibold text-gray-500 hover:bg-gray-50">
+          {actionsOpen ? '−' : '＋ Actions'}
+        </button>
       </div>
       )}
 
@@ -708,6 +738,40 @@ export function RelationshipSummaryCard({ entity, onOpenThread, onClassifyReques
                     </li>
                   ))}
                 </ul>
+              )}
+              {/* Prompt 396 §7 — pending L3 contact request: already known
+                  by the caller (page.tsx's own useInterestRequests), no new
+                  derivation needed. Takes priority visually over the
+                  overdue-follow-up button below — deciding on the request
+                  is the more urgent of the two if somehow both apply. */}
+              {pendingInterest ? (
+                <Link href="/today"
+                  className="mt-1.5 inline-block rounded-lg bg-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c4028]">
+                  Decide in Today →
+                </Link>
+              ) : actionButton?.kind === 'follow_up' ? (
+                canMessage && onOpenMessage ? (
+                  <button onClick={onOpenMessage}
+                    className="mt-1.5 inline-block rounded-lg bg-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c4028]">
+                    Message investor
+                  </button>
+                ) : (
+                  <Link href={`/log?entity=${entity.id}&person=${actionButton.personId}`}
+                    className="mt-1.5 inline-block rounded-lg bg-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c4028]">
+                    Log the follow-up
+                  </Link>
+                )
+              ) : null}
+              {/* Prompt 396 §7 — unclassified replies: same onClassifyRequest
+                  the "N replies to classify" chip already uses (line ~350
+                  above) — reused, not reimplemented. Orthogonal to whatever
+                  nextBestAction's own text says, so it's not gated on
+                  `action` matching any particular branch. */}
+              {ds.unclassifiedReplies > 0 && onClassifyRequest && (
+                <button onClick={onClassifyRequest}
+                  className="mt-1.5 ml-1.5 inline-block rounded-lg border border-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-[#0f5132] hover:bg-[#e4f3ea]">
+                  Classify {ds.unclassifiedReplies} {ds.unclassifiedReplies === 1 ? 'reply' : 'replies'}
+                </button>
               )}
               {/* Prompt 251-B point 3 — the "nothing registered" case also
                   asks the founder to fix that, not just names the gap.
