@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
-import { Card, FitTag, HardFilterBanner, MatchDealProfileBadge, PersonLink, StatusPill, VerBadge, WaveTag, fmtEur } from '@/components/ui';
+import { Card, FitTag, HardFilterBanner, MatchDealProfileBadge, PersonLink, StatusPill, TermHint, VerBadge, WaveTag, fmtEur } from '@/components/ui';
 import { computeEntitySummaryPrefill, matchEntityToCatalog } from '@/lib/entity-catalog-prefill';
 import { preflight, preflightSummary } from '@/lib/rules';
 import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
@@ -111,10 +111,18 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const searchParams = useSearchParams();
   const ndaDraft = searchParams.get('ndaDraft');
   // Prompt 319 Pedido C.4 — "ask about follow-on interest", only where a
-  // verified invested relationship already exists (server re-checks this;
-  // the button just doesn't render for anything else).
+  // verified invested relationship already exists. Prompt 396 §1 — the GET
+  // used to only check "a MatchDeal delivery row exists", not invested
+  // status, so this rendered (as dead weight — the POST silently rejected
+  // it) for any MatchDeal-delivered investor. The GET now enforces the same
+  // check the POST always did.
   const [followOn, setFollowOn] = useState<{ eligible: boolean; investorCatalogEntityId?: string; signal?: { active: boolean } | null; requestPending?: boolean }>({ eligible: false });
   const [followOnBusy, setFollowOnBusy] = useState(false);
+  // Prompt 396 §5 — the bottom half of the page used to stack ~12 blocks in
+  // one continuous column. True tabs now, same pattern as 394 §2's Company
+  // settings page: only the active section mounts. 'summary' is the
+  // default — it's also where the `entity-summary` tour anchor lives.
+  const [activeSection, setActiveSection] = useState<'summary' | 'people' | 'approach' | 'engagement'>('summary');
 
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then((me) => setContactAvailable(!!me.capabilities?.entityContactFields)).catch(() => {});
@@ -298,28 +306,6 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       )}
 
       <HardFilterBanner entity={entity} />
-      {/* Prompt 285 §1 — same modal, same route (POST /api/entities/[id]/
-          report-fraud — already org_id/membership-scoped only, no
-          hard_filter dependency at all, confirmed by reading the route
-          first), just a second, always-visible entry point next to the
-          status banner. Hidden once already resolved_blocked — the banner
-          above already shows that state there, and a second "report"
-          button on an already-reported entity would be confusing, not
-          useful (see the banner's own new dispute action for that state
-          instead). Discreet on purpose (small, muted text, not a primary
-          action like "Add as contact") — reachable, never prominent. */}
-      {entity.hard_filter_status !== 'resolved_blocked' && (
-        <div className="flex justify-end">
-          <button onClick={() => setReportingFraud(true)} className="text-xs text-gray-400 hover:text-red-700 hover:underline">
-            🚩 Report this investor
-          </button>
-        </div>
-      )}
-      {reportingFraud && (
-        <ReportFraudModal entityId={entity.id} entityName={entity.name}
-          onCancel={() => setReportingFraud(false)}
-          onReported={() => { setReportingFraud(false); resolveHardFilter(entity.id, 'resolved_blocked'); }} />
-      )}
       <CompetitorInvestmentCard entityId={entity.id} />
       <PathfinderCard entityId={entity.id} />
       {alignment && alignment.status !== 'aligned' && (
@@ -340,6 +326,19 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           🔒 Contact lock until {entity.contact_lock_until!.slice(0, 10)} — one approach per entity.
         </div>
       )}
+      {/* Prompt 396 §5 — moved up from the right column of the old grid
+          (where it lived buried under People/Approach/Round): this is a
+          decision request FROM the investor, not something that belongs
+          hidden at the bottom. Zone A, with the other banners. */}
+      {pendingInterest && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Pending</span>
+          <span className="ml-1.5 text-xs text-amber-900">
+            This investor requested direct contact (level 3) on {new Date(pendingInterest.requestedAt).toLocaleDateString()}.
+          </span>
+          <Link href="/today" className="ml-1.5 text-xs font-medium text-[#0E7490] hover:underline">Decide in Today →</Link>
+        </div>
+      )}
 
       {/* Prompt 202 §C — o histórico deixa de viver só atrás do botão.
           Prompt 241 — e deixa de viver DUAS vezes: o RecentInteractions
@@ -352,42 +351,89 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         onClassifyRequest={() => setClassifyNonce((n) => n + 1)}
         onViewInHistory={(id) => setFocusInteraction((p) => ({ id, nonce: p.nonce + 1 }))}
         dealMessageTouches={dealMessageTouches}
+        pendingInterest={!!pendingInterest}
+        canMessage={!!(messaging.canMessage && messaging.investorCatalogEntityId)}
+        onOpenMessage={() => setMessagingOpen(true)}
         historySlot={(
           <RecentInteractions entity={entity} onOpenFull={() => setDrawerOpen(true)} focusClassifyNonce={classifyNonce}
             focusInteraction={focusInteraction} dealMessages={messaging.messages} />
         )} />
 
-      {db.ndas.filter((n) => n.entity_id === entity.id).length > 0 && (
-        <Card title="NDAs on file">
-          <ul className="space-y-2 text-sm">
-            {db.ndas.filter((n) => n.entity_id === entity.id).map((n) => (
-              <li key={n.id} className="flex flex-wrap items-center gap-2">
-                <span>{n.file_name ?? 'NDA'}</span>
-                <span className="text-xs text-gray-400">
-                  uploaded {n.uploaded_at.slice(0, 10)}{n.uploaded_by ? ` by ${n.uploaded_by}` : ''}
-                </span>
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                  n.match_status === 'match' ? 'bg-green-100 text-green-800'
-                  : n.match_status === 'mismatch' ? 'bg-red-100 text-[#B00000]'
-                  : 'bg-amber-100 text-amber-800'}`} title={n.match_notes}>
-                  {n.match_status === 'match' ? 'AI check: match' : n.match_status === 'mismatch' ? 'AI check: mismatch — verify' : 'AI check: uncertain'}
-                </span>
-                <button
-                  onClick={async () => {
-                    const sb = browserClient();
-                    const { data, error } = await sb.storage.from('data-room').createSignedUrl(n.storage_path, 60);
-                    if (error) { alert(`Could not open file: ${error.message}`); return; }
-                    window.open(data.signedUrl, '_blank');
-                  }}
-                  className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
-                  Open
-                </button>
-              </li>
-            ))}
-          </ul>
-        </Card>
+      {/* Prompt 396 §5 — Zone B: sub-tabs for everything accessory to the
+          main flow. Only the active section mounts (same pattern as 394
+          §2's Company settings page) — the old md:grid-cols-3 stacking is
+          gone; each section gets the full width. */}
+      <div className="flex gap-1 overflow-x-auto border-b border-gray-200">
+        {([
+          { key: 'summary', label: 'Entity summary' },
+          { key: 'people', label: 'People & Team' },
+          { key: 'approach', label: 'Approach' },
+          { key: 'engagement', label: 'Engagement' },
+        ] as const).map((s) => (
+          // Prompt 396 §5.4 — `entity-people`'s tour anchor moved from the
+          // People card (only mounted on this tab) to this always-mounted
+          // tab button, same fix as 394 §2.4 for the same underlying
+          // problem: PageTour resolves every step's anchor up front, so a
+          // step whose anchor lives inside a not-yet-active tab gets
+          // silently dropped.
+          <button key={s.key} data-tour-id={s.key === 'people' ? 'entity-people' : undefined}
+            onClick={() => setActiveSection(s.key)}
+            className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${
+              activeSection === s.key ? 'border-[#0E7490] text-[#0E7490]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {activeSection === 'engagement' && (
+        <>
+          {db.ndas.filter((n) => n.entity_id === entity.id).length > 0 && (
+            <Card title="NDAs on file">
+              <ul className="space-y-2 text-sm">
+                {db.ndas.filter((n) => n.entity_id === entity.id).map((n) => (
+                  <li key={n.id} className="flex flex-wrap items-center gap-2">
+                    <span>{n.file_name ?? 'NDA'}</span>
+                    <span className="text-xs text-gray-400">
+                      uploaded {n.uploaded_at.slice(0, 10)}{n.uploaded_by ? ` by ${n.uploaded_by}` : ''}
+                    </span>
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                      n.match_status === 'match' ? 'bg-green-100 text-green-800'
+                      : n.match_status === 'mismatch' ? 'bg-red-100 text-[#B00000]'
+                      : 'bg-amber-100 text-amber-800'}`} title={n.match_notes}>
+                      {n.match_status === 'match' ? 'AI check: match' : n.match_status === 'mismatch' ? 'AI check: mismatch — verify' : 'AI check: uncertain'}
+                    </span>
+                    <button
+                      onClick={async () => {
+                        const sb = browserClient();
+                        const { data, error } = await sb.storage.from('data-room').createSignedUrl(n.storage_path, 60);
+                        if (error) { alert(`Could not open file: ${error.message}`); return; }
+                        window.open(data.signedUrl, '_blank');
+                      }}
+                      className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
+                      Open
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+          {(grants.length > 0 || views.length > 0) && (
+            <Card title="Data room engagement">
+              <div className="text-sm text-gray-600">
+                {grants.filter((g) => !g.revoked_at).length} active grant(s) · {views.length} view(s)
+              </div>
+              {views.slice(-3).reverse().map((v) => (
+                <div key={v.id} className="mt-1 text-xs text-gray-500">
+                  {db.documents.find((d) => d.id === v.document_id)?.name} — {v.viewed_at.slice(0, 16).replace('T', ' ')}
+                  {v.seconds ? ` · ${Math.round(v.seconds / 60)} min` : ''}
+                </div>
+              ))}
+            </Card>
+          )}
+        </>
       )}
 
+      {activeSection === 'summary' && (
       <Card title={<span data-tour-id="entity-summary">Entity summary</span>} right={
         <div className="flex flex-col items-end gap-1">
           <EnrichmentBadge label="Firmographic" result={completeness.firmographic} subjectType="entity" subjectId={entity.id} orgId={db.org.id} onEnriched={() => setContributionsRefreshKey((k) => k + 1)} />
@@ -486,17 +532,18 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         <CommunityConsensusPanel entityId={entity.id}
           onApplyValue={(field, value) => updateEntity(entity.id, { [field]: value } as Partial<typeof entity>)} />
       </Card>
+      )}
 
-      <EntityPeoplePanel entityId={entity.id} onShowsKeyPeopleFallback={setKeyPeopleShownInTeam} onPersonAdded={setJustAddedPersonId} />
+      {activeSection === 'people' && (
+        <div className="space-y-4">
+          <EntityPeoplePanel entityId={entity.id} onShowsKeyPeopleFallback={setKeyPeopleShownInTeam} onPersonAdded={setJustAddedPersonId} />
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="space-y-4 md:col-span-2">
           {/* Prompt 255 — "People (contact order enforced)" didn't explain
               itself even to the person who wrote the rule. The doctrine
               (one person at a time, most senior first — preflight's own
               seniority check enforces this, see rules.ts §5) is now in the
               title AND spelled out below it, not just implied by jargon. */}
-          <Card title={<span data-tour-id="entity-people">People — one at a time, senior first</span>}>
+          <Card title="People — one at a time, senior first">
             <p className="mb-2 text-xs text-gray-500">
               Approach one person per firm at a time, starting with the most senior. Parallel approaches to the
               same fund read as spraying.
@@ -543,17 +590,10 @@ export default function EntityPage({ params }: { params: { id: string } }) {
             </Card>
           )}
         </div>
+      )}
 
+      {activeSection === 'approach' && (
         <div className="space-y-4">
-          {pendingInterest && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Pending</span>
-              <span className="ml-1.5 text-xs text-amber-900">
-                This investor requested direct contact (level 3) on {new Date(pendingInterest.requestedAt).toLocaleDateString()}.
-              </span>
-              <Link href="/today" className="ml-1.5 text-xs font-medium text-[#0E7490] hover:underline">Decide in Today →</Link>
-            </div>
-          )}
           <Card title="Approach" tint="blue">
             <dl className="space-y-2 text-sm">
               <div><dt className="text-xs text-gray-500">Our angle</dt><dd>{entity.our_angle ?? '—'}</dd></div>
@@ -575,37 +615,34 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                   )}
                 </div>
               )}
+              {/* Prompt 396 §6 — this used to be its own "Round" card;
+                  nobody understood the name ("ninguém entende", direct
+                  feedback). It's the one thing it always was: the € THIS
+                  investor soft-circled/committed, feeding the round's
+                  progress on the dashboard — folded into Approach, with a
+                  label that says that plainly. Same field, same Save,
+                  same "Current: X" — only the home and the name changed. */}
+              <div>
+                <dt className="flex items-center gap-1 text-xs text-gray-500">
+                  Committed by this investor
+                  <TermHint text="The amount THIS investor soft-circled or committed. It counts toward your round's progress on the dashboard." />
+                </dt>
+                <dd className="mt-1">
+                  <div className="flex gap-2">
+                    <input value={interest || (entity.interest_eur ?? '')} onChange={(e) => setInterestLocal(e.target.value)}
+                      placeholder="e.g. 250000" className="w-28 rounded border border-gray-300 px-2 py-1 text-sm" />
+                    <button onClick={() => setInterest(entity.id, interest ? Number(interest) : undefined)}
+                      className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50">Save</button>
+                  </div>
+                  <div className="mt-1 text-xs text-gray-400">Current: {fmtEur(entity.interest_eur)}</div>
+                </dd>
+              </div>
             </dl>
           </Card>
           {showFormAssist && <FormAssistModal db={db} entityId={entity.id} onClose={() => setShowFormAssist(false)} />}
-          <Card title="Round">
-            <div className="text-sm">
-              <div className="text-xs text-gray-500">Soft-circled / committed</div>
-              <div className="mt-1 flex gap-2">
-                <input value={interest || (entity.interest_eur ?? '')} onChange={(e) => setInterestLocal(e.target.value)}
-                  placeholder="e.g. 250000" className="w-28 rounded border border-gray-300 px-2 py-1 text-sm" />
-                <button onClick={() => setInterest(entity.id, interest ? Number(interest) : undefined)}
-                  className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50">Save</button>
-              </div>
-              <div className="mt-1 text-xs text-gray-400">Current: {fmtEur(entity.interest_eur)}</div>
-            </div>
-          </Card>
-          {(grants.length > 0 || views.length > 0) && (
-            <Card title="Data room engagement">
-              <div className="text-sm text-gray-600">
-                {grants.filter((g) => !g.revoked_at).length} active grant(s) · {views.length} view(s)
-              </div>
-              {views.slice(-3).reverse().map((v) => (
-                <div key={v.id} className="mt-1 text-xs text-gray-500">
-                  {db.documents.find((d) => d.id === v.document_id)?.name} — {v.viewed_at.slice(0, 16).replace('T', ' ')}
-                  {v.seconds ? ` · ${Math.round(v.seconds / 60)} min` : ''}
-                </div>
-              ))}
-            </Card>
-          )}
           <TicketSignalCard orgId={db.org.id} people={people} />
         </div>
-      </div>
+      )}
 
       <ThreadDrawer entity={entity} open={drawerOpen} onClose={() => setDrawerOpen(false)}
         dealMessageTouches={dealMessageTouches} dealMessages={messaging.messages} />
@@ -615,6 +652,24 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           investorName={messaging.investorName ?? entity.name} open={messagingOpen} onClose={() => setMessagingOpen(false)}
           initialBody={ndaDraft ?? undefined}
         />
+      )}
+
+      {/* Prompt 396 §2.2 — moved from a floating line at the very top (a
+          visual band right above the content, even when small) to the
+          bottom of the page. Same discreet styling, same condition, same
+          modal — Prompt 285's own "reachable, never prominent" is better
+          served down here than competing with the header. */}
+      {entity.hard_filter_status !== 'resolved_blocked' && (
+        <div className="flex justify-end">
+          <button onClick={() => setReportingFraud(true)} className="text-xs text-gray-400 hover:text-red-700 hover:underline">
+            🚩 Report this investor
+          </button>
+        </div>
+      )}
+      {reportingFraud && (
+        <ReportFraudModal entityId={entity.id} entityName={entity.name}
+          onCancel={() => setReportingFraud(false)}
+          onReported={() => { setReportingFraud(false); resolveHardFilter(entity.id, 'resolved_blocked'); }} />
       )}
     </div>
   );
