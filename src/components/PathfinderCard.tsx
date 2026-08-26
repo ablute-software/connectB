@@ -40,30 +40,31 @@ export function PathfinderCard({ entityId }: { entityId: string }) {
   }
 
   const matches = data.matches ?? [];
+  // Prompt 396 §4 — an empty state used to still render a whole card just to
+  // say "nothing here" — noise, per direct tester feedback. Matches
+  // CompetitorInvestmentCard.tsx's own null-when-empty behavior right next
+  // to it. With matches > 0 this is unchanged — a real intro path.
+  if (matches.length === 0) return null;
 
   return (
     <Card title="🧭 Pathfinder">
-      {matches.length === 0 ? (
-        <p className="text-sm text-gray-400">None of your connections have a verified relationship with this investor yet.</p>
-      ) : (
-        <div className="space-y-2">
-          <p className="text-sm text-gray-600">{matches.length} of your connections {matches.length === 1 ? 'has' : 'have'} a verified relationship with {data.investorName}:</p>
-          <ul className="space-y-1.5">
-            {matches.map((m) => {
-              const alreadyAsked = m.alreadyRequested || askedIds.has(m.actorId);
-              return (
-                <li key={m.actorId} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 p-2">
-                  <span className="text-sm text-gray-800">{m.name}</span>
-                  <button onClick={() => ask(m.actorId)} disabled={alreadyAsked || busyId === m.actorId}
-                    className="shrink-0 rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
-                    {alreadyAsked ? 'Already asked' : `Ask ${m.name} for an intro`}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
+      <div className="space-y-2">
+        <p className="text-sm text-gray-600">{matches.length} of your connections {matches.length === 1 ? 'has' : 'have'} a verified relationship with {data.investorName}:</p>
+        <ul className="space-y-1.5">
+          {matches.map((m) => {
+            const alreadyAsked = m.alreadyRequested || askedIds.has(m.actorId);
+            return (
+              <li key={m.actorId} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 p-2">
+                <span className="text-sm text-gray-800">{m.name}</span>
+                <button onClick={() => ask(m.actorId)} disabled={alreadyAsked || busyId === m.actorId}
+                  className="shrink-0 rounded-full bg-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
+                  {alreadyAsked ? 'Already asked' : `Ask ${m.name} for an intro`}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
     </Card>
   );
 }
