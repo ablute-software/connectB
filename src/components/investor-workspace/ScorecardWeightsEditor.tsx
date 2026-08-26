@@ -1,26 +1,39 @@
 'use client';
-// Prompt 388 §C.1 / Prompt 390 §1 — Tabela 1: the constant-sum weight
-// editor for an investor's own scorecard criteria. Originally built inside
+// Prompt 388 §C.1 / Prompt 390 §1 — Tabela 1 ("Relative importance"): one
+// 0-10 value per scorecard criterion. Originally built inside
 // EvaluationToolsPanel.tsx (where criteria are also CREATED/reordered) but
 // that tab has nothing to do with a specific startup's dossier — the real
 // destination per 388 §C.3 is the TOP of ScorecardPanel.tsx's own "Your
 // scorecard" panel, above the read-only weighted table (Tabela 2). Extracted
 // here, unchanged logic, so both places render the exact same component
 // instead of two copies drifting apart over time.
+//
+// Prompt 393 §1 — feedback from real testers, via Nuno, discussed with the
+// math on the table: dragging one criterion used to redistribute the
+// change across the others to keep their SUM constant (388 §C.1's own
+// design). That's gone. Each criterion's value is now fully independent —
+// all of them can sit at 9 or 10 at once. The final weighted score
+// (investor-scorecard-summary.ts, UNCHANGED) already normalizes by the
+// REAL current sum — Σ(v×score)/Σv — so no redistribution logic is needed
+// anywhere: adding a criterion dilutes the others automatically inside
+// that one formula, and removing one un-dilutes them the same way. The
+// alternative (weight as a fraction of a fixed max) was considered and
+// rejected with Nuno — it would have needed the exact same real-sum
+// normalization to make the final score sensible, making the fixed
+// denominator pointless, or let the total score silently drift every time
+// a criterion was added/removed.
 import { useEffect, useRef, useState } from 'react';
-import { redistributeWeight, redistributeAfterRemoval, DEFAULT_NEW_CRITERION_WEIGHT } from '@/lib/investor-scorecard-weights';
+import { DEFAULT_NEW_CRITERION_WEIGHT } from '@/lib/investor-scorecard-weights';
 import { TermHint } from '@/components/ui';
 
 interface Criterion { id: string; label: string; weight: number; sort_order: number }
 
-// Prompt 388 §C.1 — a horizontal drag bar per criterion, constant-sum:
-// dragging one redistributes the change across the others via
-// redistributeWeight (investor-scorecard-weights.ts, pure/tested — Nuno's
-// own acceptance test lives there: 6 criteria at 5, drag one to 10, the
-// other 5 drop to 4). Local state updates on every pointer move for
-// immediate visual feedback; the network write happens ONCE, on release —
-// firing update_weights on every tick would be the exact "burst of
-// concurrent writes" class of bug the roadmap drag gesture hit (Prompt 386).
+// Prompt 388 §C.1 — a horizontal drag bar per criterion. Local state
+// updates on every pointer move for immediate visual feedback; the network
+// write happens ONCE, on release — firing a write on every tick would be
+// the exact "burst of concurrent writes" class of bug the roadmap drag
+// gesture hit (Prompt 386). Prompt 393 §1 — no longer touches any OTHER
+// criterion's value; onChange only ever updates this one.
 function WeightBar({ criterion, disabled, onDragEnd, onChange }: {
   criterion: Criterion; disabled: boolean;
   onChange: (id: string, weight: number) => void;
@@ -56,7 +69,7 @@ function WeightBar({ criterion, disabled, onDragEnd, onChange }: {
         }}
         onPointerMove={(e) => { if (dragging) onChange(criterion.id, valueFromClientX(e.clientX)); }}
         onPointerUp={() => { if (dragging) { setDragging(false); onDragEnd(); } }}
-        role="slider" aria-label={`Weight for ${criterion.label}`} aria-valuemin={0} aria-valuemax={10} aria-valuenow={criterion.weight}>
+        role="slider" aria-label={`Importance of ${criterion.label}`} aria-valuemin={0} aria-valuemax={10} aria-valuenow={criterion.weight}>
         <div className="pointer-events-none absolute inset-y-0 left-0 rounded-full bg-[#0E7490]/70 transition-[width]"
           style={{ width: `${(criterion.weight / 10) * 100}%` }} />
       </div>
@@ -91,34 +104,18 @@ export function ScorecardWeightsEditor({ onChanged }: { onChanged?: () => void }
 
   async function addCriterion() {
     if (!newLabel.trim()) return;
-    // Prompt 388 §C.1 — a new criterion enters at the scale's own midpoint
-    // (5), never a bare 1; the total is simply allowed to rise.
+    // A new criterion enters at the scale's own midpoint (5) — every
+    // other criterion's own value is untouched (Prompt 393 §1: the final
+    // score's own Σv denominator absorbs this automatically).
     await post({ action: 'create', label: newLabel.trim(), weight: DEFAULT_NEW_CRITERION_WEIGHT });
     setNewLabel('');
   }
 
   async function removeCriterion(id: string) {
-    if (!criteria) return;
-    // Prompt 388 §C.1 — "redistribuir o que ele tinha pelos restantes":
-    // compute the remaining set's new weights BEFORE deleting, then persist
-    // both in one go (delete + the redistributed weights for what's left).
-    const redistributed = redistributeAfterRemoval(criteria, id);
-    setBusy(true); setError(null);
-    try {
-      const delRes = await fetch('/api/portal/scorecard/criteria', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'delete', id }),
-      });
-      const delData = await delRes.json().catch(() => ({}));
-      if (!delRes.ok || delData.ok === false) { setError(delData.error ?? 'Could not remove — try again.'); return; }
-      if (redistributed.length > 0) {
-        const weights = Object.fromEntries(redistributed.map((c) => [c.id, c.weight]));
-        await fetch('/api/portal/scorecard/criteria', {
-          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'update_weights', weights }),
-        });
-      }
-      load();
-      onChanged?.();
-    } finally { setBusy(false); }
+    // Prompt 393 §1 — just delete it. No redistribution: the remaining
+    // criteria keep exactly the values they already had, and the final
+    // score's own Σ(v×score)/Σv formula un-dilutes them by itself.
+    await post({ action: 'delete', id });
   }
 
   function move(index: number, dir: -1 | 1) {
@@ -130,23 +127,27 @@ export function ScorecardWeightsEditor({ onChanged }: { onChanged?: () => void }
     void post({ action: 'reorder', order });
   }
 
-  // Local-only during a drag: the bar reflects redistributeWeight's own
-  // output immediately, the server write is a single batched call on
-  // release (handleDragEnd below).
+  // Local-only during a drag: this ONE criterion's bar reflects the
+  // pointer immediately, clamped to [0,10] — every other criterion's own
+  // value is left completely alone (Prompt 393 §1). The server write is a
+  // single batched call on release (handleDragEnd below), still using
+  // update_weights (a map of one entry here is a valid, if trivial, case
+  // of that same batch action — no new endpoint needed for this).
   function handleWeightChange(id: string, target: number) {
-    setCriteria((prev) => {
-      if (!prev) return prev;
-      const redistributed = redistributeWeight(prev, id, target);
-      const weightById = new Map(redistributed.map((c) => [c.id, c.weight]));
-      return prev.map((c) => ({ ...c, weight: weightById.get(c.id) ?? c.weight }));
-    });
+    const clamped = Math.max(0, Math.min(10, Math.round(target)));
+    setCriteria((prev) => (prev ? prev.map((c) => (c.id === id ? { ...c, weight: clamped } : c)) : prev));
   }
-  function handleDragEnd() {
-    if (!criteria) return;
-    const weights = Object.fromEntries(criteria.map((c) => [c.id, c.weight]));
-    void fetch('/api/portal/scorecard/criteria', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'update_weights', weights }),
-    }).then(() => onChanged?.());
+  function handleDragEnd(id: string) {
+    setCriteria((prev) => {
+      const current = prev?.find((c) => c.id === id);
+      if (current) {
+        void fetch('/api/portal/scorecard/criteria', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'update_weights', weights: { [id]: current.weight } }),
+        }).then(() => onChanged?.());
+      }
+      return prev;
+    });
   }
 
   if (criteria === null) return <p className="text-sm text-gray-400">Loading…</p>;
@@ -154,10 +155,13 @@ export function ScorecardWeightsEditor({ onChanged }: { onChanged?: () => void }
   return (
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs text-gray-500">
-          Weight is relative importance across your criteria — drag one up, the others move down to compensate.
-        </p>
-        <TermHint text="Weight is relative importance, not a score. Drag one up and the others move down to compensate — the total across all of them never changes." />
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Relative importance</h3>
+          <p className="mt-0.5 text-xs text-gray-500">
+            Each criterion moves on its own — set how much it matters to you, independently.
+          </p>
+        </div>
+        <TermHint text="Each criterion's value is independent — raising one never lowers the others. Your final scorecard weighs every rating by these values, so a criterion set to 0 has no effect on your final score." />
       </div>
       {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{error}</p>}
 
@@ -176,7 +180,7 @@ export function ScorecardWeightsEditor({ onChanged }: { onChanged?: () => void }
                 <button disabled={i === criteria.length - 1 || busy} onClick={() => move(i, 1)} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30">▼</button>
               </div>
               <div className="min-w-0 flex-1">
-                <WeightBar criterion={c} disabled={busy} onChange={handleWeightChange} onDragEnd={handleDragEnd} />
+                <WeightBar criterion={c} disabled={busy} onChange={handleWeightChange} onDragEnd={() => handleDragEnd(c.id)} />
               </div>
               <button disabled={busy} onClick={() => void removeCriterion(c.id)} aria-label={`Remove ${c.label}`} title="Remove"
                 className="shrink-0 text-xs text-gray-400 hover:text-[#B00000] disabled:opacity-30">✕</button>

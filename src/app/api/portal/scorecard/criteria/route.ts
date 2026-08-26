@@ -57,10 +57,9 @@ export async function POST(req: Request) {
     const { data: last } = await admin.from('investor_scorecard_criteria').select('sort_order')
       .eq('investor_member_id', member.id).order('sort_order', { ascending: false }).limit(1).maybeSingle();
     const nextOrder = (last?.sort_order ?? -1) + 1;
-    // Prompt 388 §C.1 — a new criterion enters at the scale's own midpoint,
-    // never a bare "1"; the constant-sum rule only ever applies to an
-    // EXISTING criterion being dragged, so the total is simply allowed to
-    // rise here, per the prompt's own words.
+    // Prompt 388 §C.1 / 393 §1 — a new criterion enters at the scale's own
+    // midpoint, never a bare "1"; every other criterion's value is
+    // independent and untouched by this insert.
     const { error } = await admin.from('investor_scorecard_criteria').insert({
       investor_member_id: member.id, label, weight: body.weight ?? DEFAULT_NEW_CRITERION_WEIGHT, sort_order: nextOrder,
     });
@@ -68,14 +67,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  // Prompt 388 §C.1 — one atomic batch write for a whole redistributed set
-  // (a drag, or the redistribution after a delete): the client already ran
-  // redistributeWeight/redistributeAfterRemoval (investor-scorecard-
-  // weights.ts) and just needs every affected row persisted together —
-  // never N sequential 'update' round-trips fighting a fast drag gesture.
-  // Every id is re-checked against investor_member_id, same boundary as
-  // every other action here — a weights map naming an id this member
-  // doesn't own is simply skipped, never a cross-member write.
+  // Prompt 388 §C.1 — one atomic batch write, keyed by id -> weight. Prompt
+  // 393 §1 removed the client-side redistribution this used to persist
+  // (each criterion is independent now); a drag still batches through this
+  // same action, just with a single entry in the map. Every id is
+  // re-checked against investor_member_id, same boundary as every other
+  // action here — a weights map naming an id this member doesn't own is
+  // simply skipped, never a cross-member write.
   if (body.action === 'update_weights') {
     if (!body.weights || typeof body.weights !== 'object') {
       return NextResponse.json({ ok: false, error: 'weights is required.' }, { status: 400 });
