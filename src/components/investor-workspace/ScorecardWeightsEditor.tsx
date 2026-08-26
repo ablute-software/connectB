@@ -36,10 +36,18 @@ function WeightBar({ criterion, disabled, onDragEnd, onChange }: {
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="w-20 shrink-0 truncate text-sm text-gray-800" title={criterion.label}>{criterion.label}</span>
+    // Prompt 392 §1 — this row's fixed pieces (label + number, both
+    // shrink-0) plus the ▲▼/Remove pieces around it in the <li> below were,
+    // together, wider than the narrow (260px) left column actually had to
+    // give — confirmed live: with no overflow-hidden backstop, the excess
+    // painted over the START of the center column's own text instead of
+    // wrapping or clipping. `min-w-0` on the track lets it actually shrink
+    // (a flex item's default min-width is its own content size, not 0);
+    // `w-14` (was `w-20`) + tighter gaps free up real room for it.
+    <div className="flex min-w-0 items-center gap-1.5">
+      <span className="w-14 shrink-0 truncate text-sm text-gray-800" title={criterion.label}>{criterion.label}</span>
       <div ref={trackRef}
-        className={`relative h-6 flex-1 rounded-full bg-gray-100 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-ew-resize'}`}
+        className={`relative h-6 min-w-0 flex-1 rounded-full bg-gray-100 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-ew-resize'}`}
         onPointerDown={(e) => {
           if (disabled) return;
           (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -52,7 +60,7 @@ function WeightBar({ criterion, disabled, onDragEnd, onChange }: {
         <div className="pointer-events-none absolute inset-y-0 left-0 rounded-full bg-[#0E7490]/70 transition-[width]"
           style={{ width: `${(criterion.weight / 10) * 100}%` }} />
       </div>
-      <span className="w-6 shrink-0 text-right text-xs font-semibold text-gray-600">{criterion.weight}</span>
+      <span className="w-5 shrink-0 text-right text-xs font-semibold text-gray-600">{criterion.weight}</span>
     </div>
   );
 }
@@ -158,16 +166,20 @@ export function ScorecardWeightsEditor({ onChanged }: { onChanged?: () => void }
       ) : (
         <ul className="space-y-2">
           {criteria.map((c, i) => (
-            <li key={c.id} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white p-2">
-              <div className="flex flex-col">
+            // Prompt 392 §1 — overflow-hidden here is the hard backstop: even
+            // if some future addition to this row misjudges its own width,
+            // the excess clips inside this row's own box instead of ever
+            // bleeding into whatever sits beside this column again.
+            <li key={c.id} className="flex items-center gap-1.5 overflow-hidden rounded-lg border border-gray-200 bg-white p-1.5">
+              <div className="flex shrink-0 flex-col">
                 <button disabled={i === 0 || busy} onClick={() => move(i, -1)} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30">▲</button>
                 <button disabled={i === criteria.length - 1 || busy} onClick={() => move(i, 1)} className="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30">▼</button>
               </div>
               <div className="min-w-0 flex-1">
                 <WeightBar criterion={c} disabled={busy} onChange={handleWeightChange} onDragEnd={handleDragEnd} />
               </div>
-              <button disabled={busy} onClick={() => void removeCriterion(c.id)}
-                className="text-xs text-gray-400 hover:text-[#B00000] disabled:opacity-30">Remove</button>
+              <button disabled={busy} onClick={() => void removeCriterion(c.id)} aria-label={`Remove ${c.label}`} title="Remove"
+                className="shrink-0 text-xs text-gray-400 hover:text-[#B00000] disabled:opacity-30">✕</button>
             </li>
           ))}
         </ul>

@@ -615,13 +615,17 @@ export default function StartupDossierPage() {
           // regardless of tab. Mobile (below lg): stacked, collapsible via
           // <details> — never a second parallel layout, just the same
           // content, disclosed instead of always-open.
-          // Prompt 389 §1 — 260px_1fr_260px, not the 300px 352 §A once
-          // widened it to: that was fixed-width regardless of content, and
-          // forced the Overview's own 7 sub-tab pills into horizontal
-          // scroll on a normal laptop width — confirmed live. 260px is what
-          // both columns' actual content (this scorecard, "My evaluation",
-          // a single doc rating) needs; drops to a real 2-column template
-          // (no reserved-but-empty third track) outside Overview/Documents.
+          // Prompt 389 §1 / 392 §2 — 260px_1fr_260px (389) forced the
+          // Overview's own 7 sub-tab pills into horizontal scroll on a
+          // normal laptop width, confirmed live; widening <main> (390 §2)
+          // then left the LEFT column disproportionately narrow next to a
+          // much wider center, AND too narrow for Tabela 1's own row (label
+          // + drag bar + number + Remove) to fit without overflowing onto
+          // the center — confirmed live via screenshot, the actual cause of
+          // "SWOT" reading as "WOT". 320px left / 260px right (Nuno marked
+          // the left boundary on a screenshot; the right one wasn't
+          // touched) is the fix; drops to a real 2-column template (no
+          // reserved-but-empty third track) outside Overview/Documents.
           // Sticky columns get their own max-height + internal scroll
           // (`overflow-y-auto`) so a tall scorecard/doc-score column can
           // never grow past the viewport and spill into content below it —
@@ -637,11 +641,8 @@ export default function StartupDossierPage() {
           // but ONLY on the two top-level tabs it actually means something
           // on — Prompt 389 §2's own correction to 388 §B: the right column
           // is never a documents thing on Overview, and never an evaluation
-          // thing on Documents. Prompt 389 §1 — 300px fixed was forcing the
-          // 7 Overview sub-tab pills into horizontal scroll on a normal
-          // laptop width; 260px is what both columns' actual content (this
-          // scorecard, "My evaluation", a single doc rating) needs.
-          <div className={`grid grid-cols-1 gap-4 lg:items-start ${showRightColumn ? 'lg:grid-cols-[260px_1fr_260px]' : 'lg:grid-cols-[260px_1fr]'}`}>
+          // thing on Documents.
+          <div className={`grid grid-cols-1 gap-4 lg:items-start ${showRightColumn ? 'lg:grid-cols-[320px_1fr_260px]' : 'lg:grid-cols-[320px_1fr]'}`}>
             <details className="rounded-lg border border-gray-200 bg-white lg:hidden">
               <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">Your scorecard</summary>
               <div className="border-t border-gray-100 p-2 space-y-2">
