@@ -888,7 +888,15 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
             <div className="mt-2 space-y-2">
               {s.documents.map((d) => (
                 <div key={d.id} className="flex items-center gap-3 rounded-lg border border-gray-100 p-3">
-                  <span className="text-lg">▤</span>
+                  {/* Prompt 394 §3 — was the Unicode glyph ▤ (U+25A4), which
+                      renders with a chromatic fringe on some systems (confirmed
+                      by pixel inspection of a screenshot); no other emoji-as-icon
+                      in the app has this problem, so this is a plain inline SVG
+                      swap, scoped to just these two document-row icons. */}
+                  <svg className="h-[18px] w-[18px] shrink-0 text-gray-400" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+                    <path d="M4.5 1.5h6l3 3v10.5a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-12.5a1 1 0 0 1 1-1Z" />
+                    <path d="M10.5 1.5v3h3" />
+                  </svg>
                   <div className="flex-1">
                     <div className="text-sm font-medium">{d.name}</div>
                     <div className="text-xs text-gray-400">
@@ -912,7 +920,15 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
             <div className="mt-2 space-y-2">
               {sharedDocs.map((d) => (
                 <div key={d.id} className="flex items-center gap-3 rounded-lg border border-gray-100 p-3">
-                  <span className="text-lg">▤</span>
+                  {/* Prompt 394 §3 — was the Unicode glyph ▤ (U+25A4), which
+                      renders with a chromatic fringe on some systems (confirmed
+                      by pixel inspection of a screenshot); no other emoji-as-icon
+                      in the app has this problem, so this is a plain inline SVG
+                      swap, scoped to just these two document-row icons. */}
+                  <svg className="h-[18px] w-[18px] shrink-0 text-gray-400" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+                    <path d="M4.5 1.5h6l3 3v10.5a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-12.5a1 1 0 0 1 1-1Z" />
+                    <path d="M10.5 1.5v3h3" />
+                  </svg>
                   <div className="flex-1 text-sm font-medium">{d.name}</div>
                   <ScoreBadge documentId={d.id} documentName={d.name} />
                   <SherlockSummaryButton orgId={orgId} documentId={d.id} />
