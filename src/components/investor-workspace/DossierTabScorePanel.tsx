@@ -8,7 +8,8 @@
 import { useEffect, useState } from 'react';
 import { TermHint } from '@/components/ui';
 
-export type DossierScoreTab = 'about' | 'swot' | 'roadmap' | 'clarifications' | 'round' | 'market' | 'team';
+export const DOSSIER_SCORE_TABS = ['about', 'swot', 'roadmap', 'clarifications', 'round', 'market', 'team'] as const;
+export type DossierScoreTab = typeof DOSSIER_SCORE_TABS[number];
 
 interface TabScoreItem { criteriaId: string; label: string; weight: number; score: number | null; note: string | null }
 

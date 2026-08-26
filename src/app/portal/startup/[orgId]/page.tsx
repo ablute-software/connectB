@@ -18,12 +18,21 @@ import {
 } from '@/components/portal/DossierOverviewSections';
 import { FollowOnBadge } from '@/components/FollowOnBadge';
 import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
+import { DossierTabScorePanel, DOSSIER_SCORE_TABS, type DossierScoreTab } from '@/components/investor-workspace/DossierTabScorePanel';
 import { DocScorePanel, type DocScore, type DocScoreHistoryEntry } from '@/components/investor-workspace/DocScorePanel';
 import { WatsonEvaluationSupport } from '@/components/investor-workspace/WatsonEvaluationSupport';
 import { SherlockSummaryButton } from '@/components/investor-workspace/SherlockSummaryButton';
 import { DocumentRequestPicker } from '@/components/DocumentRequestPicker';
 import { Tooltip } from '@/components/ui';
 import { computeDilution, type ValuationBasis } from '@/lib/dilution';
+
+// Prompt 389 §2 — the 7 dossier tabs "My evaluation" actually scores; the
+// Overview sub-tabs Pitch/Traction aren't among them (388 §C.2's own
+// closed list), so the right column simply shows nothing there rather than
+// an empty box.
+function isScoreableTab(id: string): id is DossierScoreTab {
+  return (DOSSIER_SCORE_TABS as readonly string[]).includes(id);
+}
 
 // Prompt 355 §A — richer per-document shape: `current` is the score
 // matching the document's CURRENT version (or null when the founder has
@@ -130,6 +139,12 @@ export default function StartupDossierPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!docs, orgId]);
   const [focusedDoc, setFocusedDoc] = useState<{ id: string; name: string } | null>(null);
+  // Prompt 389 §2 — which Overview sub-tab (About/SWOT/Roadmap/...) is
+  // selected right now, reported up by DossierOverviewSections' own
+  // onActiveSectionChange — this is what "My evaluation" in the right
+  // column is scoped to, never a second/independent tab-tracking state.
+  const [overviewActiveTab, setOverviewActiveTab] = useState<DossierScoreTab | string>('about');
+  const showRightColumn = trackEvaluate && (tab === 'overview' || tab === 'documents');
 
   // Prompt 348 §A/§B — "Watching closely". Fetched once eligibility is
   // known, independent of the active tab (same reasoning as messagesInfo).
@@ -574,20 +589,29 @@ export default function StartupDossierPage() {
           PARAGRAFO (max-w dentro do cartao do About), nao da pagina. */}
       <main className={tab === 'messages' && !trackEvaluate ? 'mx-auto max-w-4xl p-4 md:p-8' : 'mx-auto max-w-6xl p-4 md:p-8'}>
         {trackEvaluate ? (
-          // Prompt 347 §A/§B — the 3-column grid is a `sticky`-in-grid
-          // layout, deliberately NOT `position: fixed` to the viewport (the
+          // Prompt 347 §A/§B — the grid is a `sticky`-in-grid layout,
+          // deliberately NOT `position: fixed` to the viewport (the
           // WorkspaceHeader/backdrop-blur incident, CLAUDE.md): a
           // backdrop-blur/transform ancestor silently becomes the
           // containing block for a real fixed element, which this sticky
-          // grid item is immune to. Both side columns render unconditional
-          // of `tab` — same JSX tree across every sub-tab switch, so they
-          // never unmount/remount and the scorecard/focused-doc state
-          // survives navigation, exactly as required. Mobile (below lg):
-          // stacked, collapsible via <details> — never a second parallel
-          // layout, just the same content, disclosed instead of always-open.
-          // Prompt 352 §A — real grid columns with RESERVED space (never
-          // absolute/floating over the center): 260px_1fr_260px widened to
-          // 300px_1fr_300px, per the request not to squeeze the center.
+          // grid item is immune to. The LEFT column (scorecard) renders
+          // unconditional of `tab` — same JSX tree across every sub-tab
+          // switch, so it never unmounts/remounts and its state survives
+          // navigation. The RIGHT column is NOT unconditional (Prompt 389
+          // §2's own correction to that original design): it shows "My
+          // evaluation" on Overview, document rating on Documents, and
+          // nothing (2 real columns, not a dead empty one) everywhere else
+          // — the exact bug 388 §B introduced by making it always-present
+          // regardless of tab. Mobile (below lg): stacked, collapsible via
+          // <details> — never a second parallel layout, just the same
+          // content, disclosed instead of always-open.
+          // Prompt 389 §1 — 260px_1fr_260px, not the 300px 352 §A once
+          // widened it to: that was fixed-width regardless of content, and
+          // forced the Overview's own 7 sub-tab pills into horizontal
+          // scroll on a normal laptop width — confirmed live. 260px is what
+          // both columns' actual content (this scorecard, "My evaluation",
+          // a single doc rating) needs; drops to a real 2-column template
+          // (no reserved-but-empty third track) outside Overview/Documents.
           // Sticky columns get their own max-height + internal scroll
           // (`overflow-y-auto`) so a tall scorecard/doc-score column can
           // never grow past the viewport and spill into content below it —
@@ -599,10 +623,15 @@ export default function StartupDossierPage() {
           // template entirely when nothing was focused, to avoid squeezing
           // the center against dead white margin — but with a whole tab
           // navigated away and back, "the column vanished" reads as a bug,
-          // not a resting state (confirmed live, Prompt 388 §B). It's back
-          // for the full width of Track & Evaluate mode; the empty state
-          // below is what fills it instead of dead space.
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_1fr_300px] lg:items-start">
+          // not a resting state (confirmed live, Prompt 388 §B). It's back,
+          // but ONLY on the two top-level tabs it actually means something
+          // on — Prompt 389 §2's own correction to 388 §B: the right column
+          // is never a documents thing on Overview, and never an evaluation
+          // thing on Documents. Prompt 389 §1 — 300px fixed was forcing the
+          // 7 Overview sub-tab pills into horizontal scroll on a normal
+          // laptop width; 260px is what both columns' actual content (this
+          // scorecard, "My evaluation", a single doc rating) needs.
+          <div className={`grid grid-cols-1 gap-4 lg:items-start ${showRightColumn ? 'lg:grid-cols-[260px_1fr_260px]' : 'lg:grid-cols-[260px_1fr]'}`}>
             <details className="rounded-lg border border-gray-200 bg-white lg:hidden">
               <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">Your scorecard</summary>
               <div className="border-t border-gray-100 p-2 space-y-2">
@@ -617,43 +646,68 @@ export default function StartupDossierPage() {
 
             <div className="min-w-0">{renderTabContent()}</div>
 
-            {focusedDoc ? (
-              <>
-                <details className="rounded-lg border border-gray-200 bg-white lg:hidden" open>
-                  <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">Rate this document</summary>
-                  <div className="border-t border-gray-100 p-2">
+            {tab === 'overview' ? (
+              // Prompt 389 §2.1 — "A minha avaliação" for whichever Overview
+              // sub-tab is currently selected (About/SWOT/Roadmap/...),
+              // reported up via DossierOverviewSections' onActiveSectionChange
+              // (set on the DossierOverviewSections call below). Never
+              // documents here, regardless of what's focused on the
+              // Documents tab elsewhere on this page. Absent (not an empty
+              // box) for a sub-tab that isn't one of the 7 scoreable ones
+              // (Pitch/Traction) — DossierTabScorePanel itself is the one
+              // place that also returns null when no criteria exist yet.
+              isScoreableTab(overviewActiveTab) && (
+                <>
+                  <details className="rounded-lg border border-gray-200 bg-white lg:hidden" open>
+                    <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">My evaluation</summary>
+                    <div className="border-t border-gray-100 p-2">
+                      <DossierTabScorePanel orgId={orgId} tab={overviewActiveTab} />
+                    </div>
+                  </details>
+                  <div className="hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+                    <DossierTabScorePanel orgId={orgId} tab={overviewActiveTab} />
+                  </div>
+                </>
+              )
+            ) : tab === 'documents' ? (
+              focusedDoc ? (
+                <>
+                  <details className="rounded-lg border border-gray-200 bg-white lg:hidden" open>
+                    <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">Rate this document</summary>
+                    <div className="border-t border-gray-100 p-2">
+                      <DocScorePanel orgId={orgId} documentId={focusedDoc.id} documentName={focusedDoc.name}
+                        initial={docScores[focusedDoc.id]?.current ?? null}
+                        needsReRate={docScores[focusedDoc.id]?.needsReRate} history={docScores[focusedDoc.id]?.history}
+                        onSaved={(id, s) => setDocScores((prev) => ({ ...prev, [id]: { current: s, needsReRate: false, history: prev[id]?.history ?? [] } }))} />
+                    </div>
+                  </details>
+                  <div className="hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
                     <DocScorePanel orgId={orgId} documentId={focusedDoc.id} documentName={focusedDoc.name}
                       initial={docScores[focusedDoc.id]?.current ?? null}
                       needsReRate={docScores[focusedDoc.id]?.needsReRate} history={docScores[focusedDoc.id]?.history}
                       onSaved={(id, s) => setDocScores((prev) => ({ ...prev, [id]: { current: s, needsReRate: false, history: prev[id]?.history ?? [] } }))} />
                   </div>
-                </details>
-                <div className="hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
-                  <DocScorePanel orgId={orgId} documentId={focusedDoc.id} documentName={focusedDoc.name}
-                    initial={docScores[focusedDoc.id]?.current ?? null}
-                    needsReRate={docScores[focusedDoc.id]?.needsReRate} history={docScores[focusedDoc.id]?.history}
-                    onSaved={(id, s) => setDocScores((prev) => ({ ...prev, [id]: { current: s, needsReRate: false, history: prev[id]?.history ?? [] } }))} />
-                </div>
-              </>
-            ) : (
-              // Prompt 388 §B — explicit, not absent: an investor who's never
-              // opened a document in this mode used to see nothing here at
-              // all (the column didn't exist, per 356 §B above) and read it
-              // as "Track & Evaluate broke", not "nothing to show yet."
-              <>
-                <details className="rounded-lg border border-dashed border-gray-200 bg-gray-50/60 lg:hidden">
-                  <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-500">Rate this document</summary>
-                  <div className="border-t border-gray-100 p-3 text-center">
+                </>
+              ) : (
+                // Prompt 388 §B — explicit, not absent: an investor who's
+                // never opened a document in this mode used to see nothing
+                // here at all (the column didn't exist, per 356 §B above)
+                // and read it as "Track & Evaluate broke", not "nothing to
+                // show yet." Documents-only, per Prompt 389 §2 — this text
+                // is specifically about documents, so it belongs only here.
+                <>
+                  <details className="rounded-lg border border-dashed border-gray-200 bg-gray-50/60 lg:hidden">
+                    <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-500">Rate this document</summary>
+                    <div className="border-t border-gray-100 p-3 text-center">
+                      <p className="text-xs text-gray-400">Open a document to rate it.</p>
+                    </div>
+                  </details>
+                  <div className="hidden rounded-lg border border-dashed border-gray-200 bg-gray-50/60 p-4 text-center lg:sticky lg:top-24 lg:block">
                     <p className="text-xs text-gray-400">Open a document to rate it.</p>
-                    <button onClick={() => setTab('documents')} className="mt-1.5 text-xs font-medium text-[#0E7490] hover:underline">Go to Documents →</button>
                   </div>
-                </details>
-                <div className="hidden rounded-lg border border-dashed border-gray-200 bg-gray-50/60 p-4 text-center lg:sticky lg:top-24 lg:block">
-                  <p className="text-xs text-gray-400">Open a document to rate it.</p>
-                  <button onClick={() => setTab('documents')} className="mt-1.5 text-xs font-medium text-[#0E7490] hover:underline">Go to Documents →</button>
-                </div>
-              </>
-            )}
+                </>
+              )
+            ) : null}
           </div>
         ) : renderTabContent()}
       </main>
@@ -699,7 +753,7 @@ export default function StartupDossierPage() {
                 ))}
               </div>
             )}
-            <DossierOverviewSections card={card} level={level} dossier={dossier} onRequestLevel={requestLevel} levelBusy={levelBusy} trackEvaluate={trackEvaluate} />
+            <DossierOverviewSections card={card} level={level} dossier={dossier} onRequestLevel={requestLevel} levelBusy={levelBusy} onActiveSectionChange={setOverviewActiveTab} />
           </>
         )}
         {tab === 'documents' && (
