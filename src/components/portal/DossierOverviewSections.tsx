@@ -52,7 +52,12 @@ export interface Overview {
   founders: { full_name: string; title: string | null; bio: string | null; photo_url: string | null }[] | null;
   team_summary: string | null; representative_name: string | null; representative_linkedin: string | null;
 }
-export interface TeamMember { id: string; fullName: string; title: string | null; isFounder: boolean; linkedinUrl: string | null; email?: string }
+export interface TeamMember {
+  id: string; fullName: string; title: string | null; isFounder: boolean; linkedinUrl: string | null; email?: string;
+  // Prompt 388 §A — already exist and already filled in by founders
+  // (StartupTeamCard.tsx); the investor-facing query just never asked.
+  bio?: string | null; photoUrl?: string | null;
+}
 export interface ContactHistoryItem { id: string; at: string; content: string; channel: string | null }
 export interface DocumentTitle { id: string; name: string }
 // P136 — the disclosure ladder's own response shape. Keys are ABSENT (not
@@ -64,6 +69,9 @@ export interface Dossier {
   contactHistory?: ContactHistoryItem[]; documentTitles?: DocumentTitle[];
   canMessageNamedPerson?: boolean; canRequestDataRoom?: boolean;
   swot?: SwotData;
+  // Prompt 388 §D.1 — when review_runs last regenerated this snapshot; a
+  // SWOT with no `swot` key at all skips this too, same server gate.
+  swotGeneratedAt?: string | null;
   founderClarifications?: { category: ReviewCategory; text: string }[];
   // Prompt 359 Block E — one row per roadmap_events event (never the legacy
   // per-period milestones shape). document_id is present only when this
@@ -273,7 +281,18 @@ export function DossierOverviewSections({
       id: 'swot', label: 'SWOT',
       node: (
         <div id="swot" data-section="SWOT" className="scroll-mt-16 rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-[#0E7490]">SWOT snapshot</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-[#0E7490]">SWOT snapshot</h2>
+            {/* Prompt 388 §D.1 — a photo, not a live view: this only
+                regenerates when the founder clicks "Run analysis" (quota-
+                limited), so reading it as stale-and-broken instead of
+                dated-and-correct was the actual bug. */}
+            {dossier.swotGeneratedAt && (
+              <span className="text-[11px] text-gray-400" title="This is a snapshot — it updates only when the founder re-runs their analysis.">
+                Last updated: {new Date(dossier.swotGeneratedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+              </span>
+            )}
+          </div>
           <div className="mt-2"><SwotQuadrant data={dossier.swot} /></div>
         </div>
       ),
@@ -436,17 +455,31 @@ export function DossierOverviewSections({
             </div>
           )}
           {team.length > 0 ? (
-            <ul className="mt-2 space-y-1.5">
+            <ul className="mt-2 space-y-2.5">
               {team.map((p) => (
-                <li key={p.id} className="flex items-center justify-between gap-2 text-xs">
-                  <span className="text-gray-700">
-                    {p.fullName}{p.title && <span className="text-gray-400"> — {p.title}</span>}
-                    {p.isFounder && <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[10px] font-semibold text-[#0E7490]">Founder</span>}
-                    {p.email && <span className="ml-1.5 text-gray-400">· {p.email}</span>}
-                  </span>
-                  {p.linkedinUrl && (
-                    <a href={p.linkedinUrl} target="_blank" rel="noreferrer" className="shrink-0 text-[#0E7490] hover:underline">LinkedIn</a>
+                <li key={p.id} className="flex items-start gap-2.5 text-xs">
+                  {/* Prompt 388 §A — round avatar, initials fallback when
+                      photoUrl is empty (never an empty/broken image box). */}
+                  {p.photoUrl ? (
+                    <img src={p.photoUrl} alt="" className="mt-0.5 h-8 w-8 shrink-0 rounded-full object-cover" />
+                  ) : (
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#E8F4F8] text-[10px] font-semibold text-[#0E7490]">
+                      {p.fullName.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('')}
+                    </span>
                   )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-gray-700">
+                        {p.fullName}{p.title && <span className="text-gray-400"> — {p.title}</span>}
+                        {p.isFounder && <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[10px] font-semibold text-[#0E7490]">Founder</span>}
+                        {p.email && <span className="ml-1.5 text-gray-400">· {p.email}</span>}
+                      </span>
+                      {p.linkedinUrl && (
+                        <a href={p.linkedinUrl} target="_blank" rel="noreferrer" className="shrink-0 text-[#0E7490] hover:underline">LinkedIn</a>
+                      )}
+                    </div>
+                    {p.bio && <p className="mt-0.5 text-gray-500">{p.bio}</p>}
+                  </div>
                 </li>
               ))}
             </ul>

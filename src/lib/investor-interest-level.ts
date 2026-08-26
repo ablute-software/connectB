@@ -107,7 +107,12 @@ export function projectIntroPitch(source: IntroPitchSource): IntroPitchProjected
   return out;
 }
 
-export interface TeamMemberFull { id: string; fullName: string; title: string | null; isFounder: boolean; linkedinUrl: string | null; email: string | null }
+export interface TeamMemberFull {
+  id: string; fullName: string; title: string | null; isFounder: boolean; linkedinUrl: string | null; email: string | null;
+  // Prompt 388 §A — already exist on company_people, already filled in by
+  // founders; the investor-facing query just never selected them.
+  bio: string | null; photoUrl: string | null;
+}
 export interface ContactHistoryEntryFull { id: string; at: string; content: string; channel: string | null }
 export interface DocumentTitleFull { id: string; name: string }
 export interface OverviewFull {
@@ -163,7 +168,7 @@ export function projectDossier(
   // responsible for projecting the report down to SwotData BEFORE it ever
   // reaches here, so score/summary/risks/recommendations/company_facts have
   // no path into this function's input at all, let alone its output.
-  swot?: { visible: boolean; data: SwotData } | null,
+  swot?: { visible: boolean; data: SwotData; generatedAt?: string | null } | null,
   // Prompt 168 §D — already filtered to visible_to_investors=true rows by
   // the caller (route.ts queries WHERE visible_to_investors = true, so a
   // hidden clarification never even leaves the database, let alone reaches
@@ -213,7 +218,7 @@ export function projectDossier(
   // Checked again here (visible AND level >= 1), not just trusted from the
   // caller — same "the security-critical function doesn't trust a single
   // call site" discipline as the shareEmail gate below.
-  if (level >= 1 && swot?.visible && swot.data) out.swot = swot.data;
+  if (level >= 1 && swot?.visible && swot.data) { out.swot = swot.data; out.swotGeneratedAt = swot.generatedAt ?? null; }
   if (level >= 1 && founderClarifications && founderClarifications.length > 0) out.founderClarifications = founderClarifications;
   if (badges && badges.length > 0) out.badges = badges;
   if (media && media.length > 0) {
@@ -232,9 +237,12 @@ export function projectDossier(
   }
   if (level >= 2) {
     out.tractionDetailed = full.tractionDetailed;
+    // Prompt 388 §A — bio/photoUrl ride at the same tier as name/title (both
+    // branches), never gated behind shareEmail/level>=3 like email itself —
+    // a mini-bio and a headshot aren't a contact channel.
     out.team = full.team.map((p) => (shareEmail && level >= 3
-      ? { id: p.id, fullName: p.fullName, title: p.title, isFounder: p.isFounder, linkedinUrl: p.linkedinUrl, email: p.email }
-      : { id: p.id, fullName: p.fullName, title: p.title, isFounder: p.isFounder, linkedinUrl: p.linkedinUrl }));
+      ? { id: p.id, fullName: p.fullName, title: p.title, isFounder: p.isFounder, linkedinUrl: p.linkedinUrl, email: p.email, bio: p.bio, photoUrl: p.photoUrl }
+      : { id: p.id, fullName: p.fullName, title: p.title, isFounder: p.isFounder, linkedinUrl: p.linkedinUrl, bio: p.bio, photoUrl: p.photoUrl }));
     out.contactHistory = full.contactHistory;
     out.documentTitles = full.documentTitles;
   }

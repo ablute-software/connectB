@@ -595,13 +595,14 @@ export default function StartupDossierPage() {
           // (1024px) is where 3 real columns stop fitting comfortably;
           // below it, the stacked/accordion layout takes over, unchanged.
           //
-          // Prompt 356 §B — the right column's TRACK only exists in the grid
-          // template when there's real content for it (a focused document's
-          // scoring panel); with no doc in focus it was previously reserved
-          // as empty space regardless, squeezing the center against a dead
-          // white margin. 2 columns (scorecard + center) is the resting
-          // state; 3 only when Documents actually has a doc in focus.
-          <div className={`grid grid-cols-1 gap-4 lg:items-start ${focusedDoc ? 'lg:grid-cols-[300px_1fr_300px]' : 'lg:grid-cols-[300px_1fr]'}`}>
+          // Prompt 356 §B tried dropping the right column from the grid
+          // template entirely when nothing was focused, to avoid squeezing
+          // the center against dead white margin — but with a whole tab
+          // navigated away and back, "the column vanished" reads as a bug,
+          // not a resting state (confirmed live, Prompt 388 §B). It's back
+          // for the full width of Track & Evaluate mode; the empty state
+          // below is what fills it instead of dead space.
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_1fr_300px] lg:items-start">
             <details className="rounded-lg border border-gray-200 bg-white lg:hidden">
               <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">Your scorecard</summary>
               <div className="border-t border-gray-100 p-2 space-y-2">
@@ -616,7 +617,7 @@ export default function StartupDossierPage() {
 
             <div className="min-w-0">{renderTabContent()}</div>
 
-            {focusedDoc && (
+            {focusedDoc ? (
               <>
                 <details className="rounded-lg border border-gray-200 bg-white lg:hidden" open>
                   <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-700">Rate this document</summary>
@@ -632,6 +633,24 @@ export default function StartupDossierPage() {
                     initial={docScores[focusedDoc.id]?.current ?? null}
                     needsReRate={docScores[focusedDoc.id]?.needsReRate} history={docScores[focusedDoc.id]?.history}
                     onSaved={(id, s) => setDocScores((prev) => ({ ...prev, [id]: { current: s, needsReRate: false, history: prev[id]?.history ?? [] } }))} />
+                </div>
+              </>
+            ) : (
+              // Prompt 388 §B — explicit, not absent: an investor who's never
+              // opened a document in this mode used to see nothing here at
+              // all (the column didn't exist, per 356 §B above) and read it
+              // as "Track & Evaluate broke", not "nothing to show yet."
+              <>
+                <details className="rounded-lg border border-dashed border-gray-200 bg-gray-50/60 lg:hidden">
+                  <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-gray-500">Rate this document</summary>
+                  <div className="border-t border-gray-100 p-3 text-center">
+                    <p className="text-xs text-gray-400">Open a document to rate it.</p>
+                    <button onClick={() => setTab('documents')} className="mt-1.5 text-xs font-medium text-[#0E7490] hover:underline">Go to Documents →</button>
+                  </div>
+                </details>
+                <div className="hidden rounded-lg border border-dashed border-gray-200 bg-gray-50/60 p-4 text-center lg:sticky lg:top-24 lg:block">
+                  <p className="text-xs text-gray-400">Open a document to rate it.</p>
+                  <button onClick={() => setTab('documents')} className="mt-1.5 text-xs font-medium text-[#0E7490] hover:underline">Go to Documents →</button>
                 </div>
               </>
             )}

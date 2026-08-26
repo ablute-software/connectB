@@ -28,7 +28,7 @@ const FULL: FullDossierData = {
     roundTargetEur: 1000000, roundValuationEur: 5000000, roundValuationBasis: 'pre_money', roundMinTicketEur: 10000, roundInstruments: ['equity'],
   },
   tractionDetailed: { mrr: '10k' },
-  team: [{ id: 'p1', fullName: 'Nuno Marujo', title: 'CEO', isFounder: true, linkedinUrl: 'https://linkedin.com/in/nuno', email: 'nuno@ablute.pt' }],
+  team: [{ id: 'p1', fullName: 'Nuno Marujo', title: 'CEO', isFounder: true, linkedinUrl: 'https://linkedin.com/in/nuno', email: 'nuno@ablute.pt', bio: 'Ex-researcher turned founder.', photoUrl: 'https://example.com/nuno.jpg' }],
   contactHistory: [{ id: 'e1', at: '2026-08-01T00:00:00.000Z', content: 'Call', channel: 'call' }],
   documentTitles: [{ id: 'd1', name: 'Pitch Deck.pdf' }],
 };
@@ -51,7 +51,9 @@ describe('projectDossier', () => {
 
   it('level 2 exposes team/traction/contact-history/document-titles but not messaging capability, and never an email', () => {
     const result = projectDossier(2, FULL, false);
-    expect(result.team).toEqual([{ id: 'p1', fullName: 'Nuno Marujo', title: 'CEO', isFounder: true, linkedinUrl: 'https://linkedin.com/in/nuno' }]);
+    // Prompt 388 §A — bio/photoUrl travel at the same tier as name/title,
+    // never gated behind shareEmail/level 3 the way email is.
+    expect(result.team).toEqual([{ id: 'p1', fullName: 'Nuno Marujo', title: 'CEO', isFounder: true, linkedinUrl: 'https://linkedin.com/in/nuno', bio: 'Ex-researcher turned founder.', photoUrl: 'https://example.com/nuno.jpg' }]);
     expect((result.team as { email?: string }[])[0].email).toBeUndefined();
     expect(result.tractionDetailed).toEqual(FULL.tractionDetailed);
     expect(result.contactHistory).toEqual(FULL.contactHistory);

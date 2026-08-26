@@ -125,11 +125,19 @@ export async function fetchDossierRawData(
   let documentTitles: FullDossierData['documentTitles'] = [];
   let tractionDetailed: Record<string, unknown> = {};
   if (level >= 2) {
+    // Prompt 388 §A — bio/photo_url already exist on this table and founders
+    // already fill them in (StartupTeamCard.tsx's own "Mini-bio" + photo
+    // fields) — this query just never asked for them, so real, already-
+    // written data never reached the investor. Confirmed via code read
+    // before writing this: no other gap here, the rest of the dossier's
+    // thin sections are thin because the underlying data is thin, not
+    // because of a missing column.
     const { data: people } = await admin.from('company_people')
-      .select('id, full_name, title, is_founder, linkedin_url, email').eq('org_id', orgId).order('sort_order', { ascending: true });
+      .select('id, full_name, title, is_founder, linkedin_url, email, bio, photo_url').eq('org_id', orgId).order('sort_order', { ascending: true });
     team = (people ?? []).map((p) => ({
       id: p.id as string, fullName: p.full_name as string, title: p.title as string | null,
       isFounder: p.is_founder as boolean, linkedinUrl: p.linkedin_url as string | null, email: p.email as string | null,
+      bio: p.bio as string | null, photoUrl: p.photo_url as string | null,
     }));
     tractionDetailed = (overview?.traction_metrics as Record<string, unknown> | null) ?? {};
     if (investorContext) {
@@ -154,13 +162,13 @@ export async function fetchDossierRawData(
   // own toggle is on — no point reading review_runs at all if the answer is
   // going to be withheld anyway. Explicit projection to SwotData's 4 arrays
   // only: never the raw review_runs.report row.
-  let swot: { visible: boolean; data: SwotData } | null = null;
+  let swot: { visible: boolean; data: SwotData; generatedAt: string | null } | null = null;
   let swotToggleOn = true;
   if (level >= 1) {
     const { data: orgRow } = await admin.from('orgs').select('swot_visible_to_investors').eq('id', orgId).maybeSingle();
     swotToggleOn = (orgRow?.swot_visible_to_investors as boolean | null | undefined) ?? true;
     if (swotToggleOn) {
-      const { data: latestRun } = await admin.from('review_runs').select('report')
+      const { data: latestRun } = await admin.from('review_runs').select('report, created_at')
         .eq('org_id', orgId).order('created_at', { ascending: false }).limit(1).maybeSingle();
       // SO `report.investor_safe`, gerado por um prompt que nunca viu o
       // pipeline. Sem esse campo (runs anteriores a 211), o SWOT e null:
@@ -172,7 +180,13 @@ export async function fetchDossierRawData(
         // Sanitizado outra vez na leitura: barato, e cobre um run gravado
         // por uma versao anterior deste guarda.
         const { data: safe } = sanitizeInvestorSwot(report.investor_safe);
-        swot = { visible: true, data: safe };
+        // Prompt 388 §D.1 — SWOT is a snapshot by design (review_runs only
+        // regenerates on the founder's own "Run analysis" click, quota-
+        // limited) — confirmed via direct SQL that nothing in this pipeline
+        // caches or goes stale silently. Surfacing WHEN it was generated is
+        // what turns "this looks wrong/outdated" into "this is a photo,
+        // correctly read as one."
+        swot = { visible: true, data: safe, generatedAt: (latestRun?.created_at as string | null) ?? null };
       }
     }
   }
