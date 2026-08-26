@@ -53,6 +53,10 @@ interface MarketDossierData {
   visibleGroups: string[];
   rings?: MarketRingPublic[]; competitors?: MarketCompetitorPublic[]; rounds?: MarketRoundPublic[];
   trends?: MarketResearchItemPublic[]; regulatory?: MarketResearchItemPublic[]; definition?: MarketResearchItemPublic[];
+  // Prompt 384 §B.4 — the founder's own "how we'll take it" note, present
+  // only when `rings` is published (dossier-fetch.ts's own gate) — never a
+  // toggleable group of its own.
+  approach?: string;
 }
 
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
@@ -874,6 +878,13 @@ function MarketTab({ market }: { market: MarketDossierData }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {market.approach && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-gray-900">How they&apos;ll take it</h2>
+          <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700">{market.approach}</p>
         </div>
       )}
 

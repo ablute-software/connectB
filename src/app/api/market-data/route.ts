@@ -175,9 +175,22 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({})) as {
     market_size_value_eur?: number | null; market_size_scope?: string | null; market_size_year?: number | null;
     market_size_source?: string | null; growth_pct?: number | null;
-    segments?: string[]; competitors?: { name: string; country?: string; stage?: string; funding?: string; note?: string }[];
-    free_sources?: { label: string; url: string }[];
+    segments?: string[]; free_sources?: { label: string; url: string }[];
+    approach_note?: string | null;
   };
+
+  // Prompt 384 §B.4/§E.2 — approach_note validated server-side too, never
+  // only in the UI's maxLength (same discipline as every other gate in this
+  // route). Prompt 384 §E.2 — `competitors` is deliberately absent from this
+  // upsert: the editor that used to write it is gone from "Added by you"
+  // (CompetitorsCard's structured flow is the only way in now), and leaving
+  // the key out of this payload — rather than sending `[]` — means an
+  // existing row's `competitors` column is simply never touched by the SET
+  // clause a Supabase upsert generates, so old data stays exactly as it was
+  // (nothing to migrate away from silently on the next save).
+  if (body.approach_note != null && body.approach_note.length > 600) {
+    return NextResponse.json({ ok: false, error: 'Keep "How we\'ll take it" under 600 characters.' }, { status: 400 });
+  }
 
   const { error } = await admin.from('org_market_data').upsert({
     org_id: orgId,
@@ -187,8 +200,8 @@ export async function POST(req: Request) {
     market_size_source: body.market_size_source ?? null,
     growth_pct: body.growth_pct ?? null,
     segments: body.segments ?? [],
-    competitors: body.competitors ?? [],
     free_sources: body.free_sources ?? [],
+    approach_note: body.approach_note?.trim() || null,
     updated_at: new Date().toISOString(),
   }, { onConflict: 'org_id' });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

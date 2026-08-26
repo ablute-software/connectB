@@ -13,13 +13,23 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { marketResearchItemsAvailable, orgMarketDataAvailable } from '@/lib/market-data-capability';
 import { claimsAvailable } from '@/lib/blueprint-capability';
 import { normalizeAtom } from '@/lib/company-claims';
+import { addOrUpdateCompetitor } from '@/lib/market-competitor-write';
+import { vaultCitation } from '@/lib/market-rings';
 
-// Prompt 370 §C3 — a document-sourced item in one of these four sections
+// Prompt 370 §C3 — a document-sourced item in one of these three sections
 // auto-fills org_market_data (the "Added by you" form) instead of becoming
 // a claim: the founder corrects a pre-filled number/name instead of typing
 // it from scratch. trends/regulatory (and any web item) have no dedicated
 // org_market_data field, so those still become a claim below, unchanged.
-const AUTO_FILL_SECTIONS = new Set(['sizing', 'growth', 'segments', 'players']);
+//
+// Prompt 384 §E.2 — `players` used to be in this set too (document-sourced
+// only), merging into org_market_data.competitors — the OLD free-text list,
+// separate from the real structured one (org_competitors) CompetitorsCard's
+// own "Add" button already wrote to. Two write paths for "accept this
+// competitor" is exactly the bug §E exists to close, so `players` (document
+// OR web) now always takes the SAME structured, deduped path — see the
+// dedicated branch below instead of this set.
+const AUTO_FILL_SECTIONS = new Set(['sizing', 'growth', 'segments']);
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -55,6 +65,35 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // Prompt 384 §E.2 — `players`, document OR web, always becomes a real
+  // structured competitor (org_competitors + the shared market_companies
+  // library, deduped by domain/name) — the same path CompetitorsCard's own
+  // "Add" button already uses, never the old org_market_data.competitors
+  // free-text merge. structured.name is the extraction's own parsed
+  // company name when present (document pass); a web item has no
+  // `structured`, so it falls back to the title with the "Competitor: "
+  // prefix stripped, same fallback CompetitorsCard.tsx's client-side
+  // acceptSuggestionAsCompetitor already applies for the identical case.
+  if (item.section === 'players') {
+    const structuredName = (item.structured as { name?: string } | null)?.name;
+    const name = (structuredName ?? item.title.replace(/^Competitor:\s*/i, '')).trim();
+    if (!name) return NextResponse.json({ ok: false, error: 'This item has no competitor name to add.' }, { status: 400 });
+    const sourceUrl = item.source_url ?? (item.document_id ? vaultCitation(item.document_id as string, null) : undefined);
+    try {
+      await addOrUpdateCompetitor(admin, orgId, {
+        name, description: item.detail || undefined, sourceUrl,
+        sourceQuality: item.source_kind === 'document' ? 'founder_document' : 'secondary',
+        addedBy: 'ai',
+      });
+    } catch (e) {
+      return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
+    }
+    const { error } = await admin.from('market_research_items')
+      .update({ status: 'accepted', updated_at: new Date().toISOString() }).eq('id', body.id).eq('org_id', orgId);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, appliedTo: 'org_competitors' });
+  }
+
   // Prompt 370 §C3 — document items in an auto-fill section merge straight
   // into org_market_data (the manual form the founder would otherwise type
   // into from scratch) instead of becoming a claim.
@@ -72,9 +111,6 @@ export async function POST(req: Request) {
     } else if (item.section === 'segments' && typeof s.name === 'string') {
       const existingSegments = (current?.segments as string[] | undefined) ?? [];
       patch.segments = existingSegments.includes(s.name) ? existingSegments : [...existingSegments, s.name];
-    } else if (item.section === 'players' && typeof s.name === 'string') {
-      const existingCompetitors = (current?.competitors as Record<string, unknown>[] | undefined) ?? [];
-      patch.competitors = [...existingCompetitors, { name: s.name, country: s.country, stage: s.stage, note: s.note }];
     }
     const { error: upsertError } = await admin.from('org_market_data').upsert(patch, { onConflict: 'org_id' });
     if (upsertError) return NextResponse.json({ ok: false, error: upsertError.message }, { status: 500 });

@@ -7,38 +7,15 @@
 // match by domain then name against the whole shared library, update the
 // existing row instead of duplicating the same company.
 import { NextResponse } from 'next/server';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
-import { orgCompetitorsAvailable, marketCompanyExtendedFieldsAvailable, marketCompanyFlagsAvailable } from '@/lib/market-data-capability';
-import { findMatchingMarketCompany } from '@/lib/market-companies-dedup';
+import { orgCompetitorsAvailable, marketCompanyFlagsAvailable } from '@/lib/market-data-capability';
+import { addOrUpdateCompetitor } from '@/lib/market-competitor-write';
 
 async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
   const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
   return (data?.org_id as string | undefined) ?? null;
-}
-
-async function findOrCreateCompany(admin: SupabaseClient, candidate: {
-  name: string; domain?: string | null; sectors?: string[]; description?: string | null;
-  companyType?: string | null; sourceUrl?: string | null; sourceQuality?: string | null;
-}) {
-  const { data: existing } = await admin.from('market_companies').select('id, name, domain');
-  const match = findMatchingMarketCompany(candidate, (existing ?? []) as { id: string; name: string; domain: string | null }[]);
-  const extendedAvailable = await marketCompanyExtendedFieldsAvailable();
-  const now = new Date().toISOString();
-  const base = {
-    name: candidate.name, domain: candidate.domain ?? null, sectors: candidate.sectors ?? [], description: candidate.description ?? null,
-    source_url: candidate.sourceUrl ?? null, source_date: candidate.sourceUrl ? now.slice(0, 10) : null, source_quality: candidate.sourceQuality ?? null,
-    updated_at: now,
-    ...(extendedAvailable ? { company_type: candidate.companyType ?? null } : {}),
-  };
-  if (match) {
-    await admin.from('market_companies').update(base).eq('id', match.id);
-    return match.id;
-  }
-  const { data: created, error } = await admin.from('market_companies').insert(base).select('id').single();
-  if (error) throw new Error(error.message);
-  return created!.id as string;
 }
 
 export async function GET() {
@@ -109,15 +86,11 @@ export async function POST(req: Request) {
     // §0.2 safeguard #2 — "nothing enters without provenance."
     if (!body.sourceUrl?.trim()) return NextResponse.json({ ok: false, error: 'A source URL is required.' }, { status: 400 });
     try {
-      const companyId = await findOrCreateCompany(admin, {
+      const companyId = await addOrUpdateCompetitor(admin, orgId, {
         name, domain: body.domain?.trim() || null, sectors: body.sectors, description: body.description,
         companyType: body.companyType, sourceUrl: body.sourceUrl, sourceQuality: body.sourceQuality ?? 'secondary',
+        note: body.note, positioning: body.positioning, addedBy: 'founder',
       });
-      const { error } = await admin.from('org_competitors').upsert({
-        org_id: orgId, market_company_id: companyId, relation: body.relation ?? 'direct',
-        note: body.note ?? null, positioning: body.positioning ?? null, added_by: 'founder', updated_at: new Date().toISOString(),
-      }, { onConflict: 'org_id,market_company_id' });
-      if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true, companyId });
     } catch (e) {
       return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });

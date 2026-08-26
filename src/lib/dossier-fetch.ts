@@ -76,7 +76,7 @@ export interface DossierRawData {
   // whether a group is off vs. simply empty. Fail-closed by omission — a
   // group's DATA is only ever queried when its key is in visibleGroups (see
   // fetchDossierRawData's own market block), never fetched-then-hidden.
-  market: { visibleGroups: MarketGroupKey[] } & Partial<{
+  market: { visibleGroups: MarketGroupKey[]; approach?: string } & Partial<{
     rings: DossierMarketRing[]; competitors: DossierMarketCompetitor[]; rounds: DossierMarketRound[];
     trends: DossierMarketResearchItem[]; regulatory: DossierMarketResearchItem[]; definition: DossierMarketResearchItem[];
   }>;
@@ -312,6 +312,19 @@ export async function fetchDossierRawData(
   // before returning — a group's data can never leave this function unless
   // its key survives BOTH the query gate and this final filter.
   const market = { visibleGroups, ...projectMarketDataForInvestor(visibleGroups, marketFull) } as DossierRawData['market'];
+
+  // Prompt 384 §B.4 — `approach` (the founder's own "how we'll take it"
+  // note) rides alongside `rings` rather than being its own toggleable
+  // group: it's the "so what" of the sizing numbers, so it's only ever
+  // fetched — fail-closed, same discipline as every group above — when
+  // `rings` itself is published. Content DECLARED by the founder (not
+  // platform-derived), so the CLAUDE.md privacy root rule doesn't gate it;
+  // migration 0249's own header has the full reasoning.
+  if (visibleGroups.includes('rings')) {
+    const { data: approachRow } = await admin.from('org_market_data').select('approach_note').eq('org_id', orgId).maybeSingle();
+    const note = (approachRow?.approach_note as string | null | undefined)?.trim();
+    if (note) market.approach = note;
+  }
 
   // Founder clarifications. `.eq('visible_to_investors', true)` in the
   // query itself, not a JS filter after the fact — a hidden clarification

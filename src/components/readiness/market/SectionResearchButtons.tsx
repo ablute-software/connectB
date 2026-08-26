@@ -11,6 +11,13 @@
 // cleared the spinner, and `onDone` never ran — the founder clicked and
 // literally nothing changed. Every path below ends in a state the founder
 // can see and act on.
+//
+// Prompt 384 §C.2 — refactored from "one row of 7 buttons" into a single-
+// section component: the Research view now shows one section at a time
+// (left menu, right content), so each section's own button lives beside
+// ITS OWN outcome banner and pending items, not grouped with the other six.
+// The three-outcome contract and the real-cost-history estimate are
+// unchanged — only the render shape (one button, not a row) moved.
 import { useEffect, useState } from 'react';
 import { SECTIONS, type Section } from '@/lib/market-research-sections';
 
@@ -24,19 +31,18 @@ export type SectionOutcome =
   | { kind: 'empty'; section: Section; costEur: number | null }
   | { kind: 'found'; section: Section; costEur: number | null; count: number };
 
-export function SectionResearchButtons({ onDone }: { onDone: (outcome: SectionOutcome) => void }) {
-  const [estimates, setEstimates] = useState<Record<string, { estimateEur: number; basedOnRuns: number }>>({});
-  const [running, setRunning] = useState<Section | null>(null);
+export function SectionResearchButton({ section, onDone }: { section: Section; onDone: (outcome: SectionOutcome) => void }) {
+  const [estimate, setEstimate] = useState<{ estimateEur: number; basedOnRuns: number } | null>(null);
+  const [running, setRunning] = useState(false);
 
   useEffect(() => {
-    SECTIONS.forEach((s) => {
-      fetch(`/api/market-data/research/estimate?section=${s}`).then((r) => r.json())
-        .then((body) => setEstimates((prev) => ({ ...prev, [s]: body }))).catch(() => {});
-    });
-  }, []);
+    setEstimate(null);
+    fetch(`/api/market-data/research/estimate?section=${section}`).then((r) => r.json())
+      .then((body) => setEstimate(body)).catch(() => {});
+  }, [section]);
 
-  async function run(section: Section) {
-    setRunning(section);
+  async function run() {
+    setRunning(true);
     try {
       const res = await fetch(`/api/market-data/research?section=${section}&force=1`);
       // A 504/HTML gateway page is NOT json — this is the exact failure the
@@ -57,25 +63,19 @@ export function SectionResearchButtons({ onDone }: { onDone: (outcome: SectionOu
     } catch {
       onDone({ kind: 'error', section, message: 'The search couldn\'t reach the server — check your connection and try again.' });
     } finally {
-      setRunning(null);
+      setRunning(false);
     }
   }
 
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {SECTIONS.map((s) => {
-        const est = estimates[s];
-        return (
-          <button key={s} disabled={running !== null} onClick={() => run(s)}
-            title={est ? (est.basedOnRuns > 0 ? `Usually costs ≈ €${est.estimateEur.toFixed(3)}` : `Estimated ≈ €${est.estimateEur.toFixed(2)} (no history yet)`) : undefined}
-            className="rounded-lg border border-[#0E7490] px-2.5 py-1 text-xs font-medium text-[#0E7490] hover:bg-[#E8F4F8] disabled:opacity-40">
-            {running === s ? 'Researching…' : SECTION_LABEL[s]}
-            {est && <span className="ml-1 text-[10px] text-gray-400">≈€{est.estimateEur.toFixed(3)}</span>}
-          </button>
-        );
-      })}
-    </div>
+    <button disabled={running} onClick={run}
+      title={estimate ? (estimate.basedOnRuns > 0 ? `Usually costs ≈ €${estimate.estimateEur.toFixed(3)}` : `Estimated ≈ €${estimate.estimateEur.toFixed(2)} (no history yet)`) : undefined}
+      className="rounded-lg border border-[#0E7490] px-3 py-1.5 text-xs font-medium text-[#0E7490] hover:bg-[#E8F4F8] disabled:opacity-40">
+      {running ? 'Researching…' : `Research ${SECTION_LABEL[section]}`}
+      {estimate && <span className="ml-1 text-[10px] text-gray-400">≈€{estimate.estimateEur.toFixed(3)}</span>}
+    </button>
   );
 }
 
-export { SECTION_LABEL };
+export { SECTIONS, SECTION_LABEL };
+export type { Section };
