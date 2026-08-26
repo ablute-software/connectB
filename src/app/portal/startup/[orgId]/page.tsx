@@ -431,10 +431,53 @@ export default function StartupDossierPage() {
             {/* Prompt 354 §A — tertiary group: smaller, lighter than the
                 secondary Watch control above. */}
             <div className="flex items-center gap-1.5 border-l border-gray-200 pl-2">
-              <button onClick={() => setEquityCalcOpen((v) => !v)}
-                className="rounded-lg px-2 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700">
-                🧮 Equity calculator
-              </button>
+              {/* Prompt 391 — the card used to render as a plain block in
+                  the page's normal flow, way below both header columns,
+                  landing under the startup's own title on the far LEFT
+                  instead of under the button that opens it (confirmed by
+                  screenshot). `relative` here + `absolute` on the card
+                  below anchors it to this button specifically — never
+                  `fixed` (CLAUDE.md's own backdrop-blur/transform
+                  containing-block trap; `absolute` under an immediate
+                  `relative` parent is immune to that). */}
+              <div className="relative">
+                <button onClick={() => setEquityCalcOpen((v) => !v)}
+                  className="rounded-lg px-2 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700">
+                  🧮 Equity calculator
+                </button>
+                {equityCalcOpen && (
+                  <div className="absolute right-0 top-full z-20 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
+                    {card.roundValuationEur == null ? (
+                      <p className="text-xs text-gray-500">No valuation on file for {card.name}&apos;s round yet — the calculator needs one.</p>
+                    ) : (() => {
+                      const ticketEur = Number(equityTicket || card.roundMinTicketEur || 50000) || 0;
+                      const result = computeDilution({
+                        ticketEur, roundValuationEur: card.roundValuationEur, roundTargetEur: card.roundTargetEur ?? 0,
+                        valuationBasis: (card.roundValuationBasis ?? 'pre_money') as ValuationBasis, futureRoundDilutionsPct: [],
+                      });
+                      return (
+                        <>
+                          <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                            Your ticket
+                            <input type="number" value={equityTicket || String(card.roundMinTicketEur ?? 50000)}
+                              onChange={(e) => setEquityTicket(e.target.value)}
+                              className="w-28 rounded border border-gray-300 px-2 py-1 text-xs" />
+                          </label>
+                          <p className="mt-2 text-sm text-gray-900">
+                            ≈ <b className="text-[#0E7490]">{result.ownershipAfterThisRoundPct.toFixed(2)}%</b> ownership after this round
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-gray-400">
+                            Post-money {fmtEur(result.postMoneyEur)} · {(card.roundValuationBasis ?? 'pre_money') === 'post_money' ? 'post-money' : 'pre-money'} valuation on file
+                          </p>
+                        </>
+                      );
+                    })()}
+                    <Link href={`/portal?tab=evaluation&orgId=${orgId}`} className="mt-2 inline-block text-xs font-medium text-[#0E7490] hover:underline">
+                      Full calculator →
+                    </Link>
+                  </div>
+                )}
+              </div>
               <Link href={`/portal/startup/${orgId}/memo`}
                 className="rounded-lg px-2 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700">
                 📄 Export deal memo
@@ -451,46 +494,6 @@ export default function StartupDossierPage() {
             {card.isArchived && <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500">📦 Archived</span>}
           </div>
         </div>
-
-        {/* Prompt 354 §C — the mini equity calculator: expands inline in
-            the free space right below the header, no modal, never
-            `fixed` (same containing-block discipline as everywhere else
-            in this app). Pre-filled from the deal's own data already on
-            this page — never a second fetch for numbers we already have.
-            Reuses computeDilution (dilution.ts) — the SAME math
-            ReturnScenarioTool/EvaluationTools use, never reimplemented. */}
-        {equityCalcOpen && (
-          <div className="mt-2 max-w-sm rounded-lg border border-gray-200 bg-white p-3">
-            {card.roundValuationEur == null ? (
-              <p className="text-xs text-gray-500">No valuation on file for {card.name}&apos;s round yet — the calculator needs one.</p>
-            ) : (() => {
-              const ticketEur = Number(equityTicket || card.roundMinTicketEur || 50000) || 0;
-              const result = computeDilution({
-                ticketEur, roundValuationEur: card.roundValuationEur, roundTargetEur: card.roundTargetEur ?? 0,
-                valuationBasis: (card.roundValuationBasis ?? 'pre_money') as ValuationBasis, futureRoundDilutionsPct: [],
-              });
-              return (
-                <>
-                  <label className="flex items-center gap-1.5 text-xs text-gray-600">
-                    Your ticket
-                    <input type="number" value={equityTicket || String(card.roundMinTicketEur ?? 50000)}
-                      onChange={(e) => setEquityTicket(e.target.value)}
-                      className="w-28 rounded border border-gray-300 px-2 py-1 text-xs" />
-                  </label>
-                  <p className="mt-2 text-sm text-gray-900">
-                    ≈ <b className="text-[#0E7490]">{result.ownershipAfterThisRoundPct.toFixed(2)}%</b> ownership after this round
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-gray-400">
-                    Post-money {fmtEur(result.postMoneyEur)} · {(card.roundValuationBasis ?? 'pre_money') === 'post_money' ? 'post-money' : 'pre-money'} valuation on file
-                  </p>
-                </>
-              );
-            })()}
-            <Link href={`/portal?tab=evaluation&orgId=${orgId}`} className="mt-2 inline-block text-xs font-medium text-[#0E7490] hover:underline">
-              Full calculator →
-            </Link>
-          </div>
-        )}
 
         {actionError && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionError}</p>}
 
