@@ -18,6 +18,7 @@ import { findWatch, getSnapshotData } from '@/lib/investor-watching-db';
 import { readSnapshotData } from '@/lib/startup-snapshot';
 import { computeSnapshotDelta } from '@/lib/investor-watching';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
+import { weightedCriterionValues } from '@/lib/investor-scorecard-summary';
 import {
   buildEvaluationSupportPrompt, parseWatsonInsights, WATSON_EVALUATION_SUPPORT_SYSTEM, type EvaluationSupportInput,
 } from '@/lib/watson-evaluation-support';
@@ -68,14 +69,31 @@ export async function POST(req: Request) {
   };
 
   if (member) {
+    // Prompt 394 §4.6 — investor_scorecard_scores was abandoned in Prompt
+    // 388 §C.3 for investor_dossier_tab_scores (one score per criteria+tab,
+    // not just criteria+org); ScorecardPanel.tsx stopped writing to the old
+    // table several prompts ago, so reading it here fed Watson zombie,
+    // almost-always-empty data. Same aggregation `investor_dossier_tab_scores`
+    // itself already uses elsewhere (scorecard/summary route, ScorecardPanel's
+    // own Tabela 2) — weightedCriterionValues, not a bespoke recomputation.
     const { data: criteria } = await admin.from('investor_scorecard_criteria').select('id, label, weight').eq('investor_member_id', member.id);
     if (criteria && criteria.length > 0) {
-      const { data: scores } = await admin.from('investor_scorecard_scores').select('criteria_id, score, note')
+      const { data: tabScores } = await admin.from('investor_dossier_tab_scores').select('criteria_id, tab, score, note')
         .eq('startup_org_id', orgId).in('criteria_id', criteria.map((c) => c.id));
-      const scoreByCriteria = new Map((scores ?? []).map((s) => [s.criteria_id as string, s as { score: number; note: string | null }]));
-      input.scorecard = criteria.map((c) => ({
-        label: c.label as string, weight: c.weight as number,
-        score: scoreByCriteria.get(c.id as string)?.score ?? null, note: scoreByCriteria.get(c.id as string)?.note ?? null,
+      const rows = (tabScores ?? []).map((r) => ({ criteriaId: r.criteria_id as string, tab: r.tab as string, score: r.score as number | null }));
+      const values = weightedCriterionValues(
+        criteria.map((c) => ({ id: c.id as string, label: c.label as string, weight: c.weight as number })), rows,
+      );
+      const notesByCriteria = new Map<string, string>();
+      for (const r of tabScores ?? []) {
+        if (!r.note) continue;
+        const existing = notesByCriteria.get(r.criteria_id as string);
+        notesByCriteria.set(r.criteria_id as string, existing ? `${existing} / ${r.note}` : (r.note as string));
+      }
+      input.scorecard = values.map((v) => ({
+        label: v.label, weight: v.weight,
+        score: v.value != null ? Math.round(v.value * 10) / 10 : null,
+        note: notesByCriteria.get(v.id) ?? null,
       }));
     }
     const { data: docScoreRows } = await admin.from('investor_doc_scores').select('document_id, score, note')
@@ -138,6 +156,14 @@ export async function POST(req: Request) {
     void logAiCall({ route: '/api/portal/watson/evaluation-support', purpose: 'watson_evaluation_support', model, usage: data.usage, orgId });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const insights = parseWatsonInsights(toolUse?.input);
+    // Prompt 394 §4.4 — one row per GENERATED opinion, not per re-read (a
+    // client re-opening an old reading from history never calls this
+    // route). Awaited (not fire-and-forget) — a serverless function can be
+    // frozen the instant its response is sent, so an unawaited insert here
+    // could silently never run.
+    if (member) {
+      await admin.from('watson_evaluation_readings').insert({ org_id: orgId, investor_member_id: member.id, insights });
+    }
     return NextResponse.json({ ok: true, insights });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
