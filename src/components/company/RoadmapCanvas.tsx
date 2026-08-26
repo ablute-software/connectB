@@ -154,7 +154,22 @@ export function RoadmapCanvas({
   // Domain: from the earlier of (founding year, earliest event) to the
   // later of (today, latest event) plus a little padding — a roadmap with
   // only past events still shows room to plan ahead, and vice versa.
+  //
+  // Prompt 394 §1 — this used to be computed from `events` (the raw list)
+  // regardless of `timeToggle`, so picking "Future" kept the full
+  // foundedYear->now span and squeezed the TODAY marker into the far right
+  // edge, with no room to plan ahead. "Future" now gets its own domain,
+  // anchored near `now` — the other two toggles are unchanged.
   const domain = useMemo(() => {
+    if (timeToggle === 'future') {
+      const horizon = new Date(now.getTime() + 365 * 86400_000);
+      const futureDates = events
+        .filter((e) => matchesTimeToggle(e.status, 'future'))
+        .flatMap((e) => [new Date(e.date), e.end_date ? new Date(e.end_date) : new Date(e.date)]);
+      const max = futureDates.length > 0 ? new Date(Math.max(horizon.getTime(), ...futureDates.map((d) => d.getTime()))) : horizon;
+      const paddingMs = Math.max(7 * 86400_000, (max.getTime() - now.getTime()) * 0.05);
+      return { start: new Date(now.getTime() - paddingMs), end: new Date(max.getTime() + paddingMs) };
+    }
     const dates = events.flatMap((e) => [new Date(e.date), e.end_date ? new Date(e.end_date) : new Date(e.date)]);
     if (foundedYear) dates.push(new Date(Date.UTC(foundedYear, 0, 1)));
     dates.push(now);
@@ -162,14 +177,16 @@ export function RoadmapCanvas({
     const max = new Date(Math.max(...dates.map((d) => d.getTime())));
     const paddingMs = Math.max(30 * 86400_000, (max.getTime() - min.getTime()) * 0.05);
     return { start: new Date(min.getTime() - paddingMs), end: new Date(max.getTime() + paddingMs) };
-  }, [events, foundedYear, now]);
+  }, [events, foundedYear, now, timeToggle]);
 
   const view = zoom === 'all' ? domain : zoomWindow(zoom, focus, domain.start, domain.end);
   const viewWidth = Math.max(width, 1);
 
   // Prompt 382 §D — two independent cuts on the same list: time toggle and
-  // per-category visibility. lanesUsed/domain both derive from `filtered`,
-  // so an off category's lane and its width simply stop existing.
+  // per-category visibility. `lanesUsed` derives from `filtered`, so an off
+  // category's lane simply stops existing. `domain` (above) does its own,
+  // separate time-toggle handling — Prompt 394 §1 corrected an inaccuracy
+  // in this comment: `domain` was never actually derived from `filtered`.
   const filtered = events.filter((e) => matchesTimeToggle(e.status, timeToggle) && matchesCategoryVisibility(e.category_id, categories));
 
   const lanesUsed = useMemo(() => {
