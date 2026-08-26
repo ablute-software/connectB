@@ -144,7 +144,7 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
 
       <div className={`${GLASS_CARD} min-h-[160px] p-5`}>
         <p className="mb-3 text-xs text-[#434656]/70">
-          Click anywhere on a lane to add an event; drag to create a period; drag an event to move it; click a bar to see its details.
+          Click anywhere on a lane to add an event; drag to create a period; click a bar to see its details.
         </p>
         <RoadmapCanvas
           events={db.roadmapEvents}

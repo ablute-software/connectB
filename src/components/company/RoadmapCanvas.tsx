@@ -32,6 +32,21 @@ import type { RoadmapEventStatus } from '@/lib/types';
 export interface CanvasCategory { id: string; label: string; color: string; shape: string; visible?: boolean }
 
 const LANE_HEIGHT = 56;
+
+// Prompt 386 — PARKED, not fixed: Nuno hit this live on production — the
+// "Moved. Undo" toast fired but the event's date never actually persisted.
+// This flag short-circuits the whole drag-an-event-to-move-it gesture at
+// its one entry point (startDragEvent, below) rather than deleting any of
+// the §B.3 code — flip it back on once the real fix lands. Root cause NOT
+// confirmed, only the most likely lead, left here for whoever resumes
+// this: onCanvasPointerMove fires `onUpdate` on every single pointer-move
+// tick during a drag — against localStorage (where this was originally
+// verified) that's free; against real Supabase it's a burst of concurrent
+// round-trips to the same row, a completely different failure mode. The
+// likely fix is moving the event only in local state during the drag and
+// persisting once, on pointer-up — but that's a real change to verify,
+// not something to sneak in here.
+const DRAG_TO_MOVE_ENABLED = false;
 const DRAG_THRESHOLD_PX = 5;
 
 export interface CanvasDocOption { id: string; name: string }
@@ -202,12 +217,13 @@ export function RoadmapCanvas({
   // confirmed live before this guard existed: every click opened the
   // detail popover correctly but ALSO fired an update and showed a
   // "Moved. Undo" toast for a date that never actually changed.
+  //
   const [undo, setUndo] = useState<{ id: string; prev: Partial<CanvasEvent> } | null>(null);
   const dragStartXRef = useRef<number | null>(null);
   const didMoveRef = useRef(false);
 
   function startDragEvent(ev: CanvasEvent, edge: 'start' | 'end' | undefined, clientX: number) {
-    if (!editable) return;
+    if (!editable || !DRAG_TO_MOVE_ENABLED) return;
     setDragging({ id: ev.id, edge });
     const rect = containerRef.current?.getBoundingClientRect();
     dragStartXRef.current = rect ? clientX - rect.left : null;
