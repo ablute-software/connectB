@@ -9,7 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { networkAvailable } from '@/lib/network-capability';
-import { getFollowOnStatusForOrg, requestFollowOnAsk } from '@/lib/network-followon-db';
+import { getFollowOnStatusForOrg, requestFollowOnAsk, findInvestedDelivery } from '@/lib/network-followon-db';
 
 async function orgAndAdmin(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -39,6 +39,14 @@ export async function GET(req: Request) {
   if (entityId) {
     const { data: delivery } = await admin.from('catalog_deliveries').select('catalog_id').eq('org_id', orgId).eq('entity_id', entityId).maybeSingle();
     if (!delivery) return NextResponse.json({ eligible: false });
+    // Prompt 396 §1 — this used to stop at "a delivery row exists", which is
+    // true for ANY investor who came through MatchDeal, invested or not.
+    // The POST (requestFollowOnAsk) already requires a verified invested
+    // relationship (findInvestedDelivery) — this GET now checks the same
+    // thing, so the button only ever renders where the ask can actually go
+    // through.
+    const found = await findInvestedDelivery(admin, orgId, delivery.catalog_id);
+    if (!found || !found.invested) return NextResponse.json({ eligible: false });
     const all = await getFollowOnStatusForOrg(admin, orgId);
     const mine = all.find((s) => s.investorCatalogEntityId === delivery.catalog_id);
     const { data: openRequest } = await admin.from('network_followon_requests')

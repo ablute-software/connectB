@@ -27,7 +27,13 @@ interface DeliveryFollowOnRow {
   followon_expires_at: string | null; followon_revoked_at: string | null;
 }
 
-async function findInvestedDelivery(admin: SupabaseClient, orgId: string, investorCatalogEntityId: string): Promise<{ delivery: DeliveryFollowOnRow; invested: boolean } | null> {
+// Prompt 396 §1 — exported so the GET /api/network/followon?entityId=X
+// route can gate `eligible` on the SAME invested check the POST already
+// enforces, instead of a looser catalog_deliveries-exists lookup that let
+// the "Ask about follow-on interest" button render (as dead weight — the
+// POST silently rejected it) for any MatchDeal-delivered investor,
+// invested or not.
+export async function findInvestedDelivery(admin: SupabaseClient, orgId: string, investorCatalogEntityId: string): Promise<{ delivery: DeliveryFollowOnRow; invested: boolean } | null> {
   const { data } = await admin.from('catalog_deliveries')
     .select('id, org_id, catalog_id, entity_id, followon_visibility, followon_signaled_at, followon_expires_at, followon_revoked_at, entities(status)')
     .eq('org_id', orgId).eq('catalog_id', investorCatalogEntityId).maybeSingle();
