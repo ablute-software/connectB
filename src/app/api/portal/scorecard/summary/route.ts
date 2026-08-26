@@ -2,8 +2,12 @@
 // org, for the Pipeline card badge. Exactly the same weighted-average
 // formula ScorecardPanel.tsx computes for a single org (sum(weight*score)
 // / sum(weight), over criteria that HAVE a score), just across every org
-// this member ever scored, in one call — the calculation itself is
-// untouched, per the prompt's own scope ("não mexer no cálculo em si").
+// this member ever scored, in one call.
+// Prompt 388 §C.3 — source moved from investor_scorecard_scores (one score
+// per criteria+org, now frozen — ScorecardPanel.tsx no longer writes to it)
+// to investor_dossier_tab_scores (per criteria+tab+org); the formula itself
+// is untouched, per the original prompt's own scope ("não mexer no cálculo
+// em si") — it now just sums over every TAB's entries instead of one.
 // Private to the calling member, same as everything scorecard: a colleague
 // at the same fund gets their own averages, never these.
 import { NextResponse } from 'next/server';
@@ -29,8 +33,8 @@ export async function GET() {
   if (!criteria || criteria.length === 0) return NextResponse.json({ averages: {} });
   const weightByCriteria = new Map(criteria.map((c) => [c.id as string, c.weight as number]));
 
-  const { data: scores } = await admin.from('investor_scorecard_scores')
-    .select('criteria_id, startup_org_id, score').in('criteria_id', criteria.map((c) => c.id));
+  const { data: scores } = await admin.from('investor_dossier_tab_scores')
+    .select('criteria_id, startup_org_id, score').in('criteria_id', criteria.map((c) => c.id)).not('score', 'is', null);
 
   const acc = new Map<string, { weighted: number; weight: number }>();
   for (const s of scores ?? []) {

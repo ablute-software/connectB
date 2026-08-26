@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { DEFAULT_NEW_CRITERION_WEIGHT } from '@/lib/investor-scorecard-weights';
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -46,8 +47,8 @@ export async function POST(req: Request) {
   if (!member) return NextResponse.json({ ok: false, error: 'No investor firm linked to this session.' }, { status: 403 });
 
   const body = await req.json().catch(() => ({})) as {
-    action?: 'create' | 'update' | 'delete' | 'reorder';
-    id?: string; label?: string; weight?: number; order?: string[];
+    action?: 'create' | 'update' | 'delete' | 'reorder' | 'update_weights';
+    id?: string; label?: string; weight?: number; order?: string[]; weights?: Record<string, number>;
   };
 
   if (body.action === 'create') {
@@ -56,10 +57,36 @@ export async function POST(req: Request) {
     const { data: last } = await admin.from('investor_scorecard_criteria').select('sort_order')
       .eq('investor_member_id', member.id).order('sort_order', { ascending: false }).limit(1).maybeSingle();
     const nextOrder = (last?.sort_order ?? -1) + 1;
+    // Prompt 388 §C.1 — a new criterion enters at the scale's own midpoint,
+    // never a bare "1"; the constant-sum rule only ever applies to an
+    // EXISTING criterion being dragged, so the total is simply allowed to
+    // rise here, per the prompt's own words.
     const { error } = await admin.from('investor_scorecard_criteria').insert({
-      investor_member_id: member.id, label, weight: body.weight ?? 1, sort_order: nextOrder,
+      investor_member_id: member.id, label, weight: body.weight ?? DEFAULT_NEW_CRITERION_WEIGHT, sort_order: nextOrder,
     });
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
+  // Prompt 388 §C.1 — one atomic batch write for a whole redistributed set
+  // (a drag, or the redistribution after a delete): the client already ran
+  // redistributeWeight/redistributeAfterRemoval (investor-scorecard-
+  // weights.ts) and just needs every affected row persisted together —
+  // never N sequential 'update' round-trips fighting a fast drag gesture.
+  // Every id is re-checked against investor_member_id, same boundary as
+  // every other action here — a weights map naming an id this member
+  // doesn't own is simply skipped, never a cross-member write.
+  if (body.action === 'update_weights') {
+    if (!body.weights || typeof body.weights !== 'object') {
+      return NextResponse.json({ ok: false, error: 'weights is required.' }, { status: 400 });
+    }
+    const entries = Object.entries(body.weights);
+    for (const [id, weight] of entries) {
+      if (typeof weight !== 'number' || !Number.isFinite(weight)) continue;
+      const { error } = await admin.from('investor_scorecard_criteria').update({ weight })
+        .eq('id', id).eq('investor_member_id', member.id);
+      if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
     return NextResponse.json({ ok: true });
   }
 

@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { SwotQuadrant } from '@/components/readiness/SwotVisualCard';
 import { RoadmapCanvas } from '@/components/company/RoadmapCanvas';
 import { RoadmapEventDetailPanel } from '@/components/company/RoadmapEventDetailPanel';
+import { DossierTabScorePanel } from '@/components/investor-workspace/DossierTabScorePanel';
 import { GLASS_CARD } from '@/components/company/roadmap-visual';
 import { roadmapFont } from '@/lib/fonts';
 import type { SwotData } from '@/lib/types';
@@ -141,7 +142,7 @@ export function fmtEur(n: number | null | undefined) {
 // rather than conditionally hidden, so there's exactly one source of truth
 // (the mode) for whether it renders at all.
 export function DossierOverviewSections({
-  card, level, dossier, onRequestLevel, levelBusy, readOnly, swotOffHref, roadmapOffHref,
+  card, level, dossier, onRequestLevel, levelBusy, readOnly, swotOffHref, roadmapOffHref, trackEvaluate,
 }: {
   card: Card; level: 0 | 1 | 2 | 3; dossier: Dossier;
   onRequestLevel?: (level: 2 | 3) => void; levelBusy?: boolean;
@@ -155,6 +156,11 @@ export function DossierOverviewSections({
   // renders a greyed "off, here's the switch" section in place of silent
   // omission (Pedido 3) — the real investor page never passes these.
   swotOffHref?: string; roadmapOffHref?: string;
+  // Prompt 388 §C.2 — only the real investor portal ever passes this true;
+  // the founder-only preview (settings/preview) never does, so "A minha
+  // avaliação" never appears there — it's investor tooling, meaningless in
+  // a founder's own preview of their profile.
+  trackEvaluate?: boolean;
 }) {
   // Prompt 385 §B — selection is lifted (RoadmapCanvas's own contract), so
   // the detail panel can render beside Categories... except the investor
@@ -256,6 +262,7 @@ export function DossierOverviewSections({
             <MediaGallery items={technologyMedia} />
           </div>
         )}
+        {trackEvaluate && <DossierTabScorePanel orgId={card.orgId} tab="about" />}
       </div>
     ),
   });
@@ -294,6 +301,7 @@ export function DossierOverviewSections({
             )}
           </div>
           <div className="mt-2"><SwotQuadrant data={dossier.swot} /></div>
+          {trackEvaluate && <DossierTabScorePanel orgId={card.orgId} tab="swot" />}
         </div>
       ),
     });
@@ -353,6 +361,7 @@ export function DossierOverviewSections({
               resolveDocChip={resolveDocChip}
             />
           )}
+          {trackEvaluate && <DossierTabScorePanel orgId={card.orgId} tab="roadmap" />}
         </div>
       ),
     });
@@ -392,6 +401,7 @@ export function DossierOverviewSections({
               </li>
             ))}
           </ul>
+          {trackEvaluate && <DossierTabScorePanel orgId={card.orgId} tab="clarifications" />}
         </div>
       ),
     });
@@ -414,6 +424,7 @@ export function DossierOverviewSections({
             {fmtEur(card.roundMinTicketEur) && <div><dt className="text-xs text-gray-400">Min ticket</dt><dd>{fmtEur(card.roundMinTicketEur)}</dd></div>}
             {card.roundInstruments.length > 0 && <div><dt className="text-xs text-gray-400">Instrument</dt><dd>{card.roundInstruments.join(', ')}</dd></div>}
           </dl>
+          {trackEvaluate && <DossierTabScorePanel orgId={card.orgId} tab="round" />}
         </div>
       ),
     });
@@ -430,6 +441,7 @@ export function DossierOverviewSections({
             {overview!.sam_eur != null && <div><dt className="text-xs text-gray-400">SAM</dt><dd>{fmtEur(overview!.sam_eur)}</dd></div>}
             {overview!.som_eur != null && <div><dt className="text-xs text-gray-400">SOM</dt><dd>{fmtEur(overview!.som_eur)}</dd></div>}
           </dl>
+          {trackEvaluate && <DossierTabScorePanel orgId={card.orgId} tab="market" />}
         </div>
       ),
     });
@@ -505,6 +517,7 @@ export function DossierOverviewSections({
             </button>
           )}
           <MediaGallery items={teamMedia} />
+          {trackEvaluate && <DossierTabScorePanel orgId={card.orgId} tab="team" />}
         </div>
       ),
     });

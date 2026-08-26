@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { authEnabled, browserClient } from '@/lib/supabase';
+import { weightedCriterionValues, type ScorecardCriterion, type TabScoreRow } from '@/lib/investor-scorecard-summary';
 
 interface TeamMember { id: string; fullName: string; title: string | null; isFounder: boolean; linkedinUrl: string | null }
 interface Overview { description?: string | null; one_liner?: string | null }
@@ -83,7 +84,14 @@ export default function DealMemoPage() {
     // Prompt 354 §D — the private half of the memo, one fetch per already-
     // existing route (scorecard, doc-scores, ticket/deal signals via the
     // same /api/portal/access the dossier itself uses, reminders).
-    fetch(`/api/portal/scorecard/scores?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => setScorecard(d.items ?? [])).catch(() => {});
+    // Prompt 388 §C.3 — scorecard is now the SAME weighted-average-across-
+    // tabs computation ScorecardPanel.tsx itself uses (investor_dossier_
+    // tab_scores), never the old, now-frozen investor_scorecard_scores.
+    fetch(`/api/portal/scorecard/tab-scores?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => {
+      const criteria = (d.criteria ?? []) as ScorecardCriterion[];
+      const rows = (d.rows ?? []) as TabScoreRow[];
+      setScorecard(weightedCriterionValues(criteria, rows).map((v) => ({ criteriaId: v.id, label: v.label, weight: v.weight, score: v.value, note: null })));
+    }).catch(() => {});
     fetch(`/api/portal/doc-scores?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json()).then((d) => {
       const scores = (d.scores ?? {}) as Record<string, DocScoreEntry>;
       setDocScores(scores);
@@ -217,7 +225,7 @@ export default function DealMemoPage() {
             <ul className="mt-2 space-y-1">
               {scorecard.map((it) => (
                 <li key={it.criteriaId} className="text-sm text-gray-700">
-                  {it.label} (weight {it.weight}): <b>{it.score ?? 'not scored'}</b>{it.note && <span className="text-gray-500"> — {it.note}</span>}
+                  {it.label} (weight {it.weight}): <b>{it.score != null ? `${it.score.toFixed(1)}/10` : 'not scored'}</b>{it.note && <span className="text-gray-500"> — {it.note}</span>}
                 </li>
               ))}
             </ul>
