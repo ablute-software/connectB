@@ -24,14 +24,23 @@ import { DocBadgePopover } from '@/components/DocBadgePopover';
 // entity page.
 type JourneyStepperVariant = 'default' | 'rail';
 
-const VARIANT_STYLE: Record<JourneyStepperVariant, { done: string; current: string; future: string; connector: string; connectorDone: string }> = {
+// Prompt 410 §3.1 — pillPad/gap added so the entity page's "rail" instance
+// (RelationshipSummaryCard, the only current caller of either variant) can
+// shrink without touching 'default''s own sizing — same reasoning as the
+// color split above: a shared component can't change size globally for one
+// caller's redesign either.
+const VARIANT_STYLE: Record<JourneyStepperVariant, {
+  done: string; current: string; future: string; connector: string; connectorDone: string; pillPad: string; gap: string;
+}> = {
   default: {
     done: 'bg-[#E8F4F8] text-cyan-900', current: 'bg-[#0E7490] text-white',
     future: 'bg-gray-100 text-gray-400', connector: 'bg-gray-200', connectorDone: 'bg-[#0E7490]/30',
+    pillPad: 'px-3 py-1.5', gap: 'gap-2',
   },
   rail: {
     done: 'bg-white text-gray-700 ring-1 ring-[#E2E8F0]', current: 'bg-[#0E7490] text-white shadow-[0_2px_8px_rgba(14,116,144,0.35)]',
     future: 'bg-[#F1F5F9] text-[#94A3B8]', connector: 'bg-[#E2E8F0]', connectorDone: 'bg-[#E2E8F0]',
+    pillPad: 'px-3 py-1', gap: 'gap-1.5',
   },
 };
 
@@ -69,7 +78,7 @@ export function JourneyStepper({ entity, onViewInHistory, variant = 'default' }:
     // 2ª linha quando a coluna de cartões do 225 disputava a largura. Com
     // `flex-nowrap` o trilho é uma linha e ponto; quem trata do caso de não
     // caber é o `overflow-x-auto` do contentor, em RelationshipSummaryCard.
-    <div className="flex flex-nowrap items-center gap-2 pb-1">
+    <div className={`flex flex-nowrap items-center ${palette.gap} pb-1`}>
       {steps.map((step, idx) => {
         // Prompt 224 §3 — o conector substitui a seta de texto: um traço que
         // ESTICA (flex-1), para o trilho deixar de se agarrar à esquerda e
@@ -92,7 +101,7 @@ export function JourneyStepper({ entity, onViewInHistory, variant = 'default' }:
           // there is, so the chip's own color carries the affordance
           // instead of adding visual weight.
           const clickable = !!step.interactionId && !!onViewInHistory;
-          const parkedClasses = 'whitespace-nowrap rounded-full border border-gray-300 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600';
+          const parkedClasses = `whitespace-nowrap rounded-full border border-gray-300 bg-gray-50 ${palette.pillPad} text-xs font-semibold text-gray-600`;
           const label = `❄ Frozen${step.revisitAt ? ` — revisit ${step.revisitAt.slice(0, 10)}` : ''}`;
           return (
             <Fragment key="parked">
@@ -111,7 +120,7 @@ export function JourneyStepper({ entity, onViewInHistory, variant = 'default' }:
         if (step.kind === 'outcome') {
           const declined = step.outcome === 'declined';
           const title = step.at ? `${declined ? 'passed' : 'invested'} ${step.at.slice(0, 10)}${step.passCategory ? ` — ${step.passCategory.replace(/_/g, ' ')}` : ''}` : undefined;
-          const outcomeClasses = `whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold text-white ${declined ? 'bg-[#B00000]' : 'bg-green-700'}`;
+          const outcomeClasses = `whitespace-nowrap rounded-full ${palette.pillPad} text-xs font-semibold text-white ${declined ? 'bg-[#B00000]' : 'bg-green-700'}`;
           // Prompt 249 §B — same pattern as the doc badge (📄): clicking
           // jumps the history to the interaction that IS the evidence for
           // this outcome (the classified pass reply). Only 'declined' can
@@ -147,7 +156,7 @@ export function JourneyStepper({ entity, onViewInHistory, variant = 'default' }:
                 onClick/title/popover ficam iguais — o anchor continua a ser
                 o rectângulo do próprio botão. */}
             <span title={step.at ? `${STAGE_LABEL[step.stage]} · ${step.at.slice(0, 10)}` : undefined}
-              className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium ${style}`}>
+              className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full ${palette.pillPad} text-xs font-medium ${style}`}>
               {step.state === 'done' ? '✓ ' : ''}{STAGE_LABEL[step.stage]}
               {list.length > 0 && (
                 <button title={hoverTitle(list)}

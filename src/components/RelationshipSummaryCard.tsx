@@ -255,7 +255,7 @@ export function RelationshipSummaryCard({
   return (
     // Prompt 397 §A.1/§A.3 — full-width journey card: rounded-2xl, no
     // border, diffuse shadow (the study's card style for this whole page).
-    <div className="rounded-2xl bg-white p-5 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
+    <div className="rounded-2xl bg-white px-5 py-3.5 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
       <div className="text-center text-[10.5px] font-semibold uppercase tracking-wide text-[#0E7490]">Current stage</div>
       {/* Prompt 209 — o stepper e agora o JourneyStepper: desenha o que o
           journeySteps() decide (percorridos com ✓, desfecho como ultimo chip,
@@ -268,12 +268,12 @@ export function RelationshipSummaryCard({
           para quando mesmo assim nao couber. Prompt 397 §A.3 — `variant`
           restyles ONLY this instance (JourneyStepper is also used by
           InvestorJourneyStrip.tsx, whose own look stays untouched). */}
-      <div data-tour-id="entity-journey" className="mt-2 flex justify-center overflow-x-auto">
+      <div data-tour-id="entity-journey" className="mt-1.5 flex justify-center overflow-x-auto">
         <JourneyStepper entity={entity} onViewInHistory={onViewInHistory} variant="rail" />
       </div>
 
       {(ds.contradicted || ds.manualAhead || ds.unclassifiedReplies > 0 || parkedOrClosed) && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
           {/* O caso Adara: os factos dizem que acabou e o stepper mostrava
               uma fase activa. Aqui o aviso é o ponto, não um detalhe. */}
           {ds.contradicted && ds.manual && (
@@ -320,6 +320,34 @@ export function RelationshipSummaryCard({
         </div>
       )}
 
+      {/* Prompt 410 §3.2 — the status line moved up here, directly under
+          the rail/alert row, instead of after the Actions row: the card was
+          too tall largely because this line sat well below the rail, with
+          the whole Actions row wedged in between. Same content as before
+          (Prompt 240 — no new copy), just closer to what it's describing. */}
+      <div className="mt-1.5 flex flex-wrap items-center justify-center gap-1.5 text-[13px] text-gray-700">
+        <HealthDot entityId={entity.id} dealMessageTouches={dealMessageTouches} />
+        {!confirmation && !dismissed && exits.show && (
+          <span className={
+            lastInboundWasPass ? 'font-semibold text-[#B00000]'
+              : s.whoseTurn === 'overdue' ? 'font-semibold text-amber-800'
+              : 'text-gray-700'}>
+            {lastInboundWasPass
+              ? `They passed — this still shows as ${STAGE_LABEL[s.stage]}.`
+              : s.whoseTurn === 'overdue'
+                // Nunca responderam: dizer "They've replied" aqui seria mentira,
+                // e é o caso em que o founder mais precisa de uma saída.
+                ? `No reply in ${s.daysSinceLastTouch ?? 0} days — this still shows as ${STAGE_LABEL[s.stage]}.`
+                : `They've replied — this still shows as ${STAGE_LABEL[s.stage]}.`}
+          </span>
+        )}
+        {/* Prompt 240 (mockup declined) — uma relação fechada não tem acções
+            de avanço; dizer isso é mais honesto do que uma linha vazia. */}
+        {parkedOrClosed && (
+          <span className="italic text-gray-400">Closed relationship — no advance actions.</span>
+        )}
+      </div>
+
       {/* Prompt 240 — a linha de ACÇÕES sobe para aqui, alinhada à direita e
           sozinha: antes "Move to X"/"Snooze" viviam dentro do banner, a
           disputar a mesma linha do texto de estado, e o "Something else"
@@ -331,7 +359,7 @@ export function RelationshipSummaryCard({
           continua disponível sempre que a relação está activa (233 §B), que
           era o caminho que faltava quando não há sugestão nenhuma. */}
       {!parkedOrClosed && exitMode === 'none' && (
-      <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5">
+      <div className="mt-2 flex flex-wrap items-center justify-end gap-1.5">
         {actionsOpen && (<>
         {!confirmation && !dismissed && exits.show && exits.canAdvance && (
           <button onClick={() => {
@@ -458,34 +486,6 @@ export function RelationshipSummaryCard({
         </button>
       </div>
       )}
-
-      {/* Prompt 240 — a linha de ESTADO. Prompt 397 §A.3 — centrada,
-          ponto+frase em vez de chip+frase: o WhoseTurnChip (pill) sai daqui
-          (continua a existir como componente exportado, usado noutros
-          sítios — Pipeline row), substituído pelo próprio HealthDot já
-          usado ao lado. MESMO CONTEÚDO da frase — nada de copy nova. */}
-      <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-[13px] text-gray-700">
-        <HealthDot entityId={entity.id} dealMessageTouches={dealMessageTouches} />
-        {!confirmation && !dismissed && exits.show && (
-          <span className={
-            lastInboundWasPass ? 'font-semibold text-[#B00000]'
-              : s.whoseTurn === 'overdue' ? 'font-semibold text-amber-800'
-              : 'text-gray-700'}>
-            {lastInboundWasPass
-              ? `They passed — this still shows as ${STAGE_LABEL[s.stage]}.`
-              : s.whoseTurn === 'overdue'
-                // Nunca responderam: dizer "They've replied" aqui seria mentira,
-                // e é o caso em que o founder mais precisa de uma saída.
-                ? `No reply in ${s.daysSinceLastTouch ?? 0} days — this still shows as ${STAGE_LABEL[s.stage]}.`
-                : `They've replied — this still shows as ${STAGE_LABEL[s.stage]}.`}
-          </span>
-        )}
-        {/* Prompt 240 (mockup declined) — uma relação fechada não tem acções
-            de avanço; dizer isso é mais honesto do que uma linha vazia. */}
-        {parkedOrClosed && (
-          <span className="italic text-gray-400">Closed relationship — no advance actions.</span>
-        )}
-      </div>
       {/* Prompt 249 §A — o passo de confirmação do "Move to Decision":
           pergunta o desfecho antes de mexer em nada. Cancelar volta a
           'none' sem tocar em stage/status/tasks nenhuns. */}
