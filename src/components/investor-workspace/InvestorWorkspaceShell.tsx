@@ -37,7 +37,6 @@ import { BRAND_NAME } from '@/lib/brand';
 import { SupportTicketsPanel, useSupportUnreadCount } from '@/components/SupportTicketsPanel';
 import { InvestorActionsPanel, useInvestorActions } from '@/components/investor-workspace/InvestorActionsPanel';
 import { InvestorReminderPopup } from '@/components/portal/InvestorReminderPopup';
-import { TermsGateModal } from '@/components/terms/TermsGateModal';
 
 // Prompt 337 — 'archive' is no longer its own tab: ArchivePanel's content
 // moved into PipelinePanel as an "Archived" filter (same content, same
@@ -343,7 +342,6 @@ export function InvestorWorkspaceShell({
           full stop. Same navItems the sidebar uses. */}
       <WorkspaceMobileNav items={navItems} />
       <InvestorReminderPopup />
-      <TermsGateModal />
     </div>
     </OnboardingProvider>
   );
