@@ -28,7 +28,7 @@
 // to be open — cheap (one row per org), documented at each fetch site.
 import { useEffect, useState } from 'react';
 import { computeDilution, type ValuationBasis } from '@/lib/dilution';
-import { ReturnScenarioTool } from './ReturnScenarioTool';
+import { ScenariosReturnsTool } from './ScenariosReturnsTool';
 import { ComparisonView } from './ComparisonView';
 import { ScorecardWeightsEditor } from './ScorecardWeightsEditor';
 
@@ -528,9 +528,10 @@ const TOOLS: { key: 'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'retur
   { key: 'scorecard', label: 'Scorecard criteria', subtitle: 'Your private scoring criteria' },
   { key: 'berkus', label: 'Berkus Method', subtitle: 'Pre-revenue valuation estimate' },
   // Prompt 169 §C — MOIC over the same real ownership math as the
-  // calculator above, against an assumed exit value (from Berkus × a
-  // growth multiple, or typed directly).
-  { key: 'return', label: 'Return scenario', subtitle: 'Model MOIC against an exit value' },
+  // calculator above. Prompt 408 §A.3 — evolved from a single assumed
+  // exit into up to 5 weighted scenarios (Failure→Outlier) plus the VC
+  // Method's required-exit inversion.
+  { key: 'return', label: 'Scenarios & returns', subtitle: 'Failure→outlier scenarios, weighted MOIC & IRR' },
   // Prompt 345 Block E — moved here from the Pipeline (checkbox-per-row +
   // banner removed there); this tool IS the comparator now, not a shortcut
   // back to another tab.
@@ -649,7 +650,7 @@ export function EvaluationToolsPanel({ initialOrgId }: {
           <CompareStartupsTool cards={cards} selectedOrgId={selectedOrgId} active={tool === 'compare'} />
         </div>
         <div className={tool === 'return' ? 'block' : 'hidden'}>
-          <ReturnScenarioTool cards={cards} selectedOrgId={selectedOrgId}
+          <ScenariosReturnsTool cards={cards} selectedOrgId={selectedOrgId}
             ticket={ticket} setTicket={setTicket} basis={basis} setBasis={setBasis}
             futureDilutions={futureDilutions} setFutureDilutions={setFutureDilutions}
             onSwitchToSimulator={() => setTool('simulator')} />
