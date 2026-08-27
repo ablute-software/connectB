@@ -25,13 +25,21 @@ function npvDerivative(rate: number, flows: CashFlow[]): number {
 // Small, pure XIRR: Newton-Raphson first (fast, exact when it converges),
 // bisection as a fallback over a wide bracket (robust when Newton
 // oscillates or hits a near-zero derivative — both real possibilities with
-// only 2-4 cash flows and no guarantee they're well-behaved). Returns null
-// — never a wrong number — when no root exists at all (e.g. every flow is
-// the same sign: an all-loss or all-gain "scenario" has no rate of return).
+// only 2-4 cash flows and no guarantee they're well-behaved).
+//
+// Prompt 409 — total loss (capital went out, nothing ever came back) is a
+// DEFINED rate by financial convention, IRR = −100%, not an unknown one:
+// returning null here made Failure (exit=0 — the standard First Chicago
+// setup, not an edge case) silently erase the weighted IRR every time it
+// was present, which is backwards — a 20% chance of losing everything
+// should pull the expected IRR down, not make it "n/a". null is reserved
+// for the genuinely rateless cases: never invested at all (every flow the
+// same sign, positive — hasNeg false), or real non-convergence.
 export function computeXirr(flows: CashFlow[]): number | null {
   const hasNeg = flows.some((f) => f.amountEur < 0);
   const hasPos = flows.some((f) => f.amountEur > 0);
-  if (!hasNeg || !hasPos) return null;
+  if (!hasNeg) return null; // nothing was ever invested — no rate to speak of
+  if (!hasPos) return -1; // invested, got back exactly nothing — IRR = -100%
 
   let rate = 0.2;
   for (let i = 0; i < 100; i++) {
@@ -90,8 +98,10 @@ export interface ScenarioInput {
 export interface ScenarioResult extends ScenarioInput {
   proceedsEur: number;
   moic: number;
-  // null when the cash-flow timeline has no solvable rate of return (see
-  // computeXirr) — never coerced to 0 or omitted silently.
+  // -1 for a total loss (see computeXirr — -100% is a defined rate, not an
+  // unknown one, Prompt 409). null only when the cash-flow timeline
+  // genuinely has no rate of return (nothing was ever invested) or the
+  // solver didn't converge — never coerced to 0 or omitted silently.
   irr: number | null;
 }
 
@@ -124,7 +134,13 @@ function irrFor(ownership: ScenarioOwnership, proceedsEur: number, horizonYears:
     const invested = -(ownership.cashOutflows[0]?.amountEur ?? -ownership.totalCapitalInvestedEur);
     if (invested <= 0 || horizonYears <= 0) return null;
     const multiple = proceedsEur / invested;
-    if (multiple <= 0) return null;
+    // Prompt 409 — same total-loss convention as computeXirr: multiple 0
+    // (Failure, proceeds 0) is IRR -100%, not unknown. multiple negative
+    // stays impossible/null (proceeds and invested capital are both
+    // non-negative by construction elsewhere in this domain — this branch
+    // is defensive only, never expected to fire).
+    if (multiple < 0) return null;
+    if (multiple === 0) return -1;
     return Math.pow(multiple, 1 / horizonYears) - 1;
   }
   return computeXirr([...ownership.cashOutflows, { yearsFromNow: horizonYears, amountEur: proceedsEur }]);

@@ -21,8 +21,14 @@ describe('computeXirr', () => {
     expect(npvAtSolution).toBeCloseTo(0, 4);
   });
 
-  it('returns null when every flow is the same sign — no rate of return exists', () => {
-    expect(computeXirr([{ yearsFromNow: 0, amountEur: -100 }, { yearsFromNow: 1, amountEur: -50 }])).toBeNull();
+  // Prompt 409 — total loss (capital out, nothing ever back) is IRR = -1
+  // (-100%) by convention, not an unknown rate; "never invested at all"
+  // (no negative flow, ever) is the case that's genuinely rateless.
+  it('all-negative flows (invested, got back nothing) is -100% IRR, not null', () => {
+    expect(computeXirr([{ yearsFromNow: 0, amountEur: -100 }, { yearsFromNow: 1, amountEur: -50 }])).toBe(-1);
+  });
+
+  it('all-positive flows (never invested) has no rate of return — stays null', () => {
     expect(computeXirr([{ yearsFromNow: 0, amountEur: 100 }])).toBeNull();
   });
 
@@ -52,17 +58,17 @@ describe('computeScenarioReturns', () => {
     expect(scenarios[0].irr!).toBeCloseTo(Math.pow(4, 1 / 5) - 1, 6);
   });
 
-  it('a Failure scenario (exit=0) has zero proceeds/MOIC and a null IRR, never a crash or a fake 0% IRR', () => {
+  it('a Failure scenario (exit=0) has zero proceeds/MOIC and IRR -100%, never a crash or a null "unknown"', () => {
     const own = ownership({ ownershipAtExitPct: 2, totalCapitalInvestedEur: 100000 });
     const { scenarios } = computeScenarioReturns(
       [{ label: 'Failure', probabilityPct: 100, exitValueEur: 0, horizonYears: 3 }], own,
     );
     expect(scenarios[0].proceedsEur).toBe(0);
     expect(scenarios[0].moic).toBe(0);
-    expect(scenarios[0].irr).toBeNull();
+    expect(scenarios[0].irr).toBe(-1);
   });
 
-  it('weights: probability-weighted MOIC and expected value across 3 named presets summing to 100', () => {
+  it('weights: probability-weighted MOIC, IRR and expected value across 3 named presets summing to 100, Failure included', () => {
     const own = ownership({ ownershipAtExitPct: 2, totalCapitalInvestedEur: 100000 });
     const { aggregate } = computeScenarioReturns([
       { label: 'Failure', probabilityPct: 20, exitValueEur: 0, horizonYears: 3 },
@@ -74,8 +80,14 @@ describe('computeScenarioReturns', () => {
     expect(aggregate.weightedMoic!).toBeCloseTo(5, 6);
     // 0.20*0 + 0.50*400,000 + 0.30*1,000,000 = 200,000 + 300,000 = 500,000
     expect(aggregate.expectedValueEur!).toBeCloseTo(500000, 2);
-    // Failure's null IRR means the weighted IRR is unknown, not zero-weighted-in
-    expect(aggregate.weightedIrr).toBeNull();
+    // Prompt 409 — Failure's IRR is -1 (-100%), a real weight, not an
+    // unknown that erases the aggregate: 0.20*(-1) + 0.50*(4^(1/5)-1) +
+    // 0.30*(10^(1/7)-1) ≈ -0.2 + 0.15975 + 0.11685 ≈ 0.0766 (7.66%) — a
+    // 20% chance of losing everything pulls the expected IRR down, it
+    // doesn't make it "n/a".
+    const expectedWeightedIrr = 0.20 * -1 + 0.50 * (Math.pow(4, 1 / 5) - 1) + 0.30 * (Math.pow(10, 1 / 7) - 1);
+    expect(aggregate.weightedIrr!).toBeCloseTo(expectedWeightedIrr, 8);
+    expect(aggregate.weightedIrr!).toBeCloseTo(0.0766, 3);
   });
 
   it('probabilities not summing to 100: every aggregate is null, per-scenario results are untouched', () => {
