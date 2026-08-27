@@ -70,5 +70,18 @@ export async function POST(req: Request) {
     updated_at: new Date().toISOString(),
   }, { onConflict: 'investor_member_id,startup_org_id' });
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  // Prompt 408 §B.2 — every explicit "Save estimate" also appends a
+  // history snapshot; the upsert above still keeps the single live row
+  // (used everywhere else Berkus is read) untouched in shape. Best-effort:
+  // a failure here never fails the save itself, which is the part the
+  // investor actually asked for and already succeeded above.
+  await admin.from('evaluation_snapshots').insert({
+    investor_member_id: member.id, startup_org_id: body.orgId, kind: 'berkus',
+    inputs: patch, outputs: { totalEur: FACTOR_KEYS.reduce((sum, k) => sum + (patch[k] ?? 0), 0) },
+  }).then(({ error: snapshotErr }) => {
+    if (snapshotErr) console.error('[portal/berkus] snapshot insert failed', snapshotErr.message);
+  });
+
   return NextResponse.json({ ok: true });
 }

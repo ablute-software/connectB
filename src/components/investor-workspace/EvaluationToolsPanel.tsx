@@ -328,13 +328,25 @@ type BerkusFactorKey = typeof BERKUS_FACTORS[number]['key'];
 type BerkusEstimate = Record<BerkusFactorKey, number>;
 const EMPTY_BERKUS: BerkusEstimate = { sound_idea_eur: 0, prototype_eur: 0, team_eur: 0, relationships_eur: 0, sales_eur: 0 };
 
+// Prompt 408 §B — one snapshot history entry, shape shared by every tool
+// that saves them (evaluation_snapshots.kind); Berkus only ever reads
+// its own inputs/outputs shape back.
+interface EvaluationSnapshot { id: string; inputs: Record<string, unknown>; outputs: Record<string, unknown>; created_at: string }
+
 function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; selectedOrgId: string }) {
   const [estimate, setEstimate] = useState<BerkusEstimate>(EMPTY_BERKUS);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [snapshots, setSnapshots] = useState<EvaluationSnapshot[]>([]);
+  const [confirmRestoreId, setConfirmRestoreId] = useState<string | null>(null);
   const selectedName = cards.find((c) => c.orgId === selectedOrgId)?.name;
+
+  function loadSnapshots(orgId: string) {
+    fetch(`/api/portal/evaluation-snapshots?orgId=${encodeURIComponent(orgId)}&kind=berkus`).then((r) => r.json())
+      .then((d) => setSnapshots(d.snapshots ?? [])).catch(() => setSnapshots([]));
+  }
 
   // Prompt 405 §B.3 — fires whenever the shared selection changes, whether
   // or not this tool is the one currently visible (all six tools stay
@@ -342,7 +354,7 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
   // gating it on this tool being open — it's one row per org, and gating
   // it would mean re-fetching every time the investor switches back in.
   useEffect(() => {
-    if (!selectedOrgId) { setEstimate(EMPTY_BERKUS); return; }
+    if (!selectedOrgId) { setEstimate(EMPTY_BERKUS); setSnapshots([]); return; }
     setLoading(true); setError(null);
     fetch(`/api/portal/berkus?orgId=${encodeURIComponent(selectedOrgId)}`).then((r) => r.json())
       .then((d) => {
@@ -354,6 +366,7 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
       })
       .catch(() => setError('Could not load your estimate — try again.'))
       .finally(() => setLoading(false));
+    loadSnapshots(selectedOrgId);
   }, [selectedOrgId]);
 
   async function save() {
@@ -367,7 +380,13 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.ok === false) { setError(body.error ?? 'Could not save — try again.'); return; }
       setSavedAt(Date.now());
+      loadSnapshots(selectedOrgId); // Prompt 408 §B.2 — the save above also appended a snapshot server-side
     } finally { setSaving(false); }
+  }
+
+  function restoreSnapshot(s: EvaluationSnapshot) {
+    setEstimate({ ...EMPTY_BERKUS, ...(s.inputs as Partial<BerkusEstimate>) });
+    setConfirmRestoreId(null);
   }
 
   const total = BERKUS_FACTORS.reduce((s, f) => s + estimate[f.key], 0);
@@ -419,6 +438,32 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
             </button>
             <span className="text-[11px] text-gray-400">Saved privately to your seat only{selectedName ? ` — ${selectedName}` : ''}.</span>
           </div>
+
+          {/* Prompt 408 §B.3 — History: last N saves, a discrete list (a
+              full visual timeline is future-wave scope per the prompt's
+              own words). Restoring is two clicks — Restore, then Confirm
+              — so a click never silently discards the form's current
+              (possibly unsaved) values. */}
+          {snapshots.length > 0 && (
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <div className="text-xs font-medium text-gray-500">History</div>
+              <ul className="mt-1.5 space-y-1">
+                {snapshots.map((s) => (
+                  <li key={s.id} className="flex items-center justify-between text-xs text-gray-600">
+                    <span>{new Date(s.created_at).toLocaleDateString()} — {fmtEur((s.outputs as { totalEur: number }).totalEur ?? 0)}</span>
+                    {confirmRestoreId === s.id ? (
+                      <span className="flex items-center gap-2">
+                        <button onClick={() => restoreSnapshot(s)} className="font-medium text-[#0E7490] hover:underline">Confirm restore</button>
+                        <button onClick={() => setConfirmRestoreId(null)} className="text-gray-400 hover:underline">Cancel</button>
+                      </span>
+                    ) : (
+                      <button onClick={() => setConfirmRestoreId(s.id)} className="text-[#0E7490] hover:underline">Restore</button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>

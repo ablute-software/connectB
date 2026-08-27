@@ -78,6 +78,24 @@ export function ScenariosReturnsTool({ cards, selectedOrgId, ticket, setTicket, 
   const [roundAdvanced, setRoundAdvanced] = useState<RoundAdvancedDraft[]>(() => futureDilutions.map(emptyRoundAdvanced));
   const [targetMultiple, setTargetMultiple] = useState('10');
 
+  // Prompt 408 §B — this tool's own snapshot history. Only meaningful for
+  // a real startup (evaluation_snapshots.startup_org_id is not-null) — no
+  // save/history in hypothetical mode, same reasoning the Berkus shortcut
+  // card above already uses to hide itself there.
+  const [snapshots, setSnapshots] = useState<{ id: string; inputs: Record<string, unknown>; outputs: Record<string, unknown>; created_at: string }[]>([]);
+  const [confirmRestoreId, setConfirmRestoreId] = useState<string | null>(null);
+  const [savingRun, setSavingRun] = useState(false);
+  const [savedRunAt, setSavedRunAt] = useState<number | null>(null);
+
+  function loadSnapshots(orgId: string) {
+    fetch(`/api/portal/evaluation-snapshots?orgId=${encodeURIComponent(orgId)}&kind=scenarios`).then((r) => r.json())
+      .then((d) => setSnapshots(d.snapshots ?? [])).catch(() => setSnapshots([]));
+  }
+  useEffect(() => {
+    if (!selectedOrgId) { setSnapshots([]); return; }
+    loadSnapshots(selectedOrgId);
+  }, [selectedOrgId]);
+
   const selected = cards.find((c) => c.orgId === selectedOrgId) ?? null;
   const hypothetical = !selected;
 
@@ -122,6 +140,40 @@ export function ScenariosReturnsTool({ cards, selectedOrgId, ticket, setTicket, 
     const idx = scenarios.findIndex((s) => s.label === 'Base');
     const exitValueEur = String(berkusTotal * berkusMultiple);
     if (idx >= 0) updateScenario(idx, { exitValueEur }); else setScenarios((prev) => [...prev, { label: 'Base', probabilityPct: '0', exitValueEur, horizonYears: '5' }]);
+  }
+
+  // Prompt 408 §B.2 — explicit action only, never per-keystroke: this is
+  // the ONE place a snapshot gets written for this tool, wired to a
+  // dedicated button below, never to any onChange.
+  async function saveRun(weightedMoic: number | null, weightedIrr: number | null, expectedValueEur: number | null) {
+    if (!selectedOrgId) return;
+    setSavingRun(true);
+    try {
+      const res = await fetch('/api/portal/evaluation-snapshots', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          orgId: selectedOrgId, kind: 'scenarios',
+          inputs: { ticket, basis, futureDilutions, roundAdvanced, scenarios, targetMultiple },
+          outputs: { weightedMoic, weightedIrr, expectedValueEur },
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.ok !== false) { setSavedRunAt(Date.now()); loadSnapshots(selectedOrgId); }
+    } finally { setSavingRun(false); }
+  }
+
+  function restoreSnapshot(s: { inputs: Record<string, unknown> }) {
+    const inputs = s.inputs as Partial<{
+      ticket: string; basis: ValuationBasis; futureDilutions: string[]; roundAdvanced: RoundAdvancedDraft[];
+      scenarios: ScenarioDraft[]; targetMultiple: string;
+    }>;
+    if (inputs.ticket != null) setTicket(inputs.ticket);
+    if (inputs.basis != null) setBasis(inputs.basis);
+    if (inputs.futureDilutions != null) setFutureDilutions(inputs.futureDilutions);
+    if (inputs.roundAdvanced != null) setRoundAdvanced(inputs.roundAdvanced);
+    if (inputs.scenarios != null) setScenarios(inputs.scenarios);
+    if (inputs.targetMultiple != null) setTargetMultiple(inputs.targetMultiple);
+    setConfirmRestoreId(null);
   }
 
   if (!hypothetical && selected!.roundValuationEur == null) {
@@ -391,6 +443,45 @@ export function ScenariosReturnsTool({ cards, selectedOrgId, ticket, setTicket, 
           </p>
         )}
       </div>
+
+      {/* Prompt 408 §B — a run is the whole form (scenarios, dilution
+          profile, required-exit target), only meaningful tied to a real
+          startup — no save/history in hypothetical mode, matching the
+          Berkus shortcut card's own reasoning just above. */}
+      {!hypothetical && (
+        <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm">
+          <div className="flex items-center gap-2">
+            <button onClick={() => void saveRun(aggregate.weightedMoic, aggregate.weightedIrr, aggregate.expectedValueEur)} disabled={savingRun}
+              className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+              {savingRun ? 'Saving…' : savedRunAt && Date.now() - savedRunAt < 2000 ? 'Saved ✓' : 'Save run'}
+            </button>
+            <span className="text-[11px] text-gray-400">Saved privately to your seat only — {selected!.name}.</span>
+          </div>
+          {snapshots.length > 0 && (
+            <div className="mt-3 border-t border-gray-100 pt-3">
+              <div className="text-xs font-medium text-gray-500">History</div>
+              <ul className="mt-1.5 space-y-1">
+                {snapshots.map((s) => (
+                  <li key={s.id} className="flex items-center justify-between text-xs text-gray-600">
+                    <span>
+                      {new Date(s.created_at).toLocaleDateString()} —{' '}
+                      {(s.outputs as { weightedMoic: number | null }).weightedMoic == null ? 'n/a' : `${(s.outputs as { weightedMoic: number }).weightedMoic.toFixed(1)}x weighted MOIC`}
+                    </span>
+                    {confirmRestoreId === s.id ? (
+                      <span className="flex items-center gap-2">
+                        <button onClick={() => restoreSnapshot(s)} className="font-medium text-[#0E7490] hover:underline">Confirm restore</button>
+                        <button onClick={() => setConfirmRestoreId(null)} className="text-gray-400 hover:underline">Cancel</button>
+                      </span>
+                    ) : (
+                      <button onClick={() => setConfirmRestoreId(s.id)} className="text-[#0E7490] hover:underline">Restore</button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
