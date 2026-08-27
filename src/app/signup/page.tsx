@@ -152,6 +152,13 @@ function FounderSignupForm() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  // Prompt 404 §B.1 — replaces the old standalone "By creating an account
+  // you agree to..." paragraph with two real checkboxes, per the approved
+  // mockup. Newsletter is always optional (never enters canSubmit); Terms
+  // is the one truly required field on this whole form besides email/
+  // password/org/name/title.
+  const [wantsNewsletter, setWantsNewsletter] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   // Prompt 152 — set once the auth account exists (signUp succeeded), so a
@@ -163,7 +170,7 @@ function FounderSignupForm() {
   // straight in or show the "check your email" message.
   const [pendingAccount, setPendingAccount] = useState<{ userId: string; session: boolean } | null>(null);
 
-  const canSubmit = !busy && !!email && checkPassword(password).valid && !!org && !!name && !!title;
+  const canSubmit = !busy && !!email && checkPassword(password).valid && !!org && !!name && !!title && agreedToTerms;
 
   // Prompt 152 — found live: a real signup left auth.users with a row and
   // zero org_members, because the old code treated a network/parse failure
@@ -182,6 +189,10 @@ function FounderSignupForm() {
           website, sector, stage, round_target_eur: roundTarget ? Number(roundTarget) : undefined,
           country, one_liner: oneLiner,
           full_name: name, title, phone, linkedin_url: linkedin,
+          // Prompt 404 §B.2 — the founder's own newsletter consent, joined
+          // onto org_members (see migration 0255's own comment on why that
+          // table, not `people`).
+          marketing_opt_in: wantsNewsletter,
           // Prompt 124 C1 — UTM wins when present; the self-reported pick is
           // the fallback signal, never both merged into one ambiguous value.
           acquisition_source: utmSource ? 'Campaign' : howHeard || undefined,
@@ -198,6 +209,17 @@ function FounderSignupForm() {
       setMsg("Your account was created, but we couldn't reach the server to finish setting up your workspace. Check your connection and click Retry.");
       return false;
     }
+  }
+
+  // Prompt 404 §B.3 — reuses /api/terms/accept exactly as it already exists
+  // (idempotent, resolves TERMS_VERSION server-side) — no second route. Only
+  // callable once a real session exists (the route requires an authenticated
+  // user); best-effort, same "never block sign-up over this" discipline as
+  // provision-org's own materializeNetworkInvitesIfAny. The no-session path
+  // (email confirmation required) is a known, documented gap — see the file
+  // header note near submit() below.
+  async function acceptTerms() {
+    await fetch('/api/terms/accept', { method: 'POST' }).catch(() => {});
   }
 
   async function submit() {
@@ -218,8 +240,21 @@ function FounderSignupForm() {
       const hasSession = !!data.session;
       const provisioned = await attemptProvision(userId);
       if (!provisioned) { setPendingAccount({ userId, session: hasSession }); return; }
-      if (hasSession) window.location.href = '/';
-      else setMsg('Account created. Check your email to confirm, then sign in.');
+      if (hasSession) {
+        // Prompt 404 §B.3 — when Supabase requires email confirmation first
+        // (no session yet), there's no authenticated user for this route to
+        // record against. agreedToTerms already blocked the submit either
+        // way; the actual acceptance row is only ever written once a real
+        // session exists. Known gap, not solved here (the prompt's own
+        // scoping): that confirmed-email first load doesn't call this yet,
+        // so that one path has no acceptance row until they hit a screen
+        // that does (e.g. this same form again, or a future /set-password-
+        // style detour) — flagged, not silently left to look handled.
+        await acceptTerms();
+        window.location.href = '/';
+      } else {
+        setMsg('Account created. Check your email to confirm, then sign in.');
+      }
     } finally { setBusy(false); }
   }
 
@@ -230,8 +265,12 @@ function FounderSignupForm() {
       const provisioned = await attemptProvision(pendingAccount.userId);
       if (!provisioned) return;
       setPendingAccount(null);
-      if (pendingAccount.session) window.location.href = '/';
-      else setMsg('Account created. Check your email to confirm, then sign in.');
+      if (pendingAccount.session) {
+        await acceptTerms();
+        window.location.href = '/';
+      } else {
+        setMsg('Account created. Check your email to confirm, then sign in.');
+      }
     } finally { setBusy(false); }
   }
 
@@ -296,6 +335,25 @@ function FounderSignupForm() {
           className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         <PasswordRequirementsIndicator password={password} />
 
+        {/* Prompt 404 §B.1 — replaces the old standalone agreement
+            paragraph. Two boxes, same visual treatment, approved mockup
+            (signup_terms_mockup.png): newsletter opt-in on top (always
+            optional, never blocks submit), Terms acceptance below
+            (required — the one checkbox canSubmit actually depends on). */}
+        <label className="mt-3 flex items-start gap-2 rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-xs text-gray-500">
+          <input type="checkbox" checked={wantsNewsletter} onChange={(e) => setWantsNewsletter(e.target.checked)}
+            className="mt-0.5 accent-[#0E7490]" />
+          Send me product updates and news by email (optional)
+        </label>
+        <label className="mt-2 flex items-start gap-2 rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-sm text-gray-700">
+          <input type="checkbox" checked={agreedToTerms} onChange={(e) => setAgreedToTerms(e.target.checked)}
+            className="mt-0.5 accent-[#0E7490]" />
+          {/* Prompt 341 — availability BEFORE contracting is a legal
+              requirement, not cosmetic (DL 7/2004). */}
+          I have read and accept the{' '}
+          <Link href="/terms" target="_blank" className="font-semibold text-[#0E7490] hover:underline">Terms &amp; Conditions</Link>.
+        </label>
+
         {pendingAccount ? (
           <button disabled={busy} onClick={retry}
             className="mt-3 w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
@@ -308,11 +366,6 @@ function FounderSignupForm() {
           </button>
         )}
         <p className="mt-2 text-[11px] text-gray-400">* required</p>
-        {/* Prompt 341 — availability BEFORE contracting is a legal
-            requirement, not cosmetic (DL 7/2004). */}
-        <p className="mt-1 text-[11px] text-gray-400">
-          By creating an account you agree to the <Link href="/terms" target="_blank" className="hover:underline">Terms &amp; Conditions</Link>.
-        </p>
         {msg && <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">{msg}</div>}
         <div className="mt-5 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
           Already have an account? <Link href="/login" className="font-medium text-[#0E7490] hover:underline">Sign in</Link>

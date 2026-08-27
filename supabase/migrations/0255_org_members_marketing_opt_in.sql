@@ -1,0 +1,11 @@
+-- Prompt 404 §B.2 — the founder's own newsletter consent, captured at
+-- signup. The prompt's own text names `people` as the target table, but
+-- that table is investor-side contacts (people.entity_id references
+-- entities(id), not null — a founder signing up isn't attached to any
+-- investor entity, so a row there isn't possible, structurally or
+-- conceptually). The founder's own profile fields (full_name, title,
+-- phone, linkedin_url) already live on org_members instead, added by
+-- migration 0004 for exactly this "the joining person's own profile"
+-- purpose — marketing_opt_in joins them there. Registered here as the
+-- deviation from the prompt's literal text, not a silent substitution.
+alter table org_members add column if not exists marketing_opt_in boolean not null default false;

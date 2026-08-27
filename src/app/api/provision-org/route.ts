@@ -47,6 +47,10 @@ export async function POST(req: NextRequest) {
     website, sector, stage, round_target_eur, country, one_liner,
     full_name, title, phone, linkedin_url,
     acquisition_source, acquisition_source_detail,
+    // Prompt 404 §B.2 — the founder's own newsletter consent (migration
+    // 0255, on org_members — see that migration's own comment for why not
+    // `people`).
+    marketing_opt_in,
   } = await req.json();
   if (!user_id || !org_name) return NextResponse.json({ ok: false, error: 'missing fields' }, { status: 400 });
   if (!full_name || !title) return NextResponse.json({ ok: false, error: 'full_name and title/cargo are required' }, { status: 400 });
@@ -103,7 +107,7 @@ export async function POST(req: NextRequest) {
   // mail at this whole domain."
   const isAbluteTeam = emailConfirmed && isAbluteTeamEmail(email);
   const isOwner = isLegacyOwner || isAbluteTeam;
-  const profileFields = { full_name, title, phone: phone || null, linkedin_url: linkedin_url || null };
+  const profileFields = { full_name, title, phone: phone || null, linkedin_url: linkedin_url || null, marketing_opt_in: !!marketing_opt_in };
 
   // Owner always gets platform (back-office) access — best effort, never
   // blocks sign-up. Prompt 43/44: this used to swallow a failure silently

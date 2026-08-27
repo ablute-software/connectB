@@ -7,11 +7,13 @@
 // (D1: the magic link itself never goes away as an option).
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { browserClient } from '@/lib/supabase';
 import { LogoLockup } from '@/components/Logo';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { PasswordRequirementsIndicator } from '@/components/auth/PasswordRequirementsIndicator';
 import { checkPassword } from '@/lib/password-policy';
+import { useTermsGateStatus } from '@/lib/terms-status';
 
 function SetPasswordInner() {
   const sp = useSearchParams();
@@ -20,9 +22,25 @@ function SetPasswordInner() {
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  // Prompt 404 §C.1 — this is the universal first-access screen for
+  // magic-link/invited accounts (auth/callback/route.ts sends anyone
+  // without password_set here), so it's where an investor (who has no
+  // signup screen of their own — §B.4) accepts the Terms for the first
+  // time. Reuses the exact same check TermsGateModal used to (now removed,
+  // §D) — null while loading, so the checkbox doesn't flash in/out.
+  const needsTerms = useTermsGateStatus();
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   const requirementsMet = checkPassword(password).valid;
-  const canSubmit = requirementsMet && password === confirm;
+  // needsTerms === null (still loading) blocks both buttons too, same as
+  // "true" — there's no honest default to show before the check resolves.
+  const termsOk = needsTerms === false || (needsTerms === true && agreedToTerms);
+  const canSubmit = requirementsMet && password === confirm && termsOk;
+  const canSkip = needsTerms !== null && termsOk;
+
+  async function acceptTermsIfNeeded() {
+    if (needsTerms) await fetch('/api/terms/accept', { method: 'POST' }).catch(() => {});
+  }
 
   async function submit() {
     setErr('');
@@ -37,14 +55,22 @@ function SetPasswordInner() {
       // verbatim, not replaced with our own wording.
       const { error } = await sb.auth.updateUser({ password, data: { password_set: true } });
       if (error) { setErr(error.message); return; }
+      await acceptTermsIfNeeded();
       window.location.href = next;
     } finally {
       setBusy(false);
     }
   }
 
-  function skip() {
-    window.location.href = next;
+  async function skip() {
+    if (!canSkip) return;
+    setBusy(true);
+    try {
+      await acceptTermsIfNeeded();
+      window.location.href = next;
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -66,13 +92,28 @@ function SetPasswordInner() {
           onKeyDown={(e) => e.key === 'Enter' && canSubmit && void submit()}
           className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
 
+        {/* Prompt 404 §C.1 — only when this user hasn't accepted the
+            current Terms version yet; same required block/visual as
+            signup's own 2nd checkbox (§B.1), no newsletter checkbox here
+            (that one's signup-only). Nothing renders while needsTerms is
+            still loading (null) — the screen looks exactly like it does
+            today until the check resolves either way. */}
+        {needsTerms === true && (
+          <label className="mt-3 flex items-start gap-2 rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-sm text-gray-700">
+            <input type="checkbox" checked={agreedToTerms} onChange={(e) => setAgreedToTerms(e.target.checked)}
+              className="mt-0.5 accent-[#0E7490]" />
+            I have read and accept the{' '}
+            <Link href="/terms" target="_blank" className="font-semibold text-[#0E7490] hover:underline">Terms &amp; Conditions</Link>.
+          </label>
+        )}
+
         {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}
 
         <button disabled={busy || !canSubmit} onClick={() => void submit()}
           className="mt-4 w-full rounded-xl bg-[#0E7490] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
           {busy ? 'Saving…' : 'Set password'}
         </button>
-        <button onClick={skip} disabled={busy} className="mt-2 block w-full text-center text-xs text-gray-400 hover:underline disabled:opacity-40">
+        <button onClick={() => void skip()} disabled={busy || !canSkip} className="mt-2 block w-full text-center text-xs text-gray-400 hover:underline disabled:opacity-40">
           Skip for now
         </button>
       </div>
