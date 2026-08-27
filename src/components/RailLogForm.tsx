@@ -1,21 +1,26 @@
 'use client';
-// Prompt 397 §B.3 — "Log" mode of the entity page's conversation panel:
-// record an interaction without leaving the page. Validation is NOT
+// Prompt 397 §B.3 / 400 §B.1 — "Log" mode of the entity page's conversation
+// panel: record an interaction without leaving the page. Validation is NOT
 // reimplemented — src/app/log/page.tsx was read in full before writing this,
 // and the save() below calls the exact same store.logInteraction with the
 // exact same preflight/lintMessage gates for outbound, so a message this
 // form refuses is refused for the same reason /log would refuse it.
-// Deliberately narrower than /log's own surface, though: no AI compose, no
-// Gmail send, no web-form assist, no ask-amount field, and no post-save
-// "suggested next action" flow — those stay full-page-only features, and
-// /log itself keeps existing (shell nav + `/log?entity=` deep-links) for
-// anything beyond a quick log. This is a documented scope decision, not a
-// rule fork: every field that IS collected here is validated identically.
+// Prompt 400 §B.1 brought this to full parity with /log's own surface —
+// Draft with AI (same draftWithAi machine, same Watson accounting),
+// amount asked, and a next-action suggestion offered right after Save —
+// so /log itself is only a legacy deep-link now (§B.2), not a feature this
+// panel is missing. Still deliberately narrower in two ways, both because
+// this is a fast-path panel and /log stays reachable for anything past a
+// quick log: no Gmail send (the manual-send confirmation path covers it),
+// and no web-form assist panel.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Tooltip, PREFLIGHT_EXPLAIN } from '@/components/ui';
 import { lintMessage, preflight, preflightSummary } from '@/lib/rules';
-import { nextContactPerson, PASS_REASON_CATEGORIES } from '@/lib/relationship';
+import { nextContactPerson, PASS_REASON_CATEGORIES, suggestNextAction, type NextActionSuggestion } from '@/lib/relationship';
+import { buildComposerContext, pickIntent, INTENT_LABEL, type ComposerIntent } from '@/lib/composer';
+import { evaluateProvenanceGate, type ComposerClaim } from '@/lib/company-canon-logic';
+import { AI_COMPOSER_LOCKED_COPY } from '@/lib/plans';
 import { authEnabled } from '@/lib/supabase';
 import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
 import type { Channel, Classification, DocumentItem, Entity, Folder, OverrideRule, PassReasonCategory } from '@/lib/types';
@@ -44,7 +49,7 @@ export function RailLogForm({
   prefillNonce?: number;
   onSaved: () => void;
 }) {
-  const { db, logInteraction, addDocument, addGrant } = useStore();
+  const { db, logInteraction, addDocument, addGrant, addCompanyFact, addTask } = useStore();
   const people = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
 
   const [personId, setPersonId] = useState('');
@@ -61,6 +66,39 @@ export function RailLogForm({
   const [justification, setJustification] = useState('');
   const [showOverride, setShowOverride] = useState(false);
   const [toast, setToast] = useState('');
+  // Prompt 400 §B.1.3 — amount asked, mirrors /log's own optional
+  // ask_amount_eur field exactly; outbound only, same as there.
+  const [askAmount, setAskAmount] = useState('');
+  // Prompt 400 §B.1.1 — Draft with AI, the exact same machine as /log
+  // (draftWithAi below is a near-verbatim port): same state shape, same
+  // /api/compose call, same §11b provenance gate, same Watson accounting.
+  const [intent, setIntent] = useState<ComposerIntent>('first_touch');
+  const [composing, setComposing] = useState(false);
+  const [composerNote, setComposerNote] = useState('');
+  const [composerMeta, setComposerMeta] = useState<{ rationale: string; confidence: number } | null>(null);
+  const [aiGenerated, setAiGenerated] = useState(false);
+  const [pendingQuestions, setPendingQuestions] = useState<ComposerClaim[]>([]);
+  const [pendingAnswer, setPendingAnswer] = useState('');
+  const [aiComposerLocked, setAiComposerLocked] = useState(false);
+  const [watson, setWatson] = useState<{ quota: number; used: number; remaining: number; resetAt: string } | null>(null);
+  // §B.1.1 follow-on: an AI email draft can carry a subject line
+  // (data.draft.subject) — without this field it would silently vanish,
+  // which is the kind of loss "same machine" is meant to rule out. Folded
+  // into content at save time exactly like /log's own fullContent.
+  const [subject, setSubject] = useState('');
+  // Stamps who the current draft was written for (typed or AI-drafted) so
+  // switching person without clearing the textarea is caught as stale —
+  // same purpose as /log's draftedFor, simplified to just personId since
+  // this form's entity never changes underneath it (only /log's can).
+  const [draftedForPersonId, setDraftedForPersonId] = useState<string | null>(null);
+  // Prompt 400 §B.1.4 — offered right after a successful Save, not as a
+  // pre-save field: keeps the main form focused, and "what's next" is a
+  // post-save question anyway (/log's own manual next-action field is the
+  // one piece of §B.1.4 NOT ported — see the file header comment).
+  const [pendingSuggestion, setPendingSuggestion] = useState<NextActionSuggestion | null>(null);
+  const [editingSuggestion, setEditingSuggestion] = useState(false);
+  const [suggestionTitle, setSuggestionTitle] = useState('');
+  const [suggestionDue, setSuggestionDue] = useState('');
   // Prompt 397 §C — attachments picked in THIS draft, not yet saved. Each is
   // exactly one document OR folder (mirrors AccessGrant/InteractionDocument).
   // Sharing (options 2/3 below) creates the access grant immediately, at the
@@ -146,6 +184,126 @@ export function RailLogForm({
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   }
 
+  // §B.1.1 — near-verbatim port of /log's own refreshMe/draftWithAi/
+  // answerPendingQuestion. Same endpoints, same gates, same Watson
+  // accounting; only goToEntity()'s router.push is gone (this form never
+  // leaves the entity page) and there's no web-form-assist branch (out of
+  // scope here — see the file header comment).
+  function refreshMe() {
+    return fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
+      .then((me) => {
+        setAiComposerLocked(!!me.authEnabled && !!me.entitlements && !me.entitlements.aiComposer);
+        setWatson(me.watson ?? null);
+      })
+      .catch(() => {});
+  }
+
+  useEffect(() => { refreshMe(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Same trigger as /log's own intent effect: a fresh intent guess whenever
+  // the target person changes (entity is fixed on this form, unlike /log).
+  useEffect(() => {
+    setIntent(pickIntent(db, entity.id));
+    setAiGenerated(false); setComposerMeta(null); setComposerNote('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personId, noSpecificPerson]);
+
+  // Stamps who the content was written for, same purpose as /log's
+  // draftedFor — lets a person switch without clearing the textarea be
+  // caught as a stale draft below.
+  useEffect(() => {
+    if (content.trim().length === 0) { setDraftedForPersonId(null); return; }
+    setDraftedForPersonId(noSpecificPerson ? '__none__' : personId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content]);
+  const staleDraft = draftedForPersonId !== null && content.trim().length > 0
+    && draftedForPersonId !== (noSpecificPerson ? '__none__' : personId);
+
+  async function draftWithAi() {
+    if (!person && !noSpecificPerson) return;
+    setComposing(true); setComposerNote(''); setComposerMeta(null); setPendingQuestions([]);
+    try {
+      const context = buildComposerContext(db, entity.id, personId, channel);
+      const res = await fetch('/api/compose', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ context, channel, intent }),
+      });
+      const data = await res.json();
+      if (data.configured === false) { setComposerNote(data.message); return; }
+      if (data.error) { setComposerNote(`AI draft failed: ${data.error}`); return; }
+
+      // §11b HARD gate — same as /log: a draft with any unconfirmed/
+      // unflagged claim is never shown.
+      if (data.draft.claims?.length) {
+        const confirmedIds = new Set(db.companyFacts.filter((f) => f.status === 'confirmed').map((f) => f.id));
+        const gate = evaluateProvenanceGate(data.draft, confirmedIds);
+        if (!gate.grounded) {
+          const unresolved = [
+            ...gate.pendingQuestions,
+            ...gate.ungroundedClaims.map((c) => ({
+              ...c,
+              needsConfirmation: c.needsConfirmation ?? {
+                question: `The draft states "${c.text}" — is that accurate?`,
+                options: ['Yes — add to the canon', 'No — leave it out'],
+              },
+            })),
+          ];
+          setPendingQuestions(unresolved);
+          setComposerNote('This draft made a claim that needs your confirmation first — the draft itself is not shown yet.');
+          return;
+        }
+      }
+
+      setContent(data.draft.body);
+      if (channel === 'email') setSubject(data.draft.subject ?? '');
+      setComposerMeta({ rationale: data.draft.rationale, confidence: data.draft.confidence });
+      setAiGenerated(true);
+      void refreshMe(); // a credit was just spent — keep the Watson card current
+    } catch (e) {
+      setComposerNote(`AI draft failed: ${(e as Error).message}`);
+    } finally {
+      setComposing(false);
+    }
+  }
+
+  function answerPendingQuestion(answer: string) {
+    if (!pendingQuestions[0]) return;
+    const now = new Date().toISOString();
+    addCompanyFact({ category: 'other', statement: answer, status: 'confirmed', source: 'user', confirmed_at: now });
+    const rest = pendingQuestions.slice(1);
+    setPendingQuestions(rest);
+    setPendingAnswer('');
+    if (rest.length === 0) { setComposerNote(''); draftWithAi(); } // all answered — regenerate
+  }
+
+  // §B.1.4 — accept/edit/ignore the post-save suggestion, same shape as
+  // /log's own (source: 'suggested' vs 'manual' on the created task).
+  function acceptSuggestion() {
+    if (!pendingSuggestion) return;
+    addTask({
+      title: pendingSuggestion.title, due_at: pendingSuggestion.dueAt, action_type: pendingSuggestion.actionType,
+      kind: 'follow_up', entity_id: entity.id, person_id: personId || undefined, source: 'suggested',
+    });
+    setPendingSuggestion(null);
+    onSaved();
+  }
+
+  function saveEditedSuggestion() {
+    if (!suggestionTitle.trim()) return;
+    addTask({
+      title: suggestionTitle.trim(), due_at: suggestionDue ? `${suggestionDue}T12:00:00Z` : undefined,
+      action_type: pendingSuggestion?.actionType ?? 'other',
+      kind: 'follow_up', entity_id: entity.id, person_id: personId || undefined, source: 'manual',
+    });
+    setPendingSuggestion(null);
+    onSaved();
+  }
+
+  function ignoreSuggestion() {
+    setPendingSuggestion(null);
+    onSaved();
+  }
+
   useEffect(() => {
     if (defaultPersonId) {
       setPersonId(defaultPersonId);
@@ -201,20 +359,39 @@ export function RailLogForm({
     const overrides = withOverrides
       ? summary.failed.filter((f) => f.overridable).map((f) => ({ rule: f.key as OverrideRule, justification }))
       : [];
-    logInteraction({
-      entity_id: entity.id, person_id: personId || undefined, direction, channel, content,
+    // §B.1.1 — same fullContent fold as /log: an AI-drafted (or manually
+    // typed) email subject is never dropped on the floor.
+    const fullContent = channel === 'email' && subject ? `Subject: ${subject}\n\n${content}` : content;
+    const interaction = logInteraction({
+      entity_id: entity.id, person_id: personId || undefined, direction, channel, content: fullContent,
       occurred_at: whatDate ? new Date(whatDate).toISOString() : undefined,
       sent_from: direction === 'out' && channel === 'email' ? db.org.sender_email : undefined,
       classification: direction === 'in' ? (classification as Classification) : direction === 'out' ? 'awaiting' : undefined,
+      // §B.1.3
+      ask_amount_eur: direction === 'out' && askAmount.trim() !== '' ? Number(askAmount) : undefined,
       pass_reason_category: classification === 'pass' ? passCat : undefined,
       pass_reason: classification === 'pass' ? passReason : undefined,
       overrides,
+      ai_generated: aiGenerated || undefined,
       attachments: attachments.length ? attachments.map((a) => ({ documentId: a.documentId, folderId: a.folderId })) : undefined,
     });
     setToast(direction === 'out' ? `Saved. Contact lock set for 14 days.${overrides.length ? ' Override logged.' : ''}` : 'Reply saved.');
     setContent(''); setClassification(''); setPassReason(''); setJustification(''); setShowOverride(false); setReopenAck(false);
     setAttachments([]);
     setPrefilledPersonId(null);
+    setAskAmount(''); setSubject(''); setAiGenerated(false); setComposerMeta(null); setComposerNote(''); setDraftedForPersonId(null);
+
+    // §B.1.4 — same gate as /log: only offered when the founder didn't
+    // already handle "what's next" some other way (a pass, for instance,
+    // naturally yields no suggestion — suggestNextAction returns null).
+    const suggestion = suggestNextAction(direction, channel, direction === 'in' ? (classification as Classification) : undefined, interaction.occurred_at);
+    if (suggestion) {
+      setPendingSuggestion(suggestion);
+      setSuggestionTitle(suggestion.title);
+      setSuggestionDue(suggestion.dueAt.slice(0, 10));
+      setToast('');
+      return; // wait for Accept/Edit/Ignore below instead of returning to History
+    }
     window.setTimeout(() => { setToast(''); onSaved(); }, 700);
   }
 
@@ -256,12 +433,90 @@ export function RailLogForm({
         title="When this happened — defaults to now if left blank"
         className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs" />
 
+      {/* §B.1.1 — same order as /log's own "2 · What" card: intent +
+          Draft with AI, then composerNote / pendingQuestions / composerMeta
+          / staleDraft, then (email only) subject, then the textarea. */}
+      {direction === 'out' && (person || noSpecificPerson) && (
+        aiComposerLocked ? (
+          <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2">
+            <span className="text-[11px] text-gray-500">✨ {AI_COMPOSER_LOCKED_COPY}.</span>
+            <a href="/plans" className="text-[11px] font-medium text-[#0E7490] hover:underline">View plans</a>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-cyan-100 bg-[#E8F4F8]/50 px-2.5 py-2">
+            <select value={intent} onChange={(e) => setIntent(e.target.value as ComposerIntent)}
+              className="rounded border border-gray-300 px-1.5 py-1 text-[11px]">
+              {(Object.keys(INTENT_LABEL) as ComposerIntent[]).map((i) => <option key={i} value={i}>{INTENT_LABEL[i]}</option>)}
+            </select>
+            <Tooltip text={person
+              ? "Generates a draft using this person's hook and the entity's context — never sent automatically."
+              : "Generates a draft addressed to the firm generally, using the entity's context — never sent automatically."}>
+              <button disabled={composing} onClick={draftWithAi}
+                className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40">
+                {composing ? 'Drafting…' : '✨ Let Watson Draft'}
+              </button>
+            </Tooltip>
+            {watson && <span className="text-[10.5px] text-gray-400">{watson.remaining} draft{watson.remaining === 1 ? '' : 's'} left</span>}
+          </div>
+        )
+      )}
+      {composerNote && <div className="rounded bg-gray-50 border border-gray-200 px-2.5 py-1.5 text-[11px] text-gray-600">{composerNote}</div>}
+      {pendingQuestions[0] && (
+        <div className="rounded-lg border border-purple-300 bg-purple-50 p-2.5">
+          <p className="text-[12.5px] font-medium text-purple-900">{pendingQuestions[0].needsConfirmation!.question}</p>
+          <p className="mt-0.5 text-[10.5px] text-purple-700">Your answer is added to the Company canon so future drafts already know it.</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {pendingQuestions[0].needsConfirmation!.options.map((opt) => (
+              <button key={opt} onClick={() => answerPendingQuestion(opt)}
+                className="rounded-lg border border-purple-300 bg-white px-2 py-1 text-[11px] font-medium text-purple-800 hover:bg-purple-100">
+                {opt}
+              </button>
+            ))}
+          </div>
+          <div className="mt-1.5 flex gap-1.5">
+            <input value={pendingAnswer} onChange={(e) => setPendingAnswer(e.target.value)} placeholder="Or type the real answer…"
+              className="flex-1 rounded border border-gray-300 px-1.5 py-1 text-[11px]" />
+            <button disabled={!pendingAnswer.trim()} onClick={() => answerPendingQuestion(pendingAnswer.trim())}
+              className="rounded-lg bg-[#0E7490] px-2 py-1 text-[11px] font-medium text-white disabled:opacity-40">Confirm</button>
+          </div>
+        </div>
+      )}
+      {composerMeta && (
+        <div className="rounded bg-[#E8F4F8]/60 border border-cyan-100 px-2.5 py-1.5 text-[11px] text-cyan-900">
+          <span className="font-semibold">AI rationale:</span> {composerMeta.rationale} · confidence {Math.round(composerMeta.confidence * 100)}%
+        </div>
+      )}
+      {staleDraft && (
+        <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-400 bg-amber-50 px-2.5 py-2">
+          <span className="flex-1 text-[12px] font-medium text-amber-900">This draft was written for someone else — update it or clear it.</span>
+          <button onClick={() => setContent('')}
+            className="rounded border border-amber-500 bg-white px-1.5 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-100">
+            Clear
+          </button>
+        </div>
+      )}
+      {direction === 'out' && channel === 'email' && (
+        <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject"
+          className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
+      )}
+
       <div>
         <label className="text-[10.5px] font-semibold uppercase tracking-wide text-gray-400">What happened</label>
         <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={5}
           placeholder={direction === 'out' ? 'Paste the message verbatim…' : 'Paste the reply verbatim…'}
           className="mt-1 w-full rounded border border-gray-300 p-2 text-sm" />
       </div>
+
+      {direction === 'out' && (
+        <div>
+          <label className="text-[10.5px] font-semibold uppercase tracking-wide text-gray-400">Amount asked (optional)</label>
+          <div className="mt-1 flex items-center gap-1.5">
+            <span className="text-sm text-gray-400">€</span>
+            <input type="number" min="0" step="1000" value={askAmount} onChange={(e) => setAskAmount(e.target.value)}
+              placeholder="e.g. 1300000" className="w-32 rounded border border-gray-300 px-2 py-1 text-sm" />
+          </div>
+        </div>
+      )}
 
       {direction === 'out' && lint.length > 0 && (
         <ul className="space-y-1">
@@ -419,7 +674,37 @@ export function RailLogForm({
 
       {toast && <div className="rounded border border-green-200 bg-green-50 px-2.5 py-1.5 text-xs text-green-800">{toast}</div>}
 
-      {blockedHard ? (
+      {pendingSuggestion ? (
+        // §B.1.4 — the interaction is already saved; this is the engine's
+        // suggested next step (same suggestNextAction /log calls), offered
+        // instead of a pre-save field. Accept as-is, edit it, or ignore —
+        // all three return to History once resolved.
+        <div className="rounded-lg border border-cyan-200 bg-[#E8F4F8]/60 p-2.5">
+          <p className="text-[12.5px] font-medium text-cyan-900">Suggested next: {pendingSuggestion.title}</p>
+          {editingSuggestion && (
+            <div className="mt-1.5 space-y-1.5">
+              <input value={suggestionTitle} onChange={(e) => setSuggestionTitle(e.target.value)}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+              <input type="date" value={suggestionDue} onChange={(e) => setSuggestionDue(e.target.value)}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+            </div>
+          )}
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {editingSuggestion ? (
+              <button onClick={saveEditedSuggestion} disabled={!suggestionTitle.trim()}
+                className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40">
+                Save edited next action
+              </button>
+            ) : (
+              <>
+                <button onClick={acceptSuggestion} className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-[11px] font-medium text-white">Accept</button>
+                <button onClick={() => setEditingSuggestion(true)} className="rounded-lg border border-gray-300 px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50">Edit</button>
+              </>
+            )}
+            <button onClick={ignoreSuggestion} className="text-[11px] text-gray-400 hover:underline">Ignore — no next action</button>
+          </div>
+        </div>
+      ) : blockedHard ? (
         <div className="rounded border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-[#B00000]">
           Blocked: {summary.blocked ? 'a non-overridable pre-flight check failed.' : 'fix the linter errors above.'}
         </div>
