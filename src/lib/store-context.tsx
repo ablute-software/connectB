@@ -42,6 +42,11 @@ export type LogInput = {
   next_action_type?: ActionType;
   overrides?: { rule: OverrideRule; justification: string }[];
   ai_generated?: boolean;
+  // Prompt 397 §C.3 — RailLogForm's ATTACHMENTS section. Each entry is
+  // exactly one document OR one folder (mirrors AccessGrant); the first
+  // document attachment also backfills the legacy singular `document_id`
+  // column above, same as /log's own `document_id` always has.
+  attachments?: { documentId?: string; folderId?: string }[];
 };
 
 export interface StoreApi {
@@ -186,7 +191,13 @@ export interface StoreApi {
     entity_id: string; full_name: string; role?: string; gender?: string;
     linkedin_url?: string; email_guess?: string; phone?: string;
   }) => Person;
-  addDocument: (d: Omit<DocumentItem, 'id'>) => void;
+  // Prompt 397 §C.1 — returns the created row's id so a caller that needs to
+  // chain off it (RailLogForm's "attach from this computer", which links the
+  // fresh document to the interaction it's attached from) doesn't have to
+  // re-derive it from a since-updated `db.documents`. Every pre-existing
+  // fire-and-forget caller keeps compiling unchanged — ignoring a return
+  // value is always legal.
+  addDocument: (d: Omit<DocumentItem, 'id'>) => string;
   // Data Room V2 (F1): removes the Storage object (when storage_path is
   // set) and the documents row. Irreversible — the UI must confirm before
   // calling this. Any access_grants scoped to this document are cleaned up

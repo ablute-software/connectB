@@ -238,7 +238,7 @@ function InteractionRow({ row, rowRefs, pending, highlighted, editingId, setEdit
           asked {formatAsk(i.ask_amount_eur)}
         </span>
       )}
-      <SharedDocChip documentId={i.document_id} occurredAt={i.occurred_at} />
+      <InteractionAttachmentChips interactionId={i.id} documentId={i.document_id} occurredAt={i.occurred_at} />
       <InteractionEditHint edits={edits} />
       {/* Prompt 252 — fix a wrong date/channel/content, separate from the
           classification "Edit" below (a distinct pencil, not a second
@@ -276,5 +276,37 @@ function InteractionRow({ row, rowRefs, pending, highlighted, editingId, setEdit
         </div>
       )}
     </li>
+  );
+}
+
+// Prompt 397 §C.3 — N attachments per interaction (interaction_documents),
+// on top of SharedDocChip's pre-existing SINGLE document_id chip. Falls back
+// to SharedDocChip alone whenever there are no interaction_documents rows —
+// every interaction logged before Phase C, or logged via /log's own
+// single-doc "Material shared" field, has no join rows and keeps rendering
+// exactly as before (one chip, from document_id, with its version label).
+function InteractionAttachmentChips({ interactionId, documentId, occurredAt }: { interactionId: string; documentId?: string; occurredAt: string }) {
+  const { db } = useStore();
+  const rows = db.interactionDocuments.filter((d) => d.interaction_id === interactionId);
+  if (rows.length === 0) return <SharedDocChip documentId={documentId} occurredAt={occurredAt} />;
+  return (
+    <>
+      {rows.map((r) => r.document_id
+        ? <SharedDocChip key={r.id} documentId={r.document_id} occurredAt={occurredAt} />
+        : <FolderAttachmentChip key={r.id} folderId={r.folder_id} />)}
+    </>
+  );
+}
+
+function FolderAttachmentChip({ folderId }: { folderId?: string }) {
+  const { db } = useStore();
+  const folder = db.folders.find((f) => f.id === folderId);
+  if (!folder) return null;
+  return (
+    <span title={`Shared folder: ${folder.name}`}
+      className="inline-flex max-w-full items-baseline gap-1 rounded bg-white px-1.5 py-0.5 text-[11px] text-gray-600 ring-1 ring-gray-200">
+      <span aria-hidden>📁</span>
+      <span className="truncate">{folder.name}</span>
+    </span>
   );
 }

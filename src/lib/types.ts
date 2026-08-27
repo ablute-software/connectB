@@ -915,6 +915,20 @@ export interface InteractionEdit {
   edited_at: string;
 }
 
+// Prompt 397 §C.3 — N attachments per logged interaction. Mirrors
+// AccessGrant's own document_id/folder_id shape (exactly one set per row)
+// rather than a single polymorphic column + a redundant `kind` flag that
+// could drift out of sync with which FK is actually populated.
+// interactions.document_id (singular) stays for back-compat, filled with
+// the first document attachment when there is one.
+export interface InteractionDocument {
+  id: string;
+  interaction_id: string;
+  document_id?: string;
+  folder_id?: string;
+  created_at: string;
+}
+
 export interface CompanyFact {
   id: string;
   category: CompanyFactCategory;
@@ -1090,6 +1104,7 @@ export interface Db {
   rejectionCodes: RejectionCode[];
   interactionEdits: InteractionEdit[];
   orgAxisClassifications: OrgAxisClassification[];
+  interactionDocuments: InteractionDocument[];
 }
 
 // ---------------------------------------------------------------------------

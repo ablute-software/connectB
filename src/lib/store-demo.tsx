@@ -5,7 +5,7 @@
 // StoreApi contract (locks, follow-up tasks, overrides, runs semantics).
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  AccessGrant, AutomationRun, CompanyFact, Db, DocumentItem, Entity, Folder, FolderKind, Interaction, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory, RoadmapEvent,
+  AccessGrant, AutomationRun, CompanyFact, Db, DocumentItem, Entity, Folder, FolderKind, Interaction, InteractionDocument, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory, RoadmapEvent,
   InteractionEdit, OrgAxisClassification } from './types';
 import { seed } from './data/seed';
 import { revisitTasksToClose } from './exit-effects';
@@ -86,9 +86,17 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     loading: false,
 
     logInteraction(input) {
+      // Prompt 397 §C.3 — attachments would otherwise sit on `interaction`
+      // as a stray field via the `...input` spread below (interactions has
+      // no such column); carved out first, same reasoning as the
+      // overrides/next_action_type exclusion the Supabase store already
+      // does before its own insert.
+      const { attachments, ...loggedInput } = input;
+      const firstDocId = attachments?.find((a) => a.documentId)?.documentId;
       const interaction: Interaction = {
         id: uid('int'),
-        ...input,
+        ...loggedInput,
+        document_id: loggedInput.document_id ?? firstDocId,
         // Spread after the id, but occurred_at still needs its own
         // fallback: /log passes occurred_at: undefined explicitly when the
         // founder leaves "when this happened" blank, and an explicit
@@ -97,8 +105,15 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
         // real timestamp, so this can never be allowed through as undefined.
         occurred_at: input.occurred_at ?? new Date().toISOString(),
       };
+      const attachmentRows: InteractionDocument[] = (attachments ?? []).map((a) => ({
+        id: uid('idoc'), interaction_id: interaction.id,
+        document_id: a.documentId, folder_id: a.folderId, created_at: interaction.occurred_at,
+      }));
       setDb((prev) => {
-        const next: Db = { ...prev, interactions: [...prev.interactions, interaction] };
+        const next: Db = {
+          ...prev, interactions: [...prev.interactions, interaction],
+          interactionDocuments: [...prev.interactionDocuments, ...attachmentRows],
+        };
 
         for (const o of input.overrides ?? []) {
           next.overrides = [...next.overrides, {
@@ -571,10 +586,12 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       if (external_url && isEditableLink(external_url)) {
         throw new Error('Editable link rejected — only view-only links can be stored.');
       }
+      const id = uid('doc');
       setDb((prev) => ({
         ...prev,
-        documents: [...prev.documents, { ...d, external_url, id: uid('doc'), created_at: new Date().toISOString() }],
+        documents: [...prev.documents, { ...d, external_url, id, created_at: new Date().toISOString() }],
       }));
+      return id;
     },
 
     deleteDocument(id) {

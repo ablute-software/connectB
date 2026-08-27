@@ -13,7 +13,7 @@ import type {
   DocumentVersion, DocumentView, Entity, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory, RoadmapEvent,
-  RejectionCode, InteractionEdit, OrgAxisClassification } from './types';
+  RejectionCode, InteractionEdit, InteractionDocument, OrgAxisClassification } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval, priorPassInfo } from './reawakening';
@@ -33,6 +33,7 @@ const EMPTY_DB: Db = {
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
   documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [],
   roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
+  interactionDocuments: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -80,6 +81,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
     documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes, roadmapMilestonesRes,
     fundingRoundsRes, roadmapCategoriesRes, roadmapEventsRes, rejectionCodesRes, interactionEditsRes, orgAxisClassificationsRes,
+    interactionDocumentsRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -142,6 +144,9 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // Prompt 251/253 Bloco B — org_axis_classifications (0184), read-only
     // here still (no writer as of Bloco B).
     sb.from('org_axis_classifications').select('*').eq('org_id', orgId),
+    // Prompt 397 §C.3 — interaction_documents (0254). Same missing-table-
+    // safe pattern as company_facts/ndas above.
+    sb.from('interaction_documents').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -210,6 +215,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     rejectionCodes: ((rejectionCodesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<RejectionCode>(r)),
     interactionEdits: ((interactionEditsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<InteractionEdit>(r)),
     orgAxisClassifications: ((orgAxisClassificationsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<OrgAxisClassification>(r)),
+    interactionDocuments: ((interactionDocumentsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<InteractionDocument>(r)),
   };
 }
 
@@ -443,7 +449,18 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       // "when this happened" blank, and an explicit `undefined` in a spread
       // overwrites a default that comes before it. Every relationship.ts
       // sort assumes occurred_at is always a real timestamp.
-      const interaction: Interaction = { id: uuid(), ...input, occurred_at: input.occurred_at ?? new Date().toISOString() };
+      const interaction: Interaction = {
+        id: uuid(), ...input, occurred_at: input.occurred_at ?? new Date().toISOString(),
+        // Prompt 397 §C.3 — the first document attachment backfills the
+        // legacy singular column for back-compat (SharedDocChip etc. still
+        // read it); interactions itself has no `attachments` column — see
+        // the strip below, right before the insert.
+        document_id: input.document_id ?? input.attachments?.find((a) => a.documentId)?.documentId,
+      };
+      const attachmentRows: InteractionDocument[] = (input.attachments ?? []).map((a) => ({
+        id: uuid(), interaction_id: interaction.id,
+        document_id: a.documentId, folder_id: a.folderId, created_at: interaction.occurred_at,
+      }));
       const overrideRows: RuleOverride[] = (input.overrides ?? []).map((o) => ({
         id: uuid(), rule: o.rule, justification: o.justification,
         entity_id: input.entity_id, person_id: input.person_id,
@@ -489,21 +506,25 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         ...prev, entities, tasks,
         interactions: [...prev.interactions, interaction],
         overrides: [...prev.overrides, ...overrideRows],
+        interactionDocuments: [...prev.interactionDocuments, ...attachmentRows],
       });
 
       const o = orgIdRef.current;
       if (o) {
-        // `interaction` is built from LogInput, which carries two fields
-        // that only exist to drive local task/override construction above
-        // (overrides, next_action_type) and were never columns on
-        // `interactions` — inserting them verbatim makes PostgREST reject
-        // the whole row with a schema-cache error, silently (the local
-        // optimistic commit above already "succeeded" from the UI's POV).
-        const { overrides: _overrides, next_action_type: _nextActionType, ...interactionRow } = interaction as Interaction & { overrides?: unknown; next_action_type?: unknown };
+        // `interaction` is built from LogInput, which carries fields that
+        // only exist to drive local task/override/attachment construction
+        // above (overrides, next_action_type, attachments) and were never
+        // columns on `interactions` — inserting them verbatim makes
+        // PostgREST reject the whole row with a schema-cache error, silently
+        // (the local optimistic commit above already "succeeded" from the
+        // UI's POV).
+        const { overrides: _overrides, next_action_type: _nextActionType, attachments: _attachments, ...interactionRow } =
+          interaction as Interaction & { overrides?: unknown; next_action_type?: unknown; attachments?: unknown };
         persist(sb.from('interactions').insert({ ...interactionRow, org_id: o }), 'logInteraction:interaction');
         if (overrideRows.length) persist(sb.from('rule_overrides').insert(overrideRows.map((r) => ({ ...r, org_id: o }))), 'logInteraction:overrides');
         if (newTaskRows.length) persist(sb.from('tasks').insert(newTaskRows.map((t) => ({ ...t, org_id: o }))), 'logInteraction:task');
         if (entityPatch) persist(sb.from('entities').update(entityPatch).eq('id', input.entity_id), 'logInteraction:entity');
+        if (attachmentRows.length) persist(sb.from('interaction_documents').insert(attachmentRows.map((r) => ({ ...r, org_id: o }))), 'logInteraction:attachments');
       }
       return interaction;
     },
@@ -1116,6 +1137,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const o = orgIdRef.current;
       if (o) persist(sb.from('documents').insert({ ...row, org_id: o }), 'addDocument');
       triggerDocumentExtraction(row.id, row.name, row.malware_scan_status);
+      return row.id;
     },
 
     deleteDocument(id: string) {
