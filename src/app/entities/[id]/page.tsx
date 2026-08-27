@@ -9,7 +9,8 @@ import { preflight, preflightSummary } from '@/lib/rules';
 import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
 import { RecentInteractions } from '@/components/RecentInteractions';
 import { ThreadDrawer } from '@/components/ThreadDrawer';
-import { MessageInvestorDrawer } from '@/components/MessageInvestorDrawer';
+import { MessageThreadCore } from '@/components/MessageThreadCore';
+import { RailLogForm } from '@/components/RailLogForm';
 import { ContributionBox } from '@/components/ContributionBox';
 import { CommunityConsensusPanel } from '@/components/CommunityConsensusPanel';
 import { EnrichmentBadge } from '@/components/EnrichmentBadge';
@@ -104,11 +105,19 @@ export default function EntityPage({ params }: { params: { id: string } }) {
     canMessage: boolean; investorCatalogEntityId: string | null; investorName: string | null;
     messages: DealMessage[];
   }>({ canMessage: false, investorCatalogEntityId: null, investorName: null, messages: [] });
-  const [messagingOpen, setMessagingOpen] = useState(false);
+  // Prompt 397 §B.1 — the conversation panel's own segmented state. History
+  // is the default (also where the `entity-history` tour anchor lives, via
+  // RecentInteractions — matches Zone B's own default-tab pattern below).
+  const [panelMode, setPanelMode] = useState<'history' | 'log' | 'message'>('history');
+  // Prompt 397 §B.3.3 — carries the Sherlock Insight banner's suggested
+  // target person into RailLogForm; nonce bumps on every banner click (even
+  // to the same person) so it re-applies even if the founder already
+  // switched away and back.
+  const [logPrefill, setLogPrefill] = useState<{ personId?: string; nonce: number }>({ nonce: 0 });
   // Block F — a "Request NDA via message" link (from the document-request
   // review page) lands here with a draft body pre-filled but NEVER sent
-  // automatically: it opens the same drawer/composer the founder always
-  // uses, they still have to review it and press Send themselves.
+  // automatically: it switches the panel to Message with the same composer
+  // the founder always uses, they still have to review it and press Send.
   const searchParams = useSearchParams();
   const ndaDraft = searchParams.get('ndaDraft');
   // Prompt 319 Pedido C.4 — "ask about follow-on interest", only where a
@@ -156,7 +165,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   }, [entity?.id]);
 
   useEffect(() => {
-    if (ndaDraft && messaging.canMessage) setMessagingOpen(true);
+    if (ndaDraft && messaging.canMessage) setPanelMode('message');
   }, [ndaDraft, messaging.canMessage]);
 
   // Prompt 275 §3 — scrolls to and briefly highlights the row a founder
@@ -234,13 +243,25 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const alsoConnected = relatedContacts(db, entity.id).filter((r) => r.viaAffiliation);
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > new Date();
   const grants = db.grants.filter((g) => people.some((p) => p.id === g.person_id));
-  // Prompt 397 §B (temporary, until the panel exists) — the two date cards
-  // below need this same pure computation the journey card/banner also
-  // call independently (same pattern as HealthDot/WhoseTurnChip already
-  // use throughout this codebase).
+  // Prompt 397 §B.1 — the FIRST CONTACT/LAST TOUCH mini-cards need this same
+  // pure computation the journey card/banner also call independently (same
+  // pattern as HealthDot/WhoseTurnChip already use throughout this codebase).
   const relSummary = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
   const views = db.views.filter((v) => grants.some((g) => g.id === v.grant_id)
     || people.some((p) => p.email_verified && p.email_verified === v.viewer_email));
+  const canMessagePanel = !!(messaging.canMessage && messaging.investorCatalogEntityId);
+  // Both the journey card's history-badge clicks and the banner's classify
+  // button need to land on the History tab of the panel below, now that
+  // history isn't always visible — same functional effect as before (398
+  // §B focuses/scrolls), just also switching tabs first.
+  function focusHistory(interactionId: string) {
+    setFocusInteraction((p) => ({ id: interactionId, nonce: p.nonce + 1 }));
+    setPanelMode('history');
+  }
+  function classifyOnHistory() {
+    setClassifyNonce((n) => n + 1);
+    setPanelMode('history');
+  }
 
   return (
     // Prompt 397 §A.1 — content-area background tint, scoped to only this
@@ -360,68 +381,48 @@ export default function EntityPage({ params }: { params: { id: string } }) {
 
       {/* Prompt 397 §A.3 — the journey+state+actions card. */}
       <RelationshipSummaryCard entity={entity}
-        onClassifyRequest={() => setClassifyNonce((n) => n + 1)}
-        onViewInHistory={(id) => setFocusInteraction((p) => ({ id, nonce: p.nonce + 1 }))}
+        onClassifyRequest={classifyOnHistory}
+        onViewInHistory={focusHistory}
         dealMessageTouches={dealMessageTouches} />
 
       {/* Prompt 397 §A.4 — the advice banner, full-width, between the
           journey card and the rest of the page. */}
       <SherlockInsightBanner entity={entity} dealMessageTouches={dealMessageTouches}
-        onClassifyRequest={() => setClassifyNonce((n) => n + 1)}
+        onClassifyRequest={classifyOnHistory}
         pendingInterest={!!pendingInterest}
-        canMessage={!!(messaging.canMessage && messaging.investorCatalogEntityId)}
-        onOpenMessage={() => setMessagingOpen(true)} />
+        canMessage={canMessagePanel}
+        onSwitchToMessage={() => setPanelMode('message')}
+        onSwitchToLog={(personId) => { setLogPrefill((p) => ({ personId, nonce: p.nonce + 1 })); setPanelMode('log'); }} />
 
-      {/* Prompt 397 §B (not yet built) — dates + history move into a
-          proper two-column conversation panel next phase. Temporary,
-          functionally-identical placement so nothing breaks between phases:
-          same two date cards, same RecentInteractions component. */}
-      <div className="flex flex-wrap items-start gap-4">
-        <div className="flex min-w-[300px] flex-1 gap-3">
-          <div className="min-w-0 flex-1 rounded-2xl bg-white px-4 py-3 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
-            <div className="text-[11.5px] text-gray-500">First contact</div>
-            <div className="mt-0.5 truncate text-sm font-bold text-[#0E7490]">{relSummary.firstContactAt?.slice(0, 10) ?? '—'}</div>
-            <div className="mt-0.5 text-[11.5px] text-gray-500">{relSummary.touchCount} touches</div>
+      {/* Prompt 397 §B.1 — below the banner: left = Zone B's 4 tabs
+          (unchanged), right = the conversation panel (History/Log/Message).
+          Stacks (panel below) under `lg`. */}
+      <div className="grid gap-[18px] lg:grid-cols-[1fr_392px]">
+        <div className="min-w-0 space-y-4">
+          {/* Prompt 396 §5 — Zone B: sub-tabs for everything accessory to
+              the main flow. Only the active section mounts (same pattern as
+              394 §2's Company settings page). */}
+          <div className="flex gap-1 overflow-x-auto border-b border-gray-200">
+            {([
+              { key: 'summary', label: 'Entity summary' },
+              { key: 'people', label: 'People & Team' },
+              { key: 'approach', label: 'Approach' },
+              { key: 'engagement', label: 'Engagement' },
+            ] as const).map((s) => (
+              // Prompt 396 §5.4 — `entity-people`'s tour anchor moved from
+              // the People card (only mounted on this tab) to this
+              // always-mounted tab button, same fix as 394 §2.4 for the
+              // same underlying problem: PageTour resolves every step's
+              // anchor up front, so a step whose anchor lives inside a
+              // not-yet-active tab gets silently dropped.
+              <button key={s.key} data-tour-id={s.key === 'people' ? 'entity-people' : undefined}
+                onClick={() => setActiveSection(s.key)}
+                className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${
+                  activeSection === s.key ? 'border-[#0E7490] text-[#0E7490]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                {s.label}
+              </button>
+            ))}
           </div>
-          <div className="min-w-0 flex-1 rounded-2xl bg-white px-4 py-3 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
-            <div className="text-[11.5px] text-gray-500">Last touch</div>
-            <div className="mt-0.5 truncate text-sm font-bold text-[#0E7490]">{relSummary.lastTouchAt?.slice(0, 10) ?? '—'}</div>
-            <div className="mt-0.5 text-[11.5px] font-semibold text-[#0E7490]">
-              {relSummary.daysSinceLastTouch != null ? `${relSummary.daysSinceLastTouch}d ago` : ' '}
-            </div>
-          </div>
-        </div>
-        <div className="min-w-[320px] flex-[1.3] rounded-2xl bg-white p-4 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
-          <RecentInteractions entity={entity} onOpenFull={() => setDrawerOpen(true)} focusClassifyNonce={classifyNonce}
-            focusInteraction={focusInteraction} dealMessages={messaging.messages} />
-        </div>
-      </div>
-
-      {/* Prompt 396 §5 — Zone B: sub-tabs for everything accessory to the
-          main flow. Only the active section mounts (same pattern as 394
-          §2's Company settings page) — the old md:grid-cols-3 stacking is
-          gone; each section gets the full width. */}
-      <div className="flex gap-1 overflow-x-auto border-b border-gray-200">
-        {([
-          { key: 'summary', label: 'Entity summary' },
-          { key: 'people', label: 'People & Team' },
-          { key: 'approach', label: 'Approach' },
-          { key: 'engagement', label: 'Engagement' },
-        ] as const).map((s) => (
-          // Prompt 396 §5.4 — `entity-people`'s tour anchor moved from the
-          // People card (only mounted on this tab) to this always-mounted
-          // tab button, same fix as 394 §2.4 for the same underlying
-          // problem: PageTour resolves every step's anchor up front, so a
-          // step whose anchor lives inside a not-yet-active tab gets
-          // silently dropped.
-          <button key={s.key} data-tour-id={s.key === 'people' ? 'entity-people' : undefined}
-            onClick={() => setActiveSection(s.key)}
-            className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${
-              activeSection === s.key ? 'border-[#0E7490] text-[#0E7490]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-            {s.label}
-          </button>
-        ))}
-      </div>
 
       {activeSection === 'engagement' && (
         <>
@@ -681,16 +682,74 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           <TicketSignalCard orgId={db.org.id} people={people} />
         </div>
       )}
+        </div>
+
+        {/* Prompt 397 §B.1 — the conversation panel: two mini cards (data
+            from relationshipSummary, already computed above) + the
+            History/Log/Message segmented card. */}
+        <div className="space-y-3 lg:sticky lg:top-4 lg:self-start">
+          <div className="flex gap-3">
+            <div className="min-w-0 flex-1 rounded-2xl bg-white px-4 py-3 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
+              <div className="text-[11.5px] text-gray-500">First contact</div>
+              <div className="mt-0.5 truncate text-sm font-bold text-[#0E7490]">{relSummary.firstContactAt?.slice(0, 10) ?? '—'}</div>
+              <div className="mt-0.5 text-[11.5px] text-gray-500">{relSummary.touchCount} touches</div>
+            </div>
+            <div className="min-w-0 flex-1 rounded-2xl bg-white px-4 py-3 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
+              <div className="text-[11.5px] text-gray-500">Last touch</div>
+              <div className="mt-0.5 truncate text-sm font-bold text-[#0E7490]">{relSummary.lastTouchAt?.slice(0, 10) ?? '—'}</div>
+              <div className="mt-0.5 text-[11.5px] font-semibold text-[#0E7490]">
+                {relSummary.daysSinceLastTouch != null ? `${relSummary.daysSinceLastTouch}d ago` : ' '}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-white p-4 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
+            <div className="flex gap-1 rounded-xl bg-[#F1F5F9] p-1">
+              {([
+                { key: 'history' as const, label: 'History', icon: (
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-3.5 w-3.5"><circle cx="10" cy="10" r="7" /><path d="M10 6v4l2.5 2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                ) },
+                { key: 'log' as const, label: 'Log', icon: (
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-3.5 w-3.5"><path d="M10 5v10M5 10h10" strokeLinecap="round" /></svg>
+                ) },
+                { key: 'message' as const, label: 'Message', icon: (
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-3.5 w-3.5"><path d="M3 4h14v9H8l-3 3v-3H3z" strokeLinejoin="round" /></svg>
+                ) },
+              ]).map((m) => {
+                const disabled = m.key === 'message' && !canMessagePanel;
+                return (
+                  <button key={m.key} disabled={disabled}
+                    title={disabled ? 'Messaging opens once this investor is connected' : undefined}
+                    onClick={() => setPanelMode(m.key)}
+                    className={`flex flex-1 items-center justify-center gap-1 rounded-lg py-1.5 text-[12px] font-semibold ${
+                      panelMode === m.key ? 'bg-white text-[#0E7490] shadow-[0_1px_4px_rgba(15,23,42,0.15)]'
+                      : disabled ? 'cursor-not-allowed text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}>
+                    {m.icon}{m.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-3">
+              {panelMode === 'history' && (
+                <RecentInteractions entity={entity} onOpenFull={() => setDrawerOpen(true)} focusClassifyNonce={classifyNonce}
+                  focusInteraction={focusInteraction} dealMessages={messaging.messages} />
+              )}
+              {panelMode === 'log' && (
+                <RailLogForm entity={entity} defaultPersonId={logPrefill.personId} prefillNonce={logPrefill.nonce}
+                  onSaved={() => setPanelMode('history')} />
+              )}
+              {panelMode === 'message' && messaging.canMessage && messaging.investorCatalogEntityId && (
+                <MessageThreadCore entityId={entity.id} investorCatalogEntityId={messaging.investorCatalogEntityId}
+                  initialBody={ndaDraft ?? undefined} />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <ThreadDrawer entity={entity} open={drawerOpen} onClose={() => setDrawerOpen(false)}
         dealMessageTouches={dealMessageTouches} dealMessages={messaging.messages} />
-      {messaging.investorCatalogEntityId && (
-        <MessageInvestorDrawer
-          entityId={entity.id} investorCatalogEntityId={messaging.investorCatalogEntityId}
-          investorName={messaging.investorName ?? entity.name} open={messagingOpen} onClose={() => setMessagingOpen(false)}
-          initialBody={ndaDraft ?? undefined}
-        />
-      )}
 
       {/* Prompt 396 §2.2 — moved from a floating line at the very top (a
           visual band right above the content, even when small) to the

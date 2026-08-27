@@ -58,14 +58,19 @@ function InsightIcon() {
 
 export function SherlockInsightBanner({
   entity, dealMessageTouches = [], onClassifyRequest,
-  pendingInterest, canMessage, onOpenMessage,
+  pendingInterest, canMessage, onSwitchToMessage, onSwitchToLog,
 }: {
   entity: Entity;
   dealMessageTouches?: DealMessageTouch[];
   onClassifyRequest?: () => void;
   pendingInterest?: boolean;
   canMessage?: boolean;
-  onOpenMessage?: () => void;
+  // Prompt 397 §B — both re-point at the conversation panel (Phase A kept
+  // the pre-397 targets: a /log Link, and MessageInvestorDrawer via
+  // onOpenMessage). onSwitchToLog optionally carries the target person, so
+  // "Log the first interaction"/"Reply now" land pre-filled.
+  onSwitchToMessage?: () => void;
+  onSwitchToLog?: (personId?: string) => void;
 }) {
   const { db, updateEntity } = useStore();
   const [reopenTriggerDraft, setReopenTriggerDraft] = useState<string | null>(null);
@@ -96,28 +101,27 @@ export function SherlockInsightBanner({
         <div className="flex flex-wrap items-center gap-2">
           {/* Prompt 396 §7 / 397 §A.4.2 — same button matrix, priority order
               unchanged: pendingInterest wins if somehow more than one
-              applies. Phase A keeps the PRE-397 targets (Link to /log,
-              MessageInvestorDrawer, /today) — Phase B re-points these at
-              the new conversation panel instead of navigating away. */}
+              applies. Prompt 397 §B — "Log the first interaction"/"Reply
+              now" now switch the conversation panel to Log (pre-filled with
+              the target person) instead of navigating to /log; "Reply now"
+              switches to Message when canMessage, same as before. */}
           {pendingInterest ? (
             <Link href="/today" className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
               Decide in Today →
             </Link>
           ) : nextContactPreflight?.green && nextContact ? (
-            <Link href={`/log?entity=${entity.id}&person=${nextContact.id}`}
-              className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
+            <button onClick={() => onSwitchToLog?.(nextContact.id)} className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
               Log the first interaction
-            </Link>
+            </button>
           ) : actionButton?.kind === 'follow_up' ? (
-            canMessage && onOpenMessage ? (
-              <button onClick={onOpenMessage} className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
+            canMessage && onSwitchToMessage ? (
+              <button onClick={onSwitchToMessage} className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
                 Reply now
               </button>
             ) : (
-              <Link href={`/log?entity=${entity.id}&person=${actionButton.personId}`}
-                className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
+              <button onClick={() => onSwitchToLog?.(actionButton?.personId)} className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
                 Reply now
-              </Link>
+              </button>
             )
           ) : null}
           {ds.unclassifiedReplies > 0 && onClassifyRequest && (
