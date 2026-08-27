@@ -509,7 +509,25 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       )}
 
       {activeSection === 'summary' && (
-      <Card title={<span data-tour-id="entity-summary">Entity summary</span>} right={
+      <Card title={
+        <span data-tour-id="entity-summary" className="flex items-center gap-1.5">
+          Entity summary
+          {/* Prompt 407 §B.4 — entity-level provenance: at least one field
+              below (website/sectors/thesis/check size/geographies) came
+              from the investor's own claimed, complete profile rather than
+              research, as of when this entity was delivered. Not per-field
+              (claimed_profile_at_delivery is a single flag, not tracked
+              column by column) and not live (a later claim revocation
+              doesn't change what was already delivered — see migration
+              0257's own comment). */}
+          {entity.claimed_profile_at_delivery && (
+            <span title="At least one field below was provided directly by the investor, not researched by our team."
+              className="rounded-full bg-cyan-50 px-2 py-0.5 text-[10px] font-medium text-cyan-700">
+              Provided by the investor · verified profile
+            </span>
+          )}
+        </span>
+      } right={
         <div className="flex flex-col items-end gap-1">
           <EnrichmentBadge label="Firmographic" result={completeness.firmographic} subjectType="entity" subjectId={entity.id} orgId={db.org.id} onEnriched={() => setContributionsRefreshKey((k) => k + 1)} />
           <EnrichmentBadge label="Contact" result={completeness.contact} low={qualifiesForContactEnrichment(completeness)} subjectType="entity" subjectId={entity.id} orgId={db.org.id} onEnriched={() => setContributionsRefreshKey((k) => k + 1)} />

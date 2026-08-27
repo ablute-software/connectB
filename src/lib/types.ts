@@ -332,6 +332,11 @@ export interface Entity {
   website_verified: boolean;
   email_domain?: string;
   email_domain_verified: boolean;
+  // Prompt 407 §B.4 — set once, at monthly-delivery time, when the
+  // fields above were sourced from the investor's own claimed & complete
+  // profile rather than research (migration 0257). A point-in-time
+  // snapshot, not a live claim-status check — see that migration's comment.
+  claimed_profile_at_delivery?: boolean;
   // Direct, editable contact fields (batch 2 item 1) — distinct from
   // website/email_domain above, which are derived/verification-tracked.
   // Migration 0024, capability-gated: src/lib/entity-contact-capability.ts.

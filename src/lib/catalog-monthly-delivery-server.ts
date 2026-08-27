@@ -21,6 +21,7 @@ import { fitBucketFromScore } from './catalog-fit-bucket';
 import { PLAN_PIPELINE_MONTHLY_ADDITION } from './pipeline-unlock';
 import { normalizePlan } from './plans';
 import { monthlyDeliveryStamp } from './catalog-monthly-delivery';
+import { preferDeclaredList, preferDeclaredValue, resolveClaimedInvestorProfile } from './claimed-investor-profile';
 
 export interface MonthlyDeliveryOrgRow {
   id: string;
@@ -123,14 +124,36 @@ export async function deliverMonthlyForOrg(
     if (moderationStatus && moderationStatus !== 'active') continue;
     const id = crypto.randomUUID();
     deliveredIds.push(c.id as string);
+    // Prompt 407 §A/§B.1 — a claimed, complete investor profile's own
+    // declared fields take precedence over researched catalog data, field
+    // by field, at this exact copy-into-entities point (the one place
+    // this data ever gets written into the founder's own CRM — confirmed
+    // by tracing every reader of db.entities before this change).
+    // Excludes stage_min/stage_max on purpose: matchdeal_profiles.stages_invested
+    // is an unordered list over a DIFFERENT stage vocabulary than
+    // entities.stage_min/max's pair (src/lib/types.ts's Stage type has 5
+    // values; the DB `stage` enum has 7, in non-monotonic creation order)
+    // — no established, confident conversion between the two exists
+    // anywhere in this codebase, and guessing one risks showing a founder
+    // an invented stage range instead of the already-correct researched
+    // one. Flagged in the report, not solved here.
+    const claimed = await resolveClaimedInvestorProfile(admin, c.id as string);
     newEntities.push({
       id, org_id: org.id, name, type: c.type, hq_city: c.hq_city, hq_country: c.hq_country,
-      invests_in_geographies: [], website: c.website, website_verified: true,
+      invests_in_geographies: preferDeclaredList(claimed?.geographies, c.geographies as string[] | null),
+      website: preferDeclaredValue(claimed?.website ?? null, c.website as string | null), website_verified: true,
       email_domain_verified: false, stage_min: c.stage_min, stage_max: c.stage_max,
-      check_min_eur: c.check_min_eur, check_max_eur: c.check_max_eur,
-      sectors: c.sectors, thesis: c.thesis, fit_score: fitBucketFromScore(scoreById.get(c.id as string) ?? 0), wave: 1,
+      check_min_eur: preferDeclaredValue(claimed?.ticketMinEur ?? null, c.check_min_eur as number | null),
+      check_max_eur: preferDeclaredValue(claimed?.ticketMaxEur ?? null, c.check_max_eur as number | null),
+      sectors: preferDeclaredList(claimed?.sectors, c.sectors as string[] | null),
+      thesis: preferDeclaredValue(claimed?.description ?? null, c.thesis as string | null),
+      fit_score: fitBucketFromScore(scoreById.get(c.id as string) ?? 0), wave: 1,
       submission_channel_type: 'unknown', hard_filter_status: 'not_applicable',
       status: 'not_contacted', source: 'catalog',
+      // Prompt 407 §B.4 — provenance snapshot for this one delivery event;
+      // migration 0257. See that migration's own comment for why this is
+      // point-in-time rather than a live claim-status flag.
+      claimed_profile_at_delivery: !!claimed,
     });
   }
 
