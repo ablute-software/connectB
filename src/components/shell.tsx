@@ -26,6 +26,7 @@ import { WorkspaceMobileNav } from '@/components/workspace-shell/WorkspaceMobile
 import { WorkspaceHeader } from '@/components/workspace-shell/WorkspaceHeader';
 import { LogoutButton } from '@/components/workspace-shell/LogoutButton';
 import { LampButton } from '@/components/onboarding/LampButton';
+import { SherlockNextButton } from '@/components/SherlockNextButton';
 import type { WorkspaceNavItem } from '@/components/workspace-shell/types';
 
 // Prompt 141 — pathname -> this page's tour key(s), for the header lamp.
@@ -329,11 +330,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   Today {caps.today}/{caps.dailyCap} · Week {caps.week}/{caps.weeklyCap}
                 </span>
               </Tooltip>
-              <Tooltip text="Record a new outbound or inbound interaction with an investor." side="bottom">
-                <Link href="/log" className="rounded-xl bg-[#0E7490] px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0c637b]">
-                  + Log interaction
-                </Link>
-              </Tooltip>
+              {/* Prompt 400 §A — replaces "+ Log interaction", the one
+                  context-free entry point into /log; this answers "what
+                  should I do right now?" and lands already set up to act. */}
+              <SherlockNextButton />
               <LampButton tourKeys={tourKeysForPath(path)} supportSource="founder_app" />
             </>
           }

@@ -10,26 +10,17 @@
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, PersonLink, WaveTag } from '@/components/ui';
-import { outboundCounts, preflight, preflightSummary } from '@/lib/rules';
+import { readyToContact } from '@/lib/ready-to-contact';
 import { recommendedActionType } from '@/lib/relationship';
 import { ActionTypePill } from './TodayPanel';
 
+// Prompt 400 §A.1 — the computation itself now lives in ready-to-contact.ts
+// (a plain function of `db`, no hook) so sherlock-next.ts's pure
+// sherlockNext(db, now) can call the exact same thing for its own "ready to
+// contact" priority step. This hook is just the useStore() wiring.
 export function useReadyToContact() {
   const { db } = useStore();
-  const caps = outboundCounts(db);
-  const capReached = caps.today >= caps.dailyCap || caps.week >= caps.weeklyCap;
-  const ready = db.people
-    .filter((p) => !p.do_not_contact)
-    .filter((p) => {
-      const e = db.entities.find((x) => x.id === p.entity_id);
-      return e && ['not_contacted', 'contacted'].includes(e.status);
-    })
-    .filter((p) => preflightSummary(preflight(db, p, null)).green)
-    .sort((a, b) => {
-      const ea = db.entities.find((x) => x.id === a.entity_id); const eb = db.entities.find((x) => x.id === b.entity_id);
-      return (ea?.wave ?? 9) - (eb?.wave ?? 9) || a.seniority_rank - b.seniority_rank;
-    });
-  return { ready, capReached, caps };
+  return readyToContact(db);
 }
 
 export function ReadyToContactPanel() {

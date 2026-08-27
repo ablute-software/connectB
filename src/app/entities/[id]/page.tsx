@@ -168,6 +168,25 @@ export default function EntityPage({ params }: { params: { id: string } }) {
     if (ndaDraft && messaging.canMessage) setPanelMode('message');
   }, [ndaDraft, messaging.canMessage]);
 
+  // Prompt 400 §A.3 — the panel's own deep-link params, same pattern as
+  // ?ndaDraft just above: read once on mount, no page of their own. The
+  // Sherlock "Next" button (shell.tsx) is the first caller, landing here
+  // already set up to act instead of a bare entity link; §B reuses this for
+  // /log's own redirect.
+  const railMode = searchParams.get('rail');
+  const railPerson = searchParams.get('person');
+  const railClassify = searchParams.get('classify');
+  useEffect(() => {
+    if (railMode === 'log') {
+      setLogPrefill((p) => ({ personId: railPerson ?? undefined, nonce: p.nonce + 1 }));
+      setPanelMode('log');
+    } else if (railMode === 'history') {
+      setPanelMode('history');
+      if (railClassify) setClassifyNonce((n) => n + 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [railMode, railPerson, railClassify]);
+
   // Prompt 275 §3 — scrolls to and briefly highlights the row a founder
   // just promoted from the Team card's key_people fallback via "Add as
   // contact", closing the loop between the two cards. Same ref-map +
