@@ -9,6 +9,12 @@
 // simulator's side-by-side cards. Same permanent private-judgment
 // disclaimer the Berkus tool itself carries — this is arithmetic over the
 // investor's own assumptions, never a platform-endorsed number.
+//
+// Prompt 405 §B.2 — startup selection and ticket/basis/futureDilutions are
+// now owned by EvaluationToolsPanel and shared with the Ownership
+// calculator (same trial values, one investor typing them once). This
+// tool no longer has its own startup selector or re-seeds basis itself —
+// the panel's own effect does that for both tools together.
 import { useEffect, useState } from 'react';
 import { computeDilution, type ValuationBasis } from '@/lib/dilution';
 
@@ -26,12 +32,13 @@ function fmtEur(n: number) {
 
 interface ScenarioResult { label: string; exitValueEur: number }
 
-export function ReturnScenarioTool({ cards, onSwitchToSimulator }: { cards: PipelineCard[]; onSwitchToSimulator: () => void }) {
-  const [orgId, setOrgId] = useState('');
-  const [ticket, setTicket] = useState('50000');
-  const [basis, setBasis] = useState<ValuationBasis>('pre_money');
-  const [futureDilutions, setFutureDilutions] = useState(['20', '15']);
-
+export function ReturnScenarioTool({ cards, selectedOrgId, ticket, setTicket, basis, setBasis, futureDilutions, setFutureDilutions, onSwitchToSimulator }: {
+  cards: PipelineCard[]; selectedOrgId: string;
+  ticket: string; setTicket: (v: string) => void;
+  basis: ValuationBasis; setBasis: (v: ValuationBasis) => void;
+  futureDilutions: string[]; setFutureDilutions: (v: string[]) => void;
+  onSwitchToSimulator: () => void;
+}) {
   const [exitMode, setExitMode] = useState<'berkus' | 'manual'>('berkus');
   const [berkusTotal, setBerkusTotal] = useState<number | null>(null);
   const [berkusLoading, setBerkusLoading] = useState(false);
@@ -40,24 +47,23 @@ export function ReturnScenarioTool({ cards, onSwitchToSimulator }: { cards: Pipe
   const [customMultiple, setCustomMultiple] = useState('7');
   const [manualExitValue, setManualExitValue] = useState('10000000');
 
-  const selected = cards.find((c) => c.orgId === orgId) ?? null;
+  const selected = cards.find((c) => c.orgId === selectedOrgId) ?? null;
 
+  // Prompt 405 §B.3 — fires whenever the shared selection changes, whether
+  // or not this tool is the one currently visible (both tools stay mounted
+  // — see EvaluationToolsPanel's own comment on that choice). Cheap: one
+  // row per org, same as Berkus's own load.
   useEffect(() => {
-    setBasis(selected?.roundValuationBasis ?? 'pre_money');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId]);
-
-  useEffect(() => {
-    if (!orgId) { setBerkusTotal(null); return; }
+    if (!selectedOrgId) { setBerkusTotal(null); return; }
     setBerkusLoading(true);
-    fetch(`/api/portal/berkus?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json())
+    fetch(`/api/portal/berkus?orgId=${encodeURIComponent(selectedOrgId)}`).then((r) => r.json())
       .then((d) => {
         const e = d.estimate as { sound_idea_eur: number; prototype_eur: number; team_eur: number; relationships_eur: number; sales_eur: number } | null;
         setBerkusTotal(e ? e.sound_idea_eur + e.prototype_eur + e.team_eur + e.relationships_eur + e.sales_eur : null);
       })
       .catch(() => setBerkusTotal(null))
       .finally(() => setBerkusLoading(false));
-  }, [orgId]);
+  }, [selectedOrgId]);
 
   function toggleMultiple(m: number) {
     setSelectedMultiples((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : prev.length + (useCustomMultiple ? 1 : 0) >= MAX_SCENARIOS ? prev : [...prev, m]));
@@ -76,14 +82,8 @@ export function ReturnScenarioTool({ cards, onSwitchToSimulator }: { cards: Pipe
         Your own assumptions — private, not investment advice.
       </p>
 
-      <select value={orgId} onChange={(e) => setOrgId(e.target.value)}
-        className="w-full max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm">
-        <option value="">Select a startup from your Pipeline…</option>
-        {cards.map((c) => <option key={c.orgId} value={c.orgId}>{c.name}</option>)}
-      </select>
-
       {!selected ? (
-        <p className="text-sm text-gray-400">Pick a startup above to model a return scenario.</p>
+        <p className="text-sm text-gray-400">Pick a startup from the list on the left to model a return scenario.</p>
       ) : selected.roundValuationEur == null ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           <p>No valuation on file for {selected.name}&apos;s round yet — Return scenario needs real round data to compute your ownership %.</p>

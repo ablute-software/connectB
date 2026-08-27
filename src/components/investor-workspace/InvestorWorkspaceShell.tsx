@@ -282,7 +282,12 @@ export function InvestorWorkspaceShell({
         {/* Prompt 345 §D.1 — Pipeline joins plans/network in the wide
             container: PipelinePanel dropped its own max-w-2xl (672px),
             same family as the founder Pipeline's real content width. */}
-        <main className={`mx-auto p-4 md:p-8 ${tab === 'plans' || tab === 'network' || tab === 'pipeline' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+        {/* Prompt 405 §A.1 — Evaluation tools joins the wide container too:
+            its own two-column layout (sticky startup picker + tools, see
+            EvaluationToolsPanel.tsx) needs the room; max-w-3xl left a large
+            empty gap on wide screens with the picker repeated in every tool
+            instead. */}
+        <main className={`mx-auto p-4 md:p-8 ${tab === 'plans' || tab === 'network' || tab === 'pipeline' || tab === 'evaluation' ? 'max-w-6xl' : 'max-w-3xl'}`}>
           {tab === 'pipeline' && (
             !gateOpen ? (
               <EmptyState

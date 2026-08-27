@@ -8,6 +8,24 @@
 // - Equity simulator: the investor's own hypothetical numbers, independent
 //   of any startup's data, pre/post-money toggle explicit, up to 3
 //   scenarios side by side.
+//
+// Prompt 405 — two changes on top of the above:
+// §A: the startup picker used to be repeated inside every tool, and the
+// whole panel sat in a max-w-3xl column with a large empty gap on wide
+// screens. It's now a single picker in a sticky left column (405 §A.2),
+// with the tool strip + active tool in a right column that gets the same
+// max-w-6xl width other wide tabs already use (InvestorWorkspaceShell.tsx).
+// §B: selection and trial values (ticket/basis/futureDilutions) are lifted
+// here and shared by the calculator and Return scenario — typing a ticket
+// once, switching tools, no longer re-typing it. All six tools stay
+// mounted simultaneously (hidden via CSS rather than conditionally
+// rendered) so nothing a tool doesn't own itself (simulator scenarios,
+// compare selection, Return scenario's exit assumptions) is lost when
+// switching tabs — the alternative (lifting every one of those up here
+// too) is substantially more code for the same behavioral guarantee. The
+// cost: Berkus's and Return scenario's own per-org fetches now fire
+// whenever the shared selection changes, not only while that tool happens
+// to be open — cheap (one row per org), documented at each fetch site.
 import { useEffect, useState } from 'react';
 import { computeDilution, type ValuationBasis } from '@/lib/dilution';
 import { ReturnScenarioTool } from './ReturnScenarioTool';
@@ -34,32 +52,62 @@ function fmtPct(n: number) {
   return `${n < 1 ? n.toFixed(2) : n.toFixed(1)}%`;
 }
 
-function OwnershipCalculatorTool({ cards, selectedOrgId, onSelectOrg, onSwitchToSimulator }: {
-  cards: PipelineCard[]; selectedOrgId: string; onSelectOrg: (orgId: string) => void; onSwitchToSimulator: () => void;
+// Prompt 405 §A.2 — the one and only startup selector left in this panel.
+// A scrollable clickable list rather than a <select>: with up to a few
+// dozen Pipeline cards, it makes the current selection visibly obvious
+// (the prompt's own reasoning) in a way a native dropdown's closed state
+// can't. Sticky so it stays in view while the right column scrolls.
+function EvaluationStartupPicker({ cards, selectedOrgId, onSelectOrg, showsUnusedNote }: {
+  cards: PipelineCard[]; selectedOrgId: string; onSelectOrg: (orgId: string) => void; showsUnusedNote: boolean;
 }) {
   const selected = cards.find((c) => c.orgId === selectedOrgId) ?? null;
-  const [ticket, setTicket] = useState('50000');
-  const [basis, setBasis] = useState<ValuationBasis>(selected?.roundValuationBasis ?? 'pre_money');
-  const [futureDilutions, setFutureDilutions] = useState(['20', '15']);
+  return (
+    <div className="space-y-3 md:sticky md:top-4 md:self-start">
+      <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Startup</div>
+      {cards.length === 0 ? (
+        <p className="text-sm text-gray-400">Nothing in your Pipeline yet.</p>
+      ) : (
+        <ul className="max-h-[420px] space-y-1 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1.5">
+          {cards.map((c) => (
+            <li key={c.orgId}>
+              <button onClick={() => onSelectOrg(c.orgId)}
+                className={`w-full rounded-lg px-2.5 py-2 text-left text-sm transition ${
+                  selectedOrgId === c.orgId ? 'bg-[#0E7490] text-white' : 'text-gray-700 hover:bg-gray-50'}`}>
+                {c.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {selected && (
+        <div className="space-y-1 rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-600">
+          <div className="text-sm font-semibold text-gray-900">{selected.name}</div>
+          {selected.stage && <div>{selected.stage}</div>}
+          {selected.sectors.length > 0 && <div className="text-gray-500">{selected.sectors.join(', ')}</div>}
+          {selected.roundTargetEur != null && <div>Round target: <span className="font-medium text-gray-800">{fmtEur(selected.roundTargetEur)}</span></div>}
+          {selected.roundValuationEur != null && <div>Valuation: <span className="font-medium text-gray-800">{fmtEur(selected.roundValuationEur)}</span></div>}
+        </div>
+      )}
+      {showsUnusedNote && (
+        <p className="text-[11px] text-gray-400">Criteria apply to every startup — pick one from any other tool.</p>
+      )}
+    </div>
+  );
+}
 
-  // Re-seed the basis when the selected startup changes, same as the old
-  // per-card calculator did on mount — never overrides a basis the investor
-  // already picked by hand for the CURRENT startup.
-  useEffect(() => {
-    setBasis(selected?.roundValuationBasis ?? 'pre_money');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedOrgId]);
+function OwnershipCalculatorTool({ cards, selectedOrgId, ticket, setTicket, basis, setBasis, futureDilutions, setFutureDilutions, onSwitchToSimulator }: {
+  cards: PipelineCard[]; selectedOrgId: string;
+  ticket: string; setTicket: (v: string) => void;
+  basis: ValuationBasis; setBasis: (v: ValuationBasis) => void;
+  futureDilutions: string[]; setFutureDilutions: (v: string[]) => void;
+  onSwitchToSimulator: () => void;
+}) {
+  const selected = cards.find((c) => c.orgId === selectedOrgId) ?? null;
 
   return (
     <div className="space-y-4">
-      <select value={selectedOrgId} onChange={(e) => onSelectOrg(e.target.value)}
-        className="w-full max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm">
-        <option value="">Select a startup from your Pipeline…</option>
-        {cards.map((c) => <option key={c.orgId} value={c.orgId}>{c.name}</option>)}
-      </select>
-
       {!selected ? (
-        <p className="text-sm text-gray-400">Pick a startup above to see its ownership math.</p>
+        <p className="text-sm text-gray-400">Pick a startup from the list on the left to see its ownership math.</p>
       ) : selected.roundValuationEur == null ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           <p>No valuation on file for {selected.name}&apos;s round yet — the calculator needs one.</p>
@@ -136,9 +184,9 @@ function newScenario(seed?: Partial<Scenario>): Scenario {
 }
 const MAX_SCENARIOS = 3;
 
-function EquitySimulatorTool({ cards }: { cards: PipelineCard[] }) {
+function EquitySimulatorTool({ cards, selectedOrgId }: { cards: PipelineCard[]; selectedOrgId: string }) {
   const [scenarios, setScenarios] = useState<Scenario[]>(() => [newScenario()]);
-  const [prefillOrgId, setPrefillOrgId] = useState('');
+  const selectedCard = cards.find((c) => c.orgId === selectedOrgId) ?? null;
 
   function updateScenario(id: number, patch: Partial<Scenario>) {
     setScenarios((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
@@ -149,30 +197,27 @@ function EquitySimulatorTool({ cards }: { cards: PipelineCard[] }) {
   function removeScenario(id: number) {
     setScenarios((prev) => (prev.length <= 1 ? prev : prev.filter((s) => s.id !== id)));
   }
-  function prefillFrom(orgId: string) {
-    setPrefillOrgId(orgId);
-    const card = cards.find((c) => c.orgId === orgId);
-    if (!card || !scenarios[0]) return;
+  // Prompt 405 §B.1 — replaces the old "prefill scenario 1" dropdown: the
+  // startup is already chosen in the left column, so this is a one-click
+  // convenience against that same selection rather than a second picker.
+  function prefillFromSelected() {
+    if (!selectedCard || !scenarios[0]) return;
     updateScenario(scenarios[0].id, {
-      label: card.name,
-      valuation: card.roundValuationEur != null ? String(card.roundValuationEur) : scenarios[0].valuation,
-      roundTarget: card.roundTargetEur != null ? String(card.roundTargetEur) : scenarios[0].roundTarget,
-      basis: card.roundValuationBasis ?? scenarios[0].basis,
+      label: selectedCard.name,
+      valuation: selectedCard.roundValuationEur != null ? String(selectedCard.roundValuationEur) : scenarios[0].valuation,
+      roundTarget: selectedCard.roundTargetEur != null ? String(selectedCard.roundTargetEur) : scenarios[0].roundTarget,
+      basis: selectedCard.roundValuationBasis ?? scenarios[0].basis,
     });
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <label className="flex items-center gap-1.5">
-          Prefill scenario 1 from a real startup (optional)
-          <select value={prefillOrgId} onChange={(e) => prefillFrom(e.target.value)}
-            className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
-            <option value="">None</option>
-            {cards.map((c) => <option key={c.orgId} value={c.orgId}>{c.name}</option>)}
-          </select>
-        </label>
-      </div>
+      {selectedCard && (
+        <button onClick={prefillFromSelected}
+          className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+          Prefill from {selectedCard.name}
+        </button>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {scenarios.map((s) => {
@@ -283,18 +328,23 @@ type BerkusFactorKey = typeof BERKUS_FACTORS[number]['key'];
 type BerkusEstimate = Record<BerkusFactorKey, number>;
 const EMPTY_BERKUS: BerkusEstimate = { sound_idea_eur: 0, prototype_eur: 0, team_eur: 0, relationships_eur: 0, sales_eur: 0 };
 
-function BerkusMethodTool({ cards }: { cards: PipelineCard[] }) {
-  const [orgId, setOrgId] = useState('');
+function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; selectedOrgId: string }) {
   const [estimate, setEstimate] = useState<BerkusEstimate>(EMPTY_BERKUS);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const selectedName = cards.find((c) => c.orgId === selectedOrgId)?.name;
 
+  // Prompt 405 §B.3 — fires whenever the shared selection changes, whether
+  // or not this tool is the one currently visible (all six tools stay
+  // mounted). Documented choice: accepting the earlier fetch instead of
+  // gating it on this tool being open — it's one row per org, and gating
+  // it would mean re-fetching every time the investor switches back in.
   useEffect(() => {
-    if (!orgId) { setEstimate(EMPTY_BERKUS); return; }
+    if (!selectedOrgId) { setEstimate(EMPTY_BERKUS); return; }
     setLoading(true); setError(null);
-    fetch(`/api/portal/berkus?orgId=${encodeURIComponent(orgId)}`).then((r) => r.json())
+    fetch(`/api/portal/berkus?orgId=${encodeURIComponent(selectedOrgId)}`).then((r) => r.json())
       .then((d) => {
         const e = d.estimate as (BerkusEstimate & { updated_at: string }) | null;
         setEstimate(e ? {
@@ -304,15 +354,15 @@ function BerkusMethodTool({ cards }: { cards: PipelineCard[] }) {
       })
       .catch(() => setError('Could not load your estimate — try again.'))
       .finally(() => setLoading(false));
-  }, [orgId]);
+  }, [selectedOrgId]);
 
   async function save() {
-    if (!orgId) return;
+    if (!selectedOrgId) return;
     setSaving(true); setError(null);
     try {
       const res = await fetch('/api/portal/berkus', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ orgId, ...estimate }),
+        body: JSON.stringify({ orgId: selectedOrgId, ...estimate }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.ok === false) { setError(body.error ?? 'Could not save — try again.'); return; }
@@ -333,14 +383,8 @@ function BerkusMethodTool({ cards }: { cards: PipelineCard[] }) {
         precise valuation.
       </p>
 
-      <select value={orgId} onChange={(e) => setOrgId(e.target.value)}
-        className="w-full max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm">
-        <option value="">Select a startup from your Pipeline…</option>
-        {cards.map((c) => <option key={c.orgId} value={c.orgId}>{c.name}</option>)}
-      </select>
-
-      {!orgId ? (
-        <p className="text-sm text-gray-400">Pick a startup above to start estimating.</p>
+      {!selectedOrgId ? (
+        <p className="text-sm text-gray-400">Pick a startup from the list on the left to start estimating.</p>
       ) : loading ? (
         <p className="text-sm text-gray-400">Loading your estimate…</p>
       ) : (
@@ -373,7 +417,7 @@ function BerkusMethodTool({ cards }: { cards: PipelineCard[] }) {
               className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
               {saving ? 'Saving…' : savedAt && Date.now() - savedAt < 2000 ? 'Saved ✓' : 'Save estimate'}
             </button>
-            <span className="text-[11px] text-gray-400">Saved privately to your seat only.</span>
+            <span className="text-[11px] text-gray-400">Saved privately to your seat only{selectedName ? ` — ${selectedName}` : ''}.</span>
           </div>
         </div>
       )}
@@ -389,7 +433,7 @@ function BerkusMethodTool({ cards }: { cards: PipelineCard[] }) {
 // tab permanently, that round-trip is gone and the state can just live
 // here. `cards` is the exact same fetch this panel's other tools already
 // share, enriched (Block E's own reason for widening PipelineCard above).
-function CompareStartupsTool({ cards }: { cards: PipelineCard[] }) {
+function CompareStartupsTool({ cards, selectedOrgId, active }: { cards: PipelineCard[]; selectedOrgId: string; active: boolean }) {
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [showComparison, setShowComparison] = useState(false);
   const [scorecardAvgs, setScorecardAvgs] = useState<Record<string, number>>({});
@@ -397,6 +441,17 @@ function CompareStartupsTool({ cards }: { cards: PipelineCard[] }) {
     fetch('/api/portal/scorecard/summary').then((r) => r.json())
       .then((d) => setScorecardAvgs(d.averages ?? {})).catch(() => setScorecardAvgs({}));
   }, []);
+
+  // Prompt 405 §C — this tool keeps its own multi-select (deliberately not
+  // the shared single selection), but preloads the shared selection as the
+  // first compare item the moment this tool becomes active with nothing
+  // picked yet — a convenience, never forced. Keyed on `active` rather than
+  // mount, since every tool now stays mounted (405 §B.4) — there's no mount
+  // event to key this off of anymore.
+  useEffect(() => {
+    if (active && compareIds.length === 0 && selectedOrgId) setCompareIds([selectedOrgId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   // Prompt 169 §A — lazy, only for the up-to-3 orgIds actually being
   // compared, same reasoning as the Pipeline's own former implementation:
@@ -489,11 +544,31 @@ export function EvaluationToolsPanel({ initialOrgId }: {
   const [tool, setTool] = useState<'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'return' | 'compare'>('calculator');
   const [selectedOrgId, setSelectedOrgId] = useState(initialOrgId ?? '');
 
+  // Prompt 405 §B.2 — trial values shared by the Ownership calculator and
+  // Return scenario (one investor typing one ticket, not two). §B.5: only
+  // `basis` re-seeds when the startup changes (below); ticket and
+  // futureDilutions are the investor's own and survive a startup switch.
+  const [ticket, setTicket] = useState('50000');
+  const [basis, setBasis] = useState<ValuationBasis>('pre_money');
+  const [futureDilutions, setFutureDilutions] = useState(['20', '15']);
+
   useEffect(() => {
     fetch('/api/portal/pipeline').then((r) => r.json()).then((d: PipelineResponse) => {
       setCards((d.waves ?? []).flatMap((w) => w.items));
     }).catch(() => {});
   }, []);
+
+  // Re-seed the basis when the selected startup changes, same as the old
+  // per-card calculator did on mount — never overrides a basis the investor
+  // already picked by hand for the CURRENT startup. Deliberately keyed only
+  // on selectedOrgId (not on `cards`, which can still be loading when a
+  // deep-link sets the selection below) — same tradeoff the original
+  // per-tool version made, just now shared by two tools instead of one.
+  useEffect(() => {
+    const selected = cards.find((c) => c.orgId === selectedOrgId);
+    setBasis(selected?.roundValuationBasis ?? 'pre_money');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedOrgId]);
 
   // A shortcut from a Pipeline card (item 4 of P131-B) opens straight into
   // the calculator with that startup already selected.
@@ -520,49 +595,66 @@ export function EvaluationToolsPanel({ initialOrgId }: {
   }, [initialOrgId]);
 
   return (
-    <div className="max-w-3xl space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-bold text-gray-900">Evaluation tools</h1>
-        {/* Prompt 345 Block E — "the shortcut that already exists becomes
-            THE path": same entry point, now opens the comparator right
-            here instead of jumping back to the Pipeline tab. */}
-        <button onClick={() => setTool('compare')} className="text-xs font-medium text-[#0E7490] hover:underline">
-          Compare startups from your Pipeline →
-        </button>
-      </div>
-      <div className="flex flex-wrap items-stretch gap-1.5">
-        {TOOLS.map((t) => (
-          <button key={t.key} onClick={() => setTool(t.key)}
-            className={`rounded-xl px-3 py-1.5 text-left ${tool === t.key ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-            <span className="block text-xs font-medium">{t.label}</span>
-            <span className={`block text-[10px] ${tool === t.key ? 'text-white/70' : 'text-gray-400'}`}>{t.subtitle}</span>
-          </button>
-        ))}
-      </div>
+    <div className="grid gap-4 md:grid-cols-[260px_1fr] md:items-start">
+      <EvaluationStartupPicker cards={cards} selectedOrgId={selectedOrgId} onSelectOrg={setSelectedOrgId} showsUnusedNote={tool === 'scorecard'} />
 
-      {tool === 'calculator' ? (
-        <>
+      <div className="min-w-0 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-lg font-bold text-gray-900">Evaluation tools</h1>
+          {/* Prompt 345 Block E — "the shortcut that already exists becomes
+              THE path": same entry point, now opens the comparator right
+              here instead of jumping back to the Pipeline tab. */}
+          <button onClick={() => setTool('compare')} className="text-xs font-medium text-[#0E7490] hover:underline">
+            Compare startups from your Pipeline →
+          </button>
+        </div>
+        <div className="flex flex-wrap items-stretch gap-1.5">
+          {TOOLS.map((t) => (
+            <button key={t.key} onClick={() => setTool(t.key)}
+              className={`rounded-xl px-3 py-1.5 text-left ${tool === t.key ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+              <span className="block text-xs font-medium">{t.label}</span>
+              <span className={`block text-[10px] ${tool === t.key ? 'text-white/70' : 'text-gray-400'}`}>{t.subtitle}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Prompt 405 §B.4 — all six tools stay mounted; only the active one
+            is shown. The alternative (conditional rendering, as this used
+            to be) unmounts the inactive tool and loses whatever state it
+            doesn't get from props — simulator scenarios, compare's
+            selection, Return scenario's exit assumptions. Hiding via CSS
+            costs one extra render tree each, paid once, not per switch. */}
+        <div className={tool === 'calculator' ? 'space-y-4' : 'hidden'}>
           <p className="text-xs text-gray-500">
             How much of a <b>real startup from your Pipeline</b> your ticket buys, using the round data that startup actually registered — for the &quot;what do I get in this specific deal&quot; question.
           </p>
-          <OwnershipCalculatorTool cards={cards} selectedOrgId={selectedOrgId} onSelectOrg={setSelectedOrgId} onSwitchToSimulator={() => setTool('simulator')} />
-        </>
-      ) : tool === 'simulator' ? (
-        <>
+          <OwnershipCalculatorTool cards={cards} selectedOrgId={selectedOrgId}
+            ticket={ticket} setTicket={setTicket} basis={basis} setBasis={setBasis}
+            futureDilutions={futureDilutions} setFutureDilutions={setFutureDilutions}
+            onSwitchToSimulator={() => setTool('simulator')} />
+        </div>
+        <div className={tool === 'simulator' ? 'space-y-4' : 'hidden'}>
           <p className="text-xs text-gray-500">
-            The same math over <b>your own hypothetical numbers</b> — up to 3 what-if scenarios side by side, independent of any startup&apos;s registered data (you can prefill one from a real startup, then edit freely).
+            The same math over <b>your own hypothetical numbers</b> — up to 3 what-if scenarios side by side, independent of any startup&apos;s registered data (you can prefill one from the startup selected on the left, then edit freely).
           </p>
-          <EquitySimulatorTool cards={cards} />
-        </>
-      ) : tool === 'scorecard' ? (
-        <ScorecardCriteriaTool />
-      ) : tool === 'berkus' ? (
-        <BerkusMethodTool cards={cards} />
-      ) : tool === 'compare' ? (
-        <CompareStartupsTool cards={cards} />
-      ) : (
-        <ReturnScenarioTool cards={cards} onSwitchToSimulator={() => setTool('simulator')} />
-      )}
+          <EquitySimulatorTool cards={cards} selectedOrgId={selectedOrgId} />
+        </div>
+        <div className={tool === 'scorecard' ? 'block' : 'hidden'}>
+          <ScorecardCriteriaTool />
+        </div>
+        <div className={tool === 'berkus' ? 'block' : 'hidden'}>
+          <BerkusMethodTool cards={cards} selectedOrgId={selectedOrgId} />
+        </div>
+        <div className={tool === 'compare' ? 'block' : 'hidden'}>
+          <CompareStartupsTool cards={cards} selectedOrgId={selectedOrgId} active={tool === 'compare'} />
+        </div>
+        <div className={tool === 'return' ? 'block' : 'hidden'}>
+          <ReturnScenarioTool cards={cards} selectedOrgId={selectedOrgId}
+            ticket={ticket} setTicket={setTicket} basis={basis} setBasis={setBasis}
+            futureDilutions={futureDilutions} setFutureDilutions={setFutureDilutions}
+            onSwitchToSimulator={() => setTool('simulator')} />
+        </div>
+      </div>
     </div>
   );
 }
