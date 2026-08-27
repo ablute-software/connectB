@@ -1,6 +1,16 @@
 // Item #15 — added solely to alias the 'server-only' package (see
 // src/test/server-only-stub.ts for why it's otherwise unresolvable under
 // vitest). No other vitest defaults are touched or overridden here.
+//
+// Prompt 411 — '@/*' added to match tsconfig.json's own path mapping.
+// This gap was latent, not new: dozens of src files already do
+// value-level `import { x } from '@/lib/...'` (route handlers,
+// components), but none had been reached by a vitest test file before —
+// tsc resolves '@/' fine (it reads tsconfig's "paths"), so this only
+// surfaces when vitest itself has to load the module at test time.
+// src/content/bars/*.ts (Prompt 411) is the first content module to do a
+// real (non type-only) '@/'-aliased import while also being imported by
+// a test, which is what exposed it.
 import { defineConfig } from 'vitest/config';
 import path from 'node:path';
 
@@ -8,6 +18,7 @@ export default defineConfig({
   resolve: {
     alias: {
       'server-only': path.resolve(__dirname, 'src/test/server-only-stub.ts'),
+      '@': path.resolve(__dirname, 'src'),
     },
   },
   test: {
