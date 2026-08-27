@@ -392,4 +392,53 @@ export const TOUR_CONTENT: Record<string, TourStep[]> = {
       body: 'Everyone you\'re connected to, searchable. Teal = investor, gray = founder.',
     },
   ],
+  // Prompt 406 §C — same DOM, same data-tour-id anchors as guide_network
+  // above (NetworkPageContent is one component for both viewers), but
+  // written from the investor's own perspective: deal flow through people
+  // you trust, not "helping a founder raise". Feed/Connections/Groups/My
+  // contacts are already neutral, kept verbatim; Referrals, Follow-on and
+  // Reciprocity are reworded, and Scout requests gets its own step for its
+  // promoted nav position (406 §B.2).
+  guide_investor_network: [
+    {
+      selector: 'network-nav-feed',
+      title: 'Feed',
+      body: 'Updates and milestones from founders and investors you\'re connected to. No likes, no follower counts — nothing here ranks you against anyone.',
+    },
+    {
+      selector: 'network-nav-scout',
+      title: 'Scout requests',
+      body: 'Post exactly what you\'re looking for — sectors, stage, geography — and founders you\'re connected to can refer a startup that fits. Same anti-spam discipline as everywhere else: no open search, only people who know you.',
+    },
+    {
+      selector: 'network-nav-connections',
+      title: 'Connections',
+      body: 'Your accepted connections, plus invites sent and received. Every connection starts from something real you share — or someone you invited directly.',
+    },
+    {
+      selector: 'network-nav-groups',
+      title: 'Groups',
+      body: 'Accelerator batches, investor portfolios, communities. Joining always requires consent — and each group seeds new connection suggestions.',
+    },
+    {
+      selector: 'network-nav-referrals',
+      title: 'Referrals',
+      body: 'Founders you back can refer you to other founders they know who are raising. Double opt-in: nobody hears about it unless you both agree.',
+    },
+    {
+      selector: 'network-nav-followon',
+      title: 'Follow-on',
+      body: 'Startups where you\'ve declared interest in a follow-on round — signal, renew, or revoke any time. Declared by you, never derived by us.',
+    },
+    {
+      selector: 'network-nav-reciprocity',
+      title: 'Reciprocity',
+      body: 'Office hours — concrete help you offer or claim inside the network. Your counts are yours alone, never a leaderboard.',
+    },
+    {
+      selector: 'network-my-contacts',
+      title: 'My contacts',
+      body: 'Everyone you\'re connected to, searchable. Teal = investor, gray = founder.',
+    },
+  ],
 };

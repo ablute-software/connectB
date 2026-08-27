@@ -14,15 +14,19 @@ import { EvaluationToolsPanel } from './EvaluationToolsPanel';
 import { InvestorDashboardPanel } from './InvestorDashboardPanel';
 import { MessagesPanel, useInvestorMessagesUnreadCount } from './MessagesPanel';
 // Prompt 340 Block C — My Network reuses the founder side's OWN component
-// wholesale (same 6-section nav, same /api/network/* endpoints) rather than
-// a second implementation: NetworkPage already branches on
+// wholesale (same 6/7-section nav, same /api/network/* endpoints) rather
+// than a second implementation: NetworkPageContent already branches on
 // state.myActorKind === 'investor' throughout (referral candidates,
 // follow-on section, group-kind options), and its one founder-only call
 // (updateOrg, the network_discoverable toggle) is already gated behind
 // myActorKind === 'founder' — see that file's own Suggestions card — so it
 // never fires for an investor session. useStore() itself is safe anywhere
 // in the app (StoreProvider wraps the root layout unconditionally).
-import NetworkPage from '@/app/network/page';
+// Prompt 406 §A — imports the component directly from where it now lives
+// (src/components/network/NetworkPageContent.tsx, not the page.tsx route,
+// which Next's typegen forbids from taking custom props) so this shell can
+// pass viewerKind="investor" and reframe the page without forking it.
+import { NetworkPageContent } from '@/components/network/NetworkPageContent';
 import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
 import { OnboardingProvider } from '@/lib/onboarding/OnboardingProvider';
 import { PageTour } from '@/components/onboarding/PageTour';
@@ -57,10 +61,12 @@ const COMPLETENESS_GATE = 50;
 // current DOM, so a guide can't reach across tabs that aren't mounted.
 const TOUR_KEY_BY_TAB: Partial<Record<Tab, string>> = {
   pipeline: 'guide_investor_pipeline', about: 'guide_investor_about', access: 'guide_investor_access', plans: 'guide_investor_plans',
-  // Prompt 340 — dashboard/agenda/messages get their own short guide;
-  // network reuses guide_network as-is (same DOM the founder side's own
-  // tour already anchors to, since it's the exact same component).
-  dashboard: 'guide_investor_dashboard', agenda: 'guide_investor_agenda', messages: 'guide_investor_messages', network: 'guide_network',
+  // Prompt 340 — dashboard/agenda/messages get their own short guide.
+  // Prompt 406 §C — network now points at its own guide_investor_network:
+  // the anchors (data-tour-id) are identical DOM ids, same component, but
+  // the copy needs the investor's own framing (Follow-on/Referrals read
+  // founder-only otherwise) and a step for the new Scout requests nav item.
+  dashboard: 'guide_investor_dashboard', agenda: 'guide_investor_agenda', messages: 'guide_investor_messages', network: 'guide_investor_network',
 };
 
 export function InvestorWorkspaceShell({
@@ -277,7 +283,7 @@ export function InvestorWorkspaceShell({
             ~183px. Only the Plans tab needs the wider container; every
             other tab keeps the original width unchanged. */}
         {/* Prompt 340 — 'network' joins 'plans' in the wide container: it
-            mounts NetworkPage as-is, which assumes the founder shell's own
+            mounts NetworkPageContent, which assumes the founder shell's own
             max-w-6xl content column (aside + flex-1 layout). */}
         {/* Prompt 345 §D.1 — Pipeline joins plans/network in the wide
             container: PipelinePanel dropped its own max-w-2xl (672px),
@@ -339,7 +345,7 @@ export function InvestorWorkspaceShell({
           {tab === 'plans' && <InvestorPlansPanel />}
           {tab === 'dashboard' && <InvestorDashboardPanel />}
           {tab === 'messages' && <MessagesPanel />}
-          {tab === 'network' && <NetworkPage />}
+          {tab === 'network' && <NetworkPageContent viewerKind="investor" />}
         </main>
       </div>
       {/* Prompt 127 Bloco A (addenda §3) — this workspace never had a mobile
