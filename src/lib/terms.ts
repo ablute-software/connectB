@@ -5,15 +5,24 @@
 // is how getCurrentTermsMarkdown finds the right one without a chain of
 // if/else that would need touching at every future bump.
 import { TERMS_V1_MARKDOWN } from '../content/terms/v1';
+import { TERMS_V2_MARKDOWN } from '../content/terms/v2';
 
-export const TERMS_VERSION = '1.0';
+// Prompt 403 §C — new Clause 6.3 (Vault security scanning). v1 stays
+// importable/mapped below so acceptance rows recorded against it (old
+// history) remain resolvable, per that prompt's own instruction.
+export const TERMS_VERSION = '2.0';
 
 const TERMS_MARKDOWN_BY_VERSION: Record<string, string> = {
   '1.0': TERMS_V1_MARKDOWN,
+  '2.0': TERMS_V2_MARKDOWN,
 };
 
 export function getTermsMarkdown(version: string = TERMS_VERSION): string {
-  return TERMS_MARKDOWN_BY_VERSION[version] ?? TERMS_V1_MARKDOWN;
+  // An unknown version string falls back to the CURRENT version's text, not
+  // permanently to v1 — surfaced by the 403 bump: a hardcoded v1 fallback
+  // here would have silently served stale terms for any bad/old lookup
+  // forever, one version behind what the doc comment above already promises.
+  return TERMS_MARKDOWN_BY_VERSION[version] ?? TERMS_MARKDOWN_BY_VERSION[TERMS_VERSION];
 }
 
 // Prompt 341 §B — the gate's own decision, pulled out of both
