@@ -221,6 +221,10 @@ export const PLANS: PlanRow[] = [
         + `· Unlimited Reconsiderations until you use the ${MATCHDEAL_WEEKLY.motherfunding.likes} weekly Swipe Rights`,
       'Advanced Review & Optimization',
       'Investability reports',
+      // Prompt 401 §2.4 — the founder-side half of the upsell: the badge
+      // only sells if the founder knows it exists. Same criterion as the
+      // dossier gate itself (isStartupHype && plan==='motherfunding').
+      '🔥 Hype badge on your investor dossier when trending on MatchDeal',
     ],
   },
 ];

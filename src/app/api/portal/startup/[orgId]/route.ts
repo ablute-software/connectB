@@ -34,7 +34,7 @@ import { currentInterestLevel, projectDossier } from '@/lib/investor-interest-le
 import { getInterestLevelRows, toInvestorFacingLevelRows } from '@/lib/investor-interest-level-db';
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
 import { fetchDossierRawData } from '@/lib/dossier-fetch';
-import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
+import { isStartupHype } from '@/lib/matchdeal-hype';
 
 export async function GET(req: Request, { params }: { params: { orgId: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -51,16 +51,23 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   const card = result.linked ? result.waves.flatMap((w) => w.items).find((c) => c.orgId === params.orgId) : null;
   if (!card) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
-  // Prompt 161 §C.4 — "ao lado do nome da empresa no perfil/dossiê visível
-  // ao investidor." Deliberately a single-org read here, not threaded
-  // through getPipelineWaves (shared by the whole Pipeline list + the CSV
-  // export, already a heavier computation) — the prompt only asks for the
-  // dossier header, not every row of the list.
-  let pioneerBadge = false;
-  if (await pioneerBadgeAvailable()) {
-    const { data: orgRow } = await admin.from('orgs').select('pioneer_badge').eq('id', params.orgId).maybeSingle();
-    pioneerBadge = !!orgRow?.pioneer_badge;
-  }
+  // Prompt 401 §1 — Pioneer removed from this route entirely: it's a
+  // founder-ACCOUNT state (plan/promo), not a signal about the deal, and
+  // doesn't belong on a page the investor reads to evaluate the startup.
+  // Stays exactly as-is on the founder side (PlansPanel.tsx, promo/
+  // checkout/back-office).
+  //
+  // Prompt 401 §2 — Hype takes its place: NOT founder-private (it's an
+  // aggregate of cross-investor interest, already investor-facing on the
+  // Hype List, /api/matchdeal/hype — showing it here exposes nothing new).
+  // Gated on BOTH is_hype AND the org's own plan being the top tier
+  // (Nuno's own decision, verbatim: "um benefício do plano de topo, não um
+  // direito de qualquer plano") — evaluated server-side so the flag is
+  // never true for a lower plan, not merely hidden client-side. The Hype
+  // List itself keeps its OWN, ungated behavior (Prompt 143) — this plan
+  // gate applies only to this one dossier badge.
+  const { data: orgPlanRow } = await admin.from('orgs').select('plan').eq('id', params.orgId).maybeSingle();
+  const hype = orgPlanRow?.plan === 'motherfunding' && await isStartupHype(admin, params.orgId);
 
   // P136 — compute the current level. investor_relationship_decisions'
   // own decision drives level 0/1 and the mandatory pass-collapse; levels
@@ -92,5 +99,5 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   // Prompt 373 §F — already fail-closed group-by-group inside
   // fetchDossierRawData itself (see that function's own market block);
   // passed through as-is, never re-filtered here, same as swot/roadmap.
-  return NextResponse.json({ card, pioneerBadge, level, levelRows: toInvestorFacingLevelRows(levelRows), dossier, market: raw.market });
+  return NextResponse.json({ card, hype, level, levelRows: toInvestorFacingLevelRows(levelRows), dossier, market: raw.market });
 }

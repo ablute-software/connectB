@@ -84,7 +84,7 @@ export default function StartupDossierPage() {
 
   const [sessionEmail, setSessionEmail] = useState<string | null | undefined>(undefined);
   const [data, setData] = useState<{
-    card: Card; pioneerBadge?: boolean; level: 0 | 1 | 2 | 3; levelRows: LevelRow[]; dossier: Dossier;
+    card: Card; hype?: boolean; level: 0 | 1 | 2 | 3; levelRows: LevelRow[]; dossier: Dossier;
     // Prompt 373 §F — group-by-group published Market data; visibleGroups
     // is always present (possibly empty), each group key only present when
     // the founder actually published it.
@@ -326,7 +326,7 @@ export default function StartupDossierPage() {
   }
   if (!data) return <div className="mt-16 text-center text-sm text-gray-400">Loading…</div>;
 
-  const { card, pioneerBadge, level, levelRows, dossier, market } = data;
+  const { card, hype, level, levelRows, dossier, market } = data;
   const level3Row = levelRows.find((r) => r.level === 3);
 
   return (
@@ -337,12 +337,17 @@ export default function StartupDossierPage() {
           <div>
             <div className="flex items-center gap-1.5">
               <h1 className="text-lg font-bold text-gray-900">{card.name}</h1>
-              {/* Prompt 161 §C.4 — same asset/placement discipline as the
-                  founder's own Plans & billing card (PlansPanel.tsx):
-                  onError hides it rather than a broken-image icon. */}
-              {pioneerBadge && (
-                <img src="/badges/pioneer.png" alt="Pioneer" title="Pioneer — permanent badge"
-                  className="h-5 w-5" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+              {/* Prompt 401 §2 — Pioneer removed from this page (§1: it's a
+                  founder-account state, not a deal signal). Hype takes its
+                  place — deliberately NOT subtle (Nuno's own words): a
+                  solid warm-color pill, same 🔥 language as the Hype List,
+                  never a faded/grey chip. Absent entirely without hype —
+                  never a dim placeholder. */}
+              {hype && (
+                <span title="Trending with investors on MatchDeal right now"
+                  className="inline-flex items-center gap-1 rounded-full bg-orange-500 px-2 py-0.5 text-xs font-bold text-white shadow-sm">
+                  🔥 Hype
+                </span>
               )}
               {(card.followOnSignals ?? []).map((s, i) => <FollowOnBadge key={i} signal={s} />)}
             </div>
