@@ -36,7 +36,6 @@ import { StartupTeamCard } from './StartupTeamCard';
 import { RoundCard } from './RoundCard';
 import { PreviousFundingCard } from '@/components/PreviousFundingCard';
 import { TractionCard } from './TractionCard';
-import { DataroomChecklistCard } from './DataroomChecklistCard';
 import { InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEngagementCards';
 import { StartupAxisClassifications } from './StartupAxisClassifications';
 import { CompanySubMenu, type CompanySection } from './CompanySubMenu';
@@ -50,7 +49,6 @@ const SECTIONS: CompanySection[] = [
   { key: 'previous-funding', label: 'Previous funding', anchorId: 'settings-previous-funding' },
   { key: 'traction', label: 'Traction metrics', anchorId: 'settings-traction' },
   { key: 'facts', label: 'Facts & Clarifications', anchorId: 'settings-facts' },
-  { key: 'data-room', label: 'My data room', anchorId: 'settings-data-room' },
 ];
 
 function DemoResetCard() {
@@ -222,12 +220,6 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
             <InvestorQACard />
             <StartupAxisClassifications />
             <DemoResetCard />
-          </div>
-        )}
-
-        {active === 'data-room' && (
-          <div id="settings-data-room" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
-            <DataroomChecklistCard />
           </div>
         )}
       </div>
