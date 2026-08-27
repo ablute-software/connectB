@@ -17,10 +17,12 @@ const TRIGGER_LABEL: Record<string, string> = {
   grant_activated: 'Data-room grant activated',
   document_viewed: 'Investor viewed a document',
   hook_missing: 'Hook missing on a person in an active wave',
+  // Prompt 398 §3.1
+  interest_request_unanswered: 'Investor interest request unanswered',
 };
 
 export function AutomationsPanel({ orgRole }: { orgRole?: OrgRole | null }) {
-  const { db, toggleAutomation, setAutomationMode } = useStore();
+  const { db, toggleAutomation, setAutomationMode, setAutomationConfig } = useStore();
   // No role passed (demo mode / standalone route) = editable, matching prior
   // behaviour; a role gates it to owner+admin.
   const canEdit = orgRole === undefined ? true : can(orgRole, 'manage_automations');
@@ -45,16 +47,31 @@ export function AutomationsPanel({ orgRole }: { orgRole?: OrgRole | null }) {
                 <div className="text-sm font-medium">{a.name}</div>
                 <div className="text-xs text-gray-500">When: {TRIGGER_LABEL[a.trigger]} → {a.action.replace(/_/g, ' ')}</div>
               </div>
-              <div className="flex overflow-hidden rounded-lg border border-gray-300 text-xs">
-                <button disabled={!canEdit} onClick={() => setAutomationMode(a.id, 'draft_review')}
-                  className={`px-2.5 py-1 disabled:opacity-40 ${a.mode === 'draft_review' ? 'bg-[#0E7490] text-white' : 'bg-white text-gray-600'}`}>
-                  Draft & review
-                </button>
-                <button disabled={!canEdit} onClick={() => setAutomationMode(a.id, 'full_auto')}
-                  className={`px-2.5 py-1 disabled:opacity-40 ${a.mode === 'full_auto' ? 'bg-[#0E7490] text-white' : 'bg-white text-gray-600'}`}>
-                  Full auto
-                </button>
-              </div>
+              {/* Prompt 398 §3.1 — this trigger isn't a draft/send decision
+                  at all (it's a reminder, not an outbound action), so the
+                  draft_review/full_auto toggle doesn't apply — just the
+                  interval it reminds on. */}
+              {a.trigger === 'interest_request_unanswered' ? (
+                <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                  Every
+                  <input type="number" min={1} max={30} disabled={!canEdit}
+                    value={typeof a.config.intervalDays === 'number' ? a.config.intervalDays : 2}
+                    onChange={(e) => setAutomationConfig(a.id, { intervalDays: Math.max(1, Number(e.target.value) || 1) })}
+                    className="w-14 rounded border border-gray-300 px-1.5 py-1 text-xs disabled:opacity-40" />
+                  days
+                </label>
+              ) : (
+                <div className="flex overflow-hidden rounded-lg border border-gray-300 text-xs">
+                  <button disabled={!canEdit} onClick={() => setAutomationMode(a.id, 'draft_review')}
+                    className={`px-2.5 py-1 disabled:opacity-40 ${a.mode === 'draft_review' ? 'bg-[#0E7490] text-white' : 'bg-white text-gray-600'}`}>
+                    Draft & review
+                  </button>
+                  <button disabled={!canEdit} onClick={() => setAutomationMode(a.id, 'full_auto')}
+                    className={`px-2.5 py-1 disabled:opacity-40 ${a.mode === 'full_auto' ? 'bg-[#0E7490] text-white' : 'bg-white text-gray-600'}`}>
+                    Full auto
+                  </button>
+                </div>
+              )}
             </li>
           ))}
         </ul>

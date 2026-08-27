@@ -793,8 +793,20 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, automations: prev.automations.map((a) => a.id === id ? { ...a, mode } : a) }));
     },
 
+    setAutomationConfig(id, config) {
+      setDb((prev) => ({ ...prev, automations: prev.automations.map((a) => a.id === id ? { ...a, config: { ...a.config, ...config } } : a) }));
+    },
+
     // The engine tick: evaluates triggers and creates runs. In production this is a
     // scheduled job (Vercel cron → /api/automations); in demo mode it runs on demand.
+    // Prompt 398 §3 — no demo branch for 'interest_request_unanswered': its
+    // real counterpart (src/lib/interest-reminder-sweep.ts) reads investor
+    // interest-level requests (investor_interest_levels, Supabase-only) —
+    // demo mode's useInterestRequests() fetches that same real API route
+    // and gets nothing back without Supabase configured, so there's no
+    // demo data this tick could ever act on. The automation is still
+    // listed and toggleable in demo mode's own Settings -> Automations
+    // (seed.ts) — it just never has anything to sweep.
     runAutomationTick() {
       let created = 0;
       setDb((prev) => {

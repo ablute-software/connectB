@@ -27,6 +27,7 @@ import { pioneerBadgeAvailable } from '@/lib/pioneer-capability';
 import { runPioneerExpiryJob } from '@/lib/pioneer-server';
 import { computeAndStoreOverviewSnapshot } from '@/lib/metrics-snapshot';
 import { recheckPendingMalwareScans, retroscanNotScannedDocuments, recheckPendingScansGeneric, recheckMatchdealPhotoScans } from '@/lib/upload-security';
+import { runInterestReminderSweep, type InterestReminderSweepResult } from '@/lib/interest-reminder-sweep';
 import {
   malwareScanAvailable, investorVerificationScanAvailable, ndaScanAvailable,
   matchdealPhotoScanAvailable, supportAttachmentScanAvailable, companyMediaScanAvailable,
@@ -160,6 +161,17 @@ export async function GET() {
   ]);
   const secondaryMalwareScanSweep = { investorVerificationDocuments: investorDocs, ndas, matchdealPhotos, supportAttachments, companyMedia };
 
+  // Prompt 398 §3 — daily sweep for the "interest_request_unanswered"
+  // automation: its own dedicated function, not the generic (still
+  // unbuilt) automation-rules engine — same pattern as every other real
+  // job in this route.
+  let interestReminderSweep: InterestReminderSweepResult | null = null;
+  try {
+    interestReminderSweep = await runInterestReminderSweep(admin, new Date());
+  } catch (e) {
+    console.error('[automations] daily interest-reminder sweep failed:', e);
+  }
+
   // TODO: implement server-side automation-rules tick — see src/lib/rules.ts
   // (pure functions, ready to reuse). Unchanged scope from before this prompt.
   return NextResponse.json({
@@ -171,5 +183,6 @@ export async function GET() {
     malwareScanSweep,
     retroscanSweep,
     secondaryMalwareScanSweep,
+    interestReminderSweep,
   });
 }

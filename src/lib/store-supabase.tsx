@@ -700,7 +700,10 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       applyReactivations(next);
     },
 
-    updateTask(id: string, patch: { reminder_at?: string | null; snoozed_until?: string | null; due_at?: string; notes?: string | null }) {
+    updateTask(id: string, patch: {
+      reminder_at?: string | null; snoozed_until?: string | null; due_at?: string; notes?: string | null;
+      reminder_muted?: boolean; last_reminded_at?: string | null;
+    }) {
       const prev = dbRef.current;
       const tasks = prev.tasks.map((t) => t.id === id ? { ...t, ...patch } : t);
       commit({ ...prev, tasks });
@@ -1493,6 +1496,13 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       const prev = dbRef.current;
       commit({ ...prev, automations: prev.automations.map((a) => a.id === id ? { ...a, mode } : a) });
       if (orgIdRef.current) persist(sb.from('automations').update({ mode }).eq('id', id), 'setAutomationMode');
+    },
+
+    setAutomationConfig(id: string, config: Record<string, unknown>) {
+      const prev = dbRef.current;
+      const merged = { ...(prev.automations.find((a) => a.id === id)?.config ?? {}), ...config };
+      commit({ ...prev, automations: prev.automations.map((a) => a.id === id ? { ...a, config: merged } : a) });
+      if (orgIdRef.current) persist(sb.from('automations').update({ config: merged }).eq('id', id), 'setAutomationConfig');
     },
 
     // Mirrors the demo engine tick exactly, over the current in-memory snapshot;

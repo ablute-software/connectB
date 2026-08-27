@@ -463,6 +463,14 @@ export const seed: Db = {
     { id: 'auto-grant', name: 'Data Room Mail Access', trigger: 'grant_activated', action: 'send_grant_email', mode: 'draft_review', channel: 'email', enabled: true, config: {} },
     { id: 'auto-viewed', name: 'Notify when an investor views a document', trigger: 'document_viewed', action: 'notify_owner', mode: 'full_auto', enabled: true, config: {} },
     { id: 'auto-hook', name: 'Create research task when hook missing in active wave', trigger: 'hook_missing', action: 'create_task', mode: 'full_auto', enabled: true, config: {} },
+    // Prompt 398 §3 — listed here so it's visible/toggleable in demo mode's
+    // Settings -> Automations too, but it never actually fires in demo:
+    // interest-level requests are real (investor_interest_levels,
+    // Supabase-only) and demo mode has no local mirror of them at all
+    // (useInterestRequests() fetches a real API route that simply returns
+    // nothing without Supabase configured) — there's no demo data this
+    // sweep could ever act on.
+    { id: 'auto-interest-reminder', name: 'Remind me about unanswered investor interest requests', trigger: 'interest_request_unanswered', action: 'notify_owner', mode: 'full_auto', enabled: true, config: { intervalDays: 2 } },
   ],
 
   runs: [],

@@ -49,7 +49,12 @@ export type AutomationMode = 'draft_review' | 'full_auto';
 export type AutomationTrigger =
   | 'no_reply_14d' | 'followup_no_reply_14d' | 'inbound_meeting_request'
   | 'inbound_pass' | 'contact_lock_expired' | 'grant_activated'
-  | 'document_viewed' | 'hook_missing';
+  | 'document_viewed' | 'hook_missing'
+  // Prompt 398 §3 — recurring reminder while an investor's L3 interest
+  // request sits unanswered. No draft_review/full_auto split applies (see
+  // AutomationsPanel.tsx) — this one only has enable + an interval
+  // (config.intervalDays, default 2).
+  | 'interest_request_unanswered';
 export type AutomationAction =
   | 'draft_follow_up' | 'create_task' | 'propose_dormant'
   | 'notify_owner' | 'send_grant_email' | 'draft_reply';
@@ -561,6 +566,15 @@ export interface TaskItem {
   notes?: string | null;
   reminder_at?: string | null;
   snoozed_until?: string | null;
+  // Prompt 398 §3 — reminder_muted: "stop reminding for this investor"
+  // (§3.2.2), distinct from Dismiss (which only clears reminder_at until
+  // the next sweep resets it) — the sweep skips a muted task forever, the
+  // request itself stays pending. last_reminded_at: when the sweep last
+  // set reminder_at, independent of Dismiss/Snooze, so "have >=2 days
+  // passed since the last reminder" doesn't conflate with "was it
+  // dismissed".
+  reminder_muted?: boolean;
+  last_reminded_at?: string | null;
 }
 
 // Prompt 212 §B.1 — capital JÁ levantado, separado da ronda actual

@@ -18,12 +18,22 @@ export interface ReminderableItem extends ReminderSource {
   title: string;
   action_type: ActionType;
   notes?: string | null;
+  // Prompt 398 §3.2.2 — only 'interest_level_request' items get the "Stop
+  // reminding for this investor" button below (gated on `source`, not
+  // just on `onMute` being passed, since ReminderPopup.tsx wraps every
+  // founder task — appointments included — through this same view).
+  source?: string;
 }
 
-export function ReminderPopupView<T extends ReminderableItem>({ items, onDismiss, onSnooze, renderLink }: {
+export function ReminderPopupView<T extends ReminderableItem>({ items, onDismiss, onSnooze, onMute, renderLink }: {
   items: T[];
   onDismiss: (item: T) => void;
   onSnooze: (item: T, until: string) => void;
+  // Prompt 398 §3.2.2 — "stop reminding for THIS request", distinct from
+  // Dismiss (which only clears reminder_at until the next sweep resets
+  // it — see interest-reminder-sweep.ts). Optional: only the founder
+  // wrapper (interest requests are founder-side only) passes it.
+  onMute?: (item: T) => void;
   // Render-prop rather than an href/label pair — the founder side wants its
   // existing EntityLink component (styling + routing already established),
   // the investor side wants a plain Link to /portal/startup/[orgId]; each
@@ -69,6 +79,11 @@ export function ReminderPopupView<T extends ReminderableItem>({ items, onDismiss
         <button onClick={() => snooze('tomorrow')} className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50">Snooze until tomorrow</button>
         <button onClick={() => onDismiss(current)} className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">Dismiss</button>
       </div>
+      {onMute && current.source === 'interest_level_request' && (
+        <button onClick={() => onMute(current)} className="mt-1.5 text-[11px] text-gray-400 hover:text-gray-600 hover:underline">
+          Stop reminding for this investor
+        </button>
+      )}
     </div>
   );
 }

@@ -146,7 +146,11 @@ export interface StoreApi {
   // Prompt 269 §1 — notes added so applyPlan (RelationshipSummaryCard.tsx)
   // can persist WHY an exit-effect closed a task (exit-effects.ts already
   // computes a reason string per disposition; it was being discarded).
-  updateTask: (id: string, patch: { reminder_at?: string | null; snoozed_until?: string | null; due_at?: string; notes?: string | null }) => void;
+  updateTask: (id: string, patch: {
+    reminder_at?: string | null; snoozed_until?: string | null; due_at?: string; notes?: string | null;
+    // Prompt 398 §3.2.2
+    reminder_muted?: boolean; last_reminded_at?: string | null;
+  }) => void;
   // Batch 3 B — edit Organisation data (name, sender, caps, onboarding
   // fields). Owner+admin only; enforced server-side in /api/org/update (the
   // Supabase provider posts there), the UI just gates the form.
@@ -239,6 +243,11 @@ export interface StoreApi {
   recordDocumentView: (documentId: string, viewerEmail: string) => void;
   toggleAutomation: (id: string) => void;
   setAutomationMode: (id: string, mode: Automation['mode']) => void;
+  // Prompt 398 §3.1 — the one automation without a draft_review/full_auto
+  // split (AutomationsPanel.tsx); its only editable setting is the
+  // reminder interval, stored in `config` like every other automation's
+  // own per-trigger settings (e.g. auto-followup's `config.days`).
+  setAutomationConfig: (id: string, config: Record<string, unknown>) => void;
   runAutomationTick: () => number;
   approveRun: (id: string) => void;
   rejectRun: (id: string) => void;

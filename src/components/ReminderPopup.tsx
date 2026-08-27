@@ -16,6 +16,10 @@ export function ReminderPopup() {
       items={db.tasks}
       onDismiss={(t) => updateTask(t.id, { reminder_at: null })}
       onSnooze={(t, until) => updateTask(t.id, { snoozed_until: until })}
+      // Prompt 398 §3.2.2 — permanent per-request opt-out (never fires
+      // again for this task), distinct from Dismiss above. The request
+      // itself stays pending in Today; muting only silences the popup.
+      onMute={(t) => updateTask(t.id, { reminder_muted: true, reminder_at: null })}
       renderLink={(t) => t.entity_id
         ? <EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink>
         : null}

@@ -1,6 +1,7 @@
 'use client';
 // Documents & Data Room — folder tree, documents with visibility attributes, grants, engagement
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
@@ -52,10 +53,15 @@ export default function DocumentsPage() {
   // Data Room PIN. A separate top-level component so the gate's own RPC
   // round-trip doesn't block the rest of this file's hooks from running
   // before db.org.id is known.
+  // Prompt 398 §3.3 — Suspense wraps the useSearchParams() read inside
+  // DocumentsPageInner (?grantFor=<entityId> deep-link), required by
+  // Next.js for any client component that reads search params.
   return (
-    <VaultPinGate orgId={db.org.id}>
-      <DocumentsPageInner />
-    </VaultPinGate>
+    <Suspense fallback={null}>
+      <VaultPinGate orgId={db.org.id}>
+        <DocumentsPageInner />
+      </VaultPinGate>
+    </Suspense>
   );
 }
 
@@ -180,6 +186,17 @@ function DocumentsPageInner() {
   // revoking an existing grant stays a separate action on the grants list
   // below, unchanged.
   const [grantEntityId, setGrantEntityId] = useState('');
+  // Prompt 398 §3.3 — the Today page's interest-request advice links here
+  // with ?grantFor=<entityId> instead of building a second grant flow
+  // (same principle as 397 §C.2): pre-selects step 1 of the EXISTING
+  // "Access grants" card, so a founder acting on the advice lands
+  // straight at "2. Who gets access?" instead of searching again.
+  const searchParams = useSearchParams();
+  const grantForParam = searchParams.get('grantFor');
+  useEffect(() => {
+    if (grantForParam) setGrantEntityId(grantForParam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grantForParam]);
   const [grantEntityQuery, setGrantEntityQuery] = useState('');
   // Prompt 278 §2 — an empty query used to return the WHOLE pipeline
   // (200+ funds rendered before typing a single character, confirmed in

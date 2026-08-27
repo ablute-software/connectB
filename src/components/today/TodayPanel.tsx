@@ -118,21 +118,38 @@ export function TodayPanel() {
                 const interestReq = t.source === 'interest_level_request' && t.entity_id
                   ? pendingInterestByEntity.get(t.entity_id) : undefined;
                 return (
-                <li key={t.id} className="flex items-center gap-3 py-2 text-sm">
-                  {!interestReq && <input type="checkbox" checked={false} onChange={() => completeTask(t.id, t.title)} />}
-                  <ActionTypePill type={t.action_type} />
-                  <span className="flex-1">{t.title}
-                    {t.entity_id && <> — <EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink></>}
-                  </span>
-                  {interestReq ? (
-                    <span className="flex shrink-0 items-center gap-1.5">
-                      <button onClick={() => decideInterest(t.id, interestReq.id, 'granted')} disabled={busyTaskId === t.id}
-                        className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">Approve</button>
-                      <button onClick={() => decideInterest(t.id, interestReq.id, 'denied')} disabled={busyTaskId === t.id}
-                        className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">Deny</button>
+                <li key={t.id} className="py-2 text-sm">
+                  <div className="flex items-center gap-3">
+                    {!interestReq && <input type="checkbox" checked={false} onChange={() => completeTask(t.id, t.title)} />}
+                    <ActionTypePill type={t.action_type} />
+                    <span className="flex-1">{t.title}
+                      {t.entity_id && <> — <EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink></>}
                     </span>
-                  ) : (
-                    <span className="font-semibold text-[#B00000]">{t.due_at?.slice(0, 10)}</span>
+                    {interestReq ? (
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <button onClick={() => decideInterest(t.id, interestReq.id, 'granted')} disabled={busyTaskId === t.id}
+                          className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">Approve</button>
+                        <button onClick={() => decideInterest(t.id, interestReq.id, 'denied')} disabled={busyTaskId === t.id}
+                          className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">Deny</button>
+                      </span>
+                    ) : (
+                      <span className="font-semibold text-[#B00000]">{t.due_at?.slice(0, 10)}</span>
+                    )}
+                  </div>
+                  {/* Prompt 398 §3.3 — advice + the actionable right next to
+                      it, not a separate flow: "if the advice is to grant
+                      documents, the button that does it sits right there".
+                      Deep-links into documents page's EXISTING "Access
+                      grants" card (?grantFor=<entityId>) rather than
+                      building a second grant flow — same principle as
+                      397 §C.2. */}
+                  {interestReq && t.entity_id && (
+                    <div className="ml-8 mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                      <span>🔍 Sherlock: waiting on you — grant them documents to help them decide, or reply directly.</span>
+                      <Link href={`/documents?grantFor=${t.entity_id}`} className="shrink-0 font-medium text-[#0E7490] hover:underline">
+                        Grant documents →
+                      </Link>
+                    </div>
                   )}
                 </li>
                 );
