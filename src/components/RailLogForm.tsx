@@ -48,6 +48,7 @@ export function RailLogForm({
   const people = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
 
   const [personId, setPersonId] = useState('');
+  const [prefilledPersonId, setPrefilledPersonId] = useState<string | null>(null);
   const [noSpecificPerson, setNoSpecificPerson] = useState(false);
   const [direction, setDirection] = useState<'out' | 'in'>('out');
   const [channel, setChannel] = useState<Channel>('linkedin_dm');
@@ -150,6 +151,12 @@ export function RailLogForm({
       setPersonId(defaultPersonId);
       setNoSpecificPerson(false);
       setDirection('out');
+      // Prompt 397 §D.1 — the simple criterion: the shimmer shows while
+      // personId still equals what the banner suggested, and disappears the
+      // moment the founder picks someone else or "No specific person" — no
+      // separate tracking needed for content, since this form never
+      // prefills message text (see the file header comment).
+      setPrefilledPersonId(defaultPersonId);
     } else if (!personId) {
       const fallback = nextContactPerson(db, entity.id);
       if (fallback) setPersonId(fallback.id);
@@ -187,6 +194,7 @@ export function RailLogForm({
   const needsOverride = direction === 'out' && !summary.green && !summary.blocked;
   const needsManualSendConfirmation = direction === 'out' && (channel === 'email' || channel === 'linkedin_dm' || channel === 'linkedin_note');
   const primarySaveLabel = needsManualSendConfirmation ? 'I confirm this was sent' : 'Save interaction';
+  const wasPrefilled = !!prefilledPersonId && !noSpecificPerson && personId === prefilledPersonId;
 
   function save(withOverrides: boolean) {
     if (!formReady) return;
@@ -206,6 +214,7 @@ export function RailLogForm({
     setToast(direction === 'out' ? `Saved. Contact lock set for 14 days.${overrides.length ? ' Override logged.' : ''}` : 'Reply saved.');
     setContent(''); setClassification(''); setPassReason(''); setJustification(''); setShowOverride(false); setReopenAck(false);
     setAttachments([]);
+    setPrefilledPersonId(null);
     window.setTimeout(() => { setToast(''); onSaved(); }, 700);
   }
 
@@ -436,14 +445,19 @@ export function RailLogForm({
         </div>
       ) : (
         <div>
-          <Tooltip text={needsManualSendConfirmation
-            ? 'Confirms you sent this yourself outside the app, then logs it and applies its follow-on effects (contact lock, suggested next step).'
-            : 'Logs this interaction and applies its follow-on effects (contact lock, suggested next step).'}>
-            <button disabled={!formReady || (direction === 'out' && lintErrors.length > 0)} onClick={() => save(false)}
-              className="w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-medium text-white disabled:opacity-40">
-              {primarySaveLabel}
-            </button>
-          </Tooltip>
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <Tooltip text={needsManualSendConfirmation
+              ? 'Confirms you sent this yourself outside the app, then logs it and applies its follow-on effects (contact lock, suggested next step).'
+              : 'Logs this interaction and applies its follow-on effects (contact lock, suggested next step).'}>
+              <button disabled={!formReady || (direction === 'out' && lintErrors.length > 0)} onClick={() => save(false)}
+                className="rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-medium text-white disabled:opacity-40">
+                {primarySaveLabel}
+              </button>
+            </Tooltip>
+            {/* Prompt 397 §D.1 — only while personId still matches what the
+                Sherlock Insight banner suggested (see the prefill effect). */}
+            {wasPrefilled && <span className="prefill-sweep text-[11px]">Pre-filled from Sherlock&apos;s insight</span>}
+          </div>
           {!formReady && disabledReason && <p className="mt-1 text-[11px] text-gray-400">{disabledReason}</p>}
         </div>
       )}

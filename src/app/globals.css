@@ -142,3 +142,17 @@ body {
   font-feature-settings: 'liga';
   -webkit-font-smoothing: antialiased;
 }
+
+/* Prompt 397 §D.1 — "Pre-filled from Sherlock's insight", next to
+   RailLogForm's Save button: a periodic sweep of brightness through the
+   letters (Nuno's own description: "rajadas de vento que passam pelas
+   letras"), so a pre-filled draft reads as pre-filled without shouting. */
+@keyframes sherlock-sweep { 0% { background-position: 130% 0; } 55%, 100% { background-position: -70% 0; } }
+.prefill-sweep {
+  font-weight: 700;
+  background: linear-gradient(100deg, #64748B 38%, #0f5132 50%, #64748B 62%);
+  background-size: 240% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: sherlock-sweep 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .prefill-sweep { animation: none; background: none; color: #475569; } }
