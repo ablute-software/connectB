@@ -18,6 +18,7 @@ import {
 } from '@/components/portal/DossierOverviewSections';
 import { FollowOnBadge } from '@/components/FollowOnBadge';
 import { ScorecardPanel } from '@/components/investor-workspace/ScorecardPanel';
+import { InvestorDecisionPanel } from '@/components/investor-workspace/InvestorDecisionPanel';
 import { DossierTabScorePanel, DOSSIER_SCORE_TABS, type DossierScoreTab } from '@/components/investor-workspace/DossierTabScorePanel';
 import { DocScorePanel, type DocScore, type DocScoreHistoryEntry } from '@/components/investor-workspace/DocScorePanel';
 import { WatsonEvaluationSupport } from '@/components/investor-workspace/WatsonEvaluationSupport';
@@ -653,11 +654,13 @@ export default function StartupDossierPage() {
               <div className="border-t border-gray-100 p-2 space-y-2">
                 <ScorecardPanel orgId={orgId} />
                 <WatsonEvaluationSupport orgId={orgId} />
+                <InvestorDecisionPanel orgId={orgId} />
               </div>
             </details>
             <div className="hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-6rem)] lg:space-y-2 lg:overflow-y-auto">
               <ScorecardPanel orgId={orgId} />
               <WatsonEvaluationSupport orgId={orgId} />
+              <InvestorDecisionPanel orgId={orgId} />
             </div>
 
             <div className="min-w-0">{renderTabContent()}</div>
