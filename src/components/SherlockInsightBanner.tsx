@@ -24,7 +24,10 @@ import {
 import { derivedStage } from '@/lib/derived-stage';
 import { LOCK_DAYS, preflight, preflightSummary } from '@/lib/rules';
 import { TermHint } from '@/components/ui';
-import { useInterestRequests } from '@/lib/interest-requests-client';
+import {
+  useInterestRequests, interestRequestHeadline, interestRequestConsequence,
+  INTEREST_REQUEST_APPROVE_LABEL, INTEREST_REQUEST_DENY_LABEL,
+} from '@/lib/interest-requests-client';
 import { useDecideInterest } from '@/lib/use-decide-interest';
 
 // Prompt 410 §2.3 — how long the post-decision confirmation stays up. Short
@@ -149,7 +152,21 @@ export function SherlockInsightBanner({
         <InsightIcon />
         <div className="min-w-[220px] flex-1">
           <div className="text-[10.5px] font-bold uppercase tracking-wide text-white/75">Sherlock Insight</div>
-          <div className="mt-0.5 text-[14px] leading-snug">{annotateNextStep(action)}</div>
+          {/* Prompt 413 §2.1 — a pending interest request overrides the
+              generic advice text here too, not just the button below: real
+              tester feedback on the 410 version was that the headline could
+              say something unrelated (e.g. "Recently contacted…") while the
+              button underneath was actually about approving/denying a
+              contact request — confusing on its own even before "contact
+              access" jargon made it worse. */}
+          {pendingInterestReq ? (
+            <>
+              <div className="mt-0.5 text-[14px] leading-snug">{interestRequestHeadline(pendingInterestReq.investorName)}</div>
+              <div className="mt-0.5 text-[12px] text-white/75">{interestRequestConsequence(pendingInterestReq.shareDirectEmail)}</div>
+            </>
+          ) : (
+            <div className="mt-0.5 text-[14px] leading-snug">{annotateNextStep(action)}</div>
+          )}
         </div>
         <div className="relative flex flex-wrap items-center gap-2">
           {focusInterest && pendingInterestReq && <FocusLupa />}
@@ -168,11 +185,11 @@ export function SherlockInsightBanner({
               <span className="flex items-center gap-1.5">
                 <button onClick={() => handleDecideInterest('granted')} disabled={busyTaskId === pendingInterestTask.id}
                   className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90 disabled:opacity-40">
-                  Approve
+                  {INTEREST_REQUEST_APPROVE_LABEL}
                 </button>
                 <button onClick={() => handleDecideInterest('denied')} disabled={busyTaskId === pendingInterestTask.id}
                   className="rounded-lg border border-white/55 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-white/10 disabled:opacity-40">
-                  Deny
+                  {INTEREST_REQUEST_DENY_LABEL}
                 </button>
               </span>
             ) : (

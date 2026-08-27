@@ -320,47 +320,57 @@ export function RelationshipSummaryCard({
         </div>
       )}
 
-      {/* Prompt 410 §3.2 — the status line moved up here, directly under
-          the rail/alert row, instead of after the Actions row: the card was
-          too tall largely because this line sat well below the rail, with
-          the whole Actions row wedged in between. Same content as before
-          (Prompt 240 — no new copy), just closer to what it's describing. */}
-      <div className="mt-1.5 flex flex-wrap items-center justify-center gap-1.5 text-[13px] text-gray-700">
-        <HealthDot entityId={entity.id} dealMessageTouches={dealMessageTouches} />
-        {!confirmation && !dismissed && exits.show && (
-          <span className={
-            lastInboundWasPass ? 'font-semibold text-[#B00000]'
-              : s.whoseTurn === 'overdue' ? 'font-semibold text-amber-800'
-              : 'text-gray-700'}>
-            {lastInboundWasPass
-              ? `They passed — this still shows as ${STAGE_LABEL[s.stage]}.`
-              : s.whoseTurn === 'overdue'
-                // Nunca responderam: dizer "They've replied" aqui seria mentira,
-                // e é o caso em que o founder mais precisa de uma saída.
-                ? `No reply in ${s.daysSinceLastTouch ?? 0} days — this still shows as ${STAGE_LABEL[s.stage]}.`
-                : `They've replied — this still shows as ${STAGE_LABEL[s.stage]}.`}
-          </span>
-        )}
-        {/* Prompt 240 (mockup declined) — uma relação fechada não tem acções
-            de avanço; dizer isso é mais honesto do que uma linha vazia. */}
-        {parkedOrClosed && (
-          <span className="italic text-gray-400">Closed relationship — no advance actions.</span>
+      {/* Prompt 413 §3 — status line and the "+ Actions" toggle now share
+          ONE row (justify-between) instead of the toggle owning a whole row
+          to itself even when collapsed (the common case) — that empty-
+          looking row was ~40px of the card's height for nothing. The
+          toggle only ever wraps below on narrow viewports (flex-wrap),
+          which is fine — it just isn't the common case. Expanded content
+          (Move to X / Snooze / Something else) still gets its own row
+          below, only when actionsOpen — see that block's own comment. */}
+      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-gray-700">
+          <HealthDot entityId={entity.id} dealMessageTouches={dealMessageTouches} />
+          {!confirmation && !dismissed && exits.show && (
+            <span className={
+              lastInboundWasPass ? 'font-semibold text-[#B00000]'
+                : s.whoseTurn === 'overdue' ? 'font-semibold text-amber-800'
+                : 'text-gray-700'}>
+              {lastInboundWasPass
+                ? `They passed — this still shows as ${STAGE_LABEL[s.stage]}.`
+                : s.whoseTurn === 'overdue'
+                  // Nunca responderam: dizer "They've replied" aqui seria mentira,
+                  // e é o caso em que o founder mais precisa de uma saída.
+                  ? `No reply in ${s.daysSinceLastTouch ?? 0} days — this still shows as ${STAGE_LABEL[s.stage]}.`
+                  : `They've replied — this still shows as ${STAGE_LABEL[s.stage]}.`}
+            </span>
+          )}
+          {/* Prompt 240 (mockup declined) — uma relação fechada não tem acções
+              de avanço; dizer isso é mais honesto do que uma linha vazia. */}
+          {parkedOrClosed && (
+            <span className="italic text-gray-400">Closed relationship — no advance actions.</span>
+          )}
+        </div>
+        {/* Prompt 396 §3 — collapsed by default (pipeline's own expand/
+            collapse pattern). Same condition the expanded content below
+            still uses (`!parkedOrClosed && exitMode === 'none'`) — a
+            parked/closed entity or a mid-flow exitMode has no actions to
+            toggle open, same as before this merge. */}
+        {!parkedOrClosed && exitMode === 'none' && (
+          <button data-tour-id="entity-actions" onClick={() => setActionsOpen((o) => !o)}
+            aria-expanded={actionsOpen} aria-label={actionsOpen ? 'Hide actions' : 'Show actions'}
+            className="shrink-0 rounded-full border border-gray-300 bg-white px-2 py-1 text-[10.5px] font-semibold text-gray-500 hover:bg-gray-50">
+            {actionsOpen ? '−' : '＋ Actions'}
+          </button>
         )}
       </div>
 
-      {/* Prompt 240 — a linha de ACÇÕES sobe para aqui, alinhada à direita e
-          sozinha: antes "Move to X"/"Snooze" viviam dentro do banner, a
-          disputar a mesma linha do texto de estado, e o "Something else"
-          vivia na linha do HealthDot. Três sítios para o mesmo tipo de
-          decisão. Botões mais pequenos que os do banner anterior — são
-          acções secundárias ao lado do stepper, não o assunto da página.
-          As CONDIÇÕES de cada um não mudam: "Move to"/"Snooze" continuam a
-          depender de haver sugestão activa (exits.show); "Something else"
-          continua disponível sempre que a relação está activa (233 §B), que
-          era o caminho que faltava quando não há sugestão nenhuma. */}
-      {!parkedOrClosed && exitMode === 'none' && (
-      <div className="mt-2 flex flex-wrap items-center justify-end gap-1.5">
-        {actionsOpen && (<>
+      {/* Prompt 240 — "Move to X"/"Snooze"/"Something else", only when the
+          toggle above is open. As before this merge: "Move to"/"Snooze"
+          still depend on exits.show; "Something else" is available
+          whenever the relationship is active (233 §B). */}
+      {!parkedOrClosed && exitMode === 'none' && actionsOpen && (
+      <div className="mt-1.5 flex flex-wrap items-center justify-end gap-1.5">
         {!confirmation && !dismissed && exits.show && exits.canAdvance && (
           <button onClick={() => {
               // Prompt 249 §A — Decision is no longer hidden from this
@@ -474,16 +484,6 @@ export function RelationshipSummaryCard({
             )}
           </div>
         )}
-        </>)}
-        {/* Prompt 396 §3 — collapsed by default; this control is what's
-            "in its place" (pipeline's own expand/collapse pattern). Always
-            in the DOM regardless of `actionsOpen`, so it's a stable tour
-            anchor even when the row above it isn't rendered. */}
-        <button data-tour-id="entity-actions" onClick={() => setActionsOpen((o) => !o)}
-          aria-expanded={actionsOpen} aria-label={actionsOpen ? 'Hide actions' : 'Show actions'}
-          className="rounded-full border border-gray-300 bg-white px-2 py-1 text-[10.5px] font-semibold text-gray-500 hover:bg-gray-50">
-          {actionsOpen ? '−' : '＋ Actions'}
-        </button>
       </div>
       )}
       {/* Prompt 249 §A — o passo de confirmação do "Move to Decision":

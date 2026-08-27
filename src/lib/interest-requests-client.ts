@@ -48,6 +48,26 @@ export function usePendingInterestCount(): number {
   return useInterestRequests().filter((r) => r.status === 'pending').length;
 }
 
+// Prompt 413 §2 — the copy the founder reads right where they act, shared
+// between SherlockInsightBanner and TodayPanel so both tell the same story
+// (real tester feedback on the 410 version: "ok, but how do I respond?
+// what do I have to do?? does the investor want a contact-access, or
+// access to the contact?" — "contact access" is jargon that reads both
+// ways; this spells out the actual consequence instead). One copy of each
+// string, never a second one that could drift.
+export function interestRequestHeadline(investorName: string): string {
+  return `${investorName} asked to see your contact details.`;
+}
+
+export function interestRequestConsequence(shareDirectEmail: boolean): string {
+  return shareDirectEmail
+    ? 'Approving shares your contact info with this investor — including your direct email.'
+    : 'Approving shares your contact info with this investor.';
+}
+
+export const INTEREST_REQUEST_APPROVE_LABEL = 'Approve — share contact';
+export const INTEREST_REQUEST_DENY_LABEL = 'Deny';
+
 // O POST partilhado. Quem decide dispara o evento — é isso que faz o badge
 // do nav cair e a pill da entidade desaparecer sem reload.
 export async function decideInterestRequest(

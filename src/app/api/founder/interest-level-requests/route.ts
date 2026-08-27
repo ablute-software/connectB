@@ -8,6 +8,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
 import { decideInterestLevel3 } from '@/lib/investor-interest-level-db';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { staleInterestTasks } from '@/lib/stale-interest-tasks';
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -41,6 +42,29 @@ export async function GET() {
   ]);
   const nameById = new Map((catalogEntities ?? []).map((c) => [c.id as string, c.name as string]));
   const entityByCatalogId = new Map((deliveries ?? []).map((d) => [d.catalog_id as string, d.entity_id as string | null]));
+
+  // Prompt 413 §1 — self-healing reconciliation: a task can be stuck open
+  // even though its request was already decided (see stale-interest-
+  // tasks.ts's own header for the exact class of gap that produces this —
+  // confirmed by SQL against a real row before this shipped). Runs on
+  // every GET rather than a backfill script or a cron sweep, same
+  // "on demand, not periodic" posture as the rest of this codebase's
+  // reconciliation work — cheap when there's nothing to fix, and it heals
+  // this founder's stuck task on their very next load either way.
+  const { data: openTasks } = await admin.from('tasks')
+    .select('id, entity_id, source').eq('org_id', orgId).eq('done', false);
+  const stale = staleInterestTasks(
+    (openTasks ?? []).map((t) => ({ id: t.id as string, entityId: t.entity_id as string | null, done: false, source: t.source as string })),
+    rows.map((r) => ({
+      id: r.id as string, status: r.status as 'granted' | 'pending' | 'denied',
+      entityId: entityByCatalogId.get(r.investor_catalog_entity_id as string) ?? null,
+    })),
+  );
+  if (stale.length > 0) {
+    const { error: closeError } = await admin.from('tasks').update({ done: true }).in('id', stale.map((s) => s.taskId));
+    if (closeError) console.error('stale interest_level_request task reconciliation failed', closeError);
+    else for (const s of stale) console.log(`interest_level_request task ${s.taskId} auto-closed — request ${s.requestId} already decided`);
+  }
 
   return NextResponse.json({
     requests: rows.map((r) => ({

@@ -10,7 +10,10 @@ import { Card, EntityLink, PersonLink, fmtRoundEur } from '@/components/ui';
 import { outboundCounts } from '@/lib/rules';
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL } from '@/lib/relationship';
 import { PageTour } from '@/components/onboarding/PageTour';
-import { useInterestRequests } from '@/lib/interest-requests-client';
+import {
+  useInterestRequests, interestRequestConsequence,
+  INTEREST_REQUEST_APPROVE_LABEL, INTEREST_REQUEST_DENY_LABEL,
+} from '@/lib/interest-requests-client';
 import { useDecideInterest } from '@/lib/use-decide-interest';
 import type { ActionType } from '@/lib/types';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
@@ -123,27 +126,25 @@ export function TodayPanel() {
                     {interestReq ? (
                       <span className="flex shrink-0 items-center gap-1.5">
                         <button onClick={() => decideInterest(t.id, interestReq.id, 'granted')} disabled={busyTaskId === t.id}
-                          className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">Approve</button>
+                          className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">{INTEREST_REQUEST_APPROVE_LABEL}</button>
                         <button onClick={() => decideInterest(t.id, interestReq.id, 'denied')} disabled={busyTaskId === t.id}
-                          className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">Deny</button>
+                          className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">{INTEREST_REQUEST_DENY_LABEL}</button>
                       </span>
                     ) : (
                       <span className="font-semibold text-[#B00000]">{t.due_at?.slice(0, 10)}</span>
                     )}
                   </div>
-                  {/* Prompt 398 §3.3 — advice + the actionable right next to
-                      it, not a separate flow: "if the advice is to grant
-                      documents, the button that does it sits right there".
-                      Deep-links into documents page's EXISTING "Access
-                      grants" card (?grantFor=<entityId>) rather than
-                      building a second grant flow — same principle as
-                      397 §C.2. */}
-                  {interestReq && t.entity_id && (
-                    <div className="ml-8 mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                      <span>🔍 Sherlock: waiting on you — grant them documents to help them decide, or reply directly.</span>
-                      <Link href={`/documents?grantFor=${t.entity_id}`} className="shrink-0 font-medium text-[#0E7490] hover:underline">
-                        Grant documents →
-                      </Link>
+                  {/* Prompt 413 §2.3 — this used to point at "grant them
+                      documents", a different flow (data-room access) than
+                      what this task is actually about — real source of the
+                      tester's "does the investor want a contact-access, or
+                      access to the contact?" confusion. Now states the
+                      literal consequence of the button above, shared with
+                      SherlockInsightBanner's own copy so the two surfaces
+                      never tell a different story. */}
+                  {interestReq && (
+                    <div className="ml-8 mt-1 text-xs text-gray-500">
+                      {interestRequestConsequence(interestReq.shareDirectEmail)}
                     </div>
                   )}
                 </li>
