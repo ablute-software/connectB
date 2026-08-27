@@ -29,7 +29,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
-import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
+import { resolveInvestorCatalogEntityId, resolveInvestorPlanTier } from '@/lib/portal-access';
 import { currentInterestLevel, projectDossier } from '@/lib/investor-interest-level';
 import { getInterestLevelRows, toInvestorFacingLevelRows } from '@/lib/investor-interest-level-db';
 import { interestLevelAvailable } from '@/lib/investor-interest-level-capability';
@@ -57,17 +57,20 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   // Stays exactly as-is on the founder side (PlansPanel.tsx, promo/
   // checkout/back-office).
   //
-  // Prompt 401 §2 — Hype takes its place: NOT founder-private (it's an
-  // aggregate of cross-investor interest, already investor-facing on the
-  // Hype List, /api/matchdeal/hype — showing it here exposes nothing new).
-  // Gated on BOTH is_hype AND the org's own plan being the top tier
-  // (Nuno's own decision, verbatim: "um benefício do plano de topo, não um
-  // direito de qualquer plano") — evaluated server-side so the flag is
-  // never true for a lower plan, not merely hidden client-side. The Hype
-  // List itself keeps its OWN, ungated behavior (Prompt 143) — this plan
-  // gate applies only to this one dossier badge.
-  const { data: orgPlanRow } = await admin.from('orgs').select('plan').eq('id', params.orgId).maybeSingle();
-  const hype = orgPlanRow?.plan === 'motherfunding' && await isStartupHype(admin, params.orgId);
+  // Prompt 401 §2 / 402 — Hype takes Pioneer's place: NOT founder-private
+  // (it's an aggregate of cross-investor interest, already investor-facing
+  // on the Hype List, /api/matchdeal/hype — showing it here exposes
+  // nothing new). Gated on BOTH is_hype AND the VIEWER's own investor plan
+  // being the top tier (Nuno's own decision, verbatim: "um benefício do
+  // plano de topo, não um direito de qualquer plano" — corrected in
+  // Prompt 402: that's the INVESTOR's plan, not the startup's org.plan the
+  // 401 version gated on. Evaluated fresh per request off the signed-in
+  // user, never cached against the org — two investors on different plans
+  // opening the SAME dossier get different `hype`). The Hype List itself
+  // keeps its OWN, ungated behavior (Prompt 143) — this plan gate applies
+  // only to this one dossier badge.
+  const viewerPlanTier = await resolveInvestorPlanTier(admin, user.id);
+  const hype = viewerPlanTier === 'legendary_sleuth' && await isStartupHype(admin, params.orgId);
 
   // P136 — compute the current level. investor_relationship_decisions'
   // own decision drives level 0/1 and the mandatory pass-collapse; levels

@@ -4,10 +4,10 @@
 // "what's in my Pipeline" would drift.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from './investor-match-score';
-import { activeGrantOrgIds, eligiblePipelineOrgIds, resolveInvestorCatalogEntityId, resolveInvestorProfile, resolveViewerIsTest } from './portal-access';
+import { activeGrantOrgIds, eligiblePipelineOrgIds, resolveInvestorCatalogEntityId, resolveInvestorPlanTierForProfile, resolveInvestorProfile, resolveViewerIsTest } from './portal-access';
 import { pipelineTestFlagAvailable } from './pipeline-test-flag-capability';
 import { roundValuationBasisAvailable } from './round-valuation-basis-capability';
-import { MATCHDEAL_TIER_TO_INVESTOR_PLAN, investorPlanRow } from './plans';
+import { investorPlanRow } from './plans';
 import { resolveActorDisplays } from './network-db';
 import { getActiveFollowOnPairs } from './network-followon-db';
 import { shapeFollowOnPayload, type FollowOnPayload } from './network';
@@ -16,9 +16,6 @@ import { canWithdrawInterest, resolveWithdrawWindowSignals } from './investor-in
 
 const WAVE_SIZE = 8;
 const TRACKING_WINDOW_DAYS = 30;
-// Default when matchdeal_profiles.plan_tier is unset — same fallback
-// InvestorPlansPanel.tsx's own `current` already uses ('tier_a').
-const DEFAULT_MATCHDEAL_TIER = 'tier_a';
 
 // Prompt 62.3 — map of stage -> set of distinct investor profile ids who
 // liked a startup at that stage in the last 30 days, excluding the caller.
@@ -413,9 +410,10 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
     const admittedThisMonthCount = [...admittedAtByOrg.values()].filter((t) => t >= monthStart).length;
 
-    const { data: investorProfileRow } = await admin.from('matchdeal_profiles').select('plan_tier')
-      .eq('id', investorProfile.id).maybeSingle();
-    const planTier = MATCHDEAL_TIER_TO_INVESTOR_PLAN[(investorProfileRow?.plan_tier as string) ?? DEFAULT_MATCHDEAL_TIER] ?? 'pro_scout';
+    // Prompt 402 — resolver centralized in portal-access.ts (same mapping,
+    // same 'tier_a' fallback) so this and the startup dossier's Hype badge
+    // gate can't drift into two different tier mappings.
+    const planTier = await resolveInvestorPlanTierForProfile(admin, investorProfile.id as string);
     const monthlyCap = investorPlanRow(planTier).monthlyCap;
 
     let admissionBudget = Math.max(0, monthlyCap - admittedThisMonthCount);

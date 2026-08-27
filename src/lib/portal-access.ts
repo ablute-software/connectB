@@ -6,6 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveActiveInvestorMember } from './investor-membership';
 import { pipelineTestFlagAvailable } from './pipeline-test-flag-capability';
 import { isProfileGateComplete, type ProfileGateOrg } from './pipeline-unlock';
+import { MATCHDEAL_TIER_TO_INVESTOR_PLAN, type InvestorPlanTier } from './plans';
 
 export async function resolveInvestorProfile(admin: SupabaseClient, userId: string) {
   const member = await resolveActiveInvestorMember(admin, userId);
@@ -16,6 +17,25 @@ export async function resolveInvestorProfile(admin: SupabaseClient, userId: stri
   const { data: profile } = await admin.from('matchdeal_profiles').select('id, sectors, stages_invested, geographies, instruments, ticket_min, ticket_max, usual_co_investors, exclusions_sectors, exclusions_notes')
     .eq('membership_id', member.id).eq('kind', 'investor').maybeSingle();
   return profile ?? null;
+}
+
+// Prompt 402 — matchdeal_profiles.plan_tier (kind='investor') stores
+// MatchDeal's own internal tier names, mapped to the priced InvestorPlanTier
+// via plans.ts's MATCHDEAL_TIER_TO_INVESTOR_PLAN. Split in two so a caller
+// that already resolved its own investorProfile (investor-pipeline.ts's
+// monthlyCap lookup, Prompt 153) doesn't pay for a second
+// resolveInvestorProfile round-trip; a caller that only has a userId (the
+// startup dossier route's Hype badge gate, Prompt 402) uses the wrapper.
+// 'tier_a' mirrors investor-pipeline.ts's own DEFAULT_MATCHDEAL_TIER —
+// same fallback, single mapping, so the two call sites can't diverge.
+export async function resolveInvestorPlanTierForProfile(admin: SupabaseClient, investorProfileId: string): Promise<InvestorPlanTier> {
+  const { data: row } = await admin.from('matchdeal_profiles').select('plan_tier').eq('id', investorProfileId).maybeSingle();
+  return MATCHDEAL_TIER_TO_INVESTOR_PLAN[(row?.plan_tier as string) ?? 'tier_a'] ?? 'pro_scout';
+}
+
+export async function resolveInvestorPlanTier(admin: SupabaseClient, userId: string): Promise<InvestorPlanTier> {
+  const profile = await resolveInvestorProfile(admin, userId);
+  return profile ? resolveInvestorPlanTierForProfile(admin, profile.id as string) : 'pro_scout';
 }
 
 // AP-14 — the stable per-organization investor identity (same convention
