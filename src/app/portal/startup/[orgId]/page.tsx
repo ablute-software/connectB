@@ -22,6 +22,7 @@ import { InvestorDecisionPanel } from '@/components/investor-workspace/InvestorD
 import { DossierTabScorePanel, DOSSIER_SCORE_TABS, type DossierScoreTab } from '@/components/investor-workspace/DossierTabScorePanel';
 import { DocScorePanel, type DocScore, type DocScoreHistoryEntry } from '@/components/investor-workspace/DocScorePanel';
 import { WatsonEvaluationSupport } from '@/components/investor-workspace/WatsonEvaluationSupport';
+import { BarsEvaluationSection } from '@/components/investor-workspace/BarsEvaluationSection';
 import { SherlockSummaryButton } from '@/components/investor-workspace/SherlockSummaryButton';
 import { DocumentRequestPicker } from '@/components/DocumentRequestPicker';
 import { Tooltip } from '@/components/ui';
@@ -655,12 +656,14 @@ export default function StartupDossierPage() {
                 <ScorecardPanel orgId={orgId} />
                 <WatsonEvaluationSupport orgId={orgId} />
                 <InvestorDecisionPanel orgId={orgId} />
+                <BarsEvaluationSection orgId={orgId} />
               </div>
             </details>
             <div className="hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-6rem)] lg:space-y-2 lg:overflow-y-auto">
               <ScorecardPanel orgId={orgId} />
               <WatsonEvaluationSupport orgId={orgId} />
               <InvestorDecisionPanel orgId={orgId} />
+              <BarsEvaluationSection orgId={orgId} />
             </div>
 
             <div className="min-w-0">{renderTabContent()}</div>

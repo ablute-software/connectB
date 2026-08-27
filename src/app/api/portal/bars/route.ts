@@ -42,21 +42,31 @@ export async function GET(req: Request) {
   const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json(empty);
 
-  const [{ data: answerRows }, { data: flagRows }, { data: axisRows }, { data: profile }] = await Promise.all([
+  const [{ data: answerRows }, { data: flagRows }, { data: axisRows }, { data: org }] = await Promise.all([
     admin.from('bars_answers').select('axis, bank_version, question_id, level, skipped, evidence_refs, note, updated_at')
       .eq('investor_member_id', member.id).eq('startup_org_id', orgId),
     admin.from('bars_red_flag_states').select('flag_id, bank_version, state, evidence_refs, note, updated_at')
       .eq('investor_member_id', member.id).eq('startup_org_id', orgId),
     admin.from('bars_axis_state').select('axis, not_material, updated_at')
       .eq('investor_member_id', member.id).eq('startup_org_id', orgId),
-    admin.from('matchdeal_profiles').select('company_phase').eq('membership_id', orgId).eq('kind', 'startup').maybeSingle(),
+    admin.from('orgs').select('current_phase').eq('id', orgId).maybeSingle(),
   ]);
 
-  // Missing/incomplete profile falls back to the earliest stage, which
-  // under-includes (fewer questions read as applicable) rather than
-  // assuming evidence a company at an unknown, possibly-earlier stage
-  // couldn't have — the safer direction for a stage-gated evidence bar.
-  const companyPhase: CompanyPhase = (profile?.company_phase as CompanyPhase | null) ?? 'concept_idea';
+  // orgs.current_phase, NOT matchdeal_profiles.company_phase — confirmed
+  // via that column's own check constraint (concept_idea/prototype/pilot/
+  // launch_early_adopters/growth, the real CompanyPhase values) vs.
+  // matchdeal_profiles.company_phase's DIFFERENT short-form constraint
+  // (concept/prototype/pilot/launch/growth) — types.ts's own comment on
+  // current_phase already called these "a different system entirely",
+  // confirmed the hard way live (2026-08-27): inserting a fixture with
+  // company_phase='launch_early_adopters' on matchdeal_profiles was
+  // rejected outright by ITS OWN constraint, which is what surfaced this.
+  // Missing current_phase (org never set one) falls back to the earliest
+  // stage, which under-includes (fewer questions read as applicable)
+  // rather than assuming evidence a company at an unknown, possibly-
+  // earlier stage couldn't have — the safer direction for a stage-gated
+  // evidence bar.
+  const companyPhase: CompanyPhase = (org?.current_phase as CompanyPhase | null) ?? 'concept_idea';
 
   const answers: BarsAnswerRecord[] = (answerRows ?? []).map((r) => ({
     questionId: r.question_id as string, level: r.level as number | null, skipped: r.skipped as boolean,

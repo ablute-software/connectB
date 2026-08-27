@@ -248,7 +248,11 @@ const ID_PREFIX_TO_AXIS: Record<string, BarsAxis> = {
   team: 'team', market: 'market', product: 'product', tech: 'technology',
 };
 
-function axisOfQuestionId(id: string): BarsAxis {
+// Exported: 412 §C.3 reuses this to suggest a confirmed BARS red flag as
+// evidence on its same-named Risk Register category (team.rf_* -> the
+// 'team' risk category, etc. — 4 of the Register's 14 categories share a
+// BARS axis name, the other 10 don't and never get a suggestion this way).
+export function axisOfQuestionId(id: string): BarsAxis {
   const prefix = id.split('.')[0];
   return ID_PREFIX_TO_AXIS[prefix] ?? (prefix as BarsAxis);
 }

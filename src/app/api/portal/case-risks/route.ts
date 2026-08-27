@@ -11,15 +11,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { parseEvidenceRefs } from '@/lib/bars-scoring';
-
-const RISK_CATEGORIES = [
-  'technology', 'product', 'market', 'adoption', 'commercial', 'financial',
-  'financing', 'team', 'governance', 'legal_ip', 'regulatory', 'competitive',
-  'execution', 'exit_liquidity',
-] as const;
-type RiskCategory = typeof RISK_CATEGORIES[number];
-const RISK_LEVELS = ['low', 'medium', 'high'] as const;
-type RiskLevel = typeof RISK_LEVELS[number];
+import { RISK_CATEGORIES, RISK_LEVELS, type RiskCategory, type RiskLevel } from '@/lib/bars-types';
 
 function isCategory(x: unknown): x is RiskCategory {
   return typeof x === 'string' && (RISK_CATEGORIES as readonly string[]).includes(x);

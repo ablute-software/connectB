@@ -13,7 +13,9 @@ import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
-const KINDS = ['berkus', 'scenarios', 'scorecard'] as const;
+// Prompt 412 §B.4/§C.4 — 'bars'/'risks' added (DB constraint already
+// widened by migration 0260; this array is the route's own separate gate).
+const KINDS = ['berkus', 'scenarios', 'scorecard', 'bars', 'risks'] as const;
 type SnapshotKind = typeof KINDS[number];
 const HISTORY_LIMIT = 10;
 

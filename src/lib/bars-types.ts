@@ -61,3 +61,21 @@ export function phaseRange(from: CompanyPhase): CompanyPhase[] {
   return PHASE_ORDER.slice(PHASE_ORDER.indexOf(from));
 }
 export const ALL_PHASES: CompanyPhase[] = PHASE_ORDER;
+
+// Prompt 411 §B.4 / 412 §C — the Risk Register's own fixed 14-category
+// taxonomy (investor_case_risks.category) and probability/impact/residual
+// scale. A separate vocabulary from BarsAxis, not a duplicate of it — 4 of
+// the 14 categories happen to share a name with a BARS axis (used by 412
+// §C.3's "suggested evidence from your {axis} assessment" mapping), the
+// other 10 (adoption, commercial, financial, financing, governance,
+// legal_ip, regulatory, competitive, execution, exit_liquidity) have no
+// BARS-axis counterpart at all.
+export const RISK_CATEGORIES = [
+  'technology', 'product', 'market', 'adoption', 'commercial', 'financial',
+  'financing', 'team', 'governance', 'legal_ip', 'regulatory', 'competitive',
+  'execution', 'exit_liquidity',
+] as const;
+export type RiskCategory = typeof RISK_CATEGORIES[number];
+
+export const RISK_LEVELS = ['low', 'medium', 'high'] as const;
+export type RiskLevel = typeof RISK_LEVELS[number];
