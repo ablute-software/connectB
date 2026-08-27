@@ -20,6 +20,8 @@ import { WhoHasAccessPanel } from '@/components/documents/WhoHasAccessPanel';
 import { VaultKillSwitch } from '@/components/documents/VaultKillSwitch';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { VaultPinGate } from '@/components/documents/VaultPinGate';
+import { VaultPrivacyNoticeModal } from '@/components/documents/VaultPrivacyNoticeModal';
+import { isVaultPrivacyNoticeDue, readDemoVaultPrivacyNotice, writeDemoVaultPrivacyNotice } from '@/lib/vault-privacy-notice';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 
 function fmtBytes(n?: number): string | undefined {
@@ -123,6 +125,70 @@ function DocumentsPageInner() {
       .then((body) => setPendingAccessRequests(body.requests ?? [])).catch(() => {});
   }
   useEffect(loadPendingAccessRequests, [db.org.id]);
+
+  // Prompt 403 §A / 404 §A — per-USER Vault privacy notice (not gated by
+  // org.id: keyed by auth user, so it fires independently for every
+  // member the first time THEY personally open this page, even into a
+  // Vault that already has months of history and other members who
+  // already dismissed it). Runs once on mount; T0 (first_shown_at) is
+  // captured on this same read the first time it's null, per 403 §A.2's
+  // own "simplifies the client" option.
+  const [vaultNoticeOpen, setVaultNoticeOpen] = useState(false);
+  const [vaultNoticeUserId, setVaultNoticeUserId] = useState<string | null>(null);
+  const [vaultNoticeFirstShownAt, setVaultNoticeFirstShownAt] = useState<Date | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      const now = new Date();
+      if (!authEnabled) {
+        const state = readDemoVaultPrivacyNotice();
+        if (!isVaultPrivacyNoticeDue(state.firstShownAt, state.lastShownAt, now)) return;
+        const firstShownAt = state.firstShownAt ?? now;
+        writeDemoVaultPrivacyNotice({ firstShownAt, lastShownAt: state.lastShownAt });
+        if (!cancelled) { setVaultNoticeFirstShownAt(firstShownAt); setVaultNoticeOpen(true); }
+        return;
+      }
+      try {
+        const sb = browserClient();
+        const { data: userData } = await sb.auth.getUser();
+        const userId = userData?.user?.id;
+        if (!userId) return;
+        const { data } = await sb.from('vault_privacy_notice_state')
+          .select('first_shown_at, last_shown_at').eq('user_id', userId).maybeSingle();
+        const firstShownAt = data?.first_shown_at ? new Date(data.first_shown_at) : null;
+        const lastShownAt = data?.last_shown_at ? new Date(data.last_shown_at) : null;
+        if (!isVaultPrivacyNoticeDue(firstShownAt, lastShownAt, now)) return;
+        const resolvedFirstShownAt = firstShownAt ?? now;
+        if (!firstShownAt) {
+          await sb.from('vault_privacy_notice_state')
+            .upsert({ user_id: userId, first_shown_at: resolvedFirstShownAt.toISOString() });
+        }
+        if (!cancelled) {
+          setVaultNoticeUserId(userId);
+          setVaultNoticeFirstShownAt(resolvedFirstShownAt);
+          setVaultNoticeOpen(true);
+        }
+      } catch { /* best-effort — never blocks the page */ }
+    }
+    run();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function acknowledgeVaultNotice() {
+    setVaultNoticeOpen(false);
+    const now = new Date();
+    const firstShownAt = vaultNoticeFirstShownAt ?? now;
+    if (!authEnabled) {
+      writeDemoVaultPrivacyNotice({ firstShownAt, lastShownAt: now });
+      return;
+    }
+    if (!vaultNoticeUserId) return;
+    try {
+      await browserClient().from('vault_privacy_notice_state')
+        .upsert({ user_id: vaultNoticeUserId, first_shown_at: firstShownAt.toISOString(), last_shown_at: now.toISOString() });
+    } catch { /* best-effort */ }
+  }
 
   async function respondToAccessRequest(id: string, action: 'grant' | 'decline') {
     setRequestActionId(id);
@@ -826,6 +892,7 @@ function DocumentsPageInner() {
 
   return (
     <div className="space-y-4">
+      <VaultPrivacyNoticeModal open={vaultNoticeOpen} onGotIt={acknowledgeVaultNotice} />
       {tab === 'documents' && <PageTour pageKey="guide_documents" />}
       {tab === 'people' && <PageTour pageKey="guide_people_access" />}
       <div className="flex items-center justify-between gap-1.5">
