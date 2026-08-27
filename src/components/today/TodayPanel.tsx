@@ -10,7 +10,8 @@ import { Card, EntityLink, PersonLink, fmtRoundEur } from '@/components/ui';
 import { outboundCounts } from '@/lib/rules';
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL } from '@/lib/relationship';
 import { PageTour } from '@/components/onboarding/PageTour';
-import { useInterestRequests, decideInterestRequest } from '@/lib/interest-requests-client';
+import { useInterestRequests } from '@/lib/interest-requests-client';
+import { useDecideInterest } from '@/lib/use-decide-interest';
 import type { ActionType } from '@/lib/types';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 
@@ -28,20 +29,14 @@ export function TodayPanel() {
   // pedido: ficava pending para sempre, invisível em qualquer outro sítio.
   // Aqui liga-se a task ao pedido pendente (match por entity_id — a mesma
   // resolução catalog_deliveries que a criou) e o botão passa a ser
-  // Approve/Deny no próprio endpoint POST. O servidor fecha a task ao
-  // decidir (decideInterestLevel3); o toggleTask local é só para o UI
-  // refletir já, sem esperar reload (persistir done=true é idempotente).
+  // Approve/Deny no próprio endpoint POST. Prompt 410 §2.3 — the decide
+  // flow itself (POST the decision, close the task) moved to
+  // useDecideInterest, shared with SherlockInsightBanner's own inline
+  // Approve/Deny on the entity dossier.
   const interestRequests = useInterestRequests();
   const pendingInterestByEntity = new Map(
     interestRequests.filter((r) => r.status === 'pending' && r.entityId).map((r) => [r.entityId as string, r]));
-  const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
-  async function decideInterest(taskId: string, requestId: string, decision: 'granted' | 'denied') {
-    setBusyTaskId(taskId);
-    try {
-      await decideInterestRequest(requestId, decision);
-      toggleTask(taskId);
-    } finally { setBusyTaskId(null); }
-  }
+  const { decideInterest, busyTaskId } = useDecideInterest();
   // Prompt 398 §1 — a checkbox click can be a mis-click, and toggleTask is
   // already reversible, but the founder had no way to know that. Same
   // pattern as RelationshipSummaryCard's stage-change undo: local state,

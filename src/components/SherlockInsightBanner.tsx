@@ -24,6 +24,13 @@ import {
 import { derivedStage } from '@/lib/derived-stage';
 import { LOCK_DAYS, preflight, preflightSummary } from '@/lib/rules';
 import { TermHint } from '@/components/ui';
+import { useInterestRequests } from '@/lib/interest-requests-client';
+import { useDecideInterest } from '@/lib/use-decide-interest';
+
+// Prompt 410 §2.3 — how long the post-decision confirmation stays up. Short
+// on purpose ("toast", Nuno's own word) — this isn't an undo window (the
+// decision already posted), just an acknowledgment.
+const DECISION_TOAST_MS = 4000;
 
 const REOPEN_TRIGGER_MIN_LENGTH = 15;
 
@@ -56,14 +63,31 @@ function InsightIcon() {
   );
 }
 
+// Prompt 410 §2.4 — a discreet "look here" cue for a founder who arrived via
+// a Sherlock Next Clue deep-link that names a specific action (?focus=
+// interest, today's only case). Settles once onto the action-button corner
+// via a CSS animation (globals.css: sherlock-focus-in) rather than looping —
+// an attention guide, not an alarm. prefers-reduced-motion drops the
+// animation and renders it already settled (same stylesheet).
+function FocusLupa() {
+  return (
+    <span aria-hidden
+      className="sherlock-focus-lupa pointer-events-none absolute -right-2 -top-3 flex h-6 w-6 items-center justify-center rounded-full bg-white text-[#0E7490] shadow-[0_2px_8px_rgba(15,23,42,0.35)] ring-2 ring-[#0E7490]/25">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
+        <circle cx="8.3" cy="8.3" r="5.3" />
+        <path d="m16.3 16.3-3.4-3.4" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
+}
+
 export function SherlockInsightBanner({
   entity, dealMessageTouches = [], onClassifyRequest,
-  pendingInterest, canMessage, onSwitchToMessage, onSwitchToLog,
+  canMessage, onSwitchToMessage, onSwitchToLog, focusInterest = false,
 }: {
   entity: Entity;
   dealMessageTouches?: DealMessageTouch[];
   onClassifyRequest?: () => void;
-  pendingInterest?: boolean;
   canMessage?: boolean;
   // Prompt 397 §B — both re-point at the conversation panel (Phase A kept
   // the pre-397 targets: a /log Link, and MessageInvestorDrawer via
@@ -71,9 +95,38 @@ export function SherlockInsightBanner({
   // "Log the first interaction"/"Reply now" land pre-filled.
   onSwitchToMessage?: () => void;
   onSwitchToLog?: (personId?: string) => void;
+  // Prompt 410 §2.4 — true when the entity page was reached via
+  // ?focus=interest (the Sherlock Next Clue button's own deep-link, §2.1).
+  // Drives the magnifying-glass cue on the pending-interest action below;
+  // has no effect on any other case (§2.5 — audited, not built, this pass).
+  focusInterest?: boolean;
 }) {
   const { db, updateEntity } = useStore();
   const [reopenTriggerDraft, setReopenTriggerDraft] = useState<string | null>(null);
+  // Prompt 410 §2.3 — this banner's own copy of "is there a pending L3
+  // interest request for this entity", same source (useInterestRequests)
+  // the entity page already reads independently for its own small banner
+  // above this one — same "each caller computes its own" pattern as
+  // relationshipSummary throughout this file, not a prop threaded down.
+  const interestRequests = useInterestRequests();
+  const pendingInterestReq = interestRequests.find((r) => r.status === 'pending' && r.entityId === entity.id);
+  // The task this decision closes (Today's own match, by entity_id — see
+  // TodayPanel's pendingInterestByEntity). Absent only in the narrow window
+  // before the local store has synced it; the Link fallback below covers
+  // that rather than rendering buttons with nothing to close.
+  const pendingInterestTask = db.tasks.find((t) => !t.done && t.source === 'interest_level_request' && t.entity_id === entity.id);
+  const { decideInterest, busyTaskId } = useDecideInterest();
+  const [decisionToast, setDecisionToast] = useState<string | null>(null);
+
+  async function handleDecideInterest(decision: 'granted' | 'denied') {
+    if (!pendingInterestReq || !pendingInterestTask) return;
+    const investorName = pendingInterestReq.investorName;
+    await decideInterest(pendingInterestTask.id, pendingInterestReq.id, decision);
+    setDecisionToast(decision === 'granted'
+      ? `Access approved — ${investorName} can now see your contact.`
+      : `Access denied for ${investorName}.`);
+    window.setTimeout(() => setDecisionToast(null), DECISION_TOAST_MS);
+  }
 
   const s = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
   const action = nextBestAction(db, entity.id, new Date(), dealMessageTouches);
@@ -98,17 +151,35 @@ export function SherlockInsightBanner({
           <div className="text-[10.5px] font-bold uppercase tracking-wide text-white/75">Sherlock Insight</div>
           <div className="mt-0.5 text-[14px] leading-snug">{annotateNextStep(action)}</div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex flex-wrap items-center gap-2">
+          {focusInterest && pendingInterestReq && <FocusLupa />}
           {/* Prompt 396 §7 / 397 §A.4.2 — same button matrix, priority order
               unchanged: pendingInterest wins if somehow more than one
               applies. Prompt 397 §B — "Log the first interaction"/"Reply
               now" now switch the conversation panel to Log (pre-filled with
               the target person) instead of navigating to /log; "Reply now"
-              switches to Message when canMessage, same as before. */}
-          {pendingInterest ? (
-            <Link href="/today" className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
-              Decide in Today →
-            </Link>
+              switches to Message when canMessage, same as before. Prompt
+              410 §2.3 — pendingInterest now decides inline (Approve/Deny)
+              instead of only linking to Today; the Link survives as the
+              fallback for the narrow window before pendingInterestTask has
+              synced locally. */}
+          {pendingInterestReq ? (
+            pendingInterestTask ? (
+              <span className="flex items-center gap-1.5">
+                <button onClick={() => handleDecideInterest('granted')} disabled={busyTaskId === pendingInterestTask.id}
+                  className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90 disabled:opacity-40">
+                  Approve
+                </button>
+                <button onClick={() => handleDecideInterest('denied')} disabled={busyTaskId === pendingInterestTask.id}
+                  className="rounded-lg border border-white/55 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-white/10 disabled:opacity-40">
+                  Deny
+                </button>
+              </span>
+            ) : (
+              <Link href="/today" className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
+                Decide in Today →
+              </Link>
+            )
           ) : nextContactPreflight?.green && nextContact ? (
             <button onClick={() => onSwitchToLog?.(nextContact.id)} className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
               Log the first interaction
@@ -132,6 +203,16 @@ export function SherlockInsightBanner({
           )}
         </div>
       </div>
+
+      {/* Prompt 410 §2.3 — the decision toast. Lives outside the button
+          branches above (which swap to the next best action as soon as
+          pendingInterestReq clears) so the confirmation survives that
+          swap instead of vanishing with the buttons that triggered it. */}
+      {decisionToast && (
+        <div className="-mt-1 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[12px] font-medium text-emerald-800 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
+          {decisionToast}
+        </div>
+      )}
 
       {/* Prompt 397 §A.4.2 (parked/closed) — the reopen-trigger editor needs
           real contrast to stay legible; inside the solid teal banner it

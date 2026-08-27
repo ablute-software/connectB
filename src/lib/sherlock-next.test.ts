@@ -47,8 +47,21 @@ describe('sherlockNext — priority ladder', () => {
 
     const step = sherlockNext(db, NOW);
     expect(step.kind).toBe('interest_request');
-    expect(step.target).toBe('/today');
+    expect(step.target).toBe('/entities/ent-a?focus=interest');
     expect(step.label).toContain('Nina Capital');
+  });
+
+  it('1c: a pending interest request with no entity_id falls back to /today', () => {
+    const task: TaskItem = {
+      id: 't-1', title: 'An investor requested contact access', due_at: '2026-08-20T00:00:00Z',
+      kind: 'follow_up', action_type: 'follow_up_thread', done: false,
+      source: 'interest_level_request',
+    };
+    const db = makeDb({ tasks: [task] });
+
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('interest_request');
+    expect(step.target).toBe('/today');
   });
 
   it('1b: the OLDEST pending interest request wins when several exist', () => {

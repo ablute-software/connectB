@@ -15,13 +15,14 @@ import { useStore } from '@/lib/store';
 import { Tooltip } from '@/components/ui';
 import { sherlockNext } from '@/lib/sherlock-next';
 
-const LABEL_MAX = 28;
-function truncateLabel(label: string): string {
-  return label.length > LABEL_MAX ? `${label.slice(0, LABEL_MAX - 1)}…` : label;
-}
-
+// Prompt 410 §1 — the label used to be step.label itself (truncated to
+// LABEL_MAX), which meant this top-shell button could show raw pipeline
+// content with no founder in the loop to notice it first — confirmed case:
+// "Next: nunomarujo@gmail.com…" (an investor catalog entry whose "name" is
+// an email). Fixed text now; the dynamic info moves entirely into the
+// tooltip, which is opt-in (hover) rather than always-on in the header.
 const KIND_TOOLTIP: Record<string, string> = {
-  interest_request: 'An investor is waiting on a decision — that lives on Today.',
+  interest_request: "Opens this investor's dossier, ready to approve or deny their request.",
   unclassified_reply: "Opens this investor's dossier with the reply ready to classify.",
   follow_up_overdue: 'Opens this investor\'s dossier with a reply pre-filled and ready to log.',
   task_due_today: 'A task on your list is due today.',
@@ -33,9 +34,16 @@ export function SherlockNextButton() {
   const { db } = useStore();
   const step = sherlockNext(db, new Date());
   const isAllClear = step.kind === 'all_clear';
+  // all_clear's own step.label IS just "All clear" — concatenating it after
+  // the kind phrase below would repeat itself, so it short-circuits to the
+  // plain phrase instead. Every other kind's step.label carries real,
+  // specific info (a name, a task title) the kind phrase alone doesn't.
+  const tooltipText = isAllClear
+    ? 'All clear'
+    : `${KIND_TOOLTIP[step.kind] ?? 'Your next best action, picked live from the pipeline.'} ${step.label}`;
 
   return (
-    <Tooltip text={KIND_TOOLTIP[step.kind] ?? 'Your next best action, picked live from the pipeline.'} side="bottom">
+    <Tooltip text={tooltipText} side="bottom">
       <Link href={step.target}
         className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-sm font-semibold shadow-sm transition ${
           isAllClear
@@ -46,7 +54,7 @@ export function SherlockNextButton() {
             isAllClear ? 'bg-gray-100 text-gray-500' : 'bg-white/20 text-white'}`}>
           S
         </span>
-        <span className="max-w-[220px] truncate">{truncateLabel(step.label)}</span>
+        <span>Sherlock&apos;s Next Clue</span>
       </Link>
     </Tooltip>
   );

@@ -187,6 +187,20 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const railDirection = searchParams.get('direction');
   const railDate = searchParams.get('date');
   const railContent = searchParams.get('content');
+  // Prompt 410 §2.2/§2.4 — the Sherlock Next Clue button's own deep-link
+  // for a pending interest request (sherlock-next.ts §2.1): scrolls to the
+  // Sherlock Insight banner and asks it to draw the focus lupa over its
+  // primary action (§2.4). Same "read once at mount" shape as ndaDraft
+  // above and rail* below — no page of its own.
+  const focusParam = searchParams.get('focus');
+  useEffect(() => {
+    if (focusParam !== 'interest') return;
+    const id = window.setTimeout(() => {
+      document.querySelector<HTMLElement>('[data-tour-id="entity-tip"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [focusParam]);
+
   useEffect(() => {
     if (railMode === 'log') {
       setLogPrefill((p) => ({ personId: railPerson ?? undefined, nonce: p.nonce + 1 }));
@@ -425,8 +439,8 @@ export default function EntityPage({ params }: { params: { id: string } }) {
           journey card and the rest of the page. */}
       <SherlockInsightBanner entity={entity} dealMessageTouches={dealMessageTouches}
         onClassifyRequest={classifyOnHistory}
-        pendingInterest={!!pendingInterest}
         canMessage={canMessagePanel}
+        focusInterest={focusParam === 'interest'}
         onSwitchToMessage={() => setPanelMode('message')}
         onSwitchToLog={(personId) => { setLogPrefill((p) => ({ personId, nonce: p.nonce + 1 })); setPanelMode('log'); }} />
 

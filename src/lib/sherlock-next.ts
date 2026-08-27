@@ -43,7 +43,16 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
   if (pendingInterest.length > 0) {
     const t = pendingInterest[0];
-    return { kind: 'interest_request', label: `Next: ${t.title}`, entityId: t.entity_id, target: '/today' };
+    // Prompt 410 §2.1 — used to always send to /today, where the dossier's
+    // own SherlockInsightBanner had no button at all to resolve the exact
+    // thing this step is about. Landing ON the entity now means the button
+    // that decides it (Approve/Deny, §2.3) is right there — /today stays
+    // the fallback for the (currently theoretical, see
+    // investor-interest-level-db.ts) case where this task has no entity_id.
+    return {
+      kind: 'interest_request', label: `Next: ${t.title}`, entityId: t.entity_id,
+      target: t.entity_id ? `/entities/${t.entity_id}?focus=interest` : '/today',
+    };
   }
 
   // 2 — oldest unclassified reply. Same predicate as

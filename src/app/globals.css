@@ -156,3 +156,13 @@ body {
   animation: sherlock-sweep 2.6s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) { .prefill-sweep { animation: none; background: none; color: #475569; } }
+
+/* Prompt 410 §2.4 — the "Sherlock Next Clue" focus cue: a magnifying glass
+   that settles once onto the Sherlock Insight banner's primary action when
+   the founder arrives via a deep-link naming that exact action (?focus=
+   interest today). `forwards` keeps it settled after the 600ms rather than
+   reverting; reduced motion drops the animation and renders it already at
+   rest (opacity/scale default to the "to" state with no animation applied). */
+@keyframes sherlock-focus-in { from { opacity: 0; transform: scale(1.7); } to { opacity: 1; transform: scale(1); } }
+.sherlock-focus-lupa { animation: sherlock-focus-in 600ms ease-out forwards; }
+@media (prefers-reduced-motion: reduce) { .sherlock-focus-lupa { animation: none; } }
