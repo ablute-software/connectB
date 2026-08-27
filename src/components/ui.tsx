@@ -181,7 +181,11 @@ const fitStyle: Record<FitScore, string> = {
   high: 'text-[#0E7490] font-bold', medium_high: 'text-green-800 font-semibold',
   medium: 'text-amber-700', low: 'text-gray-400',
 };
-const fitLabel: Record<FitScore, string> = { high: 'High', medium_high: 'Med-High', medium: 'Medium', low: 'Low' };
+// Prompt 397 §A.2 — exported so the entity page's new icon-row header can
+// read the same label text ("High fit" etc.) FitTag already shows, without
+// re-implementing the mapping — the component itself still isn't reused
+// there (its pill styling is FitTag's own, out of scope for this page).
+export const fitLabel: Record<FitScore, string> = { high: 'High', medium_high: 'Med-High', medium: 'Medium', low: 'Low' };
 
 export function FitTag({ fit }: { fit?: FitScore }) {
   if (!fit) return <span className="text-gray-300">—</span>;

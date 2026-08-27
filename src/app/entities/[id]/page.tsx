@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
-import { Card, FitTag, HardFilterBanner, MatchDealProfileBadge, PersonLink, StatusPill, TermHint, VerBadge, WaveTag, fmtEur } from '@/components/ui';
+import { Card, HardFilterBanner, MatchDealProfileBadge, PersonLink, TermHint, VerBadge, fitLabel, fmtEur } from '@/components/ui';
 import { computeEntitySummaryPrefill, matchEntityToCatalog } from '@/lib/entity-catalog-prefill';
 import { preflight, preflightSummary } from '@/lib/rules';
 import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
@@ -17,7 +17,8 @@ import { EntityPeoplePanel } from '@/components/EntityPeoplePanel';
 import { CompetitorInvestmentCard } from '@/components/CompetitorInvestmentCard';
 import { PathfinderCard } from '@/components/PathfinderCard';
 import { entityCompleteness, qualifiesForContactEnrichment } from '@/lib/completeness';
-import { isPersonCandidate, isUnverifiedStub, relatedContacts } from '@/lib/relationship';
+import { isPersonCandidate, isUnverifiedStub, relatedContacts, relationshipSummary } from '@/lib/relationship';
+import { SherlockInsightBanner } from '@/components/SherlockInsightBanner';
 import { computeAlignment } from '@/lib/company-canon-logic';
 import { browserClient } from '@/lib/supabase';
 import { EntityClassificationEditor } from '@/components/EntityClassificationEditor';
@@ -233,15 +234,38 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const alsoConnected = relatedContacts(db, entity.id).filter((r) => r.viaAffiliation);
   const locked = entity.contact_lock_until && new Date(entity.contact_lock_until) > new Date();
   const grants = db.grants.filter((g) => people.some((p) => p.id === g.person_id));
+  // Prompt 397 §B (temporary, until the panel exists) — the two date cards
+  // below need this same pure computation the journey card/banner also
+  // call independently (same pattern as HealthDot/WhoseTurnChip already
+  // use throughout this codebase).
+  const relSummary = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
   const views = db.views.filter((v) => grants.some((g) => g.id === v.grant_id)
     || people.some((p) => p.email_verified && p.email_verified === v.viewer_email));
 
   return (
-    <div className="space-y-4">
+    // Prompt 397 §A.1 — content-area background tint, scoped to only this
+    // page: the negative margin cancels the shell's own `<main>` padding
+    // (shell.tsx, shared globally, untouched) and re-applies the same
+    // amount so the tint fills exactly the content region, not the whole
+    // shell (sidebar/header stay whatever they already are).
+    <div className="-m-4 space-y-4 bg-[#F8FAFC] p-4 md:-m-8 md:p-8">
       <PageTour pageKey="guide_entity" />
+      {/* Prompt 397 §A.2 — identity header: big name + verified chip, then
+          an icon row carrying the SAME info the StatusPill/FitTag/WaveTag
+          pills used to (status is now redundant with the journey card's own
+          highlighted current stage right below, so it's dropped here
+          entirely — not hidden, just no longer duplicated). Those three
+          components are shared elsewhere (Pipeline table) and keep their
+          own look there; they simply don't render on THIS page anymore,
+          which doesn't touch their global appearance.
+          No buttons here — Log interaction / Message investor move to the
+          conversation panel (Phase 397 B). Follow-on's ask button has no
+          assigned spot in the approved study (Log/Message are the only two
+          named); left here rather than inventing a new home for it or
+          silently dropping a working action. */}
       <div data-tour-id="entity-header" className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">
+          <h1 className="text-[27px] font-bold tracking-tight text-gray-900">
             {entity.name}
             {isUnverifiedStub(entity) && (
               <span className="ml-2 inline-block rounded-full bg-amber-50 px-2 py-0.5 align-middle text-xs font-semibold text-amber-700" title="No independent proof this entity exists yet — website, domain, phone, address, or a source specific to it.">
@@ -249,39 +273,33 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               </span>
             )}
           </h1>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500">
-            <StatusPill status={entity.status} /> <FitTag fit={entity.fit_score} /> <WaveTag wave={entity.wave} />
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-[#475569]">
+            {entity.email && (
+              <span className="flex items-center gap-1.5">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5"><path d="M3 5h14v10H3z" strokeLinejoin="round" /><path d="m3 5 7 6 7-6" strokeLinejoin="round" /></svg>
+                {entity.email}
+              </span>
+            )}
+            {(entity.hq_city || entity.hq_country) && (
+              <span className="flex items-center gap-1.5">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5"><path d="M10 18s6-5.5 6-10a6 6 0 1 0-12 0c0 4.5 6 10 6 10Z" strokeLinejoin="round" /><circle cx="10" cy="8" r="2" /></svg>
+                {entity.hq_city ? `${entity.hq_city}, ` : ''}{entity.hq_country}
+              </span>
+            )}
+            <span>• {entity.type.replace('_', ' ')} · Wave {entity.wave ?? '—'} · {entity.fit_score ? fitLabel[entity.fit_score] : '—'} fit</span>
             {followOn.signal?.active && (
               <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                 ↻ Signaled follow-on interest
               </span>
             )}
-            <span>{entity.type.replace('_', ' ')}</span>
-            <span>· {entity.hq_city ? `${entity.hq_city}, ` : ''}{entity.hq_country}</span>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Link href={`/log?entity=${entity.id}`} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">Log interaction</Link>
-          {messaging.canMessage && messaging.investorCatalogEntityId && (
-            <button onClick={() => setMessagingOpen(true)}
-              className="rounded-lg border border-[#0E7490] px-3 py-1.5 text-sm font-medium text-[#0E7490] hover:bg-[#E8F4F8]">
-              Message investor
-            </button>
-          )}
-          {followOn.eligible && !followOn.signal?.active && (
-            <button onClick={askAboutFollowOn} disabled={followOnBusy || followOn.requestPending}
-              className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60">
-              {followOn.requestPending ? 'Follow-on ask sent' : 'Ask about follow-on interest'}
-            </button>
-          )}
-          {/* Prompt 233 §A — "Mark dormant" saiu. Era o caminho INCOMPLETO
-              dos dois que gravam status:'dormant' — so setEntityStatus, sem
-              tocar nas tarefas pendentes — e duplicava uma decisao que ja
-              vive em "Something else ▾" > "Frozen / no continuity", que faz
-              o mesmo MAIS applyPlan(planPark(...)). Esse trigger sobe para
-              fora do banner de saida no cartao (§B), por isso este botao
-              deixa de ser o unico caminho para parquear sem sugestao activa. */}
-        </div>
+        {followOn.eligible && !followOn.signal?.active && (
+          <button onClick={askAboutFollowOn} disabled={followOnBusy || followOn.requestPending}
+            className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60">
+            {followOn.requestPending ? 'Follow-on ask sent' : 'Ask about follow-on interest'}
+          </button>
+        )}
       </div>
 
       {/* "Convert to person (angel)" removed from every founder-facing
@@ -340,24 +358,44 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {/* Prompt 202 §C — o histórico deixa de viver só atrás do botão.
-          Prompt 241 — e deixa de viver DUAS vezes: o RecentInteractions
-          (que tem a classificação inline e os saltos) passa a preencher a
-          coluna direita do cartão, em vez de ser um segundo bloco por
-          baixo a mostrar as mesmas linhas. Continua a receber os mesmos
-          nonces daqui — é por isso que o badge "N to classify" e o badge
-          de documento do stepper continuam a saltar para a linha certa. */}
-      <RelationshipSummaryCard entity={entity} onOpenThread={() => setDrawerOpen(true)}
+      {/* Prompt 397 §A.3 — the journey+state+actions card. */}
+      <RelationshipSummaryCard entity={entity}
         onClassifyRequest={() => setClassifyNonce((n) => n + 1)}
         onViewInHistory={(id) => setFocusInteraction((p) => ({ id, nonce: p.nonce + 1 }))}
-        dealMessageTouches={dealMessageTouches}
+        dealMessageTouches={dealMessageTouches} />
+
+      {/* Prompt 397 §A.4 — the advice banner, full-width, between the
+          journey card and the rest of the page. */}
+      <SherlockInsightBanner entity={entity} dealMessageTouches={dealMessageTouches}
+        onClassifyRequest={() => setClassifyNonce((n) => n + 1)}
         pendingInterest={!!pendingInterest}
         canMessage={!!(messaging.canMessage && messaging.investorCatalogEntityId)}
-        onOpenMessage={() => setMessagingOpen(true)}
-        historySlot={(
+        onOpenMessage={() => setMessagingOpen(true)} />
+
+      {/* Prompt 397 §B (not yet built) — dates + history move into a
+          proper two-column conversation panel next phase. Temporary,
+          functionally-identical placement so nothing breaks between phases:
+          same two date cards, same RecentInteractions component. */}
+      <div className="flex flex-wrap items-start gap-4">
+        <div className="flex min-w-[300px] flex-1 gap-3">
+          <div className="min-w-0 flex-1 rounded-2xl bg-white px-4 py-3 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
+            <div className="text-[11.5px] text-gray-500">First contact</div>
+            <div className="mt-0.5 truncate text-sm font-bold text-[#0E7490]">{relSummary.firstContactAt?.slice(0, 10) ?? '—'}</div>
+            <div className="mt-0.5 text-[11.5px] text-gray-500">{relSummary.touchCount} touches</div>
+          </div>
+          <div className="min-w-0 flex-1 rounded-2xl bg-white px-4 py-3 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
+            <div className="text-[11.5px] text-gray-500">Last touch</div>
+            <div className="mt-0.5 truncate text-sm font-bold text-[#0E7490]">{relSummary.lastTouchAt?.slice(0, 10) ?? '—'}</div>
+            <div className="mt-0.5 text-[11.5px] font-semibold text-[#0E7490]">
+              {relSummary.daysSinceLastTouch != null ? `${relSummary.daysSinceLastTouch}d ago` : ' '}
+            </div>
+          </div>
+        </div>
+        <div className="min-w-[320px] flex-[1.3] rounded-2xl bg-white p-4 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
           <RecentInteractions entity={entity} onOpenFull={() => setDrawerOpen(true)} focusClassifyNonce={classifyNonce}
             focusInteraction={focusInteraction} dealMessages={messaging.messages} />
-        )} />
+        </div>
+      </div>
 
       {/* Prompt 396 §5 — Zone B: sub-tabs for everything accessory to the
           main flow. Only the active section mounts (same pattern as 394

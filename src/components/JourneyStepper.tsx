@@ -15,13 +15,35 @@ import { journeySteps, docsByStage, type StageDoc } from '@/lib/journey';
 import { DocPreviewModal } from '@/components/DocPreviewModal';
 import { DocBadgePopover } from '@/components/DocBadgePopover';
 
-export function JourneyStepper({ entity, onViewInHistory }: {
+// Prompt 397 §A.3 — the entity page's own "Sherlock Insight" study asked for
+// different pill colors (done = white pill with a border, future = a paler
+// gray, current = a teal shadow) than this component's existing look, which
+// is also used by InvestorJourneyStrip.tsx — a shared component can't change
+// appearance globally for one caller's redesign. `variant` defaults to the
+// original classes untouched; 'rail' is opt-in, only ever passed by the
+// entity page.
+type JourneyStepperVariant = 'default' | 'rail';
+
+const VARIANT_STYLE: Record<JourneyStepperVariant, { done: string; current: string; future: string; connector: string; connectorDone: string }> = {
+  default: {
+    done: 'bg-[#E8F4F8] text-cyan-900', current: 'bg-[#0E7490] text-white',
+    future: 'bg-gray-100 text-gray-400', connector: 'bg-gray-200', connectorDone: 'bg-[#0E7490]/30',
+  },
+  rail: {
+    done: 'bg-white text-gray-700 ring-1 ring-[#E2E8F0]', current: 'bg-[#0E7490] text-white shadow-[0_2px_8px_rgba(14,116,144,0.35)]',
+    future: 'bg-[#F1F5F9] text-[#94A3B8]', connector: 'bg-[#E2E8F0]', connectorDone: 'bg-[#E2E8F0]',
+  },
+};
+
+export function JourneyStepper({ entity, onViewInHistory, variant = 'default' }: {
   entity: Entity;
   // Prompt 209 — a segunda acção do popover: "ver no histórico" ancora na
   // interação onde a partilha consta. Quem sabe desenhar o histórico é o
   // RecentInteractions, portanto isto sobe à página da entidade.
   onViewInHistory?: (interactionId: string) => void;
+  variant?: JourneyStepperVariant;
 }) {
+  const palette = VARIANT_STYLE[variant];
   const { db } = useStore();
   // Prompt 215 — guarda o rectangulo do badge no momento do clique. O
   // popover deixou de viver dentro do cartao (onde era clipado pelo
@@ -59,7 +81,7 @@ export function JourneyStepper({ entity, onViewInHistory }: {
         const connector = idx < steps.length - 1 ? (
           <span aria-hidden
             className={`mx-1 h-px min-w-[12px] flex-1 ${
-              step.kind === 'stage' && step.state === 'done' && !parked ? 'bg-[#0E7490]/30' : 'bg-gray-200'}`} />
+              step.kind === 'stage' && step.state === 'done' && !parked ? palette.connectorDone : palette.connector}`} />
         ) : null;
 
         if (step.kind === 'parked') {
@@ -112,10 +134,10 @@ export function JourneyStepper({ entity, onViewInHistory }: {
 
         const list = docs.get(step.stage) ?? [];
         const style = parked
-          ? 'bg-gray-100 text-gray-400 opacity-70'
-          : step.state === 'current' ? 'bg-[#0E7490] text-white'
-          : step.state === 'done' ? 'bg-[#E8F4F8] text-cyan-900'
-          : 'bg-gray-100 text-gray-400';
+          ? `${palette.future} opacity-70`
+          : step.state === 'current' ? palette.current
+          : step.state === 'done' ? palette.done
+          : palette.future;
 
         return (
           <Fragment key={step.stage}>

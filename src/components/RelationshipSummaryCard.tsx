@@ -1,16 +1,14 @@
 'use client';
 // IRM_SPEC §4b — Relationship summary card. Compact chip for the pipeline row;
 // full stage stepper + one-liner + CTAs for the entity page header.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import Link from 'next/link';
+import { useEffect, useRef, useState } from 'react';
 import type { Entity, PassReasonCategory } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import { useConfirm } from '@/lib/confirm';
 import {
-  STAGE_LABEL, STAGE_ORDER, relationshipSummary, nextBestAction, nextBestActionButton, nextContactPerson, needsReopenTrigger, stageExits, PASS_REASON_CATEGORIES,
+  STAGE_LABEL, STAGE_ORDER, relationshipSummary, stageExits, PASS_REASON_CATEGORIES,
   type WhoseTurn, type Health, type DealMessageTouch,
 } from '@/lib/relationship';
-import { LOCK_DAYS, preflight, preflightSummary } from '@/lib/rules';
 import { planPark, planPass, planInvested, planSnooze, advanceConfirmation, type ExitPlan } from '@/lib/exit-effects';
 
 // Prompt 226 §4 — opções fixas. Sem "custom": um date-picker aqui era mais
@@ -20,37 +18,8 @@ const SNOOZE_OPTIONS = [
   { days: 3, label: '3 days' }, { days: 7, label: '1 week' },
   { days: 14, label: '2 weeks' }, { days: 30, label: '1 month' },
 ] as const;
-
-// Prompt 269 §2 — minimal guard against saving a reopen_trigger that reads
-// as cut off (real case: "nothing nee"). Not a hard content rule — some
-// valid notes are genuinely short — just enough to catch the obviously
-// truncated case without policing every phrasing.
-const REOPEN_TRIGGER_MIN_LENGTH = 15;
 import { derivedStage } from '@/lib/derived-stage';
 import { JourneyStepper } from '@/components/JourneyStepper';
-import { TermHint } from '@/components/ui';
-
-// Prompt 49 §4 — jargon inside nextBestAction()'s free-text copy gets a
-// clickable (i) the first time it appears in the string. First-match-only
-// (not global): these are short one-liners, a single term is what's ever
-// actually present, and replacing every occurrence would need a much less
-// readable regex-split-map dance for no real benefit today.
-const NEXT_STEP_GLOSSARY: { pattern: RegExp; explain: string }[] = [
-  { pattern: /pre-flight/i, explain: 'An automatic check run just before a first message — flags missing hook research, banned phrases, or reaching out too soon.' },
-  { pattern: /^Locked/, explain: `Outreach to this investor is paused for ${LOCK_DAYS} days after your last message, so a reply has time to arrive before you follow up again.` },
-];
-
-function annotateNextStep(text: string): ReactNode {
-  for (const term of NEXT_STEP_GLOSSARY) {
-    const m = text.match(term.pattern);
-    if (m?.index === undefined) continue;
-    const before = text.slice(0, m.index);
-    const match = m[0];
-    const after = text.slice(m.index + match.length);
-    return <>{before}{match}<TermHint text={term.explain} />{after}</>;
-  }
-  return text;
-}
 
 const WHOSE_TURN_STYLE: Record<WhoseTurn, string> = {
   us: 'bg-cyan-100 text-cyan-900',
@@ -119,12 +88,15 @@ export function RelationshipCompactLine({ entityId, neutral = false }: { entityI
   );
 }
 
-// Full version for the entity page header.
+// Prompt 397 §A.3 — the journey+state+actions card. Used to also carry
+// dates cards, the Sherlock Tip and the history column (Prompt 240's
+// two-column layout) — those moved out: the Tip is now SherlockInsightBanner
+// (full-width, between this card and the rest of the page); dates+history
+// moved to the entity page's own right-column panel (Prompt 397 §B).
 export function RelationshipSummaryCard({
-  entity, onOpenThread, onClassifyRequest, onViewInHistory, dealMessageTouches = [], historySlot,
-  pendingInterest, canMessage, onOpenMessage,
+  entity, onClassifyRequest, onViewInHistory, dealMessageTouches = [],
 }: {
-  entity: Entity; onOpenThread?: () => void;
+  entity: Entity;
   // Prompt 208 §D — pedido de "leva-me a resposta por classificar". O cartao
   // nao sabe desenhar o historico; quem sabe e o RecentInteractions, logo
   // isto sobe a pagina da entidade e desce por focusClassifyNonce.
@@ -137,25 +109,9 @@ export function RelationshipSummaryCard({
   // eligibility, Prompt 197 A), so it's threaded straight through here
   // instead of this card re-fetching it independently.
   dealMessageTouches?: DealMessageTouch[];
-  // Prompt 241 — o histórico da coluna direita, injectado pela página. É o
-  // <RecentInteractions>, que já tem a classificação inline e os saltos;
-  // este cartão só lhe dá o lugar no layout. Evita a segunda lista (a
-  // duplicação que o 240 criou) sem trazer para aqui a máquina toda.
-  historySlot?: ReactNode;
-  // Prompt 396 §7 — the Sherlock Tip gets an actionable button when the
-  // advice has an obvious target. These three are already known by the
-  // caller (page.tsx) — no new derivation needed for them, unlike the
-  // overdue-follow-up case (nextBestActionButton, below).
-  pendingInterest?: boolean;
-  canMessage?: boolean;
-  onOpenMessage?: () => void;
 }) {
   const { db, setRelationshipStage, undoStageChange, setEntityStatus, addTask, toggleTask, updateTask, updateEntity, logInteraction, addRejectionCode } = useStore();
   const confirm = useConfirm();
-  // Prompt 251-B "Fase 0" — inline shortcut to fill entities.reopen_trigger
-  // straight from the Sherlock Tip, for the one case (needsReopenTrigger)
-  // where nothing is registered yet. null = not editing.
-  const [reopenTriggerDraft, setReopenTriggerDraft] = useState<string | null>(null);
   // Prompt 249 §A — 'decision-choose' is the new step: "Move to Decision"
   // no longer advances on click, it asks for the outcome first. Choosing
   // "Passed" here just switches into the EXISTING 'pass' mode below (same
@@ -258,17 +214,6 @@ export function RelationshipSummaryCard({
     setConfirmation(plan.confirmation);
   }
   const s = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
-  const action = nextBestAction(db, entity.id, new Date(), dealMessageTouches);
-  // Prompt 396 §7 — the overdue-follow-up case's own button target.
-  const actionButton = nextBestActionButton(db, entity.id, new Date(), dealMessageTouches);
-  // Prompt 254 — nextBestAction's not_contacted branch already names the
-  // RESULT (ready / N issues); this recomputes the same preflight (cheap,
-  // pure, no I/O — same call the People panel below already makes once per
-  // row) so the Tip can render the actual issue list and, when clear, a
-  // real "Log interaction" shortcut instead of leaving the founder to
-  // guess what "pre-flight" meant.
-  const nextContact = s.stage === 'not_contacted' ? nextContactPerson(db, entity.id) : undefined;
-  const nextContactPreflight = nextContact ? preflightSummary(preflight(db, nextContact, null)) : undefined;
   // Prompt 197 C.2 — continua a ser uma sugestão, nunca uma promoção
   // automática: o founder é que decide qual das saídas usa.
   // Prompt 202 §A.2 + §E — a decisão de que saídas mostrar vive em
@@ -308,7 +253,10 @@ export function RelationshipSummaryCard({
   const parkedOrClosed = mode !== 'active';
 
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+    // Prompt 397 §A.1/§A.3 — full-width journey card: rounded-2xl, no
+    // border, diffuse shadow (the study's card style for this whole page).
+    <div className="rounded-2xl bg-white p-5 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
+      <div className="text-center text-[10.5px] font-semibold uppercase tracking-wide text-[#0E7490]">Current stage</div>
       {/* Prompt 209 — o stepper e agora o JourneyStepper: desenha o que o
           journeySteps() decide (percorridos com ✓, desfecho como ultimo chip,
           sem estagios cinzentos depois de terminada) e leva o badge 📄.
@@ -317,9 +265,11 @@ export function RelationshipSummaryCard({
           trilho (era o que empurrava o "Decision" para a 2ª linha) e
           deixavam um vazio vertical enorme ao lado de um stepper de 40px.
           O trilho volta a ter a largura toda; o overflow-x-auto e a rede
-          para quando mesmo assim nao couber. */}
-      <div data-tour-id="entity-journey" className="overflow-x-auto">
-        <JourneyStepper entity={entity} onViewInHistory={onViewInHistory} />
+          para quando mesmo assim nao couber. Prompt 397 §A.3 — `variant`
+          restyles ONLY this instance (JourneyStepper is also used by
+          InvestorJourneyStrip.tsx, whose own look stays untouched). */}
+      <div data-tour-id="entity-journey" className="mt-2 flex justify-center overflow-x-auto">
+        <JourneyStepper entity={entity} onViewInHistory={onViewInHistory} variant="rail" />
       </div>
 
       {(ds.contradicted || ds.manualAhead || ds.unclassifiedReplies > 0 || parkedOrClosed) && (
@@ -509,13 +459,13 @@ export function RelationshipSummaryCard({
       </div>
       )}
 
-      {/* Prompt 240 — a linha de ESTADO fica sozinha: chip + frase, sem
-          botões a disputar-lhe espaço. A frase é só o texto das saídas; o
-          `action` (o conselho) mudou-se para o cartão "Sherlock Tip" na
-          coluna da esquerda, que é onde tem espaço para se ler. */}
-      <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[13px] text-gray-700">
+      {/* Prompt 240 — a linha de ESTADO. Prompt 397 §A.3 — centrada,
+          ponto+frase em vez de chip+frase: o WhoseTurnChip (pill) sai daqui
+          (continua a existir como componente exportado, usado noutros
+          sítios — Pipeline row), substituído pelo próprio HealthDot já
+          usado ao lado. MESMO CONTEÚDO da frase — nada de copy nova. */}
+      <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-[13px] text-gray-700">
         <HealthDot entityId={entity.id} dealMessageTouches={dealMessageTouches} />
-        {!parkedOrClosed && <WhoseTurnChip entityId={entity.id} dealMessageTouches={dealMessageTouches} />}
         {!confirmation && !dismissed && exits.show && (
           <span className={
             lastInboundWasPass ? 'font-semibold text-[#B00000]'
@@ -654,221 +604,6 @@ export function RelationshipSummaryCard({
         </div>
       )}
 
-      {/* Prompt 240 — duas COLUNAS, seguindo o mockup: à esquerda os cartões
-          de datas + o conselho (Tip) ou o desfecho (Pass reason); à direita
-          o histórico, que passa a ser o bloco maior (`flex-[1.3]` contra
-          `flex-1`) — invertendo o 228 §B, onde ele era o mais estreito.
-          Em ecrã estreito o flex-wrap empilha as duas colunas. */}
-      <div className="mt-4 flex flex-wrap items-start gap-4">
-        <div className="flex min-w-[300px] flex-1 flex-col gap-3">
-          {/* Dois cartões de datas lado a lado, como no mockup: cada facto
-              com o seu rótulo, em vez de quatro linhas empilhadas num só. */}
-          <div className="flex gap-3">
-            <div className="min-w-0 flex-1 rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
-              <div className="text-[11.5px] text-gray-500">First contact</div>
-              <div className="mt-0.5 truncate text-sm font-bold text-[#0E7490]">
-                {s.firstContactAt ? s.firstContactAt.slice(0, 10) : '—'}
-              </div>
-              <div className="mt-0.5 text-[11.5px] text-gray-500">
-                {s.touchCount} {s.touchCount === 1 ? 'touch' : 'touches'}
-              </div>
-            </div>
-            {/* Prompt 240 — quando a relação fechou COM pass, "Last touch"
-                passa a "Closed", com a data da própria interação de pass.
-                Nunca entity.updated_at: esse muda com qualquer edição sem
-                relação nenhuma com o fecho. Sem pass classificado (ex.
-                parked), mantém-se "Last touch" — não se inventa um desfecho
-                que não foi registado. */}
-            <div className="min-w-0 flex-1 rounded-2xl border border-[#e6eef0] bg-[linear-gradient(155deg,#ffffff,#f3fafb_70%)] px-4 py-3 shadow-[0_1px_1px_rgba(15,60,70,.04),0_6px_14px_-6px_rgba(15,60,70,.14),inset_0_1px_0_rgba(255,255,255,.6)]">
-              {parkedOrClosed && lastPassInteraction ? (
-                <>
-                  <div className="text-[11.5px] text-gray-500">Closed</div>
-                  <div className="mt-0.5 truncate text-sm font-bold text-gray-600">{lastPassInteraction.occurred_at.slice(0, 10)}</div>
-                  <div className="mt-0.5 text-[11.5px] text-gray-500">
-                    {Math.floor((Date.now() - new Date(lastPassInteraction.occurred_at).getTime()) / 86_400_000)}d ago
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="text-[11.5px] text-gray-500">Last touch</div>
-                  <div className="mt-0.5 truncate text-sm font-bold text-[#0E7490]">
-                    {s.lastTouchAt ? s.lastTouchAt.slice(0, 10) : '—'}
-                  </div>
-                  <div className="mt-0.5 text-[11.5px] font-semibold text-[#0E7490]">
-                    {s.daysSinceLastTouch != null ? `${s.daysSinceLastTouch}d ago` : ' '}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Prompt 240 — "Sherlock Tip": o conselho do nextBestAction em
-              cartão próprio, em vez de diluído numa linha neutra de estado.
-              É a frase que o founder vai aprender a confiar, e merece o
-              destaque. Verde-teal pálido, nunca saturado — a paleta do
-              resto do produto.
-              Prompt 251-B "Fase 0" — deixa de exigir relação activa: o Tip
-              "devia sempre existir" (nota do Nuno) — numa relação fechada
-              É a oportunidade de reabertura, quando existe. nextBestAction
-              já devolve texto para closed/parked (derivado da doutrina de
-              reopen, migração 0016) em vez do antigo silêncio total. */}
-          {action && (
-            <div data-tour-id="entity-tip" className="rounded-2xl border border-[#cdeadb] bg-[#F4FBF7] px-4 py-3.5">
-              <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.03em] text-[#0f5132]">
-                <span aria-hidden className="inline-flex h-4 w-4 items-center justify-center rounded-[5px] bg-[#0f5132] text-[10px] font-extrabold text-white">S</span>
-                Sherlock Tip
-              </div>
-              <div className="mt-1.5 text-[13px] leading-relaxed text-gray-800">{annotateNextStep(action)}</div>
-              {/* Prompt 254 — the RESULT the headline above already named:
-                  a real shortcut when clear (never just "go do it"), or
-                  the actual list of what's failing (no jargon dump —
-                  preflight's own reason text) when it isn't. */}
-              {nextContactPreflight?.green && nextContact && (
-                <Link href={`/log?entity=${entity.id}&person=${nextContact.id}`}
-                  className="mt-1.5 inline-block rounded-lg bg-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c4028]">
-                  Log the first interaction
-                </Link>
-              )}
-              {nextContactPreflight && !nextContactPreflight.green && (
-                <ul className="mt-1.5 space-y-0.5 text-[12px] text-gray-700">
-                  {nextContactPreflight.failed.map((f) => (
-                    <li key={f.key} className="flex gap-1.5">
-                      <span aria-hidden className="text-[#0f5132]">·</span>
-                      <span>{f.reason ?? f.label}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {/* Prompt 396 §7 — pending L3 contact request: already known
-                  by the caller (page.tsx's own useInterestRequests), no new
-                  derivation needed. Takes priority visually over the
-                  overdue-follow-up button below — deciding on the request
-                  is the more urgent of the two if somehow both apply. */}
-              {pendingInterest ? (
-                <Link href="/today"
-                  className="mt-1.5 inline-block rounded-lg bg-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c4028]">
-                  Decide in Today →
-                </Link>
-              ) : actionButton?.kind === 'follow_up' ? (
-                canMessage && onOpenMessage ? (
-                  <button onClick={onOpenMessage}
-                    className="mt-1.5 inline-block rounded-lg bg-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c4028]">
-                    Message investor
-                  </button>
-                ) : (
-                  <Link href={`/log?entity=${entity.id}&person=${actionButton.personId}`}
-                    className="mt-1.5 inline-block rounded-lg bg-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#0c4028]">
-                    Log the follow-up
-                  </Link>
-                )
-              ) : null}
-              {/* Prompt 396 §7 — unclassified replies: same onClassifyRequest
-                  the "N replies to classify" chip already uses (line ~350
-                  above) — reused, not reimplemented. Orthogonal to whatever
-                  nextBestAction's own text says, so it's not gated on
-                  `action` matching any particular branch. */}
-              {ds.unclassifiedReplies > 0 && onClassifyRequest && (
-                <button onClick={onClassifyRequest}
-                  className="mt-1.5 ml-1.5 inline-block rounded-lg border border-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-[#0f5132] hover:bg-[#e4f3ea]">
-                  Classify {ds.unclassifiedReplies} {ds.unclassifiedReplies === 1 ? 'reply' : 'replies'}
-                </button>
-              )}
-              {/* Prompt 251-B point 3 — the "nothing registered" case also
-                  asks the founder to fix that, not just names the gap.
-                  Prompt 269 §2 — reopen_trigger is now editable once set
-                  too (real case: "nothing nee", a typo with no way to fix
-                  it), and shown as an explicitly attributed founder note —
-                  never fused into the Sherlock Tip sentence above, which
-                  is Sherlock's own derived opinion, not a place for raw
-                  manual text. A short minimum guards against saving
-                  something that reads as cut off, without policing valid
-                  short notes into being padded. */}
-              {parkedOrClosed && (
-                reopenTriggerDraft === null ? (
-                  entity.reopen_trigger ? (
-                    <div className="mt-1.5 flex items-start gap-1.5 text-[12px] text-gray-600">
-                      <span>Your note when freezing: &ldquo;{entity.reopen_trigger}&rdquo;</span>
-                      <button onClick={() => setReopenTriggerDraft(entity.reopen_trigger ?? '')} title="Edit your note"
-                        className="shrink-0 text-[11px] text-gray-300 hover:text-[#0f5132]">
-                        ✎
-                      </button>
-                    </div>
-                  ) : needsReopenTrigger(entity) ? (
-                    <button onClick={() => setReopenTriggerDraft('')}
-                      className="mt-1.5 text-[11px] font-semibold text-[#0f5132] hover:underline">
-                      + Set reopen trigger
-                    </button>
-                  ) : null
-                ) : (
-                  <div className="mt-1.5 space-y-1.5">
-                    <textarea value={reopenTriggerDraft} onChange={(e) => setReopenTriggerDraft(e.target.value)} rows={2} autoFocus
-                      placeholder="What would have to change for a re-approach to be legitimate?"
-                      className="w-full rounded border border-[#cdeadb] bg-white p-2 text-xs text-gray-900" />
-                    {reopenTriggerDraft.trim().length > 0 && reopenTriggerDraft.trim().length < REOPEN_TRIGGER_MIN_LENGTH && (
-                      <p className="text-[11px] text-amber-700">A few more words help — this reads as cut off.</p>
-                    )}
-                    <div className="flex gap-1.5">
-                      <button
-                        disabled={reopenTriggerDraft.trim().length < REOPEN_TRIGGER_MIN_LENGTH}
-                        onClick={() => { updateEntity(entity.id, { reopen_trigger: reopenTriggerDraft.trim() }); setReopenTriggerDraft(null); }}
-                        className="rounded-full bg-[#0f5132] px-2.5 py-1 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-300">
-                        Save
-                      </button>
-                      <button onClick={() => setReopenTriggerDraft(null)}
-                        className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[11px] text-gray-600">
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )
-              )}
-            </div>
-          )}
-
-          {/* Prompt 240 — no lugar do Tip, quando a relação fechou com um
-              pass: a razão VERBATIM e a categoria. É o dado com mais valor
-              que sobra de um "não" — dez destes reescrevem o pitch — e até
-              aqui só aparecia como uma linha pequena dentro do drawer.
-              Fechada por outro motivo (parked sem pass), não aparece nada:
-              não se inventa texto. */}
-          {parkedOrClosed && lastPassReason && (
-            <div className="rounded-2xl border border-[#f0d5d5] bg-[#FCF4F4] px-4 py-3.5">
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.03em] text-[#7a1f1f]">
-                Pass reason
-                {lastPassInteraction?.pass_reason_category && (
-                  <span className="font-normal normal-case tracking-normal text-gray-500">
-                    · {lastPassInteraction.pass_reason_category.replace(/_/g, ' ')}
-                  </span>
-                )}
-              </div>
-              <div className="mt-1.5 text-[13px] italic leading-relaxed text-gray-800">&ldquo;{lastPassReason}&rdquo;</div>
-              {lastPassInteraction && (
-                <div className="mt-2 text-[11px] text-gray-500">
-                  Recorded {lastPassInteraction.occurred_at.slice(0, 10)}, from the classified reply.
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Prompt 241 — a coluna direita passa a ser preenchida pelo
-            PRÓPRIO RecentInteractions, em vez de uma segunda lista só de
-            leitura. O 240 deixou os dois a mostrar as mesmas linhas, um a
-            seguir ao outro, porque o merge do 238 tinha tornado o conteúdo
-            idêntico — e a razão original para haver duas (o badge "N to
-            classify" cá em cima a apontar para a lista de baixo) deixou de
-            existir quando esta passou a desenhar a lista inteira.
-            Via escolhida: manter o LAYOUT do 240 (a coluna, o tamanho, a
-            posição) e trazer para aqui o componente que já tem a
-            classificação inline e os saltos — em vez de mover essa máquina
-            toda (InlineClassify, nonces, refs, expanded) para dentro deste
-            ficheiro, que a duplicaria e deixaria o RecentInteractions
-            morto. É composição, não migração de código. */}
-        <div className="min-w-[320px] flex-[1.3]">
-          {historySlot}
-        </div>
-
-      </div>
     </div>
   );
 }
