@@ -267,7 +267,7 @@ export function AgendaPanel() {
                   TaskItem — there is no document_id field to prefill from,
                   so that part of the request doesn't apply here. */}
               {selected.entity_id && (
-                <Link href={`/log?entity=${selected.entity_id}${selected.person_id ? `&person=${selected.person_id}` : ''}`}
+                <Link href={`/entities/${selected.entity_id}?rail=log${selected.person_id ? `&person=${selected.person_id}` : ''}`}
                   className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#0c637b]">
                   Log interaction
                 </Link>

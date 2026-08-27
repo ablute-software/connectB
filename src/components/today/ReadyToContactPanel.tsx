@@ -43,7 +43,7 @@ export function ReadyToContactPanel() {
                   <ActionTypePill type={recommendedActionType(db, e.id, p.id)} />
                   <PersonLink id={p.id}><span className="font-medium">{p.full_name}</span></PersonLink>
                   <span className="text-gray-500">· {e.name}</span>
-                  <Link href={`/log?entity=${e.id}&person=${p.id}`}
+                  <Link href={`/entities/${e.id}?rail=log&person=${p.id}`}
                     className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white">Open draft flow</Link>
                 </div>
                 {p.hook && <div className="mt-0.5 text-xs text-gray-500">{p.hook}</div>}

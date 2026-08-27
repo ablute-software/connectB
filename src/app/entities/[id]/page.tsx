@@ -114,6 +114,11 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   // to the same person) so it re-applies even if the founder already
   // switched away and back.
   const [logPrefill, setLogPrefill] = useState<{ personId?: string; nonce: number }>({ nonce: 0 });
+  // Prompt 400 §B.2 — the document-request review page's own prefill
+  // (direction/date/content, via ?rail=log&direction=&date=&content=),
+  // separate from logPrefill since it doesn't drive RailLogForm's §D.1
+  // shimmer (see that component's own prop comment).
+  const [logDraftPrefill, setLogDraftPrefill] = useState<{ direction?: 'out' | 'in'; date?: string; content?: string; nonce: number }>({ nonce: 0 });
   // Block F — a "Request NDA via message" link (from the document-request
   // review page) lands here with a draft body pre-filled but NEVER sent
   // automatically: it switches the panel to Message with the same composer
@@ -176,16 +181,28 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const railMode = searchParams.get('rail');
   const railPerson = searchParams.get('person');
   const railClassify = searchParams.get('classify');
+  // §B.2 — the document-request review page's own prefill shape (Prompt
+  // 372 Block D: pre-fill an INBOUND log with the request text verbatim,
+  // no person involved).
+  const railDirection = searchParams.get('direction');
+  const railDate = searchParams.get('date');
+  const railContent = searchParams.get('content');
   useEffect(() => {
     if (railMode === 'log') {
       setLogPrefill((p) => ({ personId: railPerson ?? undefined, nonce: p.nonce + 1 }));
+      if (railDirection || railDate || railContent) {
+        setLogDraftPrefill((p) => ({
+          direction: railDirection === 'in' ? 'in' : railDirection === 'out' ? 'out' : undefined,
+          date: railDate ?? undefined, content: railContent ?? undefined, nonce: p.nonce + 1,
+        }));
+      }
       setPanelMode('log');
     } else if (railMode === 'history') {
       setPanelMode('history');
       if (railClassify) setClassifyNonce((n) => n + 1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [railMode, railPerson, railClassify]);
+  }, [railMode, railPerson, railClassify, railDirection, railDate, railContent]);
 
   // Prompt 275 §3 — scrolls to and briefly highlights the row a founder
   // just promoted from the Team card's key_people fallback via "Add as
@@ -756,6 +773,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               )}
               {panelMode === 'log' && (
                 <RailLogForm entity={entity} defaultPersonId={logPrefill.personId} prefillNonce={logPrefill.nonce}
+                  defaultDraft={logDraftPrefill} draftNonce={logDraftPrefill.nonce}
                   onSaved={() => setPanelMode('history')} />
               )}
               {panelMode === 'message' && messaging.canMessage && messaging.investorCatalogEntityId && (

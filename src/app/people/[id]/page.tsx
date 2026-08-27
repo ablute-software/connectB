@@ -50,7 +50,7 @@ export default function PersonPage({ params }: { params: { id: string } }) {
         <div className="flex items-center gap-2">
           <Link href={`/people/${person.id}/prep`} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">Meeting prep</Link>
           {!person.do_not_contact && (
-            <Link href={`/log?entity=${person.entity_id}&person=${person.id}`}
+            <Link href={`/entities/${person.entity_id}?rail=log&person=${person.id}`}
               className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">Log interaction</Link>
           )}
         </div>
@@ -76,7 +76,7 @@ export default function PersonPage({ params }: { params: { id: string } }) {
         <div className="space-y-4 md:col-span-2">
           {!person.do_not_contact && (
             <PreflightCard checks={checks}
-              onProceed={() => router.push(`/log?entity=${person.entity_id}&person=${person.id}`)}
+              onProceed={() => router.push(`/entities/${person.entity_id}?rail=log&person=${person.id}`)}
               ctaLabel="Open log flow" />
           )}
           {person.hook && (

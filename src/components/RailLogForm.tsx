@@ -7,12 +7,11 @@
 // form refuses is refused for the same reason /log would refuse it.
 // Prompt 400 §B.1 brought this to full parity with /log's own surface —
 // Draft with AI (same draftWithAi machine, same Watson accounting),
-// amount asked, and a next-action suggestion offered right after Save —
-// so /log itself is only a legacy deep-link now (§B.2), not a feature this
-// panel is missing. Still deliberately narrower in two ways, both because
-// this is a fast-path panel and /log stays reachable for anything past a
-// quick log: no Gmail send (the manual-send confirmation path covers it),
-// and no web-form assist panel.
+// amount asked, a next-action suggestion offered right after Save, and
+// Gmail send — so /log itself is only a legacy deep-link now (§B.2), not a
+// feature this panel is missing. The one deliberate, spec-approved
+// exception: no web-form assist panel (§B.1.1's own text: "fica onde está
+// por agora" — /log stays reachable for that one flow).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Tooltip, PREFLIGHT_EXPLAIN } from '@/components/ui';
@@ -37,7 +36,7 @@ const CHANNELS: { v: Channel; l: string }[] = [
 const CLASSIFICATIONS: Classification[] = ['awaiting', 'interested', 'meeting_request', 'question', 'pass', 'out_of_office', 'bounce', 'unclear'];
 
 export function RailLogForm({
-  entity, defaultPersonId, prefillNonce, onSaved,
+  entity, defaultPersonId, prefillNonce, defaultDraft, draftNonce, onSaved,
 }: {
   entity: Entity;
   // Prompt 397 §A.4/§B.3.3 — the Sherlock Insight banner's "Log the first
@@ -47,6 +46,15 @@ export function RailLogForm({
   // match what's already selected.
   defaultPersonId?: string;
   prefillNonce?: number;
+  // Prompt 400 §B.2 — the document-request review page's "Log this request
+  // as an interaction" link (Prompt 372 Block D) used to pre-fill /log's
+  // direction/date/content directly via query params; carried through the
+  // same way now (?rail=log&direction=in&date=&content= on the entity
+  // page). Separate from defaultPersonId/prefillNonce on purpose: this
+  // doesn't drive the §D.1 "Pre-filled from Sherlock's insight" shimmer,
+  // which is specifically about the Insight banner's own suggestions.
+  defaultDraft?: { direction?: 'out' | 'in'; date?: string; content?: string };
+  draftNonce?: number;
   onSaved: () => void;
 }) {
   const { db, logInteraction, addDocument, addGrant, addCompanyFact, addTask } = useStore();
@@ -99,6 +107,13 @@ export function RailLogForm({
   const [editingSuggestion, setEditingSuggestion] = useState(false);
   const [suggestionTitle, setSuggestionTitle] = useState('');
   const [suggestionDue, setSuggestionDue] = useState('');
+  // §B.2 gap closed — Gmail send. /log's canSendViaGmail path wasn't in
+  // §B.1's own list of 4 gaps to close, but leaving it out would mean the
+  // redirect (§B.2) drops a capability, which its own text forbids. Same
+  // state/endpoint/gate as /log.
+  const [gmail, setGmail] = useState<{ configured: boolean; connected: boolean; email?: string | null } | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendErr, setSendErr] = useState('');
   // Prompt 397 §C — attachments picked in THIS draft, not yet saved. Each is
   // exactly one document OR folder (mirrors AccessGrant/InteractionDocument).
   // Sharing (options 2/3 below) creates the access grant immediately, at the
@@ -198,7 +213,10 @@ export function RailLogForm({
       .catch(() => {});
   }
 
-  useEffect(() => { refreshMe(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    refreshMe();
+    fetch('/api/oauth/google/status').then((r) => r.json()).then(setGmail).catch(() => setGmail({ configured: false, connected: false }));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Same trigger as /log's own intent effect: a fresh intent guess whenever
   // the target person changes (entity is fixed on this form, unlike /log).
@@ -311,9 +329,10 @@ export function RailLogForm({
       setDirection('out');
       // Prompt 397 §D.1 — the simple criterion: the shimmer shows while
       // personId still equals what the banner suggested, and disappears the
-      // moment the founder picks someone else or "No specific person" — no
-      // separate tracking needed for content, since this form never
-      // prefills message text (see the file header comment).
+      // moment the founder picks someone else or "No specific person".
+      // Content prefill (defaultDraft, below) is a separate channel and
+      // deliberately does NOT drive this shimmer — it's specifically about
+      // the Insight banner's own suggestions.
       setPrefilledPersonId(defaultPersonId);
     } else if (!personId) {
       const fallback = nextContactPerson(db, entity.id);
@@ -324,6 +343,17 @@ export function RailLogForm({
     // person choice on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillNonce]);
+
+  // Prompt 400 §B.2 — the document-request review page's own prefill
+  // (direction/date/content), same narrow-reapply-only-on-nonce-bump shape
+  // as the person prefill above.
+  useEffect(() => {
+    if (!defaultDraft) return;
+    if (defaultDraft.direction) setDirection(defaultDraft.direction);
+    if (defaultDraft.date) setWhatDate(defaultDraft.date);
+    if (defaultDraft.content) setContent(defaultDraft.content);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftNonce]);
 
   const person = people.find((p) => p.id === personId);
 
@@ -354,7 +384,7 @@ export function RailLogForm({
   const primarySaveLabel = needsManualSendConfirmation ? 'I confirm this was sent' : 'Save interaction';
   const wasPrefilled = !!prefilledPersonId && !noSpecificPerson && personId === prefilledPersonId;
 
-  function save(withOverrides: boolean) {
+  function save(withOverrides: boolean, sentFrom?: string) {
     if (!formReady) return;
     const overrides = withOverrides
       ? summary.failed.filter((f) => f.overridable).map((f) => ({ rule: f.key as OverrideRule, justification }))
@@ -365,7 +395,7 @@ export function RailLogForm({
     const interaction = logInteraction({
       entity_id: entity.id, person_id: personId || undefined, direction, channel, content: fullContent,
       occurred_at: whatDate ? new Date(whatDate).toISOString() : undefined,
-      sent_from: direction === 'out' && channel === 'email' ? db.org.sender_email : undefined,
+      sent_from: direction === 'out' && channel === 'email' ? (sentFrom ?? db.org.sender_email) : undefined,
       classification: direction === 'in' ? (classification as Classification) : direction === 'out' ? 'awaiting' : undefined,
       // §B.1.3
       ask_amount_eur: direction === 'out' && askAmount.trim() !== '' ? Number(askAmount) : undefined,
@@ -394,6 +424,25 @@ export function RailLogForm({
     }
     window.setTimeout(() => { setToast(''); onSaved(); }, 700);
   }
+
+  async function sendViaGmail() {
+    if (!person?.email_verified || !formReady || lintErrors.length > 0) return;
+    setSending(true); setSendErr('');
+    try {
+      const res = await fetch('/api/compose/send', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ to: person.email_verified, subject, body: content }),
+      });
+      const data = await res.json();
+      if (data.ok === false) { setSendErr(data.error); return; }
+      save(false, data.sentFrom);
+    } catch (e) {
+      setSendErr((e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  }
+  const canSendViaGmail = direction === 'out' && channel === 'email' && gmail?.connected && !!person?.email_verified;
 
   return (
     <div className="space-y-3">
@@ -673,6 +722,7 @@ export function RailLogForm({
       </div>
 
       {toast && <div className="rounded border border-green-200 bg-green-50 px-2.5 py-1.5 text-xs text-green-800">{toast}</div>}
+      {sendErr && <div className="rounded border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-[#B00000]">{sendErr}</div>}
 
       {pendingSuggestion ? (
         // §B.1.4 — the interaction is already saved; this is the engine's
@@ -730,7 +780,7 @@ export function RailLogForm({
         </div>
       ) : (
         <div>
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <div className="flex flex-wrap items-center gap-2">
             <Tooltip text={needsManualSendConfirmation
               ? 'Confirms you sent this yourself outside the app, then logs it and applies its follow-on effects (contact lock, suggested next step).'
               : 'Logs this interaction and applies its follow-on effects (contact lock, suggested next step).'}>
@@ -739,6 +789,14 @@ export function RailLogForm({
                 {primarySaveLabel}
               </button>
             </Tooltip>
+            {canSendViaGmail && (
+              <Tooltip text="Sends the email through your connected Gmail account, then logs it automatically.">
+                <button disabled={sending || !formReady || lintErrors.length > 0} onClick={sendViaGmail}
+                  className="rounded-lg border border-[#0E7490] px-3 py-2 text-sm font-medium text-[#0E7490] disabled:opacity-40">
+                  {sending ? 'Sending…' : `Send from ${gmail?.email} & log`}
+                </button>
+              </Tooltip>
+            )}
             {/* Prompt 397 §D.1 — only while personId still matches what the
                 Sherlock Insight banner suggested (see the prefill effect). */}
             {wasPrefilled && <span className="prefill-sweep text-[11px]">Pre-filled from Sherlock&apos;s insight</span>}

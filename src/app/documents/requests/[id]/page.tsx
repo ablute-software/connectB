@@ -47,8 +47,10 @@ export default function DocumentRequestReviewPage({ params }: { params: { id: st
   if (!request) return <p className="text-sm text-gray-400">Loading…</p>;
 
   const requestText = `Document request: ${request.items.map((i) => i.label).join(', ')}.${request.message ? ` "${request.message}"` : ''}`;
+  // Prompt 400 §B.2 — points at the entity dossier's own Log panel directly
+  // (rail=log), not /log (now a legacy redirect for old bookmarks/links).
   const logHref = request.entityId
-    ? `/log?entity=${request.entityId}&direction=in&date=${new Date().toISOString().slice(0, 10)}&content=${encodeURIComponent(requestText)}`
+    ? `/entities/${request.entityId}?rail=log&direction=in&date=${new Date().toISOString().slice(0, 10)}&content=${encodeURIComponent(requestText)}`
     : null;
 
   return (

@@ -128,7 +128,8 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [], d
               className="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50">
               {order === 'newest' ? 'Newest first' : 'Oldest first'}
             </button>
-            <Link href={`/log?entity=${entity.id}`} className="ml-auto rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">
+            <Link href={`/entities/${entity.id}?rail=log`} onClick={onClose}
+              className="ml-auto rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">
               Log interaction
             </Link>
           </div>
