@@ -6,15 +6,18 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { useStore } from '@/lib/store';
-import { Card, EntityLink, PersonLink, WaveTag, fmtRoundEur } from '@/components/ui';
-import { outboundCounts, preflight, preflightSummary } from '@/lib/rules';
-import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, recommendedActionType } from '@/lib/relationship';
+import { Card, EntityLink, PersonLink, fmtRoundEur } from '@/components/ui';
+import { outboundCounts } from '@/lib/rules';
+import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL } from '@/lib/relationship';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { useInterestRequests, decideInterestRequest } from '@/lib/interest-requests-client';
 import type { ActionType } from '@/lib/types';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 
-function ActionTypePill({ type }: { type: ActionType }) {
+// Prompt 398 §2 — exported so ReadyToContactPanel.tsx/ResearchNeededPanel.tsx
+// (the two sections extracted out to their own top-level tabs) use the
+// exact same pill, not a second copy.
+export function ActionTypePill({ type }: { type: ActionType }) {
   return <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${ACTION_TYPE_COLOR[type]}`}>{ACTION_TYPE_LABEL[type]}</span>;
 }
 
@@ -39,26 +42,26 @@ export function TodayPanel() {
       toggleTask(taskId);
     } finally { setBusyTaskId(null); }
   }
+  // Prompt 398 §1 — a checkbox click can be a mis-click, and toggleTask is
+  // already reversible, but the founder had no way to know that. Same
+  // pattern as RelationshipSummaryCard's stage-change undo: local state,
+  // 10s auto-clear, last-one-wins (no queue). Interest-request tasks are
+  // the one exception (§1.2) — their decision hits the server
+  // (decideInterestRequest) and reverting locally would lie about that, so
+  // they keep calling toggleTask directly via decideInterest above, never
+  // this.
+  const [undoable, setUndoable] = useState<{ taskId: string; label: string } | null>(null);
+  function completeTask(taskId: string, label: string) {
+    toggleTask(taskId);
+    setUndoable({ taskId, label });
+    window.setTimeout(() => setUndoable((u) => (u?.taskId === taskId ? null : u)), 10_000);
+  }
   const now = new Date();
   const caps = outboundCounts(db);
-  const capReached = caps.today >= caps.dailyCap || caps.week >= caps.weeklyCap;
 
   const overdue = db.tasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) < now && t.kind !== 'research')
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
   const unclassified = db.interactions.filter((i) => i.direction === 'in' && (!i.classification || i.classification === 'unclear'));
-  const ready = db.people
-    .filter((p) => !p.do_not_contact)
-    .filter((p) => {
-      const e = db.entities.find((x) => x.id === p.entity_id);
-      return e && ['not_contacted', 'contacted'].includes(e.status);
-    })
-    .filter((p) => preflightSummary(preflight(db, p, null)).green)
-    .sort((a, b) => {
-      const ea = db.entities.find((x) => x.id === a.entity_id); const eb = db.entities.find((x) => x.id === b.entity_id);
-      return (ea?.wave ?? 9) - (eb?.wave ?? 9) || a.seniority_rank - b.seniority_rank;
-    });
-  const research = db.tasks.filter((t) => !t.done && t.kind === 'research')
-    .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
   const thisWeek = db.tasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) >= now
     && new Date(t.due_at) < new Date(now.getTime() + 7 * 24 * 3600 * 1000))
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? '')).slice(0, 6);
@@ -88,6 +91,16 @@ export function TodayPanel() {
           </div>
         </div>
 
+        {undoable && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+            <span>Task completed — {undoable.label}</span>
+            <button onClick={() => { toggleTask(undoable.taskId); setUndoable(null); }}
+              className="font-semibold text-[#0E7490] hover:underline">
+              Undo
+            </button>
+          </div>
+        )}
+
         {/* Prompt 251/253 Bloco C — the exact same queue Pipeline already
             shows, mounted here too: a cleared rejection_code is a
             "today" signal, not something the founder should only find
@@ -106,7 +119,7 @@ export function TodayPanel() {
                   ? pendingInterestByEntity.get(t.entity_id) : undefined;
                 return (
                 <li key={t.id} className="flex items-center gap-3 py-2 text-sm">
-                  {!interestReq && <input type="checkbox" checked={false} onChange={() => toggleTask(t.id)} />}
+                  {!interestReq && <input type="checkbox" checked={false} onChange={() => completeTask(t.id, t.title)} />}
                   <ActionTypePill type={t.action_type} />
                   <span className="flex-1">{t.title}
                     {t.entity_id && <> — <EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink></>}
@@ -144,53 +157,6 @@ export function TodayPanel() {
           )}
         </Card>
 
-        <div data-tour-id="today-ready">
-        <Card title={<span className="text-green-700">Ready to contact ({capReached ? 0 : ready.length})</span>}>
-          {capReached ? (
-            <p className="text-sm text-gray-500">Daily cap reached ({caps.today}/{caps.dailyCap}). Queue resumes tomorrow — research below.</p>
-          ) : ready.length === 0 ? (
-            <p className="text-sm text-gray-400">No one is fully green right now — resolve pre-flight blockers or research hooks.</p>
-          ) : (
-            <ul className="divide-y divide-gray-100">
-              {ready.map((p) => {
-                const e = db.entities.find((x) => x.id === p.entity_id)!;
-                return (
-                  <li key={p.id} className="py-2 text-sm">
-                    <div className="flex items-center gap-2">
-                      <WaveTag wave={e.wave} />
-                      <ActionTypePill type={recommendedActionType(db, e.id, p.id)} />
-                      <PersonLink id={p.id}><span className="font-medium">{p.full_name}</span></PersonLink>
-                      <span className="text-gray-500">· {e.name}</span>
-                      <Link href={`/log?entity=${e.id}&person=${p.id}`}
-                        className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white">Open draft flow</Link>
-                    </div>
-                    {p.hook && <div className="mt-0.5 text-xs text-gray-500">{p.hook}</div>}
-                    {e.submission_channel && <div className="text-xs text-cyan-800">Official channel first: {e.submission_channel}</div>}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
-        </div>
-
-        <div data-tour-id="today-research">
-        <Card title={<span className="text-[#0E7490]">Research needed ({research.length})</span>}>
-          {research.length === 0 ? <p className="text-sm text-gray-400">No research tasks.</p> : (
-            <ul className="divide-y divide-gray-100">
-              {research.map((t) => (
-                <li key={t.id} className="flex items-center gap-3 py-2 text-sm">
-                  <input type="checkbox" checked={false} onChange={() => toggleTask(t.id)} />
-                  <ActionTypePill type={t.action_type} />
-                  <span className="flex-1">{t.title}</span>
-                  {t.person_id && <PersonLink id={t.person_id}>open</PersonLink>}
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="mt-2 text-xs text-gray-400">No hook = no message. Generic messages burn contacts permanently.</p>
-        </Card>
-        </div>
       </div>
 
       <div className="space-y-4">
