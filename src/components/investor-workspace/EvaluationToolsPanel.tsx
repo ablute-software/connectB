@@ -817,13 +817,10 @@ function EvaluationToolsIntro({ onClose, onMute }: { onClose: () => void; onMute
   );
 }
 
+// Prompt 427 §B — order only; keys/labels/subtitles unchanged.
 const TOOLS: { key: 'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'return' | 'compare'; label: string; subtitle: string }[] = [
-  // Prompt 345 Block E — moved here from the Pipeline (checkbox-per-row +
-  // banner removed there); this tool IS the comparator now, not a shortcut
-  // back to another tab.
-  { key: 'compare', label: 'Compare startups', subtitle: 'Side-by-side, up to 3 from your Pipeline' },
-  { key: 'berkus', label: 'Berkus Method', subtitle: 'Pre-revenue valuation estimate' },
   { key: 'scorecard', label: 'Scorecard criteria', subtitle: 'Your private scoring criteria' },
+  { key: 'berkus', label: 'Berkus Method', subtitle: 'Pre-revenue valuation estimate' },
   { key: 'calculator', label: 'Ownership calculator', subtitle: 'Real round data from your Pipeline' },
   { key: 'simulator', label: 'Equity simulator', subtitle: 'Your own hypothetical numbers' },
   // Prompt 169 §C — MOIC over the same real ownership math as the
@@ -831,6 +828,10 @@ const TOOLS: { key: 'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'retur
   // exit into up to 5 weighted scenarios (Failure→Outlier) plus the VC
   // Method's required-exit inversion.
   { key: 'return', label: 'Scenarios & returns', subtitle: 'Failure→outlier scenarios, weighted MOIC & IRR' },
+  // Prompt 345 Block E — moved here from the Pipeline (checkbox-per-row +
+  // banner removed there); this tool IS the comparator now, not a shortcut
+  // back to another tab.
+  { key: 'compare', label: 'Compare startups', subtitle: 'Side-by-side, up to 3 from your Pipeline' },
 ];
 
 export function EvaluationToolsPanel({ initialOrgId }: {
@@ -931,15 +932,11 @@ export function EvaluationToolsPanel({ initialOrgId }: {
             onMute={() => setEvaluationToolsIntroMuted(true)}
           />
         )}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="text-lg font-bold text-gray-900">Evaluation tools</h1>
-          {/* Prompt 345 Block E — "the shortcut that already exists becomes
-              THE path": same entry point, now opens the comparator right
-              here instead of jumping back to the Pipeline tab. */}
-          <button onClick={() => setTool('compare')} className="text-xs font-medium text-[#0E7490] hover:underline">
-            Compare startups from your Pipeline →
-          </button>
-        </div>
+        {/* Prompt 427 §A — the "Compare startups from your Pipeline →" shortcut
+            that used to live here is redundant since Prompt 418: the "Compare
+            startups" card is always visible in the tool list to the right,
+            with the same destination. */}
+        <h1 className="text-lg font-bold text-gray-900">Evaluation tools</h1>
 
         {/* Prompt 405 §B.4 — all six tools stay mounted; only the active one
             is shown. The alternative (conditional rendering, as this used
