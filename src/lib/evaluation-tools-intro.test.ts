@@ -15,6 +15,15 @@ describe('EVALUATION_TOOLS_INTRO_CONTENT', () => {
       expect(entry.concludes.trim().length).toBeGreaterThan(0);
     }
   });
+
+  // Prompt 430 §B.3
+  it('every entry has a non-empty detail.purpose and at least one step', () => {
+    for (const entry of EVALUATION_TOOLS_INTRO_CONTENT) {
+      expect(entry.detail.purpose.trim().length).toBeGreaterThan(0);
+      expect(entry.detail.steps.length).toBeGreaterThan(0);
+      for (const step of entry.detail.steps) expect(step.trim().length).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe('shouldShowEvaluationToolsIntro — Prompt 420 §B.1/§B.3', () => {

@@ -36,7 +36,7 @@ import {
   filterCardsByName, highestFitCandidate, uncontactedCandidates,
   type EvaluationPipelineCard as PipelineCard,
 } from '@/lib/evaluation-startup-discovery';
-import { EVALUATION_TOOLS_INTRO_CONTENT, shouldShowEvaluationToolsIntro } from '@/lib/evaluation-tools-intro';
+import { EVALUATION_TOOLS_INTRO_CONTENT, shouldShowEvaluationToolsIntro, type EvaluationToolsIntroEntry } from '@/lib/evaluation-tools-intro';
 import { applyCapTableDilution, toCapTableSlices, type CapTableSlice } from '@/lib/cap-table';
 import {
   berkusFactorEur, berkusTotalEur, isInvestorCalibrated, berkusApplicability, berkusDiagnostic, berkusSensitivity,
@@ -1115,33 +1115,64 @@ function CompareStartupsTool({ cards, selectedOrgId, active }: { cards: Pipeline
 // center column (never a modal/overlay), closable via X/"Got it", with the
 // tools reachable below it without closing first (the caller just renders
 // this ABOVE the rest of the center column's content, not on top of it).
+//
+// Prompt 430 §B — each of the 6 cards is now a button that swaps the grid
+// for that tool's own detailed explanation (openKey), never a popup on top
+// — "← Back" returns to the grid, the mute checkbox and Got it/✕ stay
+// visible in both states since they close the WHOLE tour, not one card.
 function EvaluationToolsIntro({ onClose, onMute }: { onClose: () => void; onMute: () => void }) {
   const [muteChecked, setMuteChecked] = useState(false);
+  const [openKey, setOpenKey] = useState<EvaluationToolsIntroEntry['key'] | null>(null);
+  const openEntry = EVALUATION_TOOLS_INTRO_CONTENT.find((e) => e.key === openKey) ?? null;
+
   return (
     <div className="space-y-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-bold text-gray-900">New here? A quick tour of the 6 tools</h2>
-          <p className="mt-0.5 text-xs text-gray-500">What each one does, how it works, and what it tells you.</p>
+          <h2 className="text-sm font-bold text-gray-900">
+            {openEntry ? openEntry.title : 'New here? A quick tour of the 6 tools'}
+          </h2>
+          {!openEntry && (
+            <p className="mt-0.5 text-xs text-gray-500">What each one does, how it works, and what it tells you.</p>
+          )}
         </div>
         <button onClick={onClose} aria-label="Got it" className="shrink-0 text-gray-400 hover:text-gray-700">✕</button>
       </div>
+
+      {openEntry ? (
+        <div className="space-y-2.5 text-xs">
+          <button onClick={() => setOpenKey(null)} className="font-medium text-[#0E7490] hover:underline">
+            ← Back to all 6 tools
+          </button>
+          <p className="text-gray-700">{openEntry.detail.purpose}</p>
+          <div>
+            <div className="font-medium text-gray-500">How to use it</div>
+            <ol className="mt-1 list-decimal space-y-1 pl-4 text-gray-600">
+              {openEntry.detail.steps.map((step, i) => <li key={i}>{step}</li>)}
+            </ol>
+          </div>
+          {openEntry.detail.tip && (
+            <p className="rounded-lg bg-gray-50 px-2.5 py-1.5 text-gray-500">{openEntry.detail.tip}</p>
+          )}
+        </div>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {EVALUATION_TOOLS_INTRO_CONTENT.map((entry) => (
+            <button key={entry.key} onClick={() => setOpenKey(entry.key)}
+              className="rounded-lg border border-gray-100 bg-gray-50 p-2.5 text-left text-xs hover:border-[#0E7490] hover:bg-[#E8F4F8]">
+              <div className="font-semibold text-gray-900">{entry.title}</div>
+              <div className="mt-1 text-gray-600"><span className="font-medium text-gray-500">What: </span>{entry.what}</div>
+              <div className="mt-0.5 text-gray-600"><span className="font-medium text-gray-500">How: </span>{entry.how}</div>
+              <div className="mt-0.5 text-gray-600"><span className="font-medium text-gray-500">Concludes: </span>{entry.concludes}</div>
+            </button>
+          ))}
+        </div>
+      )}
 
       <label className="flex items-center gap-1.5 text-xs text-gray-500">
         <input type="checkbox" checked={muteChecked} onChange={(e) => setMuteChecked(e.target.checked)} className="h-3.5 w-3.5" />
         Tell Watson I don&apos;t want to read this anymore.
       </label>
-
-      <div className="grid gap-2 sm:grid-cols-2">
-        {EVALUATION_TOOLS_INTRO_CONTENT.map((entry) => (
-          <div key={entry.key} className="rounded-lg border border-gray-100 bg-gray-50 p-2.5 text-xs">
-            <div className="font-semibold text-gray-900">{entry.title}</div>
-            <div className="mt-1 text-gray-600"><span className="font-medium text-gray-500">What: </span>{entry.what}</div>
-            <div className="mt-0.5 text-gray-600"><span className="font-medium text-gray-500">How: </span>{entry.how}</div>
-            <div className="mt-0.5 text-gray-600"><span className="font-medium text-gray-500">Concludes: </span>{entry.concludes}</div>
-          </div>
-        ))}
-      </div>
 
       <div className="flex justify-end gap-2 pt-1">
         <button
@@ -1259,21 +1290,23 @@ export function EvaluationToolsPanel({ initialOrgId }: {
       <EvaluationStartupPicker cards={cards} selectedOrgId={selectedOrgId} onSelectOrg={setSelectedOrgId} showsUnusedNote={tool === 'scorecard'} />
 
       <div className="min-w-0 space-y-4">
-        {/* Prompt 420 §B.2 — never blocking: a plain panel ABOVE the rest
-            of this column, not an overlay on top of it — the header and
-            every tool below stay reachable by scrolling past it, no need
-            to close first. */}
+        {/* Prompt 427 §A — the "Compare startups from your Pipeline →" shortcut
+            that used to live here is redundant since Prompt 418: the "Compare
+            startups" card is always visible in the tool list to the right,
+            with the same destination. */}
+        <h1 className="text-lg font-bold text-gray-900">Evaluation tools</h1>
+        {/* Prompt 420 §B.2 — never blocking: a plain panel below the page's
+            own title, not an overlay on top of it — the tools below stay
+            reachable by scrolling past it, no need to close first. Prompt
+            430 §A — moved below the <h1> (was above it): on first open the
+            title used to be pushed below the whole tour, so the page you
+            landed on never showed its own name until you scrolled past it. */}
         {showIntro && (
           <EvaluationToolsIntro
             onClose={() => setShowIntro(false)}
             onMute={() => setEvaluationToolsIntroMuted(true)}
           />
         )}
-        {/* Prompt 427 §A — the "Compare startups from your Pipeline →" shortcut
-            that used to live here is redundant since Prompt 418: the "Compare
-            startups" card is always visible in the tool list to the right,
-            with the same destination. */}
-        <h1 className="text-lg font-bold text-gray-900">Evaluation tools</h1>
 
         {/* Prompt 405 §B.4 — all six tools stay mounted; only the active one
             is shown. The alternative (conditional rendering, as this used
