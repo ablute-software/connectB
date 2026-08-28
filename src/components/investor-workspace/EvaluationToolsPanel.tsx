@@ -567,20 +567,25 @@ function CompareStartupsTool({ cards, selectedOrgId, active }: { cards: Pipeline
 // subtitle on each selector button and a header line on each tool spells
 // out the real difference: real Pipeline round data vs. your own
 // hypothetical numbers.
+// Prompt 418 §B — reordered to follow the real evaluation funnel (orient →
+// crudest estimate → structured qualitative judgment → real-deal math →
+// hypotheticals → full probabilistic model), the same funnel the approved
+// Investor Decision System study used. Keys/labels/subtitles unchanged —
+// only the array order moved.
 const TOOLS: { key: 'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'return' | 'compare'; label: string; subtitle: string }[] = [
+  // Prompt 345 Block E — moved here from the Pipeline (checkbox-per-row +
+  // banner removed there); this tool IS the comparator now, not a shortcut
+  // back to another tab.
+  { key: 'compare', label: 'Compare startups', subtitle: 'Side-by-side, up to 3 from your Pipeline' },
+  { key: 'berkus', label: 'Berkus Method', subtitle: 'Pre-revenue valuation estimate' },
+  { key: 'scorecard', label: 'Scorecard criteria', subtitle: 'Your private scoring criteria' },
   { key: 'calculator', label: 'Ownership calculator', subtitle: 'Real round data from your Pipeline' },
   { key: 'simulator', label: 'Equity simulator', subtitle: 'Your own hypothetical numbers' },
-  { key: 'scorecard', label: 'Scorecard criteria', subtitle: 'Your private scoring criteria' },
-  { key: 'berkus', label: 'Berkus Method', subtitle: 'Pre-revenue valuation estimate' },
   // Prompt 169 §C — MOIC over the same real ownership math as the
   // calculator above. Prompt 408 §A.3 — evolved from a single assumed
   // exit into up to 5 weighted scenarios (Failure→Outlier) plus the VC
   // Method's required-exit inversion.
   { key: 'return', label: 'Scenarios & returns', subtitle: 'Failure→outlier scenarios, weighted MOIC & IRR' },
-  // Prompt 345 Block E — moved here from the Pipeline (checkbox-per-row +
-  // banner removed there); this tool IS the comparator now, not a shortcut
-  // back to another tab.
-  { key: 'compare', label: 'Compare startups', subtitle: 'Side-by-side, up to 3 from your Pipeline' },
 ];
 
 export function EvaluationToolsPanel({ initialOrgId }: {
@@ -641,7 +646,12 @@ export function EvaluationToolsPanel({ initialOrgId }: {
   }, [initialOrgId]);
 
   return (
-    <div className="grid gap-4 md:grid-cols-[260px_1fr] md:items-start">
+    // Prompt 418 §A — three real columns (picker, active tool, tool list),
+    // center clearly widest. On mobile this `grid` has no explicit
+    // grid-cols below `md:`, so it just stacks in DOM order — picker →
+    // active tool → tool list — matching §A.5's own suggested order with
+    // no extra `order-*` classes needed.
+    <div className="grid gap-4 md:grid-cols-[260px_1fr_280px] md:items-start">
       <EvaluationStartupPicker cards={cards} selectedOrgId={selectedOrgId} onSelectOrg={setSelectedOrgId} showsUnusedNote={tool === 'scorecard'} />
 
       <div className="min-w-0 space-y-4">
@@ -653,15 +663,6 @@ export function EvaluationToolsPanel({ initialOrgId }: {
           <button onClick={() => setTool('compare')} className="text-xs font-medium text-[#0E7490] hover:underline">
             Compare startups from your Pipeline →
           </button>
-        </div>
-        <div className="flex flex-wrap items-stretch gap-1.5">
-          {TOOLS.map((t) => (
-            <button key={t.key} onClick={() => setTool(t.key)}
-              className={`rounded-xl px-3 py-1.5 text-left ${tool === t.key ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-              <span className="block text-xs font-medium">{t.label}</span>
-              <span className={`block text-[10px] ${tool === t.key ? 'text-white/70' : 'text-gray-400'}`}>{t.subtitle}</span>
-            </button>
-          ))}
         </div>
 
         {/* Prompt 405 §B.4 — all six tools stay mounted; only the active one
@@ -700,6 +701,19 @@ export function EvaluationToolsPanel({ initialOrgId }: {
             futureDilutions={futureDilutions} setFutureDilutions={setFutureDilutions}
             onSwitchToSimulator={() => setTool('simulator')} />
         </div>
+      </div>
+
+      {/* Prompt 418 §A.4 — the tool strip moved here from a horizontal row
+          above the center column into a vertical list of equal-width
+          cards, same active-highlight style as before. */}
+      <div className="flex flex-col gap-1.5">
+        {TOOLS.map((t) => (
+          <button key={t.key} onClick={() => setTool(t.key)}
+            className={`w-full rounded-xl px-3 py-1.5 text-left ${tool === t.key ? 'bg-[#0E7490] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            <span className="block text-xs font-medium">{t.label}</span>
+            <span className={`block text-[10px] ${tool === t.key ? 'text-white/70' : 'text-gray-400'}`}>{t.subtitle}</span>
+          </button>
+        ))}
       </div>
     </div>
   );

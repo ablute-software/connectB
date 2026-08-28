@@ -292,8 +292,12 @@ export function InvestorWorkspaceShell({
             its own two-column layout (sticky startup picker + tools, see
             EvaluationToolsPanel.tsx) needs the room; max-w-3xl left a large
             empty gap on wide screens with the picker repeated in every tool
-            instead. */}
-        <main className={`mx-auto p-4 md:p-8 ${tab === 'plans' || tab === 'network' || tab === 'pipeline' || tab === 'evaluation' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+            instead. Prompt 418 §A.1 — now THREE columns (picker, tool
+            content, a right-hand tool list), so evaluation gets its own
+            wider max-w-7xl rather than reusing plans/network/pipeline's
+            max-w-6xl — those three didn't ask for more room and stay
+            unchanged. */}
+        <main className={`mx-auto p-4 md:p-8 ${tab === 'evaluation' ? 'max-w-7xl' : tab === 'plans' || tab === 'network' || tab === 'pipeline' ? 'max-w-6xl' : 'max-w-3xl'}`}>
           {tab === 'pipeline' && (
             !gateOpen ? (
               <EmptyState
