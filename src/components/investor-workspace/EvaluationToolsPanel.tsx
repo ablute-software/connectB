@@ -38,6 +38,8 @@ import {
 } from '@/lib/evaluation-startup-discovery';
 import { EVALUATION_TOOLS_INTRO_CONTENT, shouldShowEvaluationToolsIntro } from '@/lib/evaluation-tools-intro';
 import { applyCapTableDilution, toCapTableSlices, type CapTableSlice } from '@/lib/cap-table';
+import { berkusFactorEur, berkusTotalEur, isInvestorCalibrated, BERKUS_DEFAULT_CALIBRATION_REF_EUR, type BerkusFactorLevel } from '@/lib/berkus';
+import { BERKUS_FACTORS_V1, BERKUS_SIMPLIFIED_ANCHORS, type BerkusFactorContent, type BerkusFactorKey } from '@/content/berkus/factors_v1';
 
 interface Wave { items: PipelineCard[] }
 interface PipelineResponse { waves?: Wave[] }
@@ -518,25 +520,63 @@ function ScorecardCriteriaTool() {
 // from inputs they typed themselves. No auto-inference from the company
 // canon at this stage — the canon is too thin to ground it (3 confirmed
 // facts platform-wide at time of writing).
-const BERKUS_FACTOR_MAX_EUR = 500000;
-const BERKUS_FACTORS = [
-  { key: 'sound_idea_eur', label: 'Sound idea', hint: 'Basic value of the idea itself — product risk' },
-  { key: 'prototype_eur', label: 'Prototype', hint: 'Working prototype — technology risk' },
-  { key: 'team_eur', label: 'Quality of the team', hint: 'Execution risk' },
-  { key: 'relationships_eur', label: 'Strategic relationships', hint: 'Market/competitive risk' },
-  { key: 'sales_eur', label: 'Early sales / rollout', hint: 'Production and financial risk' },
-] as const;
-type BerkusFactorKey = typeof BERKUS_FACTORS[number]['key'];
-type BerkusEstimate = Record<BerkusFactorKey, number>;
-const EMPTY_BERKUS: BerkusEstimate = { sound_idea_eur: 0, prototype_eur: 0, team_eur: 0, relationships_eur: 0, sales_eur: 0 };
+// Prompt 428 — Simplified/Detailed rework. The five factors, their labels
+// and per-level content now live in src/content/berkus/factors_v1.ts
+// (versioned, shared by both modes); this file only keeps the per-
+// component form state and the (Phase 1 / Simplified-only, per this
+// prompt's own 415-style phasing) presentation.
+type BerkusFactorFormState = { level: number | null; skipped: boolean; note: string };
+type BerkusFactorFormMap = Record<BerkusFactorKey, BerkusFactorFormState>;
+function emptyBerkusForm(): BerkusFactorFormMap {
+  return Object.fromEntries(BERKUS_FACTORS_V1.map((f) => [f.key, { level: null, skipped: false, note: '' }])) as BerkusFactorFormMap;
+}
 
 // Prompt 408 §B — one snapshot history entry, shape shared by every tool
 // that saves them (evaluation_snapshots.kind); Berkus only ever reads
 // its own inputs/outputs shape back.
 interface EvaluationSnapshot { id: string; inputs: Record<string, unknown>; outputs: Record<string, unknown>; created_at: string }
 
+// A snapshot's `inputs` from before Prompt 428 is the flat {sound_idea_eur,
+// prototype_eur, ...} shape this tool used to save (see the route's own
+// comment) — no `factors` key at all. Detecting that distinguishes an
+// old-format entry (still listed, total still readable from `outputs`,
+// but nothing to Restore into the new per-factor form) from a current one.
+function isPreP428Snapshot(s: EvaluationSnapshot): boolean {
+  return !('factors' in s.inputs);
+}
+
+function BerkusSimplifiedFactorRow({ factor, state, refEur, onChange }: {
+  factor: BerkusFactorContent; state: BerkusFactorFormState; refEur: number;
+  onChange: (patch: Partial<BerkusFactorFormState>) => void;
+}) {
+  const eur = berkusFactorEur('simplified', state.level, state.skipped, refEur);
+  const currentAnchor = BERKUS_SIMPLIFIED_ANCHORS.find((a) => a.level === state.level);
+  return (
+    <div>
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-gray-800">{factor.label}</span>
+        <span className="font-medium text-[#0E7490]">{state.level != null && !state.skipped ? fmtEur(eur) : '—'}</span>
+      </div>
+      <div className="mt-1 flex gap-1">
+        {BERKUS_SIMPLIFIED_ANCHORS.map((a) => (
+          <button key={a.level} type="button" title={a.anchor}
+            onClick={() => onChange({ level: a.level, skipped: false })}
+            className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium ${
+              state.level === a.level && !state.skipped ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            {a.level}
+          </button>
+        ))}
+      </div>
+      {currentAnchor && !state.skipped && <p className="mt-1 text-[11px] text-gray-400">{currentAnchor.anchor}</p>}
+    </div>
+  );
+}
+
 function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; selectedOrgId: string }) {
-  const [estimate, setEstimate] = useState<BerkusEstimate>(EMPTY_BERKUS);
+  const [factors, setFactors] = useState<BerkusFactorFormMap>(emptyBerkusForm());
+  const [refEur, setRefEur] = useState(BERKUS_DEFAULT_CALIBRATION_REF_EUR);
+  const [calibrationNote, setCalibrationNote] = useState('');
+  const [calibrationOpen, setCalibrationOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -556,15 +596,20 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
   // gating it on this tool being open — it's one row per org, and gating
   // it would mean re-fetching every time the investor switches back in.
   useEffect(() => {
-    if (!selectedOrgId) { setEstimate(EMPTY_BERKUS); setSnapshots([]); return; }
+    if (!selectedOrgId) { setFactors(emptyBerkusForm()); setRefEur(BERKUS_DEFAULT_CALIBRATION_REF_EUR); setCalibrationNote(''); setSnapshots([]); return; }
     setLoading(true); setError(null);
     fetch(`/api/portal/berkus?orgId=${encodeURIComponent(selectedOrgId)}`).then((r) => r.json())
-      .then((d) => {
-        const e = d.estimate as (BerkusEstimate & { updated_at: string }) | null;
-        setEstimate(e ? {
-          sound_idea_eur: e.sound_idea_eur, prototype_eur: e.prototype_eur, team_eur: e.team_eur,
-          relationships_eur: e.relationships_eur, sales_eur: e.sales_eur,
-        } : EMPTY_BERKUS);
+      .then((d: { calibration?: { refEur?: number; note?: string | null }; factors?: Record<string, { level: number | null; skipped: boolean; note?: string | null }> | null }) => {
+        setRefEur(d.calibration?.refEur ?? BERKUS_DEFAULT_CALIBRATION_REF_EUR);
+        setCalibrationNote(d.calibration?.note ?? '');
+        const next = emptyBerkusForm();
+        if (d.factors) {
+          for (const f of BERKUS_FACTORS_V1) {
+            const fetched = d.factors[f.key];
+            if (fetched) next[f.key] = { level: fetched.level, skipped: fetched.skipped, note: fetched.note ?? '' };
+          }
+        }
+        setFactors(next);
       })
       .catch(() => setError('Could not load your estimate — try again.'))
       .finally(() => setLoading(false));
@@ -577,7 +622,13 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
     try {
       const res = await fetch('/api/portal/berkus', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ orgId: selectedOrgId, ...estimate }),
+        body: JSON.stringify({
+          orgId: selectedOrgId, mode: 'simplified',
+          calibration: { refEur, note: calibrationNote.trim() || null },
+          factors: Object.fromEntries(BERKUS_FACTORS_V1.map((f) => [f.key, {
+            level: factors[f.key].level, skipped: factors[f.key].skipped, evidenceRefs: [], note: factors[f.key].note.trim() || null,
+          }])),
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.ok === false) { setError(body.error ?? 'Could not save — try again.'); return; }
@@ -587,11 +638,22 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
   }
 
   function restoreSnapshot(s: EvaluationSnapshot) {
-    setEstimate({ ...EMPTY_BERKUS, ...(s.inputs as Partial<BerkusEstimate>) });
+    if (isPreP428Snapshot(s)) return; // no per-factor state in an old-format snapshot to restore
+    const inputs = s.inputs as { calibration?: { refEur?: number; note?: string | null }; factors: Record<string, { level: number | null; skipped: boolean; note?: string | null }> };
+    setRefEur(inputs.calibration?.refEur ?? BERKUS_DEFAULT_CALIBRATION_REF_EUR);
+    setCalibrationNote(inputs.calibration?.note ?? '');
+    const next = emptyBerkusForm();
+    for (const f of BERKUS_FACTORS_V1) {
+      const fetched = inputs.factors[f.key];
+      if (fetched) next[f.key] = { level: fetched.level, skipped: fetched.skipped, note: fetched.note ?? '' };
+    }
+    setFactors(next);
     setConfirmRestoreId(null);
   }
 
-  const total = BERKUS_FACTORS.reduce((s, f) => s + estimate[f.key], 0);
+  const factorLevels: BerkusFactorLevel[] = BERKUS_FACTORS_V1.map((f) => ({ key: f.key, level: factors[f.key].level, skipped: factors[f.key].skipped }));
+  const total = berkusTotalEur('simplified', factorLevels, refEur);
+  const calibrated = isInvestorCalibrated(refEur);
 
   return (
     <div className="max-w-lg space-y-4">
@@ -599,9 +661,8 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
         Your own estimate — private, not shown to the startup, not investment advice.
       </p>
       <p className="text-xs text-gray-500">
-        The Berkus Method values a <b>pre-revenue</b> startup by pricing five risk areas separately — up to
-        €500,000 each, your judgment on every one. The result is the sum of your five estimates, not a
-        precise valuation.
+        The Berkus Method values a <b>pre-revenue</b> startup by pricing five risk areas separately, your judgment on
+        every one. The result is the sum of your five estimates, not a precise valuation.
       </p>
 
       {!selectedOrgId ? (
@@ -611,26 +672,46 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
       ) : (
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           {error && <p className="mb-2 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-[#B00000]">{error}</p>}
-          <div className="space-y-3">
-            {BERKUS_FACTORS.map((f) => (
-              <div key={f.key}>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-800">{f.label} <span className="cursor-help text-gray-400" title={f.hint}>ⓘ</span></span>
-                  <span className="font-medium text-[#0E7490]">{fmtEur(estimate[f.key])}</span>
+
+          {/* Prompt 428 §C — calibration, collapsible/compact in Simplified
+              per §F. Shared by both modes: every illustrative value below
+              recalculates proportionally as soon as this changes. */}
+          <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50/60 p-2.5">
+            <button type="button" onClick={() => setCalibrationOpen((o) => !o)}
+              className="flex w-full items-center justify-between text-left text-xs font-medium text-gray-600">
+              <span>Calibration: {fmtEur(refEur)} per factor{calibrated ? ' · customized' : ' · classic default'}</span>
+              <span className="text-gray-400">{calibrationOpen ? '▴' : '▾'}</span>
+            </button>
+            {calibrationOpen && (
+              <div className="mt-2 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <input type="number" min={1} max={10000000} step={10000} value={refEur}
+                    onChange={(e) => setRefEur(Math.max(1, Math.min(10000000, Math.round(Number(e.target.value) || 0))))}
+                    className="w-32 rounded border border-gray-300 px-2 py-1 text-xs" aria-label="Calibration reference, EUR per factor" />
+                  <span className="text-xs text-gray-500">EUR per factor</span>
+                  {calibrated && (
+                    <button type="button" onClick={() => setRefEur(BERKUS_DEFAULT_CALIBRATION_REF_EUR)} className="text-[11px] text-[#0E7490] hover:underline">
+                      Reset to classic €500k
+                    </button>
+                  )}
                 </div>
-                <input type="range" min={0} max={BERKUS_FACTOR_MAX_EUR} step={10000} value={estimate[f.key]}
-                  onChange={(e) => setEstimate((prev) => ({ ...prev, [f.key]: Number(e.target.value) }))}
-                  className="mt-1 w-full accent-[#0E7490]" aria-label={`${f.label} (0 to €500,000)`} />
+                <input value={calibrationNote} onChange={(e) => setCalibrationNote(e.target.value)}
+                  placeholder="Optional context (geography, stage, source)…"
+                  className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
               </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            {BERKUS_FACTORS_V1.map((f) => (
+              <BerkusSimplifiedFactorRow key={f.key} factor={f} state={factors[f.key]} refEur={refEur}
+                onChange={(patch) => setFactors((prev) => ({ ...prev, [f.key]: { ...prev[f.key], ...patch } }))} />
             ))}
           </div>
 
           <div className="mt-4 border-t border-gray-100 pt-3">
-            <div className="text-xs text-gray-500">Sum of your five factor estimates</div>
+            <div className="text-xs text-gray-500">{calibrated ? 'Investor-calibrated Berkus estimate' : 'Sum of your five factor estimates'}</div>
             <div className="text-xl font-semibold text-[#0E7490]">{fmtEur(total)}</div>
-            <div className="mt-1 text-[11px] text-gray-400">
-              {BERKUS_FACTORS.map((f) => `${f.label} ${fmtEur(estimate[f.key])}`).join(' + ')}
-            </div>
           </div>
 
           <div className="mt-3 flex items-center gap-2">
@@ -645,7 +726,9 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
               full visual timeline is future-wave scope per the prompt's
               own words). Restoring is two clicks — Restore, then Confirm
               — so a click never silently discards the form's current
-              (possibly unsaved) values. */}
+              (possibly unsaved) values. Prompt 428 — a pre-428 snapshot has
+              no per-factor state, so it's listed (total still reads from
+              outputs.totalEur, unchanged shape) but not restorable. */}
           {snapshots.length > 0 && (
             <div className="mt-4 border-t border-gray-100 pt-3">
               <div className="text-xs font-medium text-gray-500">History</div>
@@ -653,7 +736,9 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
                 {snapshots.map((s) => (
                   <li key={s.id} className="flex items-center justify-between text-xs text-gray-600">
                     <span>{new Date(s.created_at).toLocaleDateString()} — {fmtEur((s.outputs as { totalEur: number }).totalEur ?? 0)}</span>
-                    {confirmRestoreId === s.id ? (
+                    {isPreP428Snapshot(s) ? (
+                      <span className="text-gray-300" title="Saved before the Simplified/Detailed update — view only.">Older format</span>
+                    ) : confirmRestoreId === s.id ? (
                       <span className="flex items-center gap-2">
                         <button onClick={() => restoreSnapshot(s)} className="font-medium text-[#0E7490] hover:underline">Confirm restore</button>
                         <button onClick={() => setConfirmRestoreId(null)} className="text-gray-400 hover:underline">Cancel</button>
