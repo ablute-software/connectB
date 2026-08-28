@@ -15,8 +15,11 @@ import {
 import { SharedDocChip } from '@/components/SharedDocChip';
 import { InlineClassify } from '@/components/InlineClassify';
 import { EditInteractionDetails, InteractionEditHint } from '@/components/EditInteractionDetails';
+import { FocusLupa } from '@/components/SherlockInsightBanner';
 
-export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassifyNonce = 0, focusInteraction, dealMessages = [] }: {
+export function RecentInteractions({
+  entity, onOpenFull, limit = 3, focusClassifyNonce = 0, focusInteraction, dealMessages = [], showFocusLupa = false,
+}: {
   entity: Entity;
   // Prompt 206-B — continua a existir para quem vem da Pipeline (abrir o
   // drawer em vez de navegar para fora), mas deixou de ser a ÚNICA porta: na
@@ -37,6 +40,11 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
   // aqui — um investidor real trocou 3 mensagens pela app e a lista
   // mostrava só 2 linhas ao lado de "5 touches", sem explicar a diferença.
   dealMessages?: DealMessageLike[];
+  // Prompt 415 §3 — the Sherlock Next Clue popup's own deep-link
+  // (?focus=unclassified_reply) for THIS candidate specifically: draws
+  // the same lupa cue SherlockInsightBanner uses, on the oldest pending
+  // row's own InlineClassify — the "obvious target button" for this kind.
+  showFocusLupa?: boolean;
 }) {
   const { db } = useStore();
   const [expanded, setExpanded] = useState(false);
@@ -163,7 +171,8 @@ export function RecentInteractions({ entity, onOpenFull, limit = 3, focusClassif
                 pending={pending} highlighted={highlighted === row.interaction.id}
                 editingId={editingId} setEditingId={setEditingId}
                 editingDetailsId={editingDetailsId} setEditingDetailsId={setEditingDetailsId}
-                edits={db.interactionEdits.filter((e) => e.interaction_id === row.interaction.id)} />
+                edits={db.interactionEdits.filter((e) => e.interaction_id === row.interaction.id)}
+                showFocusLupa={showFocusLupa} />
             )
         ))}
       </ul>
@@ -201,7 +210,9 @@ function DealMessageRow({ row, rowRefs, highlighted }: {
   );
 }
 
-function InteractionRow({ row, rowRefs, pending, highlighted, editingId, setEditingId, editingDetailsId, setEditingDetailsId, edits }: {
+function InteractionRow({
+  row, rowRefs, pending, highlighted, editingId, setEditingId, editingDetailsId, setEditingDetailsId, edits, showFocusLupa = false,
+}: {
   row: Extract<TimelineRow, { kind: 'interaction' }>;
   rowRefs: React.MutableRefObject<Record<string, HTMLLIElement | null>>;
   pending: ReturnType<typeof unclassifiedInbound>;
@@ -211,9 +222,15 @@ function InteractionRow({ row, rowRefs, pending, highlighted, editingId, setEdit
   editingDetailsId: string | null;
   setEditingDetailsId: (id: string | null) => void;
   edits: InteractionEdit[];
+  showFocusLupa?: boolean;
 }) {
   const i = row.interaction;
   const isPending = pending.some((p) => p.id === i.id);
+  // pending is sorted oldest-first (unclassifiedInbound) — pending[0] IS
+  // the exact row focusClassifyNonce's own scroll-into-view already
+  // targets (see the parent's oldestPending), so the lupa lands on the
+  // same row that behavior already brings into view.
+  const isOldestPending = pending[0]?.id === i.id;
   // Prompt 231 §B — "já classificada" exclui 'awaiting': esse valor
   // fica em `pending` de propósito (é "responderam mas não é
   // decisão ainda"), e mostrar Edit ao lado do formulário pendente
@@ -252,7 +269,12 @@ function InteractionRow({ row, rowRefs, pending, highlighted, editingId, setEdit
       {/* Prompt 231 §C — o item pendente monta o InlineClassify
           DIRETAMENTE: a AI corre e grava sozinha assim que há texto,
           sem esperar por um clique que só existia para o revelar. */}
-      {isPending && <InlineClassify interactionId={i.id} content={i.content} />}
+      {isPending && (
+        <div className="relative inline-block">
+          {showFocusLupa && isOldestPending && <FocusLupa />}
+          <InlineClassify interactionId={i.id} content={i.content} />
+        </div>
+      )}
       {/* §B — uma vez classificada (incluindo pela AI sozinha), a
           linha ganha "Edit" em vez de ficar muda. Reabre o MESMO
           InlineClassify, pré-preenchido, para corrigir sem procurar

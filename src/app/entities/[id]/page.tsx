@@ -187,14 +187,18 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const railDirection = searchParams.get('direction');
   const railDate = searchParams.get('date');
   const railContent = searchParams.get('content');
-  // Prompt 410 §2.2/§2.4 — the Sherlock Next Clue button's own deep-link
-  // for a pending interest request (sherlock-next.ts §2.1): scrolls to the
-  // Sherlock Insight banner and asks it to draw the focus lupa over its
-  // primary action (§2.4). Same "read once at mount" shape as ndaDraft
-  // above and rail* below — no page of its own.
+  // Prompt 410 §2.2/§2.4 / Prompt 415 §3 — the Sherlock Next Clue button's
+  // own deep-link for a candidate with one obvious target button: scrolls
+  // to the Sherlock Insight banner and asks it to draw the focus lupa
+  // over the right action (§2.4). 'interest' (kept as this exact literal
+  // value — see SherlockInsightBanner's own comment) and
+  // 'follow_up_overdue' both target THIS banner; 'unclassified_reply'
+  // targets the History rail instead (RecentInteractions.tsx, below) —
+  // no scroll-to-banner for that one. Same "read once at mount" shape as
+  // ndaDraft above and rail* below — no page of its own.
   const focusParam = searchParams.get('focus');
   useEffect(() => {
-    if (focusParam !== 'interest') return;
+    if (focusParam !== 'interest' && focusParam !== 'follow_up_overdue') return;
     const id = window.setTimeout(() => {
       document.querySelector<HTMLElement>('[data-tour-id="entity-tip"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 0);
@@ -440,7 +444,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       <SherlockInsightBanner entity={entity} dealMessageTouches={dealMessageTouches}
         onClassifyRequest={classifyOnHistory}
         canMessage={canMessagePanel}
-        focusInterest={focusParam === 'interest'}
+        focus={focusParam}
         onSwitchToMessage={() => setPanelMode('message')}
         onSwitchToLog={(personId) => { setLogPrefill((p) => ({ personId, nonce: p.nonce + 1 })); setPanelMode('log'); }} />
 
@@ -801,7 +805,8 @@ export default function EntityPage({ params }: { params: { id: string } }) {
             <div className="mt-3">
               {panelMode === 'history' && (
                 <RecentInteractions entity={entity} onOpenFull={() => setDrawerOpen(true)} focusClassifyNonce={classifyNonce}
-                  focusInteraction={focusInteraction} dealMessages={messaging.messages} />
+                  focusInteraction={focusInteraction} dealMessages={messaging.messages}
+                  showFocusLupa={focusParam === 'unclassified_reply'} />
               )}
               {panelMode === 'log' && (
                 <RailLogForm entity={entity} defaultPersonId={logPrefill.personId} prefillNonce={logPrefill.nonce}

@@ -11,13 +11,10 @@ import {
 } from '@/lib/relationship';
 import { planPark, planPass, planInvested, planSnooze, advanceConfirmation, type ExitPlan } from '@/lib/exit-effects';
 
-// Prompt 226 §4 — opções fixas. Sem "custom": um date-picker aqui era mais
-// caixilharia do que valor, e estas quatro cobrem o que o founder diz em voz
-// alta ("daqui a uma semana", "depois do verão").
-const SNOOZE_OPTIONS = [
-  { days: 3, label: '3 days' }, { days: 7, label: '1 week' },
-  { days: 14, label: '2 weeks' }, { days: 30, label: '1 month' },
-] as const;
+// Prompt 415 §2 — promoted to a shared file (snooze-options.ts) so the
+// Sherlock Next Clue popup's "Leave for later" imports the SAME array
+// instead of a second copy.
+import { SNOOZE_OPTIONS } from '@/lib/snooze-options';
 import { derivedStage } from '@/lib/derived-stage';
 import { JourneyStepper } from '@/components/JourneyStepper';
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { liveOverdueEntities, sherlockNext } from './sherlock-next';
+import { liveOverdueEntities, sherlockNext, sherlockNextClueCopy, sherlockNextSnoozeKey } from './sherlock-next';
 import type { Db, Entity, Interaction, Person, TaskItem } from './types';
 
 function makeEntity(overrides: Partial<Entity> & { id: string }): Entity {
@@ -129,7 +129,7 @@ describe('sherlockNext — priority ladder', () => {
     const step = sherlockNext(db, NOW);
     expect(step.kind).toBe('unclassified_reply');
     expect(step.entityId).toBe('ent-a');
-    expect(step.target).toBe('/entities/ent-a?rail=history&classify=1');
+    expect(step.target).toBe('/entities/ent-a?rail=history&classify=1&focus=unclassified_reply');
   });
 
   it("2b: an inbound reply already classified 'awaiting' still counts as unclassified", () => {
@@ -170,7 +170,7 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.kind).toBe('follow_up_overdue');
     expect(step.entityId).toBe('ent-a');
     expect(step.personId).toBe('p-1');
-    expect(step.target).toBe('/entities/ent-a?rail=log&person=p-1');
+    expect(step.target).toBe('/entities/ent-a?rail=log&person=p-1&focus=follow_up_overdue');
   });
 
   it('3b: ties on days-overdue break by lower wave, then better fit', () => {
@@ -573,5 +573,65 @@ describe('sherlockNext — snooze filtering (Prompt 415 §1.2)', () => {
     const db = makeDb({ tasks: [task], sherlockNextSnoozes: [snooze({ kind: 'interest_request', task_id: 't-today', snoozed_until: FUTURE })] });
 
     expect(sherlockNext(db, NOW).kind).toBe('task_due_today');
+  });
+});
+
+describe('sherlockNextClueCopy / sherlockNextSnoozeKey — Prompt 415 §2', () => {
+  it('follow_up_overdue: reuses the live nextBestAction text, not the generic step.label', () => {
+    const entity = makeEntity({ id: 'ent-a', status: 'contacted' });
+    const person = makePerson({ id: 'p-1', entity_id: 'ent-a', seniority_rank: 1, full_name: 'Marta Zanchi' });
+    const db = makeDb({
+      entities: [entity], people: [person],
+      interactions: [{ id: 'i-1', entity_id: 'ent-a', person_id: 'p-1', occurred_at: '2026-08-01T00:00:00Z', direction: 'out', channel: 'email', content: 'hi' }],
+    });
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('follow_up_overdue');
+    expect(sherlockNextClueCopy(step, db, NOW)).toContain('Follow up');
+    expect(sherlockNextClueCopy(step, db, NOW)).not.toBe(step.label);
+  });
+
+  it('a kind with no special case strips the "Next: " prefix from step.label', () => {
+    const task: TaskItem = {
+      id: 't-today', title: 'Send the follow-up deck', due_at: '2026-08-27T09:00:00Z',
+      kind: 'admin', action_type: 'other', done: false,
+    };
+    const db = makeDb({ entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND], tasks: [task] });
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('task_due_today');
+    expect(sherlockNextClueCopy(step, db, NOW)).toBe('Send the follow-up deck');
+  });
+
+  it('onboarding kinds also just strip the prefix (no crash, no special case needed)', () => {
+    const db = makeDb({ org: INCOMPLETE_ORG });
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('onboarding_profile');
+    expect(sherlockNextClueCopy(step, db, NOW)).toBe('complete your company profile');
+  });
+
+  it('snooze key: task-keyed kinds resolve from step.taskId', () => {
+    const task: TaskItem = {
+      id: 't-1', title: 'An investor requested contact access', due_at: '2026-08-20T00:00:00Z',
+      kind: 'follow_up', action_type: 'follow_up_thread', done: false, source: 'interest_level_request',
+    };
+    const db = makeDb({ tasks: [task] });
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('interest_request');
+    expect(sherlockNextSnoozeKey(step)).toEqual({ task_id: 't-1' });
+  });
+
+  it('snooze key: unclassified_reply resolves from step.interactionId', () => {
+    const entity = makeEntity({ id: 'ent-a' });
+    const reply: Interaction = { id: 'i-1', entity_id: 'ent-a', occurred_at: '2026-08-20T00:00:00Z', direction: 'in', channel: 'email', content: 'hi' };
+    const db = makeDb({ entities: [entity], interactions: [reply] });
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('unclassified_reply');
+    expect(sherlockNextSnoozeKey(step)).toEqual({ interaction_id: 'i-1' });
+  });
+
+  it('snooze key: onboarding/pitch/readiness/all_clear kinds have none', () => {
+    const db = makeDb({ org: INCOMPLETE_ORG });
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('onboarding_profile');
+    expect(sherlockNextSnoozeKey(step)).toBeNull();
   });
 });

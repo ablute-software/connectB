@@ -72,7 +72,10 @@ function InsightIcon() {
 // via a CSS animation (globals.css: sherlock-focus-in) rather than looping —
 // an attention guide, not an alarm. prefers-reduced-motion drops the
 // animation and renders it already settled (same stylesheet).
-function FocusLupa() {
+// Prompt 415 §3 — exported: RecentInteractions.tsx now renders this same
+// cue for the unclassified_reply case, which has no button in THIS
+// banner to attach to.
+export function FocusLupa() {
   return (
     <span aria-hidden
       className="sherlock-focus-lupa pointer-events-none absolute -right-2 -top-3 flex h-6 w-6 items-center justify-center rounded-full bg-white text-[#0E7490] shadow-[0_2px_8px_rgba(15,23,42,0.35)] ring-2 ring-[#0E7490]/25">
@@ -86,7 +89,7 @@ function FocusLupa() {
 
 export function SherlockInsightBanner({
   entity, dealMessageTouches = [], onClassifyRequest,
-  canMessage, onSwitchToMessage, onSwitchToLog, focusInterest = false,
+  canMessage, onSwitchToMessage, onSwitchToLog, focus = null,
 }: {
   entity: Entity;
   dealMessageTouches?: DealMessageTouch[];
@@ -98,12 +101,18 @@ export function SherlockInsightBanner({
   // "Log the first interaction"/"Reply now" land pre-filled.
   onSwitchToMessage?: () => void;
   onSwitchToLog?: (personId?: string) => void;
-  // Prompt 410 §2.4 — true when the entity page was reached via
-  // ?focus=interest (the Sherlock Next Clue button's own deep-link, §2.1).
-  // Drives the magnifying-glass cue on the pending-interest action below;
-  // has no effect on any other case (§2.5 — audited, not built, this pass).
-  focusInterest?: boolean;
+  // Prompt 410 §2.4 / Prompt 415 §3 — the raw ?focus= value from the
+  // Sherlock Next Clue deep-link (sherlock-next.ts's own target strings).
+  // 'interest' (kept as this literal value, not 'interest_request', for
+  // backward compat with anything already saved/bookmarked — 415 §3.1's
+  // own instruction) drives the cue on the pending-interest action;
+  // 'follow_up_overdue' drives it on Reply now below. Any other value
+  // (or the 5 kinds with no single obvious button, or null) has no
+  // effect here.
+  focus?: string | null;
 }) {
+  const focusInterest = focus === 'interest';
+  const focusOverdue = focus === 'follow_up_overdue';
   const { db, updateEntity } = useStore();
   const [reopenTriggerDraft, setReopenTriggerDraft] = useState<string | null>(null);
   // Prompt 410 §2.3 — this banner's own copy of "is there a pending L3
@@ -142,6 +151,15 @@ export function SherlockInsightBanner({
     .filter((i) => i.entity_id === entity.id && i.direction === 'in' && i.classification === 'pass')
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)).at(-1);
   const lastPassReason = lastPassInteraction?.pass_reason;
+  // Prompt 415 §3 — named so the lupa below (focusOverdue) can check the
+  // exact same condition that decides which button the ternary renders.
+  // Checking actionButton?.kind === 'follow_up' alone isn't enough: it can
+  // be true even while showFirstInteractionButton also is, and that branch
+  // wins the ternary — a bare kind check would then attach the lupa to
+  // "Log the first interaction" (a different, not-yet-contacted person)
+  // instead of the "Reply now" button it's actually meant to mark.
+  const showFirstInteractionButton = !pendingInterestReq && !!nextContactPreflight?.green && !!nextContact;
+  const showReplyNowButton = !pendingInterestReq && !showFirstInteractionButton && actionButton?.kind === 'follow_up';
 
   // Prompt 397 §A.4.4 — no advice, no box. Never an empty banner.
   if (!action) return null;
@@ -170,6 +188,7 @@ export function SherlockInsightBanner({
         </div>
         <div className="relative flex flex-wrap items-center gap-2">
           {focusInterest && pendingInterestReq && <FocusLupa />}
+          {focusOverdue && showReplyNowButton && <FocusLupa />}
           {/* Prompt 396 §7 / 397 §A.4.2 — same button matrix, priority order
               unchanged: pendingInterest wins if somehow more than one
               applies. Prompt 397 §B — "Log the first interaction"/"Reply
@@ -197,11 +216,11 @@ export function SherlockInsightBanner({
                 Decide in Today →
               </Link>
             )
-          ) : nextContactPreflight?.green && nextContact ? (
+          ) : showFirstInteractionButton && nextContact ? (
             <button onClick={() => onSwitchToLog?.(nextContact.id)} className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
               Log the first interaction
             </button>
-          ) : actionButton?.kind === 'follow_up' ? (
+          ) : showReplyNowButton ? (
             canMessage && onSwitchToMessage ? (
               <button onClick={onSwitchToMessage} className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
                 Reply now

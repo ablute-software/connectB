@@ -8,7 +8,7 @@
 // computation for the exact same "don't duplicate" reason.
 import type { Db, FitScore } from './types';
 type SnoozeField = 'task_id' | 'entity_id' | 'interaction_id' | 'person_id';
-import { nextBestAction, nextBestActionButton, relationshipSummary } from './relationship';
+import { followUpTaskDisplayTitle, nextBestAction, nextBestActionButton, relationshipSummary } from './relationship';
 import { readyToContact } from './ready-to-contact';
 // Prompt 417 §A/§B — each reused as-is, none reimplemented: isProfileGateComplete
 // already gates Pipeline visibility (the SAME "is this profile functional yet"
@@ -30,6 +30,14 @@ export interface SherlockNextStep {
   label: string;
   entityId?: string;
   personId?: string;
+  // Prompt 415 §2 — populated only for the 2 kinds whose natural snooze
+  // key is a task/interaction rather than entityId/personId above
+  // (interest_request/task_due_today -> taskId, unclassified_reply ->
+  // interactionId) — the popup's "Leave for later" needs SOME way to
+  // recover the exact candidate to snooze, and entityId/personId alone
+  // can't express those two.
+  taskId?: string;
+  interactionId?: string;
   // Where clicking the button navigates — already carries whatever
   // deep-link params the target panel/page needs (§A.3: ?rail=log&person=,
   // ?rail=history&classify=1).
@@ -87,7 +95,12 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     // the fallback for the (currently theoretical, see
     // investor-interest-level-db.ts) case where this task has no entity_id.
     return {
-      kind: 'interest_request', label: `Next: ${t.title}`, entityId: t.entity_id,
+      kind: 'interest_request', label: `Next: ${t.title}`, entityId: t.entity_id, taskId: t.id,
+      // Prompt 415 §3.1 — every OTHER kind below gets ?focus=<kindexactly>,
+      // but this one keeps the literal 'interest' value (not
+      // 'interest_request') on purpose — 410 already shipped this exact
+      // param/value pair, so changing it would silently break any link
+      // already saved/bookmarked with the old value.
       target: t.entity_id ? `/entities/${t.entity_id}?focus=interest` : '/today',
     };
   }
@@ -112,7 +125,8 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     const entity = db.entities.find((e) => e.id === i.entity_id);
     return {
       kind: 'unclassified_reply', label: `Next: classify the reply from ${entity?.name ?? 'an investor'}`,
-      entityId: i.entity_id, target: `/entities/${i.entity_id}?rail=history&classify=1`,
+      entityId: i.entity_id, interactionId: i.id,
+      target: `/entities/${i.entity_id}?rail=history&classify=1&focus=unclassified_reply`,
     };
   }
 
@@ -151,7 +165,7 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     return {
       kind: 'follow_up_overdue', label: `Next: reply to ${person?.full_name ?? 'a contact'}`,
       entityId: mostOverdue.entityId, personId: mostOverdue.personId,
-      target: `/entities/${mostOverdue.entityId}?rail=log&person=${mostOverdue.personId}`,
+      target: `/entities/${mostOverdue.entityId}?rail=log&person=${mostOverdue.personId}&focus=follow_up_overdue`,
     };
   }
 
@@ -165,9 +179,13 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
   if (dueToday.length > 0) {
     const t = dueToday[0];
+    // Prompt 414 §1's own "grep final" missed this one: a follow_up-kind
+    // task due exactly today can still be a frozen "Wait for a reply
+    // until <today> — then ..." title if due_at's TIME already passed
+    // (due today at 09:00, now 14:00) — same bug, same fix.
     return {
-      kind: 'task_due_today', label: `Next: ${t.title}`,
-      entityId: t.entity_id, target: t.entity_id ? `/entities/${t.entity_id}` : '/today',
+      kind: 'task_due_today', label: `Next: ${followUpTaskDisplayTitle(t, now)}`,
+      entityId: t.entity_id, taskId: t.id, target: t.entity_id ? `/entities/${t.entity_id}` : '/today',
     };
   }
 
@@ -250,6 +268,49 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
 
   // 12 — nothing actionable right now.
   return { kind: 'all_clear', label: 'All clear', target: '/today' };
+}
+
+// Prompt 415 §2.2 — the popup's own explanatory text: reuses the SAME
+// phrase Today/SherlockInsightBanner already show for that case, never a
+// third, independently-worded copy of the same advice. Only
+// follow_up_overdue gets special handling (nextBestAction — e.g. "Follow
+// up — no reply for 38d.", the live text those two surfaces already
+// render) because it says something genuinely more specific than
+// step.label's own generic "reply to {name}"; every other kind's label
+// already reads as a complete sentence once its "Next: " prefix (added
+// for the shell button's own tooltip concatenation) is stripped.
+//
+// interest_request is deliberately NOT a case here: its real copy needs
+// the investor's name from live InterestRequest[] data only a hook can
+// supply (useInterestRequests + interestRequestHeadline, the exact pair
+// Prompt 413 already established) — the caller special-cases that one
+// kind and falls back to this function for every other.
+export function sherlockNextClueCopy(step: SherlockNextStep, db: Db, now: Date = new Date()): string {
+  if (step.kind === 'follow_up_overdue' && step.entityId) {
+    const text = nextBestAction(db, step.entityId, now);
+    if (text) return text;
+  }
+  return step.label.replace(/^Next:\s*/, '');
+}
+
+// Prompt 415 §2.2/§3 — the natural snooze key for one step, or null when
+// that kind has none (the 6 onboarding/pitch/readiness kinds plus
+// all_clear — see activeSnoozedIds' own comment above for why). The
+// popup uses this to decide whether "Leave for later" even renders.
+export function sherlockNextSnoozeKey(step: SherlockNextStep): { task_id?: string; entity_id?: string; interaction_id?: string; person_id?: string } | null {
+  switch (step.kind) {
+    case 'interest_request':
+    case 'task_due_today':
+      return step.taskId ? { task_id: step.taskId } : null;
+    case 'follow_up_overdue':
+      return step.entityId ? { entity_id: step.entityId } : null;
+    case 'unclassified_reply':
+      return step.interactionId ? { interaction_id: step.interactionId } : null;
+    case 'ready_to_contact':
+      return step.personId ? { person_id: step.personId } : null;
+    default:
+      return null;
+  }
 }
 
 export interface LiveOverdueEntity {
