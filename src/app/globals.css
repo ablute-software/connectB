@@ -166,3 +166,26 @@ body {
 @keyframes sherlock-focus-in { from { opacity: 0; transform: scale(1.7); } to { opacity: 1; transform: scale(1); } }
 .sherlock-focus-lupa { animation: sherlock-focus-in 600ms ease-out forwards; }
 @media (prefers-reduced-motion: reduce) { .sherlock-focus-lupa { animation: none; } }
+
+/* Prompt 419 §C.2 — the Evaluation Tools "uncontacted pipeline" discovery
+   view: a one-time colored band sweeping left-to-right across the
+   highest-fit card, once in the investor's lifetime (the flag lives in
+   onboarding_state.seen, not here — see EvaluationStartupPicker). A new
+   keyframe on purpose: sherlock-sweep above is for text and loops forever;
+   this plays once (no `infinite`) and stops. Reduced motion drops the
+   animation but still marks the card — a fixed outline, per this prompt's
+   own instruction that the reduced version "doesn't disappear entirely". */
+@keyframes pipeline-fit-sweep { 0% { background-position: 160% 0; } 100% { background-position: -60% 0; } }
+.pipeline-fit-sweep-card { position: relative; overflow: hidden; }
+.pipeline-fit-sweep-card::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 32%, rgba(14, 116, 144, 0.4) 50%, transparent 68%);
+  background-size: 260% 100%;
+  animation: pipeline-fit-sweep 1.3s ease-out 1;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pipeline-fit-sweep-card::after { animation: none; background: none; }
+  .pipeline-fit-sweep-card { outline: 2px solid #0E7490; outline-offset: 1px; }
+}

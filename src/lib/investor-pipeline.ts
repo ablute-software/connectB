@@ -13,6 +13,7 @@ import { getActiveFollowOnPairs } from './network-followon-db';
 import { shapeFollowOnPayload, type FollowOnPayload } from './network';
 import { projectIntroPitch } from './investor-interest-level';
 import { canWithdrawInterest, resolveWithdrawWindowSignals } from './investor-interest-withdrawal';
+import { interactionLogAvailable } from './investor-interaction-log-capability';
 
 const WAVE_SIZE = 8;
 const TRACKING_WINDOW_DAYS = 30;
@@ -344,6 +345,9 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       // both fields are always present on the type; never read before that.
       canWithdrawInterest: false,
       hasConversation: false,
+      // Prompt 419 §B.3 — set below, same reason. false predates
+      // investor_interaction_log entirely (never invented).
+      hasManualInteractionLog: false,
     };
   }).sort((a, b) => b.matchScore - a.matchScore);
 
@@ -357,6 +361,21 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
       .eq('investor_catalog_entity_id', investorCatalogEntityId).in('startup_org_id', interestedOrgIds);
     const conversingOrgIds = new Set((threads ?? []).filter((t) => t.last_message_at).map((t) => t.startup_org_id as string));
     for (const c of cards) if (conversingOrgIds.has(c.orgId as string)) c.hasConversation = true;
+  }
+
+  // Prompt 419 §B.3 — the Evaluation Tools "uncontacted pipeline" discovery
+  // view needs to know which cards this investor has NEVER touched at all.
+  // The other three getInteractionTimeline sources (investor-interaction-
+  // log.ts) are already reflected above (status/isArchived/hasConversation/
+  // viaDecision); a manual investor_interaction_log entry with no formal
+  // decision/archive/match attached is the one signal that isn't. Same
+  // missing-table-safe pattern as company_facts/ndas elsewhere — this
+  // migration (0125) may not be applied in every environment yet.
+  if (orgIds.length > 0 && investorCatalogEntityId && await interactionLogAvailable()) {
+    const { data: logRows } = await admin.from('investor_interaction_log')
+      .select('startup_org_id').eq('investor_catalog_entity_id', investorCatalogEntityId).in('startup_org_id', orgIds);
+    const loggedOrgIds = new Set((logRows ?? []).map((r) => r.startup_org_id as string));
+    for (const c of cards) if (loggedOrgIds.has(c.orgId as string)) c.hasManualInteractionLog = true;
   }
 
   // Prompt 345 §B — "Withdraw interest": whether the window is still open,

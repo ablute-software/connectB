@@ -31,16 +31,12 @@ import { computeDilution, type ValuationBasis } from '@/lib/dilution';
 import { ScenariosReturnsTool } from './ScenariosReturnsTool';
 import { ComparisonView } from './ComparisonView';
 import { ScorecardWeightsEditor } from './ScorecardWeightsEditor';
+import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
+import {
+  filterCardsByName, highestFitCandidate, uncontactedCandidates,
+  type EvaluationPipelineCard as PipelineCard,
+} from '@/lib/evaluation-startup-discovery';
 
-// Prompt 345 Block E — oneLiner/sectors/stage/matchScore/matchReasons added
-// so this same fetch can also feed the comparator moved here from the
-// Pipeline (ComparisonView's own Card shape) — never a second /api/portal/
-// pipeline call just for that.
-interface PipelineCard {
-  orgId: string; name: string; oneLiner: string | null; sectors: string[]; stage: string | null;
-  roundTargetEur: number | null; roundValuationEur: number | null;
-  roundValuationBasis?: ValuationBasis | null; matchScore: number; matchReasons: string[];
-}
 interface Wave { items: PipelineCard[] }
 interface PipelineResponse { waves?: Wave[] }
 const MAX_COMPARE = 3;
@@ -57,29 +53,111 @@ function fmtPct(n: number) {
 // dozen Pipeline cards, it makes the current selection visibly obvious
 // (the prompt's own reasoning) in a way a native dropdown's closed state
 // can't. Sticky so it stays in view while the right column scrolls.
+//
+// Prompt 419 — three additions, all scoped to this component: §A a
+// client-side name search (cards are already loaded, no new request);
+// §B a "grow this list" CTA into a discovery MODE (not a new page) that
+// swaps this same list for the eligible-but-uncontacted set — reusing
+// `cards` (already wave-gating-respected, see /api/portal/pipeline's own
+// locked-wave stripping) rather than widening what's eligible; §C a
+// once-ever sweep on that mode's highest-fit card.
 function EvaluationStartupPicker({ cards, selectedOrgId, onSelectOrg, showsUnusedNote }: {
   cards: PipelineCard[]; selectedOrgId: string; onSelectOrg: (orgId: string) => void; showsUnusedNote: boolean;
 }) {
   const selected = cards.find((c) => c.orgId === selectedOrgId) ?? null;
+  const [search, setSearch] = useState('');
+  const [discoveryMode, setDiscoveryMode] = useState(false);
+  const { seen, markSeen } = useOnboarding();
+
+  const filteredCards = filterCardsByName(cards, search);
+  const uncontacted = uncontactedCandidates(cards);
+
+  // Prompt 419 §C.3 — "once in the investor's lifetime", not per session/
+  // mount: captured into state the moment discovery mode opens (rather
+  // than recomputed every render from `seen`) so the sweep keeps playing
+  // for its full duration even after markSeen flips seen.pipeline_fit_sweep
+  // to true a moment later — recomputing live would yank the class off
+  // before the animation finishes. Deliberately depends only on
+  // discoveryMode (not seen/cards/markSeen) — this is meant to fire once
+  // per "open", not react to its own markSeen call re-running it.
+  const [sweepTargetOrgId, setSweepTargetOrgId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!discoveryMode || seen.pipeline_fit_sweep) return;
+    const top = highestFitCandidate(uncontactedCandidates(cards));
+    if (!top) return;
+    setSweepTargetOrgId(top.orgId);
+    markSeen('pipeline_fit_sweep');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [discoveryMode]);
+
   return (
     <div className="space-y-3 md:sticky md:top-4 md:self-start">
       <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Startup</div>
-      {cards.length === 0 ? (
-        <p className="text-sm text-gray-400">Nothing in your Pipeline yet.</p>
+
+      {discoveryMode ? (
+        <>
+          <button onClick={() => setDiscoveryMode(false)} className="text-xs font-medium text-[#0E7490] hover:underline">
+            ← Back to your list
+          </button>
+          <p className="text-[11px] text-gray-500">Already eligible, not yet contacted — highest fit first.</p>
+          {uncontacted.length === 0 ? (
+            <p className="text-sm text-gray-400">Nothing uncontacted left — you&apos;re all caught up.</p>
+          ) : (
+            <ul className="max-h-[420px] space-y-1 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1.5">
+              {uncontacted.map((c) => (
+                <li key={c.orgId} className={c.orgId === sweepTargetOrgId ? 'pipeline-fit-sweep-card rounded-lg' : undefined}>
+                  <button onClick={() => onSelectOrg(c.orgId)}
+                    className={`w-full rounded-lg px-2.5 py-2 text-left text-sm transition ${
+                      selectedOrgId === c.orgId ? 'bg-[#0E7490] text-white' : 'text-gray-700 hover:bg-gray-50'}`}>
+                    {c.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       ) : (
-        <ul className="max-h-[420px] space-y-1 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1.5">
-          {cards.map((c) => (
-            <li key={c.orgId}>
-              <button onClick={() => onSelectOrg(c.orgId)}
-                className={`w-full rounded-lg px-2.5 py-2 text-left text-sm transition ${
-                  selectedOrgId === c.orgId ? 'bg-[#0E7490] text-white' : 'text-gray-700 hover:bg-gray-50'}`}>
-                {c.name}
+        <>
+          {cards.length > 0 && (
+            <div className="relative">
+              <svg aria-hidden viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"
+                className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400">
+                <circle cx="8.3" cy="8.3" r="5.3" />
+                <path d="m16.3 16.3-3.4-3.4" strokeLinecap="round" />
+              </svg>
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name…"
+                className="w-full rounded-lg border border-gray-300 py-1.5 pl-7 pr-2 text-sm" />
+            </div>
+          )}
+          {cards.length === 0 ? (
+            <p className="text-sm text-gray-400">Nothing in your Pipeline yet.</p>
+          ) : filteredCards.length === 0 ? (
+            <p className="text-sm text-gray-400">No startups match &quot;{search}&quot;.</p>
+          ) : (
+            <ul className="max-h-[420px] space-y-1 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1.5">
+              {filteredCards.map((c) => (
+                <li key={c.orgId}>
+                  <button onClick={() => onSelectOrg(c.orgId)}
+                    className={`w-full rounded-lg px-2.5 py-2 text-left text-sm transition ${
+                      selectedOrgId === c.orgId ? 'bg-[#0E7490] text-white' : 'text-gray-700 hover:bg-gray-50'}`}>
+                    {c.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {uncontacted.length > 0 && (
+            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3 text-xs text-gray-500">
+              <p>Want more startups here? Express first interest, or request access to a first document — that&apos;s what adds them to your active list.</p>
+              <button onClick={() => setDiscoveryMode(true)} className="mt-2 font-medium text-[#0E7490] hover:underline">
+                See uncontacted pipeline →
               </button>
-            </li>
-          ))}
-        </ul>
+            </div>
+          )}
+        </>
       )}
-      {selected && (
+
+      {selected && !discoveryMode && (
         <div className="space-y-1 rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-600">
           <div className="text-sm font-semibold text-gray-900">{selected.name}</div>
           {selected.stage && <div>{selected.stage}</div>}
@@ -640,7 +718,12 @@ export function EvaluationToolsPanel({ initialOrgId }: {
     setSelectedOrgId(initialOrgId); setTool('calculator');
     fetch(`/api/portal/startup/${initialOrgId}`).then((r) => (r.ok ? r.json() : null)).then((d) => {
       if (!d?.card) return;
-      const c = d.card as { orgId: string; name: string; oneLiner: string | null; sectors: string[]; stage: string | null; roundTargetEur: number | null; roundValuationEur: number | null; roundValuationBasis?: ValuationBasis | null; matchScore: number; matchReasons: string[] };
+      // Prompt 419 — widened to the full PipelineCard shape: /api/portal/
+      // startup/[orgId] returns the exact same card object getPipelineWaves
+      // builds for the main Pipeline fetch (route.ts's own `{ card, ... }`,
+      // unreshaped), so status/isArchived/viaGrant/etc. are already on the
+      // wire here too — this cast just stopped throwing them away.
+      const c = d.card as PipelineCard;
       setCards((prev) => (prev.some((p) => p.orgId === c.orgId) ? prev : [...prev, c]));
     }).catch(() => {});
   }, [initialOrgId]);
