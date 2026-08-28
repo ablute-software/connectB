@@ -50,6 +50,7 @@ import { useEvidenceCandidates, candidatesForHints, type EvidenceCandidate } fro
 import type { BarsAxis } from '@/lib/bars-types';
 import type { CompanyPhase } from '@/lib/types';
 import { BarsAxisCard } from './BarsAxisCard';
+import { BarsQuestionnaireDrawer, type BarsAnswerRow, type BarsFlagRow } from './BarsQuestionnaireDrawer';
 
 interface Wave { items: PipelineCard[] }
 interface PipelineResponse { waves?: Wave[] }
@@ -607,10 +608,10 @@ function BerkusEvidenceList({ candidates, attached, onToggle }: {
 // purely informational), the evidence list + confidence badge (every
 // factor, not just the axis-less ones — see BerkusEvidenceList's own
 // comment), and an optional private note.
-function BerkusDetailedFactorCard({ factor, state, refEur, computed, companyPhase, evidenceCandidates, selectedOrgId, onChange }: {
+function BerkusDetailedFactorCard({ factor, state, refEur, computed, companyPhase, evidenceCandidates, onOpenAxis, onChange }: {
   factor: BerkusFactorContent; state: BerkusFactorFormState; refEur: number;
   computed: Partial<Record<BarsAxis, AxisResult>>; companyPhase: CompanyPhase | null;
-  evidenceCandidates: EvidenceCandidate[]; selectedOrgId: string;
+  evidenceCandidates: EvidenceCandidate[]; onOpenAxis: (axis: BarsAxis) => void;
   onChange: (patch: Partial<BerkusFactorFormState>) => void;
 }) {
   const eur = berkusFactorEur('detailed', state.level, state.skipped, refEur);
@@ -618,6 +619,11 @@ function BerkusDetailedFactorCard({ factor, state, refEur, computed, companyPhas
   const matchingCandidates = candidatesForHints(evidenceCandidates, factor.evidenceHints);
   const answerRecord: BarsAnswerRecord = { questionId: factor.key, level: state.level, skipped: state.skipped, evidenceRefs: state.evidenceRefs };
   const confidence = state.level != null && !state.skipped ? confidenceBand([answerRecord]) : null;
+  // Prompt 436 §A — closed by default: a factor like "Sound idea" can match
+  // a dozen candidates, and showing every one open-by-default made the card
+  // unusably tall. Local to each card instance (one per factor) so opening
+  // one never opens the others.
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
 
   function toggleEvidence(c: EvidenceCandidate) {
     const already = state.evidenceRefs.some((r) => r.kind === c.kind && r.id === c.id);
@@ -664,14 +670,27 @@ function BerkusDetailedFactorCard({ factor, state, refEur, computed, companyPhas
           {factor.barsAxes.map((axis) => (
             <BarsAxisCard key={axis} axis={axis} label={AXIS_LABEL[axis]} result={computed[axis] ?? null}
               applicableAtStage={applicableQuestions(getBarsBank(axis), companyPhase ?? 'concept_idea').length}
-              onOpen={() => window.open(`/portal/startup/${selectedOrgId}`, '_blank', 'noopener,noreferrer')} />
+              onOpen={() => onOpenAxis(axis)} />
           ))}
         </div>
       )}
 
+      {/* Prompt 436 §A — same collapsible pattern as Calibration above
+          (BerkusMethodTool's own calibrationOpen), reused rather than
+          inventing a new one. Evidence confidence stays visible either way
+          — it's the useful-at-a-glance summary, opening the list is only
+          for reviewing/attaching specific items. */}
       <div className="mt-2">
-        <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">Evidence</p>
-        <BerkusEvidenceList candidates={matchingCandidates} attached={state.evidenceRefs} onToggle={toggleEvidence} />
+        <button type="button" onClick={() => setEvidenceOpen((o) => !o)}
+          className="flex w-full items-center justify-between text-left text-[10px] font-medium uppercase tracking-wide text-gray-400">
+          <span>Evidence{matchingCandidates.length > 0 ? ` (${matchingCandidates.length})` : ''}</span>
+          <span className="text-gray-400 normal-case">{evidenceOpen ? '▴' : '▾'}</span>
+        </button>
+        {evidenceOpen && (
+          <div className="mt-1">
+            <BerkusEvidenceList candidates={matchingCandidates} attached={state.evidenceRefs} onToggle={toggleEvidence} />
+          </div>
+        )}
         {confidence && (
           <p className="mt-1 text-[11px] text-gray-500">
             Evidence confidence:{' '}
@@ -758,15 +777,29 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
   // from the SAME /api/portal/bars fetch BARS' own dossier section
   // already uses; gated to Detailed mode + a real selection so Simplified
   // usage never pays for this heavier call.
-  const [barsData, setBarsData] = useState<{ companyPhase: CompanyPhase | null; computed: Partial<Record<BarsAxis, AxisResult>> }>({ companyPhase: null, computed: {} });
+  // Prompt 436 §B — widened with answers/flagStates (already in this same
+  // response, BarsGetResponse per BarsEvaluationSection.tsx) so the SAME
+  // BarsQuestionnaireDrawer that page already uses can pre-fill what's
+  // already been answered, instead of the window.open shortcut this used
+  // to fall back to.
+  const [barsData, setBarsData] = useState<{
+    companyPhase: CompanyPhase | null; computed: Partial<Record<BarsAxis, AxisResult>>;
+    answers: BarsAnswerRow[]; flagStates: BarsFlagRow[];
+  }>({ companyPhase: null, computed: {}, answers: [], flagStates: [] });
   const barsEnabled = mode === 'detailed' && !!selectedOrgId;
+  const [openAxis, setOpenAxis] = useState<BarsAxis | null>(null);
+  function reloadBars() {
+    if (!selectedOrgId) return;
+    fetch(`/api/portal/bars?orgId=${encodeURIComponent(selectedOrgId)}`).then((r) => r.json())
+      .then((d: { companyPhase?: CompanyPhase | null; computed?: Partial<Record<BarsAxis, AxisResult>>; answers?: BarsAnswerRow[]; flagStates?: BarsFlagRow[] }) => {
+        setBarsData({ companyPhase: d.companyPhase ?? null, computed: d.computed ?? {}, answers: d.answers ?? [], flagStates: d.flagStates ?? [] });
+      })
+      .catch(() => setBarsData({ companyPhase: null, computed: {}, answers: [], flagStates: [] }));
+  }
   useEffect(() => {
     if (!barsEnabled) return;
-    fetch(`/api/portal/bars?orgId=${encodeURIComponent(selectedOrgId)}`).then((r) => r.json())
-      .then((d: { companyPhase?: CompanyPhase | null; computed?: Partial<Record<BarsAxis, AxisResult>> }) => {
-        setBarsData({ companyPhase: d.companyPhase ?? null, computed: d.computed ?? {} });
-      })
-      .catch(() => setBarsData({ companyPhase: null, computed: {} }));
+    reloadBars();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [barsEnabled, selectedOrgId]);
 
   // Prompt 428 §F Detailed — evidence candidates for Relationships/Sales'
@@ -920,7 +953,7 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
               ) : (
                 <BerkusDetailedFactorCard key={f.key} factor={f} state={factors[f.key]} refEur={refEur}
                   computed={barsData.computed} companyPhase={barsData.companyPhase}
-                  evidenceCandidates={evidenceCandidates} selectedOrgId={selectedOrgId}
+                  evidenceCandidates={evidenceCandidates} onOpenAxis={setOpenAxis}
                   onChange={(patch) => setFactors((prev) => ({ ...prev, [f.key]: { ...prev[f.key], ...patch } }))} />
               )
             ))}
@@ -976,6 +1009,20 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
             </div>
           )}
         </div>
+      )}
+
+      {/* Prompt 436 §B — the SAME drawer BarsEvaluationSection.tsx (the
+          dossier page) already mounts for this exact purpose, one shared
+          instance outside the factor .map (not one per factor) so opening
+          an axis from any factor's card reuses it. Never window.open —
+          that was a shortcut, not a real design (this file's only prior
+          window.open, confirmed by grep). Closing and re-answering updates
+          the corresponding BarsAxisCard via reloadBars/onMutated, same as
+          the dossier page. */}
+      {openAxis && (
+        <BarsQuestionnaireDrawer orgId={selectedOrgId} axis={openAxis} axisLabel={AXIS_LABEL[openAxis]}
+          companyPhase={barsData.companyPhase} answers={barsData.answers} flagStates={barsData.flagStates}
+          onClose={() => setOpenAxis(null)} onMutated={reloadBars} />
       )}
     </div>
   );
