@@ -19,6 +19,7 @@ import { PeopleAccessPanel } from '@/components/documents/PeopleAccessPanel';
 import { WhoHasAccessPanel } from '@/components/documents/WhoHasAccessPanel';
 import { VaultKillSwitch } from '@/components/documents/VaultKillSwitch';
 import { PageTour } from '@/components/onboarding/PageTour';
+import { vaultAccessAdvice } from '@/lib/vault-access-advice';
 import { VaultPinGate } from '@/components/documents/VaultPinGate';
 import { VaultPrivacyNoticeModal } from '@/components/documents/VaultPrivacyNoticeModal';
 import { isVaultPrivacyNoticeDue, readDemoVaultPrivacyNotice, writeDemoVaultPrivacyNotice } from '@/lib/vault-privacy-notice';
@@ -29,6 +30,15 @@ function fmtBytes(n?: number): string | undefined {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} MB`;
   if (n >= 1000) return `${Math.round(n / 1000)} KB`;
   return `${n} B`;
+}
+
+// Prompt 437 §D — presentation-only (the pure vaultAccessAdvice returns
+// entities, never a formatted sentence), so the join lives with the page,
+// not the lib.
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
 }
 
 // P103 Bloco 3 — lock icon per visibility level, replacing the old plain
@@ -437,6 +447,24 @@ function DocumentsPageInner() {
   // elsewhere (e.g. counted toward "awaiting NDA").
   const visibleGrants = db.grants.filter((g) => !g.revoked_at && (!g.expires_at || new Date(g.expires_at) > new Date()));
   const confirmedActiveGrants = visibleGrants.filter((g) => grantStatus(g, new Date()) === 'active');
+
+  // Prompt 437 §D — founder-side advice only (CLAUDE.md root rule: contact
+  // counts and access state are derived data about the founder, no toggle
+  // — this feeds a card on THIS page only, never anything investor-facing).
+  // Built from visibleGrants (active only, same set "Awaiting NDA"/"Granted
+  // so far" below already use) — a revoked/expired grant isn't really
+  // "shared" any more, so it shouldn't count as either access or NDA
+  // coverage.
+  const vaultAdvice = useMemo(() => vaultAccessAdvice({
+    entities: db.entities.map((e) => ({ id: e.id, name: e.name })),
+    interactions: db.interactions.map((i) => ({ entity_id: i.entity_id, at: i.occurred_at, direction: i.direction })),
+    grants: visibleGrants.map((g) => ({
+      person_id: g.person_id ?? null, email: g.grantee_email ?? null,
+      folder_id: g.folder_id ?? null, document_id: g.document_id ?? null,
+      nda_required: g.nda_required,
+    })),
+    people: db.people.map((p) => ({ id: p.id, entity_id: p.entity_id, email: p.email_verified ?? p.email_guess ?? null })),
+  }), [db.entities, db.interactions, visibleGrants, db.people]);
 
   // P120 Block B — 100 active grants can belong to as few as 3 distinct
   // people (one row per document/folder selected in the tri-state tree).
@@ -1213,6 +1241,32 @@ function DocumentsPageInner() {
               </div>
             )}
           </Card>
+
+          {/* Prompt 437 §D — passive advice only: never a modal, toast, or
+              blocking gate, and never anything that reaches an investor
+              (CLAUDE.md root rule — see vault-access-advice.ts's own
+              header). Sits at the top of the sharing section so it's seen
+              before Grant access, same "reachable with zero scroll"
+              reasoning P120 Block B.1 already applied there — but never
+              pushes Grant access down when there's nothing to say. */}
+          {(vaultAdvice.inConversationWithoutAccess.length > 0 || vaultAdvice.hasNoNdaProtectedDocuments) && (
+            <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              {vaultAdvice.inConversationWithoutAccess.length > 0 && (
+                <p>
+                  You&apos;re in active conversation with {joinNames(vaultAdvice.inConversationWithoutAccess.map((e) => e.name))} — they still
+                  have no data room access. Investors who are already talking to you usually expect a deeper level of information;
+                  consider sharing the folders that answer their questions.
+                </p>
+              )}
+              {vaultAdvice.hasNoNdaProtectedDocuments && (
+                <p>
+                  None of your shared documents require an NDA. Before sharing your most sensitive material (financial model, cap
+                  table, contracts, IP), consider marking it 🔒 shared + NDA required — the same tri-state control you already use to
+                  share.
+                </p>
+              )}
+            </div>
+          )}
 
           <div data-tour-id="documents-grants">
           <Card title="Access grants — the owner consents, access follows">
