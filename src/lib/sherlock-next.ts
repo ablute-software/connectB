@@ -7,6 +7,7 @@
 // contact.ts is itself an extraction of ReadyToContactPanel.tsx's own
 // computation for the exact same "don't duplicate" reason.
 import type { Db, FitScore } from './types';
+type SnoozeField = 'task_id' | 'entity_id' | 'interaction_id' | 'person_id';
 import { nextBestAction, nextBestActionButton, relationshipSummary } from './relationship';
 import { readyToContact } from './ready-to-contact';
 // Prompt 417 §A/§B — each reused as-is, none reimplemented: isProfileGateComplete
@@ -47,6 +48,24 @@ export interface SherlockNextStep {
 // lib module.
 export const FIT_ORDER: Record<FitScore, number> = { high: 0, medium_high: 1, medium: 2, low: 3 };
 
+// Prompt 415 §1.2 — active (not-yet-expired) snoozed candidate ids for one
+// kind + natural-key field, e.g. (kind='follow_up_overdue', field=
+// 'entity_id'). Only 5 of SherlockNextKind's 12 values ever call this:
+// the ones 415 designed a real per-candidate natural key for
+// (interest_request/task_due_today -> task_id, follow_up_overdue ->
+// entity_id, unclassified_reply -> interaction_id, ready_to_contact ->
+// person_id). The 6 onboarding/pitch/readiness kinds Prompt 417 added
+// (steps 5-8, 10-11 below) are GLOBAL signals ("your profile isn't
+// done", "vault is thin") with no single task/entity/interaction/person
+// to key a snooze on — snoozing those would be a real, separate feature;
+// migration 0261's own kind constraint stays wide for consistency with
+// the type, but nothing here ever inserts/reads a row for those 6.
+function activeSnoozedIds(snoozes: Db['sherlockNextSnoozes'], now: Date, kind: SherlockNextKind, field: SnoozeField): Set<string> {
+  return new Set(
+    snoozes.filter((s) => s.kind === kind && new Date(s.snoozed_until) > now && s[field]).map((s) => s[field] as string),
+  );
+}
+
 export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
   // 1 — pending investor interest request (oldest first). Materialized as a
   // `tasks` row (source 'interest_level_request' — 'investor_interest' is
@@ -55,8 +74,9 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
   // separate fetch, so this step stays inside the pure `db` the rest of the
   // ladder already reads. due_at is set to request time on creation
   // (investor-interest-level-db.ts), so ascending due_at IS oldest-first.
+  const snoozedInterestTaskIds = activeSnoozedIds(db.sherlockNextSnoozes, now, 'interest_request', 'task_id');
   const pendingInterest = db.tasks
-    .filter((t) => !t.done && (t.source === 'interest_level_request' || t.source === 'investor_interest'))
+    .filter((t) => !t.done && (t.source === 'interest_level_request' || t.source === 'investor_interest') && !snoozedInterestTaskIds.has(t.id))
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
   if (pendingInterest.length > 0) {
     const t = pendingInterest[0];
@@ -83,8 +103,9 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
   // definition (a pre-existing, unrelated second definition in that file) —
   // classifyNonce is built around the 'awaiting' one, and this step reuses
   // classifyNonce, so it has to agree with THAT definition, not the other.
+  const snoozedReplyInteractionIds = activeSnoozedIds(db.sherlockNextSnoozes, now, 'unclassified_reply', 'interaction_id');
   const unclassified = db.interactions
-    .filter((i) => i.direction === 'in' && (!i.classification || i.classification === 'awaiting'))
+    .filter((i) => i.direction === 'in' && (!i.classification || i.classification === 'awaiting') && !snoozedReplyInteractionIds.has(i.id))
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
   if (unclassified.length > 0) {
     const i = unclassified[0];
@@ -104,8 +125,14 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
   // an entity whose most recent touch was a Sherlock message rather than a
   // logged interaction can undercount here — a known, narrow gap, not a
   // silent one.
+  // Prompt 415 §1.2 — a snoozed entity is skipped WITHIN the loop (not
+  // just "if the top pick is snoozed, fall through to step 4") — the
+  // loop simply never lets it become `mostOverdue`, so the second-most-
+  // overdue non-snoozed entity naturally wins instead.
+  const snoozedOverdueEntityIds = activeSnoozedIds(db.sherlockNextSnoozes, now, 'follow_up_overdue', 'entity_id');
   let mostOverdue: { entityId: string; personId: string; daysSince: number; wave: number; fitRank: number } | null = null;
   for (const entity of db.entities) {
+    if (snoozedOverdueEntityIds.has(entity.id)) continue;
     const action = nextBestActionButton(db, entity.id, now);
     if (!action) continue;
     const summary = relationshipSummary(db, entity.id, now);
@@ -132,8 +159,9 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
   // Overdue/This week cards imply (calendar day, not a rolling 24h).
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const endOfDay = new Date(startOfDay.getTime() + 24 * 3600 * 1000);
+  const snoozedTaskDueTodayIds = activeSnoozedIds(db.sherlockNextSnoozes, now, 'task_due_today', 'task_id');
   const dueToday = db.tasks
-    .filter((t) => !t.done && t.due_at && new Date(t.due_at) >= startOfDay && new Date(t.due_at) < endOfDay)
+    .filter((t) => !t.done && t.due_at && new Date(t.due_at) >= startOfDay && new Date(t.due_at) < endOfDay && !snoozedTaskDueTodayIds.has(t.id))
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
   if (dueToday.length > 0) {
     const t = dueToday[0];
@@ -187,9 +215,11 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
 
   // 9 — ready to contact (pre-flight green, wave/seniority order), only
   // while the daily/weekly volume caps still allow it.
+  const snoozedReadyPersonIds = activeSnoozedIds(db.sherlockNextSnoozes, now, 'ready_to_contact', 'person_id');
   const { ready, capReached } = readyToContact(db, now);
-  if (!capReached && ready.length > 0) {
-    const person = ready[0];
+  const readyFiltered = ready.filter((p) => !snoozedReadyPersonIds.has(p.id));
+  if (!capReached && readyFiltered.length > 0) {
+    const person = readyFiltered[0];
     const entity = db.entities.find((e) => e.id === person.entity_id);
     if (entity) {
       return {

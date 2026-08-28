@@ -67,7 +67,7 @@ function makeDb(overrides: Partial<Db> = {}): Db {
     tasks: [], relationshipState: [], overrides: [], folders: [], documents: HEALTHY_VAULT_DOCS,
     grants: [], views: [], templates: [], automations: [], runs: [], aiReviews: [], companyFacts: [], ndas: [], documentVersions: [], reawakeningProposals: [],
     companyPeople: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [], roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
-    interactionDocuments: [],
+    interactionDocuments: [], sherlockNextSnoozes: [],
     ...overrides,
   };
 }
@@ -208,15 +208,57 @@ describe('sherlockNext — priority ladder', () => {
       id: 't-tomorrow', title: 'Not yet', due_at: '2026-08-28T09:00:00Z',
       kind: 'admin', action_type: 'other', done: false,
     };
-    const db = makeDb({ tasks: [task] });
+    // Bypasses steps 5-8 (profile/docs come from makeDb()'s own healthy
+    // defaults already) so this isolates step 4's date-window logic
+    // specifically, same as before onboarding existed in the ladder.
+    const db = makeDb({ tasks: [task], entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND] });
 
     expect(sherlockNext(db, NOW).kind).toBe('all_clear');
   });
 
-  it('5: ready to contact — pre-flight green, once nothing more urgent applies', () => {
+  it('5: onboarding — incomplete company profile, once nothing from steps 1-4 applies', () => {
+    const db = makeDb({ org: INCOMPLETE_ORG });
+
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('onboarding_profile');
+    expect(step.target).toBe('/settings');
+  });
+
+  it('6: onboarding — no documents in the data room, once the profile is complete', () => {
+    const db = makeDb({ documents: [] });
+
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('onboarding_dataroom');
+    expect(step.target).toBe('/documents');
+  });
+
+  it('7: onboarding — empty pipeline, once profile and data room are in place', () => {
+    const step = sherlockNext(makeDb(), NOW); // COMPLETE_ORG + HEALTHY_VAULT_DOCS by default, zero entities
+
+    expect(step.kind).toBe('onboarding_pipeline');
+    expect(step.target).toBe('/pipeline');
+  });
+
+  it('8: onboarding — first message, an entity exists but nothing has ever been sent', () => {
+    const bestFit = makeEntity({ id: 'ent-best', name: 'Best Fit', wave: 1, fit_score: 'high' });
+    const lowerPriority = makeEntity({ id: 'ent-other', name: 'Lower Priority', wave: 3, fit_score: 'low' });
+    // Insertion order deliberately doesn't match priority order — the
+    // wave-then-fit sort has to be doing the actual work, not array order.
+    const db = makeDb({ entities: [lowerPriority, bestFit] });
+
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('onboarding_first_message');
+    expect(step.entityId).toBe('ent-best');
+    expect(step.target).toBe('/entities/ent-best?rail=log');
+  });
+
+  it('9: ready to contact — pre-flight green, once nothing more urgent (including onboarding) applies', () => {
     const entity = makeEntity({ id: 'ent-a', name: 'Nina Capital' });
     const person = makePerson({ id: 'p-1', entity_id: 'ent-a', seniority_rank: 1, full_name: 'Marta Zanchi' });
-    const db = makeDb({ entities: [entity], people: [person] });
+    // Without SOME prior outbound somewhere, step 8 (onboarding_first_message)
+    // would fire first — BYPASS_OUTBOUND satisfies it without touching this
+    // candidate's own not_contacted status or preflight.
+    const db = makeDb({ entities: [entity], people: [person], interactions: [BYPASS_OUTBOUND] });
 
     const step = sherlockNext(db, NOW);
     expect(step.kind).toBe('ready_to_contact');
@@ -224,7 +266,7 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.personId).toBe('p-1');
   });
 
-  it('5b: caps reached blocks step 5 even with a ready contact available', () => {
+  it('9b: caps reached blocks step 9 even with a ready contact available', () => {
     const entity = makeEntity({ id: 'ent-a' });
     const person = makePerson({ id: 'p-1', entity_id: 'ent-a', seniority_rank: 1 });
     // org.daily_cap = 5 by default; five outbound touches today exhausts it.
@@ -240,8 +282,37 @@ describe('sherlockNext — priority ladder', () => {
     expect(sherlockNext(db, NOW).kind).toBe('all_clear');
   });
 
-  it('6: all clear on a fully empty store', () => {
-    const step = sherlockNext(makeDb(), NOW);
+  it('10: pitch review — 3+ passes on the same reason, once nothing from steps 1-9 is pending', () => {
+    const passed = ['ent-p1', 'ent-p2', 'ent-p3'].map((id) => makeEntity({ id, status: 'passed' }));
+    const passes: Interaction[] = passed.map((e, i) => ({
+      id: `i-pass-${i}`, entity_id: e.id, occurred_at: '2026-08-10T00:00:00Z',
+      direction: 'in', channel: 'email', content: 'no thanks',
+      classification: 'pass', pass_reason: 'not our stage', pass_reason_category: 'stage_too_early',
+    }));
+    const db = makeDb({ entities: passed, interactions: [...passes, BYPASS_OUTBOUND] });
+
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('pitch_review');
+    expect(step.target).toBe('/dashboard');
+  });
+
+  it('11: readiness nudge — thin vault, once nothing from steps 1-10 applies', () => {
+    // A single, generically-named document — vaultStrength scores this
+    // 'Thin' (~0.27, under the 0.3 cutoff): low quantity, zero checklist
+    // variety, 'summary'-tier importance. HEALTHY_VAULT_DOCS (the default)
+    // is deliberately NOT used here — this test needs a genuinely thin one.
+    const thinDoc = { id: 'doc-thin', name: 'Company overview', is_view_only: false, visibility: 'open' as const, watermark: false, downloadable: true };
+    const db = makeDb({ documents: [thinDoc], entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND] });
+
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('readiness_nudge');
+    expect(step.target).toBe('/readiness?tab=plan');
+  });
+
+  it('12: all clear once everything — onboarding included — is genuinely caught up', () => {
+    const db = makeDb({ entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND] });
+
+    const step = sherlockNext(db, NOW);
     expect(step.kind).toBe('all_clear');
     expect(step.target).toBe('/today');
   });
@@ -257,6 +328,44 @@ describe('sherlockNext — priority ladder', () => {
     const db = makeDb({ entities: [readyEntity], people: [readyPerson], tasks: [interestTask] });
 
     expect(sherlockNext(db, NOW).kind).toBe('interest_request');
+  });
+
+  // Prompt 417 — the two critical cases the prompt's own verification
+  // section names explicitly: onboarding (§A) never blocks a real pending
+  // signal above it, and real contact (steps 1-9) never falls behind
+  // evaluate/train (§B) — Nuno's "50% rule", enforced as ORDER here, not
+  // hope.
+  it('critical: an incomplete onboarding never blocks a pending interest request — the request always wins', () => {
+    const interestTask: TaskItem = {
+      id: 't-interest', title: 'An investor requested contact access', due_at: '2026-08-20T00:00:00Z',
+      entity_id: 'ent-a', kind: 'follow_up', action_type: 'follow_up_thread', done: false,
+      source: 'interest_level_request',
+    };
+    // Day-1 org: no profile, no documents, no pipeline — every onboarding
+    // gate would fire if this task weren't here.
+    const db = makeDb({ org: INCOMPLETE_ORG, documents: [], entities: [], tasks: [interestTask] });
+
+    expect(sherlockNext(db, NOW).kind).toBe('interest_request');
+  });
+
+  it('critical: a ready-to-contact candidate always wins over an active pitch-review alert', () => {
+    const passed = ['ent-p1', 'ent-p2', 'ent-p3'].map((id) => makeEntity({ id, status: 'passed' }));
+    const passes: Interaction[] = passed.map((e, i) => ({
+      id: `i-pass-${i}`, entity_id: e.id, occurred_at: '2026-08-10T00:00:00Z',
+      direction: 'in', channel: 'email', content: 'no thanks',
+      classification: 'pass', pass_reason: 'not our stage', pass_reason_category: 'stage_too_early',
+    }));
+    const readyEntity = makeEntity({ id: 'ent-ready' });
+    const readyPerson = makePerson({ id: 'p-ready', entity_id: 'ent-ready', seniority_rank: 1 });
+    // passReasonAlert(db) is genuinely true here (3 passes, same category) —
+    // this isn't testing an inactive alert, it's testing that an active one
+    // still loses to real contact.
+    const db = makeDb({
+      entities: [...passed, readyEntity], people: [readyPerson],
+      interactions: [...passes, BYPASS_OUTBOUND],
+    });
+
+    expect(sherlockNext(db, NOW).kind).toBe('ready_to_contact');
   });
 });
 
@@ -352,5 +461,117 @@ describe('liveOverdueEntities — Prompt 414 §2.2', () => {
     // ent-older has the most days overdue (touched a month earlier) → first;
     // ent-wave1/ent-wave2 tie on daysOverdue → lower wave (1) wins next.
     expect(results.map((r) => r.entityId)).toEqual(['ent-older', 'ent-wave1', 'ent-wave2']);
+  });
+});
+
+describe('sherlockNext — snooze filtering (Prompt 415 §1.2)', () => {
+  function snooze(overrides: Partial<Db['sherlockNextSnoozes'][number]> & { kind: string; snoozed_until: string }): Db['sherlockNextSnoozes'][number] {
+    return { id: `snooze-${Math.random()}`, ...overrides };
+  }
+  const FUTURE = '2026-09-01T00:00:00Z'; // after NOW (2026-08-27) — still active
+  const PAST = '2026-08-01T00:00:00Z'; // before NOW — already expired
+
+  it('step 1: a snoozed interest-request task is skipped, falls through to all_clear when nothing else applies', () => {
+    const task: TaskItem = {
+      id: 't-1', title: 'An investor requested contact access', due_at: '2026-08-20T00:00:00Z',
+      kind: 'follow_up', action_type: 'follow_up_thread', done: false, source: 'interest_level_request',
+    };
+    // BYPASS_ENTITY/BYPASS_OUTBOUND clear steps 7/8 (onboarding: pipeline,
+    // first message) so falling through the snoozed step 1 genuinely
+    // reaches all_clear, not the next onboarding step in line.
+    const db = makeDb({
+      entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND], tasks: [task],
+      sherlockNextSnoozes: [snooze({ kind: 'interest_request', task_id: 't-1', snoozed_until: FUTURE })],
+    });
+
+    expect(sherlockNext(db, NOW).kind).toBe('all_clear');
+  });
+
+  it('step 1: an EXPIRED snooze does not filter — the task still wins', () => {
+    const task: TaskItem = {
+      id: 't-1', title: 'An investor requested contact access', due_at: '2026-08-20T00:00:00Z',
+      kind: 'follow_up', action_type: 'follow_up_thread', done: false, source: 'interest_level_request',
+    };
+    const db = makeDb({ tasks: [task], sherlockNextSnoozes: [snooze({ kind: 'interest_request', task_id: 't-1', snoozed_until: PAST })] });
+
+    expect(sherlockNext(db, NOW).kind).toBe('interest_request');
+  });
+
+  it('step 2: a snoozed unclassified reply is skipped', () => {
+    const entity = makeEntity({ id: 'ent-a' });
+    const reply: Interaction = {
+      id: 'i-1', entity_id: 'ent-a', occurred_at: '2026-08-20T00:00:00Z',
+      direction: 'in', channel: 'email', content: 'hi', classification: undefined,
+    };
+    // BYPASS_OUTBOUND clears step 8 (onboarding: first message) — the
+    // reply above is inbound, so it doesn't satisfy "ever sent outbound"
+    // on its own; entities already has one (step 7 clear).
+    const db = makeDb({
+      entities: [entity], interactions: [reply, BYPASS_OUTBOUND],
+      sherlockNextSnoozes: [snooze({ kind: 'unclassified_reply', interaction_id: 'i-1', snoozed_until: FUTURE })],
+    });
+
+    expect(sherlockNext(db, NOW).kind).toBe('all_clear');
+  });
+
+  it('step 3: snoozing the MOST overdue entity falls through to the SECOND most overdue, not straight to all_clear', () => {
+    const mostOverdue = makeEntity({ id: 'ent-most', status: 'contacted' });
+    const secondOverdue = makeEntity({ id: 'ent-second', status: 'contacted' });
+    const p1 = makePerson({ id: 'p-most', entity_id: 'ent-most', seniority_rank: 1 });
+    const p2 = makePerson({ id: 'p-second', entity_id: 'ent-second', seniority_rank: 1 });
+    const db = makeDb({
+      entities: [mostOverdue, secondOverdue], people: [p1, p2],
+      interactions: [
+        { id: 'i-most', entity_id: 'ent-most', person_id: 'p-most', occurred_at: '2026-07-01T00:00:00Z', direction: 'out', channel: 'email', content: 'hi' },
+        { id: 'i-second', entity_id: 'ent-second', person_id: 'p-second', occurred_at: '2026-07-15T00:00:00Z', direction: 'out', channel: 'email', content: 'hi' },
+      ],
+      sherlockNextSnoozes: [snooze({ kind: 'follow_up_overdue', entity_id: 'ent-most', snoozed_until: FUTURE })],
+    });
+
+    // Unsnoozed: ent-most (touched earliest, most overdue) would win.
+    const unsnoozedStep = sherlockNext({ ...db, sherlockNextSnoozes: [] }, NOW);
+    expect(unsnoozedStep.entityId).toBe('ent-most');
+
+    // Snoozed: the loop skips ent-most entirely and lands on ent-second —
+    // never falls straight to all_clear just because the TOP pick is out.
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('follow_up_overdue');
+    expect(step.entityId).toBe('ent-second');
+  });
+
+  it('step 4: a snoozed task-due-today is skipped', () => {
+    const task: TaskItem = {
+      id: 't-today', title: 'Send the follow-up deck', due_at: '2026-08-27T09:00:00Z',
+      kind: 'admin', action_type: 'other', done: false,
+    };
+    const db = makeDb({
+      entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND], tasks: [task],
+      sherlockNextSnoozes: [snooze({ kind: 'task_due_today', task_id: 't-today', snoozed_until: FUTURE })],
+    });
+
+    expect(sherlockNext(db, NOW).kind).toBe('all_clear');
+  });
+
+  it('step 9: a snoozed ready-to-contact person is skipped', () => {
+    const entity = makeEntity({ id: 'ent-a', name: 'Nina Capital' });
+    const person = makePerson({ id: 'p-1', entity_id: 'ent-a', seniority_rank: 1, full_name: 'Marta Zanchi' });
+    const db = makeDb({
+      entities: [entity, BYPASS_ENTITY], people: [person], interactions: [BYPASS_OUTBOUND],
+      sherlockNextSnoozes: [snooze({ kind: 'ready_to_contact', person_id: 'p-1', snoozed_until: FUTURE })],
+    });
+
+    expect(sherlockNext(db, NOW).kind).toBe('all_clear');
+  });
+
+  it('a snooze recorded for a DIFFERENT kind never filters — kind is always part of the match', () => {
+    const task: TaskItem = {
+      id: 't-today', title: 'Send the follow-up deck', due_at: '2026-08-27T09:00:00Z',
+      kind: 'admin', action_type: 'other', done: false,
+    };
+    // Same task_id, but snoozed under the WRONG kind (interest_request, not
+    // task_due_today) — must not accidentally filter step 4.
+    const db = makeDb({ tasks: [task], sherlockNextSnoozes: [snooze({ kind: 'interest_request', task_id: 't-today', snoozed_until: FUTURE })] });
+
+    expect(sherlockNext(db, NOW).kind).toBe('task_due_today');
   });
 });

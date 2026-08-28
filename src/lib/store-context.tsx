@@ -380,6 +380,18 @@ export interface StoreApi {
   // Demo mode's implementation is a no-op (nothing server-side to fall
   // behind), so every caller can invoke this unconditionally.
   refreshFromServer: () => Promise<void>;
+  // Prompt 415 §1 — "Leave for later" on one Sherlock Next Clue candidate.
+  // `key` carries exactly one of the 4 natural-key fields, matching
+  // whichever one that `kind` identifies its candidate by (sherlock-
+  // next.ts's own SherlockNextKind); upserts by (kind, that key) so a
+  // second snooze on the same candidate replaces the first rather than
+  // accumulating rows (migration 0261's own candidate_key column is what
+  // makes that a plain, safe upsert target).
+  snoozeSherlockClue: (
+    kind: string,
+    key: { task_id?: string; entity_id?: string; interaction_id?: string; person_id?: string },
+    snoozedUntil: string,
+  ) => void;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);

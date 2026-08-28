@@ -1094,6 +1094,23 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
     // writes to it. A no-op so callers (InvestorInterestPopup etc.) can
     // call this unconditionally without branching on which store is mounted.
     async refreshFromServer() {},
+
+    // Prompt 415 §1 — same upsert-by-natural-key shape as setNextStepTask
+    // above (keyed by entity_id there, by kind+whichever of the 4 id
+    // fields is set here) — a second snooze on the same candidate
+    // replaces the row instead of accumulating one per click.
+    snoozeSherlockClue(kind, key, snoozedUntil) {
+      setDb((prev) => {
+        const matches = (s: (typeof prev.sherlockNextSnoozes)[number]) => s.kind === kind
+          && s.task_id === key.task_id && s.entity_id === key.entity_id
+          && s.interaction_id === key.interaction_id && s.person_id === key.person_id;
+        const existing = prev.sherlockNextSnoozes.find(matches);
+        const sherlockNextSnoozes = existing
+          ? prev.sherlockNextSnoozes.map((s) => matches(s) ? { ...s, snoozed_until: snoozedUntil } : s)
+          : [...prev.sherlockNextSnoozes, { id: uid('snooze'), kind, ...key, snoozed_until: snoozedUntil }];
+        return { ...prev, sherlockNextSnoozes };
+      });
+    },
   }), [db]);
 
   return <StoreCtx.Provider value={api}>{children}</StoreCtx.Provider>;

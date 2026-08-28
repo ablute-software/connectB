@@ -1075,6 +1075,23 @@ export interface ReawakeningProposal {
   resolved_at?: string;
 }
 
+// Prompt 415 §1 — "Leave for later" on one Sherlock Next Clue candidate.
+// Exactly one of task_id/entity_id/interaction_id/person_id is set,
+// matching whichever natural key that step's kind already identifies its
+// candidate by (migration 0261's own check constraint). `kind` stays a
+// plain string here rather than SherlockNextKind (sherlock-next.ts) to
+// avoid a circular import — this file is the domain-types source of
+// truth sherlock-next.ts itself imports Db FROM.
+export interface SherlockNextSnooze {
+  id: string;
+  kind: string;
+  task_id?: string;
+  entity_id?: string;
+  interaction_id?: string;
+  person_id?: string;
+  snoozed_until: string;
+}
+
 export interface Db {
   catalog: CatalogEntity[];
   packs: Pack[];
@@ -1110,6 +1127,7 @@ export interface Db {
   interactionEdits: InteractionEdit[];
   orgAxisClassifications: OrgAxisClassification[];
   interactionDocuments: InteractionDocument[];
+  sherlockNextSnoozes: SherlockNextSnooze[];
 }
 
 // ---------------------------------------------------------------------------

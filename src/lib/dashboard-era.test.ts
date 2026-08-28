@@ -49,7 +49,7 @@ function db(entities: Entity[], interactions: Interaction[]): Db {
     companyFacts: [], companyPeople: [], tractionMetrics: [], ndas: [], documentVersions: [],
     reawakeningProposals: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [],
     roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
-    interactionDocuments: [],
+    interactionDocuments: [], sherlockNextSnoozes: [],
   } as Db;
 }
 

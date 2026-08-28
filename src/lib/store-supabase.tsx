@@ -13,7 +13,7 @@ import type {
   DocumentVersion, DocumentView, Entity, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory, RoadmapEvent,
-  RejectionCode, InteractionEdit, InteractionDocument, OrgAxisClassification } from './types';
+  RejectionCode, InteractionEdit, InteractionDocument, OrgAxisClassification, SherlockNextSnooze } from './types';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval, priorPassInfo } from './reawakening';
@@ -33,7 +33,7 @@ const EMPTY_DB: Db = {
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
   documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [],
   roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
-  interactionDocuments: [],
+  interactionDocuments: [], sherlockNextSnoozes: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -81,7 +81,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
     documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes, roadmapMilestonesRes,
     fundingRoundsRes, roadmapCategoriesRes, roadmapEventsRes, rejectionCodesRes, interactionEditsRes, orgAxisClassificationsRes,
-    interactionDocumentsRes,
+    interactionDocumentsRes, sherlockNextSnoozesRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -147,6 +147,9 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // Prompt 397 §C.3 — interaction_documents (0254). Same missing-table-
     // safe pattern as company_facts/ndas above.
     sb.from('interaction_documents').select('*').eq('org_id', orgId),
+    // Prompt 415 §1 — sherlock_next_snoozes (0261). Same missing-table-safe
+    // pattern as company_facts/ndas above.
+    sb.from('sherlock_next_snoozes').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -216,6 +219,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     interactionEdits: ((interactionEditsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<InteractionEdit>(r)),
     orgAxisClassifications: ((orgAxisClassificationsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<OrgAxisClassification>(r)),
     interactionDocuments: ((interactionDocumentsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<InteractionDocument>(r)),
+    sherlockNextSnoozes: ((sherlockNextSnoozesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<SherlockNextSnooze>(r)),
   };
 }
 
@@ -1941,6 +1945,36 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     // (investor interest, an automations task, a catalog delivery, …) can
     // pull the store forward without waiting for the next F5.
     refreshFromServer: refetch,
+
+    // Prompt 415 §1 — same upsert-by-natural-key shape as setNextStepTask
+    // above, keyed by (kind, whichever of the 4 id fields `key` sets)
+    // instead of entity_id. onConflict targets migration 0261's own
+    // candidate_key generated column (a single ordinary unique constraint
+    // coalescing the 4 possible id columns) rather than one of the id
+    // columns directly — PostgREST's onConflict param can't target a
+    // partial index, which any one of those 4 columns alone would need
+    // to be (nullable, only one populated per row).
+    snoozeSherlockClue(kind: string, key: { task_id?: string; entity_id?: string; interaction_id?: string; person_id?: string }, snoozedUntil: string) {
+      const prev = dbRef.current;
+      const matches = (s: SherlockNextSnooze) => s.kind === kind
+        && s.task_id === key.task_id && s.entity_id === key.entity_id
+        && s.interaction_id === key.interaction_id && s.person_id === key.person_id;
+      const existing = prev.sherlockNextSnoozes.find(matches);
+      const row: SherlockNextSnooze = existing
+        ? { ...existing, snoozed_until: snoozedUntil }
+        : { id: uuid(), kind, ...key, snoozed_until: snoozedUntil };
+      const sherlockNextSnoozes = existing
+        ? prev.sherlockNextSnoozes.map((s) => matches(s) ? row : s)
+        : [...prev.sherlockNextSnoozes, row];
+      commit({ ...prev, sherlockNextSnoozes });
+      const o = orgIdRef.current;
+      if (o) {
+        persist(sb.from('sherlock_next_snoozes').upsert(
+          { org_id: o, kind, task_id: key.task_id ?? null, entity_id: key.entity_id ?? null, interaction_id: key.interaction_id ?? null, person_id: key.person_id ?? null, snoozed_until: snoozedUntil },
+          { onConflict: 'org_id,kind,candidate_key' },
+        ), 'snoozeSherlockClue');
+      }
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [version]);
 
