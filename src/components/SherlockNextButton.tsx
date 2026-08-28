@@ -21,12 +21,22 @@ import { sherlockNext } from '@/lib/sherlock-next';
 // "Next: nunomarujo@gmail.com…" (an investor catalog entry whose "name" is
 // an email). Fixed text now; the dynamic info moves entirely into the
 // tooltip, which is opt-in (hover) rather than always-on in the header.
+// Prompt 417 §A/§B — six more kinds (sherlock-next.ts steps 5-8, 10-11):
+// onboarding has no single target button to describe (the target IS the
+// page — see that file's own §A.3 note), so these read as a plain
+// description of what the page is for, same as task_due_today already does.
 const KIND_TOOLTIP: Record<string, string> = {
   interest_request: "Opens this investor's dossier, ready to approve or deny their request.",
   unclassified_reply: "Opens this investor's dossier with the reply ready to classify.",
   follow_up_overdue: 'Opens this investor\'s dossier with a reply pre-filled and ready to log.',
   task_due_today: 'A task on your list is due today.',
+  onboarding_profile: 'Opens Settings — a complete profile is what investors see first.',
+  onboarding_dataroom: 'Opens the Vault — add your first document.',
+  onboarding_pipeline: 'Opens Pipeline — add your first investor.',
+  onboarding_first_message: "Opens this investor's dossier, ready to log your first message.",
   ready_to_contact: "Opens this investor's dossier ready to log the first outreach.",
+  pitch_review: 'Opens the Dashboard — several investors passed for the same reason.',
+  readiness_nudge: "Opens Readiness & Train's action plan to strengthen your Vault.",
   all_clear: 'Nothing urgent right now — see the full picture on Today.',
 };
 
