@@ -12,8 +12,18 @@ export interface ReadyToContact {
   caps: ReturnType<typeof outboundCounts>;
 }
 
-export function readyToContact(db: Db): ReadyToContact {
-  const caps = outboundCounts(db);
+// Prompt 414 (found while extracting liveOverdueEntities alongside this)
+// — now was never threaded through to outboundCounts/preflight below,
+// so this silently used the REAL system clock regardless of what a
+// caller passed. Harmless for the interactive UI hook (which always
+// wants "right now" anyway, and never passed one), but broke
+// sherlockNext(db, now)'s own contract of being a pure function of BOTH
+// arguments — step 5's cap check ignored its caller's now entirely.
+// Confirmed live: sherlock-next.test.ts's own "5b: caps reached" test
+// (hardcoded NOW = 2026-08-27) started failing the moment the real
+// clock crossed that date, exactly the symptom this fix closes.
+export function readyToContact(db: Db, now: Date = new Date()): ReadyToContact {
+  const caps = outboundCounts(db, now);
   const capReached = caps.today >= caps.dailyCap || caps.week >= caps.weeklyCap;
   const ready = db.people
     .filter((p) => !p.do_not_contact)
@@ -21,7 +31,7 @@ export function readyToContact(db: Db): ReadyToContact {
       const e = db.entities.find((x) => x.id === p.entity_id);
       return e && ['not_contacted', 'contacted'].includes(e.status);
     })
-    .filter((p) => preflightSummary(preflight(db, p, null)).green)
+    .filter((p) => preflightSummary(preflight(db, p, null, now)).green)
     .sort((a, b) => {
       const ea = db.entities.find((x) => x.id === a.entity_id); const eb = db.entities.find((x) => x.id === b.entity_id);
       return (ea?.wave ?? 9) - (eb?.wave ?? 9) || a.seniority_rank - b.seniority_rank;

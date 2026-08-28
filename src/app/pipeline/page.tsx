@@ -11,7 +11,7 @@ import { MatchDealVisibilityBanner } from '@/components/dashboard/MatchDealVisib
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 import { AddInvestorModal } from '@/components/AddInvestorModal';
-import { isPersonCandidate, isUnverifiedStub, relationshipSummary } from '@/lib/relationship';
+import { followUpTaskDisplayTitle, isPersonCandidate, isUnverifiedStub, relationshipSummary } from '@/lib/relationship';
 import { CoachMark } from '@/components/onboarding/CoachMark';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
@@ -1064,7 +1064,7 @@ export default function PipelinePage() {
                   <td className="break-words px-2 py-1.5">
                     {task ? (
                       <span className="text-xs">
-                        <span className="text-gray-700">{task.title}</span>
+                        <span className="text-gray-700">{followUpTaskDisplayTitle(task)}</span>
                         {/* Prompt 269 §3 — overdue urgency is muted in the
                             frozen view for the same reason as the whose-turn
                             chip above: the frozen state is the dominant

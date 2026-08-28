@@ -246,14 +246,23 @@ export function SherlockInsightBanner({
               </button>
             </div>
           ) : needsReopenTrigger(entity) ? (
+            // Prompt 414 §3.1 — "Your note" made explicit here too, not
+            // just once the note is saved (below): sitting directly under
+            // the teal Sherlock-voiced banner, a bare "+ Set reopen
+            // trigger" could read as Sherlock offering ITS OWN answer to
+            // "why reopen" rather than what it actually is — a free-text
+            // box for the founder's own thinking, which Sherlock cannot
+            // yet derive on its own (see the honest fallback copy above).
             <div className="-mt-1 rounded-2xl bg-white px-4 py-2.5 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
-              <button onClick={() => setReopenTriggerDraft('')} className="text-[11px] font-semibold text-[#0f5132] hover:underline">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Your note</div>
+              <button onClick={() => setReopenTriggerDraft('')} className="mt-0.5 text-[11px] font-semibold text-[#0f5132] hover:underline">
                 + Set reopen trigger
               </button>
             </div>
           ) : null
         ) : (
           <div className="-mt-1 space-y-1.5 rounded-2xl bg-white px-4 py-3 shadow-[0_4px_20px_rgba(15,23,42,0.06)]">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Your note</div>
             <textarea value={reopenTriggerDraft} onChange={(e) => setReopenTriggerDraft(e.target.value)} rows={2} autoFocus
               placeholder="What would have to change for a re-approach to be legitimate?"
               className="w-full rounded border border-[#cdeadb] p-2 text-xs text-gray-900" />

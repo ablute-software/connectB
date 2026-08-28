@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { relationshipSummary, suggestNextAction } from './relationship';
-import type { Db, Entity, Interaction } from './types';
+import { followUpTaskDisplayTitle, relationshipSummary, suggestNextAction } from './relationship';
+import type { Db, Entity, Interaction, TaskItem } from './types';
 
 const OCCURRED = '2026-07-30T10:00:00.000Z';
 
@@ -107,5 +107,67 @@ describe('suggestNextAction', () => {
 
   it('returns null for an outbound channel with no rule (e.g. stage_change)', () => {
     expect(suggestNextAction('out', 'stage_change', undefined, OCCURRED)).toBeNull();
+  });
+});
+
+describe('followUpTaskDisplayTitle — Prompt 414 §1', () => {
+  function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
+    return {
+      id: 't1', title: 'Wait for a reply until 2026-08-20 — then follow up on the introduction',
+      due_at: '2026-08-20T00:00:00.000Z', kind: 'follow_up', action_type: 'follow_up_no_reply', done: false,
+      ...overrides,
+    };
+  }
+
+  it('before the deadline, the title is unchanged', () => {
+    const t = makeTask();
+    expect(followUpTaskDisplayTitle(t, new Date('2026-08-15T00:00:00.000Z'))).toBe(t.title);
+  });
+
+  it('at the exact deadline, it already switches to the present-tense form', () => {
+    const t = makeTask();
+    expect(followUpTaskDisplayTitle(t, new Date('2026-08-20T00:00:00.000Z')))
+      .toBe('No reply since 2026-08-20 — follow up on the introduction');
+  });
+
+  it('long after the deadline, it keeps switching (not just on the first overdue day)', () => {
+    const t = makeTask();
+    expect(followUpTaskDisplayTitle(t, new Date('2026-09-15T00:00:00.000Z')))
+      .toBe('No reply since 2026-08-20 — follow up on the introduction');
+  });
+
+  it('a follow_up_thread task (e.g. a channel like call/meeting/event) gets the same treatment', () => {
+    const t = makeTask({
+      title: 'Wait for a reply until 2026-08-10 — then follow up after the meeting',
+      due_at: '2026-08-10T00:00:00.000Z', action_type: 'follow_up_thread',
+    });
+    expect(followUpTaskDisplayTitle(t, new Date('2026-08-25T00:00:00.000Z')))
+      .toBe('No reply since 2026-08-10 — follow up after the meeting');
+  });
+
+  it('leaves an INBOUND-suggested title untouched — same kind/action_type/due_at shape, different template', () => {
+    // Confirmed via RailLogForm.tsx's acceptSuggestion(): an inbound
+    // classification like 'meeting_request' saves through the exact same
+    // {kind:'follow_up', action_type:'follow_up_thread', due_at} shape as
+    // an outbound suggestion — only the title's own literal prefix tells
+    // them apart, which is why this is the real discriminant, not those
+    // three fields.
+    const t = makeTask({ title: 'Schedule the meeting', due_at: '2026-08-01T00:00:00.000Z', action_type: 'follow_up_thread' });
+    expect(followUpTaskDisplayTitle(t, new Date('2026-09-01T00:00:00.000Z'))).toBe('Schedule the meeting');
+  });
+
+  it('leaves a research/admin/meeting-kind task untouched regardless of title', () => {
+    const t = makeTask({ kind: 'admin', due_at: '2026-08-01T00:00:00.000Z' });
+    expect(followUpTaskDisplayTitle(t, new Date('2026-09-01T00:00:00.000Z'))).toBe(t.title);
+  });
+
+  it('leaves a task with no due_at untouched', () => {
+    const t = makeTask({ due_at: undefined });
+    expect(followUpTaskDisplayTitle(t, new Date('2026-09-01T00:00:00.000Z'))).toBe(t.title);
+  });
+
+  it('leaves a hand-edited title that no longer matches the exact template untouched', () => {
+    const t = makeTask({ title: 'Wait for a reply until 2026-08-20, then call them' }); // no " — " separator
+    expect(followUpTaskDisplayTitle(t, new Date('2026-09-01T00:00:00.000Z'))).toBe(t.title);
   });
 });

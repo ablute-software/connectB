@@ -8,7 +8,8 @@ import { useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink, PersonLink, fmtRoundEur } from '@/components/ui';
 import { outboundCounts } from '@/lib/rules';
-import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL } from '@/lib/relationship';
+import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, followUpTaskDisplayTitle } from '@/lib/relationship';
+import { FIT_ORDER, liveOverdueEntities } from '@/lib/sherlock-next';
 import { PageTour } from '@/components/onboarding/PageTour';
 import {
   useInterestRequests, interestRequestConsequence,
@@ -59,6 +60,38 @@ export function TodayPanel() {
 
   const overdue = db.tasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) < now && t.kind !== 'research')
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
+
+  // Prompt 414 §2 — Today used to only ever show a Sherlock advice once it
+  // had become a TASK (i.e. the founder clicked Accept/Edit on the /log
+  // suggestion) — an entity the founder clicked "Ignore" on, or only ever
+  // touched via a Sherlock message (no task ever created), was invisible
+  // here even though sherlock-next.ts's own step 3 already points right at
+  // it. liveOverdueEntities (sherlock-next.ts, same file/tie-break as step
+  // 3) adds every SUCH entity the task list below doesn't already
+  // represent (dedupe by entity_id) — never cached, so its text (from
+  // nextBestAction) can never freeze the way a task.title used to.
+  const overdueTaskEntityIds = new Set(overdue.map((t) => t.entity_id).filter((id): id is string => !!id));
+  const liveOverdue = liveOverdueEntities(db, now, overdueTaskEntityIds);
+
+  // Same tie-break sherlock-next.ts's own step 3 uses (daysOverdue desc,
+  // then wave asc, then fitRank asc) — applied uniformly across BOTH row
+  // kinds (each task also has an entity, so its wave/fitRank are pulled
+  // the same way) so the merged list reads as one consistent ordering,
+  // not two lists concatenated.
+  type OverdueEntry =
+    | { kind: 'task'; task: typeof overdue[number]; daysOverdue: number; wave: number; fitRank: number }
+    | ({ kind: 'live' } & ReturnType<typeof liveOverdueEntities>[number]);
+  const mergedOverdue: OverdueEntry[] = [
+    ...overdue.map((t) => {
+      const entity = t.entity_id ? db.entities.find((e) => e.id === t.entity_id) : undefined;
+      return {
+        kind: 'task' as const, task: t,
+        daysOverdue: t.due_at ? Math.floor((now.getTime() - new Date(t.due_at).getTime()) / 86_400_000) : 0,
+        wave: entity?.wave ?? 9, fitRank: FIT_ORDER[entity?.fit_score ?? 'low'],
+      };
+    }),
+    ...liveOverdue.map((e) => ({ kind: 'live' as const, ...e })),
+  ].sort((a, b) => b.daysOverdue - a.daysOverdue || a.wave - b.wave || a.fitRank - b.fitRank);
   const unclassified = db.interactions.filter((i) => i.direction === 'in' && (!i.classification || i.classification === 'unclear'));
   const thisWeek = db.tasks.filter((t) => !t.done && t.due_at && new Date(t.due_at) >= now
     && new Date(t.due_at) < new Date(now.getTime() + 7 * 24 * 3600 * 1000))
@@ -106,10 +139,31 @@ export function TodayPanel() {
             read) — no new logic, just a second place it renders. */}
         <ReawakeningQueue />
 
-        <Card title={<span className="text-[#B00000]">Overdue ({overdue.length})</span>}>
-          {overdue.length === 0 ? <p className="text-sm text-gray-400">Nothing overdue.</p> : (
+        <Card title={<span className="text-[#B00000]">Overdue ({mergedOverdue.length})</span>}>
+          {mergedOverdue.length === 0 ? <p className="text-sm text-gray-400">Nothing overdue.</p> : (
             <ul className="divide-y divide-gray-100">
-              {overdue.map((t) => {
+              {mergedOverdue.map((entry) => {
+                if (entry.kind === 'live') {
+                  // Prompt 414 §2.2 — no task exists for this one, so there's
+                  // nothing to check off; text comes straight from
+                  // nextBestAction (recomputed every render, never frozen)
+                  // and Reply now uses the exact same ?rail=log&person=
+                  // deep-link sherlock-next.ts's own step 3 already builds.
+                  return (
+                    <li key={`live:${entry.entityId}`} className="py-2 text-sm">
+                      <div className="flex items-center gap-3">
+                        <span className="flex-1">{entry.text}
+                          {' — '}<EntityLink id={entry.entityId}>{db.entities.find((e) => e.id === entry.entityId)?.name}</EntityLink>
+                        </span>
+                        <Link href={`/entities/${entry.entityId}?rail=log&person=${entry.personId}`}
+                          className="shrink-0 rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white">
+                          Reply now
+                        </Link>
+                      </div>
+                    </li>
+                  );
+                }
+                const t = entry.task;
                 // §B — sem pedido pendente correspondente (já decidido
                 // noutro sítio, ou task órfã), cai no checkbox normal para
                 // continuar fechável à mão.
@@ -120,7 +174,7 @@ export function TodayPanel() {
                   <div className="flex items-center gap-3">
                     {!interestReq && <input type="checkbox" checked={false} onChange={() => completeTask(t.id, t.title)} />}
                     <ActionTypePill type={t.action_type} />
-                    <span className="flex-1">{t.title}
+                    <span className="flex-1">{followUpTaskDisplayTitle(t, now)}
                       {t.entity_id && <> — <EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink></>}
                     </span>
                     {interestReq ? (
@@ -232,7 +286,7 @@ export function TodayPanel() {
               {thisWeek.map((t) => (
                 <li key={t.id} className="flex items-center gap-2">
                   <ActionTypePill type={t.action_type} />
-                  <span className="flex-1 truncate">{t.title}</span>
+                  <span className="flex-1 truncate">{followUpTaskDisplayTitle(t, now)}</span>
                   <span className="shrink-0 text-xs text-gray-400">{t.due_at?.slice(5, 10)}</span>
                 </li>
               ))}

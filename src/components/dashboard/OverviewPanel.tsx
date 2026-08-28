@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink, fmtRoundEur, statusLabel } from '@/components/ui';
 import { outboundCounts, passReasonAlert } from '@/lib/rules';
+import { followUpTaskDisplayTitle } from '@/lib/relationship';
 import { can, type OrgRole } from '@/lib/permissions';
 import { authEnabled } from '@/lib/supabase';
 import { PageTour } from '@/components/onboarding/PageTour';
@@ -121,7 +122,7 @@ export function OverviewPanel() {
             <ul className="space-y-1.5 text-sm">
               {followupsDue.map((t) => (
                 <li key={t.id} className="flex justify-between gap-2">
-                  <span>{t.title} {t.entity_id && <EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink>}</span>
+                  <span>{followUpTaskDisplayTitle(t)} {t.entity_id && <EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink>}</span>
                   <span className="text-xs text-gray-400">{t.due_at?.slice(0, 10)}</span>
                 </li>
               ))}
@@ -222,7 +223,7 @@ export function OverviewPanel() {
             <ul className="space-y-1.5 text-sm">
               {followupsDue.slice(0, 6).map((t) => (
                 <li key={t.id} className="flex justify-between gap-2">
-                  <span>{t.title} {t.entity_id && <EntityLink id={t.entity_id}>→</EntityLink>}</span>
+                  <span>{followUpTaskDisplayTitle(t)} {t.entity_id && <EntityLink id={t.entity_id}>→</EntityLink>}</span>
                   <span className="text-xs text-gray-400">{t.due_at?.slice(0, 10)}</span>
                 </li>
               ))}

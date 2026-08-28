@@ -6,14 +6,22 @@
 import { useStore } from '@/lib/store';
 import { EntityLink } from '@/components/ui';
 import { ReminderPopupView } from '@/components/ReminderPopupView';
+import { followUpTaskDisplayTitle } from '@/lib/relationship';
 import type { TaskItem } from '@/lib/types';
 
 export function ReminderPopup() {
   const { db, updateTask } = useStore();
 
   return (
+    // Prompt 414 §1.2 — ReminderPopupView is shared with the investor side
+    // (InvestorReminderPopup.tsx), whose items are a different type with no
+    // due_at/kind fields, so the live-title fix can't live inside the
+    // shared view without widening a generic type for one caller. Applied
+    // here instead, at the founder-only wrapper, by overriding .title
+    // before it ever reaches the view — onDismiss/onSnooze/onMute below
+    // only ever key off `t.id`, never `t.title`, so this is display-only.
     <ReminderPopupView<TaskItem>
-      items={db.tasks}
+      items={db.tasks.map((t) => ({ ...t, title: followUpTaskDisplayTitle(t) }))}
       onDismiss={(t) => updateTask(t.id, { reminder_at: null })}
       onSnooze={(t, until) => updateTask(t.id, { snoozed_until: until })}
       // Prompt 398 §3.2.2 — permanent per-request opt-out (never fires

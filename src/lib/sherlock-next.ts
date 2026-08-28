@@ -7,11 +7,22 @@
 // contact.ts is itself an extraction of ReadyToContactPanel.tsx's own
 // computation for the exact same "don't duplicate" reason.
 import type { Db, FitScore } from './types';
-import { nextBestActionButton, relationshipSummary } from './relationship';
+import { nextBestAction, nextBestActionButton, relationshipSummary } from './relationship';
 import { readyToContact } from './ready-to-contact';
+// Prompt 417 §A/§B — each reused as-is, none reimplemented: isProfileGateComplete
+// already gates Pipeline visibility (the SAME "is this profile functional yet"
+// bar, not a second competing one — see step 5's own comment for why that's
+// deliberately not companyCompleteness.ts's weighted %); passReasonAlert
+// already drives the Dashboard's pass-pattern banner; vaultStrength already
+// backs Readiness & Train's own Vault Strength Barometer.
+import { isProfileGateComplete } from './pipeline-unlock';
+import { passReasonAlert } from './rules';
+import { vaultStrength } from './vault-strength';
 
 export type SherlockNextKind =
-  | 'interest_request' | 'unclassified_reply' | 'follow_up_overdue' | 'task_due_today' | 'ready_to_contact' | 'all_clear';
+  | 'interest_request' | 'unclassified_reply' | 'follow_up_overdue' | 'task_due_today'
+  | 'onboarding_profile' | 'onboarding_dataroom' | 'onboarding_pipeline' | 'onboarding_first_message'
+  | 'ready_to_contact' | 'pitch_review' | 'readiness_nudge' | 'all_clear';
 
 export interface SherlockNextStep {
   kind: SherlockNextKind;
@@ -27,8 +38,14 @@ export interface SherlockNextStep {
 // Mirrors src/app/pipeline/page.tsx's own local `fitOrder` (wave-then-fit is
 // that page's own established tie-break order, line ~600) — not exported
 // from there since it's a page file, so mirrored here rather than importing
-// across a page boundary for a 4-entry map.
-const FIT_ORDER: Record<FitScore, number> = { high: 0, medium_high: 1, medium: 2, low: 3 };
+// across a page boundary for a 4-entry map. Exported from HERE (Prompt 414
+// §2.2) since liveOverdueEntities below is now a second real consumer
+// (TodayPanel's own task-entry tie-break needs the exact same map to sort
+// consistently with the live entries it merges alongside) — the original
+// "just mirror it, it's 4 entries" reasoning was about avoiding an import
+// across a PAGE boundary, which doesn't apply to importing from this
+// lib module.
+export const FIT_ORDER: Record<FitScore, number> = { high: 0, medium_high: 1, medium: 2, low: 3 };
 
 export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
   // 1 — pending investor interest request (oldest first). Materialized as a
@@ -126,9 +143,51 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     };
   }
 
-  // 5 — ready to contact (pre-flight green, wave/seniority order), only
+  // 5 — onboarding: company profile. Checked before any real-contact step
+  // below, but never before a REAL pending signal above (1-4) — a founder
+  // mid-conversation with an investor on day 1 still gets that reply/
+  // request first; onboarding only fills the gap when there's genuinely
+  // nothing already in motion. isProfileGateComplete is the same gate
+  // pipeline-unlock.ts already uses to decide whether Pipeline shows any
+  // investors at all — reused rather than companyCompleteness.ts's
+  // weighted Profile Strength %, which answers a different question ("how
+  // polished is it", including decorative fields like logo/postal code
+  // this gate deliberately excludes) than "is it functional yet".
+  if (!isProfileGateComplete(db.org)) {
+    return { kind: 'onboarding_profile', label: 'Next: complete your company profile', target: '/settings' };
+  }
+
+  // 6 — onboarding: data room. Zero documents means zero evidence for an
+  // investor to look at, independent of how complete the profile text is.
+  if (db.documents.length === 0) {
+    return { kind: 'onboarding_dataroom', label: 'Next: add your first document to the Vault', target: '/documents' };
+  }
+
+  // 7 — onboarding: pipeline. No investors yet — nothing downstream of
+  // this (contact, follow-up, evaluate) has anything to act on.
+  if (db.entities.length === 0) {
+    return { kind: 'onboarding_pipeline', label: 'Next: add your first investor to the pipeline', target: '/pipeline' };
+  }
+
+  // 8 — onboarding: first message. At least one entity exists (step 7
+  // already ruled out zero), but the founder has never actually sent
+  // anything — outbound across the WHOLE org, not per-entity, since this
+  // is a one-time "you haven't started" signal, not a per-entity nudge
+  // (steps 3/9 already own that once outreach is under way). Same
+  // wave-then-fit tie-break as step 3's own "best first" (FIT_ORDER, above).
+  const everSentOutbound = db.interactions.some((i) => i.direction === 'out');
+  if (!everSentOutbound) {
+    const firstEntity = [...db.entities].sort((a, b) =>
+      (a.wave ?? 9) - (b.wave ?? 9) || FIT_ORDER[a.fit_score ?? 'low'] - FIT_ORDER[b.fit_score ?? 'low'])[0];
+    return {
+      kind: 'onboarding_first_message', label: `Next: send your first message to ${firstEntity.name}`,
+      entityId: firstEntity.id, target: `/entities/${firstEntity.id}?rail=log`,
+    };
+  }
+
+  // 9 — ready to contact (pre-flight green, wave/seniority order), only
   // while the daily/weekly volume caps still allow it.
-  const { ready, capReached } = readyToContact(db);
+  const { ready, capReached } = readyToContact(db, now);
   if (!capReached && ready.length > 0) {
     const person = ready[0];
     const entity = db.entities.find((e) => e.id === person.entity_id);
@@ -140,6 +199,66 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     }
   }
 
-  // 6 — nothing actionable right now.
+  // 10 — pitch review: 3+ passes citing the same reason (passReasonAlert,
+  // rules.ts), only once nothing from steps 1-9 is pending — real contact
+  // never falls behind evaluating the pitch (Nuno's "50% rule", enforced
+  // here as ORDER, not hope). Points at the same banner OverviewPanel.tsx
+  // already renders for this exact alert — never a second copy of it.
+  if (passReasonAlert(db)) {
+    return { kind: 'pitch_review', label: 'Next: review why investors are passing', target: '/dashboard' };
+  }
+
+  // 11 — readiness nudge: lowest priority, only before all_clear. Gated on
+  // a real, already-computed signal (vaultStrength — the same barometer
+  // Readiness & Train's own Action Plan tab shows; 'Thin' is its bottom
+  // tier, under 30%) rather than a blind cadence, since a cheap signal
+  // already exists — see this ladder's own header for why that's the
+  // deciding factor, not a coin flip between the two options.
+  if (vaultStrength(db.folders, db.documents, now).label === 'Thin') {
+    return { kind: 'readiness_nudge', label: 'Next: strengthen your Vault', target: '/readiness?tab=plan' };
+  }
+
+  // 12 — nothing actionable right now.
   return { kind: 'all_clear', label: 'All clear', target: '/today' };
+}
+
+export interface LiveOverdueEntity {
+  entityId: string; personId: string; text: string; daysOverdue: number; wave: number; fitRank: number;
+}
+
+// Prompt 414 §2.2 — every entity with a live "reply now" signal (the exact
+// same gate step 3 above uses: effectiveMode active, not locked, whoseTurn
+// 'overdue'), not just the single most-overdue one step 3 returns. Today's
+// own Overdue card uses this to show ALL such entities, not only the ones
+// that happened to become a task (accepted from the /log suggestion) —
+// an entity the founder clicked "Ignore" on, or only ever touched via a
+// Sherlock message, used to be invisible there even though this exact
+// signal already pointed at it. `text` comes from nextBestAction, which
+// is recomputed live on every call — never a task.title baked in once and
+// left to go stale (Prompt 414 §1's own bug).
+//
+// excludeEntityIds lets the caller skip entities already represented by
+// an open task, so a merged (tasks + live entries) list never double-
+// counts the same entity — the caller's own responsibility to build that
+// set (e.g. from its own task list's entity_ids), since what counts as
+// "already represented" is a judgment this function has no way to make
+// (Today's Overdue card currently means "any open overdue task").
+export function liveOverdueEntities(db: Db, now: Date, excludeEntityIds: Set<string> = new Set()): LiveOverdueEntity[] {
+  const results: LiveOverdueEntity[] = [];
+  for (const entity of db.entities) {
+    if (excludeEntityIds.has(entity.id)) continue;
+    const action = nextBestActionButton(db, entity.id, now);
+    if (!action) continue;
+    const text = nextBestAction(db, entity.id, now);
+    if (!text) continue; // defensive — whoseTurn 'overdue' always yields text from nextBestAction
+    const summary = relationshipSummary(db, entity.id, now);
+    results.push({
+      entityId: entity.id, personId: action.personId, text,
+      daysOverdue: summary.daysSinceLastTouch ?? 0,
+      wave: entity.wave ?? 9, fitRank: FIT_ORDER[entity.fit_score ?? 'low'],
+    });
+  }
+  // Same tie-break as step 3 above: most days overdue first, then earlier
+  // wave, then better fit.
+  return results.sort((a, b) => b.daysOverdue - a.daysOverdue || a.wave - b.wave || a.fitRank - b.fitRank);
 }

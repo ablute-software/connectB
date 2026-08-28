@@ -13,7 +13,7 @@ import type { Entity, RelationshipStage } from '@/lib/types';
 import { PersonLink } from '@/components/ui';
 import { outboundCounts, LOCK_DAYS } from '@/lib/rules';
 import {
-  STAGE_ORDER, STAGE_LABEL, relationshipSummary, relatedContacts, type DealMessageTouch,
+  STAGE_ORDER, STAGE_LABEL, relationshipSummary, relatedContacts, followUpTaskDisplayTitle, type DealMessageTouch,
 } from '@/lib/relationship';
 
 export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [], dealMessages = [] }: {
@@ -97,7 +97,7 @@ export function ThreadDrawer({ entity, open, onClose, dealMessageTouches = [], d
               <div className="mt-0.5 text-xs text-gray-500">
                 {summary.firstContactAt ? `First contact ${summary.firstContactAt.slice(0, 10)}` : 'No contact yet'}
                 {summary.lastTouchAt && ` · Last touch ${summary.lastTouchAt.slice(0, 10)} (${summary.daysSinceLastTouch}d ago)`}
-                {summary.nextStep && ` · Next: ${summary.nextStep.title}`}
+                {summary.nextStep && ` · Next: ${followUpTaskDisplayTitle(summary.nextStep)}`}
               </div>
             </div>
             <div className="flex shrink-0 gap-1.5">

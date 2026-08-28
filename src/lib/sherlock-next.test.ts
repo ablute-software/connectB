@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sherlockNext } from './sherlock-next';
+import { liveOverdueEntities, sherlockNext } from './sherlock-next';
 import type { Db, Entity, Interaction, Person, TaskItem } from './types';
 
 function makeEntity(overrides: Partial<Entity> & { id: string }): Entity {
@@ -20,12 +20,51 @@ function makePerson(overrides: Partial<Person> & { id: string; entity_id: string
   };
 }
 
+// Prompt 417 §A.1 — the original bare-minimum org (no isProfileGateComplete
+// field set) is now its own named fixture rather than makeDb()'s default:
+// every pre-417 test that doesn't care about onboarding needs a COMPLETE
+// profile by default (below) so steps 5-8 don't intercept it; the tests
+// that specifically exercise onboarding_profile use this one directly.
+const INCOMPLETE_ORG: Db['org'] = { id: 'org-1', name: 'ablute_', plan: 'idea', daily_cap: 5, weekly_cap: 20 };
+const COMPLETE_ORG: Db['org'] = {
+  ...INCOMPLETE_ORG,
+  website: 'https://ablute.example', sectors: ['healthtech'], stage: 'seed', country: 'PT',
+  round_target_eur: 1_300_000, current_phase: 'pilot', founded_year: 2023, revenue_eur: 0,
+  primary_contact_person_id: 'founder-1',
+};
+// A small, varied Vault — comfortably clears vaultStrength's 'Thin' (<0.3)
+// AND 'Reasonable' (<0.5) bands (lands around 'Strong', ~0.62), so tests
+// exercising steps 9-12 don't accidentally trip readiness_nudge just for
+// using makeDb()'s default documents. The dedicated readiness_nudge test
+// below overrides `documents` with a single generic one instead, which
+// this same barometer scores as genuinely 'Thin'.
+const HEALTHY_VAULT_DOCS: Db['documents'] = [
+  { id: 'doc-deck', name: 'Pitch deck', is_view_only: false, visibility: 'open', watermark: false, downloadable: true },
+  { id: 'doc-captable', name: 'Cap table', is_view_only: false, visibility: 'open', watermark: false, downloadable: true },
+  { id: 'doc-loi', name: 'Signed customer agreement', is_view_only: false, visibility: 'open', watermark: false, downloadable: true },
+  { id: 'doc-model', name: 'Financial model', is_view_only: false, visibility: 'open', watermark: false, downloadable: true },
+];
+// An entity with NO people attached — satisfies "at least one entity
+// exists" (step 7) without ever being eligible for step 3 (needs a person
+// to reply to) or step 9 (readyToContact iterates db.people, not entities)
+// — a bypass that's genuinely inert everywhere else in the ladder.
+const BYPASS_ENTITY = makeEntity({ id: 'ent-bypass' });
+// entity_id deliberately doesn't match any real entity above — step 8's
+// own check (db.interactions.some direction==='out') is global, and
+// nothing else in the ladder resolves an entity FROM an interaction, so a
+// dangling entity_id here is inert everywhere except the one gate it
+// exists to satisfy. Dated well outside any cap/lock window around NOW.
+const BYPASS_OUTBOUND: Interaction = {
+  id: 'i-bypass-outbound', entity_id: 'ent-nonexistent', occurred_at: '2020-01-01T00:00:00Z',
+  direction: 'out', channel: 'email', content: 'bypass',
+};
+
 function makeDb(overrides: Partial<Db> = {}): Db {
   return {
     catalog: [], packs: [], unlocks: [], submissions: [],
-    org: { id: 'org-1', name: 'ablute_', plan: 'idea', daily_cap: 5, weekly_cap: 20 },
+    org: COMPLETE_ORG,
     entities: [], people: [], personAffiliations: [], interactions: [],
-    tasks: [], relationshipState: [], overrides: [], folders: [], documents: [],
+    tasks: [], relationshipState: [], overrides: [], folders: [], documents: HEALTHY_VAULT_DOCS,
     grants: [], views: [], templates: [], automations: [], runs: [], aiReviews: [], companyFacts: [], ndas: [], documentVersions: [], reawakeningProposals: [],
     companyPeople: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [], roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
     interactionDocuments: [],
@@ -111,7 +150,9 @@ describe('sherlockNext — priority ladder', () => {
       direction: 'in', channel: 'email', content: 'no thanks', classification: 'pass',
       pass_reason: 'not a fit',
     };
-    const db = makeDb({ entities: [entity], interactions: [reply] });
+    // BYPASS_OUTBOUND only satisfies step 8 (has SOMETHING ever been sent
+    // org-wide) — it isn't otherwise related to what this test checks.
+    const db = makeDb({ entities: [entity], interactions: [reply, BYPASS_OUTBOUND] });
 
     expect(sherlockNext(db, NOW).kind).toBe('all_clear');
   });
@@ -216,5 +257,100 @@ describe('sherlockNext — priority ladder', () => {
     const db = makeDb({ entities: [readyEntity], people: [readyPerson], tasks: [interestTask] });
 
     expect(sherlockNext(db, NOW).kind).toBe('interest_request');
+  });
+});
+
+describe('liveOverdueEntities — Prompt 414 §2.2', () => {
+  it('surfaces an overdue entity with no task at all', () => {
+    const entity = makeEntity({ id: 'ent-a', name: 'Nina Capital', status: 'contacted' });
+    const person = makePerson({ id: 'p-1', entity_id: 'ent-a', seniority_rank: 1, full_name: 'Marta Zanchi' });
+    const outbound: Interaction = {
+      id: 'i-1', entity_id: 'ent-a', person_id: 'p-1', occurred_at: '2026-08-01T00:00:00Z',
+      direction: 'out', channel: 'email', content: 'intro',
+    };
+    const db = makeDb({ entities: [entity], people: [person], interactions: [outbound] });
+
+    const results = liveOverdueEntities(db, NOW);
+    expect(results).toHaveLength(1);
+    expect(results[0].entityId).toBe('ent-a');
+    expect(results[0].personId).toBe('p-1');
+    expect(results[0].text).toContain('Follow up');
+  });
+
+  it('dedupes: an entity in excludeEntityIds is skipped even though it is overdue', () => {
+    const entity = makeEntity({ id: 'ent-a', status: 'contacted' });
+    const person = makePerson({ id: 'p-1', entity_id: 'ent-a', seniority_rank: 1 });
+    const outbound: Interaction = {
+      id: 'i-1', entity_id: 'ent-a', person_id: 'p-1', occurred_at: '2026-08-01T00:00:00Z',
+      direction: 'out', channel: 'email', content: 'intro',
+    };
+    const db = makeDb({ entities: [entity], people: [person], interactions: [outbound] });
+
+    expect(liveOverdueEntities(db, NOW, new Set(['ent-a']))).toHaveLength(0);
+  });
+
+  it('a second overdue entity with no task appears alongside the first, excluded set only removes the one it names', () => {
+    const overdueNoTask = makeEntity({ id: 'ent-live', status: 'contacted' });
+    const overdueWithTask = makeEntity({ id: 'ent-task', status: 'contacted' });
+    const p1 = makePerson({ id: 'p-live', entity_id: 'ent-live', seniority_rank: 1 });
+    const p2 = makePerson({ id: 'p-task', entity_id: 'ent-task', seniority_rank: 1 });
+    const sameDay = '2026-08-01T00:00:00Z';
+    const db = makeDb({
+      entities: [overdueNoTask, overdueWithTask], people: [p1, p2],
+      interactions: [
+        { id: 'i-1', entity_id: 'ent-live', person_id: 'p-live', occurred_at: sameDay, direction: 'out', channel: 'email', content: 'hi' },
+        { id: 'i-2', entity_id: 'ent-task', person_id: 'p-task', occurred_at: sameDay, direction: 'out', channel: 'email', content: 'hi' },
+      ],
+    });
+
+    // Only 'ent-task' is excluded (it already has an open task, per the
+    // caller's own set) — 'ent-live' must still come through.
+    const results = liveOverdueEntities(db, NOW, new Set(['ent-task']));
+    expect(results.map((r) => r.entityId)).toEqual(['ent-live']);
+  });
+
+  it('excludes an entity whose turn it is NOT (whoseTurn "them", not overdue)', () => {
+    const entity = makeEntity({ id: 'ent-a', status: 'contacted' });
+    const person = makePerson({ id: 'p-1', entity_id: 'ent-a', seniority_rank: 1 });
+    const recentOutbound: Interaction = {
+      id: 'i-1', entity_id: 'ent-a', person_id: 'p-1', occurred_at: '2026-08-25T00:00:00Z', // 2 days ago, well inside LOCK_DAYS
+      direction: 'out', channel: 'email', content: 'intro',
+    };
+    const db = makeDb({ entities: [entity], people: [person], interactions: [recentOutbound] });
+
+    expect(liveOverdueEntities(db, NOW)).toHaveLength(0);
+  });
+
+  it('excludes a parked/closed entity even if its last touch is old', () => {
+    const entity = makeEntity({ id: 'ent-a', status: 'dormant' });
+    const person = makePerson({ id: 'p-1', entity_id: 'ent-a', seniority_rank: 1 });
+    const outbound: Interaction = {
+      id: 'i-1', entity_id: 'ent-a', person_id: 'p-1', occurred_at: '2026-06-01T00:00:00Z',
+      direction: 'out', channel: 'email', content: 'intro',
+    };
+    const db = makeDb({ entities: [entity], people: [person], interactions: [outbound] });
+
+    expect(liveOverdueEntities(db, NOW)).toHaveLength(0);
+  });
+
+  it('sorts by days-overdue desc, then lower wave, then better fit — same tie-break as step 3', () => {
+    const older = makeEntity({ id: 'ent-older', status: 'contacted', wave: 3, fit_score: 'low' });
+    const waveTwo = makeEntity({ id: 'ent-wave2', status: 'contacted', wave: 2, fit_score: 'high' });
+    const waveOne = makeEntity({ id: 'ent-wave1', status: 'contacted', wave: 1, fit_score: 'low' });
+    const people = [older, waveTwo, waveOne].map((e, i) => makePerson({ id: `p-${i}`, entity_id: e.id, seniority_rank: 1 }));
+    const sameDay = '2026-08-01T00:00:00Z';
+    const db = makeDb({
+      entities: [waveTwo, waveOne, older], people,
+      interactions: [
+        { id: 'i-0', entity_id: 'ent-older', person_id: 'p-0', occurred_at: '2026-07-01T00:00:00Z', direction: 'out', channel: 'email', content: 'hi' },
+        { id: 'i-1', entity_id: 'ent-wave2', person_id: 'p-1', occurred_at: sameDay, direction: 'out', channel: 'email', content: 'hi' },
+        { id: 'i-2', entity_id: 'ent-wave1', person_id: 'p-2', occurred_at: sameDay, direction: 'out', channel: 'email', content: 'hi' },
+      ],
+    });
+
+    const results = liveOverdueEntities(db, NOW);
+    // ent-older has the most days overdue (touched a month earlier) → first;
+    // ent-wave1/ent-wave2 tie on daysOverdue → lower wave (1) wins next.
+    expect(results.map((r) => r.entityId)).toEqual(['ent-older', 'ent-wave1', 'ent-wave2']);
   });
 });

@@ -60,13 +60,13 @@ describe('entityMode', () => {
 describe('nextBestAction — parqueado nao pode gritar "ready for first contact"', () => {
   it('dormant sem tarefa: diz que esta parqueado, e mais nada', () => {
     const e = entity({ status: 'dormant' });
-    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Frozen — no revisit scheduled. No reopen trigger recorded — set one, or leave it frozen.');
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe("Frozen — no revisit scheduled. Sherlock hasn't found a structural reason to reopen this yet — set your own note below, or leave it frozen.");
   });
 
   it('dormant com revisit agendado: diz quando volta', () => {
     const e = entity({ status: 'dormant' });
     const t = task({ id: 't-rev', title: 'Revisit Test idividual', due_at: '2026-09-14T00:00:00.000Z' });
-    expect(nextBestAction(db(e, [t]), 'e1', NOW)).toBe('Frozen — revisit on 2026-09-14. No reopen trigger recorded — set one, or leave it frozen.');
+    expect(nextBestAction(db(e, [t]), 'e1', NOW)).toBe("Frozen — revisit on 2026-09-14. Sherlock hasn't found a structural reason to reopen this yet — set your own note below, or leave it frozen.");
   });
 
   // Prompt 271 §4 — Fase 0: a stand_by/frozen_cold freeze (interacoes
@@ -112,7 +112,7 @@ describe('nextBestAction — parqueado nao pode gritar "ready for first contact"
     ] as Interaction[];
     const result = nextBestAction(db(e, [], its), 'e1', NOW);
     expect(result).not.toContain('dropped thread');
-    expect(result).toBe('Frozen — no revisit scheduled. No reopen trigger recorded — set one, or leave it frozen.');
+    expect(result).toBe("Frozen — no revisit scheduled. Sherlock hasn't found a structural reason to reopen this yet — set your own note below, or leave it frozen.");
   });
 
   it('o conselho antigo ("Ready for first contact") desaparece de todo', () => {
@@ -123,7 +123,7 @@ describe('nextBestAction — parqueado nao pode gritar "ready for first contact"
 
   it('passed le-se fechado, sem gatilho nenhum registado -- pede para se definir um', () => {
     const e = entity({ status: 'passed' });
-    expect(nextBestAction(db(e), 'e1', NOW)).toBe('Passed. No reopen trigger recorded — set one, or leave it closed.');
+    expect(nextBestAction(db(e), 'e1', NOW)).toBe("Passed. Sherlock hasn't found a structural reason to reopen this yet — set your own note below, or leave it closed.");
   });
 
   it('not_contacted sem pessoa nenhuma: pede para adicionar um contacto', () => {
@@ -184,7 +184,7 @@ describe('nextBestAction — Fase 0: o Tip de reabertura num dossier fechado', (
     const e = entity({ status: 'passed' });
     const pass = { id: 'p', entity_id: 'e1', direction: 'in', channel: 'email', content: '...',
       classification: 'pass', pass_reason_category: 'stage_too_early', occurred_at: '2026-06-01T10:00:00.000Z' } as Interaction;
-    expect(nextBestAction(db(e, [], [pass]), 'e1', NOW)).toBe('Passed 3 months ago, over stage too early. No reopen trigger recorded — set one, or leave it closed.');
+    expect(nextBestAction(db(e, [], [pass]), 'e1', NOW)).toBe("Passed 3 months ago, over stage too early. Sherlock hasn't found a structural reason to reopen this yet — set your own note below, or leave it closed.");
   });
 
   // Prompt 269 §2 — the Tip never splices the founder's raw reopen_trigger
@@ -377,7 +377,7 @@ describe('nextBestAction — a pagina inteira concorda', () => {
       classification: 'pass', occurred_at: '2026-08-05T10:00:00.000Z' } as Interaction]) as Db;
 
     const acao = nextBestAction(d, 'e1', NOW);
-    expect(acao).toBe('Passed 10 days ago. No reopen trigger recorded — set one, or leave it closed.');
+    expect(acao).toBe("Passed 10 days ago. Sherlock hasn't found a structural reason to reopen this yet — set your own note below, or leave it closed.");
     expect(acao).not.toContain('Frozen');
   });
 });

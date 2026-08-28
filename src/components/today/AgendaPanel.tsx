@@ -10,15 +10,15 @@ import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { Card, EntityLink } from '@/components/ui';
 import type { ActionType, TaskItem } from '@/lib/types';
-import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, ACTION_TYPES } from '@/lib/relationship';
+import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, ACTION_TYPES, followUpTaskDisplayTitle } from '@/lib/relationship';
 import { REMINDER_OPTIONS } from '@/lib/reminders';
 
-function toICS(tasks: TaskItem[]) {
+function toICS(tasks: TaskItem[], now: Date) {
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//ablute_ IRM//EN'];
   for (const t of tasks) {
     if (!t.due_at) continue;
     const dt = t.due_at.replace(/[-:]/g, '').slice(0, 15) + 'Z';
-    lines.push('BEGIN:VEVENT', `UID:${t.id}@ablute-crm`, `DTSTART:${dt}`, `SUMMARY:${t.title.replace(/\n/g, ' ')}`, 'END:VEVENT');
+    lines.push('BEGIN:VEVENT', `UID:${t.id}@ablute-crm`, `DTSTART:${dt}`, `SUMMARY:${followUpTaskDisplayTitle(t, now).replace(/\n/g, ' ')}`, 'END:VEVENT');
   }
   lines.push('END:VCALENDAR');
   return lines.join('\r\n');
@@ -134,7 +134,7 @@ export function AgendaPanel() {
     .sort((a, b) => (b.due_at! > a.due_at! ? 1 : -1)).slice(0, 20);
 
   function exportICS() {
-    const blob = new Blob([toICS(db.tasks.filter((t) => !t.done))], { type: 'text/calendar' });
+    const blob = new Blob([toICS(db.tasks.filter((t) => !t.done), now)], { type: 'text/calendar' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'ablute-agenda.ics'; a.click();
   }
@@ -147,7 +147,7 @@ export function AgendaPanel() {
           <span className={`mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${ACTION_TYPE_COLOR[t.action_type]}`}>
             {ACTION_TYPE_LABEL[t.action_type]}
           </span>
-          <span className={t.done ? 'text-green-700 line-through' : ''}>{t.done && '✓ '}{t.title}</span>
+          <span className={t.done ? 'text-green-700 line-through' : ''}>{t.done && '✓ '}{followUpTaskDisplayTitle(t, now)}</span>
           {t.entity_id && <span className="block text-xs"><EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink></span>}
         </button>
         <span className="text-xs text-gray-400">{t.due_at?.slice(5, 10)}</span>
@@ -193,9 +193,9 @@ export function AgendaPanel() {
                     const late = !t.done && new Date(t.due_at!) < now;
                     const cls = t.done ? 'bg-green-100 text-green-700' : late ? 'bg-red-100 text-[#B00000]' : ACTION_TYPE_COLOR[t.action_type];
                     return (
-                      <button key={t.id} onClick={(e) => { e.stopPropagation(); setSelected(t); }} title={`${t.title} · ${ACTION_TYPE_LABEL[t.action_type]}`}
+                      <button key={t.id} onClick={(e) => { e.stopPropagation(); setSelected(t); }} title={`${followUpTaskDisplayTitle(t, now)} · ${ACTION_TYPE_LABEL[t.action_type]}`}
                         className={`mb-0.5 block w-full truncate rounded px-1 py-0.5 text-left text-[10px] ${cls}`}>
-                        {t.done && '✓ '}{t.title}
+                        {t.done && '✓ '}{followUpTaskDisplayTitle(t, now)}
                       </button>
                     );
                   })}
@@ -247,7 +247,7 @@ export function AgendaPanel() {
               <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${ACTION_TYPE_COLOR[selected.action_type]}`}>{ACTION_TYPE_LABEL[selected.action_type]}</span>
               <button onClick={() => setSelected(null)} className="text-sm text-gray-400 hover:text-gray-700">✕</button>
             </div>
-            <p className={`mt-2 text-sm font-medium ${selected.done ? 'text-green-700 line-through' : 'text-gray-900'}`}>{selected.done && '✓ '}{selected.title}</p>
+            <p className={`mt-2 text-sm font-medium ${selected.done ? 'text-green-700 line-through' : 'text-gray-900'}`}>{selected.done && '✓ '}{followUpTaskDisplayTitle(selected, now)}</p>
             <dl className="mt-2 space-y-1 text-xs text-gray-500">
               <div>Due: {selected.due_at ? selected.due_at.slice(0, 10) : '—'}</div>
               <div>Kind: {selected.kind}</div>
