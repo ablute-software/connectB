@@ -130,6 +130,17 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
     if (field) setActive(field.card);
   }, [flashParam]);
 
+  // Prompt 426 §C — `?capTableRequestItem=<id>` (from the document-request
+  // page's "Watson, help me build it" button) names the SECTION here, same
+  // as flashParam above; CapTableAiFillPanel (rendered inside CapTableCard,
+  // this section's own content) reads the same param independently to pick
+  // its mode and resolve the originating request on save.
+  const capTableRequestItemParam = useSearchParams().get('capTableRequestItem');
+  useEffect(() => {
+    if (!capTableRequestItemParam) return;
+    setActive('cap-table');
+  }, [capTableRequestItemParam]);
+
   if (companyProfileAvailable === null) return <p className="text-sm text-gray-400">Loading…</p>;
 
   // Prompt 357 §C1 — Badges & awards moves out of the vertical flow into a

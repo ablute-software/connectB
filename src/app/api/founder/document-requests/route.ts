@@ -4,8 +4,19 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, authEnabled } from '@/lib/supabase-server';
-import { accessRequestItemsAvailable } from '@/lib/document-request-capability';
+import { accessRequestItemsAvailable, documentRequestItemTypeAvailable } from '@/lib/document-request-capability';
 import { allItemsResolved } from '@/lib/document-request-logic';
+
+// Prompt 426 §A — item_type is only ever selected via a dynamically-built
+// string (see itemsSelect below), so postgrest-js can't statically infer a
+// row shape for it the way it does for the rest of this file's literal
+// select strings; this is that shape, supplied explicitly instead.
+interface AccessRequestItemRow {
+  id: string; request_id: string; document_id: string | null; requested_label: string | null;
+  status: 'pending' | 'granted' | 'promised' | 'declined'; fulfilled_document_id: string | null;
+  promised_for: string | null; decline_reason: string | null; resolution_note: string | null;
+  item_type?: string | null;
+}
 
 async function resolveFounderOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
   const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
@@ -25,6 +36,11 @@ export async function GET(req: Request) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return NextResponse.json({ requests: [] });
   if (!(await accessRequestItemsAvailable())) return NextResponse.json({ requests: [] });
+  // Prompt 426 §A — lets this page know an item is specifically a cap-table
+  // request, so it can offer "Watson, help me build it" instead of the 4
+  // generic document-answer options. Missing-table-safe, same pattern as
+  // portal/document-requests/route.ts's own use of this same probe.
+  const itemTypeAvailable = await documentRequestItemTypeAvailable();
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
   // ?unseen=1 — the popup's own query, mirroring InvestorInterestPopup's
@@ -45,9 +61,15 @@ export async function GET(req: Request) {
   if (!requests || requests.length === 0) return NextResponse.json({ requests: [] });
 
   const requestIds = requests.map((r) => r.id as string);
-  const { data: items } = await admin.from('access_request_items')
-    .select('id, request_id, document_id, requested_label, status, fulfilled_document_id, promised_for, decline_reason, resolution_note')
+  // Built dynamically (item_type only when the migration is applied), so
+  // this is typed as a plain `string` rather than a literal — postgrest-js's
+  // select() otherwise tries to statically PARSE a template-literal type,
+  // which fails on a non-literal (ternary-widened) string.
+  const itemsSelect: string = `id, request_id, document_id, requested_label, status, fulfilled_document_id, promised_for, decline_reason, resolution_note${itemTypeAvailable ? ', item_type' : ''}`;
+  const { data: itemsRaw } = await admin.from('access_request_items')
+    .select(itemsSelect)
     .in('request_id', requestIds);
+  const items = itemsRaw as unknown as AccessRequestItemRow[] | null;
 
   const personIds = [...new Set(requests.filter((r) => r.person_id).map((r) => r.person_id as string))];
   const docIds = [...new Set((items ?? []).flatMap((i) => [i.document_id, i.fulfilled_document_id]).filter(Boolean) as string[])];
@@ -76,6 +98,7 @@ export async function GET(req: Request) {
         id: i.id, documentId: i.document_id, label: i.document_id ? (docNameById.get(i.document_id as string) ?? 'Document') : (i.requested_label as string),
         status: i.status, fulfilledDocumentId: i.fulfilled_document_id,
         promisedFor: i.promised_for, declineReason: i.decline_reason, resolutionNote: i.resolution_note,
+        itemType: (i.item_type as 'cap_table' | null) ?? null,
       })),
     };
   });

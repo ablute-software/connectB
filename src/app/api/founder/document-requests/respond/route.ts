@@ -16,6 +16,11 @@
 //                        reschedules to it instead of nagging every 2 days.
 //   decline           — a real reason, shown to the investor. Silence is
 //                        never treated as an answer.
+//   fulfill_cap_table — Prompt 426 §D: the founder built their cap table via
+//                        CapTableAiFillPanel (Watson or the no-AI guided
+//                        fallback) and saved at least one row. No document
+//                        involved — fulfilled_document_id stays null,
+//                        resolution_note records how many entries were added.
 // Closes the backing task (source='document_request') the moment every
 // item on the request has an outcome — never on the first response to a
 // multi-item ask.
@@ -26,7 +31,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { allItemsResolved } from '@/lib/document-request-logic';
 
-type Action = 'grant_existing' | 'fulfill_document' | 'fulfill_via_message' | 'promise' | 'decline';
+type Action = 'grant_existing' | 'fulfill_document' | 'fulfill_via_message' | 'promise' | 'decline' | 'fulfill_cap_table';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -41,7 +46,7 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({})) as {
     itemId?: string; action?: Action; documentId?: string;
-    promisedFor?: string; declineReason?: string; resolutionNote?: string;
+    promisedFor?: string; declineReason?: string; resolutionNote?: string; entryCount?: number;
   };
   if (!body.itemId || !body.action) return NextResponse.json({ ok: false, error: 'itemId and action are required.' }, { status: 400 });
 
@@ -93,6 +98,10 @@ export async function POST(req: Request) {
     if (!body.declineReason?.trim()) return NextResponse.json({ ok: false, error: 'A decline needs a real reason — silence is never an answer.' }, { status: 400 });
     patch.status = 'declined';
     patch.decline_reason = body.declineReason.trim();
+  } else if (body.action === 'fulfill_cap_table') {
+    const n = body.entryCount ?? 0;
+    patch.status = 'granted';
+    patch.resolution_note = `Cap table added — ${n} ${n === 1 ? 'entry' : 'entries'}.`;
   } else {
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   }

@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { capTableTotal, isCapTableTotalOff } from '@/lib/cap-table';
+import { CapTableAiFillPanel } from './CapTableAiFillPanel';
 import type { CapTableEntry } from '@/lib/types';
 
 const CATEGORY_LABEL: Record<CapTableEntry['category'], string> = {
@@ -79,6 +80,8 @@ export function CapTableCard() {
           Add
         </button>
       </div>
+
+      <CapTableAiFillPanel orgId={db.org.id} addCapTableEntry={addCapTableEntry} />
     </Card>
   );
 }

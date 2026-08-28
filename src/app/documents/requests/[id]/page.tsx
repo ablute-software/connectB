@@ -11,6 +11,7 @@ import type { DocVisibility } from '@/lib/types';
 interface Item {
   id: string; documentId: string | null; label: string; status: 'pending' | 'granted' | 'promised' | 'declined';
   fulfilledDocumentId: string | null; promisedFor: string | null; declineReason: string | null; resolutionNote: string | null;
+  itemType: 'cap_table' | null;
 }
 interface RequestDetail {
   id: string; requesterName: string | null; requesterEmail: string | null; entityId: string | null;
@@ -80,6 +81,15 @@ export default function DocumentRequestReviewPage({ params }: { params: { id: st
               <div className="mt-2 space-y-2">
                 {!mode[item.id] && (
                   <div className="flex flex-wrap gap-1.5">
+                    {item.itemType === 'cap_table' && (
+                      // Prompt 426 §C — a link (not an inline mode), since this
+                      // needs to navigate to Company and trigger CapTableAiFillPanel's
+                      // own auto-open effect there, not just render something here.
+                      <Link href={`/settings?tab=company&capTableRequestItem=${item.id}`}
+                        className="rounded border border-[#0E7490] px-2 py-1 text-xs font-medium text-[#0E7490] hover:bg-[#E8F4F8]">
+                        🧮 Watson, help me build it
+                      </Link>
+                    )}
                     <button onClick={() => setMode((m) => ({ ...m, [item.id]: 'grant' }))} className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">📁 It&apos;s in the Vault</button>
                     <button onClick={() => setMode((m) => ({ ...m, [item.id]: 'upload' }))} className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">⬆️ Upload from my computer</button>
                     <button onClick={() => setMode((m) => ({ ...m, [item.id]: 'promise' }))} className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">🕒 Not yet</button>
