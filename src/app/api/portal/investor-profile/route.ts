@@ -29,6 +29,10 @@ const EDITABLE = [
   'exclusions_sectors', 'exclusions_notes', 'specific_criteria', 'focus_keywords',
   // Prompt 110 Block D (migration 0107).
   'accepts_cold_contact', 'typical_decision_weeks', 'decision_process', 'does_follow_on', 'takes_board_seat',
+  // Prompt 421 §F — the firm logo (Photos & media tab). Pre-existing
+  // matchdeal_profiles column (migration 0053) — this route just never
+  // exposed it to the investor's own edit form before.
+  'photo_url',
 ] as const;
 
 // Weighted the same way companyCompleteness.ts does — essentials (ticket,
@@ -89,14 +93,16 @@ export async function GET(req: Request) {
   // Prompt 156 — migration 0156. A separate small query rather than adding
   // this to resolveActiveInvestorMember's own select: that helper is shared
   // across 11 call sites, most of which have nothing to do with the
-  // Pipeline confirm step.
+  // Pipeline confirm step. Prompt 421 §D.2 — notify_new_eligible_startup
+  // (migration 0267) rides along on this same query, same reasoning.
   const { data: memberRow } = await admin.from('matchdeal_investor_members')
-    .select('pipeline_confirmed_at').eq('id', member.id).maybeSingle();
+    .select('pipeline_confirmed_at, notify_new_eligible_startup').eq('id', member.id).maybeSingle();
 
   return NextResponse.json({
     linked: true, entityName: entity?.name ?? null, profile, completeness: completeness(profile ?? {}),
     sectorOptions: ALL_SECTOR_NAMES, identityStatus,
     pipelineConfirmedAt: (memberRow?.pipeline_confirmed_at as string | null) ?? null,
+    notifyNewEligibleStartup: (memberRow?.notify_new_eligible_startup as boolean | null) ?? false,
   });
 }
 
@@ -119,6 +125,12 @@ export async function POST(req: Request) {
   const patch: Record<string, unknown> = {};
   for (const k of EDITABLE) if (k in body) patch[k] = body[k] === '' ? null : body[k];
   if (Object.keys(patch).length === 0) return NextResponse.json({ ok: false, error: 'Nothing to update.' }, { status: 400 });
+  // Prompt 421 §F — only http(s), same discipline sanitizeLinks() (investor-
+  // interaction-log.ts) already applies to every other free-text URL an
+  // investor can save on this platform.
+  if (typeof patch.photo_url === 'string' && !/^https?:\/\//i.test(patch.photo_url)) {
+    return NextResponse.json({ ok: false, error: 'Logo URL must start with http:// or https://.' }, { status: 400 });
+  }
 
   // Prompt 121 §2.2 — return the row actually written so the client can use
   // it directly instead of firing a second, racy GET (see the client's

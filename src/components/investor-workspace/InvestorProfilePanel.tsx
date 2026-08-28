@@ -4,7 +4,7 @@
 // the domain-match verdict from /api/portal/investor-profile/link), or
 // linked (editable thesis form + completeness bar, same field set as
 // migration 0056 added to matchdeal_profiles).
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { ColleaguesCard } from './ColleaguesCard';
 import { IDENTITY_BADGE_CLASS, IDENTITY_BADGE_LABEL, type IdentityStatus } from '@/lib/investor-identity';
 import { VouchingCard } from './VouchingCard';
@@ -13,6 +13,13 @@ import { TicketAmountSlider } from '../TicketAmountSlider';
 import { VisibilityToggle } from '../VisibilityToggle';
 import { INSTRUMENT_LABELS } from '@/lib/investor-taxonomy';
 import { SectorPicker } from '@/components/company/SectorPicker';
+import { Tabs, type TabItem } from '@/components/ui';
+import { useTabParam } from '@/lib/use-tab';
+import { ImportTab } from './about-tabs/ImportTab';
+import { AutomationsTab } from './about-tabs/AutomationsTab';
+import { AppAccessTab } from './about-tabs/AppAccessTab';
+import { PhotosMediaTab } from './about-tabs/PhotosMediaTab';
+import { MatchDealHistoryTab } from './about-tabs/MatchDealHistoryTab';
 
 interface Profile {
   sectors: string[]; geographies: string[]; stages_invested: string[]; instruments: string[];
@@ -24,6 +31,10 @@ interface Profile {
   // Prompt 110 Block D — five founder-first-call questions (migration 0107).
   accepts_cold_contact: boolean | null; typical_decision_weeks: number | null;
   decision_process: string | null; does_follow_on: boolean | null; takes_board_seat: string | null;
+  // Prompt 421 §F — the firm logo, a pre-existing matchdeal_profiles column
+  // (migration 0053) this route only just started exposing to the
+  // investor's own edit form (Photos & media tab).
+  photo_url: string | null;
 }
 
 // Prompt 80 addenda — the closed list Nuno actually asked for: categories a
@@ -74,6 +85,8 @@ export interface ProfileResponse {
   identityStatus?: IdentityStatus;
   // Prompt 156 — migration 0156.
   pipelineConfirmedAt?: string | null;
+  // Prompt 421 §D.2 — migration 0267.
+  notifyNewEligibleStartup?: boolean;
 }
 
 // Bloco 4 placeholder legal text — EXACT strings from the prompt, never a
@@ -336,10 +349,25 @@ function VerificationUploadCard() {
   );
 }
 
-export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange, onIdentityStatusChange }: {
+// Prompt 421 §A.1 — Company · Import · Automations · App access ·
+// Photos & media · MatchDeal, same useTabParam(?tab=) pattern settings/
+// page.tsx already uses — never local-only state, so a tab is linkable and
+// survives refresh/back-forward. No "Roadmap": that tab is about a
+// startup's own product timeline, which doesn't apply to an investor.
+const ABOUT_TABS: TabItem[] = [
+  { key: 'company', label: 'Company' },
+  { key: 'import', label: 'Import' },
+  { key: 'automations', label: 'Automations' },
+  { key: 'access', label: 'App access' },
+  { key: 'photos', label: 'Photos & media' },
+  { key: 'matchdeal', label: 'MatchDeal' },
+];
+
+function InvestorProfilePanelInner({ onCompletenessChange, onEntityNameChange, onIdentityStatusChange }: {
   onCompletenessChange?: (pct: number) => void; onEntityNameChange?: (name: string | null) => void;
   onIdentityStatusChange?: (status: IdentityStatus | null) => void;
 }) {
+  const [tab, setTab] = useTabParam('company');
   const [data, setData] = useState<ProfileResponse | null>(null);
   const [draft, setDraft] = useState<Profile | null>(null);
   const [saving, setSaving] = useState(false);
@@ -417,8 +445,28 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange,
       {data.identityStatus === 'pending_verification' && <VerificationUploadCard />}
       {data.identityStatus && data.identityStatus !== 'verified' && <VouchingCard />}
 
-      <ColleaguesCard />
+      <Tabs items={ABOUT_TABS} active={tab} onChange={setTab} />
 
+      {tab === 'company' && <CompanyTab draft={draft} setDraft={setDraft} save={save} saving={saving} saveState={saveState} saveError={saveError} />}
+      {tab === 'import' && <ImportTab />}
+      {tab === 'automations' && <AutomationsTab initialNotifyNewEligibleStartup={data.notifyNewEligibleStartup ?? false} />}
+      {tab === 'access' && <AppAccessTab />}
+      {tab === 'photos' && <PhotosMediaTab draft={draft} setDraft={setDraft} save={save} saving={saving} saveState={saveState} saveError={saveError} />}
+      {tab === 'matchdeal' && <MatchDealHistoryTab />}
+    </div>
+  );
+}
+
+// Prompt 421 §B — pure migration: every Section below is unchanged content/
+// logic, just given a home. Extracted to its own component (rather than
+// inlined in the tab switch above) only so the parent's return stays
+// readable — no new state, no new props beyond what the form already needed.
+function CompanyTab({ draft, setDraft, save, saving, saveState, saveError }: {
+  draft: Profile; setDraft: (p: Profile) => void; save: () => void; saving: boolean;
+  saveState: 'idle' | 'saved'; saveError: string | null;
+}) {
+  return (
+    <div>
       <div data-tour-id="investor-about-form" className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
         <Section title="General Information">
           <label className="flex flex-col gap-1 text-xs text-gray-500">
@@ -583,4 +631,17 @@ export function InvestorProfilePanel({ onCompletenessChange, onEntityNameChange,
       </div>
     </div>
   );
+}
+
+// Prompt 421 §A.1 — useTabParam (inside InvestorProfilePanelInner) calls
+// next/navigation's useSearchParams, which Next.js requires a Suspense
+// boundary above during static rendering — settings/page.tsx's own
+// SettingsPage/SettingsInner split is the exact same shape, applied here
+// instead of touching InvestorWorkspaceShell.tsx (which never needed to
+// know this component now reads a URL param).
+export function InvestorProfilePanel(props: {
+  onCompletenessChange?: (pct: number) => void; onEntityNameChange?: (name: string | null) => void;
+  onIdentityStatusChange?: (status: IdentityStatus | null) => void;
+}) {
+  return <Suspense fallback={null}><InvestorProfilePanelInner {...props} /></Suspense>;
 }

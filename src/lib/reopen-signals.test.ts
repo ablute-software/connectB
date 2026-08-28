@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  catalogDriftSince, claimedProfileSince, newInvestmentsSince, reopenSignal, suggestedReapproach,
+  catalogDriftSince, claimedProfileSince, declaredInvestmentToReopenRecord, newInvestmentsSince, reopenSignal, suggestedReapproach,
   type ReopenSignalsDb,
 } from './reopen-signals';
 import type { Entity, EntityReopenSnapshot, Interaction, Person, ReawakeningProposal } from './types';
@@ -144,6 +144,42 @@ describe('catalogDriftSince — Prompt 416 §B.3', () => {
       catalogCurrent: [{ catalogId: 'cat-1', sectors: ['fintech'], stageMin: 'seed', stageMax: 'seed' }],
     });
     expect(catalogDriftSince(passedEntity(), db, snapshot)).toEqual([]);
+  });
+});
+
+describe('declaredInvestmentToReopenRecord — Prompt 421 §C.3', () => {
+  it('maps a declared investment into the same shape investor_investments produces', () => {
+    const result = declaredInvestmentToReopenRecord({
+      catalog_entity_id: 'cat-1', company_name: 'Acme Health', sector: 'healthtech', invested_at: '2026-02-01',
+    });
+    expect(result).toEqual({ investorCatalogId: 'cat-1', companyName: 'Acme Health', sectors: ['healthtech'], investedAt: '2026-02-01' });
+  });
+
+  it('returns an empty sectors array when no sector was declared', () => {
+    const result = declaredInvestmentToReopenRecord({
+      catalog_entity_id: 'cat-1', company_name: 'Acme Health', sector: null, invested_at: '2026-02-01',
+    });
+    expect(result?.sectors).toEqual([]);
+  });
+
+  it('returns null when no date was declared — nothing to compare against sinceDate', () => {
+    const result = declaredInvestmentToReopenRecord({
+      catalog_entity_id: 'cat-1', company_name: 'Acme Health', sector: 'healthtech', invested_at: null,
+    });
+    expect(result).toBeNull();
+  });
+
+  it('feeds newInvestmentsSince identically to a market-researched row', () => {
+    const declared = declaredInvestmentToReopenRecord({
+      catalog_entity_id: 'cat-1', company_name: 'Acme Health', sector: 'healthtech', invested_at: '2026-02-01',
+    });
+    const db = makeDb({
+      catalogDeliveries: [{ entity_id: 'ent-1', catalog_id: 'cat-1' }],
+      investorInvestments: declared ? [declared] : [],
+    });
+    const result = newInvestmentsSince(passedEntity(), db, PASS_DATE);
+    expect(result).toHaveLength(1);
+    expect(result[0].companyName).toBe('Acme Health');
   });
 });
 

@@ -59,6 +59,25 @@ function resolveCatalogId(entityId: string, db: ReopenSignalsDb): string | undef
   return db.catalogDeliveries.find((d) => d.entity_id === entityId)?.catalog_id;
 }
 
+// Prompt 421 §C.3 — investor_declared_investments (an investor's own
+// self-reported history, Import tab) complements investor_investments
+// (market-researched, migration 0201) — never replaces it. Both feed
+// db.investorInvestments identically once mapped through this: whichever
+// caller eventually wires reopen-signals.ts to a real UI (deferred by
+// Prompt 416 itself, "no UI this wave") merges both sources through this
+// same shape rather than newInvestmentsSince needing to know there are two
+// origins. sector (singular, nullable) becomes a 1-item or empty array —
+// the declared-investment form only ever collects one.
+export function declaredInvestmentToReopenRecord(row: {
+  catalog_entity_id: string; company_name: string; sector: string | null; invested_at: string | null;
+}): { investorCatalogId: string; companyName: string; sectors: string[]; investedAt: string } | null {
+  if (!row.invested_at) return null; // no date on record — nothing to compare against sinceDate
+  return {
+    investorCatalogId: row.catalog_entity_id, companyName: row.company_name,
+    sectors: row.sector ? [row.sector] : [], investedAt: row.invested_at,
+  };
+}
+
 // §B.1 — doesn't need entity_reopen_snapshots at all: works even for a
 // pass from years before this table existed (the Vega Ventures case).
 export function newInvestmentsSince(entity: Entity, db: ReopenSignalsDb, sinceDate: string): ReopenInvestment[] {
