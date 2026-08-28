@@ -36,10 +36,21 @@ import {
   filterCardsByName, highestFitCandidate, uncontactedCandidates,
   type EvaluationPipelineCard as PipelineCard,
 } from '@/lib/evaluation-startup-discovery';
+import { EVALUATION_TOOLS_INTRO_CONTENT, shouldShowEvaluationToolsIntro } from '@/lib/evaluation-tools-intro';
 
 interface Wave { items: PipelineCard[] }
 interface PipelineResponse { waves?: Wave[] }
 const MAX_COMPARE = 3;
+
+// Prompt 420 §B.1 — "first open per login (fresh session)", not per mount:
+// InvestorWorkspaceShell conditionally renders every tab (`{tab ===
+// 'evaluation' && <EvaluationToolsPanel />}`), so this component fully
+// unmounts on every tab switch and remounts fresh on return — plain
+// component state would reset right along with it. A module-level flag
+// survives across those remounts (reset only by an actual page load/new
+// login, which is exactly the granularity this prompt asks for) without
+// needing any persistence for this part, per §B.1's own instruction.
+let hasShownEvaluationToolsIntroThisSession = false;
 
 function fmtEur(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
@@ -650,6 +661,49 @@ function CompareStartupsTool({ cards, selectedOrgId, active }: { cards: Pipeline
 // hypotheticals → full probabilistic model), the same funnel the approved
 // Investor Decision System study used. Keys/labels/subtitles unchanged —
 // only the array order moved.
+// Prompt 420 — the intro pamphlet. Never blocking: a plain panel in the
+// center column (never a modal/overlay), closable via X/"Got it", with the
+// tools reachable below it without closing first (the caller just renders
+// this ABOVE the rest of the center column's content, not on top of it).
+function EvaluationToolsIntro({ onClose, onMute }: { onClose: () => void; onMute: () => void }) {
+  const [muteChecked, setMuteChecked] = useState(false);
+  return (
+    <div className="space-y-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-bold text-gray-900">New here? A quick tour of the 6 tools</h2>
+          <p className="mt-0.5 text-xs text-gray-500">What each one does, how it works, and what it tells you.</p>
+        </div>
+        <button onClick={onClose} aria-label="Got it" className="shrink-0 text-gray-400 hover:text-gray-700">✕</button>
+      </div>
+
+      <label className="flex items-center gap-1.5 text-xs text-gray-500">
+        <input type="checkbox" checked={muteChecked} onChange={(e) => setMuteChecked(e.target.checked)} className="h-3.5 w-3.5" />
+        Tell Watson I don&apos;t want to read this anymore.
+      </label>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        {EVALUATION_TOOLS_INTRO_CONTENT.map((entry) => (
+          <div key={entry.key} className="rounded-lg border border-gray-100 bg-gray-50 p-2.5 text-xs">
+            <div className="font-semibold text-gray-900">{entry.title}</div>
+            <div className="mt-1 text-gray-600"><span className="font-medium text-gray-500">What: </span>{entry.what}</div>
+            <div className="mt-0.5 text-gray-600"><span className="font-medium text-gray-500">How: </span>{entry.how}</div>
+            <div className="mt-0.5 text-gray-600"><span className="font-medium text-gray-500">Concludes: </span>{entry.concludes}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex justify-end gap-2 pt-1">
+        <button
+          onClick={() => { if (muteChecked) onMute(); onClose(); }}
+          className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0c637b]">
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const TOOLS: { key: 'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'return' | 'compare'; label: string; subtitle: string }[] = [
   // Prompt 345 Block E — moved here from the Pipeline (checkbox-per-row +
   // banner removed there); this tool IS the comparator now, not a shortcut
@@ -680,6 +734,22 @@ export function EvaluationToolsPanel({ initialOrgId }: {
   const [ticket, setTicket] = useState('50000');
   const [basis, setBasis] = useState<ValuationBasis>('pre_money');
   const [futureDilutions, setFutureDilutions] = useState(['20', '15']);
+
+  // Prompt 420 §B.1/§B.3 — waits on `loaded` before deciding: evaluating
+  // shouldShowEvaluationToolsIntro against the provider's own initial
+  // (pre-fetch) default of muted:false would show the pamphlet for a split
+  // second even for an investor who already muted it, right before the
+  // real value arrives and hides it again.
+  const { loaded: onboardingLoaded, evaluationToolsIntroMuted, setEvaluationToolsIntroMuted } = useOnboarding();
+  const [showIntro, setShowIntro] = useState(false);
+  useEffect(() => {
+    if (!onboardingLoaded) return;
+    if (shouldShowEvaluationToolsIntro({ muted: evaluationToolsIntroMuted, shownThisSession: hasShownEvaluationToolsIntroThisSession })) {
+      hasShownEvaluationToolsIntroThisSession = true;
+      setShowIntro(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onboardingLoaded]);
 
   useEffect(() => {
     fetch('/api/portal/pipeline').then((r) => r.json()).then((d: PipelineResponse) => {
@@ -738,6 +808,16 @@ export function EvaluationToolsPanel({ initialOrgId }: {
       <EvaluationStartupPicker cards={cards} selectedOrgId={selectedOrgId} onSelectOrg={setSelectedOrgId} showsUnusedNote={tool === 'scorecard'} />
 
       <div className="min-w-0 space-y-4">
+        {/* Prompt 420 §B.2 — never blocking: a plain panel ABOVE the rest
+            of this column, not an overlay on top of it — the header and
+            every tool below stay reachable by scrolling past it, no need
+            to close first. */}
+        {showIntro && (
+          <EvaluationToolsIntro
+            onClose={() => setShowIntro(false)}
+            onMute={() => setEvaluationToolsIntroMuted(true)}
+          />
+        )}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-lg font-bold text-gray-900">Evaluation tools</h1>
           {/* Prompt 345 Block E — "the shortcut that already exists becomes

@@ -9,7 +9,23 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import { ONBOARDING_CONTENT } from './content';
 import { pickEligible, type OnboardingCtx } from './engine';
 
-interface OnboardingRow { seen: Record<string, string>; opted_out: boolean; last_shown_at: string | null }
+interface OnboardingRow {
+  seen: Record<string, string>; opted_out: boolean; last_shown_at: string | null;
+  // Prompt 420 §B.3 — "Tell Watson I don't want to read this anymore" on
+  // the Evaluation Tools intro pamphlet. A dedicated column, not a `seen`
+  // key: unlike everything in `seen` (a one-time coachmark/modal that
+  // never needs to un-fire), this is a genuine two-way toggle — the About
+  // Investor -> Automations tab (Prompt 421) can flip it back off.
+  evaluation_tools_intro_muted: boolean;
+}
+
+// Prompt 420 §B.5 — OnboardingProvider otherwise has NO demo-mode
+// persistence at all (everything in `seen` just lives in React state,
+// reset on reload — fine for a one-time coachmark). This ONE flag is a
+// durable opt-out the prompt explicitly asks to survive a demo-mode
+// reload, so it alone gets a small localStorage fallback rather than
+// widening the provider's demo behavior generally.
+const DEMO_INTRO_MUTED_KEY = 'ablute-evaluation-tools-intro-muted';
 
 interface OnboardingContextValue {
   /** The single item currently eligible to render, or null. Components compare their own key against this. */
@@ -32,13 +48,18 @@ interface OnboardingContextValue {
    *  Destructive across every tracked key — only for a genuine "reset all onboarding" action, never
    *  wired to a single item's replay (that bug wiped `waves` from a real account, see Prompt 86 report). */
   resetSeen: () => void;
+  /** Prompt 420 §B.3 — the Evaluation Tools intro pamphlet's durable opt-out. */
+  evaluationToolsIntroMuted: boolean;
+  /** Two-way (not just a one-time mute) so Prompt 421's About Investor -> Automations
+   *  "show tool introductions again" control can flip it back to false later. */
+  setEvaluationToolsIntroMuted: (muted: boolean) => void;
   loaded: boolean;
 }
 
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
 
 export function OnboardingProvider({ children }: { children: React.ReactNode }) {
-  const [row, setRow] = useState<OnboardingRow>({ seen: {}, opted_out: false, last_shown_at: null });
+  const [row, setRow] = useState<OnboardingRow>({ seen: {}, opted_out: false, last_shown_at: null, evaluation_tools_intro_muted: false });
   const [loaded, setLoaded] = useState(false);
   const [conditions, setConditions] = useState<Record<string, boolean>>({});
   const [sessionModalsShown, setSessionModalsShown] = useState(0);
@@ -46,16 +67,28 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const [guideNonce, setGuideNonce] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    if (!authEnabled) { setLoaded(true); return; }
+    if (!authEnabled) {
+      // Prompt 420 §B.5 — the one flag that gets a demo-mode fallback; see
+      // DEMO_INTRO_MUTED_KEY's own comment above.
+      let muted = false;
+      try { muted = localStorage.getItem(DEMO_INTRO_MUTED_KEY) === 'true'; } catch { /* private mode etc. */ }
+      setRow((prev) => ({ ...prev, evaluation_tools_intro_muted: muted }));
+      setLoaded(true);
+      return;
+    }
     let cancelled = false;
     (async () => {
       const sb = browserClient();
       const { data: { user } } = await sb.auth.getUser();
       if (!user) { if (!cancelled) setLoaded(true); return; }
-      const { data } = await sb.from('onboarding_state').select('seen, opted_out, last_shown_at').eq('user_id', user.id).maybeSingle();
+      const { data } = await sb.from('onboarding_state').select('seen, opted_out, last_shown_at, evaluation_tools_intro_muted').eq('user_id', user.id).maybeSingle();
       if (cancelled) return;
-      if (data) setRow({ seen: (data.seen as Record<string, string>) ?? {}, opted_out: data.opted_out, last_shown_at: data.last_shown_at });
-      else await sb.from('onboarding_state').insert({ user_id: user.id }); // first-ever session for this user
+      if (data) {
+        setRow({
+          seen: (data.seen as Record<string, string>) ?? {}, opted_out: data.opted_out, last_shown_at: data.last_shown_at,
+          evaluation_tools_intro_muted: (data as { evaluation_tools_intro_muted?: boolean }).evaluation_tools_intro_muted ?? false,
+        });
+      } else await sb.from('onboarding_state').insert({ user_id: user.id }); // first-ever session for this user
       setLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -136,8 +169,29 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     })();
   }, []);
 
+  // Prompt 420 §B.3/§B.4/§B.5 — a plain scalar column, so unlike markSeen
+  // this is a straight update, no read-modify-write needed. Demo mode
+  // writes DEMO_INTRO_MUTED_KEY instead of Supabase, same fallback the
+  // load effect above reads from.
+  const setEvaluationToolsIntroMuted = useCallback((muted: boolean) => {
+    setRow((prev) => ({ ...prev, evaluation_tools_intro_muted: muted }));
+    if (!authEnabled) {
+      try { localStorage.setItem(DEMO_INTRO_MUTED_KEY, String(muted)); } catch { /* private mode etc. */ }
+      return;
+    }
+    (async () => {
+      const sb = browserClient();
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user) return;
+      await sb.from('onboarding_state').update({ evaluation_tools_intro_muted: muted }).eq('user_id', user.id);
+    })();
+  }, []);
+
   return (
-    <OnboardingContext.Provider value={{ eligibleKey, seen: row.seen, setCondition, markSeen, rearmKey, guideNonce, resetSeen, loaded }}>
+    <OnboardingContext.Provider value={{
+      eligibleKey, seen: row.seen, setCondition, markSeen, rearmKey, guideNonce, resetSeen, loaded,
+      evaluationToolsIntroMuted: row.evaluation_tools_intro_muted, setEvaluationToolsIntroMuted,
+    }}>
       {children}
     </OnboardingContext.Provider>
   );
