@@ -12,7 +12,7 @@ import { followUpTaskDisplayTitle, nextBestAction, nextBestActionButton, relatio
 import { readyToContact } from './ready-to-contact';
 // Prompt 417 §A/§B — each reused as-is, none reimplemented: isProfileGateComplete
 // already gates Pipeline visibility (the SAME "is this profile functional yet"
-// bar, not a second competing one — see step 5's own comment for why that's
+// bar, not a second competing one — see step 6's own comment for why that's
 // deliberately not companyCompleteness.ts's weighted %); passReasonAlert
 // already drives the Dashboard's pass-pattern banner; vaultStrength already
 // backs Readiness & Train's own Vault Strength Barometer.
@@ -21,7 +21,7 @@ import { passReasonAlert } from './rules';
 import { vaultStrength } from './vault-strength';
 
 export type SherlockNextKind =
-  | 'interest_request' | 'unclassified_reply' | 'follow_up_overdue' | 'task_due_today'
+  | 'interest_request' | 'cap_table_request' | 'unclassified_reply' | 'follow_up_overdue' | 'task_due_today'
   | 'onboarding_profile' | 'onboarding_dataroom' | 'onboarding_pipeline' | 'onboarding_first_message'
   | 'ready_to_contact' | 'pitch_review' | 'readiness_nudge' | 'all_clear';
 
@@ -105,7 +105,30 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     };
   }
 
-  // 2 — oldest unclassified reply. Same predicate as
+  // 2 — pending cap table request (Prompt 423 §B), same featured
+  // treatment as step 1 above rather than falling into the generic step-5
+  // "task due today" bucket — a specific, named investor ask, not a bare
+  // reminder. Detected off the task's own notes marker (item_type:
+  // cap_table, set only by the "Request cap table" button, document-
+  // requests/route.ts) rather than a join to access_request_items, which
+  // isn't part of the local Db this ladder reads — same constraint step 1
+  // already documents for its own task-based detection.
+  const snoozedCapTableTaskIds = activeSnoozedIds(db.sherlockNextSnoozes, now, 'cap_table_request', 'task_id');
+  const pendingCapTable = db.tasks
+    .filter((t) => !t.done && t.source === 'document_request' && t.notes?.includes('item_type:cap_table') && !snoozedCapTableTaskIds.has(t.id))
+    .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
+  if (pendingCapTable.length > 0) {
+    const t = pendingCapTable[0];
+    const entity = t.entity_id ? db.entities.find((e) => e.id === t.entity_id) : undefined;
+    return {
+      kind: 'cap_table_request', label: `Next: add your cap table for ${entity?.name ?? 'an investor'}`,
+      entityId: t.entity_id, taskId: t.id,
+      // Prompt 422 §B's own section lives on the Company tab.
+      target: '/settings?tab=company',
+    };
+  }
+
+  // 3 — oldest unclassified reply. Same predicate as
   // interaction-history.ts's unclassifiedInbound (direction 'in',
   // classification missing or still 'awaiting') — that function takes a
   // single entityId, so the predicate is inlined here to scan globally
@@ -130,7 +153,7 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     };
   }
 
-  // 3 — most overdue follow-up, tie-broken by wave then fit (best first).
+  // 4 — most overdue follow-up, tie-broken by wave then fit (best first).
   // nextBestActionButton already encodes "whose turn is overdue, not
   // locked, entity still active" — reused per-entity rather than
   // reimplementing that gate; dealMessageTouches is omitted (empty) because
@@ -140,7 +163,7 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
   // logged interaction can undercount here — a known, narrow gap, not a
   // silent one.
   // Prompt 415 §1.2 — a snoozed entity is skipped WITHIN the loop (not
-  // just "if the top pick is snoozed, fall through to step 4") — the
+  // just "if the top pick is snoozed, fall through to step 5") — the
   // loop simply never lets it become `mostOverdue`, so the second-most-
   // overdue non-snoozed entity naturally wins instead.
   const snoozedOverdueEntityIds = activeSnoozedIds(db.sherlockNextSnoozes, now, 'follow_up_overdue', 'entity_id');
@@ -169,7 +192,7 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     };
   }
 
-  // 4 — task due today (earliest first). Same "today" window Today's own
+  // 5 — task due today (earliest first). Same "today" window Today's own
   // Overdue/This week cards imply (calendar day, not a rolling 24h).
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const endOfDay = new Date(startOfDay.getTime() + 24 * 3600 * 1000);
@@ -189,7 +212,7 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     };
   }
 
-  // 5 — onboarding: company profile. Checked before any real-contact step
+  // 6 — onboarding: company profile. Checked before any real-contact step
   // below, but never before a REAL pending signal above (1-4) — a founder
   // mid-conversation with an investor on day 1 still gets that reply/
   // request first; onboarding only fills the gap when there's genuinely
@@ -203,24 +226,24 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     return { kind: 'onboarding_profile', label: 'Next: complete your company profile', target: '/settings' };
   }
 
-  // 6 — onboarding: data room. Zero documents means zero evidence for an
+  // 7 — onboarding: data room. Zero documents means zero evidence for an
   // investor to look at, independent of how complete the profile text is.
   if (db.documents.length === 0) {
     return { kind: 'onboarding_dataroom', label: 'Next: add your first document to the Vault', target: '/documents' };
   }
 
-  // 7 — onboarding: pipeline. No investors yet — nothing downstream of
+  // 8 — onboarding: pipeline. No investors yet — nothing downstream of
   // this (contact, follow-up, evaluate) has anything to act on.
   if (db.entities.length === 0) {
     return { kind: 'onboarding_pipeline', label: 'Next: add your first investor to the pipeline', target: '/pipeline' };
   }
 
-  // 8 — onboarding: first message. At least one entity exists (step 7
+  // 9 — onboarding: first message. At least one entity exists (step 8
   // already ruled out zero), but the founder has never actually sent
   // anything — outbound across the WHOLE org, not per-entity, since this
   // is a one-time "you haven't started" signal, not a per-entity nudge
-  // (steps 3/9 already own that once outreach is under way). Same
-  // wave-then-fit tie-break as step 3's own "best first" (FIT_ORDER, above).
+  // (steps 4/10 already own that once outreach is under way). Same
+  // wave-then-fit tie-break as step 4's own "best first" (FIT_ORDER, above).
   const everSentOutbound = db.interactions.some((i) => i.direction === 'out');
   if (!everSentOutbound) {
     const firstEntity = [...db.entities].sort((a, b) =>
@@ -231,7 +254,7 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     };
   }
 
-  // 9 — ready to contact (pre-flight green, wave/seniority order), only
+  // 10 — ready to contact (pre-flight green, wave/seniority order), only
   // while the daily/weekly volume caps still allow it.
   const snoozedReadyPersonIds = activeSnoozedIds(db.sherlockNextSnoozes, now, 'ready_to_contact', 'person_id');
   const { ready, capReached } = readyToContact(db, now);
@@ -247,8 +270,8 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     }
   }
 
-  // 10 — pitch review: 3+ passes citing the same reason (passReasonAlert,
-  // rules.ts), only once nothing from steps 1-9 is pending — real contact
+  // 11 — pitch review: 3+ passes citing the same reason (passReasonAlert,
+  // rules.ts), only once nothing from steps 1-10 is pending — real contact
   // never falls behind evaluating the pitch (Nuno's "50% rule", enforced
   // here as ORDER, not hope). Points at the same banner OverviewPanel.tsx
   // already renders for this exact alert — never a second copy of it.
@@ -256,7 +279,7 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     return { kind: 'pitch_review', label: 'Next: review why investors are passing', target: '/dashboard' };
   }
 
-  // 11 — readiness nudge: lowest priority, only before all_clear. Gated on
+  // 12 — readiness nudge: lowest priority, only before all_clear. Gated on
   // a real, already-computed signal (vaultStrength — the same barometer
   // Readiness & Train's own Action Plan tab shows; 'Thin' is its bottom
   // tier, under 30%) rather than a blind cadence, since a cheap signal
@@ -266,7 +289,7 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     return { kind: 'readiness_nudge', label: 'Next: strengthen your Vault', target: '/readiness?tab=plan' };
   }
 
-  // 12 — nothing actionable right now.
+  // 13 — nothing actionable right now.
   return { kind: 'all_clear', label: 'All clear', target: '/today' };
 }
 
@@ -290,6 +313,16 @@ export function sherlockNextClueCopy(step: SherlockNextStep, db: Db, now: Date =
     const text = nextBestAction(db, step.entityId, now);
     if (text) return text;
   }
+  // Prompt 423 §B.3 — who asked and why, unlike every other kind's generic
+  // label-stripped copy. Resolved straight from db.entities (already
+  // available here), unlike interest_request's own copy which needs a
+  // hook for the investor's name and is special-cased by the caller
+  // instead — this one doesn't need anything sherlockNextClueCopy's own
+  // `db` parameter doesn't already carry.
+  if (step.kind === 'cap_table_request' && step.entityId) {
+    const name = db.entities.find((e) => e.id === step.entityId)?.name ?? 'An investor';
+    return `${name} asked for your cap table to estimate their stake — takes 2 minutes.`;
+  }
   return step.label.replace(/^Next:\s*/, '');
 }
 
@@ -301,6 +334,7 @@ export function sherlockNextSnoozeKey(step: SherlockNextStep): { task_id?: strin
   switch (step.kind) {
     case 'interest_request':
     case 'task_due_today':
+    case 'cap_table_request':
       return step.taskId ? { task_id: step.taskId } : null;
     case 'follow_up_overdue':
       return step.entityId ? { entity_id: step.entityId } : null;
@@ -318,8 +352,8 @@ export interface LiveOverdueEntity {
 }
 
 // Prompt 414 §2.2 — every entity with a live "reply now" signal (the exact
-// same gate step 3 above uses: effectiveMode active, not locked, whoseTurn
-// 'overdue'), not just the single most-overdue one step 3 returns. Today's
+// same gate step 4 above uses: effectiveMode active, not locked, whoseTurn
+// 'overdue'), not just the single most-overdue one step 4 returns. Today's
 // own Overdue card uses this to show ALL such entities, not only the ones
 // that happened to become a task (accepted from the /log suggestion) —
 // an entity the founder clicked "Ignore" on, or only ever touched via a
@@ -349,7 +383,7 @@ export function liveOverdueEntities(db: Db, now: Date, excludeEntityIds: Set<str
       wave: entity.wave ?? 9, fitRank: FIT_ORDER[entity.fit_score ?? 'low'],
     });
   }
-  // Same tie-break as step 3 above: most days overdue first, then earlier
+  // Same tie-break as step 4 above: most days overdue first, then earlier
   // wave, then better fit.
   return results.sort((a, b) => b.daysOverdue - a.daysOverdue || a.wave - b.wave || a.fitRank - b.fitRank);
 }

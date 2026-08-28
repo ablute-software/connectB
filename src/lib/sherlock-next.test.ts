@@ -118,7 +118,58 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.label).toContain('Older ask');
   });
 
-  it('2: oldest unclassified reply, once no interest request is pending', () => {
+  it('2: a pending cap table request (item_type marker), once no interest request is pending', () => {
+    const entity = makeEntity({ id: 'ent-a', name: 'Nina Capital' });
+    const task: TaskItem = {
+      id: 't-cap', title: 'Document request: 1 item', due_at: '2026-08-20T00:00:00Z',
+      entity_id: 'ent-a', kind: 'follow_up', action_type: 'follow_up_thread', done: false,
+      source: 'document_request', notes: 'priority:tier2|request:req-1|item_type:cap_table',
+    };
+    const db = makeDb({ entities: [entity], tasks: [task] });
+
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('cap_table_request');
+    expect(step.target).toBe('/settings?tab=company');
+    expect(step.label).toBe('Next: add your cap table for Nina Capital');
+    expect(step.taskId).toBe('t-cap');
+  });
+
+  it('2b: a document_request task with NO item_type marker is not treated as a cap table request', () => {
+    const entity = makeEntity({ id: 'ent-a', name: 'Nina Capital' });
+    const person = makePerson({ id: 'p-1', entity_id: 'ent-a', seniority_rank: 1 });
+    const task: TaskItem = {
+      id: 't-doc', title: 'Document request: 1 item', due_at: '2026-08-20T00:00:00Z',
+      entity_id: 'ent-a', kind: 'follow_up', action_type: 'follow_up_thread', done: false,
+      source: 'document_request', notes: 'priority:tier2|request:req-2',
+    };
+    // No unclassified reply/overdue/etc. either — falls through to
+    // task_due_today only if due today; due_at here is in the past (not
+    // today), so this specific fixture actually reaches all_clear-ish
+    // territory — the point under test is just that step 2 doesn't fire.
+    const db = makeDb({ entities: [entity], people: [person], tasks: [task] });
+
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).not.toBe('cap_table_request');
+  });
+
+  it('2c: interest_request (step 1) still wins over a pending cap table request', () => {
+    const entity = makeEntity({ id: 'ent-a', name: 'Nina Capital' });
+    const interestTask: TaskItem = {
+      id: 't-interest', title: 'Nina Capital requested contact access', due_at: '2026-08-20T00:00:00Z',
+      entity_id: 'ent-a', kind: 'follow_up', action_type: 'follow_up_thread', done: false,
+      source: 'interest_level_request',
+    };
+    const capTableTask: TaskItem = {
+      id: 't-cap', title: 'Document request: 1 item', due_at: '2026-08-19T00:00:00Z',
+      entity_id: 'ent-a', kind: 'follow_up', action_type: 'follow_up_thread', done: false,
+      source: 'document_request', notes: 'priority:tier2|request:req-1|item_type:cap_table',
+    };
+    const db = makeDb({ entities: [entity], tasks: [interestTask, capTableTask] });
+
+    expect(sherlockNext(db, NOW).kind).toBe('interest_request');
+  });
+
+  it('3: oldest unclassified reply, once no interest/cap-table request is pending', () => {
     const entity = makeEntity({ id: 'ent-a', name: 'Nina Capital' });
     const reply: Interaction = {
       id: 'i-1', entity_id: 'ent-a', occurred_at: '2026-08-20T00:00:00Z',
@@ -157,7 +208,7 @@ describe('sherlockNext — priority ladder', () => {
     expect(sherlockNext(db, NOW).kind).toBe('all_clear');
   });
 
-  it('3: the most overdue follow-up, once nothing pending/unclassified remains', () => {
+  it('4: the most overdue follow-up, once nothing pending/unclassified remains', () => {
     const entity = makeEntity({ id: 'ent-a', name: 'Nina Capital', status: 'contacted' });
     const person = makePerson({ id: 'p-1', entity_id: 'ent-a', seniority_rank: 1, full_name: 'Marta Zanchi' });
     const outbound: Interaction = {
@@ -173,7 +224,7 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.target).toBe('/entities/ent-a?rail=log&person=p-1&focus=follow_up_overdue');
   });
 
-  it('3b: ties on days-overdue break by lower wave, then better fit', () => {
+  it('4b: ties on days-overdue break by lower wave, then better fit', () => {
     const waveTwo = makeEntity({ id: 'ent-wave2', status: 'contacted', wave: 2, fit_score: 'high' });
     const waveOne = makeEntity({ id: 'ent-wave1', status: 'contacted', wave: 1, fit_score: 'low' });
     const p2 = makePerson({ id: 'p-wave2', entity_id: 'ent-wave2', seniority_rank: 1, full_name: 'Wave Two Contact' });
@@ -191,7 +242,7 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.entityId).toBe('ent-wave1'); // lower wave wins even though its fit is worse
   });
 
-  it('4: a task due today, once nothing higher-priority applies', () => {
+  it('5: a task due today, once nothing higher-priority applies', () => {
     const task: TaskItem = {
       id: 't-today', title: 'Send the follow-up deck', due_at: '2026-08-27T09:00:00Z',
       kind: 'admin', action_type: 'other', done: false,
@@ -203,7 +254,7 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.label).toContain('Send the follow-up deck');
   });
 
-  it('4b: a task due tomorrow does not count as due today', () => {
+  it('5b: a task due tomorrow does not count as due today', () => {
     const task: TaskItem = {
       id: 't-tomorrow', title: 'Not yet', due_at: '2026-08-28T09:00:00Z',
       kind: 'admin', action_type: 'other', done: false,
@@ -216,7 +267,7 @@ describe('sherlockNext — priority ladder', () => {
     expect(sherlockNext(db, NOW).kind).toBe('all_clear');
   });
 
-  it('5: onboarding — incomplete company profile, once nothing from steps 1-4 applies', () => {
+  it('6: onboarding — incomplete company profile, once nothing from steps 1-5 applies', () => {
     const db = makeDb({ org: INCOMPLETE_ORG });
 
     const step = sherlockNext(db, NOW);
@@ -224,7 +275,7 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.target).toBe('/settings');
   });
 
-  it('6: onboarding — no documents in the data room, once the profile is complete', () => {
+  it('7: onboarding — no documents in the data room, once the profile is complete', () => {
     const db = makeDb({ documents: [] });
 
     const step = sherlockNext(db, NOW);
@@ -232,14 +283,14 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.target).toBe('/documents');
   });
 
-  it('7: onboarding — empty pipeline, once profile and data room are in place', () => {
+  it('8: onboarding — empty pipeline, once profile and data room are in place', () => {
     const step = sherlockNext(makeDb(), NOW); // COMPLETE_ORG + HEALTHY_VAULT_DOCS by default, zero entities
 
     expect(step.kind).toBe('onboarding_pipeline');
     expect(step.target).toBe('/pipeline');
   });
 
-  it('8: onboarding — first message, an entity exists but nothing has ever been sent', () => {
+  it('9: onboarding — first message, an entity exists but nothing has ever been sent', () => {
     const bestFit = makeEntity({ id: 'ent-best', name: 'Best Fit', wave: 1, fit_score: 'high' });
     const lowerPriority = makeEntity({ id: 'ent-other', name: 'Lower Priority', wave: 3, fit_score: 'low' });
     // Insertion order deliberately doesn't match priority order — the
@@ -252,7 +303,7 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.target).toBe('/entities/ent-best?rail=log');
   });
 
-  it('9: ready to contact — pre-flight green, once nothing more urgent (including onboarding) applies', () => {
+  it('10: ready to contact — pre-flight green, once nothing more urgent (including onboarding) applies', () => {
     const entity = makeEntity({ id: 'ent-a', name: 'Nina Capital' });
     const person = makePerson({ id: 'p-1', entity_id: 'ent-a', seniority_rank: 1, full_name: 'Marta Zanchi' });
     // Without SOME prior outbound somewhere, step 8 (onboarding_first_message)
@@ -266,7 +317,7 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.personId).toBe('p-1');
   });
 
-  it('9b: caps reached blocks step 9 even with a ready contact available', () => {
+  it('10b: caps reached blocks step 10 even with a ready contact available', () => {
     const entity = makeEntity({ id: 'ent-a' });
     const person = makePerson({ id: 'p-1', entity_id: 'ent-a', seniority_rank: 1 });
     // org.daily_cap = 5 by default; five outbound touches today exhausts it.
@@ -282,7 +333,7 @@ describe('sherlockNext — priority ladder', () => {
     expect(sherlockNext(db, NOW).kind).toBe('all_clear');
   });
 
-  it('10: pitch review — 3+ passes on the same reason, once nothing from steps 1-9 is pending', () => {
+  it('11: pitch review — 3+ passes on the same reason, once nothing from steps 1-10 is pending', () => {
     const passed = ['ent-p1', 'ent-p2', 'ent-p3'].map((id) => makeEntity({ id, status: 'passed' }));
     const passes: Interaction[] = passed.map((e, i) => ({
       id: `i-pass-${i}`, entity_id: e.id, occurred_at: '2026-08-10T00:00:00Z',
@@ -296,7 +347,7 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.target).toBe('/dashboard');
   });
 
-  it('11: readiness nudge — thin vault, once nothing from steps 1-10 applies', () => {
+  it('12: readiness nudge — thin vault, once nothing from steps 1-11 applies', () => {
     // A single, generically-named document — vaultStrength scores this
     // 'Thin' (~0.27, under the 0.3 cutoff): low quantity, zero checklist
     // variety, 'summary'-tier importance. HEALTHY_VAULT_DOCS (the default)
@@ -309,7 +360,7 @@ describe('sherlockNext — priority ladder', () => {
     expect(step.target).toBe('/readiness?tab=plan');
   });
 
-  it('12: all clear once everything — onboarding included — is genuinely caught up', () => {
+  it('13: all clear once everything — onboarding included — is genuinely caught up', () => {
     const db = makeDb({ entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND] });
 
     const step = sherlockNext(db, NOW);
@@ -497,7 +548,33 @@ describe('sherlockNext — snooze filtering (Prompt 415 §1.2)', () => {
     expect(sherlockNext(db, NOW).kind).toBe('interest_request');
   });
 
-  it('step 2: a snoozed unclassified reply is skipped', () => {
+  it('step 2: a snoozed cap table request is skipped, falls through to all_clear when nothing else applies', () => {
+    const task: TaskItem = {
+      id: 't-cap', title: 'Document request: 1 item', due_at: '2026-08-20T00:00:00Z',
+      entity_id: 'ent-bypass', kind: 'follow_up', action_type: 'follow_up_thread', done: false,
+      source: 'document_request', notes: 'priority:tier2|request:req-1|item_type:cap_table',
+    };
+    const db = makeDb({
+      entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND], tasks: [task],
+      sherlockNextSnoozes: [snooze({ kind: 'cap_table_request', task_id: 't-cap', snoozed_until: FUTURE })],
+    });
+
+    expect(sherlockNext(db, NOW).kind).toBe('all_clear');
+  });
+
+  it('step 2: an EXPIRED cap table snooze does not filter — the task still wins', () => {
+    const entity = makeEntity({ id: 'ent-a', name: 'Nina Capital' });
+    const task: TaskItem = {
+      id: 't-cap', title: 'Document request: 1 item', due_at: '2026-08-20T00:00:00Z',
+      entity_id: 'ent-a', kind: 'follow_up', action_type: 'follow_up_thread', done: false,
+      source: 'document_request', notes: 'priority:tier2|request:req-1|item_type:cap_table',
+    };
+    const db = makeDb({ entities: [entity], tasks: [task], sherlockNextSnoozes: [snooze({ kind: 'cap_table_request', task_id: 't-cap', snoozed_until: PAST })] });
+
+    expect(sherlockNext(db, NOW).kind).toBe('cap_table_request');
+  });
+
+  it('step 3: a snoozed unclassified reply is skipped', () => {
     const entity = makeEntity({ id: 'ent-a' });
     const reply: Interaction = {
       id: 'i-1', entity_id: 'ent-a', occurred_at: '2026-08-20T00:00:00Z',
@@ -590,6 +667,19 @@ describe('sherlockNextClueCopy / sherlockNextSnoozeKey — Prompt 415 §2', () =
     expect(sherlockNextClueCopy(step, db, NOW)).not.toBe(step.label);
   });
 
+  it('cap_table_request: explains who asked and why (Prompt 423 §B.3)', () => {
+    const entity = makeEntity({ id: 'ent-a', name: 'Nina Capital' });
+    const task: TaskItem = {
+      id: 't-cap', title: 'Document request: 1 item', due_at: '2026-08-20T00:00:00Z',
+      entity_id: 'ent-a', kind: 'follow_up', action_type: 'follow_up_thread', done: false,
+      source: 'document_request', notes: 'priority:tier2|request:req-1|item_type:cap_table',
+    };
+    const db = makeDb({ entities: [entity], tasks: [task] });
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('cap_table_request');
+    expect(sherlockNextClueCopy(step, db, NOW)).toBe('Nina Capital asked for your cap table to estimate their stake — takes 2 minutes.');
+  });
+
   it('a kind with no special case strips the "Next: " prefix from step.label', () => {
     const task: TaskItem = {
       id: 't-today', title: 'Send the follow-up deck', due_at: '2026-08-27T09:00:00Z',
@@ -626,6 +716,19 @@ describe('sherlockNextClueCopy / sherlockNextSnoozeKey — Prompt 415 §2', () =
     const step = sherlockNext(db, NOW);
     expect(step.kind).toBe('unclassified_reply');
     expect(sherlockNextSnoozeKey(step)).toEqual({ interaction_id: 'i-1' });
+  });
+
+  it('snooze key: cap_table_request resolves from step.taskId', () => {
+    const entity = makeEntity({ id: 'ent-a', name: 'Nina Capital' });
+    const task: TaskItem = {
+      id: 't-cap', title: 'Document request: 1 item', due_at: '2026-08-20T00:00:00Z',
+      entity_id: 'ent-a', kind: 'follow_up', action_type: 'follow_up_thread', done: false,
+      source: 'document_request', notes: 'priority:tier2|request:req-1|item_type:cap_table',
+    };
+    const db = makeDb({ entities: [entity], tasks: [task] });
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('cap_table_request');
+    expect(sherlockNextSnoozeKey(step)).toEqual({ task_id: 't-cap' });
   });
 
   it('snooze key: onboarding/pitch/readiness/all_clear kinds have none', () => {

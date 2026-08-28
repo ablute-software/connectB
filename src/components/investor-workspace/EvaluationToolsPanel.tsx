@@ -220,6 +220,43 @@ function CapTableChart({ slices }: { slices: CapTableSlice[] }) {
 
 interface CapTableRow { category: string; label: string; pct: number }
 
+// Prompt 423 §A — reuses the SAME /api/portal/document-requests endpoint
+// every other document ask already goes through (kind='document',
+// access_request_items), not a second request system: this call just
+// supplies itemType: 'cap_table' on its one item, which is what lets the
+// founder side and the Next Clue ladder recognize what this specific
+// request is about.
+function RequestCapTableButton({ orgId }: { orgId: string }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'sent' | 'already' | 'error'>('idle');
+
+  async function request() {
+    setState('busy');
+    try {
+      const res = await fetch('/api/portal/document-requests', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId, items: [{ label: 'Cap table / ownership breakdown', itemType: 'cap_table' }] }),
+      });
+      const body = await res.json();
+      if (!body.ok) { setState('error'); return; }
+      setState(body.created ? 'sent' : 'already');
+    } catch {
+      setState('error');
+    }
+  }
+
+  if (state === 'sent') return <p className="mt-1.5 text-xs font-medium text-green-700">✓ Requested — the founder has been notified.</p>;
+  if (state === 'already') return <p className="mt-1.5 text-xs text-gray-500">Already requested — waiting on the founder.</p>;
+  return (
+    <>
+      <button onClick={request} disabled={state === 'busy'}
+        className="mt-1.5 rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
+        {state === 'busy' ? 'Requesting…' : 'Request cap table from the founder'}
+      </button>
+      {state === 'error' && <p className="mt-1 text-[11px] text-[#B00000]">Couldn&apos;t send the request — try again.</p>}
+    </>
+  );
+}
+
 function OwnershipCalculatorTool({ cards, selectedOrgId, ticket, setTicket, basis, setBasis, futureDilutions, setFutureDilutions, onSwitchToSimulator }: {
   cards: PipelineCard[]; selectedOrgId: string;
   ticket: string; setTicket: (v: string) => void;
@@ -321,7 +358,10 @@ function OwnershipCalculatorTool({ cards, selectedOrgId, ticket, setTicket, basi
               {capTableRows === null ? (
                 <p className="text-xs text-gray-400">Loading…</p>
               ) : capTableRows.length === 0 ? (
-                <p className="text-xs text-gray-400">No cap table on file yet.</p>
+                <div>
+                  <p className="text-xs text-gray-400">No cap table on file yet.</p>
+                  <RequestCapTableButton orgId={selectedOrgId} />
+                </div>
               ) : (
                 <CapTableChart slices={includeMyStake
                   ? applyCapTableDilution(capTableRows, result.ownershipAfterThisRoundPct)

@@ -16,3 +16,9 @@ export const ndaDocumentLinkAvailable = makeCapabilityProbe(async (admin) => {
   const { error } = await admin.from('ndas').select('document_id').limit(1);
   return !error;
 });
+
+// Prompt 423 §A.2 — migration 0269's item_type column.
+export const documentRequestItemTypeAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('access_request_items').select('item_type').limit(1);
+  return !error;
+});

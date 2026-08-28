@@ -39,6 +39,9 @@ import { SNOOZE_OPTIONS } from '@/lib/snooze-options';
 // description of what the page is for, same as task_due_today already does.
 const KIND_TOOLTIP: Record<string, string> = {
   interest_request: "Opens this investor's dossier, ready to approve or deny their request.",
+  // Prompt 423 §B — same featured treatment as interest_request, sherlock-
+  // next.ts step 2.
+  cap_table_request: 'Opens Settings, ready to add your cap table for the investor who asked.',
   unclassified_reply: "Opens this investor's dossier with the reply ready to classify.",
   follow_up_overdue: 'Opens this investor\'s dossier with a reply pre-filled and ready to log.',
   task_due_today: 'A task on your list is due today.',

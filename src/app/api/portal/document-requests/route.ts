@@ -11,8 +11,9 @@ import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
-import { accessRequestItemsAvailable, documentRequestFieldsAvailable } from '@/lib/document-request-capability';
+import { accessRequestItemsAvailable, documentRequestFieldsAvailable, documentRequestItemTypeAvailable } from '@/lib/document-request-capability';
 import { nextReminderAt, documentRequestPriorityKind } from '@/lib/document-request-logic';
+import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 
 const MAX_ITEMS_PER_REQUEST = 50;
 
@@ -92,11 +93,14 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({})) as {
     orgId?: string; message?: string;
-    items?: { documentId?: string; label?: string }[];
+    // Prompt 423 §A.2 — itemType is optional/extensible, only 'cap_table'
+    // recognized today (the "Request cap table" button's own call). Every
+    // other caller of this route omits it — undefined, same as before.
+    items?: { documentId?: string; label?: string; itemType?: 'cap_table' }[];
   };
   if (!body.orgId) return NextResponse.json({ ok: false, error: 'orgId is required.' }, { status: 400 });
   const items = (body.items ?? []).slice(0, MAX_ITEMS_PER_REQUEST)
-    .map((i) => ({ documentId: i.documentId?.trim() || undefined, label: i.label?.trim() || undefined }))
+    .map((i) => ({ documentId: i.documentId?.trim() || undefined, label: i.label?.trim() || undefined, itemType: i.itemType }))
     .filter((i) => i.documentId || i.label);
   if (items.length === 0) return NextResponse.json({ ok: false, error: 'Pick at least one document, or describe what you need.' }, { status: 400 });
 
@@ -104,6 +108,7 @@ export async function POST(req: Request) {
   if (!(await accessRequestItemsAvailable()) || !(await documentRequestFieldsAvailable())) {
     return NextResponse.json({ ok: false, error: 'not configured' });
   }
+  const itemTypeAvailable = await documentRequestItemTypeAvailable();
 
   const person = await resolvePerson(admin, email);
 
@@ -134,7 +139,10 @@ export async function POST(req: Request) {
   const requestId = request!.id as string;
 
   const { error: itemsError } = await admin.from('access_request_items').insert(
-    newItems.map((i) => ({ request_id: requestId, document_id: i.documentId ?? null, requested_label: i.documentId ? null : i.label })),
+    newItems.map((i) => ({
+      request_id: requestId, document_id: i.documentId ?? null, requested_label: i.documentId ? null : i.label,
+      ...(itemTypeAvailable ? { item_type: i.itemType ?? null } : {}),
+    })),
   );
   if (itemsError) return NextResponse.json({ ok: false, error: itemsError.message }, { status: 500 });
 
@@ -154,13 +162,46 @@ export async function POST(req: Request) {
   const now = new Date();
   const dueAt = inDiligence ? now : new Date(now.getTime() + 2 * 86_400_000);
   const firstReminderAt = nextReminderAt(now, 0);
+  // Prompt 423 §B.2 — the notes-encoded marker sherlock-next.ts's own
+  // cap_table_request step reads, so it can recognize this task's nature
+  // straight off the already-loaded db.tasks without a new fetch or a join
+  // to access_request_items (which isn't part of that pure function's Db).
+  // Only ever set when EVERY new item in this request is a cap table ask
+  // — a mixed request (cap table + some other document) falls back to the
+  // generic document_request treatment, same as any other multi-item ask.
+  const isCapTableOnly = newItems.length > 0 && newItems.every((i) => i.itemType === 'cap_table');
   if (entityId) {
     await admin.from('tasks').insert({
       org_id: body.orgId, title: `Document request: ${newItems.length} item${newItems.length === 1 ? '' : 's'}`,
       due_at: dueAt.toISOString(), entity_id: entityId, kind: 'follow_up', action_type: 'follow_up_thread',
       source: 'document_request', reminder_at: firstReminderAt.toISOString(),
-      notes: `priority:${priorityKind}|request:${requestId}`,
+      notes: `priority:${priorityKind}|request:${requestId}${isCapTableOnly ? '|item_type:cap_table' : ''}`,
     });
+  }
+
+  // Prompt 423 §A.3 — a cap table request counts as real interest: record
+  // Level 1 now if it isn't already there. Idempotent via the table's own
+  // unique(org_id, investor_catalog_entity_id) constraint (migration 0077)
+  // — the same race-safe "insert, ignore on conflict" shape that
+  // constraint's own comment documents, rather than a check-then-write.
+  // Deliberately NOT the decide_investor_relationship() RPC used elsewhere
+  // for an explicit Interested/Pass click: that function's own side
+  // effects (access-grant revocation, team-email resolution, a
+  // notification email) are built for that explicit action, not an
+  // implicit-interest signal riding along on an unrelated document ask.
+  if (isCapTableOnly) {
+    const member = await resolveActiveInvestorMember(admin, user.id);
+    if (member) {
+      // ignoreDuplicates — same "insert, ignore on conflict" shape
+      // investor-pipeline.ts's own investor_pipeline_admissions upsert
+      // already uses against a different unique constraint. A decision
+      // already on record (from either side, at any time) is left alone;
+      // this never overwrites an existing 'passed'.
+      await admin.from('investor_relationship_decisions').upsert({
+        org_id: body.orgId, investor_catalog_entity_id: member.catalog_entity_id,
+        decision: 'interested', decided_by: user.id,
+      }, { onConflict: 'org_id,investor_catalog_entity_id', ignoreDuplicates: true });
+    }
   }
 
   return NextResponse.json({ ok: true, created: true, requestId, alreadyPendingCount });
