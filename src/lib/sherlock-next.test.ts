@@ -259,12 +259,36 @@ describe('sherlockNext — priority ladder', () => {
       id: 't-tomorrow', title: 'Not yet', due_at: '2026-08-28T09:00:00Z',
       kind: 'admin', action_type: 'other', done: false,
     };
-    // Bypasses steps 5-8 (profile/docs come from makeDb()'s own healthy
-    // defaults already) so this isolates step 4's date-window logic
-    // specifically, same as before onboarding existed in the ladder.
+    // Bypasses onboarding (profile/docs come from makeDb()'s own healthy
+    // defaults already) so this isolates step 5's date-window logic
+    // specifically.
     const db = makeDb({ tasks: [task], entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND] });
 
     expect(sherlockNext(db, NOW).kind).toBe('all_clear');
+  });
+
+  // Prompt 425 §A — regression coverage for the bug Prompt 414 §1's own
+  // "grep final" missed and Prompt 415 §2 fixed as a natural extension of
+  // being back in this exact code area (see this file's own comment right
+  // above the fix, in sherlock-next.ts's step 5): a follow_up-kind task
+  // whose title still carries the frozen "Wait for a reply until <date> —
+  // then <verb>" template, due earlier TODAY (so the deadline has already
+  // passed), must come back through the ladder already rewritten to "No
+  // reply since <date> — <verb>" — never the stale literal. Every existing
+  // task_due_today test above uses a plain admin-kind title with no such
+  // prefix, so none of them ever exercised this branch — confirmed by
+  // reading them before writing this one.
+  it('5c: a task due today with a frozen "Wait for a reply" title comes back already rewritten', () => {
+    const task: TaskItem = {
+      id: 't-frozen', title: 'Wait for a reply until 2026-08-27 — then follow up by email',
+      due_at: '2026-08-27T09:00:00Z', kind: 'follow_up', action_type: 'follow_up_no_reply', done: false,
+    };
+    const db = makeDb({ tasks: [task] });
+
+    const step = sherlockNext(db, NOW); // NOW is 2026-08-27T12:00:00Z — after the 09:00 due time, same day
+    expect(step.kind).toBe('task_due_today');
+    expect(step.label).toBe('Next: No reply since 2026-08-27 — follow up by email');
+    expect(step.label).not.toContain('Wait for a reply');
   });
 
   it('6: onboarding — incomplete company profile, once nothing from steps 1-5 applies', () => {

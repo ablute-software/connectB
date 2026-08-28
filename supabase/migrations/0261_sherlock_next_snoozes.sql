@@ -1,13 +1,16 @@
 -- Prompt 415 §1 — "Leave for later" on a Sherlock Next Clue: snooze one
 -- specific candidate (not the whole ladder) until a chosen date.
 --
--- Schema-ahead-of-the-UI, same posture as tasks/entities/interactions
--- themselves (CLAUDE.md: the founder CRM content layer isn't on real
--- Supabase yet, everything reads/writes the local demo store) — this
--- wave (415) wires the DEMO STORE only (§1.3); this migration prepares
--- the real table for whenever the founder CRM's own Supabase migration
--- happens, matching this codebase's established pattern of shipping
--- schema ahead of the adapter that will eventually use it.
+-- Same posture as tasks/entities/interactions themselves (CLAUDE.md: the
+-- founder CRM content layer isn't on real Supabase yet, most of it still
+-- reads/writes the local demo store) — this table's real Postgres schema
+-- ships alongside the adapter, not ahead of it: this wave (415 §1) wires
+-- BOTH backends (store-demo.tsx and store-supabase.tsx each get their own
+-- snoozeSherlockClue action), so the table is live for real Supabase-backed
+-- usage from the moment this migration applies, same as the demo store.
+-- (Prompt 425 §B.1 — corrected; the original text here claimed demo-only,
+-- which was the plan before the commit that shipped this actually wired
+-- both.)
 --
 -- Natural key varies by kind (§1.1's own words: "usa o que já identifica
 -- esse candidato de forma única, não inventes um id novo") — exactly one
