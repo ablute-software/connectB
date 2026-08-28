@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyCapTableDilution, capTableTotal, isCapTableTotalOff, toCapTableSlices } from './cap-table';
+import { applyCapTableDilution, capTableTotal, isCapTableTotalOff, toCapTableSlices, quarterYearToIsoDate } from './cap-table';
 import type { CapTableEntry } from './types';
 
 function makeEntry(overrides: Partial<CapTableEntry> & { id: string }): CapTableEntry {
@@ -82,5 +82,17 @@ describe('toCapTableSlices — Prompt 422 §C.3 (excluding the investor\'s stake
       { label: 'Founder A', pct: 70, category: 'founder' },
       { label: 'Investors', pct: 30, category: 'investor' },
     ]);
+  });
+});
+
+describe('quarterYearToIsoDate — Prompt 432 §C', () => {
+  it('converts a quarter/year pair to the 1st of that quarter\'s first month', () => {
+    expect(quarterYearToIsoDate('Q2', '2027')).toBe('2027-04-01');
+  });
+
+  it('covers all four quarters', () => {
+    expect(quarterYearToIsoDate('Q1', '2026')).toBe('2026-01-01');
+    expect(quarterYearToIsoDate('Q3', '2026')).toBe('2026-07-01');
+    expect(quarterYearToIsoDate('Q4', '2026')).toBe('2026-10-01');
   });
 });

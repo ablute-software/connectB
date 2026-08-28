@@ -1113,12 +1113,21 @@ export interface EntityReopenSnapshot {
 // Prompt 422 §A — a founder-declared cap table row. See
 // src/lib/cap-table.ts for the pure dilution math that combines these with
 // an investor's own estimated stake.
+// Prompt 432 §B — an investor row can represent money invested but not yet
+// converted to equity (SAFE, convertible note, etc.); is_convertible=true
+// carries exactly one of conversion_date/conversion_event (never both,
+// never neither — enforced by cap_table_entries' own check constraint).
 export interface CapTableEntry {
   id: string;
   category: 'founder' | 'option_pool' | 'adviser' | 'investor';
   label: string;
   pct: number;
   as_of: string; // ISO date
+  is_convertible?: boolean;
+  conversion_trigger_type?: 'date' | 'event' | null;
+  conversion_date?: string | null;
+  conversion_event?: string | null;
+  agreement_document_id?: string | null;
 }
 
 export interface Db {

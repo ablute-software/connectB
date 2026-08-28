@@ -43,3 +43,15 @@ export function applyCapTableDilution(entries: CapTableLike[], investorSlicePct:
 export function toCapTableSlices(entries: CapTableLike[]): CapTableSlice[] {
   return entries.map((e) => ({ label: e.label, pct: e.pct, category: e.category }));
 }
+
+// Prompt 432 §C — a convertible instrument's date trigger is picked as a
+// quarter/year pair in the UI (no calendar precision to offer, since the
+// document itself rarely states an exact day) but stored as a real date
+// column; the 1st of the quarter's first month is the fixed, arbitrary-but-
+// consistent day-of-month.
+const QUARTER_TO_MONTH: Record<'Q1' | 'Q2' | 'Q3' | 'Q4', string> = {
+  Q1: '01', Q2: '04', Q3: '07', Q4: '10',
+};
+export function quarterYearToIsoDate(quarter: 'Q1' | 'Q2' | 'Q3' | 'Q4', year: string): string {
+  return `${year}-${QUARTER_TO_MONTH[quarter]}-01`;
+}
