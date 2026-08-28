@@ -231,8 +231,18 @@ export function CapTableAiFillPanel({ orgId, addCapTableEntry }: {
             </p>
           )}
 
-          {mode === 'guided' && (
+          {/* Prompt 429 — draftEntries !== null (not mode === 'guided'), so
+              this is also available in Watson mode once a non-empty draft
+              exists: the SAME three places that ever set mode to 'guided'
+              (openMode, the auto-open effect, generate()'s empty fallback)
+              always set draftEntries to [] in that same instant, so this
+              stays exactly equivalent there — and now covers the case that
+              was missing entirely: Watson with rows already generated,
+              where the founder still needs "add more by hand" per 426 §B's
+              own "pode adicionar mais à mão" for BOTH modes. */}
+          {draftEntries !== null && (
             <div className="space-y-2.5">
+              {mode === 'watson' && <p className="text-[11px] font-medium text-gray-600">Add more rows by hand</p>}
               {GUIDED_SECTIONS.map((s) => (
                 <div key={s.category}>
                   <p className="text-[11px] font-medium text-gray-600">{s.title}</p>
