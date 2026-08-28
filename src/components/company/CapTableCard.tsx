@@ -81,7 +81,7 @@ export function CapTableCard() {
         </button>
       </div>
 
-      <CapTableAiFillPanel orgId={db.org.id} addCapTableEntry={addCapTableEntry} />
+      <CapTableAiFillPanel addCapTableEntry={addCapTableEntry} />
     </Card>
   );
 }
