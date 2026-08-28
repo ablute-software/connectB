@@ -67,7 +67,7 @@ function makeDb(overrides: Partial<Db> = {}): Db {
     tasks: [], relationshipState: [], overrides: [], folders: [], documents: HEALTHY_VAULT_DOCS,
     grants: [], views: [], templates: [], automations: [], runs: [], aiReviews: [], companyFacts: [], ndas: [], documentVersions: [], reawakeningProposals: [],
     companyPeople: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [], roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
-    interactionDocuments: [], sherlockNextSnoozes: [], entityReopenSnapshots: [],
+    interactionDocuments: [], sherlockNextSnoozes: [], entityReopenSnapshots: [], capTableEntries: [],
     ...overrides,
   };
 }

@@ -37,6 +37,7 @@ import {
   type EvaluationPipelineCard as PipelineCard,
 } from '@/lib/evaluation-startup-discovery';
 import { EVALUATION_TOOLS_INTRO_CONTENT, shouldShowEvaluationToolsIntro } from '@/lib/evaluation-tools-intro';
+import { applyCapTableDilution, toCapTableSlices, type CapTableSlice } from '@/lib/cap-table';
 
 interface Wave { items: PipelineCard[] }
 interface PipelineResponse { waves?: Wave[] }
@@ -184,6 +185,41 @@ function EvaluationStartupPicker({ cards, selectedOrgId, onSelectOrg, showsUnuse
   );
 }
 
+// Prompt 422 §C — a hand-rolled stacked bar, not a new chart dependency:
+// confirmed no charting library is used anywhere in this codebase
+// (checked /metrics and package.json) before building this, per the
+// prompt's own instruction not to introduce one without checking first. A
+// stacked bar was picked over a pie for the same reason a plain <div>
+// width can express a percentage exactly with no trig/arc math to get
+// wrong, and it reads fine at this card's width.
+const CAP_TABLE_COLORS = ['#0E7490', '#7C3AED', '#DB2777', '#D97706', '#059669', '#4B5563'];
+const CAP_TABLE_ESTIMATE_COLOR = '#0E7490';
+
+function CapTableChart({ slices }: { slices: CapTableSlice[] }) {
+  const nonZero = slices.filter((s) => s.pct > 0);
+  return (
+    <div>
+      <div className="flex h-6 w-full overflow-hidden rounded-lg">
+        {nonZero.map((s, i) => (
+          <div key={`${s.label}-${i}`} title={`${s.label} — ${fmtPct(s.pct)}`}
+            style={{ width: `${s.pct}%`, backgroundColor: s.category === 'investor_estimate' ? CAP_TABLE_ESTIMATE_COLOR : CAP_TABLE_COLORS[i % CAP_TABLE_COLORS.length] }} />
+        ))}
+      </div>
+      <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600">
+        {nonZero.map((s, i) => (
+          <li key={`${s.label}-legend-${i}`} className="flex items-center gap-1">
+            <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-sm"
+              style={{ backgroundColor: s.category === 'investor_estimate' ? CAP_TABLE_ESTIMATE_COLOR : CAP_TABLE_COLORS[i % CAP_TABLE_COLORS.length] }} />
+            {s.label} <span className="font-medium text-gray-800">{fmtPct(s.pct)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+interface CapTableRow { category: string; label: string; pct: number }
+
 function OwnershipCalculatorTool({ cards, selectedOrgId, ticket, setTicket, basis, setBasis, futureDilutions, setFutureDilutions, onSwitchToSimulator }: {
   cards: PipelineCard[]; selectedOrgId: string;
   ticket: string; setTicket: (v: string) => void;
@@ -192,6 +228,20 @@ function OwnershipCalculatorTool({ cards, selectedOrgId, ticket, setTicket, basi
   onSwitchToSimulator: () => void;
 }) {
   const selected = cards.find((c) => c.orgId === selectedOrgId) ?? null;
+
+  // Prompt 422 §C — this tool's own per-org fetch, same pattern this file's
+  // own header already documents for Berkus/Return scenario: "fires
+  // whenever the shared selection changes, not only while that tool
+  // happens to be open" — cheap (one row set per org).
+  const [capTableRows, setCapTableRows] = useState<CapTableRow[] | null>(null);
+  const [includeMyStake, setIncludeMyStake] = useState(false);
+  useEffect(() => {
+    setCapTableRows(null);
+    setIncludeMyStake(false);
+    if (!selectedOrgId) return;
+    fetch(`/api/portal/startup/${selectedOrgId}`).then((r) => (r.ok ? r.json() : null))
+      .then((d) => setCapTableRows(d?.capTable ?? [])).catch(() => setCapTableRows([]));
+  }, [selectedOrgId]);
 
   return (
     <div className="space-y-4">
@@ -254,6 +304,29 @@ function OwnershipCalculatorTool({ cards, selectedOrgId, ticket, setTicket, basi
                   After round +{i + 1} (−{futureDilutions[i] || 0}%): <span className="font-medium">{fmtPct(pct)}</span>
                 </div>
               ))}
+            </div>
+
+            {/* Prompt 422 §C — no chart at all until real cap_table_entries
+                exist for this startup: never a placeholder/invented chart. */}
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Cap table</h3>
+                {capTableRows && capTableRows.length > 0 && (
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <input type="checkbox" checked={includeMyStake} onChange={(e) => setIncludeMyStake(e.target.checked)} />
+                    Include my estimated stake
+                  </label>
+                )}
+              </div>
+              {capTableRows === null ? (
+                <p className="text-xs text-gray-400">Loading…</p>
+              ) : capTableRows.length === 0 ? (
+                <p className="text-xs text-gray-400">No cap table on file yet.</p>
+              ) : (
+                <CapTableChart slices={includeMyStake
+                  ? applyCapTableDilution(capTableRows, result.ownershipAfterThisRoundPct)
+                  : toCapTableSlices(capTableRows)} />
+              )}
             </div>
           </div>
         );

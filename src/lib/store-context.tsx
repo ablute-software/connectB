@@ -5,7 +5,7 @@
 // backend is mounted.
 import { createContext, useContext } from 'react';
 import type {
-  AccessGrant, ActionType, Automation, Channel, Classification, CompanyFact, CompanyPerson, Db,
+  AccessGrant, ActionType, Automation, CapTableEntry, Channel, Classification, CompanyFact, CompanyPerson, Db,
   Direction, DocumentItem, DocVisibility, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
   PassReasonCategory, Person, PersonAffiliation, RelationshipStage, TaskItem, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory, RoadmapEvent,
   RejectionCode, InteractionEdit, OrgAxisClassification } from './types';
@@ -392,6 +392,9 @@ export interface StoreApi {
     key: { task_id?: string; entity_id?: string; interaction_id?: string; person_id?: string },
     snoozedUntil: string,
   ) => void;
+  // Prompt 422 §B — same shape as addFundingRound/removeFundingRound above.
+  addCapTableEntry: (e: Omit<CapTableEntry, 'id'>) => Promise<{ error?: string }>;
+  removeCapTableEntry: (id: string) => Promise<{ error?: string }>;
 }
 
 export const StoreCtx = createContext<StoreApi | null>(null);

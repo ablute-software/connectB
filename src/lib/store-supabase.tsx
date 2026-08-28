@@ -9,7 +9,7 @@ import React, { useEffect, useMemo, useReducer, useRef } from 'react';
 import { browserClient } from './supabase';
 import { StoreCtx, type StoreApi, type LogInput } from './store-context';
 import type {
-  AccessGrant, Automation, AutomationRun, CatalogEntity, Channel, Classification, CompanyFact, CompanyPerson, Db, DocumentItem,
+  AccessGrant, Automation, AutomationRun, CapTableEntry, CatalogEntity, Channel, Classification, CompanyFact, CompanyPerson, Db, DocumentItem,
   DocumentVersion, DocumentView, Entity, EntityReopenSnapshot, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory, RoadmapEvent,
@@ -34,7 +34,7 @@ const EMPTY_DB: Db = {
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
   documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [],
   roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
-  interactionDocuments: [], sherlockNextSnoozes: [], entityReopenSnapshots: [],
+  interactionDocuments: [], sherlockNextSnoozes: [], entityReopenSnapshots: [], capTableEntries: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -82,7 +82,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
     documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes, roadmapMilestonesRes,
     fundingRoundsRes, roadmapCategoriesRes, roadmapEventsRes, rejectionCodesRes, interactionEditsRes, orgAxisClassificationsRes,
-    interactionDocumentsRes, sherlockNextSnoozesRes, entityReopenSnapshotsRes,
+    interactionDocumentsRes, sherlockNextSnoozesRes, entityReopenSnapshotsRes, capTableEntriesRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -154,6 +154,9 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // Prompt 416 §A — entity_reopen_snapshots (0262). Same missing-table-
     // safe pattern as company_facts/ndas above.
     sb.from('entity_reopen_snapshots').select('*').eq('org_id', orgId),
+    // Prompt 422 §A — cap_table_entries (0268). Same missing-table-safe
+    // pattern as company_facts/ndas above.
+    sb.from('cap_table_entries').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -225,6 +228,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     interactionDocuments: ((interactionDocumentsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<InteractionDocument>(r)),
     sherlockNextSnoozes: ((sherlockNextSnoozesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<SherlockNextSnooze>(r)),
     entityReopenSnapshots: ((entityReopenSnapshotsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<EntityReopenSnapshot>(r)),
+    capTableEntries: ((capTableEntriesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<CapTableEntry>(r)),
   };
 }
 
@@ -926,6 +930,26 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         if (error) return { error: error.message };
       }
       commit({ ...prev, fundingRounds: prev.fundingRounds.filter((f) => f.id !== id) });
+      return {};
+    },
+    async addCapTableEntry(e) {
+      const prev = dbRef.current;
+      const row: CapTableEntry = { ...e, id: uuid() };
+      const o = orgIdRef.current;
+      if (o) {
+        const { error } = await sb.from('cap_table_entries').insert({ ...row, org_id: o });
+        if (error) return { error: error.message };
+      }
+      commit({ ...prev, capTableEntries: [...prev.capTableEntries, row] });
+      return {};
+    },
+    async removeCapTableEntry(id) {
+      const prev = dbRef.current;
+      if (orgIdRef.current) {
+        const { error } = await sb.from('cap_table_entries').delete().eq('id', id);
+        if (error) return { error: error.message };
+      }
+      commit({ ...prev, capTableEntries: prev.capTableEntries.filter((c) => c.id !== id) });
       return {};
     },
     async addRoadmapMilestone(m) {

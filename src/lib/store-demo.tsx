@@ -418,6 +418,14 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, fundingRounds: prev.fundingRounds.filter((f) => f.id !== id) }));
       return {};
     },
+    async addCapTableEntry(e) {
+      setDb((prev) => ({ ...prev, capTableEntries: [...prev.capTableEntries, { ...e, id: uid('cte') }] }));
+      return {};
+    },
+    async removeCapTableEntry(id) {
+      setDb((prev) => ({ ...prev, capTableEntries: prev.capTableEntries.filter((c) => c.id !== id) }));
+      return {};
+    },
     async addRoadmapMilestone(m) {
       setDb((prev) => {
         const sortOrder = prev.roadmapMilestones.length ? Math.max(...prev.roadmapMilestones.map((x) => x.sort_order)) + 1 : 0;

@@ -1110,6 +1110,17 @@ export interface EntityReopenSnapshot {
   investment_count_at_time: number;
 }
 
+// Prompt 422 §A — a founder-declared cap table row. See
+// src/lib/cap-table.ts for the pure dilution math that combines these with
+// an investor's own estimated stake.
+export interface CapTableEntry {
+  id: string;
+  category: 'founder' | 'option_pool' | 'adviser' | 'investor';
+  label: string;
+  pct: number;
+  as_of: string; // ISO date
+}
+
 export interface Db {
   catalog: CatalogEntity[];
   packs: Pack[];
@@ -1147,6 +1158,7 @@ export interface Db {
   interactionDocuments: InteractionDocument[];
   sherlockNextSnoozes: SherlockNextSnooze[];
   entityReopenSnapshots: EntityReopenSnapshot[];
+  capTableEntries: CapTableEntry[];
 }
 
 // ---------------------------------------------------------------------------

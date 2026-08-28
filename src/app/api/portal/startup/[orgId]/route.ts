@@ -92,6 +92,27 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   );
   const dossier = projectDossier(level, raw.full, shareEmail, raw.swot, raw.founderClarifications, raw.roadmap, raw.badges, raw.miniPitch, raw.media);
 
+  // Prompt 422 §A — ownership-structure data has no existing home in the
+  // disclosure ladder (checked: projectDossier's own LEVEL_FIELDS covers
+  // overview/swot/roadmap/mini-pitch at level>=1 and traction/team/contact-
+  // history/document-titles at level>=2, nothing about ownership). Cap
+  // table is proposed here as level>=2 — the same tier as tractionDetailed/
+  // team/contactHistory, comparably sensitive internal-structure data, more
+  // than the level>=1 pitch-narrative fields but not gated behind the
+  // level>=3 messaging/data-room permissions either. Flagged for Nuno to
+  // confirm, per this prompt's own instruction. Kept OUT of projectDossier
+  // itself (a plain inline check here) rather than widening that function's
+  // already-long positional-argument signature for one independent field —
+  // note this means the founder's own "preview as investor" page (if it
+  // calls a different code path than this route) won't show a cap table
+  // preview from this change alone.
+  let capTable: { category: string; label: string; pct: number }[] | null = null;
+  if (level >= 2) {
+    const { data: capTableRows } = await admin.from('cap_table_entries')
+      .select('category, label, pct').eq('org_id', params.orgId).order('category', { ascending: true });
+    if (capTableRows && capTableRows.length > 0) capTable = capTableRows as { category: string; label: string; pct: number }[];
+  }
+
   // Bug fix (relatorio_verificacao_..._8143c75_p136 §3) — this used to
   // forward `levelRows` in full, `note` included: the founder's own
   // private reasoning for a grant/deny decision, sitting unlabeled in the
@@ -102,5 +123,5 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   // Prompt 373 §F — already fail-closed group-by-group inside
   // fetchDossierRawData itself (see that function's own market block);
   // passed through as-is, never re-filtered here, same as swot/roadmap.
-  return NextResponse.json({ card, hype, level, levelRows: toInvestorFacingLevelRows(levelRows), dossier, market: raw.market });
+  return NextResponse.json({ card, hype, level, levelRows: toInvestorFacingLevelRows(levelRows), dossier, market: raw.market, capTable });
 }

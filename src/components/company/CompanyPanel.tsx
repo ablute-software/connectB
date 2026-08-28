@@ -35,6 +35,7 @@ import { BadgesCard } from './BadgesCard';
 import { StartupTeamCard } from './StartupTeamCard';
 import { RoundCard } from './RoundCard';
 import { PreviousFundingCard } from '@/components/PreviousFundingCard';
+import { CapTableCard } from './CapTableCard';
 import { TractionCard } from './TractionCard';
 import { InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEngagementCards';
 import { StartupAxisClassifications } from './StartupAxisClassifications';
@@ -47,6 +48,8 @@ const SECTIONS: CompanySection[] = [
   { key: 'team', label: 'Team', anchorId: 'settings-team' },
   { key: 'round', label: 'Round', anchorId: 'settings-round' },
   { key: 'previous-funding', label: 'Previous funding', anchorId: 'settings-previous-funding' },
+  // Prompt 422 §B — same "round data" neighborhood as Round/Previous funding.
+  { key: 'cap-table', label: 'Cap table', anchorId: 'settings-cap-table' },
   { key: 'traction', label: 'Traction metrics', anchorId: 'settings-traction' },
   { key: 'facts', label: 'Facts & Clarifications', anchorId: 'settings-facts' },
 ];
@@ -205,6 +208,11 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
         {active === 'previous-funding' && (
           <div id="settings-previous-funding" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
             {canEdit && <PreviousFundingCard />}
+          </div>
+        )}
+        {active === 'cap-table' && (
+          <div id="settings-cap-table" style={{ scrollMarginTop: SETTINGS_HEADER_OFFSET_PX }}>
+            {canEdit && <CapTableCard />}
           </div>
         )}
 
