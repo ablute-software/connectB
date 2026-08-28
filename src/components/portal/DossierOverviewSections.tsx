@@ -18,6 +18,8 @@ import { shouldShowMiniPitchTeaser } from '@/lib/mini-pitch';
 import { resolveInitialTabFromHash } from '@/lib/dossier-tabs';
 import { isTeamSummaryRedundant } from '@/lib/team-summary';
 import { MediaGallery, type GalleryItem } from './MediaGallery';
+import { CapTableChart } from '@/components/CapTableChart';
+import { toCapTableSlices } from '@/lib/cap-table';
 import { MiniPitchDeck } from '@/components/mini-pitch/MiniPitchSlideView';
 
 export interface Card {
@@ -99,6 +101,11 @@ export interface Dossier {
   // shape has no equivalent there.
   aboutMedia?: { id: string; category: 'company' | 'technology'; caption: string; kind: 'image' | 'video_upload' | 'video_link'; url: string }[];
   teamMedia?: { id: string; category: 'team'; caption: string; kind: 'image' | 'video_upload' | 'video_link'; url: string }[];
+  // Prompt 422 §A / Prompt 434 §D — ownership structure, level >= 2 (same
+  // gate as team/traction above). Never carries agreement_document_id —
+  // that document stays private to the founder (dossier-fetch.ts's own
+  // comment on DossierCapTableEntry).
+  capTable?: { category: string; label: string; pct: number; isConvertible: boolean; conversionTriggerType: 'date' | 'event' | null; conversionDate: string | null; conversionEvent: string | null }[];
 }
 
 // Prompt 334 — a small horizontal slide navigator. Deliberately no autoplay:
@@ -172,6 +179,7 @@ export function DossierOverviewSections({
   const hasMarket = overview && (overview.tam_eur != null || overview.sam_eur != null || overview.som_eur != null);
   const team = dossier.team ?? [];
   const hasTeam = team.length > 0 || (overview && (overview.team_summary || overview.representative_name));
+  const hasCapTable = (dossier.capTable?.length ?? 0) > 0;
   const traction = dossier.tractionDetailed && Object.keys(dossier.tractionDetailed).length > 0
     ? Object.entries(dossier.tractionDetailed) : [];
   // Prompt 353 — placement decision, documented: Technology/IP media gets
@@ -442,7 +450,7 @@ export function DossierOverviewSections({
     });
   }
 
-  if (level >= 2 && hasTeam) {
+  if (level >= 2 && (hasTeam || hasCapTable)) {
     sections.push({
       id: 'team', label: 'Team',
       node: (
@@ -512,6 +520,28 @@ export function DossierOverviewSections({
             </button>
           )}
           <MediaGallery items={teamMedia} />
+
+          {/* Prompt 434 §D — a sub-section of Team, not a new top-level tab
+              (Nuno's own framing: "Team > Cap table"). Same gate as the
+              section itself (level >= 2); startup-performance data stays
+              out per CLAUDE.md's root rule — this is only the ownership
+              structure the founder chose to publish by adding rows,
+              nothing derived/computed about them. */}
+          {hasCapTable && (
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Cap table</h3>
+              <CapTableChart slices={toCapTableSlices(dossier.capTable!)} />
+              <ul className="mt-2 space-y-0.5">
+                {dossier.capTable!.filter((e) => e.isConvertible).map((e, i) => (
+                  <li key={i} className="text-[11px] text-gray-500">
+                    🔄 {e.label} converts {e.conversionTriggerType === 'date' && e.conversionDate
+                      ? new Date(e.conversionDate).toLocaleDateString(undefined, { year: 'numeric', month: 'short' })
+                      : `on: ${e.conversionEvent}`}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       ),
     });

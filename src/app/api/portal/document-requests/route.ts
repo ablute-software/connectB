@@ -22,6 +22,17 @@ async function resolvePerson(admin: SupabaseClient, email: string) {
   return data as { id: string; full_name: string | null; entity_id: string | null } | null;
 }
 
+// Prompt 434 §A — item_type is only ever selected via a dynamically-built
+// string (see itemsSelect below), so postgrest-js can't statically infer a
+// row shape for it — same fix as founder/document-requests/route.ts's own
+// AccessRequestItemRow (Prompt 426 §A).
+interface AccessRequestItemRow {
+  id: string; request_id: string; document_id: string | null; requested_label: string | null;
+  status: 'pending' | 'granted' | 'promised' | 'declined'; fulfilled_document_id: string | null;
+  promised_for: string | null; decline_reason: string | null; resolution_note: string | null;
+  item_type?: string | null;
+}
+
 export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -38,6 +49,7 @@ export async function GET(req: Request) {
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
   if (!(await accessRequestItemsAvailable())) return NextResponse.json({ requests: [] });
+  const itemTypeAvailable = await documentRequestItemTypeAvailable();
 
   const person = await resolvePerson(admin, email);
   const orParts = [`requested_email.eq.${email}`];
@@ -48,9 +60,14 @@ export async function GET(req: Request) {
   if (!requests || requests.length === 0) return NextResponse.json({ requests: [] });
 
   const requestIds = requests.map((r) => r.id as string);
-  const { data: items } = await admin.from('access_request_items')
-    .select('id, request_id, document_id, requested_label, status, fulfilled_document_id, promised_for, decline_reason, resolution_note')
+  // Built dynamically (item_type only when the migration is applied), so
+  // this is typed as a plain `string` rather than a literal — see
+  // AccessRequestItemRow's own comment above.
+  const itemsSelect: string = `id, request_id, document_id, requested_label, status, fulfilled_document_id, promised_for, decline_reason, resolution_note${itemTypeAvailable ? ', item_type' : ''}`;
+  const { data: itemsRaw } = await admin.from('access_request_items')
+    .select(itemsSelect)
     .in('request_id', requestIds);
+  const items = itemsRaw as unknown as AccessRequestItemRow[] | null;
 
   const docIds = [...new Set((items ?? []).flatMap((i) => [i.document_id, i.fulfilled_document_id]).filter(Boolean) as string[])];
   const { data: docs } = docIds.length
@@ -65,7 +82,7 @@ export async function GET(req: Request) {
     itemsByRequest.set(i.request_id as string, list as never);
   }
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     requests: requests.map((r) => ({
       id: r.id, message: r.message, requestedAt: r.requested_at, seen: !!r.investor_seen_response_at,
       items: (itemsByRequest.get(r.id as string) ?? []).map((i) => ({
@@ -74,9 +91,21 @@ export async function GET(req: Request) {
         status: i.status,
         fulfilledDocumentName: i.fulfilled_document_id ? (docNameById.get(i.fulfilled_document_id as string) ?? null) : null,
         promisedFor: i.promised_for, declineReason: i.decline_reason, resolutionNote: i.resolution_note,
+        itemType: (i.item_type as 'cap_table' | null) ?? null,
       })),
     })),
   });
+
+  // Prompt 434 §A — same "read the old value first, stamp now() at the end"
+  // shape access-granted/route.ts already uses for data_room_last_seen_at:
+  // `seen` above already used the PREVIOUS investor_seen_response_at, so
+  // this update can happen after the response body is built without
+  // racing it. Best-effort — a failure here never breaks the response the
+  // investor is actually here for.
+  admin.from('access_requests').update({ investor_seen_response_at: new Date().toISOString() })
+    .in('id', requestIds).then(() => {}, () => {});
+
+  return response;
 }
 
 export async function POST(req: Request) {

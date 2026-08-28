@@ -256,7 +256,11 @@ function OwnershipCalculatorTool({ cards, selectedOrgId, ticket, setTicket, basi
     setIncludeMyStake(false);
     if (!selectedOrgId) return;
     fetch(`/api/portal/startup/${selectedOrgId}`).then((r) => (r.ok ? r.json() : null))
-      .then((d) => setCapTableRows(d?.capTable ?? [])).catch(() => setCapTableRows([]));
+      // Prompt 434 §D — capTable moved from a top-level response field into
+      // dossier.capTable (it's now part of the Dossier shape proper, read
+      // the same way dossier.team etc. already are) — this call site
+      // updated to match, or its own chart would silently go empty.
+      .then((d) => setCapTableRows(d?.dossier?.capTable ?? [])).catch(() => setCapTableRows([]));
   }, [selectedOrgId]);
 
   return (

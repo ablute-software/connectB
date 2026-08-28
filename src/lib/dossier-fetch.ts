@@ -21,6 +21,7 @@ import type { ReviewCategory } from './review-clarifications';
 import { projectBadgesForInvestor, type BadgePublic } from './company-badges';
 import { projectMiniPitchForInvestor, type MiniPitchSlideProjected, type StoredMiniPitchSlide } from './mini-pitch';
 import { projectMarketDataForInvestor, MARKET_GROUP_KEYS, type MarketGroupKey, type MarketInvestorPayload } from './market-data-investor-projection';
+import { capTableConvertibleFieldsAvailable } from './cap-table-capability';
 
 export interface DossierMarketRing {
   ring: string; label: string; definition: string | null; buyer: string | null; geography: string | null;
@@ -36,6 +37,16 @@ export interface DossierMarketRound {
   investorName: string; companyName: string; amountEur: number | null; investedAt: string | null; roundType: string | null;
 }
 export interface DossierMarketResearchItem { title: string; detail: string; sourceUrl: string | null }
+
+// Prompt 434 §C — deliberately never includes agreement_document_id: that
+// document is private to the founder by default (visibility:
+// 'due_diligence', Prompt 432 §D) — exposing its id here would route
+// around that visibility. A founder who wants to share it does so through
+// the normal Vault grant mechanism, not through this fetch.
+export interface DossierCapTableEntry {
+  category: string; label: string; pct: number;
+  isConvertible: boolean; conversionTriggerType: 'date' | 'event' | null; conversionDate: string | null; conversionEvent: string | null;
+}
 
 export interface DossierRawData {
   full: FullDossierData;
@@ -80,6 +91,13 @@ export interface DossierRawData {
     rings: DossierMarketRing[]; competitors: DossierMarketCompetitor[]; rounds: DossierMarketRound[];
     trends: DossierMarketResearchItem[]; regulatory: DossierMarketResearchItem[]; definition: DossierMarketResearchItem[];
   }>;
+  // Prompt 422 §A / Prompt 434 §C — ownership structure, level >= 2 (same
+  // tier as tractionDetailed/team/contactHistory below — comparably
+  // sensitive internal-structure data). Moved here (was inline in
+  // /api/portal/startup/[orgId]/route.ts) so the founder's own "preview as
+  // investor" page, which calls this SAME shared fetch, gets it too —
+  // fixing the gap Prompt 422's own comment had flagged.
+  capTable: DossierCapTableEntry[];
 }
 
 export interface DossierMediaItem {
@@ -124,6 +142,7 @@ export async function fetchDossierRawData(
   let contactHistory: FullDossierData['contactHistory'] = [];
   let documentTitles: FullDossierData['documentTitles'] = [];
   let tractionDetailed: Record<string, unknown> = {};
+  let capTable: DossierCapTableEntry[] = [];
   if (level >= 2) {
     // Prompt 388 §A — bio/photo_url already exist on this table and founders
     // already fill them in (StartupTeamCard.tsx's own "Mini-bio" + photo
@@ -139,6 +158,29 @@ export async function fetchDossierRawData(
       isFounder: p.is_founder as boolean, linkedinUrl: p.linkedin_url as string | null, email: p.email as string | null,
       bio: p.bio as string | null, photoUrl: p.photo_url as string | null,
     }));
+
+    // Prompt 434 §C — missing-column-safe: the base 3 columns (category/
+    // label/pct) have existed since Prompt 422; the convertible-note ones
+    // since migration 0271 (Prompt 432). A dynamically-built select can't
+    // be statically parsed by postgrest-js's typed select() — typed as a
+    // plain `string`, same fix founder/document-requests/route.ts and
+    // portal/document-requests/route.ts already use for the same reason.
+    const convertibleFieldsAvailable = await capTableConvertibleFieldsAvailable();
+    const capTableSelect: string = `category, label, pct${convertibleFieldsAvailable ? ', is_convertible, conversion_trigger_type, conversion_date, conversion_event' : ''}`;
+    const { data: capTableRowsRaw } = await admin.from('cap_table_entries')
+      .select(capTableSelect).eq('org_id', orgId).order('category', { ascending: true });
+    const capTableRows = capTableRowsRaw as unknown as {
+      category: string; label: string; pct: number;
+      is_convertible?: boolean; conversion_trigger_type?: 'date' | 'event' | null; conversion_date?: string | null; conversion_event?: string | null;
+    }[] | null;
+    capTable = (capTableRows ?? []).map((r) => ({
+      category: r.category, label: r.label, pct: r.pct,
+      isConvertible: r.is_convertible ?? false,
+      conversionTriggerType: r.conversion_trigger_type ?? null,
+      conversionDate: r.conversion_date ?? null,
+      conversionEvent: r.conversion_event ?? null,
+    }));
+
     tractionDetailed = (overview?.traction_metrics as Record<string, unknown> | null) ?? {};
     if (investorContext) {
       const timeline = await getInteractionTimeline(admin, {
@@ -441,5 +483,5 @@ export async function fetchDossierRawData(
     }
   }
 
-  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications, badges, miniPitch, media, market };
+  return { full, swot, swotToggleOn, roadmap, roadmapToggleOn, founderClarifications, badges, miniPitch, media, market, capTable };
 }

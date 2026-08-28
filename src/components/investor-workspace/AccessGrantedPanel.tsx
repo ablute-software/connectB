@@ -25,8 +25,9 @@ interface AccessGrantedResponse { granted: GrantedCard[]; requested: RequestedCa
 interface DocRequestItem {
   id: string; label: string; status: 'pending' | 'granted' | 'promised' | 'declined';
   fulfilledDocumentName: string | null; promisedFor: string | null; declineReason: string | null; resolutionNote: string | null;
+  itemType: 'cap_table' | null;
 }
-interface DocRequestCard { orgId: string; orgName: string; id: string; message: string | null; requestedAt: string; items: DocRequestItem[] }
+interface DocRequestCard { orgId: string; orgName: string; id: string; message: string | null; requestedAt: string; seen: boolean; items: DocRequestItem[] }
 
 const ITEM_STATUS_LABEL: Record<DocRequestItem['status'], string> = {
   pending: 'Waiting on founder', granted: 'Granted', promised: 'Promised', declined: 'Declined',
@@ -260,7 +261,14 @@ export function AccessGrantedPanel() {
                 <div key={r.id} className="rounded-lg border border-gray-200 bg-white p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <div className="text-sm font-semibold text-gray-900">{r.orgName} · document request</div>
+                      <div className="text-sm font-semibold text-gray-900">
+                        {r.orgName} · document request
+                        {/* Prompt 434 §A/§B — seen is per-REQUEST (investor_
+                            seen_response_at), unlike d.isNew above which is
+                            genuinely per-document — one badge on the card,
+                            not repeated on every item row. */}
+                        {!r.seen && <span className="ml-1.5 rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[10px] font-semibold text-[#0E7490]">New</span>}
+                      </div>
                       <div className="text-xs text-gray-400">
                         requested {fmtDate(r.requestedAt)} · {resolvedCount} of {r.items.length} resolved
                       </div>
@@ -269,22 +277,32 @@ export function AccessGrantedPanel() {
                   {r.message && <p className="mt-2 text-xs italic text-gray-500">&quot;{r.message}&quot;</p>}
                   <ul className="mt-2 space-y-1.5">
                     {r.items.map((item) => (
-                      <li key={item.id} className="flex items-center justify-between gap-2 text-sm">
-                        <span className="text-gray-700">{item.label}</span>
-                        <div className="flex items-center gap-2">
-                          {item.status === 'promised' && item.promisedFor && (
-                            <span className="text-[11px] text-gray-400">by {fmtDate(item.promisedFor)}</span>
-                          )}
-                          {item.status === 'declined' && item.declineReason && (
-                            <span className="text-[11px] text-gray-400" title={item.declineReason}>{item.declineReason}</span>
-                          )}
-                          {item.status === 'granted' && item.fulfilledDocumentName && (
-                            <span className="text-[11px] text-gray-400">{item.fulfilledDocumentName}</span>
-                          )}
-                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${ITEM_STATUS_STYLE[item.status]}`}>
-                            {ITEM_STATUS_LABEL[item.status]}
-                          </span>
+                      <li key={item.id} className="flex flex-col gap-0.5 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-gray-700">{item.label}</span>
+                          <div className="flex items-center gap-2">
+                            {item.status === 'promised' && item.promisedFor && (
+                              <span className="text-[11px] text-gray-400">by {fmtDate(item.promisedFor)}</span>
+                            )}
+                            {item.status === 'declined' && item.declineReason && (
+                              <span className="text-[11px] text-gray-400" title={item.declineReason}>{item.declineReason}</span>
+                            )}
+                            {item.status === 'granted' && item.fulfilledDocumentName && (
+                              <span className="text-[11px] text-gray-400">{item.fulfilledDocumentName}</span>
+                            )}
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${ITEM_STATUS_STYLE[item.status]}`}>
+                              {ITEM_STATUS_LABEL[item.status]}
+                            </span>
+                          </div>
                         </div>
+                        {item.status === 'granted' && item.resolutionNote && (
+                          <p className="text-[11px] text-gray-500">{item.resolutionNote}</p>
+                        )}
+                        {item.status === 'granted' && item.itemType === 'cap_table' && (
+                          <a href={`/portal/startup/${r.orgId}#team`} className="text-[11px] font-medium text-[#0E7490] hover:underline">
+                            View in Team →
+                          </a>
+                        )}
                       </li>
                     ))}
                   </ul>
