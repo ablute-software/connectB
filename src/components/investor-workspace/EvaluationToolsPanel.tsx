@@ -37,7 +37,8 @@ import {
   type EvaluationPipelineCard as PipelineCard,
 } from '@/lib/evaluation-startup-discovery';
 import { EVALUATION_TOOLS_INTRO_CONTENT, shouldShowEvaluationToolsIntro, type EvaluationToolsIntroEntry } from '@/lib/evaluation-tools-intro';
-import { applyCapTableDilution, toCapTableSlices, type CapTableSlice } from '@/lib/cap-table';
+import { applyCapTableDilution, toCapTableSlices } from '@/lib/cap-table';
+import { CapTableChart } from '@/components/CapTableChart';
 import {
   berkusFactorEur, berkusTotalEur, isInvestorCalibrated, berkusApplicability, berkusDiagnostic, berkusSensitivity,
   BERKUS_DEFAULT_CALIBRATION_REF_EUR, type BerkusFactorLevel, type BerkusMode,
@@ -192,39 +193,6 @@ function EvaluationStartupPicker({ cards, selectedOrgId, onSelectOrg, showsUnuse
       {showsUnusedNote && (
         <p className="text-[11px] text-gray-400">Criteria apply to every startup — pick one from any other tool.</p>
       )}
-    </div>
-  );
-}
-
-// Prompt 422 §C — a hand-rolled stacked bar, not a new chart dependency:
-// confirmed no charting library is used anywhere in this codebase
-// (checked /metrics and package.json) before building this, per the
-// prompt's own instruction not to introduce one without checking first. A
-// stacked bar was picked over a pie for the same reason a plain <div>
-// width can express a percentage exactly with no trig/arc math to get
-// wrong, and it reads fine at this card's width.
-const CAP_TABLE_COLORS = ['#0E7490', '#7C3AED', '#DB2777', '#D97706', '#059669', '#4B5563'];
-const CAP_TABLE_ESTIMATE_COLOR = '#0E7490';
-
-function CapTableChart({ slices }: { slices: CapTableSlice[] }) {
-  const nonZero = slices.filter((s) => s.pct > 0);
-  return (
-    <div>
-      <div className="flex h-6 w-full overflow-hidden rounded-lg">
-        {nonZero.map((s, i) => (
-          <div key={`${s.label}-${i}`} title={`${s.label} — ${fmtPct(s.pct)}`}
-            style={{ width: `${s.pct}%`, backgroundColor: s.category === 'investor_estimate' ? CAP_TABLE_ESTIMATE_COLOR : CAP_TABLE_COLORS[i % CAP_TABLE_COLORS.length] }} />
-        ))}
-      </div>
-      <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600">
-        {nonZero.map((s, i) => (
-          <li key={`${s.label}-legend-${i}`} className="flex items-center gap-1">
-            <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-sm"
-              style={{ backgroundColor: s.category === 'investor_estimate' ? CAP_TABLE_ESTIMATE_COLOR : CAP_TABLE_COLORS[i % CAP_TABLE_COLORS.length] }} />
-            {s.label} <span className="font-medium text-gray-800">{fmtPct(s.pct)}</span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
