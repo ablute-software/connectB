@@ -1092,6 +1092,24 @@ export interface SherlockNextSnooze {
   snoozed_until: string;
 }
 
+// Prompt 416 §A — a baseline captured at the moment an entity is passed or
+// parked (entity_reopen_snapshots, migration 0262). See
+// src/lib/reopen-signals.ts for the engine that reads these; that file's
+// own header explains why it ALSO needs data this interface doesn't carry
+// (investor_investments/investor_entity_claims are platform-wide, not part
+// of Db).
+export interface EntityReopenSnapshot {
+  id: string;
+  entity_id: string;
+  captured_at: string;
+  reason: 'passed' | 'dormant';
+  sectors_at_time: string[];
+  stage_min_at_time?: Stage;
+  stage_max_at_time?: Stage;
+  investor_claimed_at_time: boolean;
+  investment_count_at_time: number;
+}
+
 export interface Db {
   catalog: CatalogEntity[];
   packs: Pack[];
@@ -1128,6 +1146,7 @@ export interface Db {
   orgAxisClassifications: OrgAxisClassification[];
   interactionDocuments: InteractionDocument[];
   sherlockNextSnoozes: SherlockNextSnooze[];
+  entityReopenSnapshots: EntityReopenSnapshot[];
 }
 
 // ---------------------------------------------------------------------------

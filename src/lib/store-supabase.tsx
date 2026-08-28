@@ -10,7 +10,7 @@ import { browserClient } from './supabase';
 import { StoreCtx, type StoreApi, type LogInput } from './store-context';
 import type {
   AccessGrant, Automation, AutomationRun, CatalogEntity, Channel, Classification, CompanyFact, CompanyPerson, Db, DocumentItem,
-  DocumentVersion, DocumentView, Entity, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
+  DocumentVersion, DocumentView, Entity, EntityReopenSnapshot, EntityStatus, FitScore, Folder, FolderKind, Interaction, InvestorSubmission, MessageTemplate,
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory, RoadmapEvent,
   RejectionCode, InteractionEdit, InteractionDocument, OrgAxisClassification, SherlockNextSnooze } from './types';
@@ -23,6 +23,7 @@ import type { NeglectOutcome } from './neglect-evaluation';
 import { STAGE_LABEL, getStage } from './relationship';
 import { fitBucketFromScore } from './catalog-fit-bucket';
 import { revisitTasksToClose } from './exit-effects';
+import { matchEntityToCatalog } from './entity-catalog-prefill';
 
 type SB = ReturnType<typeof browserClient>;
 
@@ -33,7 +34,7 @@ const EMPTY_DB: Db = {
   runs: [], aiReviews: [], catalog: [], packs: [], unlocks: [], submissions: [], companyFacts: [], companyPeople: [], ndas: [],
   documentVersions: [], reawakeningProposals: [], tractionMetrics: [], roadmapMilestones: [], fundingRounds: [], roadmapCategories: [],
   roadmapEvents: [], rejectionCodes: [], interactionEdits: [], orgAxisClassifications: [],
-  interactionDocuments: [], sherlockNextSnoozes: [],
+  interactionDocuments: [], sherlockNextSnoozes: [], entityReopenSnapshots: [],
 };
 
 function uuid() { return crypto.randomUUID(); }
@@ -81,7 +82,7 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     deliveriesRes, submissionsRes, relationshipStateRes, personAffiliationsRes, companyFactsRes, ndasRes,
     documentVersionsRes, reawakeningProposalsRes, companyPeopleRes, tractionMetricsRes, roadmapMilestonesRes,
     fundingRoundsRes, roadmapCategoriesRes, roadmapEventsRes, rejectionCodesRes, interactionEditsRes, orgAxisClassificationsRes,
-    interactionDocumentsRes, sherlockNextSnoozesRes,
+    interactionDocumentsRes, sherlockNextSnoozesRes, entityReopenSnapshotsRes,
   ] = await Promise.all([
     sb.from('orgs').select('*').eq('id', orgId).single(),
     sb.from('entities').select('*').eq('org_id', orgId),
@@ -150,6 +151,9 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     // Prompt 415 §1 — sherlock_next_snoozes (0261). Same missing-table-safe
     // pattern as company_facts/ndas above.
     sb.from('sherlock_next_snoozes').select('*').eq('org_id', orgId),
+    // Prompt 416 §A — entity_reopen_snapshots (0262). Same missing-table-
+    // safe pattern as company_facts/ndas above.
+    sb.from('entity_reopen_snapshots').select('*').eq('org_id', orgId),
   ]);
 
   if (orgRes.error) throw orgRes.error;
@@ -220,7 +224,56 @@ async function loadAll(sb: SB, orgId: string): Promise<Db> {
     orgAxisClassifications: ((orgAxisClassificationsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<OrgAxisClassification>(r)),
     interactionDocuments: ((interactionDocumentsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<InteractionDocument>(r)),
     sherlockNextSnoozes: ((sherlockNextSnoozesRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<SherlockNextSnooze>(r)),
+    entityReopenSnapshots: ((entityReopenSnapshotsRes.data ?? []) as Record<string, unknown>[]).map((r) => fromRow<EntityReopenSnapshot>(r)),
   };
+}
+
+// Prompt 416 §A.2 — resolves the entity's catalog counterpart (the exact
+// catalog_deliveries record when one exists; entity-catalog-prefill.ts's
+// own fuzzy domain/name match otherwise — e.g. a manually-added entity that
+// happens to match a real catalog investor), then reads what that
+// counterpart's investment/claim state looks like RIGHT NOW. investor_
+// investments' read policy is open to any authenticated user (migration
+// 0201), so the count is a plain client-side query; investor_entity_claims
+// is claimant-scoped RLS, so catalog_entity_claimed_at() (migration 0262)
+// is the one safe derived fact that RPC can hand back. Returns null (never
+// throws) on any failure — this is a secondary signal for a later engine,
+// not something a status change should ever be blocked by.
+async function captureReopenSnapshot(
+  sb: SB, orgId: string, entity: Entity, reason: 'passed' | 'dormant', catalog: CatalogEntity[],
+): Promise<EntityReopenSnapshot | null> {
+  let catalogMatch: CatalogEntity | null = null;
+  const { data: delivery } = await sb.from('catalog_deliveries').select('catalog_id').eq('org_id', orgId).eq('entity_id', entity.id).maybeSingle();
+  if (delivery?.catalog_id) {
+    const { data: catRow } = await sb.from('catalog_entities').select('*').eq('id', delivery.catalog_id as string).maybeSingle();
+    if (catRow) catalogMatch = fromRow<CatalogEntity>(catRow as Record<string, unknown>);
+  }
+  if (!catalogMatch) catalogMatch = matchEntityToCatalog(entity, catalog);
+
+  let investmentCount = 0;
+  let claimedAt: string | null = null;
+  if (catalogMatch) {
+    const [countRes, claimedRes] = await Promise.all([
+      sb.from('investor_investments').select('id', { count: 'exact', head: true }).eq('investor_entity_id', catalogMatch.id),
+      sb.rpc('catalog_entity_claimed_at', { p_catalog_entity_id: catalogMatch.id }),
+    ]);
+    investmentCount = countRes.count ?? 0;
+    claimedAt = (claimedRes.data as string | null) ?? null;
+  }
+
+  const { data, error } = await sb.from('entity_reopen_snapshots').insert({
+    org_id: orgId, entity_id: entity.id, reason,
+    sectors_at_time: catalogMatch?.sectors ?? entity.sectors,
+    stage_min_at_time: catalogMatch?.stage_min ?? entity.stage_min ?? null,
+    stage_max_at_time: catalogMatch?.stage_max ?? entity.stage_max ?? null,
+    investor_claimed_at_time: !!claimedAt,
+    investment_count_at_time: investmentCount,
+  }).select('*').single();
+  if (error || !data) {
+    console.error('[supabase-store] captureReopenSnapshot failed:', error?.message);
+    return null;
+  }
+  return fromRow<EntityReopenSnapshot>(data as Record<string, unknown>);
 }
 
 export function SupabaseStoreProvider({ children }: { children: React.ReactNode }) {
@@ -940,7 +993,8 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       // Prompt 205 §B (reversao) — sair de dormant fecha a task de revisita,
       // que deixou de ter sentido: a revisita aconteceu. Feito aqui e nao no
       // componente porque a saida de dormant tem mais do que um caminho.
-      const wasParked = prev.entities.find((e) => e.id === id)?.status === 'dormant';
+      const entity = prev.entities.find((e) => e.id === id);
+      const wasParked = entity?.status === 'dormant';
       const closeIds = wasParked && status !== 'dormant' ? revisitTasksToClose(prev.tasks, id) : [];
       commit({
         ...prev,
@@ -954,6 +1008,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
           : e),
       });
       if (orgIdRef.current) {
+        const oid = orgIdRef.current;
         const patch: Record<string, unknown> = { status };
         if (status === 'dormant') {
           patch.dormant_since = new Date().toISOString();
@@ -961,6 +1016,17 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         }
         persist(sb.from('entities').update(patch).eq('id', id), 'setEntityStatus');
         for (const tid of closeIds) persist(sb.from('tasks').update({ done: true }).eq('id', tid), 'setEntityStatus:closeRevisit');
+
+        // Prompt 416 §A.2 — same "genuine transition only" guard as
+        // store-demo.tsx. Fire-and-forget: this is a secondary signal for
+        // a later engine, not something a status change should ever be
+        // blocked by.
+        if (entity && (status === 'passed' || status === 'dormant') && entity.status !== status) {
+          captureReopenSnapshot(sb, oid, entity, status, prev.catalog).then((snap) => {
+            if (!snap) return;
+            commit({ ...dbRef.current, entityReopenSnapshots: [...dbRef.current.entityReopenSnapshots, snap] });
+          });
+        }
       }
     },
 

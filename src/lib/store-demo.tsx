@@ -5,7 +5,7 @@
 // StoreApi contract (locks, follow-up tasks, overrides, runs semantics).
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
-  AccessGrant, AutomationRun, CompanyFact, Db, DocumentItem, Entity, Folder, FolderKind, Interaction, InteractionDocument, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory, RoadmapEvent,
+  AccessGrant, AutomationRun, CompanyFact, Db, DocumentItem, Entity, EntityReopenSnapshot, Folder, FolderKind, Interaction, InteractionDocument, Nda, Person, PersonAffiliation, FundingRound, RoadmapCategory, RoadmapEvent,
   InteractionEdit, OrgAxisClassification } from './types';
 import { seed } from './data/seed';
 import { revisitTasksToClose } from './exit-effects';
@@ -14,12 +14,36 @@ import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval, priorPassInfo } from './reawakening';
 import { findReactivations, reactivationTaskTitle } from './rejection-code-match';
 import { STAGE_LABEL, getStage } from './relationship';
+import { matchEntityToCatalog } from './entity-catalog-prefill';
 import { StoreCtx, type StoreApi } from './store-context';
 
 const STORAGE_KEY = 'ablute-crm-demo-v3';
 
 function uid(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// Prompt 416 §A.2 — one row per genuine passed/dormant TRANSITION, captured
+// here (setEntityStatus, the only path that ever sets these two statuses)
+// rather than at each UI call site. Demo mode has no investor_investments/
+// investor_entity_claims fixtures at all (those are platform-wide Postgres
+// tables — see reopen-signals.ts's own header), so investment_count/claimed
+// stay at their honest "none known" defaults here; the catalog match still
+// gives sectors/stage a real baseline via the same fuzzy-match
+// entity-catalog-prefill.ts already uses for prefill.
+function captureReopenSnapshot(prev: Db, entity: Entity, reason: 'passed' | 'dormant'): EntityReopenSnapshot {
+  const catalogMatch = matchEntityToCatalog(entity, prev.catalog);
+  return {
+    id: uid('reopen-snap'),
+    entity_id: entity.id,
+    captured_at: new Date().toISOString(),
+    reason,
+    sectors_at_time: catalogMatch?.sectors ?? entity.sectors,
+    stage_min_at_time: catalogMatch?.stage_min ?? entity.stage_min,
+    stage_max_at_time: catalogMatch?.stage_max ?? entity.stage_max,
+    investor_claimed_at_time: false,
+    investment_count_at_time: 0,
+  };
 }
 
 // Prompt 253 (addendum) — editing the INVESTOR's own structured thesis
@@ -433,8 +457,17 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       // Prompt 205 §B (reversao) — sair de dormant fecha a task de revisita,
       // que deixou de ter sentido: a revisita aconteceu. Feito aqui e nao no
       // componente porque a saida de dormant tem mais do que um caminho.
-      const wasParked = prev.entities.find((e) => e.id === id)?.status === 'dormant';
+      const entity = prev.entities.find((e) => e.id === id);
+      const wasParked = entity?.status === 'dormant';
       const closeIds = wasParked && status !== 'dormant' ? revisitTasksToClose(prev.tasks, id) : [];
+      // Prompt 416 §A.2 — a snapshot only on a genuine TRANSITION into
+      // passed/dormant (not a redundant re-set of the same status), so a
+      // re-pass after reopening gets its own fresh row without every
+      // unrelated edit that happens to re-save the same status spamming
+      // new ones.
+      const newSnapshot = entity && (status === 'passed' || status === 'dormant') && entity.status !== status
+        ? captureReopenSnapshot(prev, entity, status)
+        : undefined;
       return ({
         ...prev,
         tasks: closeIds.length ? prev.tasks.map((t) => closeIds.includes(t.id) ? { ...t, done: true } : t) : prev.tasks,
@@ -445,6 +478,7 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
               dormant_reason: status === 'dormant' ? reason ?? e.dormant_reason : e.dormant_reason,
             }
           : e),
+        entityReopenSnapshots: newSnapshot ? [...prev.entityReopenSnapshots, newSnapshot] : prev.entityReopenSnapshots,
       });
       });
     },
