@@ -371,3 +371,78 @@ export function buildPrepSessions(perQuestion: PrepQuestionResult[], maxPerSessi
   }
   return sessions;
 }
+
+// ---------------------------------------------------------------------------
+// Prompt 440 §D.1 — one action per question, to the EXISTING place that
+// question's primary STRONG matcher actually reads from. Never a new form:
+// the product already has every one of these editors, and duplicating them
+// here would be weight, not a shortcut (CLAUDE.md's golden rule, §0).
+export interface PrepAction { label: string; href: string }
+
+const VAULT_ACTION: PrepAction = { label: 'Upload it to your Vault', href: '/documents' };
+const MARKET_DATA_ACTION: PrepAction = { label: 'Build it in Market data', href: '/readiness?tab=market_data' };
+const TRACTION_ACTION: PrepAction = { label: 'Add the metric', href: '/settings#settings-traction' };
+// No direct "create a claim" route exists — /api/blueprint/claim is
+// accept/reject/edit only; claims are born from company_facts ingestion,
+// so the honest destination is the facts editor, not something claim-shaped.
+const FACTS_ACTION: PrepAction = { label: 'State it as a company fact', href: '/settings#settings-facts' };
+const TEAM_ACTION: PrepAction = { label: 'Complete the team profiles', href: '/settings#settings-team' };
+const ROADMAP_ACTION: PrepAction = { label: 'Put it on the roadmap', href: '/settings?tab=roadmap' };
+
+const PREP_ACTIONS: Record<string, PrepAction> = {
+  // /documents — the STRONG matcher is a document.
+  'team.founder_opportunity_fit': VAULT_ACTION,
+  'team.technical_capability': VAULT_ACTION,
+  'team.commitment': VAULT_ACTION,
+  'team.leadership_recruiting': VAULT_ACTION,
+  'team.key_person_dependency': VAULT_ACTION,
+  'team.governance_readiness': VAULT_ACTION,
+  'market.buyer_urgency': VAULT_ACTION,
+  'market.regulatory_environment': VAULT_ACTION,
+  'market.barriers_entry': VAULT_ACTION,
+  'market.accessibility': VAULT_ACTION,
+  'product.problem_evidence': VAULT_ACTION,
+  'product.maturity': VAULT_ACTION,
+  'product.value_delivered': VAULT_ACTION,
+  'product.time_to_value': VAULT_ACTION,
+  'product.delivery_repeatability': VAULT_ACTION,
+  'product.pricing_power': VAULT_ACTION,
+  'product.switching_costs': VAULT_ACTION,
+  'tech.novelty': VAULT_ACTION,
+  'tech.performance_advantage': VAULT_ACTION,
+  'tech.maturity_trl': VAULT_ACTION,
+  'tech.validation_reproducibility': VAULT_ACTION,
+  'tech.replicability': VAULT_ACTION,
+  'tech.ip_position': VAULT_ACTION,
+  'tech.scalability_economics': VAULT_ACTION,
+  'tech.dependencies': VAULT_ACTION,
+  'tech.security_compliance': VAULT_ACTION,
+  'tech.remaining_technical_risk': VAULT_ACTION,
+
+  // /readiness?tab=market_data — the STRONG matcher is marketHas(...).
+  'market.size_credibility': MARKET_DATA_ACTION,
+  'market.growth_trajectory': MARKET_DATA_ACTION,
+  'market.competitive_intensity': MARKET_DATA_ACTION,
+  'market.differentiation_space': MARKET_DATA_ACTION,
+
+  // /settings#settings-traction — the STRONG matcher is tractionMatching(...).
+  'team.commercial_capability': TRACTION_ACTION,
+  'product.adoption_engagement': TRACTION_ACTION,
+  'product.retention_stickiness': TRACTION_ACTION,
+  'product.pmf_market_pull': TRACTION_ACTION,
+
+  // /settings#settings-facts — the STRONG matcher is a document-backed claim.
+  'market.timing_why_now': FACTS_ACTION,
+  'team.entrepreneurial_track': FACTS_ACTION,
+  'team.learning_adaptability': FACTS_ACTION,
+
+  // /settings#settings-team — the STRONG matcher reads company_people.
+  'team.complementarity': TEAM_ACTION,
+
+  // /settings?tab=roadmap — the STRONG matcher is roadmapAny().
+  'team.execution_velocity': ROADMAP_ACTION,
+};
+
+export function prepActionForQuestion(questionId: string): PrepAction {
+  return PREP_ACTIONS[questionId];
+}

@@ -4,7 +4,7 @@ import { TEAM_V1 } from '../content/bars/team_v1';
 import { MARKET_V1 } from '../content/bars/market_v1';
 import { PRODUCT_V1 } from '../content/bars/product_v1';
 import { TECHNOLOGY_V1 } from '../content/bars/technology_v1';
-import { sherlockPrep, buildPrepSessions, type SherlockPrepSources, type PrepQuestionResult } from './sherlock-prep';
+import { sherlockPrep, buildPrepSessions, prepActionForQuestion, type SherlockPrepSources, type PrepQuestionResult } from './sherlock-prep';
 
 const BANKS = [TEAM_V1, MARKET_V1, PRODUCT_V1, TECHNOLOGY_V1];
 
@@ -158,6 +158,51 @@ describe('sherlockPrep — fully covered startup', () => {
     const notCovered: PrepQuestionResult[] = report.perQuestion.filter((r) => r.state !== 'covered');
     expect(notCovered.map((r) => `${r.questionId}:${r.state}`)).toEqual([]);
     expect(report.sessions).toEqual([]);
+  });
+});
+
+describe('prepActionForQuestion', () => {
+  it('returns a non-empty href for every applicable question in every bank', () => {
+    for (const bank of BANKS) {
+      for (const q of applicableQuestions(bank, 'growth')) {
+        const action = prepActionForQuestion(q.id);
+        expect(action, `missing PrepAction for ${q.id}`).toBeDefined();
+        expect(action.href).toBeTruthy();
+        expect(action.label).toBeTruthy();
+      }
+    }
+  });
+
+  it('routes to /documents for a document-evidenced question', () => {
+    expect(prepActionForQuestion('tech.novelty').href).toBe('/documents');
+  });
+
+  it('routes to /readiness?tab=market_data for a market-evidenced question', () => {
+    expect(prepActionForQuestion('market.size_credibility').href).toBe('/readiness?tab=market_data');
+  });
+
+  it('routes to /settings#settings-traction for a traction-evidenced question', () => {
+    expect(prepActionForQuestion('product.adoption_engagement').href).toBe('/settings#settings-traction');
+  });
+
+  it('routes to /settings#settings-facts for a document-backed-claim question', () => {
+    expect(prepActionForQuestion('team.entrepreneurial_track').href).toBe('/settings#settings-facts');
+  });
+
+  it('routes to /settings#settings-team for team.complementarity', () => {
+    expect(prepActionForQuestion('team.complementarity').href).toBe('/settings#settings-team');
+  });
+
+  it('routes to /settings?tab=roadmap for team.execution_velocity', () => {
+    expect(prepActionForQuestion('team.execution_velocity').href).toBe('/settings?tab=roadmap');
+  });
+
+  it('never opens a new tab (no target=_blank baked into the href)', () => {
+    for (const bank of BANKS) {
+      for (const q of applicableQuestions(bank, 'growth')) {
+        expect(prepActionForQuestion(q.id).href.startsWith('/')).toBe(true);
+      }
+    }
   });
 });
 
