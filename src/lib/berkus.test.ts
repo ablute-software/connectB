@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { berkusFactorEur, berkusLevelPct, berkusTotalEur, isInvestorCalibrated, BERKUS_DEFAULT_CALIBRATION_REF_EUR, type BerkusFactorLevel } from './berkus';
+import {
+  berkusFactorEur, berkusLevelPct, berkusTotalEur, isInvestorCalibrated, berkusApplicability, berkusDiagnostic, berkusSensitivity,
+  BERKUS_DEFAULT_CALIBRATION_REF_EUR, type BerkusFactorLevel,
+} from './berkus';
 import type { BerkusFactorKey } from '@/content/berkus/factors_v1';
 
 function makeFactor(overrides: Partial<BerkusFactorLevel> & { key: BerkusFactorKey }): BerkusFactorLevel {
@@ -105,5 +108,109 @@ describe('berkusTotalEur — Prompt 428 §C (proportional recalibration)', () =>
     const simplifiedTotal = berkusTotalEur('simplified', factors, BERKUS_DEFAULT_CALIBRATION_REF_EUR);
     const detailedTotal = berkusTotalEur('detailed', factors, BERKUS_DEFAULT_CALIBRATION_REF_EUR);
     expect(simplifiedTotal).not.toBe(detailedTotal);
+  });
+});
+
+describe('berkusApplicability — Prompt 428 §B', () => {
+  it('is applicable pre-revenue (concept_idea, prototype, pilot)', () => {
+    expect(berkusApplicability('concept_idea').applicable).toBe(true);
+    expect(berkusApplicability('prototype').applicable).toBe(true);
+    expect(berkusApplicability('pilot').applicable).toBe(true);
+  });
+
+  it('is low relevance once the company has real market traction', () => {
+    expect(berkusApplicability('launch_early_adopters').applicable).toBe(false);
+    expect(berkusApplicability('growth').applicable).toBe(false);
+  });
+
+  it('always returns a non-empty explanation either way — never a bare boolean', () => {
+    expect(berkusApplicability('concept_idea').reason.length).toBeGreaterThan(0);
+    expect(berkusApplicability('growth').reason.length).toBeGreaterThan(0);
+  });
+});
+
+describe('berkusDiagnostic — Prompt 428 §E Step 5', () => {
+  it('picks the highest and lowest EUR contribution among answered factors only', () => {
+    const factors: BerkusFactorLevel[] = [
+      makeFactor({ key: 'sound_idea', level: 5 }), // strongest
+      makeFactor({ key: 'prototype', level: 1 }), // weakest among answered
+      makeFactor({ key: 'team', level: 3 }),
+      makeFactor({ key: 'relationships', level: null }), // unanswered — never wins/loses this comparison
+      makeFactor({ key: 'sales', level: 2, skipped: true }), // skipped — same
+    ];
+    const d = berkusDiagnostic('simplified', factors, BERKUS_DEFAULT_CALIBRATION_REF_EUR);
+    expect(d.strongest).toBe('sound_idea');
+    expect(d.weakest).toBe('prototype');
+  });
+
+  it('criticalUnknown prefers an explicitly skipped factor over a merely-unanswered one', () => {
+    const factors: BerkusFactorLevel[] = [
+      makeFactor({ key: 'sound_idea', level: 4 }),
+      makeFactor({ key: 'prototype', level: null }), // unanswered
+      makeFactor({ key: 'team', level: 2, skipped: true }), // deliberately skipped — stronger signal
+      makeFactor({ key: 'relationships', level: 3 }),
+      makeFactor({ key: 'sales', level: 3 }),
+    ];
+    expect(berkusDiagnostic('simplified', factors, BERKUS_DEFAULT_CALIBRATION_REF_EUR).criticalUnknown).toBe('team');
+  });
+
+  it('criticalUnknown falls back to the first unanswered factor when nothing was skipped', () => {
+    const factors: BerkusFactorLevel[] = [
+      makeFactor({ key: 'sound_idea', level: 4 }),
+      makeFactor({ key: 'prototype', level: null }),
+      makeFactor({ key: 'team', level: 2 }),
+      makeFactor({ key: 'relationships', level: null }),
+      makeFactor({ key: 'sales', level: 3 }),
+    ];
+    expect(berkusDiagnostic('simplified', factors, BERKUS_DEFAULT_CALIBRATION_REF_EUR).criticalUnknown).toBe('prototype');
+  });
+
+  it('everything is null for a completely untouched set of factors', () => {
+    const factors: BerkusFactorLevel[] = [makeFactor({ key: 'sound_idea' }), makeFactor({ key: 'prototype' })];
+    const d = berkusDiagnostic('simplified', factors, BERKUS_DEFAULT_CALIBRATION_REF_EUR);
+    expect(d.strongest).toBeNull();
+    expect(d.weakest).toBeNull();
+    expect(d.criticalUnknown).toBe('sound_idea');
+  });
+
+  it('is null across the board for an empty factor list', () => {
+    const d = berkusDiagnostic('simplified', [], BERKUS_DEFAULT_CALIBRATION_REF_EUR);
+    expect(d).toEqual({ strongest: null, weakest: null, criticalUnknown: null });
+  });
+});
+
+describe('berkusSensitivity — Prompt 428 §E Step 6', () => {
+  it('reports the one-level-up EUR delta, not a jump straight to the max', () => {
+    const factors: BerkusFactorLevel[] = [makeFactor({ key: 'team', level: 3 })];
+    const s = berkusSensitivity('simplified', factors, BERKUS_DEFAULT_CALIBRATION_REF_EUR);
+    expect(s).toEqual({ factor: 'team', fromLevel: 3, toLevel: 4, deltaEur: 125000 }); // 75%-50% of €500k
+  });
+
+  it('is null when nothing has been answered yet', () => {
+    expect(berkusSensitivity('simplified', [makeFactor({ key: 'team' })], BERKUS_DEFAULT_CALIBRATION_REF_EUR)).toBeNull();
+  });
+
+  it('is null once every answered factor is already at Level 5 — nothing left to move', () => {
+    const factors: BerkusFactorLevel[] = [makeFactor({ key: 'sound_idea', level: 5 }), makeFactor({ key: 'team', level: 5 })];
+    expect(berkusSensitivity('simplified', factors, BERKUS_DEFAULT_CALIBRATION_REF_EUR)).toBeNull();
+  });
+
+  it('ignores skipped and unanswered factors as candidates', () => {
+    const factors: BerkusFactorLevel[] = [
+      makeFactor({ key: 'sound_idea', level: 2, skipped: true }),
+      makeFactor({ key: 'prototype', level: null }),
+      makeFactor({ key: 'team', level: 4 }),
+    ];
+    expect(berkusSensitivity('simplified', factors, BERKUS_DEFAULT_CALIBRATION_REF_EUR)?.factor).toBe('team');
+  });
+
+  it('under a tied EUR delta (both level->% tables are linear), prefers the factor with the most overall room left', () => {
+    // Simplified: every level step is worth 25% of the reference — team at
+    // L2 and sales at L4 both gain the SAME €125k moving up one level, so
+    // this is a genuine tie the function must break deterministically.
+    const factors: BerkusFactorLevel[] = [makeFactor({ key: 'team', level: 2 }), makeFactor({ key: 'sales', level: 4 })];
+    const s = berkusSensitivity('simplified', factors, BERKUS_DEFAULT_CALIBRATION_REF_EUR);
+    expect(s?.deltaEur).toBe(125000);
+    expect(s?.factor).toBe('team'); // lower current level wins the tie
   });
 });

@@ -38,8 +38,17 @@ import {
 } from '@/lib/evaluation-startup-discovery';
 import { EVALUATION_TOOLS_INTRO_CONTENT, shouldShowEvaluationToolsIntro } from '@/lib/evaluation-tools-intro';
 import { applyCapTableDilution, toCapTableSlices, type CapTableSlice } from '@/lib/cap-table';
-import { berkusFactorEur, berkusTotalEur, isInvestorCalibrated, BERKUS_DEFAULT_CALIBRATION_REF_EUR, type BerkusFactorLevel } from '@/lib/berkus';
+import {
+  berkusFactorEur, berkusTotalEur, isInvestorCalibrated, berkusApplicability, berkusDiagnostic, berkusSensitivity,
+  BERKUS_DEFAULT_CALIBRATION_REF_EUR, type BerkusFactorLevel, type BerkusMode,
+} from '@/lib/berkus';
 import { BERKUS_FACTORS_V1, BERKUS_SIMPLIFIED_ANCHORS, type BerkusFactorContent, type BerkusFactorKey } from '@/content/berkus/factors_v1';
+import { getBarsBank } from '@/lib/bars-banks';
+import { applicableQuestions, confidenceBand, type AxisResult, type BarsAnswerRecord, type BarsEvidenceRef } from '@/lib/bars-scoring';
+import { useEvidenceCandidates, candidatesForHints, type EvidenceCandidate } from '@/lib/bars-evidence';
+import type { BarsAxis } from '@/lib/bars-types';
+import type { CompanyPhase } from '@/lib/types';
+import { BarsAxisCard } from './BarsAxisCard';
 
 interface Wave { items: PipelineCard[] }
 interface PipelineResponse { waves?: Wave[] }
@@ -523,13 +532,19 @@ function ScorecardCriteriaTool() {
 // Prompt 428 — Simplified/Detailed rework. The five factors, their labels
 // and per-level content now live in src/content/berkus/factors_v1.ts
 // (versioned, shared by both modes); this file only keeps the per-
-// component form state and the (Phase 1 / Simplified-only, per this
-// prompt's own 415-style phasing) presentation.
-type BerkusFactorFormState = { level: number | null; skipped: boolean; note: string };
+// component form state and the presentation, for both modes.
+type BerkusFactorFormState = { level: number | null; skipped: boolean; note: string; evidenceRefs: BarsEvidenceRef[] };
 type BerkusFactorFormMap = Record<BerkusFactorKey, BerkusFactorFormState>;
 function emptyBerkusForm(): BerkusFactorFormMap {
-  return Object.fromEntries(BERKUS_FACTORS_V1.map((f) => [f.key, { level: null, skipped: false, note: '' }])) as BerkusFactorFormMap;
+  // Object.fromEntries's generic index-signature return can't statically
+  // prove it covers exactly BerkusFactorFormMap's 5 named keys (it does —
+  // BERKUS_FACTORS_V1 has exactly those 5) — via unknown, same as any
+  // other cast this file already trusts for a Supabase-shaped fetch.
+  return Object.fromEntries(BERKUS_FACTORS_V1.map((f) => [f.key, { level: null, skipped: false, note: '', evidenceRefs: [] } as BerkusFactorFormState])) as unknown as BerkusFactorFormMap;
 }
+
+const AXIS_LABEL: Record<BarsAxis, string> = { team: 'Team', market: 'Market', product: 'Product', technology: 'Technology' };
+const BERKUS_MODE_STORAGE_KEY = 'berkus-mode';
 
 // Prompt 408 §B — one snapshot history entry, shape shared by every tool
 // that saves them (evaluation_snapshots.kind); Berkus only ever reads
@@ -572,6 +587,170 @@ function BerkusSimplifiedFactorRow({ factor, state, refEur, onChange }: {
   );
 }
 
+// Prompt 428 §B — Detailed's own real-but-simple first step: informational
+// only, per the prompt's own explicit instruction — this NEVER blocks the
+// investor from using Berkus anyway ("Sherlock should not prohibit the
+// investor from using Berkus").
+function BerkusApplicabilityBanner({ companyPhase }: { companyPhase: CompanyPhase | null }) {
+  if (!companyPhase) return null;
+  const { applicable, reason } = berkusApplicability(companyPhase);
+  return (
+    <p className={`rounded-lg px-3 py-2 text-xs ${applicable ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+      <span className="font-semibold">{applicable ? 'Applicable' : 'Low relevance'}.</span> {reason}
+    </p>
+  );
+}
+
+// Prompt 428 §F — the evidence list for EVERY factor's own confidence
+// badge (not just the two axis-less factors — see this file's own comment
+// on BerkusDetailedFactorCard). Clicking toggles whether that candidate is
+// attached to THIS factor's own Berkus judgment, independent of whatever
+// evidence a related BARS question may already have attached separately.
+function BerkusEvidenceList({ candidates, attached, onToggle }: {
+  candidates: EvidenceCandidate[]; attached: BarsEvidenceRef[]; onToggle: (c: EvidenceCandidate) => void;
+}) {
+  if (candidates.length === 0) {
+    return <p className="text-[11px] text-gray-400">No matching evidence found yet in your Vault, claims, traction or interaction log.</p>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {candidates.map((c) => {
+        const isAttached = attached.some((r) => r.kind === c.kind && r.id === c.id);
+        return (
+          <button key={`${c.kind}-${c.id}`} type="button" title={c.text} onClick={() => onToggle(c)}
+            className={`max-w-[220px] truncate rounded-full border px-2 py-0.5 text-[11px] ${
+              isAttached ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+            {c.tierLabel}: {c.text}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Prompt 428 §F Detailed factor row: per-level descriptor, the read-only
+// BARS panel WHEN this factor has an axis (§ architecture — never a
+// second score engine, and never a source the investor's own 0-5 pick can
+// be auto-derived from — no onToggleNotMaterial means BarsAxisCard here is
+// purely informational), the evidence list + confidence badge (every
+// factor, not just the axis-less ones — see BerkusEvidenceList's own
+// comment), and an optional private note.
+function BerkusDetailedFactorCard({ factor, state, refEur, computed, companyPhase, evidenceCandidates, selectedOrgId, onChange }: {
+  factor: BerkusFactorContent; state: BerkusFactorFormState; refEur: number;
+  computed: Partial<Record<BarsAxis, AxisResult>>; companyPhase: CompanyPhase | null;
+  evidenceCandidates: EvidenceCandidate[]; selectedOrgId: string;
+  onChange: (patch: Partial<BerkusFactorFormState>) => void;
+}) {
+  const eur = berkusFactorEur('detailed', state.level, state.skipped, refEur);
+  const currentDescriptor = factor.levels.find((l) => l.level === state.level);
+  const matchingCandidates = candidatesForHints(evidenceCandidates, factor.evidenceHints);
+  const answerRecord: BarsAnswerRecord = { questionId: factor.key, level: state.level, skipped: state.skipped, evidenceRefs: state.evidenceRefs };
+  const confidence = state.level != null && !state.skipped ? confidenceBand([answerRecord]) : null;
+
+  function toggleEvidence(c: EvidenceCandidate) {
+    const already = state.evidenceRefs.some((r) => r.kind === c.kind && r.id === c.id);
+    onChange({
+      evidenceRefs: already
+        ? state.evidenceRefs.filter((r) => !(r.kind === c.kind && r.id === c.id))
+        : [...state.evidenceRefs, { kind: c.kind, id: c.id, text: c.text }],
+    });
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-gray-900">{factor.label}</p>
+          <p className="text-[11px] text-gray-500">{factor.coreQuestion}</p>
+        </div>
+        <span className="shrink-0 font-medium text-[#0E7490]">{state.level != null && !state.skipped ? fmtEur(eur) : '—'}</span>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-1">
+        {factor.levels.map((l) => (
+          <button key={l.level} type="button" title={l.anchor} onClick={() => onChange({ level: l.level, skipped: false })}
+            className={`rounded-lg border px-2 py-1 text-xs font-medium ${
+              state.level === l.level && !state.skipped ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            {l.level}
+          </button>
+        ))}
+        <button type="button" onClick={() => onChange({ level: null, skipped: true })}
+          className={`rounded-lg border px-2 py-1 text-xs font-medium ${
+            state.skipped ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+          Not enough evidence
+        </button>
+      </div>
+      {state.skipped ? (
+        <p className="mt-1 text-[11px] text-amber-700">Marked as not enough evidence to judge — contributes €0, and is flagged as a critical unknown below.</p>
+      ) : currentDescriptor ? (
+        <p className="mt-1 text-[11px] text-gray-500">{currentDescriptor.anchor}</p>
+      ) : null}
+      {factor.note && <p className="mt-1 text-[11px] italic text-gray-400">{factor.note}</p>}
+
+      {factor.barsAxes && (
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {factor.barsAxes.map((axis) => (
+            <BarsAxisCard key={axis} axis={axis} label={AXIS_LABEL[axis]} result={computed[axis] ?? null}
+              applicableAtStage={applicableQuestions(getBarsBank(axis), companyPhase ?? 'concept_idea').length}
+              onOpen={() => window.open(`/portal/startup/${selectedOrgId}`, '_blank', 'noopener,noreferrer')} />
+          ))}
+        </div>
+      )}
+
+      <div className="mt-2">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">Evidence</p>
+        <BerkusEvidenceList candidates={matchingCandidates} attached={state.evidenceRefs} onToggle={toggleEvidence} />
+        {confidence && (
+          <p className="mt-1 text-[11px] text-gray-500">
+            Evidence confidence:{' '}
+            <span className={`font-medium ${confidence === 'high' ? 'text-emerald-700' : confidence === 'moderate' ? 'text-amber-700' : 'text-gray-500'}`}>{confidence}</span>
+          </p>
+        )}
+      </div>
+
+      <input value={state.note} onChange={(e) => onChange({ note: e.target.value })}
+        placeholder="Private note (optional, never shown to the startup)…"
+        className="mt-2 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
+    </div>
+  );
+}
+
+function berkusFactorLabel(key: BerkusFactorKey): string {
+  return BERKUS_FACTORS_V1.find((f) => f.key === key)?.label ?? key;
+}
+
+// Prompt 428 §E Step 5 — read-only summary, only once there is something
+// to say (i.e. at least one factor answered).
+function BerkusDiagnosticPanel({ factorLevels, refEur }: { factorLevels: BerkusFactorLevel[]; refEur: number }) {
+  const d = berkusDiagnostic('detailed', factorLevels, refEur);
+  if (!d.strongest && !d.weakest && !d.criticalUnknown) return null;
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50/60 p-2.5 text-xs text-gray-700">
+      <p className="font-medium text-gray-800">Diagnostic</p>
+      <ul className="mt-1 space-y-0.5">
+        {d.strongest && <li>Strongest de-risking contributor: <b>{berkusFactorLabel(d.strongest)}</b></li>}
+        {d.weakest && <li>Largest remaining risk: <b>{berkusFactorLabel(d.weakest)}</b></li>}
+        {d.criticalUnknown && <li>Critical unknown: <b>{berkusFactorLabel(d.criticalUnknown)}</b></li>}
+      </ul>
+    </div>
+  );
+}
+
+// Prompt 428 §E Step 6 — same "only once there's something to say" rule;
+// null (nothing answered, or every answered factor already at Level 5)
+// renders nothing rather than a hollow panel.
+function BerkusSensitivityPanel({ factorLevels, refEur }: { factorLevels: BerkusFactorLevel[]; refEur: number }) {
+  const s = berkusSensitivity('detailed', factorLevels, refEur);
+  if (!s) return null;
+  return (
+    <p className="rounded-lg border border-gray-100 bg-gray-50/60 p-2.5 text-xs text-gray-700">
+      <span className="font-medium text-gray-800">Sensitivity: </span>
+      Evidence of stronger de-risking could move <b>{berkusFactorLabel(s.factor)}</b> from Level {s.fromLevel} to {s.toLevel},
+      increasing this investor&apos;s Berkus estimate by approximately <b>{fmtEur(s.deltaEur)}</b>, all else equal.
+    </p>
+  );
+}
+
 function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; selectedOrgId: string }) {
   const [factors, setFactors] = useState<BerkusFactorFormMap>(emptyBerkusForm());
   const [refEur, setRefEur] = useState(BERKUS_DEFAULT_CALIBRATION_REF_EUR);
@@ -584,6 +763,44 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
   const [snapshots, setSnapshots] = useState<EvaluationSnapshot[]>([]);
   const [confirmRestoreId, setConfirmRestoreId] = useState<string | null>(null);
   const selectedName = cards.find((c) => c.orgId === selectedOrgId)?.name;
+
+  // Prompt 428 §F — mode selector. Persisted per browser (not per-startup,
+  // "mais um hábito do investidor do que uma decisão por empresa"), which
+  // is the cheap end of what the prompt itself offers as acceptable —
+  // real per-investor-account persistence would need its own column/
+  // migration for a pure UI preference, not worth it here.
+  const [mode, setMode] = useState<BerkusMode>('simplified');
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(BERKUS_MODE_STORAGE_KEY);
+      if (stored === 'simplified' || stored === 'detailed') setMode(stored);
+    } catch { /* localStorage unavailable — default stands */ }
+  }, []);
+  function changeMode(next: BerkusMode) {
+    setMode(next);
+    try { localStorage.setItem(BERKUS_MODE_STORAGE_KEY, next); } catch { /* best-effort only */ }
+  }
+
+  // Prompt 428 §F Detailed — companyPhase (for Applicability) and the
+  // read-only BARS axis results (for the Sherlock-context panels) come
+  // from the SAME /api/portal/bars fetch BARS' own dossier section
+  // already uses; gated to Detailed mode + a real selection so Simplified
+  // usage never pays for this heavier call.
+  const [barsData, setBarsData] = useState<{ companyPhase: CompanyPhase | null; computed: Partial<Record<BarsAxis, AxisResult>> }>({ companyPhase: null, computed: {} });
+  const barsEnabled = mode === 'detailed' && !!selectedOrgId;
+  useEffect(() => {
+    if (!barsEnabled) return;
+    fetch(`/api/portal/bars?orgId=${encodeURIComponent(selectedOrgId)}`).then((r) => r.json())
+      .then((d: { companyPhase?: CompanyPhase | null; computed?: Partial<Record<BarsAxis, AxisResult>> }) => {
+        setBarsData({ companyPhase: d.companyPhase ?? null, computed: d.computed ?? {} });
+      })
+      .catch(() => setBarsData({ companyPhase: null, computed: {} }));
+  }, [barsEnabled, selectedOrgId]);
+
+  // Prompt 428 §F Detailed — evidence candidates for Relationships/Sales'
+  // own list (and, per §F's factor-row spec, every factor's evidence list
+  // + confidence badge, independent of whether it also has a BARS panel).
+  const { candidates: evidenceCandidates } = useEvidenceCandidates(selectedOrgId, barsEnabled);
 
   function loadSnapshots(orgId: string) {
     fetch(`/api/portal/evaluation-snapshots?orgId=${encodeURIComponent(orgId)}&kind=berkus`).then((r) => r.json())
@@ -599,14 +816,14 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
     if (!selectedOrgId) { setFactors(emptyBerkusForm()); setRefEur(BERKUS_DEFAULT_CALIBRATION_REF_EUR); setCalibrationNote(''); setSnapshots([]); return; }
     setLoading(true); setError(null);
     fetch(`/api/portal/berkus?orgId=${encodeURIComponent(selectedOrgId)}`).then((r) => r.json())
-      .then((d: { calibration?: { refEur?: number; note?: string | null }; factors?: Record<string, { level: number | null; skipped: boolean; note?: string | null }> | null }) => {
+      .then((d: { calibration?: { refEur?: number; note?: string | null }; factors?: Record<string, { level: number | null; skipped: boolean; evidenceRefs?: BarsEvidenceRef[]; note?: string | null }> | null }) => {
         setRefEur(d.calibration?.refEur ?? BERKUS_DEFAULT_CALIBRATION_REF_EUR);
         setCalibrationNote(d.calibration?.note ?? '');
         const next = emptyBerkusForm();
         if (d.factors) {
           for (const f of BERKUS_FACTORS_V1) {
             const fetched = d.factors[f.key];
-            if (fetched) next[f.key] = { level: fetched.level, skipped: fetched.skipped, note: fetched.note ?? '' };
+            if (fetched) next[f.key] = { level: fetched.level, skipped: fetched.skipped, note: fetched.note ?? '', evidenceRefs: fetched.evidenceRefs ?? [] };
           }
         }
         setFactors(next);
@@ -623,10 +840,11 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
       const res = await fetch('/api/portal/berkus', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          orgId: selectedOrgId, mode: 'simplified',
+          orgId: selectedOrgId, mode,
           calibration: { refEur, note: calibrationNote.trim() || null },
           factors: Object.fromEntries(BERKUS_FACTORS_V1.map((f) => [f.key, {
-            level: factors[f.key].level, skipped: factors[f.key].skipped, evidenceRefs: [], note: factors[f.key].note.trim() || null,
+            level: factors[f.key].level, skipped: factors[f.key].skipped,
+            evidenceRefs: factors[f.key].evidenceRefs, note: factors[f.key].note.trim() || null,
           }])),
         }),
       });
@@ -639,24 +857,24 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
 
   function restoreSnapshot(s: EvaluationSnapshot) {
     if (isPreP428Snapshot(s)) return; // no per-factor state in an old-format snapshot to restore
-    const inputs = s.inputs as { calibration?: { refEur?: number; note?: string | null }; factors: Record<string, { level: number | null; skipped: boolean; note?: string | null }> };
+    const inputs = s.inputs as { calibration?: { refEur?: number; note?: string | null }; factors: Record<string, { level: number | null; skipped: boolean; evidenceRefs?: BarsEvidenceRef[]; note?: string | null }> };
     setRefEur(inputs.calibration?.refEur ?? BERKUS_DEFAULT_CALIBRATION_REF_EUR);
     setCalibrationNote(inputs.calibration?.note ?? '');
     const next = emptyBerkusForm();
     for (const f of BERKUS_FACTORS_V1) {
       const fetched = inputs.factors[f.key];
-      if (fetched) next[f.key] = { level: fetched.level, skipped: fetched.skipped, note: fetched.note ?? '' };
+      if (fetched) next[f.key] = { level: fetched.level, skipped: fetched.skipped, note: fetched.note ?? '', evidenceRefs: fetched.evidenceRefs ?? [] };
     }
     setFactors(next);
     setConfirmRestoreId(null);
   }
 
   const factorLevels: BerkusFactorLevel[] = BERKUS_FACTORS_V1.map((f) => ({ key: f.key, level: factors[f.key].level, skipped: factors[f.key].skipped }));
-  const total = berkusTotalEur('simplified', factorLevels, refEur);
+  const total = berkusTotalEur(mode, factorLevels, refEur);
   const calibrated = isInvestorCalibrated(refEur);
 
   return (
-    <div className="max-w-lg space-y-4">
+    <div className={mode === 'detailed' ? 'max-w-2xl space-y-4' : 'max-w-lg space-y-4'}>
       <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
         Your own estimate — private, not shown to the startup, not investment advice.
       </p>
@@ -665,6 +883,18 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
         every one. The result is the sum of your five estimates, not a precise valuation.
       </p>
 
+      {/* Prompt 428 §F — mode selector, remembered per browser (see
+          changeMode's own comment). */}
+      <div className="flex gap-1.5">
+        {(['simplified', 'detailed'] as const).map((m) => (
+          <button key={m} type="button" onClick={() => changeMode(m)}
+            className={`rounded-full border px-3 py-1 text-xs font-medium capitalize ${
+              mode === m ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            {m}
+          </button>
+        ))}
+      </div>
+
       {!selectedOrgId ? (
         <p className="text-sm text-gray-400">Pick a startup from the list on the left to start estimating.</p>
       ) : loading ? (
@@ -672,6 +902,14 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
       ) : (
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           {error && <p className="mb-2 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-[#B00000]">{error}</p>}
+
+          {/* §F Detailed order: Applicability -> Calibration -> factors ->
+              Diagnostic -> Sensitivity -> Save. Simplified skips straight
+              to Calibration (its own §B line lives in the intro paragraph
+              above, never a dedicated step). */}
+          {mode === 'detailed' && (
+            <div className="mb-3"><BerkusApplicabilityBanner companyPhase={barsData.companyPhase} /></div>
+          )}
 
           {/* Prompt 428 §C — calibration, collapsible/compact in Simplified
               per §F. Shared by both modes: every illustrative value below
@@ -704,10 +942,24 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
 
           <div className="space-y-3">
             {BERKUS_FACTORS_V1.map((f) => (
-              <BerkusSimplifiedFactorRow key={f.key} factor={f} state={factors[f.key]} refEur={refEur}
-                onChange={(patch) => setFactors((prev) => ({ ...prev, [f.key]: { ...prev[f.key], ...patch } }))} />
+              mode === 'simplified' ? (
+                <BerkusSimplifiedFactorRow key={f.key} factor={f} state={factors[f.key]} refEur={refEur}
+                  onChange={(patch) => setFactors((prev) => ({ ...prev, [f.key]: { ...prev[f.key], ...patch } }))} />
+              ) : (
+                <BerkusDetailedFactorCard key={f.key} factor={f} state={factors[f.key]} refEur={refEur}
+                  computed={barsData.computed} companyPhase={barsData.companyPhase}
+                  evidenceCandidates={evidenceCandidates} selectedOrgId={selectedOrgId}
+                  onChange={(patch) => setFactors((prev) => ({ ...prev, [f.key]: { ...prev[f.key], ...patch } }))} />
+              )
             ))}
           </div>
+
+          {mode === 'detailed' && (
+            <div className="mt-3 space-y-2">
+              <BerkusDiagnosticPanel factorLevels={factorLevels} refEur={refEur} />
+              <BerkusSensitivityPanel factorLevels={factorLevels} refEur={refEur} />
+            </div>
+          )}
 
           <div className="mt-4 border-t border-gray-100 pt-3">
             <div className="text-xs text-gray-500">{calibrated ? 'Investor-calibrated Berkus estimate' : 'Sum of your five factor estimates'}</div>
