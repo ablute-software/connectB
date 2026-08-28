@@ -51,6 +51,8 @@ import type { BarsAxis } from '@/lib/bars-types';
 import type { CompanyPhase } from '@/lib/types';
 import { BarsAxisCard } from './BarsAxisCard';
 import { BarsQuestionnaireDrawer, type BarsAnswerRow, type BarsFlagRow } from './BarsQuestionnaireDrawer';
+import type { EvidenceDialogRequest } from './BarsEvidenceRail';
+import { EvidenceAccessDialog } from './EvidenceAccessDialog';
 
 interface Wave { items: PipelineCard[] }
 interface PipelineResponse { waves?: Wave[] }
@@ -574,44 +576,19 @@ function BerkusApplicabilityBanner({ companyPhase }: { companyPhase: CompanyPhas
   );
 }
 
-// Prompt 428 §F — the evidence list for EVERY factor's own confidence
-// badge (not just the two axis-less factors — see this file's own comment
-// on BerkusDetailedFactorCard). Clicking toggles whether that candidate is
-// attached to THIS factor's own Berkus judgment, independent of whatever
-// evidence a related BARS question may already have attached separately.
-function BerkusEvidenceList({ candidates, attached, onToggle }: {
-  candidates: EvidenceCandidate[]; attached: BarsEvidenceRef[]; onToggle: (c: EvidenceCandidate) => void;
-}) {
-  if (candidates.length === 0) {
-    return <p className="text-[11px] text-gray-400">No matching evidence found yet in your Vault, claims, traction or interaction log.</p>;
-  }
-  return (
-    <div className="flex flex-wrap gap-1">
-      {candidates.map((c) => {
-        const isAttached = attached.some((r) => r.kind === c.kind && r.id === c.id);
-        return (
-          <button key={`${c.kind}-${c.id}`} type="button" title={c.text} onClick={() => onToggle(c)}
-            className={`max-w-[220px] truncate rounded-full border px-2 py-0.5 text-[11px] ${
-              isAttached ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-            {c.tierLabel}: {c.text}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 // Prompt 428 §F Detailed factor row: per-level descriptor, the read-only
 // BARS panel WHEN this factor has an axis (§ architecture — never a
 // second score engine, and never a source the investor's own 0-5 pick can
 // be auto-derived from — no onToggleNotMaterial means BarsAxisCard here is
-// purely informational), the evidence list + confidence badge (every
-// factor, not just the axis-less ones — see BerkusEvidenceList's own
-// comment), and an optional private note.
-function BerkusDetailedFactorCard({ factor, state, refEur, computed, companyPhase, evidenceCandidates, onOpenAxis, onChange }: {
+// purely informational), the evidence link + confidence badge (every
+// factor, not just the axis-less ones — Prompt 438 §B.2 moved the actual
+// list behind EvidenceAccessDialog, shared with BarsEvidenceRail), and an
+// optional private note.
+function BerkusDetailedFactorCard({ factor, state, refEur, computed, companyPhase, evidenceCandidates, onOpenAxis, onOpenEvidence, onChange }: {
   factor: BerkusFactorContent; state: BerkusFactorFormState; refEur: number;
   computed: Partial<Record<BarsAxis, AxisResult>>; companyPhase: CompanyPhase | null;
   evidenceCandidates: EvidenceCandidate[]; onOpenAxis: (axis: BarsAxis) => void;
+  onOpenEvidence: (request: EvidenceDialogRequest) => void;
   onChange: (patch: Partial<BerkusFactorFormState>) => void;
 }) {
   const eur = berkusFactorEur('detailed', state.level, state.skipped, refEur);
@@ -619,20 +596,6 @@ function BerkusDetailedFactorCard({ factor, state, refEur, computed, companyPhas
   const matchingCandidates = candidatesForHints(evidenceCandidates, factor.evidenceHints);
   const answerRecord: BarsAnswerRecord = { questionId: factor.key, level: state.level, skipped: state.skipped, evidenceRefs: state.evidenceRefs };
   const confidence = state.level != null && !state.skipped ? confidenceBand([answerRecord]) : null;
-  // Prompt 436 §A — closed by default: a factor like "Sound idea" can match
-  // a dozen candidates, and showing every one open-by-default made the card
-  // unusably tall. Local to each card instance (one per factor) so opening
-  // one never opens the others.
-  const [evidenceOpen, setEvidenceOpen] = useState(false);
-
-  function toggleEvidence(c: EvidenceCandidate) {
-    const already = state.evidenceRefs.some((r) => r.kind === c.kind && r.id === c.id);
-    onChange({
-      evidenceRefs: already
-        ? state.evidenceRefs.filter((r) => !(r.kind === c.kind && r.id === c.id))
-        : [...state.evidenceRefs, { kind: c.kind, id: c.id, text: c.text }],
-    });
-  }
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3">
@@ -675,22 +638,21 @@ function BerkusDetailedFactorCard({ factor, state, refEur, computed, companyPhas
         </div>
       )}
 
-      {/* Prompt 436 §A — same collapsible pattern as Calibration above
-          (BerkusMethodTool's own calibrationOpen), reused rather than
-          inventing a new one. Evidence confidence stays visible either way
-          — it's the useful-at-a-glance summary, opening the list is only
-          for reviewing/attaching specific items. */}
+      {/* Prompt 438 §B.2 — a link, never a collapsible inline list (the
+          436 §A collapse this replaces still rendered every candidate's
+          name once opened, which the 438 hard rule forbids outright).
+          Evidence confidence stays visible either way — it's the
+          useful-at-a-glance summary; reviewing/attaching specific items
+          only happens inside the popup. */}
       <div className="mt-2">
-        <button type="button" onClick={() => setEvidenceOpen((o) => !o)}
-          className="flex w-full items-center justify-between text-left text-[10px] font-medium uppercase tracking-wide text-gray-400">
-          <span>Evidence{matchingCandidates.length > 0 ? ` (${matchingCandidates.length})` : ''}</span>
-          <span className="text-gray-400 normal-case">{evidenceOpen ? '▴' : '▾'}</span>
+        <button type="button"
+          onClick={() => onOpenEvidence({
+            title: factor.label, candidates: matchingCandidates, attached: state.evidenceRefs,
+            onChange: (refs) => onChange({ evidenceRefs: refs }),
+          })}
+          className="rounded-full border border-gray-200 px-2 py-0.5 text-[11px] text-gray-500 hover:border-gray-300 hover:bg-gray-50">
+          Evidence · {state.evidenceRefs.length} attached · {matchingCandidates.length} available ↗
         </button>
-        {evidenceOpen && (
-          <div className="mt-1">
-            <BerkusEvidenceList candidates={matchingCandidates} attached={state.evidenceRefs} onToggle={toggleEvidence} />
-          </div>
-        )}
         {confidence && (
           <p className="mt-1 text-[11px] text-gray-500">
             Evidence confidence:{' '}
@@ -788,6 +750,14 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
   }>({ companyPhase: null, computed: {}, answers: [], flagStates: [] });
   const barsEnabled = mode === 'detailed' && !!selectedOrgId;
   const [openAxis, setOpenAxis] = useState<BarsAxis | null>(null);
+  // Prompt 438 §C — ONE shared EvidenceAccessDialog for this tool (every
+  // factor card), never one per card — same reasoning as openAxis's
+  // shared drawer just above. Wrapped at render time so every
+  // attach/detach/locator edit both persists (via setFactors, below) AND
+  // updates this snapshot immediately, rather than waiting on this tool's
+  // own state to happen to re-derive matchingCandidates/state.evidenceRefs
+  // for whichever factor is currently open.
+  const [openEvidenceFor, setOpenEvidenceFor] = useState<EvidenceDialogRequest | null>(null);
   function reloadBars() {
     if (!selectedOrgId) return;
     fetch(`/api/portal/bars?orgId=${encodeURIComponent(selectedOrgId)}`).then((r) => r.json())
@@ -953,7 +923,7 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
               ) : (
                 <BerkusDetailedFactorCard key={f.key} factor={f} state={factors[f.key]} refEur={refEur}
                   computed={barsData.computed} companyPhase={barsData.companyPhase}
-                  evidenceCandidates={evidenceCandidates} onOpenAxis={setOpenAxis}
+                  evidenceCandidates={evidenceCandidates} onOpenAxis={setOpenAxis} onOpenEvidence={setOpenEvidenceFor}
                   onChange={(patch) => setFactors((prev) => ({ ...prev, [f.key]: { ...prev[f.key], ...patch } }))} />
               )
             ))}
@@ -1023,6 +993,15 @@ function BerkusMethodTool({ cards, selectedOrgId }: { cards: PipelineCard[]; sel
         <BarsQuestionnaireDrawer orgId={selectedOrgId} axis={openAxis} axisLabel={AXIS_LABEL[openAxis]}
           companyPhase={barsData.companyPhase} answers={barsData.answers} flagStates={barsData.flagStates}
           onClose={() => setOpenAxis(null)} onMutated={reloadBars} />
+      )}
+      {openEvidenceFor && (
+        <EvidenceAccessDialog orgId={selectedOrgId} title={openEvidenceFor.title} candidates={openEvidenceFor.candidates}
+          attached={openEvidenceFor.attached}
+          onChange={(refs) => {
+            openEvidenceFor.onChange(refs);
+            setOpenEvidenceFor((prev) => (prev ? { ...prev, attached: refs } : prev));
+          }}
+          onClose={() => setOpenEvidenceFor(null)} />
       )}
     </div>
   );

@@ -25,6 +25,12 @@ export interface EvidenceCandidate {
   id: string;
   text: string;
   tierLabel: string;
+  // Prompt 437 §A — only ever populated for kind==='document', and only
+  // ever the signed/external url /api/portal/access already hands back per
+  // document (toPortalDoc) — never invented or constructed here. null for
+  // every other kind, and for a document whose signed URL is unavailable
+  // (flagged/expired) exactly as /api/portal/access itself already reports.
+  url?: string | null;
 }
 
 // 412 §B.2's 4 chip labels: "Document", "Verified fact", "Founder-
@@ -38,7 +44,7 @@ function claimTierLabel(evidenceClass: number | null | undefined): string {
   return evidenceClass != null && evidenceClass <= 2 ? 'Verified fact' : 'Founder-declared';
 }
 
-interface PortalDoc { id: string; name: string }
+interface PortalDoc { id: string; name: string; url?: string | null }
 interface DocSection { key: string; label: string; documents: PortalDoc[] }
 interface CompanyClaimRow { id: string; statement: string; evidence_class: number | null }
 interface RoadmapEventRow { id: string; title: string }
@@ -75,7 +81,7 @@ export function useEvidenceCandidates(orgId: string, enabled: boolean): { candid
       const out: EvidenceCandidate[] = [];
 
       for (const section of access.sections) {
-        for (const doc of section.documents) out.push({ kind: 'document', id: doc.id, text: doc.name, tierLabel: 'Document' });
+        for (const doc of section.documents) out.push({ kind: 'document', id: doc.id, text: doc.name, tierLabel: 'Document', url: doc.url ?? null });
       }
       for (const c of claimsRes.claims) {
         out.push({ kind: 'claim', id: c.id, text: c.statement, tierLabel: claimTierLabel(c.evidence_class) });

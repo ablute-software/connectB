@@ -3,7 +3,7 @@
 // thresholds, each contradiction rule firing and NOT firing.
 import { describe, expect, it } from 'vitest';
 import {
-  applicableQuestions, computeAxisResult, confidenceBand, crossAxisContradictions,
+  applicableQuestions, computeAxisResult, confidenceBand, crossAxisContradictions, parseEvidenceRefs,
   type BarsAnswerRecord, type BarsAxisStateRecord, type BarsFlagStateRecord,
 } from './bars-scoring';
 import { TEAM_V1 } from '../content/bars/team_v1';
@@ -264,5 +264,38 @@ describe('real content banks integrate cleanly with the engine', () => {
         expect(() => computeAxisResult(bank, [], [], null, stage)).not.toThrow();
       }
     }
+  });
+});
+
+// Prompt 438 §A — locator is the investor's own hand-typed "where in the
+// document", never platform-generated. Covers acceptance, the 120-char
+// cap, empty-string normalization, and that a malformed locator drops
+// only that one field rather than rejecting the whole ref.
+describe('parseEvidenceRefs — locator', () => {
+  it('accepts a string locator', () => {
+    const out = parseEvidenceRefs([{ kind: 'document', id: 'd1', locator: 'p. 12' }]);
+    expect(out).toEqual([{ kind: 'document', id: 'd1', text: undefined, locator: 'p. 12' }]);
+  });
+
+  it('trims and cuts a locator at 120 chars', () => {
+    const long = `p. ${'9'.repeat(200)}`;
+    const out = parseEvidenceRefs([{ kind: 'document', id: 'd1', locator: `  ${long}  ` }]);
+    expect(out?.[0].locator).toBe(long.slice(0, 120));
+    expect(out?.[0].locator?.length).toBe(120);
+  });
+
+  it('normalizes an empty/whitespace-only locator to undefined', () => {
+    const out = parseEvidenceRefs([{ kind: 'document', id: 'd1', locator: '   ' }]);
+    expect(out?.[0].locator).toBeUndefined();
+  });
+
+  it('drops a non-string locator without rejecting the rest of the ref', () => {
+    const out = parseEvidenceRefs([{ kind: 'document', id: 'd1', text: 'Deck', locator: 42 }]);
+    expect(out).toEqual([{ kind: 'document', id: 'd1', text: 'Deck', locator: undefined }]);
+  });
+
+  it('leaves locator undefined when absent, same as id/text', () => {
+    const out = parseEvidenceRefs([{ kind: 'claim', id: 'c1' }]);
+    expect(out?.[0].locator).toBeUndefined();
   });
 });

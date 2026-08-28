@@ -14,7 +14,8 @@ import { applicableQuestions } from '@/lib/bars-scoring';
 import type { BarsAxis } from '@/lib/bars-types';
 import type { CompanyPhase } from '@/lib/types';
 import { useEvidenceCandidates } from '@/lib/bars-evidence';
-import { BarsEvidenceRail, type EvidenceRef } from './BarsEvidenceRail';
+import { BarsEvidenceRail, type EvidenceRef, type EvidenceDialogRequest } from './BarsEvidenceRail';
+import { EvidenceAccessDialog } from './EvidenceAccessDialog';
 
 export interface BarsAnswerRow {
   axis: BarsAxis; bank_version: string; question_id: string; level: number | null; skipped: boolean;
@@ -32,13 +33,14 @@ const FLAG_STATE_COLOR: Record<typeof FLAG_STATES[number], string> = {
 };
 const RED_FLAG_EVIDENCE_HINTS = ['document', 'claim', 'interaction', 'investor_note'] as const;
 
-function QuestionBlock({ orgId, axis, question, answer, candidates, loadingCandidates, onMutated }: {
+function QuestionBlock({ orgId, axis, question, answer, candidates, loadingCandidates, onMutated, onOpenEvidenceDialog }: {
   orgId: string; axis: BarsAxis;
   question: ReturnType<typeof getBarsBank>['questions'][number];
   answer: BarsAnswerRow | undefined;
   candidates: ReturnType<typeof useEvidenceCandidates>['candidates'];
   loadingCandidates: boolean;
   onMutated: () => void;
+  onOpenEvidenceDialog: (request: EvidenceDialogRequest) => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -100,8 +102,9 @@ function QuestionBlock({ orgId, axis, question, answer, candidates, loadingCandi
         </button>
       </div>
 
-      <BarsEvidenceRail hints={question.evidenceHints} candidates={candidates} loadingCandidates={loadingCandidates}
-        attached={answer?.evidence_refs ?? []} onChange={(refs) => void save({ evidenceRefs: refs })} />
+      <BarsEvidenceRail title={question.question} hints={question.evidenceHints} candidates={candidates} loadingCandidates={loadingCandidates}
+        attached={answer?.evidence_refs ?? []} onChange={(refs) => void save({ evidenceRefs: refs })}
+        onOpenDialog={onOpenEvidenceDialog} />
     </div>
   );
 }
@@ -116,6 +119,14 @@ export function BarsQuestionnaireDrawer({ orgId, axis, axisLabel, companyPhase, 
   const flagStatesByFlagId = new Map(flagStates.filter((f) => bank.redFlags.some((rf) => rf.id === f.flag_id)).map((f) => [f.flag_id, f]));
   const { candidates, loading: loadingCandidates } = useEvidenceCandidates(orgId, true);
   const [savingFlag, setSavingFlag] = useState<string | null>(null);
+  // Prompt 438 §C — ONE shared EvidenceAccessDialog instance for the whole
+  // drawer (every question + every red flag), never one per rail — same
+  // reasoning as this file's own shared-drawer pattern (436 §B). onChange
+  // is wrapped at render time below so every attach/detach/locator edit
+  // both persists (via the captured save/saveFlag closure) AND updates
+  // this snapshot immediately — without that, the popup would keep
+  // showing stale `attached` until the next full reloadBars() round trip.
+  const [evidenceDialog, setEvidenceDialog] = useState<EvidenceDialogRequest | null>(null);
 
   async function saveFlag(flagId: string, state: typeof FLAG_STATES[number], evidenceRefs?: EvidenceRef[]) {
     setSavingFlag(flagId);
@@ -142,7 +153,8 @@ export function BarsQuestionnaireDrawer({ orgId, axis, axisLabel, companyPhase, 
         <div className="space-y-2">
           {questions.map((q) => (
             <QuestionBlock key={q.id} orgId={orgId} axis={axis} question={q} answer={answersByQuestionId.get(q.id)}
-              candidates={candidates} loadingCandidates={loadingCandidates} onMutated={onMutated} />
+              candidates={candidates} loadingCandidates={loadingCandidates} onMutated={onMutated}
+              onOpenEvidenceDialog={setEvidenceDialog} />
           ))}
         </div>
 
@@ -171,9 +183,10 @@ export function BarsQuestionnaireDrawer({ orgId, axis, axisLabel, companyPhase, 
                     {state === 'confirmed' && (
                       <p className="mt-1 text-[11px] font-medium text-[#B00000]">Confirmed caps this axis at {flag.capLevel}/5</p>
                     )}
-                    <BarsEvidenceRail hints={[...RED_FLAG_EVIDENCE_HINTS]} candidates={candidates} loadingCandidates={loadingCandidates}
+                    <BarsEvidenceRail title={flag.check} hints={[...RED_FLAG_EVIDENCE_HINTS]} candidates={candidates} loadingCandidates={loadingCandidates}
                       attached={flagStatesByFlagId.get(flag.id)?.evidence_refs ?? []}
-                      onChange={(refs) => void saveFlag(flag.id, state, refs)} />
+                      onChange={(refs) => void saveFlag(flag.id, state, refs)}
+                      onOpenDialog={setEvidenceDialog} />
                   </div>
                 );
               })}
@@ -181,6 +194,15 @@ export function BarsQuestionnaireDrawer({ orgId, axis, axisLabel, companyPhase, 
           </div>
         )}
       </div>
+      {evidenceDialog && (
+        <EvidenceAccessDialog orgId={orgId} title={evidenceDialog.title} candidates={evidenceDialog.candidates}
+          attached={evidenceDialog.attached}
+          onChange={(refs) => {
+            evidenceDialog.onChange(refs);
+            setEvidenceDialog((prev) => (prev ? { ...prev, attached: refs } : prev));
+          }}
+          onClose={() => setEvidenceDialog(null)} />
+      )}
     </div>,
     document.body,
   );

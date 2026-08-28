@@ -9,6 +9,13 @@ export interface BarsEvidenceRef {
   kind: EvidenceKind;
   id?: string;
   text?: string;
+  // Prompt 438 §A — where, within the source, the investor found this:
+  // "p. 12", "slide 7", "§3.2", "annex B". ALWAYS hand-typed by the
+  // investor — the platform does not know what page a BARS answer's
+  // evidence is on and never generates, infers, or estimates one (see
+  // Prompt 438's own header). Absent = the investor didn't say; only the
+  // name is shown.
+  locator?: string;
 }
 
 // One investor's stored answer to one question (bars_answers row shape).
@@ -71,10 +78,16 @@ export function parseEvidenceRefs(input: unknown): BarsEvidenceRef[] | null {
     if (!EVIDENCE_KINDS.includes(kind as EvidenceKind)) return null;
     const id = (item as { id?: unknown }).id;
     const text = (item as { text?: unknown }).text;
+    // Prompt 438 §A — a non-string locator (or one that's just whitespace)
+    // is treated as absent, same as a malformed id/text above: never
+    // rejects the whole ref, just drops the one bad field.
+    const locatorRaw = (item as { locator?: unknown }).locator;
+    const locator = typeof locatorRaw === 'string' ? locatorRaw.trim().slice(0, 120) : '';
     out.push({
       kind: kind as EvidenceKind,
       id: typeof id === 'string' ? id : undefined,
       text: typeof text === 'string' ? text : undefined,
+      locator: locator || undefined,
     });
   }
   return out;
