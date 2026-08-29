@@ -74,10 +74,11 @@ const SECTION_INSTRUCTION: Record<Section, string> = {
     + 'Every MATCH or PARTIAL needs a source URL for THAT specific claim, ideally the candidate\'s own site/product page — not '
     + 'just wherever you first found the name (a directory or "top N startups" listicle is fine for finding a name, never for '
     + 'proving a relationship). A shared sector label alone is NOT evidence of any facet. If you cannot find evidence for a '
-    + 'facet, say UNKNOWN honestly — do not guess, and do not mark it NO_MATCH just because you found nothing. If the true '
-    + 'comparison is not another company but the buyer\'s current non-product alternative (a spreadsheet, a manual process, '
-    + 'doing nothing), say so directly instead of forcing a relationship score. If the candidate is still research-stage or '
-    + 'pre-commercial, say so — it changes the classification.',
+    + 'facet, say UNKNOWN honestly — do not guess, and do not mark it NO_MATCH just because you found nothing. First say what '
+    + 'kind of thing the candidate actually is (a company, a product, an incumbent manual process/workflow, or "doing nothing" '
+    + '— never assert "this is the status quo" yourself, just describe what it is), then score the same 5 facets regardless: '
+    + 'does the buyer\'s current spreadsheet or manual process solve the same problem, deliver a comparable outcome? If the '
+    + 'candidate is still research-stage or pre-commercial, say so — it changes the classification.',
   // Prompt 384 §F — these two were the only sections timing out (Vercel's
   // 504 at maxDuration=60, confirmed via real runtime logs: a 42.8s success
   // and an actual 60-80s/504 failure on the exact same open, multi-entity
@@ -124,9 +125,9 @@ const FACET_SCHEMA = {
 const STRUCTURED_SCHEMA = {
   type: 'object',
   description: 'Structured fields for this item — which ones apply depends on section. sizing needs valueEur/scope/year/geography/method. '
-    + 'growth needs pct/periodYears (segment optional). rounds needs company/amountEur/date/stage. players needs company, then EITHER '
-    + 'statusQuoNote (buyer\'s current non-product behavior) OR candidateStage + relation (a real candidate, scored). '
-    + 'Omit fields that do not apply to this item\'s section.',
+    + 'growth needs pct/periodYears (segment optional). rounds needs company/amountEur/date/stage. players needs company, candidateKind, '
+    + 'candidateStage, and relation — relation is always scored, even when candidateKind describes a non-company incumbent behavior '
+    + '(a spreadsheet, a manual process, doing nothing). Omit fields that do not apply to this item\'s section.',
   properties: {
     valueEur: { type: 'number', description: 'sizing: the market value in EUR' },
     scope: { type: 'string', enum: ['TAM', 'SAM', 'SOM'], description: 'sizing only' },
@@ -141,10 +142,10 @@ const STRUCTURED_SCHEMA = {
     date: { type: 'string', description: 'rounds only' },
     stage: { type: 'string', description: 'rounds only: the round stage (e.g. Series A)' },
     candidateStage: { type: 'string', enum: ['commercial', 'pre_commercial', 'unknown'], description: 'players only' },
-    statusQuoNote: { type: 'string', description: 'players only — fill this INSTEAD of relation when the true comparison is the buyer\'s current non-product behavior' },
+    candidateKind: { type: 'string', enum: ['COMPANY', 'PRODUCT', 'PROCESS', 'MANUAL_WORKFLOW', 'DO_NOTHING', 'OTHER'], description: 'players only — what the candidate actually IS, never a classification. Sherlock\'s own function, not you, decides whether a PROCESS/MANUAL_WORKFLOW/DO_NOTHING candidate counts as the status quo.' },
     relation: {
       type: 'object',
-      description: 'players only — omit if statusQuoNote is used. problemOrJobOverlap/outcomeOverlap/substitutability/'
+      description: 'players only — always required, scored the same way regardless of candidateKind. problemOrJobOverlap/outcomeOverlap/substitutability/'
         + 'userOrBuyerOverlap/useContextOverlap are required; budgetOverlap/technologyOverlap/inputOverlap/geographyOverlap/'
         + 'channelOverlap are optional context',
       properties: {

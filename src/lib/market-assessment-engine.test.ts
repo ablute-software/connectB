@@ -5,7 +5,7 @@ import {
 } from './market-assessment-engine';
 import type { SizingStructured, PlayerStructured } from './market-research-structured';
 import type { FactStatus } from './market-intelligence-types';
-import type { ScoredClassification } from './market-competition';
+import type { CompetitorClassification } from './market-competition';
 
 const NO_FOUNDER: FounderBaseline = { sizingValueEur: null, growthPct: null, knownCompetitorNames: [] };
 
@@ -13,14 +13,14 @@ function sizing(valueEur: number, scope: SizingStructured['scope'] = 'TAM'): Siz
   return { valueEur, scope, year: 2026, geography: 'EU', method: 'top_down' };
 }
 // materialToHypothesis/computeVerdict only ever read .company and
-// .sherlockClassification off a players structured — the facets/stage are
-// irrelevant here (classifyCompetitor itself is exhaustively covered by
-// market-competition.test.ts), so a placeholder all-UNKNOWN relation is
-// enough to satisfy the type.
-function player(company: string, sherlockClassification: ScoredClassification): PlayerStructured {
+// .sherlockClassification off a players structured — the facets/stage/kind
+// are irrelevant here (classifyCompetitor itself is exhaustively covered by
+// market-competition.test.ts), so a placeholder all-UNKNOWN relation and a
+// fixed candidateKind are enough to satisfy the type.
+function player(company: string, sherlockClassification: CompetitorClassification): PlayerStructured {
   const unknown = { state: 'UNKNOWN' as const, note: null, sourceUrl: null };
   return {
-    company, candidateStage: 'commercial', sherlockClassification,
+    company, candidateKind: 'COMPANY', candidateStage: 'commercial', sherlockClassification,
     relation: {
       problemOrJobOverlap: unknown, outcomeOverlap: unknown, substitutability: unknown,
       userOrBuyerOverlap: unknown, useContextOverlap: unknown,
@@ -58,12 +58,16 @@ describe('materialToHypothesis', () => {
     expect(materialToHypothesis('players', 'VALIDATED_FACT', player('Acme', 'FUNCTIONAL'))).toBe(true);
   });
   it('players with any other classification is not material', () => {
-    (['BUDGET', 'EMERGING', 'POTENTIAL_ENTRANT', 'ADJACENT', 'NOT_COMPETITOR', 'UNRESOLVED'] as ScoredClassification[]).forEach((type) => {
+    // Prompt 455 — STATUS_QUO now flows through this exact same
+    // PlayerStructured/sherlockClassification path as every other
+    // classification (it used to arrive via a separate statusQuoNote
+    // shape materialToHypothesis never saw scored like this).
+    (['BUDGET', 'EMERGING', 'POTENTIAL_ENTRANT', 'ADJACENT', 'STATUS_QUO', 'NOT_COMPETITOR', 'UNRESOLVED'] as CompetitorClassification[]).forEach((type) => {
       expect(materialToHypothesis('players', 'VALIDATED_FACT', player('Acme', type))).toBe(false);
     });
   });
   it('any players classification becomes material under CONFLICTING_FACT', () => {
-    (['BUDGET', 'EMERGING', 'POTENTIAL_ENTRANT', 'ADJACENT', 'NOT_COMPETITOR', 'UNRESOLVED'] as ScoredClassification[]).forEach((type) => {
+    (['BUDGET', 'EMERGING', 'POTENTIAL_ENTRANT', 'ADJACENT', 'STATUS_QUO', 'NOT_COMPETITOR', 'UNRESOLVED'] as CompetitorClassification[]).forEach((type) => {
       expect(materialToHypothesis('players', 'CONFLICTING_FACT', player('Acme', type))).toBe(true);
     });
   });

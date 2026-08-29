@@ -139,8 +139,8 @@ export function computeVerdict(
     if (!p) return null;
     const known = founder.knownCompetitorNames.includes(p.company.trim().toLowerCase());
     if (known) return { changeClass: 'CONFIRMED', deltaType: null, comparisonBaseline: 'FOUNDER_CLAIM', implication: null, insightConfidence, promotedToInsight: false };
-    // sherlockClassification is already uppercase (ScoredClassification) —
-    // and, by the time we reach here, always DIRECT or FUNCTIONAL: the
+    // sherlockClassification is always uppercase (CompetitorClassification)
+    // — and, by the time we reach here, always DIRECT or FUNCTIONAL: the
     // `!material` branch above already returned for every other value.
     return {
       changeClass: 'DISCOVERED', deltaType: 'NEW_COMPETITOR', comparisonBaseline: 'FOUNDER_CLAIM',

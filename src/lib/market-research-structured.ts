@@ -6,7 +6,7 @@ import type { Section } from './market-research-sections';
 import type { FactStatus } from './market-intelligence-types';
 import {
   classifyCompetitor, qualifyingSourcesOnly,
-  type CandidateStage, type CompetitiveRelation, type FacetEvidence, type MatchState, type ScoredClassification,
+  type CandidateKind, type CandidateStage, type CompetitiveRelation, type CompetitorClassification, type FacetEvidence, type MatchState,
 } from './market-competition';
 
 // Prompt 445 §A — lives here (not in research/route.ts) so it's testable:
@@ -27,17 +27,19 @@ export interface SizingStructured {
 }
 export interface GrowthStructured { pct: number; periodYears: number; segment: string | null }
 export interface RoundStructured { company: string; amountEur: number; date: string; stage: string }
-// Prompt 450 — replaces the free competitorType enum with the Competition
-// Contract (market-competition.ts, Prompt 449): a candidate is either a
-// real relationship scored across 5 decisive facets (sherlockClassification
-// computed by classifyCompetitor — never a value the model fills in
-// itself), or the buyer's status-quo behavior described in its own words
-// (statusQuoNote) — the ONE classification the model is trusted to assert
-// directly, since it's a description of the buyer, not a claim about a
-// competitor.
-export type PlayerStructured =
-  | { company: string; candidateStage: CandidateStage; relation: CompetitiveRelation; sherlockClassification: ScoredClassification }
-  | { company: string; statusQuoNote: string; sherlockClassification: 'STATUS_QUO' };
+// Prompt 455 — replaces the statusQuoNote escape hatch: the model reports
+// candidateKind (what the candidate actually IS — a company, a product, or
+// one of three forms of incumbent non-product behavior), but STATUS_QUO
+// itself is never model-supplied — classifyCompetitor is the only thing
+// that turns candidateKind + the same 5 scored facets into a
+// classification, for every candidate, no exceptions.
+export interface PlayerStructured {
+  company: string; // the real name, OR the incumbent behavior's own label ("Manual spreadsheet tracking", "No monitoring today")
+  candidateKind: CandidateKind;
+  candidateStage: CandidateStage;
+  relation: CompetitiveRelation;
+  sherlockClassification: CompetitorClassification; // always classifyCompetitor's return value, never read from a field the model tried to fill in
+}
 export type StructuredForSection = SizingStructured | GrowthStructured | RoundStructured | PlayerStructured;
 
 // trends/regulatory/definition stay without typed structured this phase
@@ -69,6 +71,7 @@ export function shouldAutoFillMarketData(section: string, sourceKind: string | n
 const SIZING_SCOPES = ['TAM', 'SAM', 'SOM'];
 const SIZING_METHODS = ['top_down', 'bottom_up', 'analyst_report', 'secondary_citation'];
 const CANDIDATE_STAGES = ['commercial', 'pre_commercial', 'unknown'];
+const CANDIDATE_KINDS = ['COMPANY', 'PRODUCT', 'PROCESS', 'MANUAL_WORKFLOW', 'DO_NOTHING', 'OTHER'];
 const MATCH_STATES = ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'];
 
 function num(v: unknown): number | null {
@@ -168,22 +171,20 @@ export function parseStructuredForSection(section: Section, raw: unknown): Struc
   if (section === 'players') {
     const company = str(r.company);
     if (!company) return null;
-    // Prompt 450 — the buyer's current non-product behavior, asserted
-    // directly by the model (never scored against the 5 facets — there is
-    // no "relationship" to a spreadsheet or to doing nothing).
-    const statusQuoNote = str(r.statusQuoNote);
-    if (statusQuoNote) return { company, statusQuoNote, sherlockClassification: 'STATUS_QUO' };
+    const candidateKindRaw = str(r.candidateKind);
+    if (!candidateKindRaw || !CANDIDATE_KINDS.includes(candidateKindRaw)) return null;
     const candidateStageRaw = str(r.candidateStage);
     if (!candidateStageRaw || !CANDIDATE_STAGES.includes(candidateStageRaw)) return null;
     if (!r.relation || typeof r.relation !== 'object') return null;
     const relation = parseCompetitiveRelation(r.relation as Record<string, unknown>);
     if (!relation) return null;
     const candidateStage = candidateStageRaw as CandidateStage;
-    // Prompt 450 — the classification is always computed here, from the
-    // parsed facets, never read from a field the model tried to fill in
-    // itself (the tool schema doesn't even offer one).
-    const sherlockClassification = classifyCompetitor(relation, candidateStage);
-    return { company, candidateStage, relation, sherlockClassification };
+    const candidateKind = candidateKindRaw as CandidateKind;
+    // The classification is always computed here, from the parsed facets
+    // and kind, never read from a field the model tried to fill in itself
+    // (the tool schema doesn't offer one — market-data/research/route.ts).
+    const sherlockClassification = classifyCompetitor(relation, candidateStage, candidateKind);
+    return { company, candidateKind, candidateStage, relation, sherlockClassification };
   }
   return null;
 }

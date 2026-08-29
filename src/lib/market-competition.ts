@@ -39,15 +39,23 @@ export interface CompetitiveRelation {
 
 export type CandidateStage = 'commercial' | 'pre_commercial' | 'unknown';
 
+// Prompt 455 — the LLM reports WHAT the candidate IS — never whether it
+// counts as "status quo" directly. PROCESS/MANUAL_WORKFLOW/DO_NOTHING are
+// the three forms of "not a company, not a product"; only classifyCompetitor
+// decides whether that, combined with shared problem+outcome evidence,
+// counts as STATUS_QUO for THIS hypothesis.
+export type CandidateKind = 'COMPANY' | 'PRODUCT' | 'PROCESS' | 'MANUAL_WORKFLOW' | 'DO_NOTHING' | 'OTHER';
+
 export type CompetitorClassification =
   | 'DIRECT' | 'FUNCTIONAL' | 'BUDGET' | 'STATUS_QUO' | 'EMERGING'
   | 'POTENTIAL_ENTRANT' | 'ADJACENT' | 'NOT_COMPETITOR' | 'UNRESOLVED';
 
-// STATUS_QUO never comes out of classifyCompetitor — it's the one
-// classification the model picks directly (it describes the buyer's
-// current behavior, often not even a company). Every other value always
-// comes from this function, never from free LLM choice.
-export type ScoredClassification = Exclude<CompetitorClassification, 'STATUS_QUO'>;
+// Every value of CompetitorClassification, STATUS_QUO included, always
+// comes from classifyCompetitor — never from free LLM choice. The 6
+// values that can actually become an org_competitors row (everything the
+// accept-gate in respond/route.ts doesn't reject) are still useful as a
+// narrower type at that call site — see market-competitor-write.ts.
+export type ScoredClassification = Exclude<CompetitorClassification, 'NOT_COMPETITOR' | 'UNRESOLVED' | 'STATUS_QUO'>;
 
 // Prompt 449 §B — provenance: where a candidate was FOUND is not the same
 // as what qualifies its RELATION. A directory or "top N startups" listicle
@@ -94,12 +102,25 @@ function facetVerdict(e: FacetEvidence): Verdict {
 // stays evidence the founder reads, not a gate. If a clear pattern emerges
 // from real production classifications, it can re-enter the function then,
 // backed by real cases.
-export function classifyCompetitor(r: CompetitiveRelation, candidateStage: CandidateStage): ScoredClassification {
+export function classifyCompetitor(r: CompetitiveRelation, candidateStage: CandidateStage, candidateKind: CandidateKind = 'COMPANY'): CompetitorClassification {
   const problem = facetVerdict(r.problemOrJobOverlap);
   const outcome = facetVerdict(r.outcomeOverlap);
   const subst = facetVerdict(r.substitutability);
   const buyerOrUser = facetVerdict(r.userOrBuyerOverlap);
   const budget = r.budgetOverlap ? facetVerdict(r.budgetOverlap) : 'UNRESOLVED';
+
+  // Candidates that are not a company/product: can only resolve to
+  // STATUS_QUO, UNRESOLVED, or NOT_COMPETITOR — never DIRECT/FUNCTIONAL/etc,
+  // which presuppose a competing product actually existing. Same discipline
+  // as 453: NOT_COMPETITOR requires both decisive axes confirmed negative,
+  // never just absence of evidence.
+  const isIncumbentBehavior = candidateKind === 'PROCESS' || candidateKind === 'MANUAL_WORKFLOW' || candidateKind === 'DO_NOTHING';
+  if (isIncumbentBehavior) {
+    if (problem === 'UNRESOLVED' || outcome === 'UNRESOLVED') return 'UNRESOLVED';
+    if (problem === 'YES' && (outcome === 'YES' || outcome === 'PARTIAL')) return 'STATUS_QUO';
+    if (problem === 'NO' && outcome === 'NO') return 'NOT_COMPETITOR';
+    return 'UNRESOLVED'; // non-decisive combination (e.g. problem=YES, outcome=NO) — doesn't force a conclusion
+  }
 
   if (problem === 'YES' || problem === 'PARTIAL') {
     if (candidateStage === 'pre_commercial') return 'EMERGING';

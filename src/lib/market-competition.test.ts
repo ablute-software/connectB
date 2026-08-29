@@ -88,14 +88,13 @@ describe('classifyCompetitor', () => {
   });
 
   // Prompt 453 — fixtures 15 and 16 from that prompt's §B table, numbered
-  // to match it directly (12-14/17 don't apply here: they exercise an
-  // "isIncumbentBehavior"/candidateKind branch that doesn't exist in this
-  // codebase's classifyCompetitor — STATUS_QUO is decided entirely outside
-  // this function, by the statusQuoNote branch of PlayerStructured in
-  // market-research-structured.ts, before classifyCompetitor is ever
-  // called). These two are the ones that actually exercise the fixed
-  // branch: confirming problem alone is never enough to conclude
-  // NOT_COMPETITOR — outcome must ALSO be confirmed NO_MATCH.
+  // to match it directly (12-14 don't apply here: at the time, they
+  // exercised an "isIncumbentBehavior"/candidateKind branch that didn't
+  // exist yet in this codebase's classifyCompetitor — see fixtures 19-21
+  // below, added by Prompt 455, which is what actually introduced that
+  // branch). These two are the ones that actually exercise the 453 fix:
+  // confirming problem alone is never enough to conclude NOT_COMPETITOR —
+  // outcome must ALSO be confirmed NO_MATCH.
   it('15 — UNRESOLVED: problem confirmed absent, but outcome never investigated (the bug this fix closes)', () => {
     const r = relation({ problem: 'NO_MATCH', outcome: 'UNKNOWN', subst: 'UNKNOWN', budget: 'UNKNOWN' });
     expect(classifyCompetitor(r, COMMERCIAL)).toBe('UNRESOLVED');
@@ -119,6 +118,26 @@ describe('classifyCompetitor', () => {
   it('18 — POTENTIAL_ENTRANT, not BUDGET: budget confirmed but outcome unresolved, substitutability rescues instead', () => {
     const r = relation({ problem: 'NO_MATCH', outcome: 'UNKNOWN', subst: 'PARTIAL', budget: 'MATCH' });
     expect(classifyCompetitor(r, COMMERCIAL)).toBe('POTENTIAL_ENTRANT');
+  });
+
+  // Prompt 455 — candidateKind becomes a reported fact, and STATUS_QUO now
+  // comes out of this same function instead of a model-asserted
+  // statusQuoNote: an incumbent-behavior candidate (PROCESS/MANUAL_WORKFLOW/
+  // DO_NOTHING) is scored against the same problem/outcome facets as any
+  // other candidate, just resolved to a narrower set of outcomes.
+  it('19 — STATUS_QUO: incumbent manual process, problem and outcome both confirmed', () => {
+    const r = relation({ problem: 'MATCH', outcome: 'PARTIAL' });
+    expect(classifyCompetitor(r, COMMERCIAL, 'MANUAL_WORKFLOW')).toBe('STATUS_QUO');
+  });
+
+  it('20 — NOT_COMPETITOR: incumbent behavior, but confirmed not for this problem (DO_NOTHING as a candidate for an unrelated hypothesis)', () => {
+    const r = relation({ problem: 'NO_MATCH', outcome: 'NO_MATCH' });
+    expect(classifyCompetitor(r, COMMERCIAL, 'DO_NOTHING')).toBe('NOT_COMPETITOR');
+  });
+
+  it('21 — UNRESOLVED: incumbent behavior, problem never established', () => {
+    const r = relation({ problem: 'UNKNOWN', outcome: 'UNKNOWN' });
+    expect(classifyCompetitor(r, 'unknown', 'PROCESS')).toBe('UNRESOLVED');
   });
 });
 

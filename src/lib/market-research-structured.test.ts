@@ -103,28 +103,41 @@ describe('parseStructuredForSection — rounds', () => {
 });
 
 describe('parseStructuredForSection — players', () => {
-  it('accepts a status-quo candidate directly, untouched by classification', () => {
-    const result = parseStructuredForSection('players', { company: 'Manual spreadsheet tracking', statusQuoNote: 'Founder said most buyers still track this in Excel.' });
-    expect(result).toEqual({ company: 'Manual spreadsheet tracking', statusQuoNote: 'Founder said most buyers still track this in Excel.', sherlockClassification: 'STATUS_QUO' });
+  // Prompt 455 — replaces the old statusQuoNote shortcut: candidateKind is
+  // now just another reported fact, and STATUS_QUO comes out of
+  // classifyCompetitor like every other classification, from the same
+  // scored relation.
+  it('accepts an incumbent-behavior candidate: candidateKind + relation -> STATUS_QUO computed by classifyCompetitor, never model-supplied', () => {
+    const result = parseStructuredForSection('players', {
+      company: 'Manual spreadsheet tracking', candidateKind: 'MANUAL_WORKFLOW', candidateStage: 'commercial', relation: fullRelationRaw(),
+    }) as { candidateKind?: string; sherlockClassification?: string };
+    expect(result?.candidateKind).toBe('MANUAL_WORKFLOW');
+    expect(result?.sherlockClassification).toBe('STATUS_QUO'); // classifyCompetitor's own cascade, not read from input
   });
-  it('rejects a missing company, statusQuoNote or not', () => {
-    expect(parseStructuredForSection('players', { statusQuoNote: 'no company here' })).toBeNull();
-    expect(parseStructuredForSection('players', { candidateStage: 'commercial', relation: fullRelationRaw() })).toBeNull();
+  it('rejects a missing company', () => {
+    expect(parseStructuredForSection('players', { candidateKind: 'COMPANY', candidateStage: 'commercial', relation: fullRelationRaw() })).toBeNull();
   });
-  it('accepts a real candidate: company + candidateStage + relation -> sherlockClassification computed, never model-supplied', () => {
-    const result = parseStructuredForSection('players', { company: 'Rival Inc', candidateStage: 'commercial', relation: fullRelationRaw() }) as { sherlockClassification?: string };
+  it('rejects a missing or invalid candidateKind — same "never invent a missing field" discipline as the other required facts', () => {
+    expect(parseStructuredForSection('players', { company: 'Rival Inc', candidateStage: 'commercial', relation: fullRelationRaw() })).toBeNull(); // missing
+    expect(parseStructuredForSection('players', { company: 'Rival Inc', candidateKind: 'ROBOT', candidateStage: 'commercial', relation: fullRelationRaw() })).toBeNull(); // not in the enum
+  });
+  it('accepts a real candidate: company + candidateKind + candidateStage + relation -> sherlockClassification computed, never model-supplied', () => {
+    const result = parseStructuredForSection('players', { company: 'Rival Inc', candidateKind: 'COMPANY', candidateStage: 'commercial', relation: fullRelationRaw() }) as { sherlockClassification?: string };
     expect(result?.sherlockClassification).toBe('DIRECT'); // classifyCompetitor's own cascade, not read from input
   });
   it('rejects an invalid candidateStage', () => {
-    expect(parseStructuredForSection('players', { company: 'Rival Inc', candidateStage: 'seed', relation: fullRelationRaw() })).toBeNull();
+    expect(parseStructuredForSection('players', { company: 'Rival Inc', candidateKind: 'COMPANY', candidateStage: 'seed', relation: fullRelationRaw() })).toBeNull();
   });
   it('rejects a missing or malformed relation', () => {
-    expect(parseStructuredForSection('players', { company: 'Rival Inc', candidateStage: 'commercial' })).toBeNull();
-    expect(parseStructuredForSection('players', { company: 'Rival Inc', candidateStage: 'commercial', relation: 'not an object' })).toBeNull();
+    expect(parseStructuredForSection('players', { company: 'Rival Inc', candidateKind: 'COMPANY', candidateStage: 'commercial' })).toBeNull();
+    expect(parseStructuredForSection('players', { company: 'Rival Inc', candidateKind: 'COMPANY', candidateStage: 'commercial', relation: 'not an object' })).toBeNull();
+  });
+  it('rejects a missing relation even for an incumbent-behavior candidateKind — the old statusQuoNote shortcut is gone', () => {
+    expect(parseStructuredForSection('players', { company: 'No monitoring today', candidateKind: 'DO_NOTHING', candidateStage: 'commercial' })).toBeNull();
   });
   it('a MATCH facet with no sourceUrl regresses to UNKNOWN for that facet alone, never discards the candidate', () => {
     const result = parseStructuredForSection('players', {
-      company: 'Rival Inc', candidateStage: 'commercial',
+      company: 'Rival Inc', candidateKind: 'COMPANY', candidateStage: 'commercial',
       relation: fullRelationRaw({ userOrBuyerOverlap: { state: 'MATCH', sourceUrl: undefined } }), // no sourceUrl
     }) as { relation?: { userOrBuyerOverlap: { state: string; sourceUrl: string | null } } };
     expect(result?.relation?.userOrBuyerOverlap).toEqual({ state: 'UNKNOWN', note: null, sourceUrl: null });
@@ -134,14 +147,14 @@ describe('parseStructuredForSection — players', () => {
       problemOrJobOverlap: facetRaw('UNKNOWN'), outcomeOverlap: facetRaw('UNKNOWN'), substitutability: facetRaw('UNKNOWN'),
       userOrBuyerOverlap: facetRaw('UNKNOWN'), useContextOverlap: facetRaw('UNKNOWN'),
     });
-    expect(parseStructuredForSection('players', { company: 'Obscure Co', candidateStage: 'unknown', relation: allUnknown })).toBeNull();
+    expect(parseStructuredForSection('players', { company: 'Obscure Co', candidateKind: 'COMPANY', candidateStage: 'unknown', relation: allUnknown })).toBeNull();
   });
   it('a single decisive MATCH is enough to avoid the all-UNKNOWN discard, even alone', () => {
     const oneMatch = {
       problemOrJobOverlap: facetRaw('MATCH'), outcomeOverlap: facetRaw('UNKNOWN'), substitutability: facetRaw('UNKNOWN'),
       userOrBuyerOverlap: facetRaw('UNKNOWN'), useContextOverlap: facetRaw('UNKNOWN'),
     };
-    expect(parseStructuredForSection('players', { company: 'Obscure Co', candidateStage: 'unknown', relation: oneMatch })).not.toBeNull();
+    expect(parseStructuredForSection('players', { company: 'Obscure Co', candidateKind: 'COMPANY', candidateStage: 'unknown', relation: oneMatch })).not.toBeNull();
   });
 });
 
@@ -280,7 +293,7 @@ describe('computeFactStatusForRun — grouping + the four cases end to end', () 
   // incidentally right because of a bled-in default.
   describe('players: sourceCount from qualifying relation facets, not the item source_url', () => {
     function playersItem(relation: ReturnType<typeof fullRelationRaw>): RunItemForFactStatus {
-      const structured = parseStructuredForSection('players', { company: 'Rival Inc', candidateStage: 'commercial', relation });
+      const structured = parseStructuredForSection('players', { company: 'Rival Inc', candidateKind: 'COMPANY', candidateStage: 'commercial', relation });
       return { section: 'players', title: 'Rival Inc', sourceUrl: 'https://tracxn.com/companies/rival-inc', structured };
     }
 

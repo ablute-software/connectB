@@ -16,12 +16,11 @@ describe('relationForCompetitorType', () => {
     expect(relationForCompetitorType('BUDGET')).toBe('indirect');
   });
   it('covers every ScoredClassification value reachable from respond/route.ts with no gaps', () => {
-    // NOT_COMPETITOR/UNRESOLVED are part of the ScoredClassification type
-    // but never actually reach this function in production — respond/
-    // route.ts rejects both before addOrUpdateCompetitor is ever called.
-    // Still covered here so the mapping itself never throws if that guard
-    // is ever bypassed.
-    const types: ScoredClassification[] = ['DIRECT', 'FUNCTIONAL', 'BUDGET', 'EMERGING', 'POTENTIAL_ENTRANT', 'ADJACENT', 'NOT_COMPETITOR', 'UNRESOLVED'];
+    // Prompt 455 — NOT_COMPETITOR/UNRESOLVED (and STATUS_QUO) are no longer
+    // part of ScoredClassification at all: it's narrowed to the 6 values
+    // that can actually become an org_competitors row, so TS itself now
+    // rules out passing them here — this loop only needs the 6 real members.
+    const types: ScoredClassification[] = ['DIRECT', 'FUNCTIONAL', 'BUDGET', 'EMERGING', 'POTENTIAL_ENTRANT', 'ADJACENT'];
     for (const t of types) {
       expect(() => relationForCompetitorType(t)).not.toThrow();
       expect(['direct', 'indirect', 'adjacent']).toContain(relationForCompetitorType(t));
