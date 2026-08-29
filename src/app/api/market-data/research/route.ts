@@ -1,24 +1,42 @@
 // Prompt 360 §A1.3 — "Sherlock research": the same web-search + proposals-
 // with-source-and-confidence mechanic entities/[id]/enrich already uses
 // (web_search_20250305 tool, tool_choice 'auto' so the model can search
-// first and propose second), never a new web-search integration. Cached by
-// (sectors, geography) — a plain GET on an unchanged signature costs
-// nothing; `?force=1` (the founder's own "Refresh" click) always re-runs and
-// re-pays. Every proposal MUST carry a source_url — the tool schema makes it
-// required, and any item the model returns without one is dropped before
-// it's even stored, never surfaced as if a citation existed.
+// first and propose second), never a new web-search integration. Every
+// proposal MUST carry a source_url — the tool schema makes it required,
+// and any item the model returns without one is dropped before it's even
+// stored, never surfaced as if a citation existed.
+//
+// Prompt 445 — a research run is always scoped to ONE market hypothesis
+// (444 §B), never the whole org. This replaces the confirmed bug where the
+// query was built from sectors.join(', ') and proposed Cleanwatts/Agroop/
+// Gazelle Wind Power/SoundSafe as "competitors" for a health biochip — the
+// query now reasons from the founder's own Market Thesis + the specific
+// hypothesis being researched, and sectors/stage/country enter only as
+// secondary context, never the primary axis. Cached by
+// (hypothesisId, thesisVersion, section) — editing the thesis invalidates
+// every hypothesis's cache even with the same hypothesisId, since a
+// changed thesis can invalidate what was previously "known". §C/§D:
+// sizing/growth/rounds/players now require a validated `structured` field
+// (market-research-structured.ts) — an item without one for those four
+// sections is discarded before it is ever written — and every row's
+// fact_status is computed at write time from structured + source presence
+// + cross-source agreement within the same run, never derived later from
+// free text.
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { createHash } from 'crypto';
 import { serverClient, resolveRole } from '@/lib/supabase-server';
 import { resolveUserPlan } from '@/lib/plan-server';
 import { planEntitlements } from '@/lib/plans';
 import { assertNotViewer } from '@/lib/developer-viewer';
-import { marketResearchItemsAvailable } from '@/lib/market-data-capability';
+import { marketResearchItemsAvailable, marketThesisAvailable, marketHypothesesAvailable } from '@/lib/market-data-capability';
 import { checkMarketDataGate } from '@/lib/market-data-gate';
 import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
 import { DOCUMENT_CONTENT_INSTRUCTION } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import type { MarketThesisFields } from '@/lib/market-thesis';
+import {
+  parseStructuredForSection, computeFactStatusForRun, signatureFor, STRUCTURED_REQUIRED_SECTIONS, type StructuredForSection,
+} from '@/lib/market-research-structured';
 
 import { SECTIONS, type Section } from '@/lib/market-research-sections';
 
@@ -36,11 +54,22 @@ export const maxDuration = 60;
 // instruction, so scoping to one section actually narrows what the model
 // looks for instead of just filtering a full-sweep result down to it —
 // narrower search, fewer tokens, a real (not cosmetic) per-section cost.
+//
+// Prompt 445 §C — players rewritten: THE fix for the Cleanwatts/Agroop bug.
+// A shared sector label is explicitly disqualified as a reason to call
+// something a competitor; the model must classify from the buyer/problem/
+// use-case match instead, one of the 6 types the structured field also
+// enforces (parseStructuredForSection discards anything that doesn't fit).
 const SECTION_INSTRUCTION: Record<Section, string> = {
   definition: 'the definition and scope of this market/category — what it includes and excludes.',
   sizing: 'market size estimates (TAM/SAM/SOM-style figures), each with its range, year, geography and basis plainly stated — never a bare number.',
   growth: 'the growth rate of this market, with the period and source it comes from.',
-  players: 'the key competitors/players in this space — real companies, not categories.',
+  players: 'the key competitors — for EACH one, classify it: direct (same problem, same buyer), functional (different product, '
+    + 'same job-to-be-done), budget (competes for the same budget line, different category), status_quo (the buyer\'s current '
+    + 'non-product alternative — spreadsheets, manual process, doing nothing), emerging (early-stage, same space), or '
+    + 'potential_entrant (adjacent player who could plausibly enter). A company sharing only a broad sector label with this '
+    + 'product is NOT automatically a competitor — justify the classification from the buyer/problem/use-case match, never from '
+    + 'sector alone.',
   // Prompt 384 §F — these two were the only sections timing out (Vercel's
   // 504 at maxDuration=60, confirmed via real runtime logs: a 42.8s success
   // and an actual 60-80s/504 failure on the exact same open, multi-entity
@@ -60,25 +89,77 @@ const SECTION_INSTRUCTION: Record<Section, string> = {
 const NARROW_SEARCH_BUDGET: Partial<Record<Section, number>> = { rounds: 3, trends: 3 };
 
 interface RawItem {
-  section?: string; title?: string; detail?: string; source_url?: string; confidence?: string;
+  section?: string; title?: string; detail?: string; source_url?: string; confidence?: string; structured?: unknown;
 }
 
+// Prompt 445 §C — a single flat schema covering every section's fields,
+// all optional at the JSON-schema level (Anthropic tool calling doesn't
+// reliably enforce a schema conditional on a sibling field's value) — the
+// REAL per-section requiredness is enforced afterward, server-side, by
+// parseStructuredForSection. Trends/regulatory/definition simply never
+// populate this and are never required to.
+const STRUCTURED_SCHEMA = {
+  type: 'object',
+  description: 'Structured fields for this item — which ones apply depends on section. sizing needs valueEur/scope/year/geography/method. '
+    + 'growth needs pct/periodYears (segment optional). rounds needs company/amountEur/date/stage. players needs company/competitorType. '
+    + 'Omit fields that do not apply to this item\'s section.',
+  properties: {
+    valueEur: { type: 'number', description: 'sizing: the market value in EUR' },
+    scope: { type: 'string', enum: ['TAM', 'SAM', 'SOM'], description: 'sizing only' },
+    year: { type: 'number', description: 'sizing only' },
+    geography: { type: 'string', description: 'sizing only — the geography this figure covers' },
+    method: { type: 'string', enum: ['top_down', 'bottom_up', 'analyst_report', 'secondary_citation'], description: 'sizing only — how this figure was derived' },
+    pct: { type: 'number', description: 'growth: the growth rate as a percentage' },
+    periodYears: { type: 'number', description: 'growth only' },
+    segment: { type: 'string', description: 'growth only, optional' },
+    company: { type: 'string', description: 'rounds/players: the company name' },
+    amountEur: { type: 'number', description: 'rounds only: the round amount in EUR' },
+    date: { type: 'string', description: 'rounds only' },
+    stage: { type: 'string', description: 'rounds only: the round stage (e.g. Series A)' },
+    competitorType: {
+      type: 'string', enum: ['direct', 'functional', 'budget', 'status_quo', 'emerging', 'potential_entrant'],
+      description: 'players only — justified from buyer/problem/use-case match, never from sector alone',
+    },
+  },
+};
+
 async function callResearchModel(
-  apiKey: string, model: string, orgId: string, sectors: string[], country: string | null, stage: string | null, section: Section | null,
+  apiKey: string, model: string, orgId: string,
+  hypothesis: { label: string; definition: string }, thesis: MarketThesisFields,
+  country: string | null, stage: string | null, section: Section | null,
 ) {
   const sections = section ? [section] : SECTIONS;
   const system = 'You are a research assistant for an early-stage startup founder preparing to raise capital. You search the '
     + 'public web and propose market-research items with a real, working source URL for each one — you never fabricate a '
     + `number, a competitor, or a source, and you never rely on prior/training knowledge without verifying it via a fresh `
     + `web search. Every item needs: section (${sections.length === 1 ? `always "${sections[0]}"` : `one of ${sections.join(', ')}`}), a `
-    + 'short title, a one-2-sentence detail, the source URL you found it on, and a confidence (high/medium/low). A market '
-    + 'size estimate should state its range and basis plainly in the detail text (e.g. "€2-4B TAM, varies by report '
-    + 'methodology") rather than pretending false precision. Analyst reports (Gartner/IDC/Frost etc.) are usually behind a '
-    + 'paywall — if you can only see a SECOND-HAND citation of one (never the report itself), say so plainly in the detail '
-    + 'and note it is a secondary source. A self-computed estimate (e.g. bottom-up from a unit count × price) is legitimate '
-    + 'ONLY if you show the actual arithmetic in the detail text — never a number with no visible method. You finish every '
-    + 'research task by calling propose_market_items, even if you found nothing (simply omit items). ' + DOCUMENT_CONTENT_INSTRUCTION;
-  const prompt = `Sector(s): ${sectors.join(', ')}. ${country ? `Geography: ${country}.` : ''} ${stage ? `Stage: ${stage}.` : ''}\n\n`
+    + 'short title, a one-2-sentence detail, the source URL you found it on, a confidence (high/medium/low), and — for sizing/'
+    + 'growth/rounds/players — the matching structured fields (see the tool schema); an item in one of those four sections '
+    + 'with no valid structured data will be discarded, so fill it in whenever you have the figures. A market size estimate '
+    + 'should state its range and basis plainly in the detail text (e.g. "€2-4B TAM, varies by report methodology") rather '
+    + 'than pretending false precision. Analyst reports (Gartner/IDC/Frost etc.) are usually behind a paywall — if you can '
+    + 'only see a SECOND-HAND citation of one (never the report itself), say so plainly in the detail and note it is a '
+    + 'secondary source. A self-computed estimate (e.g. bottom-up from a unit count × price) is legitimate ONLY if you show '
+    + 'the actual arithmetic in the detail text — never a number with no visible method. '
+    // Prompt 445 §B — the founder's own hard filter, not a suggestion.
+    + 'The founder has explicitly told you what this market is NOT — when a market/category is named as excluded, never '
+    + 'propose anything from it, even if it looks adjacent or plausible; treat it as a hard filter, not a soft preference. '
+    + 'You finish every research task by calling propose_market_items, even if you found nothing (simply omit items). ' + DOCUMENT_CONTENT_INSTRUCTION;
+
+  // Prompt 445 §B — the exact template: hypothesis + thesis first, as the
+  // PRIMARY axis; org-level stage/country only ever as secondary context
+  // appended after it, never the leading signal.
+  const thesisBlock = [
+    `Market hypothesis: "${hypothesis.label}" — ${hypothesis.definition}`,
+    `What the company does: ${thesis.product_summary ?? 'not specified'}`,
+    `Core problem: ${thesis.core_problem ?? 'not specified'}`,
+    `Primary user: ${thesis.primary_user ?? 'not specified'}`,
+    `Economic buyer: ${thesis.economic_buyer ?? 'not specified'}`,
+    `Geography: ${thesis.geography ?? 'not specified — do not assume'}`,
+    `Explicitly NOT this market: ${thesis.excluded_markets.join(', ') || 'none stated'}`,
+  ].join('\n');
+  const secondaryContext = [country && `org country: ${country}`, stage && `stage: ${stage}`].filter(Boolean).join(', ');
+  const prompt = `${thesisBlock}${secondaryContext ? `\nAdditional context — ${secondaryContext}.` : ''}\n\n`
     + `Research ${sections.map((s) => SECTION_INSTRUCTION[s]).join(' Also research ')} Propose items via propose_market_items.`;
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -105,6 +186,7 @@ async function callResearchModel(
                     detail: { type: 'string' },
                     source_url: { type: 'string' },
                     confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+                    structured: STRUCTURED_SCHEMA,
                   },
                   required: ['section', 'title', 'detail', 'source_url', 'confidence'],
                 },
@@ -123,6 +205,8 @@ async function callResearchModel(
   // market_research_players, ...) so /api/market-data/research/estimate can
   // show a real per-section cost history, and so ai_call_log's per-founder
   // accounting stays as granular as the buttons the founder actually clicks.
+  // Unchanged by 445 — cost varies by section/search volume, never by which
+  // hypothesis is being researched (§F).
   void logAiCall({ route: '/api/market-data/research', purpose: section ? `market_research_${section}` : 'market_research', model, usage: data.usage, orgId });
   const toolUse = (data.content as { type: string; name?: string; input?: unknown }[])
     .filter((b) => b.type === 'tool_use' && b.name === 'propose_market_items').pop();
@@ -135,34 +219,74 @@ async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: 
   return (data?.org_id as string | undefined) ?? null;
 }
 
-function signatureFor(sectors: string[], country: string | null, section: Section | null): string {
-  return createHash('sha256').update(`${sectors.slice().sort().join(',')}|${country ?? ''}|${section ?? 'all'}`).digest('hex');
-}
-
 async function runResearchPass(
-  admin: SupabaseClient, apiKey: string, orgId: string, sectors: string[], country: string | null, stage: string | null, section: Section | null,
+  admin: SupabaseClient, apiKey: string, orgId: string,
+  hypothesis: { id: string; label: string; definition: string }, thesis: MarketThesisFields,
+  thesisVersion: number, country: string | null, stage: string | null, section: Section | null,
 ) {
   const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
-  const signature = signatureFor(sectors, country, section);
+  const signature = signatureFor(hypothesis.id, thesisVersion, section);
 
-  const { items, costEur } = await callResearchModel(apiKey, model, orgId, sectors, country, stage, section);
+  const { items, costEur } = await callResearchModel(apiKey, model, orgId, hypothesis, thesis, country, stage, section);
 
+  // Prompt 445 §C/§D — validate + discard BEFORE any write, then compute
+  // fact_status once per (section, title) group across the whole run —
+  // never a per-item guess and never a later pass over already-written rows.
+  const prepared: { title: string; detail: string; sourceUrl: string; section: Section; confidence: 'high' | 'medium' | 'low' | null; structured: StructuredForSection | null }[] = [];
   for (const item of items) {
     const title = item.title?.trim();
     const detail = item.detail?.trim();
     const sourceUrl = item.source_url?.trim();
-    const section = SECTIONS.includes(item.section as Section) ? (item.section as Section) : null;
+    const itemSection = SECTIONS.includes(item.section as Section) ? (item.section as Section) : null;
     // Every item MUST carry a real source — no exceptions, per this
     // feature's own root rule ("Nada sem fonte").
-    if (!title || !detail || !sourceUrl || !section) continue;
+    if (!title || !detail || !sourceUrl || !itemSection) continue;
     const confidence = item.confidence === 'high' || item.confidence === 'medium' || item.confidence === 'low' ? item.confidence : null;
+    const structured = parseStructuredForSection(itemSection, item.structured);
+    // §C — sizing/growth/rounds/players without valid structured never
+    // reach upsert; the other three sections have no typed structured this
+    // phase (§H), so structured stays null for them by construction.
+    if (STRUCTURED_REQUIRED_SECTIONS.includes(itemSection) && !structured) continue;
+    prepared.push({ title, detail, sourceUrl, section: itemSection, confidence, structured });
+  }
+
+  const factStatusByIndex = computeFactStatusForRun(
+    prepared.map((p) => ({ section: p.section, title: p.title, sourceUrl: p.sourceUrl, structured: p.structured })),
+  );
+
+  for (let i = 0; i < prepared.length; i++) {
+    const p = prepared[i];
+    // Known limitation, stated plainly: the unique constraint backing this
+    // upsert is still (org_id, section, title) — unchanged by migration
+    // 0273, which only added hypothesis_id/fact_status as columns, not a
+    // new uniqueness axis. Two DIFFERENT hypotheses proposing the exact
+    // same title in the same section would collide here (the second is
+    // silently ignored, same ignoreDuplicates behavior this upsert already
+    // had). Titles are hypothesis-specific enough in practice that this is
+    // a narrow edge case, and widening the constraint is a schema decision
+    // 445 wasn't asked to make — flagged, not silently worked around.
     await admin.from('market_research_items').upsert({
-      org_id: orgId, run_signature: signature, section, title, detail,
-      source_url: sourceUrl, source_accessed_at: new Date().toISOString(), confidence,
+      org_id: orgId, hypothesis_id: hypothesis.id, run_signature: signature, section: p.section, title: p.title, detail: p.detail,
+      source_url: p.sourceUrl, source_accessed_at: new Date().toISOString(), confidence: p.confidence,
+      structured: p.structured, fact_status: factStatusByIndex.get(i) ?? null,
       status: 'pending', updated_at: new Date().toISOString(),
     }, { onConflict: 'org_id,section,title', ignoreDuplicates: true });
   }
   return { signature, costEur };
+}
+
+function toThesisFields(row: Record<string, unknown> | null): MarketThesisFields {
+  return {
+    product_summary: (row?.product_summary as string | null) ?? null,
+    core_problem: (row?.core_problem as string | null) ?? null,
+    primary_user: (row?.primary_user as string | null) ?? null,
+    economic_buyer: (row?.economic_buyer as string | null) ?? null,
+    beachhead: (row?.beachhead as string | null) ?? null,
+    geography: (row?.geography as string | null) ?? null,
+    primary_use_case: (row?.primary_use_case as string | null) ?? null,
+    adjacent_technologies: (row?.adjacent_technologies as string[] | null) ?? [],
+    excluded_markets: (row?.excluded_markets as string[] | null) ?? [],
+  };
 }
 
 export async function GET(req: Request) {
@@ -175,7 +299,9 @@ export async function GET(req: Request) {
   const sb = await serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
-  if (!(await marketResearchItemsAvailable())) return NextResponse.json(empty);
+  if (!(await marketResearchItemsAvailable()) || !(await marketThesisAvailable()) || !(await marketHypothesesAvailable())) {
+    return NextResponse.json(empty);
+  }
 
   const orgId = await resolveOrg(sb, user.id);
   if (!orgId) return NextResponse.json(empty);
@@ -201,18 +327,35 @@ export async function GET(req: Request) {
   const sectors = [...(orgRow.sectors ?? []), orgRow.sectors_other?.trim()].filter(Boolean) as string[];
   const hasMarketOrSolutionClaim = ((claims ?? []) as { category: string }[]).some((c) => c.category === 'mercado_timing' || c.category === 'solucao');
   const gate = checkMarketDataGate({ sectors, stage: orgRow.stage, oneLiner: orgRow.one_liner }, true, hasMarketOrSolutionClaim);
-  if (!gate.eligible || sectors.length === 0) return NextResponse.json({ available: true, items: [], gate });
+  if (!gate.eligible) return NextResponse.json({ available: true, items: [], gate });
+
+  // Prompt 445 §A — replaces the old sectors.length===0 early-return: the
+  // real gate for a per-hypothesis feature is having a hypothesis to
+  // target, not sector tags. Never runs research without one.
+  const { data: activeHypotheses } = await admin.from('org_market_hypotheses')
+    .select('id, label, definition').eq('org_id', orgId).eq('status', 'active');
+  if (!activeHypotheses || activeHypotheses.length === 0) {
+    return NextResponse.json({ available: true, items: [], gate: { eligible: false, reason: 'no_hypotheses' } });
+  }
+
+  const hypothesisIdParam = new URL(req.url).searchParams.get('hypothesisId');
+  const hypothesis = activeHypotheses.find((h) => h.id === hypothesisIdParam);
+  if (!hypothesis) return NextResponse.json({ ok: false, error: 'A valid hypothesisId is required.' }, { status: 400 });
+
+  const { data: thesisRow } = await admin.from('org_market_thesis').select('*').eq('org_id', orgId).maybeSingle();
+  const thesisFields = toThesisFields(thesisRow);
+  const thesisVersion = (thesisRow?.version as number | undefined) ?? 1;
 
   // Prompt 373 §D — a button per section: ?section=X scopes the whole pass
   // (cache signature included) to just that one section. Omitting it keeps
   // the original full-sweep behavior for any caller that predates this.
   const sectionParam = new URL(req.url).searchParams.get('section');
   const section: Section | null = sectionParam && (SECTIONS as string[]).includes(sectionParam) ? (sectionParam as Section) : null;
-  const signature = signatureFor(sectors, orgRow.country, section);
+  const signature = signatureFor(hypothesis.id, thesisVersion, section);
   const forceRefresh = new URL(req.url).searchParams.get('force') === '1';
 
   const { data: existing } = await admin.from('market_research_items')
-    .select('run_signature').eq('org_id', orgId).limit(1);
+    .select('run_signature').eq('org_id', orgId).eq('hypothesis_id', hypothesis.id).limit(1);
   const cached = (existing ?? []).some((r) => r.run_signature === signature);
 
   // Prompt 378 §A.1 — a failure is REPORTED, never swallowed into a 200 with
@@ -230,7 +373,7 @@ export async function GET(req: Request) {
   }
   if (forceRefresh || !cached) {
     try {
-      const result = await runResearchPass(admin, apiKey, orgId, sectors, orgRow.country, orgRow.stage, section);
+      const result = await runResearchPass(admin, apiKey, orgId, hypothesis, thesisFields, thesisVersion, orgRow.country, orgRow.stage, section);
       costEur = result.costEur;
       ran = true;
     } catch (e) {
@@ -240,14 +383,16 @@ export async function GET(req: Request) {
     }
   }
 
+  // Prompt 445 §A — reads always filter by hypothesis_id now, never org
+  // alone; pre-445 rows (hypothesis_id null) simply never surface here.
   let query = admin.from('market_research_items')
-    .select('id, section, title, detail, source_url, confidence, status, source_accessed_at')
-    .eq('org_id', orgId).eq('status', 'pending');
+    .select('id, section, title, detail, source_url, confidence, status, source_accessed_at, structured, fact_status')
+    .eq('org_id', orgId).eq('hypothesis_id', hypothesis.id).eq('status', 'pending');
   if (section) query = query.eq('section', section);
   const { data: items } = await query.order('section', { ascending: true });
 
   // `ran` distinguishes §A.2 ("we really searched and found nothing with a
   // verifiable source") from a cache hit — the UI must never show the
   // generic "no pending suggestions" for a real, paid-for empty result.
-  return NextResponse.json({ available: true, ok: true, items: items ?? [], gate, costEur, ran, cached: cached && !forceRefresh });
+  return NextResponse.json({ available: true, ok: true, items: items ?? [], gate, costEur, ran, cached: cached && !forceRefresh, hypothesisId: hypothesis.id });
 }

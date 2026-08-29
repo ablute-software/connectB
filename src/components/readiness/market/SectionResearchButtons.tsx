@@ -31,12 +31,22 @@ export type SectionOutcome =
   | { kind: 'empty'; section: Section; costEur: number | null }
   | { kind: 'found'; section: Section; costEur: number | null; count: number };
 
-export function SectionResearchButton({ section, onDone }: { section: Section; onDone: (outcome: SectionOutcome) => void }) {
+// Prompt 445 §A/§G — hypothesisId is now required: a research run is
+// always scoped to one market hypothesis, never the whole org (this is
+// what fixed the sectors.join(', ') bug). Every call site updated
+// accordingly — see MarketDataPanel.tsx's own ResearchSectionPanel for
+// what happened to the one org-level call site that had no hypothesis to
+// pass.
+export function SectionResearchButton({ section, hypothesisId, onDone }: {
+  section: Section; hypothesisId: string; onDone: (outcome: SectionOutcome) => void;
+}) {
   const [estimate, setEstimate] = useState<{ estimateEur: number; basedOnRuns: number } | null>(null);
   const [running, setRunning] = useState(false);
 
   useEffect(() => {
     setEstimate(null);
+    // Unchanged by 445 §F — cost varies by section/search volume, never by
+    // which hypothesis is being researched.
     fetch(`/api/market-data/research/estimate?section=${section}`).then((r) => r.json())
       .then((body) => setEstimate(body)).catch(() => {});
   }, [section]);
@@ -44,7 +54,7 @@ export function SectionResearchButton({ section, onDone }: { section: Section; o
   async function run() {
     setRunning(true);
     try {
-      const res = await fetch(`/api/market-data/research?section=${section}&force=1`);
+      const res = await fetch(`/api/market-data/research?hypothesisId=${encodeURIComponent(hypothesisId)}&section=${section}&force=1`);
       // A 504/HTML gateway page is NOT json — this is the exact failure the
       // founder hit, and it must surface as words on screen, not a rejected
       // promise nobody catches.

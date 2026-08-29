@@ -10,7 +10,14 @@
 // Hypothesis generation is verify-then-promote: generate/route.ts only
 // ever proposes candidates, never writes org_market_hypotheses directly —
 // this component's own confirmCandidates() is the one call that does.
+//
+// Prompt 445 §G — research now lives HERE, under each hypothesis card,
+// not at the org level: SectionResearchButton (reused, now requiring
+// hypothesisId) and its pending items are scoped per hypothesis, never a
+// global list mixing them (MarketDataPanel.tsx's old per-section research
+// panel now just points here).
 import { useEffect, useState } from 'react';
+import { SectionResearchButton, SECTIONS, SECTION_LABEL, type Section, type SectionOutcome } from './SectionResearchButtons';
 
 interface MarketThesis {
   product_summary: string | null; core_problem: string | null; primary_user: string | null;
@@ -68,6 +75,120 @@ function TagInput({ label, values, onChange, placeholder }: {
   );
 }
 
+interface PendingResearchItem {
+  id: string; section: Section; title: string; detail: string; source_url: string | null;
+  confidence: string | null; fact_status: string | null;
+}
+
+const FACT_STATUS_LABEL: Record<string, string> = {
+  VALIDATED_FACT: 'Validated · 2+ independent sources agree',
+  PARTIAL_FACT: 'Partial · one source only',
+  CONFLICTING_FACT: 'Conflicting · sources disagree',
+  INSUFFICIENT_FACT: 'Insufficient evidence',
+};
+const FACT_STATUS_STYLE: Record<string, string> = {
+  VALIDATED_FACT: 'text-emerald-700', PARTIAL_FACT: 'text-gray-400',
+  CONFLICTING_FACT: 'text-amber-700', INSUFFICIENT_FACT: 'text-gray-400',
+};
+
+// Prompt 445 §G — research collapsed by default per hypothesis card (a
+// hypothesis you're not actively researching shouldn't cost a screenful);
+// pending items are fetched (and accepted/rejected) per section, scoped
+// entirely to THIS hypothesisId — never a list mixing hypotheses.
+function HypothesisResearch({ hypothesisId }: { hypothesisId: string }) {
+  const [open, setOpen] = useState(false);
+  const [itemsBySection, setItemsBySection] = useState<Partial<Record<Section, PendingResearchItem[]>>>({});
+  const [outcomeBySection, setOutcomeBySection] = useState<Partial<Record<Section, SectionOutcome>>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function loadSection(section: Section) {
+    const res = await fetch(`/api/market-data/research?hypothesisId=${encodeURIComponent(hypothesisId)}&section=${section}`);
+    const body = await res.json().catch(() => null);
+    if (body?.items) setItemsBySection((prev) => ({ ...prev, [section]: body.items }));
+  }
+
+  async function respond(id: string, section: Section, action: 'accept' | 'reject') {
+    setBusyId(id);
+    try {
+      await fetch('/api/market-data/research/respond', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, action }),
+      });
+      setItemsBySection((prev) => ({ ...prev, [section]: (prev[section] ?? []).filter((i) => i.id !== id) }));
+    } finally { setBusyId(null); }
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="mt-2 text-[11px] font-medium text-[#0E7490] hover:underline">
+        Research this hypothesis →
+      </button>
+    );
+  }
+
+  const activeSections = SECTIONS.filter((s) => outcomeBySection[s] || (itemsBySection[s]?.length ?? 0) > 0);
+
+  return (
+    <div className="mt-2 border-t border-gray-100 pt-2">
+      <div className="flex flex-wrap gap-1.5">
+        {SECTIONS.map((s) => (
+          <SectionResearchButton key={s} section={s} hypothesisId={hypothesisId}
+            onDone={(outcome) => { setOutcomeBySection((prev) => ({ ...prev, [s]: outcome })); void loadSection(s); }} />
+        ))}
+      </div>
+
+      {activeSections.map((s) => {
+        const outcome = outcomeBySection[s];
+        const items = itemsBySection[s] ?? [];
+        return (
+          <div key={s} className="mt-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{SECTION_LABEL[s]}</p>
+            {outcome && (
+              <p className={`mt-0.5 text-[11px] ${outcome.kind === 'error' ? 'text-[#B00000]' : 'text-gray-400'}`}>
+                {outcome.kind === 'error' ? outcome.message
+                  : outcome.kind === 'empty'
+                    ? `Nothing with a verifiable source found${outcome.costEur != null ? ` · €${outcome.costEur.toFixed(3)} spent` : ''}.`
+                    : `${outcome.count} item${outcome.count === 1 ? '' : 's'} found${outcome.costEur != null ? ` · €${outcome.costEur.toFixed(3)}` : ''}.`}
+              </p>
+            )}
+            {items.length > 0 && (
+              <div className="mt-1 space-y-1.5">
+                {items.map((item) => (
+                  <div key={item.id} className="rounded border border-gray-200 p-2">
+                    <p className="text-xs text-gray-800">{item.title}</p>
+                    <p className="mt-0.5 text-[11px] text-gray-500">{item.detail}</p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                      {item.source_url && (
+                        <a href={item.source_url} target="_blank" rel="noopener noreferrer" className="max-w-[200px] truncate text-[10px] text-[#0E7490] underline">
+                          {item.source_url}
+                        </a>
+                      )}
+                      {item.fact_status && (
+                        <span className={`text-[10px] font-medium ${FACT_STATUS_STYLE[item.fact_status] ?? 'text-gray-400'}`}>
+                          {FACT_STATUS_LABEL[item.fact_status] ?? item.fact_status}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 flex gap-1.5">
+                      <button type="button" disabled={busyId === item.id} onClick={() => void respond(item.id, s, 'accept')}
+                        className="rounded bg-[#0E7490] px-2 py-0.5 text-[11px] font-medium text-white disabled:opacity-40">
+                        Accept ✓
+                      </button>
+                      <button type="button" disabled={busyId === item.id} onClick={() => void respond(item.id, s, 'reject')}
+                        className="rounded border border-gray-300 px-2 py-0.5 text-[11px] text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                        Ignore
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function HypothesisCard({ hypothesis, editing, onStartEdit, onCancelEdit, onSave, onArchive }: {
   hypothesis: Hypothesis; editing: boolean;
   onStartEdit: () => void; onCancelEdit: () => void;
@@ -89,6 +210,7 @@ function HypothesisCard({ hypothesis, editing, onStartEdit, onCancelEdit, onSave
             <button type="button" onClick={onArchive} className="text-[11px] text-gray-400 hover:underline">Archive</button>
           </div>
         </div>
+        <HypothesisResearch hypothesisId={hypothesis.id} />
       </div>
     );
   }

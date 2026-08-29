@@ -419,65 +419,27 @@ function ResearchView(props: {
         <div className="min-w-0 flex-1">
           {researchKey === 'documents' ? <FromYourDocumentsPanel {...props} />
             : researchKey === 'added' ? <AddedByYouPanel added={props.added} setAdded={props.setAdded} savingAdded={props.savingAdded} saveAdded={props.saveAdded} />
-              : <ResearchSectionPanel section={researchKey} {...props} />}
+              : <ResearchSectionPanel section={researchKey} />}
         </div>
       </div>
     </div>
   );
 }
 
-function ResearchSectionPanel({ section, researchItems, busyId, respond, sectionOutcome, setSectionOutcome }: {
-  section: Section;
-  researchItems: ResearchItem[] | null; busyId: string | null; respond: (id: string, action: 'accept' | 'reject') => void;
-  sectionOutcome: SectionOutcome | null; setSectionOutcome: (o: SectionOutcome | null) => void;
-}) {
-  const items = (researchItems ?? []).filter((i) => i.section === section && i.source_kind !== 'document');
-  const outcome = sectionOutcome?.section === section ? sectionOutcome : null;
+// Prompt 445 §A/§G — this panel used to run its OWN per-section web search
+// at the org level, grounded on sector labels; that is exactly the query
+// this phase replaced (the confirmed Cleanwatts/Agroop bug). Research is
+// now always scoped to a market hypothesis, so the button and its pending-
+// items list moved to live under each hypothesis card in Market Thesis
+// (MarketThesisSection.tsx) — this panel points there instead of running
+// a search it no longer has a valid target for.
+function ResearchSectionPanel({ section }: { section: Section }) {
   return (
     <Card title={<span className="inline-flex items-center gap-2">{RESEARCH_SECTION_LABEL[section]} <PlanBadge tier="motherfunding" /></span>}>
-      <p className="mb-2 text-xs text-gray-500">
-        Structured web research on your sector — every item comes with a real source. Nothing is added automatically.
+      <p className="text-xs text-gray-500">
+        Research now runs per market hypothesis, grounded on your Market Thesis instead of raw sector tags — open a
+        hypothesis card above (Market Thesis) and research {RESEARCH_SECTION_LABEL[section].toLowerCase()} from there.
       </p>
-      <SectionResearchButton section={section} onDone={(o) => setSectionOutcome(o)} />
-      {outcome && (
-        <div className={`mt-2 rounded-lg border px-2.5 py-2 text-xs ${
-          outcome.kind === 'error' ? 'border-red-200 bg-red-50 text-[#B00000]'
-            : outcome.kind === 'empty' ? 'border-amber-200 bg-amber-50 text-amber-800'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
-          {outcome.kind === 'error' ? outcome.message
-            : outcome.kind === 'empty'
-              ? `Nothing with a verifiable source found in this section${outcome.costEur != null ? ` · €${outcome.costEur.toFixed(3)} spent` : ''}.`
-              : `${outcome.count} item${outcome.count === 1 ? '' : 's'} found${outcome.costEur != null ? ` · €${outcome.costEur.toFixed(3)}` : ''}.`}
-        </div>
-      )}
-      {items.length === 0 && !outcome && (
-        <p className="mt-2 text-xs text-gray-400">No pending suggestions — click Research above.</p>
-      )}
-      {items.length > 0 && (
-        <div className="mt-3 space-y-2">
-          {items.map((item) => (
-            <div key={item.id} className="rounded-lg border border-gray-200 p-2.5">
-              <p className="mt-0.5 text-sm text-gray-800">{item.title}</p>
-              <p className="mt-0.5 text-xs text-gray-500">{item.detail}</p>
-              {item.source_url && (
-                <a href={item.source_url} target="_blank" rel="noopener noreferrer" className="mt-0.5 block truncate text-[11px] text-[#0E7490] underline">
-                  {item.source_url}
-                </a>
-              )}
-              <div className="mt-1.5 flex gap-1.5">
-                <button disabled={busyId === item.id} onClick={() => respond(item.id, 'accept')}
-                  className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
-                  Accept ✓
-                </button>
-                <button disabled={busyId === item.id} onClick={() => respond(item.id, 'reject')}
-                  className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
-                  Ignore
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </Card>
   );
 }
