@@ -9,11 +9,22 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { marketThesisAvailable, marketHypothesesAvailable } from '@/lib/market-data-capability';
-import { sanitizeMarketThesisFields, nextMarketThesisVersion, type MarketThesisFields } from '@/lib/market-thesis';
+import { sanitizeMarketThesisFields, nextMarketThesisVersion, MARKET_THESIS_TEXT_MAX, type MarketThesisFields } from '@/lib/market-thesis';
 
 async function resolveOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string): Promise<string | null> {
   const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
   return (data?.org_id as string | undefined) ?? null;
+}
+
+// Prompt 457 — description usually runs well past MARKET_THESIS_TEXT_MAX;
+// a suggestion truncated mid-word reads as broken, not helpful. Cuts at
+// the last word boundary within the limit instead.
+function truncateAtWord(text: string | undefined, max: number): string | undefined {
+  if (!text) return undefined;
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const lastSpace = cut.lastIndexOf(' ');
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim() + '…';
 }
 
 export async function GET() {
@@ -39,7 +50,7 @@ export async function GET() {
       ? admin.from('org_market_hypotheses').select('id, label, definition, thesis_version, status, position')
         .eq('org_id', orgId).eq('status', 'active').order('position', { ascending: true })
       : Promise.resolve({ data: [] as unknown[] }),
-    admin.from('orgs').select('intro_problem, intro_solution, country').eq('id', orgId).maybeSingle(),
+    admin.from('orgs').select('intro_problem, intro_solution, one_liner, description, country').eq('id', orgId).maybeSingle(),
   ]);
 
   // Prompt 456 — real, zero-LLM-cost suggestions for the 3 text fields that
@@ -47,7 +58,16 @@ export async function GET() {
   // pitch, and the org's own country). Never overwrites a field the
   // founder already has here, even if it differs from the source.
   const suggestions: Partial<Record<'product_summary' | 'core_problem' | 'geography', string>> = {};
-  if (!thesis?.product_summary?.trim() && org?.intro_solution?.trim()) suggestions.product_summary = org.intro_solution.trim();
+  if (!thesis?.product_summary?.trim()) {
+    // Prompt 457 — intro_solution is empty for orgs (ablute_ included) that
+    // never filled in Settings → Intro pitch. one_liner/description are a
+    // richer, already-confirmed fallback source — company_claims was
+    // checked too (Prompt 457's own investigation) and rejected: 'problema'
+    // is empty and 'solucao' mixes in unrelated topics (rounds, pilots),
+    // too noisy to suggest cleanly.
+    const fallback = org?.intro_solution?.trim() || org?.one_liner?.trim() || truncateAtWord(org?.description?.trim(), MARKET_THESIS_TEXT_MAX);
+    if (fallback) suggestions.product_summary = fallback;
+  }
   if (!thesis?.core_problem?.trim() && org?.intro_problem?.trim()) suggestions.core_problem = org.intro_problem.trim();
   if (!thesis?.geography?.trim() && org?.country?.trim()) suggestions.geography = org.country.trim();
 
