@@ -56,3 +56,9 @@ export const marketHypothesesAvailable = makeCapabilityProbe(async (admin) => {
   const { error } = await admin.from('org_market_hypotheses').select('id').limit(1);
   return !error;
 });
+
+// Prompt 447 §B — migration 0275's new column.
+export const orgCompetitorsCompetitorTypeAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('org_competitors').select('competitor_type').limit(1);
+  return !error;
+});

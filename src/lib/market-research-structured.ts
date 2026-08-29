@@ -33,6 +33,28 @@ export type StructuredForSection = SizingStructured | GrowthStructured | RoundSt
 // (§H) — only the four sections that feed numeric calculation downstream.
 export const STRUCTURED_REQUIRED_SECTIONS: Section[] = ['sizing', 'growth', 'rounds', 'players'];
 
+// Prompt 447 §C — sizing/growth auto-fill org_market_data regardless of
+// source now: every item reaching 'pending' in those two sections has had
+// `structured` validated since 445 (discarded before write otherwise), web
+// included — the old document-only restriction only made sense before that
+// phase shipped. `segments` (no web equivalent this phase, §F) still
+// requires sourceKind==='document'. Extracted as its own pure function so
+// this exact behavior change — a web sizing/growth item now merges into
+// org_market_data instead of only ever becoming a text claim — has a
+// direct test, not just a code-reading confirmation.
+//
+// `section` is a bare string, not `Section`, on purpose: 'segments' is a
+// real market_research_items.section value but is NOT part of the web
+// research Section union (it only ever arises from document extraction —
+// that section isn't in SECTIONS, the web research list, at all).
+const AUTO_FILL_WEB_OK = new Set<string>(['sizing', 'growth']);
+const AUTO_FILL_DOCUMENT_ONLY = new Set<string>(['sizing', 'growth', 'segments']);
+
+export function shouldAutoFillMarketData(section: string, sourceKind: string | null): boolean {
+  if (AUTO_FILL_WEB_OK.has(section)) return true;
+  return sourceKind === 'document' && AUTO_FILL_DOCUMENT_ONLY.has(section);
+}
+
 const SIZING_SCOPES = ['TAM', 'SAM', 'SOM'];
 const SIZING_METHODS = ['top_down', 'bottom_up', 'analyst_report', 'secondary_citation'];
 const COMPETITOR_TYPES = ['direct', 'functional', 'budget', 'status_quo', 'emerging', 'potential_entrant'];

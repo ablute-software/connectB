@@ -15,21 +15,29 @@ import { claimsAvailable } from '@/lib/blueprint-capability';
 import { normalizeAtom } from '@/lib/company-claims';
 import { addOrUpdateCompetitor } from '@/lib/market-competitor-write';
 import { vaultCitation } from '@/lib/market-rings';
+import { shouldAutoFillMarketData, type PlayerStructured } from '@/lib/market-research-structured';
 
-// Prompt 370 §C3 — a document-sourced item in one of these three sections
-// auto-fills org_market_data (the "Added by you" form) instead of becoming
-// a claim: the founder corrects a pre-filled number/name instead of typing
-// it from scratch. trends/regulatory (and any web item) have no dedicated
+// Prompt 370 §C3 / Prompt 447 §C — an item in an auto-fill section merges
+// straight into org_market_data (the "Added by you" form) instead of
+// becoming a claim: the founder corrects a pre-filled number/name instead
+// of typing it from scratch. shouldAutoFillMarketData (market-research-
+// structured.ts) has the real gate logic, tested directly — sizing/growth
+// now qualify regardless of source (every item reaching 'pending' there
+// has validated `structured` since 445), `segments` stays document-only
+// (no web equivalent this phase, §F). trends/regulatory have no dedicated
 // org_market_data field, so those still become a claim below, unchanged.
+// `rounds` deliberately falls through too — no single field to fill; the
+// comparable-rounds merge (market-rounds-merge.ts, read from
+// /api/market-data/competitors) reads `structured` directly off accepted
+// rows instead, needing no extra write here.
 //
-// Prompt 384 §E.2 — `players` used to be in this set too (document-sourced
-// only), merging into org_market_data.competitors — the OLD free-text list,
-// separate from the real structured one (org_competitors) CompetitorsCard's
-// own "Add" button already wrote to. Two write paths for "accept this
-// competitor" is exactly the bug §E exists to close, so `players` (document
-// OR web) now always takes the SAME structured, deduped path — see the
-// dedicated branch below instead of this set.
-const AUTO_FILL_SECTIONS = new Set(['sizing', 'growth', 'segments']);
+// Prompt 384 §E.2 — `players` used to be auto-fill-eligible too (document-
+// sourced only), merging into org_market_data.competitors — the OLD free-
+// text list, separate from the real structured one (org_competitors)
+// CompetitorsCard's own "Add" button already wrote to. Two write paths for
+// "accept this competitor" is exactly the bug §E exists to close, so
+// `players` (document OR web) now always takes the SAME structured,
+// deduped path — see the dedicated branch below instead.
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -75,7 +83,17 @@ export async function POST(req: Request) {
   // prefix stripped, same fallback CompetitorsCard.tsx's client-side
   // acceptSuggestionAsCompetitor already applies for the identical case.
   if (item.section === 'players') {
-    const structuredName = (item.structured as { name?: string } | null)?.name;
+    // Prompt 447 §A — bug confirmed since 445: `structured` has two
+    // different shapes depending on provenance. Document extraction
+    // (market-document-extract.ts's RawCompetitor) writes { name, ... } —
+    // no competitorType. Web research (445's PlayerStructured) writes
+    // { company, competitorType } — no name. Reading only `.name` meant
+    // every web item fell through to the title-strip fallback, which has
+    // no guarantee of producing the right name (a web item's title never
+    // followed the "Competitor: X" convention — that was only ever the
+    // document extraction's own convention).
+    const structured = item.structured as { name?: string; company?: string; competitorType?: PlayerStructured['competitorType'] } | null;
+    const structuredName = structured?.name ?? structured?.company;
     const name = (structuredName ?? item.title.replace(/^Competitor:\s*/i, '')).trim();
     if (!name) return NextResponse.json({ ok: false, error: 'This item has no competitor name to add.' }, { status: 400 });
     const sourceUrl = item.source_url ?? (item.document_id ? vaultCitation(item.document_id as string, null) : undefined);
@@ -83,7 +101,7 @@ export async function POST(req: Request) {
       await addOrUpdateCompetitor(admin, orgId, {
         name, description: item.detail || undefined, sourceUrl,
         sourceQuality: item.source_kind === 'document' ? 'founder_document' : 'secondary',
-        addedBy: 'ai',
+        addedBy: 'ai', competitorType: structured?.competitorType ?? null,
       });
     } catch (e) {
       return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
@@ -94,10 +112,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, appliedTo: 'org_competitors' });
   }
 
-  // Prompt 370 §C3 — document items in an auto-fill section merge straight
-  // into org_market_data (the manual form the founder would otherwise type
-  // into from scratch) instead of becoming a claim.
-  if (item.source_kind === 'document' && AUTO_FILL_SECTIONS.has(item.section as string) && item.structured && (await orgMarketDataAvailable())) {
+  if (item.structured && (await orgMarketDataAvailable()) && shouldAutoFillMarketData(item.section as string, item.source_kind as string | null)) {
     const s = item.structured as Record<string, unknown>;
     const { data: current } = await admin.from('org_market_data').select('*').eq('org_id', orgId).maybeSingle();
     const patch: Record<string, unknown> = { org_id: orgId, updated_at: new Date().toISOString() };
@@ -105,7 +120,9 @@ export async function POST(req: Request) {
       if (typeof s.valueEur === 'number') patch.market_size_value_eur = s.valueEur;
       if (typeof s.scope === 'string') patch.market_size_scope = s.scope;
       if (typeof s.year === 'number') patch.market_size_year = s.year;
-      patch.market_size_source = `From your documents (${item.title})`;
+      // Prompt 447 §C — never attribute a document-sourced label to a web
+      // finding, or vice versa.
+      patch.market_size_source = item.source_kind === 'document' ? `From your documents (${item.title})` : `From Sherlock research (${item.title})`;
     } else if (item.section === 'growth' && typeof s.pct === 'number') {
       patch.growth_pct = s.pct;
     } else if (item.section === 'segments' && typeof s.name === 'string') {

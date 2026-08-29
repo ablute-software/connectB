@@ -10,10 +10,15 @@
 // the founder never sees them laid out together.
 import { useEffect, useState } from 'react';
 
-interface Round { amount_eur: number | null; invested_at: string | null; round_type: string | null; catalog_entities?: { name: string } }
-interface CompetitorRow { id: string; company: { name: string }; rounds: Round[] }
-
-interface ComparableRound { companyName: string; investorName: string | null; amountEur: number | null; investedAt: string | null; roundType: string | null }
+// Prompt 447 §D.4 — reads the server-merged `rounds` (market-rounds-
+// merge.ts) instead of deriving it client-side from `competitors`: rounds
+// now also include accepted `rounds` research items (445's
+// RoundStructured), not just tracked competitors' own known funding
+// history. Already sorted and deduped server-side — no client logic left.
+interface ComparableRound {
+  companyName: string; investorName: string | null; amountEur: number | null; investedAt: string | null;
+  roundType: string | null; source: 'competitor_tracked' | 'research';
+}
 
 function fmtEur(v: number | null): string | null {
   return v == null ? null : `€${v.toLocaleString()}`;
@@ -24,14 +29,7 @@ export function ComparableRoundsCard() {
 
   useEffect(() => {
     fetch('/api/market-data/competitors').then((r) => r.json()).then((body) => {
-      const competitors = (body.competitors ?? []) as CompetitorRow[];
-      const flattened = competitors.flatMap((c) =>
-        c.rounds.map((r) => ({
-          companyName: c.company.name, investorName: r.catalog_entities?.name ?? null,
-          amountEur: r.amount_eur, investedAt: r.invested_at, roundType: r.round_type,
-        })));
-      flattened.sort((a, b) => (b.investedAt ?? '').localeCompare(a.investedAt ?? ''));
-      setRows(flattened);
+      setRows((body.rounds ?? []) as ComparableRound[]);
     }).catch(() => setRows([]));
   }, []);
 

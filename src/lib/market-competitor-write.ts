@@ -9,12 +9,25 @@
 // single path both now use.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { findMatchingMarketCompany } from './market-companies-dedup';
-import { marketCompanyExtendedFieldsAvailable } from './market-data-capability';
+import { marketCompanyExtendedFieldsAvailable, orgCompetitorsCompetitorTypeAvailable } from './market-data-capability';
+import type { PlayerStructured } from './market-research-structured';
 
 export interface CompetitorCandidate {
   name: string; domain?: string | null; sectors?: string[]; description?: string | null;
   companyType?: string | null; sourceUrl?: string | null; sourceQuality?: string | null;
   positioning?: string | null; note?: string | null; addedBy?: 'ai' | 'founder';
+  // Prompt 447 §B — only ever set for a web-research-sourced accept (445's
+  // PlayerStructured); absent for a manual add or a document-sourced one.
+  competitorType?: PlayerStructured['competitorType'] | null;
+}
+
+// Deliberate, not perfect mapping — relation keeps the closest value so the
+// existing UI that already reads relation doesn't break; competitor_type
+// stores the original finer classification for whoever needs it later.
+export function relationForCompetitorType(t: PlayerStructured['competitorType']): 'direct' | 'indirect' | 'adjacent' {
+  if (t === 'direct') return 'direct';
+  if (t === 'emerging' || t === 'potential_entrant') return 'adjacent';
+  return 'indirect'; // functional, budget, status_quo
 }
 
 async function findOrCreateCompany(admin: SupabaseClient, candidate: CompetitorCandidate): Promise<string> {
@@ -42,9 +55,15 @@ async function findOrCreateCompany(admin: SupabaseClient, candidate: CompetitorC
 // research item pending rather than silently accepted).
 export async function addOrUpdateCompetitor(admin: SupabaseClient, orgId: string, candidate: CompetitorCandidate): Promise<string> {
   const companyId = await findOrCreateCompany(admin, candidate);
+  // Prompt 447 §B — 'direct' stays the default for a candidate with no
+  // competitorType (manual add, or document-sourced) — the exact existing
+  // behavior, unchanged, confirmed before this edit.
+  const relation = candidate.competitorType ? relationForCompetitorType(candidate.competitorType) : 'direct';
+  const competitorTypeAvailable = await orgCompetitorsCompetitorTypeAvailable();
   const { error } = await admin.from('org_competitors').upsert({
-    org_id: orgId, market_company_id: companyId, relation: 'direct',
+    org_id: orgId, market_company_id: companyId, relation,
     note: candidate.note ?? null, positioning: candidate.positioning ?? null, added_by: candidate.addedBy ?? 'founder', updated_at: new Date().toISOString(),
+    ...(competitorTypeAvailable ? { competitor_type: candidate.competitorType ?? null } : {}),
   }, { onConflict: 'org_id,market_company_id' });
   if (error) throw new Error(error.message);
   return companyId;

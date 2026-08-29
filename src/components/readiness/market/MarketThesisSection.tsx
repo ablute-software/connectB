@@ -100,6 +100,7 @@ function HypothesisResearch({ hypothesisId }: { hypothesisId: string }) {
   const [itemsBySection, setItemsBySection] = useState<Partial<Record<Section, PendingResearchItem[]>>>({});
   const [outcomeBySection, setOutcomeBySection] = useState<Partial<Record<Section, SectionOutcome>>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [batchBusy, setBatchBusy] = useState<Section | null>(null);
 
   async function loadSection(section: Section) {
     const res = await fetch(`/api/market-data/research?hypothesisId=${encodeURIComponent(hypothesisId)}&section=${section}`);
@@ -115,6 +116,23 @@ function HypothesisResearch({ hypothesisId }: { hypothesisId: string }) {
       });
       setItemsBySection((prev) => ({ ...prev, [section]: (prev[section] ?? []).filter((i) => i.id !== id) }));
     } finally { setBusyId(null); }
+  }
+
+  // Prompt 447 §E — only ever the LLM's own self-reported confidence about
+  // the research itself (`confidence`, high/medium/low) — never
+  // insight_confidence (446), a different, calculated thing this button
+  // doesn't depend on. Sequential, not parallel: addOrUpdateCompetitor's
+  // own dedupe (players items) isn't safe under concurrent calls.
+  async function acceptAllHighConfidence(section: Section) {
+    setBatchBusy(section);
+    try {
+      const highConfidenceIds = (itemsBySection[section] ?? []).filter((i) => i.confidence === 'high').map((i) => i.id);
+      for (const id of highConfidenceIds) {
+        await respond(id, section, 'accept');
+      }
+    } finally {
+      setBatchBusy(null);
+    }
   }
 
   if (!open) {
@@ -139,6 +157,7 @@ function HypothesisResearch({ hypothesisId }: { hypothesisId: string }) {
       {activeSections.map((s) => {
         const outcome = outcomeBySection[s];
         const items = itemsBySection[s] ?? [];
+        const highConfidenceCount = items.filter((i) => i.confidence === 'high').length;
         return (
           <div key={s} className="mt-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{SECTION_LABEL[s]}</p>
@@ -149,6 +168,14 @@ function HypothesisResearch({ hypothesisId }: { hypothesisId: string }) {
                     ? `Nothing with a verifiable source found${outcome.costEur != null ? ` · €${outcome.costEur.toFixed(3)} spent` : ''}.`
                     : `${outcome.count} item${outcome.count === 1 ? '' : 's'} found${outcome.costEur != null ? ` · €${outcome.costEur.toFixed(3)}` : ''}.`}
               </p>
+            )}
+            {/* Prompt 447 §E — never global, never medium/low, count always
+                shown (never a bare "Accept all"). */}
+            {highConfidenceCount > 0 && (
+              <button type="button" disabled={batchBusy === s} onClick={() => void acceptAllHighConfidence(s)}
+                className="mt-1 text-[11px] font-medium text-[#0E7490] hover:underline disabled:opacity-40">
+                {batchBusy === s ? 'Accepting…' : `Accept all ${highConfidenceCount} high-confidence finding${highConfidenceCount === 1 ? '' : 's'}`}
+              </button>
             )}
             {items.length > 0 && (
               <div className="mt-1 space-y-1.5">

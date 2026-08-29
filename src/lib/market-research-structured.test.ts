@@ -1,8 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseStructuredForSection, computeFactStatus, countIndependentSources, valuesConflict, computeFactStatusForRun, signatureFor,
-  type RunItemForFactStatus,
+  shouldAutoFillMarketData, type RunItemForFactStatus,
 } from './market-research-structured';
+
+// Prompt 447 §C — the exact behavior change this section verifies directly
+// (not just by code reading): a web-sourced sizing/growth item now
+// auto-fills org_market_data, where before only a document-sourced one did.
+describe('shouldAutoFillMarketData', () => {
+  it('sizing and growth qualify regardless of source — the 447 §C fix itself', () => {
+    expect(shouldAutoFillMarketData('sizing', 'web')).toBe(true);
+    expect(shouldAutoFillMarketData('sizing', null)).toBe(true);
+    expect(shouldAutoFillMarketData('growth', 'web')).toBe(true);
+    expect(shouldAutoFillMarketData('sizing', 'document')).toBe(true);
+    expect(shouldAutoFillMarketData('growth', 'document')).toBe(true);
+  });
+  it('segments still requires a document source (no web equivalent this phase)', () => {
+    expect(shouldAutoFillMarketData('segments', 'document')).toBe(true);
+    expect(shouldAutoFillMarketData('segments', 'web')).toBe(false);
+    expect(shouldAutoFillMarketData('segments', null)).toBe(false);
+  });
+  it('sections with no org_market_data field never qualify, from any source', () => {
+    expect(shouldAutoFillMarketData('trends', 'document')).toBe(false);
+    expect(shouldAutoFillMarketData('regulatory', 'document')).toBe(false);
+    expect(shouldAutoFillMarketData('players', 'document')).toBe(false);
+    expect(shouldAutoFillMarketData('rounds', 'document')).toBe(false);
+  });
+});
 
 describe('signatureFor — the research cache key', () => {
   it('is deterministic for the same inputs', () => {
