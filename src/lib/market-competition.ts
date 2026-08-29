@@ -109,7 +109,7 @@ export function classifyCompetitor(r: CompetitiveRelation, candidateStage: Candi
     return 'ADJACENT';
   }
   if (problem === 'UNRESOLVED') {
-    if (budget === 'YES') return 'BUDGET';
+    if (budget === 'YES' && (outcome === 'YES' || outcome === 'PARTIAL')) return 'BUDGET';
     if (subst === 'YES' || subst === 'PARTIAL') return 'POTENTIAL_ENTRANT';
     return 'UNRESOLVED';
   }
@@ -118,11 +118,15 @@ export function classifyCompetitor(r: CompetitiveRelation, candidateStage: Candi
   // Deliberate ordering: budget is always checked before POTENTIAL_ENTRANT
   // in both final branches — a confirmed budget collision is a stronger,
   // more actionable signal than partial substitutability, even when both
-  // are present (see fixture 9 in market-competition.test.ts).
+  // are present (see fixture 9 in market-competition.test.ts). But shared
+  // budget alone is never enough: BUDGET also requires outcome confirmed
+  // YES or PARTIAL — a hospital buying a cardiac monitor and a urinalysis
+  // device from the same CapEx line doesn't make them budget competitors;
+  // that would create a more sophisticated version of the FLUIDINOVA error.
   // technologyOverlap/inputOverlap/geographyOverlap/channelOverlap are
   // never read here — they exist only for the founder to read the full
   // evidence.
-  if (budget === 'YES') return 'BUDGET';
+  if (budget === 'YES' && (outcome === 'YES' || outcome === 'PARTIAL')) return 'BUDGET';
   if (subst === 'YES' || subst === 'PARTIAL') return 'POTENTIAL_ENTRANT';
   // Prompt 453 — NOT_COMPETITOR is an evidence-backed conclusion, not the
   // default state when no positive competitive relationship was found.

@@ -73,7 +73,7 @@ describe('classifyCompetitor', () => {
   });
 
   it('9 — BUDGET takes priority over POTENTIAL_ENTRANT when both apply (fintech expense tool vs. accounting suite)', () => {
-    const r = relation({ problem: 'NO_MATCH', subst: 'MATCH', budget: 'MATCH' });
+    const r = relation({ problem: 'NO_MATCH', outcome: 'PARTIAL', subst: 'MATCH', budget: 'MATCH' });
     expect(classifyCompetitor(r, COMMERCIAL)).toBe('BUDGET');
   });
 
@@ -104,6 +104,21 @@ describe('classifyCompetitor', () => {
   it('16 — NOT_COMPETITOR: problem AND outcome both confirmed negative, substitutability/budget still unresolved', () => {
     const r = relation({ problem: 'NO_MATCH', outcome: 'NO_MATCH', subst: 'UNKNOWN', budget: 'UNKNOWN' });
     expect(classifyCompetitor(r, COMMERCIAL)).toBe('NOT_COMPETITOR');
+  });
+
+  // Prompt 454 — BUDGET requires a real competing outcome, not just shared
+  // budget: the risk Nuno flagged in the 4th round of feedback on 449 (a
+  // hospital buying a cardiac monitor and a urinalysis device from the same
+  // CapEx line isn't budget competition on its own — that would be a more
+  // sophisticated version of the FLUIDINOVA error).
+  it('17 — NOT_COMPETITOR, not BUDGET: shared CapEx line without a real competing outcome (hospital cardiac monitor vs. urinalysis device)', () => {
+    const r = relation({ problem: 'NO_MATCH', outcome: 'NO_MATCH', subst: 'NO_MATCH', budget: 'MATCH' });
+    expect(classifyCompetitor(r, COMMERCIAL)).toBe('NOT_COMPETITOR');
+  });
+
+  it('18 — POTENTIAL_ENTRANT, not BUDGET: budget confirmed but outcome unresolved, substitutability rescues instead', () => {
+    const r = relation({ problem: 'NO_MATCH', outcome: 'UNKNOWN', subst: 'PARTIAL', budget: 'MATCH' });
+    expect(classifyCompetitor(r, COMMERCIAL)).toBe('POTENTIAL_ENTRANT');
   });
 });
 
