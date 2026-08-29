@@ -227,7 +227,7 @@ async function extractOne(orgId, doc) {
   try {
     truncated = await truncatePdfToPages(bytes, MAX_EXTRACTION_PAGES);
   } catch (e) {
-    await admin.from('document_extractions').upsert({ org_id: orgId, document_id: doc.id, sha256, model, extracted: { error: `PDF could not be parsed: ${e.message}` }, status: 'failed' }, { onConflict: 'document_id,sha256' });
+    await admin.from('document_extractions').upsert({ org_id: orgId, document_id: doc.id, sha256, model, extracted: { error: `PDF could not be parsed: ${e.message}` }, status: 'failed', updated_at: new Date().toISOString() }, { onConflict: 'document_id,sha256' });
     return { skipped: 'pdf_parse_failed' };
   }
   const { bytes: truncatedBytes, pagesRead, totalPages } = truncated;
@@ -259,23 +259,23 @@ async function extractOne(orgId, doc) {
       }),
     });
   } catch (e) {
-    await admin.from('document_extractions').upsert({ org_id: orgId, document_id: doc.id, sha256, model, extracted: { error: e.message }, status: 'failed' }, { onConflict: 'document_id,sha256' });
+    await admin.from('document_extractions').upsert({ org_id: orgId, document_id: doc.id, sha256, model, extracted: { error: e.message }, status: 'failed', updated_at: new Date().toISOString() }, { onConflict: 'document_id,sha256' });
     return { skipped: 'claude_failed' };
   }
   if (!res.ok) {
     const body = await res.text();
-    await admin.from('document_extractions').upsert({ org_id: orgId, document_id: doc.id, sha256, model, extracted: { error: body.slice(0, 500) }, status: 'failed' }, { onConflict: 'document_id,sha256' });
+    await admin.from('document_extractions').upsert({ org_id: orgId, document_id: doc.id, sha256, model, extracted: { error: body.slice(0, 500) }, status: 'failed', updated_at: new Date().toISOString() }, { onConflict: 'document_id,sha256' });
     return { skipped: 'claude_failed', error: body.slice(0, 300) };
   }
   const data = await res.json();
   const toolUse = (data.content ?? []).find((b) => b.type === 'tool_use');
   if (!toolUse) {
-    await admin.from('document_extractions').upsert({ org_id: orgId, document_id: doc.id, sha256, model, extracted: { error: 'No extraction produced.' }, status: 'failed' }, { onConflict: 'document_id,sha256' });
+    await admin.from('document_extractions').upsert({ org_id: orgId, document_id: doc.id, sha256, model, extracted: { error: 'No extraction produced.' }, status: 'failed', updated_at: new Date().toISOString() }, { onConflict: 'document_id,sha256' });
     return { skipped: 'claude_failed' };
   }
 
   const extraction = rawExtractionToData(toolUse.input, pagesRead, totalPages);
-  await admin.from('document_extractions').upsert({ org_id: orgId, document_id: doc.id, sha256, model, extracted: extraction, status: 'completed' }, { onConflict: 'document_id,sha256' });
+  await admin.from('document_extractions').upsert({ org_id: orgId, document_id: doc.id, sha256, model, extracted: extraction, status: 'completed', updated_at: new Date().toISOString() }, { onConflict: 'document_id,sha256' });
   const linkOutcome = await linkExtractionToClaims(orgId, doc.id, doc.name, extraction);
   const costEur = computeCostEur(model, data.usage);
   // Prompt 375 follow-up — this script computed cost locally for months

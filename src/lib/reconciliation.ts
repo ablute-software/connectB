@@ -54,11 +54,21 @@ export interface ReconcilableDocument {
 }
 
 export async function readReconcilableDocuments(admin: SupabaseClient, orgId: string): Promise<ReconcilableDocument[]> {
-  const [{ data: docs }, { data: folders }, { data: extractions }] = await Promise.all([
+  const [{ data: docs }, { data: folders }, { data: extractions, error: extractionsError }] = await Promise.all([
     admin.from('documents').select('id, name, folder_id').eq('org_id', orgId),
     admin.from('folders').select('id, name').eq('org_id', orgId),
     admin.from('document_extractions').select('document_id, extracted, updated_at, status').eq('org_id', orgId).eq('status', 'completed'),
   ]);
+  // Prompt 461 §C — this exact query silently failed for as long as
+  // document_extractions had no updated_at column (§A): the destructured
+  // `{ data: extractions }` swallowed the error, extractionByDocId stayed
+  // permanently empty, and every document got described to the model as
+  // unanalyzed. Logged now so a future regression here (a renamed column, a
+  // revoked grant) leaves a trace instead of failing the exact same way
+  // silently — the rest of this function still degrades gracefully to an
+  // empty extraction map, on purpose, so one bad query never blocks the
+  // documents/folders half of this result.
+  if (extractionsError) console.error('[reconciliation] readReconcilableDocuments: document_extractions query failed', extractionsError.message);
   const folderById = new Map((folders ?? []).map((f) => [f.id as string, (f.name as string | null) ?? null]));
   const extractionByDocId = new Map(
     (extractions ?? []).map((e) => [e.document_id as string, e as { extracted: unknown; updated_at: string | null }]),

@@ -213,6 +213,7 @@ export async function extractDocument(
     await admin.from('document_extractions').upsert({
       org_id: orgId, document_id: documentId, sha256, model,
       extracted: { error: `PDF could not be parsed: ${(e as Error).message}` }, status: 'failed',
+      updated_at: new Date().toISOString(),
     }, { onConflict: 'document_id,sha256' });
     return { ok: false, skippedReason: 'pdf_parse_failed' };
   }
@@ -225,6 +226,7 @@ export async function extractDocument(
     await admin.from('document_extractions').upsert({
       org_id: orgId, document_id: documentId, sha256, model,
       extracted: { error: (e as Error).message }, status: 'failed',
+      updated_at: new Date().toISOString(),
     }, { onConflict: 'document_id,sha256' });
     return { ok: false, skippedReason: 'claude_failed' };
   }
@@ -233,6 +235,7 @@ export async function extractDocument(
   const extraction = rawExtractionToData(raw, pagesRead, totalPages);
   await admin.from('document_extractions').upsert({
     org_id: orgId, document_id: documentId, sha256, model, extracted: extraction, status: 'completed',
+    updated_at: new Date().toISOString(),
   }, { onConflict: 'document_id,sha256' });
 
   // Prompt 355 §C — the SAME raw tool-call response, parsed a second way,
