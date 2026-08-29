@@ -4,6 +4,9 @@
 // page reference each — never a free-form summary. Pure and mechanical on
 // purpose, same discipline as company-claims.ts: the SHAPE of what's kept is
 // fixed here, not decided ad hoc by whatever the model happens to return.
+import { truncateAtWord } from './text-truncate';
+import { INTRO_PITCH_MAX } from './investor-interest-level';
+
 export type NamedEntityKind = 'person' | 'company' | 'organization';
 
 export interface ExtractedNamedEntity { name: string; kind: NamedEntityKind; page: number | null }
@@ -19,6 +22,12 @@ export interface DocumentExtractionData {
   amounts: ExtractedAmount[];
   documentReference: string | null;
   isSigned: boolean | null;
+  // Prompt 459 §B — ONLY set when this document is the company's own pitch
+  // material and states its problem/solution in its own words; null for
+  // every other document type (grant agreements, certificates, ...), never
+  // inferred from context.
+  pitchProblem: string | null;
+  pitchSolution: string | null;
   // How much of the source PDF this extraction actually saw — set from the
   // truncation step (pdf-truncate.ts), never from the model's own say-so.
   pagesRead: number;
@@ -91,6 +100,17 @@ export const EXTRACTION_TOOL_SCHEMA = {
     },
     document_reference: { type: 'string', description: 'The document\'s own number/reference/project code, if it has one.' },
     is_signed: { type: 'boolean', description: 'Whether the document appears to be signed (a signature, stamp, or signature block filled in).' },
+    // Prompt 459 §B — optional, never in `required`: most documents this
+    // pipeline reads (grants, certificates, contracts) aren't pitch
+    // material and have no problem/solution statement to report at all.
+    pitch_problem: {
+      type: 'string',
+      description: 'ONLY if this document is the company\'s own pitch material (deck, one-pager, executive summary) and it states, in the company\'s own words, what problem it solves — a short direct statement, under ~240 characters. Omit entirely if this is not pitch material, or if the problem is not clearly and explicitly stated. Never infer or invent it.',
+    },
+    pitch_solution: {
+      type: 'string',
+      description: 'ONLY if this document is the company\'s own pitch material and it states what the company\'s solution/product is, in its own words — under ~240 characters. Same rule as pitch_problem: omit if not clearly stated, never infer.',
+    },
     // Prompt 355 §C — same pass, a second output: a plain-language summary
     // for whoever is EVALUATING this document (an investor), not the
     // structured facts above. Kept in the SAME tool call (one download/
@@ -122,10 +142,22 @@ interface RawExtraction {
   amounts?: unknown;
   document_reference?: unknown;
   is_signed?: unknown;
+  pitch_problem?: unknown;
+  pitch_solution?: unknown;
 }
 
 function pageOf(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+// Prompt 459 §B — a non-empty string is trusted (the tool schema's own
+// description already tells the model when to omit it); truncated the same
+// way a founder-facing suggestion built from it will be, so what's stored
+// is never longer than what could ever actually be shown.
+function pitchField(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const trimmed = v.trim();
+  return trimmed ? (truncateAtWord(trimmed, INTRO_PITCH_MAX) ?? null) : null;
 }
 
 // Never trusts the model to have honored the schema exactly — same defensive
@@ -164,6 +196,8 @@ export function rawExtractionToData(raw: unknown, pagesRead: number, totalPages:
     namedEntities, programs, dates, amounts,
     documentReference: typeof r.document_reference === 'string' ? r.document_reference : null,
     isSigned: typeof r.is_signed === 'boolean' ? r.is_signed : null,
+    pitchProblem: pitchField(r.pitch_problem),
+    pitchSolution: pitchField(r.pitch_solution),
     pagesRead, totalPages, partial: pagesRead < totalPages,
   };
 }

@@ -59,6 +59,51 @@ describe('rawExtractionToData — nunca confia cegamente na forma devolvida pelo
   });
 });
 
+describe('rawExtractionToData — Prompt 459 §B: pitch_problem/pitch_solution', () => {
+  it('mapeia pitch_problem/pitch_solution quando o documento é material de pitch', () => {
+    const data = rawExtractionToData({
+      document_type: 'pitch deck one-pager', named_entities: [], programs: [], dates: [], amounts: [],
+      pitch_problem: 'Founders waste months chasing investors who were never a fit.',
+      pitch_solution: 'We match founders to investors by real sector and stage fit.',
+    }, 1, 1);
+    expect(data.pitchProblem).toBe('Founders waste months chasing investors who were never a fit.');
+    expect(data.pitchSolution).toBe('We match founders to investors by real sector and stage fit.');
+  });
+
+  it('um documento sem conteúdo de pitch (ex.: certificado) nunca inventa pitchProblem/pitchSolution — omissão vira null', () => {
+    const data = rawExtractionToData({ document_type: 'certificate', named_entities: [], programs: [], dates: [], amounts: [] }, 1, 1);
+    expect(data.pitchProblem).toBeNull();
+    expect(data.pitchSolution).toBeNull();
+  });
+
+  it('string vazia ou só espaços vira null, nunca uma string vazia guardada', () => {
+    const data = rawExtractionToData({
+      document_type: 'x', named_entities: [], programs: [], dates: [], amounts: [], pitch_problem: '   ', pitch_solution: '',
+    }, 1, 1);
+    expect(data.pitchProblem).toBeNull();
+    expect(data.pitchSolution).toBeNull();
+  });
+
+  it('um valor não-string (o modelo não respeitou o schema) vira null, nunca rebenta', () => {
+    const data = rawExtractionToData({
+      document_type: 'x', named_entities: [], programs: [], dates: [], amounts: [], pitch_problem: 42, pitch_solution: ['not', 'a', 'string'],
+    }, 1, 1);
+    expect(data.pitchProblem).toBeNull();
+    expect(data.pitchSolution).toBeNull();
+  });
+
+  it('corta em limite de palavra a INTRO_PITCH_MAX (240), nunca a meio de uma palavra', () => {
+    const longProblem = 'word '.repeat(60).trim(); // 60*5-1 = 299 chars, well past 240
+    const data = rawExtractionToData({
+      document_type: 'pitch deck', named_entities: [], programs: [], dates: [], amounts: [], pitch_problem: longProblem,
+    }, 1, 1);
+    expect(data.pitchProblem).not.toBeNull();
+    expect(data.pitchProblem!.length).toBeLessThanOrEqual(240 + 1); // +1 for the trailing '…'
+    expect(data.pitchProblem!.endsWith('…')).toBe(true);
+    expect(data.pitchProblem).not.toContain('wor…'); // never a mid-word cut when a space exists within the limit
+  });
+});
+
 describe('extractionToFacts / programFacts — o pool de comparação para a ligação a claims', () => {
   const extraction = rawExtractionToData({
     document_type: 'grant agreement',

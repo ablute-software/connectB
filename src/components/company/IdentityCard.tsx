@@ -29,6 +29,8 @@ const CURRENT_PHASES: { value: CompanyPhase; label: string }[] = [
   { value: 'growth', label: 'Growth' },
 ];
 
+interface IntroPitchSuggestion { problem?: string; solution?: string; sourceDocumentName: string }
+
 export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; missing: Field[]; flashId: string | null }) {
   const { db, updateOrg } = useStore();
   const org = db.org;
@@ -40,6 +42,7 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
   const [logoSignedUrl, setLogoSignedUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState('');
+  const [suggestion, setSuggestion] = useState<IntroPitchSuggestion | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -47,6 +50,22 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
     browserClient().storage.from('data-room').createSignedUrl(org.logo_url, 3600)
       .then(({ data }) => setLogoSignedUrl(data?.signedUrl ?? null));
   }, [org.logo_url]);
+
+  // Prompt 459 §C — same pattern as MarketThesisSection's own load(): a
+  // real fact already sitting in the founder's Vault extractions, offered
+  // once on mount, never auto-applied.
+  useEffect(() => {
+    fetch('/api/company/intro-pitch-suggestion').then((r) => r.json())
+      .then((body: { available: boolean; suggestion?: IntroPitchSuggestion | null }) => setSuggestion(body.available ? (body.suggestion ?? null) : null))
+      .catch(() => {});
+  }, []);
+
+  // Never suggests over a field that already has a real, saved value —
+  // same per-field rule as 456, evaluated against org (the saved value),
+  // not draft (see pitchInput below for the edit-mode equivalent against
+  // the LIVE draft value).
+  const problemSuggestion = !org.intro_problem?.trim() ? suggestion?.problem : undefined;
+  const solutionSuggestion = !org.intro_solution?.trim() ? suggestion?.solution : undefined;
 
   function startEdit() {
     setDraft({
@@ -67,6 +86,15 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
       other: org.sectors_other ?? null,
     });
     setEditing(true);
+  }
+
+  // Prompt 459 §C — same accept-without-rewriting gesture as Prompt 456:
+  // enters edit mode already filled in for this one field, the founder
+  // reviews and clicks Save like any other manual edit — never saved on
+  // its own.
+  function acceptSuggestion(key: 'intro_problem' | 'intro_solution', value: string) {
+    startEdit();
+    setDraft((prev) => ({ ...prev, [key]: value.slice(0, INTRO_PITCH_MAX) }));
   }
 
   // Prompt 383 — a gate link (Prompt 379 §A) lands here with `flashId` set
@@ -152,6 +180,42 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
     </CompletenessField>
   );
 
+  // Prompt 459 §C — same placeholder + Enter/ArrowRight-at-position-0 + "+"
+  // accept gesture MarketThesisSection.tsx already uses, reused here rather
+  // than a second, drifting interaction pattern. `rawSuggestion` is
+  // re-gated against the LIVE draft value (not org) on every render, so
+  // typing a first character — or accepting the suggestion — makes the
+  // placeholder/icon disappear immediately, the same way Market Thesis's
+  // own fields do.
+  const pitchInput = (key: 'intro_problem' | 'intro_solution', id: string, label: string, examplePlaceholder: string, rawSuggestion: string | undefined) => {
+    const suggested = !draft[key]?.trim() ? rawSuggestion : undefined;
+    return (
+      <CompletenessField id={id} label={label} missing={false} flashing={flashId === id || flashId === 'identity.intro_pitch'}>
+        <div className="relative">
+          <input value={draft[key] ?? ''} maxLength={INTRO_PITCH_MAX}
+            onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+            placeholder={suggested ?? examplePlaceholder}
+            onKeyDown={(e) => {
+              if (!suggested) return;
+              if ((e.key === 'Enter' || e.key === 'ArrowRight') && e.currentTarget.selectionStart === 0 && !draft[key]) {
+                e.preventDefault();
+                setDraft((prev) => ({ ...prev, [key]: suggested.slice(0, INTRO_PITCH_MAX) }));
+              }
+            }}
+            className={`w-full rounded border border-gray-300 px-2 py-1 text-sm ${suggested ? 'pr-7' : ''}`} />
+          {suggested && (
+            <button type="button" onClick={() => setDraft((prev) => ({ ...prev, [key]: suggested.slice(0, INTRO_PITCH_MAX) }))}
+              aria-label="Use suggestion" title={suggested}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-[#0E7490]">
+              +
+            </button>
+          )}
+        </div>
+        <span className="mt-0.5 self-end text-[10px] text-gray-400">{(draft[key] ?? '').length}/{INTRO_PITCH_MAX}</span>
+      </CompletenessField>
+    );
+  };
+
   return (
     <Card title="Identity" right={canEdit && !editing ? <button onClick={startEdit} className="text-xs text-cyan-700 hover:underline">Edit</button> : undefined}>
       {editing ? (
@@ -194,22 +258,10 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
               CompanyPanel's scroll (which looks up `identity.intro_pitch`
               literally) resolves in edit mode too, not only in read mode. */}
           <div id="identity.intro_pitch">
-            <CompletenessField id="identity.intro_problem" label={`Intro pitch — problem (optional, max ${INTRO_PITCH_MAX} characters)`} missing={false}
-              flashing={flashId === 'identity.intro_problem' || flashId === 'identity.intro_pitch'}>
-              <input value={draft.intro_problem ?? ''} maxLength={INTRO_PITCH_MAX}
-                onChange={(e) => setDraft({ ...draft, intro_problem: e.target.value })}
-                placeholder="e.g. Founders waste months chasing investors who were never a fit."
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
-              <span className="mt-0.5 self-end text-[10px] text-gray-400">{(draft.intro_problem ?? '').length}/{INTRO_PITCH_MAX}</span>
-            </CompletenessField>
-            <CompletenessField id="identity.intro_solution" label="Intro pitch — solution (optional)" missing={false}
-              flashing={flashId === 'identity.intro_solution' || flashId === 'identity.intro_pitch'}>
-              <input value={draft.intro_solution ?? ''} maxLength={INTRO_PITCH_MAX}
-                onChange={(e) => setDraft({ ...draft, intro_solution: e.target.value })}
-                placeholder="e.g. We match founders to investors by real sector and stage fit."
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
-              <span className="mt-0.5 self-end text-[10px] text-gray-400">{(draft.intro_solution ?? '').length}/{INTRO_PITCH_MAX}</span>
-            </CompletenessField>
+            {pitchInput('intro_problem', 'identity.intro_problem', `Intro pitch — problem (optional, max ${INTRO_PITCH_MAX} characters)`,
+              'e.g. Founders waste months chasing investors who were never a fit.', suggestion?.problem)}
+            {pitchInput('intro_solution', 'identity.intro_solution', 'Intro pitch — solution (optional)',
+              'e.g. We match founders to investors by real sector and stage fit.', suggestion?.solution)}
           </div>
           <CompletenessField id="identity.description" label="Short description (2-3 sentences)" missing={missingIds.has('identity.description')} flashing={flashId === 'identity.description'}>
             <textarea value={draft.description ?? ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} rows={3}
@@ -288,17 +340,45 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
               whose whole purpose is "you haven't filled this in yet": there
               was no element with this id to scroll to at the one moment it
               was needed. It now always renders, saying plainly what's
-              missing when empty, and responds to a flash. */}
+              missing when empty, and responds to a flash.
+              Prompt 459 §A — "Use Edit above" was inert text, not a link,
+              and only ever showed when BOTH fields were empty (a filled
+              problem with an empty solution had no indication at all). Now
+              a real button per field, independently. §C adds "Use
+              suggestion" next to it when Sherlock found a real candidate in
+              the founder's own Vault documents. */}
           <div id="identity.intro_pitch"
             className={`rounded p-1 text-sm transition-colors duration-700 ${flashId === 'identity.intro_pitch' ? 'bg-amber-50 ring-2 ring-amber-300' : ''}`}>
-            {org.intro_problem && <p className="text-gray-700"><span className="font-semibold text-gray-500">Problem: </span>{org.intro_problem}</p>}
-            {org.intro_solution && <p className="text-gray-700"><span className="font-semibold text-gray-500">Solution: </span>{org.intro_solution}</p>}
-            {!org.intro_problem && !org.intro_solution && (
-              <p className="text-amber-700">
-                Intro pitch (problem &amp; solution) — needed for your MatchDeal mini-pitch.
-                {canEdit && <> Use <span className="font-medium">Edit</span> above to add it.</>}
-              </p>
-            )}
+            {org.intro_problem
+              ? <p className="text-gray-700"><span className="font-semibold text-gray-500">Problem: </span>{org.intro_problem}</p>
+              : canEdit && (
+                <p className="text-amber-700">
+                  Problem statement needed for your MatchDeal mini-pitch.{' '}
+                  <button type="button" onClick={startEdit} className="font-medium underline">Edit</button>
+                  {problemSuggestion && (
+                    <>
+                      {' · '}
+                      <button type="button" onClick={() => acceptSuggestion('intro_problem', problemSuggestion)} className="font-medium underline">Use suggestion</button>
+                      <span className="mt-0.5 block text-[11px] text-amber-600">Sherlock found this in {suggestion?.sourceDocumentName}.</span>
+                    </>
+                  )}
+                </p>
+              )}
+            {org.intro_solution
+              ? <p className="text-gray-700"><span className="font-semibold text-gray-500">Solution: </span>{org.intro_solution}</p>
+              : canEdit && (
+                <p className="text-amber-700">
+                  Solution statement needed for your MatchDeal mini-pitch.{' '}
+                  <button type="button" onClick={startEdit} className="font-medium underline">Edit</button>
+                  {solutionSuggestion && (
+                    <>
+                      {' · '}
+                      <button type="button" onClick={() => acceptSuggestion('intro_solution', solutionSuggestion)} className="font-medium underline">Use suggestion</button>
+                      <span className="mt-0.5 block text-[11px] text-amber-600">Sherlock found this in {suggestion?.sourceDocumentName}.</span>
+                    </>
+                  )}
+                </p>
+              )}
           </div>
           <div id="identity.description" className={`rounded p-1 text-xs transition-colors duration-700 ${flashId === 'identity.description' ? 'bg-amber-50 ring-2 ring-amber-300' : ''}`}>
             {org.description ? <p className="text-gray-500">{org.description}</p> : missingIds.has('identity.description') && (

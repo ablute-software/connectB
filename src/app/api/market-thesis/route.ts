@@ -10,21 +10,11 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { marketThesisAvailable, marketHypothesesAvailable } from '@/lib/market-data-capability';
 import { sanitizeMarketThesisFields, nextMarketThesisVersion, MARKET_THESIS_TEXT_MAX, type MarketThesisFields } from '@/lib/market-thesis';
+import { truncateAtWord } from '@/lib/text-truncate';
 
 async function resolveOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string): Promise<string | null> {
   const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
   return (data?.org_id as string | undefined) ?? null;
-}
-
-// Prompt 457 — description usually runs well past MARKET_THESIS_TEXT_MAX;
-// a suggestion truncated mid-word reads as broken, not helpful. Cuts at
-// the last word boundary within the limit instead.
-function truncateAtWord(text: string | undefined, max: number): string | undefined {
-  if (!text) return undefined;
-  if (text.length <= max) return text;
-  const cut = text.slice(0, max);
-  const lastSpace = cut.lastIndexOf(' ');
-  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim() + '…';
 }
 
 export async function GET() {
