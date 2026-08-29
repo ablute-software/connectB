@@ -12,25 +12,23 @@ import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from './prompt-inje
 import { logAiCall, computeCostEur, type AnthropicUsage } from './ai-cost-log';
 import { providerErrorMessage } from './ai-provider-error';
 import {
-  MAX_EXTRACTION_PAGES, EXTRACTION_TOOL_SCHEMA, SUMMARY_TOOL_SCHEMA, rawExtractionToData, rawExtractionToSummary,
+  MAX_EXTRACTION_PAGES, MAX_DOWNLOAD_BYTES, EXTRACTION_TOOL_SCHEMA, SUMMARY_TOOL_SCHEMA, rawExtractionToData, rawExtractionToSummary,
   type DocumentExtractionData,
 } from './document-extraction';
 import { linkExtractionToClaims } from './document-extraction-linking';
 import { runReconciliationForOrg } from './reconciliation';
 import { gapReconciliationsAvailable } from './document-extraction-capability';
+import { ensureLinkSnapshot } from './document-link-snapshot';
 
+// Prompt 462 §D — a document-link's own read failure (host not allowed,
+// private-address rejection, timeout, not actually a readable PDF once
+// fetched, ...) is reported as one skip reason here — document-link-
+// snapshot.ts's own richer LinkFetchFailure/'not_a_supported_file' detail
+// is already persisted in document_link_snapshots.failure_reason, so it
+// isn't lost, just not threaded through this narrower union too.
 export type ExtractionSkipReason =
-  | 'scan_unavailable' | 'not_found' | 'not_clean' | 'not_pdf' | 'too_large' | 'download_failed' | 'pdf_parse_failed' | 'claude_failed';
-
-// Prompt 313, hardened after adversarial review: gap-assist/route.ts's own
-// MAX_PDF_BYTES (8MB) is sized for CVs specifically; a real legal/grant PDF
-// (the motivating case here is 125 pages) can reasonably be larger, but
-// nothing bounded this path at all before — an oversized "clean" file would
-// still pay for a full pdf-lib parse and an oversized Anthropic request.
-// Checked on the RAW download, before truncation: truncation only bounds
-// PAGE COUNT, not bytes (an image-heavy page stays large), so it can't be
-// relied on to keep the request under Anthropic's own ~32MB base64 ceiling.
-const MAX_DOWNLOAD_BYTES = 30 * 1024 * 1024;
+  | 'scan_unavailable' | 'not_found' | 'not_clean' | 'not_pdf' | 'too_large' | 'download_failed' | 'pdf_parse_failed' | 'claude_failed'
+  | 'link_unreadable';
 
 export interface ExtractionOutcome {
   ok: boolean;
@@ -152,10 +150,27 @@ export async function prepareDocumentForAi(
   if (!(await malwareScanAvailable())) return { ok: false, skippedReason: 'scan_unavailable' };
 
   const { data: doc } = await admin.from('documents')
-    .select('id, name, storage_path, malware_scan_status')
+    .select('id, name, storage_path, malware_scan_status, external_url')
     .eq('id', documentId).eq('org_id', orgId).maybeSingle();
-  const docRow = doc as { id: string; name: string; storage_path: string | null; malware_scan_status: string | null } | null;
-  if (!docRow || !docRow.storage_path) return { ok: false, skippedReason: 'not_found' };
+  const docRow = doc as { id: string; name: string; storage_path: string | null; malware_scan_status: string | null; external_url: string | null } | null;
+  if (!docRow) return { ok: false, skippedReason: 'not_found' };
+
+  if (!docRow.storage_path) {
+    // Prompt 462 §D — a document-link (external_url, never uploaded as a
+    // file) has no storage_path by construction, so it can never pass the
+    // scan-status/`.pdf`-name gates below — those describe an UPLOADED
+    // file that doesn't exist here. ensureLinkSnapshot does the real
+    // equivalent instead: magic-byte detection (detectAllowedKind) on the
+    // actual fetched bytes, the exact same check a 'local_only' upload
+    // passes through. The link's own document name has no extension by
+    // construction (a Drive share title, never a filename) — validating
+    // it here would be validating the wrong thing.
+    if (!docRow.external_url) return { ok: false, skippedReason: 'not_found' };
+    const snapshot = await ensureLinkSnapshot(admin, orgId, documentId);
+    if (!snapshot.ok) return { ok: false, skippedReason: 'link_unreadable' };
+    return { ok: true, prepared: { docRow: { id: docRow.id, name: docRow.name, storage_path: snapshot.storagePath }, bytes: snapshot.bytes, sha256: snapshot.sha256 } };
+  }
+
   // Prompt 375 §D — accepts 'clean' (VT already knew this exact hash) OR
   // 'local_only' (validated locally — magic bytes, declared type matches
   // content, size within limits — never submitted anywhere because it's a

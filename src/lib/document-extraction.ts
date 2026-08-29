@@ -42,6 +42,23 @@ export interface DocumentExtractionData {
 // first pages read to answer "is this signed, who's named, what program".
 export const MAX_EXTRACTION_PAGES = 30;
 
+// Prompt 313, hardened after adversarial review: gap-assist/route.ts's own
+// MAX_PDF_BYTES (8MB) is sized for CVs specifically; a real legal/grant PDF
+// (the motivating case here is 125 pages) can reasonably be larger, but
+// nothing bounded this path at all before — an oversized "clean" file would
+// still pay for a full pdf-lib parse and an oversized Anthropic request.
+// Checked on the RAW download, before truncation: truncation only bounds
+// PAGE COUNT, not bytes (an image-heavy page stays large), so it can't be
+// relied on to keep the request under Anthropic's own ~32MB base64 ceiling.
+//
+// Prompt 462 — moved here (from document-extraction-pipeline.ts) so
+// document-link-snapshot.ts can import the same cap without creating a
+// circular dependency: the pipeline calls INTO document-link-snapshot.ts
+// (prepareDocumentForAi -> ensureLinkSnapshot), so document-link-snapshot.ts
+// can never import back from the pipeline file. This module is the shared,
+// dependency-free home both sides can pull from.
+export const MAX_DOWNLOAD_BYTES = 30 * 1024 * 1024;
+
 // Anthropic tool_use input_schema — plain JSON Schema, no nullable-type
 // unions (no precedent for that in this codebase's other tool schemas).
 // Optional fields are simply left out of `required`; rawExtractionToData
