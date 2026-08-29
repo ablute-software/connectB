@@ -86,6 +86,25 @@ describe('classifyCompetitor', () => {
     const r = relation({ problem: 'NO_MATCH', outcome: 'NO_MATCH', subst: 'NO_MATCH', buyerOrUser: 'NO_MATCH', budget: 'NO_MATCH' });
     expect(classifyCompetitor(r, COMMERCIAL)).toBe('NOT_COMPETITOR');
   });
+
+  // Prompt 453 — fixtures 15 and 16 from that prompt's §B table, numbered
+  // to match it directly (12-14/17 don't apply here: they exercise an
+  // "isIncumbentBehavior"/candidateKind branch that doesn't exist in this
+  // codebase's classifyCompetitor — STATUS_QUO is decided entirely outside
+  // this function, by the statusQuoNote branch of PlayerStructured in
+  // market-research-structured.ts, before classifyCompetitor is ever
+  // called). These two are the ones that actually exercise the fixed
+  // branch: confirming problem alone is never enough to conclude
+  // NOT_COMPETITOR — outcome must ALSO be confirmed NO_MATCH.
+  it('15 — UNRESOLVED: problem confirmed absent, but outcome never investigated (the bug this fix closes)', () => {
+    const r = relation({ problem: 'NO_MATCH', outcome: 'UNKNOWN', subst: 'UNKNOWN', budget: 'UNKNOWN' });
+    expect(classifyCompetitor(r, COMMERCIAL)).toBe('UNRESOLVED');
+  });
+
+  it('16 — NOT_COMPETITOR: problem AND outcome both confirmed negative, substitutability/budget still unresolved', () => {
+    const r = relation({ problem: 'NO_MATCH', outcome: 'NO_MATCH', subst: 'UNKNOWN', budget: 'UNKNOWN' });
+    expect(classifyCompetitor(r, COMMERCIAL)).toBe('NOT_COMPETITOR');
+  });
 });
 
 describe('inferSourceTier', () => {

@@ -124,5 +124,16 @@ export function classifyCompetitor(r: CompetitiveRelation, candidateStage: Candi
   // evidence.
   if (budget === 'YES') return 'BUDGET';
   if (subst === 'YES' || subst === 'PARTIAL') return 'POTENTIAL_ENTRANT';
-  return 'NOT_COMPETITOR';
+  // Prompt 453 — NOT_COMPETITOR is an evidence-backed conclusion, not the
+  // default state when no positive competitive relationship was found.
+  // When the evidence required to exclude plausible competitive
+  // relationships is missing, return UNRESOLVED. Confirming problem alone
+  // is not sufficient exclusion evidence — outcome must ALSO be confirmed
+  // NO_MATCH (e.g. problem=NO_MATCH with outcome/substitutability/budget
+  // all UNKNOWN previously fell through to NOT_COMPETITOR here, treating
+  // "didn't find overlap via the other rescue paths either" as if it were
+  // "confirmed no overlap" — exactly the inversion UNRESOLVED exists to
+  // prevent).
+  if (outcome === 'NO') return 'NOT_COMPETITOR';
+  return 'UNRESOLVED';
 }
