@@ -30,8 +30,20 @@ export interface MarketProposal {
 }
 
 interface RawItemBase { document_index?: unknown; page?: unknown }
-interface RawSizing extends RawItemBase { value?: unknown; currency?: unknown; scope?: unknown; year?: unknown; source_quote?: unknown }
-interface RawGrowth extends RawItemBase { pct?: unknown; period?: unknown }
+// Prompt 466 §B — market_definition/geography/metric/bound/period_start/
+// period_end/as_of_year/methodology: candidate context for the NEW
+// normalization pipeline (market-fact-normalization.ts, not wired to this
+// parser yet — that's Prompt 467). Captured into `structured` below so
+// nothing the model now returns is silently dropped in the meantime, same
+// "never discard in silence" discipline as everything else here.
+interface RawSizing extends RawItemBase {
+  value?: unknown; currency?: unknown; scope?: unknown; year?: unknown; source_quote?: unknown;
+  market_definition?: unknown; geography?: unknown; metric?: unknown; bound?: unknown; as_of_year?: unknown; methodology?: unknown;
+}
+interface RawGrowth extends RawItemBase {
+  pct?: unknown; period?: unknown;
+  market_definition?: unknown; geography?: unknown; metric?: unknown; bound?: unknown; period_start?: unknown; period_end?: unknown; source_quote?: unknown;
+}
 interface RawSegment extends RawItemBase { name?: unknown }
 interface RawCompetitor extends RawItemBase { name?: unknown; country?: unknown; stage?: unknown; note?: unknown }
 interface RawTextItem extends RawItemBase { title?: unknown; detail?: unknown }
@@ -50,6 +62,12 @@ function str(v: unknown): string | null {
 }
 function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+// Prompt 466 §B — the model is instructed (tool schema enum) to only ever
+// emit one of these strings, but raw model output is `unknown` until
+// checked — never trust an enum constraint enforced only on the far side.
+function oneOf<T extends string>(v: unknown, allowed: readonly T[]): T | null {
+  return typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : null;
 }
 function resolveDoc(raw: RawItemBase, docsByIndex: Map<number, MarketDocRef>): { doc: MarketDocRef; page: number | null } | null {
   const idx = num(raw.document_index);
@@ -73,7 +91,16 @@ export function parseMarketExtractionRaw(raw: unknown, docsByIndex: Map<number, 
     out.push({
       section: 'sizing', title: `Market size: ${currency} ${value.toLocaleString()} (${scope}${year ? `, ${year}` : ''})`,
       detail: str(item.source_quote) ?? '', documentId: resolved.doc.id, documentName: resolved.doc.name, page: resolved.page,
-      structured: { valueEur: currency === 'EUR' ? value : null, currency, scope, year },
+      structured: {
+        valueEur: currency === 'EUR' ? value : null, currency, scope, year,
+        // Prompt 466 §B — candidate context for the (not-yet-wired, 467)
+        // normalization pipeline. Captured now so nothing the widened
+        // schema returns is silently dropped in the meantime.
+        marketDefinition: str(item.market_definition), geography: str(item.geography),
+        metric: oneOf(item.metric, ['TAM', 'SAM', 'SOM', 'category', 'other'] as const),
+        bound: oneOf(item.bound, ['point', 'lower', 'upper'] as const),
+        asOfYear: num(item.as_of_year), methodology: oneOf(item.methodology, ['bottom_up', 'external_estimate', 'other'] as const),
+      },
     });
   }
 
@@ -85,7 +112,15 @@ export function parseMarketExtractionRaw(raw: unknown, docsByIndex: Map<number, 
     out.push({
       section: 'growth', title: `Growth: ${pct}%${period ? ` ${period}` : ''}`, detail: '',
       documentId: resolved.doc.id, documentName: resolved.doc.name, page: resolved.page,
-      structured: { pct, period },
+      structured: {
+        pct, period,
+        // Prompt 466 §B — same candidate context as market_size above.
+        marketDefinition: str(item.market_definition), geography: str(item.geography),
+        metric: oneOf(item.metric, ['CAGR', 'annual', 'other'] as const),
+        bound: oneOf(item.bound, ['point', 'lower', 'upper'] as const),
+        periodStart: num(item.period_start), periodEnd: num(item.period_end),
+        sourceQuote: str(item.source_quote),
+      },
     });
   }
 
