@@ -5,7 +5,6 @@
 // row (§0.2 safeguard #3) — this component never decides that itself.
 import { useEffect, useState } from 'react';
 import { isStale } from '@/lib/market-data-gaps';
-import { vaultCitation } from '@/lib/market-rings';
 
 // Prompt 378 §C — a pending 'players' proposal, from either provenance:
 // document_id/page (the Vault extraction pass) or source_url (web research).
@@ -210,6 +209,7 @@ function AddCompetitorForm({ onAdded, prefill }: { onAdded: () => void; prefill?
 export function CompetitorsCard({ onChanged }: { onChanged?: () => void }) {
   const [competitors, setCompetitors] = useState<CompetitorRow[] | null>(null);
   const [playerSuggestions, setPlayerSuggestions] = useState<PlayerSuggestion[]>([]);
+  const [hasActiveHypothesis, setHasActiveHypothesis] = useState(false);
   const [addError, setAddError] = useState('');
 
   function load() {
@@ -224,33 +224,43 @@ export function CompetitorsCard({ onChanged }: { onChanged?: () => void }) {
     // instead of a source_url. Reading them here is what lets the founder
     // review real cards after one "build my portrait" click instead of
     // starting from an empty list.
+    //
+    // Prompt 448 §A — this route now hides pre-445 web `players` items with
+    // no hypothesis_id, so playerSuggestions can legitimately be empty even
+    // when research has been done — it just now lives per-hypothesis
+    // (Market Thesis section) instead of here. §B fetches active-hypothesis
+    // existence separately so the empty state below can tell those two
+    // cases apart.
     fetch('/api/market-data').then((r) => r.json()).then((body) => {
       setPlayerSuggestions(((body.researchItems ?? []) as PlayerSuggestion[]).filter((i) => i.section === 'players'));
+    }).catch(() => {});
+    fetch('/api/market-thesis').then((r) => r.json()).then((body) => {
+      setHasActiveHypothesis(((body.hypotheses ?? []) as unknown[]).length > 0);
     }).catch(() => {});
   }
   useEffect(load, []);
 
-  // Prompt 378 §C — a proposal from a Vault document carries no URL; its
-  // provenance is the document itself, passed as an internal citation
-  // (vaultCitation) so the shared library still records WHERE the fact came
-  // from without ever inventing a link. §0.2's "nothing enters without
-  // provenance" safeguard is satisfied either way.
+  // Prompt 448 §C (client-side counterpart) — this used to derive the
+  // competitor name itself (structured.name with a title-strip fallback)
+  // and write it via a direct /competitors "add" call, THEN separately call
+  // /respond to mark the item accepted. That meant the row was already
+  // created — under whatever name this fallback produced — before /respond
+  // (the endpoint Prompt 448 §C hardens against exactly this) ever got a
+  // say; a bad name could land even with the server-side guard in place,
+  // since the guard's 409 only stopped the item's status from flipping, not
+  // the row that already existed. Routing straight through /respond removes
+  // the duplicate, less-trustworthy code path entirely: naming, dedup
+  // against the shared market_companies library, and the competitorType →
+  // relation mapping all happen once, server-side, in the branch that's
+  // actually guarded.
   async function acceptSuggestionAsCompetitor(item: PlayerSuggestion) {
-    const structuredName = (item.structured as { name?: string } | null)?.name;
-    const name = structuredName ?? item.title.replace(/^Competitor:\s*/i, '').trim();
-    const sourceUrl = item.source_url
-      ?? (item.document_id ? vaultCitation(item.document_id, item.page ?? null) : undefined);
-    const res = await fetch('/api/market-data/competitors', {
+    const res = await fetch('/api/market-data/research/respond', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        action: 'add', name, sourceUrl, description: item.detail || undefined,
-        sourceQuality: item.document_id ? 'founder_document' : 'secondary',
-      }),
+      body: JSON.stringify({ id: item.id, action: 'accept' }),
     });
     const body = await res.json().catch(() => null);
     if (!body?.ok) { setAddError(body?.error ?? 'Could not add this competitor.'); return; }
     setAddError('');
-    await fetch('/api/market-data/research/respond', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: item.id, action: 'accept' }) });
     load();
   }
 
@@ -279,6 +289,17 @@ export function CompetitorsCard({ onChanged }: { onChanged?: () => void }) {
             </div>
           ))}
         </div>
+      )}
+      {/* Prompt 448 §B — same bridge copy ResearchSectionPanel has shown
+          since 445 (MarketDataPanel.tsx), reused verbatim rather than
+          invented fresh: research now runs per hypothesis, so an empty
+          suggestion list with an active hypothesis means "go research
+          there", not "nothing was ever found". */}
+      {playerSuggestions.length === 0 && hasActiveHypothesis && (
+        <p className="text-xs text-gray-500">
+          Research now runs per market hypothesis, grounded on your Market Thesis instead of raw sector tags — open a
+          hypothesis card above (Market Thesis) and research competitors from there.
+        </p>
       )}
       {addError && <p className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-[#B00000]">{addError}</p>}
       {competitors.map((c) => <CompetitorCard key={c.id} c={c} onChanged={load} />)}

@@ -83,19 +83,28 @@ export async function POST(req: Request) {
   // prefix stripped, same fallback CompetitorsCard.tsx's client-side
   // acceptSuggestionAsCompetitor already applies for the identical case.
   if (item.section === 'players') {
-    // Prompt 447 §A — bug confirmed since 445: `structured` has two
-    // different shapes depending on provenance. Document extraction
-    // (market-document-extract.ts's RawCompetitor) writes { name, ... } —
-    // no competitorType. Web research (445's PlayerStructured) writes
-    // { company, competitorType } — no name. Reading only `.name` meant
-    // every web item fell through to the title-strip fallback, which has
-    // no guarantee of producing the right name (a web item's title never
-    // followed the "Competitor: X" convention — that was only ever the
-    // document extraction's own convention).
+    // Prompt 448 §C — `structured` has two different shapes depending on
+    // provenance (document extraction: { name, ... }; web research since
+    // 445: { company, competitorType }), but either way a competitor name
+    // must come from structured data, never from the display title. The
+    // title fallback this branch used to have (Prompt 447 §A) let ~26
+    // pre-445 web items (structured: null) resolve to whatever the title
+    // happened to say — confirmed in production to include wrong names
+    // (FLUIDINOVA, Gazelle Wind Power, ...). An item with no structured
+    // name is unverifiable and stays that way permanently — there is no
+    // path back to add it once this fallback is gone. This is the second
+    // of two independent layers: market-data/route.ts §A already stops
+    // serving these items to the UI at all; this layer refuses them even
+    // if something calls this endpoint directly, bypassing the UI.
     const structured = item.structured as { name?: string; company?: string; competitorType?: PlayerStructured['competitorType'] } | null;
     const structuredName = structured?.name ?? structured?.company;
-    const name = (structuredName ?? item.title.replace(/^Competitor:\s*/i, '')).trim();
-    if (!name) return NextResponse.json({ ok: false, error: 'This item has no competitor name to add.' }, { status: 400 });
+    if (!structuredName) {
+      return NextResponse.json({
+        ok: false,
+        error: 'Cannot accept this suggestion: no structured competitor data behind it. This item predates structured research and can no longer be verified — it stays visible nowhere and cannot be accepted.',
+      }, { status: 409 });
+    }
+    const name = structuredName.trim();
     const sourceUrl = item.source_url ?? (item.document_id ? vaultCitation(item.document_id as string, null) : undefined);
     try {
       await addOrUpdateCompetitor(admin, orgId, {

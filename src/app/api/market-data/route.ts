@@ -106,8 +106,24 @@ export async function GET() {
       // fields (a competitor's exact name, a sizing figure's value/scope/
       // year). The Competitors card uses it to add a card under the real
       // company name rather than re-deriving it from the display title.
+      //
+      // Prompt 448 §A — filtered by valid provenance, not just
+      // hypothesis_id: a bare `hypothesis_id not null` would ALSO hide
+      // legitimate document-sourced items (market-document-extract.ts),
+      // which never have and never will have a hypothesis_id — document
+      // extraction runs per document, not per hypothesis, and always has a
+      // real structured.name from the founder's own upload. This keeps:
+      // everything document-sourced (always), everything post-445 web
+      // research (always has hypothesis_id). Hides: only the ~26 pre-445
+      // web `players` items confirmed in production (structured: null,
+      // hypothesis_id: null, source_kind: 'web') — the exact lot that
+      // resolved to wrong names (FLUIDINOVA, Gazelle Wind Power, etc.) via
+      // the old title fallback. Nothing is deleted — "if it exists it's
+      // authentic" — this route just stops serving that one lot.
       .select('id, section, title, detail, source_url, confidence, status, source_kind, document_id, page, structured')
-      .eq('org_id', orgId).eq('status', 'pending').order('section', { ascending: true });
+      .eq('org_id', orgId).eq('status', 'pending')
+      .or('source_kind.eq.document,hypothesis_id.not.is.null')
+      .order('section', { ascending: true });
     researchItems = data ?? [];
   }
 
