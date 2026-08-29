@@ -37,6 +37,7 @@ import type { MarketThesisFields } from '@/lib/market-thesis';
 import {
   parseStructuredForSection, computeFactStatusForRun, signatureFor, STRUCTURED_REQUIRED_SECTIONS, type StructuredForSection,
 } from '@/lib/market-research-structured';
+import { computeVerdict, type FounderBaseline } from '@/lib/market-assessment-engine';
 
 import { SECTIONS, type Section } from '@/lib/market-research-sections';
 
@@ -254,8 +255,32 @@ async function runResearchPass(
     prepared.map((p) => ({ section: p.section, title: p.title, sourceUrl: p.sourceUrl, structured: p.structured })),
   );
 
+  // Prompt 446 §C — fetched ONCE per run, not per item.
+  // Known limitation, documented as such (same style as 445's own
+  // constraint note): org_market_data is ONE row per org, not per
+  // hypothesis — the founder has only one globally-declared "market size"
+  // and "growth", not one per hypothesis. With 3 active hypotheses, all
+  // three compare against the SAME declared number. Accepted for this
+  // phase; stretching org_market_data to be per-hypothesis is a bigger
+  // schema decision, out of this prompt's scope.
+  const [{ data: orgMarketDataRow }, { data: competitorRows }] = await Promise.all([
+    admin.from('org_market_data').select('market_size_value_eur, growth_pct').eq('org_id', orgId).maybeSingle(),
+    admin.from('org_competitors').select('market_companies(name)').eq('org_id', orgId),
+  ]);
+  const founderBaseline: FounderBaseline = {
+    sizingValueEur: (orgMarketDataRow?.market_size_value_eur as number | null) ?? null,
+    growthPct: (orgMarketDataRow?.growth_pct as number | null) ?? null,
+    knownCompetitorNames: ((competitorRows ?? []) as { market_companies: { name?: string } | null }[])
+      .map((r) => r.market_companies?.name?.trim().toLowerCase())
+      .filter((n): n is string => !!n),
+  };
+
   for (let i = 0; i < prepared.length; i++) {
     const p = prepared[i];
+    const factStatus = factStatusByIndex.get(i) ?? null;
+    // §C — computeVerdict runs alongside computeFactStatusForRun and is
+    // written into the SAME upsert below — never a second update pass.
+    const verdict = factStatus ? computeVerdict(p.section, factStatus, p.structured, founderBaseline) : null;
     // Known limitation, stated plainly: the unique constraint backing this
     // upsert is still (org_id, section, title) — unchanged by migration
     // 0273, which only added hypothesis_id/fact_status as columns, not a
@@ -268,7 +293,12 @@ async function runResearchPass(
     await admin.from('market_research_items').upsert({
       org_id: orgId, hypothesis_id: hypothesis.id, run_signature: signature, section: p.section, title: p.title, detail: p.detail,
       source_url: p.sourceUrl, source_accessed_at: new Date().toISOString(), confidence: p.confidence,
-      structured: p.structured, fact_status: factStatusByIndex.get(i) ?? null,
+      structured: p.structured, fact_status: factStatus,
+      change_class: verdict?.changeClass ?? null, delta_type: verdict?.deltaType ?? null,
+      comparison_baseline: verdict?.comparisonBaseline ?? null,
+      implication_code: verdict?.implication?.code ?? null, implication_scope: verdict?.implication?.scope ?? null,
+      implication_direction: verdict?.implication?.direction ?? null,
+      insight_confidence: verdict?.insightConfidence ?? null, promoted_to_insight: verdict?.promotedToInsight ?? false,
       status: 'pending', updated_at: new Date().toISOString(),
     }, { onConflict: 'org_id,section,title', ignoreDuplicates: true });
   }
