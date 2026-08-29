@@ -4,7 +4,7 @@ import { TEAM_V1 } from '../content/bars/team_v1';
 import { MARKET_V1 } from '../content/bars/market_v1';
 import { PRODUCT_V1 } from '../content/bars/product_v1';
 import { TECHNOLOGY_V1 } from '../content/bars/technology_v1';
-import { sherlockPrep, buildPrepSessions, prepActionForQuestion, type SherlockPrepSources, type PrepQuestionResult } from './sherlock-prep';
+import { sherlockPrep, buildPrepSessions, prepActionForQuestion, WHY_COVERED, type SherlockPrepSources, type PrepQuestionResult } from './sherlock-prep';
 
 const BANKS = [TEAM_V1, MARKET_V1, PRODUCT_V1, TECHNOLOGY_V1];
 
@@ -21,6 +21,33 @@ describe('sherlockPrep — every applicable question has a table entry', () => {
     const phases = ['concept_idea', 'prototype', 'pilot', 'launch_early_adopters', 'growth'] as const;
     for (const phase of phases) {
       expect(() => sherlockPrep(emptySources(), phase)).not.toThrow();
+    }
+  });
+});
+
+// Prompt 452 §B — same discipline as MATCHER_TABLE's own completeness
+// guarantee above: WHY_COVERED can never silently drift out of sync with
+// the real question banks.
+describe('WHY_COVERED — every applicable question has an entry', () => {
+  it('covers every question id across all 4 banks, at the most permissive phase', () => {
+    const ids = BANKS.flatMap((bank) => applicableQuestions(bank, 'growth').map((q) => q.id));
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) {
+      expect(WHY_COVERED[id], `missing WHY_COVERED entry for ${id}`).toBeDefined();
+      expect(WHY_COVERED[id].strong.length).toBeGreaterThan(0);
+    }
+  });
+
+  // Confirmed directly against MATCHER_TABLE (sherlock-prep.ts): these are
+  // the only 4 questions whose weak cell is NONE — weak: null anywhere else
+  // would silently claim a criterion the code doesn't actually check.
+  it('weak is null only for the 4 questions whose MATCHER_TABLE weak cell is NONE', () => {
+    const expectedNullWeak = new Set([
+      'market.regulatory_environment', 'product.retention_stickiness',
+      'tech.validation_reproducibility', 'tech.security_compliance',
+    ]);
+    for (const [id, entry] of Object.entries(WHY_COVERED)) {
+      expect(entry.weak === null, `${id}: weak null-ness mismatch`).toBe(expectedNullWeak.has(id));
     }
   });
 });

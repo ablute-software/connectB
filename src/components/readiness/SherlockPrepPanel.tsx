@@ -13,7 +13,7 @@
 // the question moves itself into "Already covered". No checkbox to lie to.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { prepActionForQuestion, type PrepReport, type PrepQuestionResult, type PrepSession, type PrepEvidenceMatch } from '@/lib/sherlock-prep';
+import { prepActionForQuestion, WHY_COVERED, type PrepReport, type PrepQuestionResult, type PrepSession, type PrepEvidenceMatch } from '@/lib/sherlock-prep';
 import type { BarsAxis } from '@/lib/bars-types';
 
 const AXIS_LABEL: Record<BarsAxis, string> = { team: 'Team', market: 'Market', product: 'Product', technology: 'Technology' };
@@ -76,6 +76,50 @@ function AxisBar({ axis, stats }: { axis: BarsAxis; stats: AxisStats }) {
   );
 }
 
+// Prompt 452 §C — one icon per question, expands to the full evidence list
+// and the criterion it satisfied. sherlockPrep is deliberately
+// deterministic (no AI/semantic matching this phase) — WHY_COVERED is the
+// mechanical rule already encoded in MATCHER_TABLE, in plain language, not
+// a model's reasoning. Never opens the document itself — expand/collapse
+// only.
+function CoveredQuestionRow({ q }: { q: PrepQuestionResult }) {
+  const [expanded, setExpanded] = useState(false);
+  const why = WHY_COVERED[q.questionId];
+  const strongTier = q.matches.filter((m) => m.tier === 'strong' || m.tier === 'transversal');
+  const weakTier = q.matches.filter((m) => m.tier === 'weak');
+  return (
+    <div>
+      <button type="button" onClick={() => setExpanded((e) => !e)} className="flex w-full items-start justify-between gap-2 text-left">
+        <p className="text-xs text-gray-700">{q.question}</p>
+        <span className="shrink-0 text-gray-400">{expanded ? '▴' : '▾'}</span>
+      </button>
+      {!expanded && <p className="mt-0.5 text-[11px] text-gray-400">Covered by: {summarizeMatches(q.matches)}</p>}
+      {expanded && (
+        <div className="mt-1.5 space-y-2 rounded-lg bg-gray-50 p-2.5">
+          {strongTier.length > 0 && (
+            <div>
+              <p className="text-[11px] font-medium text-emerald-700">
+                {strongTier[0].tier === 'transversal' && !why?.strong.startsWith('No dedicated') ? 'Directly answers this:' : why?.strong ?? 'Directly answers this:'}
+              </p>
+              <ul className="mt-0.5 space-y-0.5">
+                {strongTier.map((m) => <li key={`${m.source}:${m.id}`} className="text-[11px] text-gray-600">· {SOURCE_NOUN[m.source] ?? m.source}: {m.label}</li>)}
+              </ul>
+            </div>
+          )}
+          {weakTier.length > 0 && (
+            <div>
+              <p className="text-[11px] font-medium text-gray-500">{why?.weak ?? 'Also on file:'}</p>
+              <ul className="mt-0.5 space-y-0.5">
+                {weakTier.map((m) => <li key={`${m.source}:${m.id}`} className="text-[11px] text-gray-600">· {SOURCE_NOUN[m.source] ?? m.source}: {m.label}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CoveredSection({ covered }: { covered: PrepQuestionResult[] }) {
   const [open, setOpen] = useState(false);
   if (covered.length === 0) return null;
@@ -87,12 +131,7 @@ function CoveredSection({ covered }: { covered: PrepQuestionResult[] }) {
       </button>
       {open && (
         <div className="space-y-2.5 border-t border-gray-100 px-4 py-3">
-          {covered.map((q) => (
-            <div key={q.questionId}>
-              <p className="text-xs text-gray-700">{q.question}</p>
-              <p className="mt-0.5 text-[11px] text-gray-400">Covered by: {summarizeMatches(q.matches)}</p>
-            </div>
-          ))}
+          {covered.map((q) => <CoveredQuestionRow key={q.questionId} q={q} />)}
         </div>
       )}
     </div>

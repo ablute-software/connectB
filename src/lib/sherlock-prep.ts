@@ -23,7 +23,13 @@ export type PrepState = 'covered' | 'weak' | 'missing';
 export type PrepEvidenceSource =
   | 'claim' | 'document' | 'traction' | 'roadmap' | 'people' | 'market' | 'funding' | 'cap_table' | 'clarification';
 
-export interface PrepEvidenceMatch { source: PrepEvidenceSource; id: string; label: string }
+// Prompt 452 §A — which of the three groups a match came from, so the UI
+// can show the founder the actual criterion satisfied instead of a single
+// undifferentiated list. Stamped at the point strongMatches/transversal/
+// weakMatches are joined (the tag() helper below) — the matchers
+// themselves never know their own tier.
+export type PrepMatchTier = 'strong' | 'transversal' | 'weak';
+export interface PrepEvidenceMatch { source: PrepEvidenceSource; id: string; label: string; tier: PrepMatchTier }
 
 export interface PrepQuestionResult {
   questionId: string;
@@ -66,11 +72,11 @@ export interface SherlockPrepSources {
 // row.strong.claimCategories / row.weak.claimCategories straight off the
 // table entry for the transversal document_refs rule below, instead of a
 // second, hand-maintained category list per question.
-type Matcher = ((sources: SherlockPrepSources) => PrepEvidenceMatch[]) & { claimCategories?: ClaimCategory[] };
+type Matcher = ((sources: SherlockPrepSources) => Omit<PrepEvidenceMatch, 'tier'>[]) & { claimCategories?: ClaimCategory[] };
 
-function dedupeMatches(matches: PrepEvidenceMatch[]): PrepEvidenceMatch[] {
+function dedupeMatches<T extends { source: PrepEvidenceSource; id: string }>(matches: T[]): T[] {
   const seen = new Set<string>();
-  const out: PrepEvidenceMatch[] = [];
+  const out: T[] = [];
   for (const m of matches) {
     const key = `${m.source}:${m.id}`;
     if (seen.has(key)) continue;
@@ -79,6 +85,10 @@ function dedupeMatches(matches: PrepEvidenceMatch[]): PrepEvidenceMatch[] {
   }
   return out;
 }
+
+// Prompt 452 §A — stamps a tier onto a batch of tier-less matcher results
+// at the join point, never inside the matchers themselves.
+const tag = (arr: Omit<PrepEvidenceMatch, 'tier'>[], tier: PrepMatchTier): PrepEvidenceMatch[] => arr.map((m) => ({ ...m, tier }));
 
 export function claimsIn(cats: ClaimCategory[], opts?: { maxClass?: number; pattern?: RegExp; requireDocumentRefs?: boolean }): Matcher {
   const matcher: Matcher = (sources) => sources.claims
@@ -301,7 +311,7 @@ const BANKS: { axis: BarsAxis; bank: BarsBank }[] = [
 ];
 const AXIS_ORDER: BarsAxis[] = BANKS.map((b) => b.axis);
 
-function transversalMatches(sources: SherlockPrepSources, categories: ClaimCategory[]): PrepEvidenceMatch[] {
+function transversalMatches(sources: SherlockPrepSources, categories: ClaimCategory[]): Omit<PrepEvidenceMatch, 'tier'>[] {
   if (categories.length === 0) return [];
   const unique = [...new Set(categories)];
   return sources.claims
@@ -324,12 +334,18 @@ export function sherlockPrep(sources: SherlockPrepSources, companyPhase: Company
         ? 'covered'
         : weakMatches.length > 0 ? 'weak' : 'missing';
 
+      // Prompt 452 §A — order preserved (strong first): a match appearing
+      // in two groups (e.g. a claim that's both strong AND transversal)
+      // gets tagged with the stronger of the two, since dedupeMatches keeps
+      // the FIRST occurrence.
+      const matches = dedupeMatches([...tag(strongMatches, 'strong'), ...tag(transversal, 'transversal'), ...tag(weakMatches, 'weak')]);
+
       perQuestion.push({
         questionId: q.id,
         axis,
         question: q.question,
         state,
-        matches: dedupeMatches([...strongMatches, ...transversal, ...weakMatches]),
+        matches,
         whatGreatLooksLike: q.anchors.l5b ? `${q.anchors.l5} / ${q.anchors.l5b}` : q.anchors.l5,
       });
     }
@@ -446,3 +462,61 @@ const PREP_ACTIONS: Record<string, PrepAction> = {
 export function prepActionForQuestion(questionId: string): PrepAction {
   return PREP_ACTIONS[questionId];
 }
+
+// ---------------------------------------------------------------------------
+// Prompt 452 §B — the criterion behind each "covered" verdict, in plain
+// language, for the founder to read next to the evidence itself. sherlockPrep
+// is deliberately deterministic (§0's own header: "No AI/semantic matching
+// in this phase") — there is no model reasoning to surface, only the
+// mechanical rule already encoded in MATCHER_TABLE above. Each sentence is
+// derived line by line from that table — never stronger or vaguer than the
+// actual matcher — and is exactly as true or as limited as the code it
+// describes. `weak: null` only where MATCHER_TABLE's own weak cell is NONE
+// (confirmed against the real table, not assumed): market.
+// regulatory_environment, product.retention_stickiness, tech.
+// validation_reproducibility, tech.security_compliance.
+export const WHY_COVERED: Record<string, { strong: string; weak: string | null }> = {
+  'team.founder_opportunity_fit': { strong: 'A CV, bio, or founder-focused document is in your Vault.', weak: 'A founder profile has a bio, or an accepted team claim exists.' },
+  'team.complementarity': { strong: 'At least two founders have distinct titles on file.', weak: 'An accepted team claim exists.' },
+  'team.technical_capability': { strong: 'A CV or technical/engineering-focused document is in your Vault.', weak: 'An accepted team or technical-proof claim exists.' },
+  'team.commercial_capability': { strong: 'A traction metric about sales, revenue, customers, or pipeline is on file.', weak: 'An accepted team or go-to-market claim exists.' },
+  'team.commitment': { strong: 'An employment, vesting, or dedication document is in your Vault.', weak: 'An accepted team claim states full-time commitment.' },
+  'team.entrepreneurial_track': { strong: 'A document-backed team claim (strong evidence class) is accepted.', weak: 'A founder profile has a bio.' },
+  'team.execution_velocity': { strong: 'A roadmap item AND a traction metric are both on file.', weak: 'A roadmap item is on file.' },
+  'team.learning_adaptability': { strong: 'No dedicated strong check — only reachable via a document-backed team claim (see below).', weak: 'A clarification is on file.' },
+  'team.leadership_recruiting': { strong: 'An org chart, hiring plan, or team plan is in your Vault.', weak: 'At least 3 people are on the team roster.' },
+  'team.governance_readiness': { strong: 'A cap table entry AND a shareholder/governance document (Articles, SHA) are both on file.', weak: 'A cap table entry is on file.' },
+  'team.key_person_dependency': { strong: 'A succession, handbook, or process document is in your Vault.', weak: 'At least 2 people are on the team roster.' },
+
+  'market.size_credibility': { strong: 'Market data (TAM/SAM/SOM) or a market-sizing document is on file.', weak: 'An accepted market/timing claim exists.' },
+  'market.growth_trajectory': { strong: 'A market trend/driver is on file in Market data.', weak: 'An accepted market/timing claim exists.' },
+  'market.buyer_urgency': { strong: 'A survey, interview, or letter-of-intent document is in your Vault.', weak: 'An accepted problem-evidence claim exists.' },
+  'market.competitive_intensity': { strong: 'At least one tracked competitor is on file in Market data.', weak: 'An accepted market or solution claim exists.' },
+  'market.differentiation_space': { strong: 'A tracked competitor AND an accepted solution claim are both on file.', weak: 'An accepted solution claim exists.' },
+  'market.timing_why_now': { strong: 'An accepted market/timing claim is backed by a linked document.', weak: 'An accepted market/timing claim exists.' },
+  'market.accessibility': { strong: 'A go-to-market/channel document, or a strong go-to-market claim, is on file.', weak: 'An accepted go-to-market claim exists.' },
+  'market.regulatory_environment': { strong: 'A regulatory document (MDR, CE mark, compliance) or a regulatory note in Market data is on file.', weak: null },
+  'market.barriers_entry': { strong: 'A patent or IP document is in your Vault.', weak: 'An accepted solution or technical-proof claim exists.' },
+
+  'product.problem_evidence': { strong: 'A survey, interview, or clinical study document is on file, or a problem claim is backed by a linked document.', weak: 'An accepted problem claim exists.' },
+  'product.maturity': { strong: 'A demo, prototype, MVP, or video is in your Vault.', weak: 'An accepted technical-proof claim exists.' },
+  'product.value_delivered': { strong: 'A traction metric AND a pilot/case-study/LOI document are both on file.', weak: 'An accepted go-to-market claim exists.' },
+  'product.time_to_value': { strong: 'An onboarding, implementation, or pilot-plan document is in your Vault.', weak: 'An accepted solution claim exists.' },
+  'product.adoption_engagement': { strong: 'A traction metric about users, usage, or engagement is on file.', weak: 'Any traction metric is on file.' },
+  'product.retention_stickiness': { strong: 'A traction metric about retention, churn, or renewal is on file.', weak: null },
+  'product.pmf_market_pull': { strong: 'A strong accepted go-to-market claim exists.', weak: 'An accepted go-to-market claim exists.' },
+  'product.delivery_repeatability': { strong: 'An SOP, process, or implementation document is in your Vault.', weak: 'A roadmap item is on file.' },
+  'product.pricing_power': { strong: 'A pricing or financial-model document is in your Vault.', weak: 'An accepted go-to-market claim exists.' },
+  'product.switching_costs': { strong: 'An integration or contract document is in your Vault.', weak: 'An accepted solution claim exists.' },
+
+  'tech.novelty': { strong: 'A patent or publication document is in your Vault.', weak: 'An accepted technical-proof claim exists.' },
+  'tech.performance_advantage': { strong: 'A benchmark, validation, or results document is in your Vault.', weak: 'An accepted technical-proof claim exists.' },
+  'tech.maturity_trl': { strong: 'A prototype, demo, TRL, or pilot document is in your Vault.', weak: 'An accepted technical-proof claim exists.' },
+  'tech.validation_reproducibility': { strong: 'A publication, peer-reviewed, or clinical study document is on file.', weak: null },
+  'tech.replicability': { strong: 'A patent or trade-secret document is in your Vault.', weak: 'An accepted technical-proof claim exists.' },
+  'tech.ip_position': { strong: 'A patent/trademark document, or a document whose extraction found a named program or award, is on file.', weak: 'An accepted external-validation claim exists.' },
+  'tech.scalability_economics': { strong: 'A financial model or unit-economics document is in your Vault.', weak: 'An accepted solution claim exists.' },
+  'tech.dependencies': { strong: 'A supplier, vendor, or license document is in your Vault.', weak: 'An accepted technical-proof claim exists.' },
+  'tech.security_compliance': { strong: 'A GDPR, ISO, SOC 2, or data-protection document is on file.', weak: null },
+  'tech.remaining_technical_risk': { strong: 'A risk or technical-roadmap document is in your Vault.', weak: 'A roadmap item is on file.' },
+};
