@@ -45,3 +45,14 @@ export const marketGroupsVisibilityAvailable = makeCapabilityProbe(async (admin)
   const { error } = await admin.from('orgs').select('market_groups_visible_to_investors').limit(1);
   return !error;
 });
+
+// Prompt 444 §A/§B — migration 0272's two new tables.
+export const marketThesisAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('org_market_thesis').select('org_id').limit(1);
+  return !error;
+});
+
+export const marketHypothesesAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('org_market_hypotheses').select('id').limit(1);
+  return !error;
+});

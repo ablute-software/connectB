@@ -47,6 +47,7 @@ import { InvestorLensCard } from './market/InvestorLensCard';
 import { MarketPublishToggle } from './market/MarketPublishToggle';
 import { SectionResearchButton, SECTION_LABEL as RESEARCH_SECTION_LABEL, SECTIONS, type Section, type SectionOutcome } from './market/SectionResearchButtons';
 import { MarketPortraitCard } from './market/MarketPortraitCard';
+import { MarketThesisSection } from './market/MarketThesisSection';
 import { PORTRAIT_DOC_HEURISTIC, MAX_PORTRAIT_DOCS } from '@/lib/market-portrait';
 
 interface Gate { eligible: boolean; missing: { key: string; label: string; href: string }[] }
@@ -221,6 +222,12 @@ export function MarketDataPanel() {
         Closed by default — nothing here reaches an investor until you publish it, group by group, below. Everything you
         publish shows exactly as you see it, sources included.
       </p>
+
+      {/* Prompt 444 §F — above everything else, and deliberately outside
+          the gate.eligible frost below: filling this in is often itself
+          the missing basic, so it can't sit behind the gate it helps
+          unlock. */}
+      <MarketThesisSection />
 
       {gate.eligible && (
         <div className="flex overflow-hidden rounded-lg border border-gray-200 text-xs">
