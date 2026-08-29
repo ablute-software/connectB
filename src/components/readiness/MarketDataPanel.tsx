@@ -45,7 +45,7 @@ import { ComparableRoundsCard } from './market/ComparableRoundsCard';
 import { InvestorBridgeCard } from './market/InvestorBridgeCard';
 import { InvestorLensCard } from './market/InvestorLensCard';
 import { MarketPublishToggle } from './market/MarketPublishToggle';
-import { SectionResearchButton, SECTION_LABEL as RESEARCH_SECTION_LABEL, SECTIONS, type Section, type SectionOutcome } from './market/SectionResearchButtons';
+import { SECTION_LABEL as RESEARCH_SECTION_LABEL, type Section, type SectionOutcome } from './market/SectionResearchButtons';
 import { MarketPortraitCard } from './market/MarketPortraitCard';
 import { MarketThesisSection } from './market/MarketThesisSection';
 import { PORTRAIT_DOC_HEURISTIC, MAX_PORTRAIT_DOCS } from '@/lib/market-portrait';
@@ -113,7 +113,7 @@ export function MarketDataPanel() {
   // resolution, so a founder who publishes their first ring mid-session
   // isn't yanked out of the tab they're actively working in.
   const [view, setView] = useState<'analysis' | 'research' | null>(null);
-  const [researchKey, setResearchKey] = useState<ResearchMenuKey>(SECTIONS[0]);
+  const [researchKey, setResearchKey] = useState<ResearchMenuKey>('documents');
 
   function load() {
     fetch('/api/market-data').then((r) => r.json()).then((body) => {
@@ -369,8 +369,14 @@ function ResearchMenu({ researchKey, setResearchKey, pendingBySection, pendingDo
   researchKey: ResearchMenuKey; setResearchKey: (k: ResearchMenuKey) => void;
   pendingBySection: Record<Section, number>; pendingDocuments: number;
 }) {
+  // Prompt 458 §B — the other 5 SECTIONS (definition/sizing/growth/trends/
+  // regulatory) never did anything here beyond ResearchSectionPanel's own
+  // static pointer back to Market Thesis, ever since Prompt 445 moved
+  // per-section research under each hypothesis card there — dropped from
+  // this menu instead of staying as dead-end buttons. players/rounds keep
+  // their entries, unchanged.
   const items: { key: ResearchMenuKey; label: string; badge?: number }[] = [
-    ...SECTIONS.map((s) => ({ key: s, label: RESEARCH_SECTION_LABEL[s], badge: pendingBySection[s] || undefined })),
+    ...(['players', 'rounds'] as const).map((s) => ({ key: s, label: RESEARCH_SECTION_LABEL[s], badge: pendingBySection[s] || undefined })),
     { key: 'documents' as const, label: 'From your documents', badge: pendingDocuments || undefined },
     { key: 'added' as const, label: 'Added by you' },
   ];
@@ -433,6 +439,10 @@ function ResearchView(props: {
 // items list moved to live under each hypothesis card in Market Thesis
 // (MarketThesisSection.tsx) — this panel points there instead of running
 // a search it no longer has a valid target for.
+//
+// Prompt 458 §B — only reachable for 'players'/'rounds' now: ResearchMenu
+// stopped offering the other 5 sections a button at all, since they never
+// did anything here but show this same pointer.
 function ResearchSectionPanel({ section }: { section: Section }) {
   return (
     <Card title={<span className="inline-flex items-center gap-2">{RESEARCH_SECTION_LABEL[section]} <PlanBadge tier="motherfunding" /></span>}>

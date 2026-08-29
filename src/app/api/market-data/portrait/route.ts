@@ -19,7 +19,17 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { orgCompetitorsAvailable, orgMarketRingsAvailable } from '@/lib/market-data-capability';
-import { pickPortraitDocuments } from '@/lib/market-portrait';
+import { pickPortraitDocuments, MAX_PORTRAIT_DOCS } from '@/lib/market-portrait';
+
+// Prompt 458 §A.3 — a genuine platform timeout (Vercel killed document-
+// extract mid-flight) looks nothing like one of ITS OWN failures: every
+// return path in that route is a real NextResponse.json(...), so a thrown
+// fetch or a non-JSON body can only mean the platform cut it off, never an
+// application-level reason. Retrying the exact same document selection
+// just times out again — the honest fix is fewer documents, via the same
+// explicit documentIds this route already accepts.
+const DOCUMENT_TIMEOUT_MESSAGE = 'Reading your documents took too long to finish on the server — pick a smaller, '
+  + 'specific set with "Read my documents" below instead of repeating this exact selection (it will hit the same limit again).';
 
 // The extraction pass this calls is itself maxDuration=60; this wrapper
 // adds the rings/competitor proposal work on top, so it needs its own
@@ -47,7 +57,11 @@ export async function POST(req: Request) {
   // otherwise the same name/folder heuristic the "Read my documents" picker
   // already pre-selects with — never a silent full-Vault sweep (cost).
   const body = await req.json().catch(() => ({})) as { documentIds?: string[] };
-  let documentIds = [...new Set(body.documentIds ?? [])];
+  // Prompt 458 §A.2 — the same ceiling applies whether the founder picked
+  // documents explicitly or we fall back to the auto-pick heuristic below
+  // (which already respects it internally) — one constant, not a second
+  // independently-defined cap drifting out of sync with it.
+  let documentIds = [...new Set(body.documentIds ?? [])].slice(0, MAX_PORTRAIT_DOCS);
   if (documentIds.length === 0) {
     const [{ data: docRows }, { data: folderRows }] = await Promise.all([
       admin.from('documents').select('id, name, folder_id').eq('org_id', orgId),
@@ -74,43 +88,48 @@ export async function POST(req: Request) {
       method: 'POST', headers: { 'content-type': 'application/json', cookie },
       body: JSON.stringify({ documentIds }),
     });
-    extractBody = await res.json().catch(() => ({ ok: false, error: 'The document pass returned an unreadable response.' }));
-  } catch (e) {
-    return NextResponse.json({ ok: false, error: `Could not read your documents: ${(e as Error).message}` });
+    let unreadable = false;
+    extractBody = await res.json().catch(() => { unreadable = true; return { ok: false }; });
+    if (unreadable) return NextResponse.json({ ok: false, error: DOCUMENT_TIMEOUT_MESSAGE });
+  } catch {
+    return NextResponse.json({ ok: false, error: DOCUMENT_TIMEOUT_MESSAGE });
   }
   if (!extractBody.ok) {
     return NextResponse.json({ ok: false, error: extractBody.error ?? 'Could not read your documents — try again.' });
   }
 
-  // Step 2 — propose rings from whatever sizing facts that pass produced.
-  // A `needsPortrait` answer here means the documents genuinely contained no
-  // sizing figure: honest, and distinct from "the button did nothing".
-  let ringsProposed = 0;
-  let ringsNote: string | null = null;
-  if (await orgMarketRingsAvailable()) {
-    try {
-      const res = await fetch(`${origin}/api/market-data/rings`, {
-        method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ action: 'propose' }),
-      });
-      const ringsBody = await res.json().catch(() => ({}));
-      if (ringsBody.ok) ringsProposed = (ringsBody.rings ?? []).length;
-      else ringsNote = 'No market size figure found in those documents — the rings stay empty rather than showing an invented number.';
-    } catch {
-      ringsNote = 'Rings could not be proposed just now — your documents were still read successfully.';
-    }
-  }
-
-  // Step 3 (§C) — competitor proposals already exist as pending
-  // market_research_items rows in the 'players' section from step 1; the
-  // Competitors card renders them as one-click "Add" cards. Counted here so
-  // the founder sees what the single click actually produced.
-  let competitorsProposed = 0;
-  if (await orgCompetitorsAvailable()) {
-    const { count } = await admin.from('market_research_items')
-      .select('id', { count: 'exact', head: true })
-      .eq('org_id', orgId).eq('section', 'players').eq('status', 'pending');
-    competitorsProposed = count ?? 0;
-  }
+  // Step 2 (rings) and step 3 (§C, competitor count) — Prompt 458 §A.1:
+  // neither depends on the other, only both on step 1 above, so they run
+  // in parallel instead of adding their own latency serially on top of it.
+  const [{ ringsProposed, ringsNote }, competitorsProposed] = await Promise.all([
+    (async (): Promise<{ ringsProposed: number; ringsNote: string | null }> => {
+      // Propose rings from whatever sizing facts that pass produced. A
+      // `needsPortrait` answer here means the documents genuinely contained
+      // no sizing figure: honest, and distinct from "the button did nothing".
+      if (!(await orgMarketRingsAvailable())) return { ringsProposed: 0, ringsNote: null };
+      try {
+        const res = await fetch(`${origin}/api/market-data/rings`, {
+          method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ action: 'propose' }),
+        });
+        const ringsBody = await res.json().catch(() => ({}));
+        if (ringsBody.ok) return { ringsProposed: (ringsBody.rings ?? []).length, ringsNote: null };
+        return { ringsProposed: 0, ringsNote: 'No market size figure found in those documents — the rings stay empty rather than showing an invented number.' };
+      } catch {
+        return { ringsProposed: 0, ringsNote: 'Rings could not be proposed just now — your documents were still read successfully.' };
+      }
+    })(),
+    (async (): Promise<number> => {
+      // Competitor proposals already exist as pending market_research_items
+      // rows in the 'players' section from step 1; the Competitors card
+      // renders them as one-click "Add" cards. Counted here so the founder
+      // sees what the single click actually produced.
+      if (!(await orgCompetitorsAvailable())) return 0;
+      const { count } = await admin.from('market_research_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('org_id', orgId).eq('section', 'players').eq('status', 'pending');
+      return count ?? 0;
+    })(),
+  ]);
 
   return NextResponse.json({
     ok: true,
