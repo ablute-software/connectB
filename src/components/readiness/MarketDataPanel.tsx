@@ -36,7 +36,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
-import { PlanBadge } from '@/components/PlanBadge';
 import { browserClient } from '@/lib/supabase';
 import { marketDataEmptyState } from '@/lib/market-data-gate';
 import { MarketRingsCard } from './market/MarketRingsCard';
@@ -45,7 +44,7 @@ import { ComparableRoundsCard } from './market/ComparableRoundsCard';
 import { InvestorBridgeCard } from './market/InvestorBridgeCard';
 import { InvestorLensCard } from './market/InvestorLensCard';
 import { MarketPublishToggle } from './market/MarketPublishToggle';
-import { SECTION_LABEL as RESEARCH_SECTION_LABEL, type Section, type SectionOutcome } from './market/SectionResearchButtons';
+import { type SectionOutcome } from './market/SectionResearchButtons';
 import { MarketPortraitCard } from './market/MarketPortraitCard';
 import { MarketThesisSection } from './market/MarketThesisSection';
 import { PORTRAIT_DOC_HEURISTIC, MAX_PORTRAIT_DOCS } from '@/lib/market-portrait';
@@ -81,7 +80,11 @@ const BLANK_ADDED: AddedByYou = {
 const DOC_PRESELECT_HEURISTIC = PORTRAIT_DOC_HEURISTIC;
 const MAX_DOCUMENT_PASS = MAX_PORTRAIT_DOCS;
 
-type ResearchMenuKey = Section | 'documents' | 'added';
+// Prompt 460 — narrowed from `Section | 'documents' | 'added'`: with
+// players/rounds gone from ResearchMenu too (§A), nothing can ever set
+// this to a Section value anymore — a wider type here would describe
+// states the UI can no longer reach.
+type ResearchMenuKey = 'documents' | 'added';
 
 export function MarketDataPanel() {
   const [gate, setGate] = useState<Gate | null>(null);
@@ -199,18 +202,6 @@ export function MarketDataPanel() {
     } finally { setBusyId(null); }
   }
 
-  // Prompt 384 §C.1 — per-section pending count, same scope the old single
-  // "Sherlock research" card used (web-sourced items only — document-
-  // sourced ones live under "From your documents" instead, never double-
-  // counted in both places).
-  const pendingBySection = useMemo(() => {
-    const counts: Record<Section, number> = { definition: 0, sizing: 0, growth: 0, players: 0, rounds: 0, trends: 0, regulatory: 0 };
-    for (const item of researchItems ?? []) {
-      if (item.source_kind === 'document') continue;
-      if ((counts as Record<string, number>)[item.section] != null) (counts as Record<string, number>)[item.section] += 1;
-    }
-    return counts;
-  }, [researchItems]);
   const pendingDocuments = useMemo(() => (researchItems ?? []).filter((i) => i.source_kind === 'document').length, [researchItems]);
 
   if (notAvailable) return <p className="text-sm text-gray-400">Not available in this workspace yet.</p>;
@@ -267,7 +258,7 @@ export function MarketDataPanel() {
           ) : (
             <ResearchView
               researchKey={researchKey} setResearchKey={setResearchKey}
-              pendingBySection={pendingBySection} pendingDocuments={pendingDocuments}
+              pendingDocuments={pendingDocuments}
               ringCount={ringCount} competitorCount={competitorCount} load={load}
               docs={docs} docCounts={docCounts} researchItems={researchItems}
               pickerOpen={pickerOpen} openPicker={openPicker} setPickerOpen={setPickerOpen}
@@ -365,18 +356,17 @@ function MarketAnalysisView({ added, setAdded, savingAdded, saveAdded, ringCount
 // desktop — but selection-driven rather than scrollspy: the content column
 // only ever renders the ONE active section, per §C.2's own "conteúdo à
 // direita, uma secção de cada vez").
-function ResearchMenu({ researchKey, setResearchKey, pendingBySection, pendingDocuments }: {
+function ResearchMenu({ researchKey, setResearchKey, pendingDocuments }: {
   researchKey: ResearchMenuKey; setResearchKey: (k: ResearchMenuKey) => void;
-  pendingBySection: Record<Section, number>; pendingDocuments: number;
+  pendingDocuments: number;
 }) {
-  // Prompt 458 §B — the other 5 SECTIONS (definition/sizing/growth/trends/
-  // regulatory) never did anything here beyond ResearchSectionPanel's own
-  // static pointer back to Market Thesis, ever since Prompt 445 moved
-  // per-section research under each hypothesis card there — dropped from
-  // this menu instead of staying as dead-end buttons. players/rounds keep
-  // their entries, unchanged.
+  // Prompt 460 — players/rounds dropped too: like the other 5 sections
+  // removed in 458, they had no real content of their own in THIS menu —
+  // CompetitorsCard/ComparableRoundsCard live in the separate Market
+  // analysis tab. MarketThesisSection (always visible above this tab) is
+  // the one real path to research for all 7 sections; this menu is now
+  // only ever the two panels with actual content here.
   const items: { key: ResearchMenuKey; label: string; badge?: number }[] = [
-    ...(['players', 'rounds'] as const).map((s) => ({ key: s, label: RESEARCH_SECTION_LABEL[s], badge: pendingBySection[s] || undefined })),
     { key: 'documents' as const, label: 'From your documents', badge: pendingDocuments || undefined },
     { key: 'added' as const, label: 'Added by you' },
   ];
@@ -405,7 +395,7 @@ const SECTION_LABEL: Record<string, string> = {
 
 function ResearchView(props: {
   researchKey: ResearchMenuKey; setResearchKey: (k: ResearchMenuKey) => void;
-  pendingBySection: Record<Section, number>; pendingDocuments: number;
+  pendingDocuments: number;
   ringCount: number | null; competitorCount: number | null; load: () => void;
   docs: DocItem[]; docCounts: DocCounts | null; researchItems: ResearchItem[] | null;
   pickerOpen: boolean; openPicker: () => void; setPickerOpen: (v: boolean) => void;
@@ -415,42 +405,19 @@ function ResearchView(props: {
   busyId: string | null; respond: (id: string, action: 'accept' | 'reject') => void;
   sectionOutcome: SectionOutcome | null; setSectionOutcome: (o: SectionOutcome | null) => void;
 }) {
-  const { researchKey, setResearchKey, pendingBySection, pendingDocuments, load } = props;
+  const { researchKey, setResearchKey, pendingDocuments, load } = props;
   return (
     <div className="space-y-4">
       <MarketPortraitCard coldStart={props.ringCount === 0 && props.competitorCount === 0} onDone={load} />
 
       <div className="flex flex-col gap-4 lg:flex-row">
-        <ResearchMenu researchKey={researchKey} setResearchKey={setResearchKey} pendingBySection={pendingBySection} pendingDocuments={pendingDocuments} />
+        <ResearchMenu researchKey={researchKey} setResearchKey={setResearchKey} pendingDocuments={pendingDocuments} />
         <div className="min-w-0 flex-1">
           {researchKey === 'documents' ? <FromYourDocumentsPanel {...props} />
-            : researchKey === 'added' ? <AddedByYouPanel added={props.added} setAdded={props.setAdded} savingAdded={props.savingAdded} saveAdded={props.saveAdded} />
-              : <ResearchSectionPanel section={researchKey} />}
+            : <AddedByYouPanel added={props.added} setAdded={props.setAdded} savingAdded={props.savingAdded} saveAdded={props.saveAdded} />}
         </div>
       </div>
     </div>
-  );
-}
-
-// Prompt 445 §A/§G — this panel used to run its OWN per-section web search
-// at the org level, grounded on sector labels; that is exactly the query
-// this phase replaced (the confirmed Cleanwatts/Agroop bug). Research is
-// now always scoped to a market hypothesis, so the button and its pending-
-// items list moved to live under each hypothesis card in Market Thesis
-// (MarketThesisSection.tsx) — this panel points there instead of running
-// a search it no longer has a valid target for.
-//
-// Prompt 458 §B — only reachable for 'players'/'rounds' now: ResearchMenu
-// stopped offering the other 5 sections a button at all, since they never
-// did anything here but show this same pointer.
-function ResearchSectionPanel({ section }: { section: Section }) {
-  return (
-    <Card title={<span className="inline-flex items-center gap-2">{RESEARCH_SECTION_LABEL[section]} <PlanBadge tier="motherfunding" /></span>}>
-      <p className="text-xs text-gray-500">
-        Research now runs per market hypothesis, grounded on your Market Thesis instead of raw sector tags — open a
-        hypothesis card above (Market Thesis) and research {RESEARCH_SECTION_LABEL[section].toLowerCase()} from there.
-      </p>
-    </Card>
   );
 }
 
