@@ -50,6 +50,7 @@ import { MarketThesisSection } from './market/MarketThesisSection';
 import { PORTRAIT_DOC_HEURISTIC, MAX_PORTRAIT_DOCS } from '@/lib/market-portrait';
 import { extractionSkipReasonMessage } from '@/lib/extraction-skip-reason';
 import type { ExtractionSkipReason } from '@/lib/document-extraction-pipeline';
+import { feedDocumentsToRestOfPlatform } from '@/lib/feed-documents-to-platform';
 
 interface Gate { eligible: boolean; missing: { key: string; label: string; href: string }[] }
 interface DocItem { documentId: string; documentName: string; label: string }
@@ -78,7 +79,15 @@ interface ExtractSummary {
   itemsProposed: number;
   costEur: number;
   skipped: { documentId: string; reason: ExtractionSkipReason }[];
+  // Prompt 464 §B — filled in once the serial per-document pass below
+  // finishes; null while it's still running or hasn't started (rendered as
+  // the separate feedingProgress line instead).
+  platformFeedNote: string | null;
 }
+// Prompt 464 §B.3 — "Reading 'X' for the rest of the platform… (i of n)",
+// the real, named progress this codebase's own North Star invariant 11
+// requires in place of a mute spinner.
+interface FeedingProgress { name: string; index: number; total: number }
 
 const APPROACH_MAX_LEN = 600;
 
@@ -125,6 +134,7 @@ export function MarketDataPanel() {
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState('');
   const [extractSummary, setExtractSummary] = useState<ExtractSummary | null>(null);
+  const [feedingProgress, setFeedingProgress] = useState<FeedingProgress | null>(null);
 
   // Prompt 384 §A — the two sub-views. `view` starts undecided and resolves
   // once ringCount/competitorCount are known (cold start -> Research,
@@ -158,7 +168,7 @@ export function MarketDataPanel() {
   }, [view, ringCount, competitorCount]);
 
   async function openPicker() {
-    setPickerOpen(true); setExtractError(''); setExtractSummary(null);
+    setPickerOpen(true); setExtractError(''); setExtractSummary(null); setFeedingProgress(null);
     if (!vaultDocs) {
       const sb = browserClient();
       const [{ data: docRows }, { data: folderRows }] = await Promise.all([
@@ -180,7 +190,7 @@ export function MarketDataPanel() {
   }
 
   async function runDocumentExtraction() {
-    setExtracting(true); setExtractError(''); setExtractSummary(null);
+    setExtracting(true); setExtractError(''); setExtractSummary(null); setFeedingProgress(null);
     try {
       const res = await fetch('/api/market-data/document-extract', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentIds: selectedDocIds }),
@@ -192,14 +202,63 @@ export function MarketDataPanel() {
       // actually read, how many proposals resulted, and — by name — which
       // documents were skipped and why, instead of the old bare cost figure
       // that was the only sign anything had happened at all.
+      const readDocuments = (body.readDocuments ?? []) as { id: string; name: string }[];
       setExtractSummary({
-        readDocuments: (body.readDocuments ?? []) as { id: string; name: string }[],
+        readDocuments,
         itemsProposed: body.itemsProposed ?? 0,
         costEur: body.costEur ?? 0,
         skipped: (body.skipped ?? []) as { documentId: string; reason: ExtractionSkipReason }[],
+        platformFeedNote: null,
       });
       setPickerOpen(false);
       load();
+
+      // Prompt 464 §B — the Prompt 463 §C fire-and-forget after `return`
+      // never actually ran in production (a frozen serverless instance
+      // gets no more CPU once its response is sent). Replaced with a real,
+      // awaited, client-driven call per document against the SAME route
+      // store-supabase.tsx already calls after an upload
+      // (/api/data-room/extract-document) — in series, never parallel,
+      // since each call reads a whole PDF and pays a real model request.
+      // Already cached by (document_id, sha256) inside extractDocument
+      // itself, so this can run on every pass with no special condition:
+      // an already-extracted document returns immediately at no cost.
+      const failures = await feedDocumentsToRestOfPlatform(
+        readDocuments,
+        async (documentId) => {
+          try {
+            const feedRes = await fetch('/api/data-room/extract-document', {
+              method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentId }),
+            });
+            const feedBody = await feedRes.json().catch(() => null);
+            return { ok: !!feedBody?.ok, skippedReason: feedBody?.skippedReason };
+          } catch {
+            return { ok: false };
+          }
+        },
+        setFeedingProgress,
+      );
+      setFeedingProgress(null);
+      // Prompt 464 §B.4 — never silence (North Star invariant 11): names
+      // every document that failed, using the route's own skippedReason
+      // (mapped through the same sentence extraction-skip-reason.ts
+      // already provides) when there is one, a fixed clause otherwise.
+      //
+      // Deliberately NEVER says "profile" or "company profile": inside
+      // extractDocument, linkExtractionToClaims is awaited (real — company
+      // claims genuinely get proposed), but runReconciliationForOrg is
+      // still fired with `void` (document-extraction-pipeline.ts, both the
+      // cache-hit and fresh-extraction branches) — the exact same
+      // serverless-freeze bug this prompt exists to fix, just not fixed
+      // for THAT call yet (next prompt, per Fora de âmbito). A "profile
+      // updated" claim would be true by accident and false in essence —
+      // this line asserts only what this prompt actually proves: the
+      // documents were read.
+      const platformFeedNote = failures.length === 0
+        ? 'Sherlock finished reading these documents.'
+        : failures.map((f) => `"${f.name}" could not be read in full`
+          + `${f.skippedReason ? ` — ${extractionSkipReasonMessage(f.skippedReason as ExtractionSkipReason)}` : ''}.`).join(' ');
+      setExtractSummary((prev) => (prev ? { ...prev, platformFeedNote } : prev));
     } catch {
       setExtractError('Could not read those documents — try again.');
     } finally { setExtracting(false); }
@@ -289,7 +348,8 @@ export function MarketDataPanel() {
               docs={docs} docCounts={docCounts} researchItems={researchItems}
               pickerOpen={pickerOpen} openPicker={openPicker} setPickerOpen={setPickerOpen}
               vaultDocs={vaultDocs} selectedDocIds={selectedDocIds} toggleDoc={toggleDoc}
-              extracting={extracting} extractError={extractError} extractSummary={extractSummary} runDocumentExtraction={runDocumentExtraction}
+              extracting={extracting} extractError={extractError} extractSummary={extractSummary} feedingProgress={feedingProgress}
+              runDocumentExtraction={runDocumentExtraction}
               added={added} setAdded={setAdded} savingAdded={savingAdded} saveAdded={saveAdded}
               busyId={busyId} respond={respond}
               sectionOutcome={sectionOutcome} setSectionOutcome={setSectionOutcome}
@@ -426,7 +486,8 @@ function ResearchView(props: {
   docs: DocItem[]; docCounts: DocCounts | null; researchItems: ResearchItem[] | null;
   pickerOpen: boolean; openPicker: () => void; setPickerOpen: (v: boolean) => void;
   vaultDocs: VaultDoc[] | null; selectedDocIds: string[]; toggleDoc: (id: string) => void;
-  extracting: boolean; extractError: string; extractSummary: ExtractSummary | null; runDocumentExtraction: () => void;
+  extracting: boolean; extractError: string; extractSummary: ExtractSummary | null; feedingProgress: FeedingProgress | null;
+  runDocumentExtraction: () => void;
   added: AddedByYou; setAdded: (a: AddedByYou) => void; savingAdded: boolean; saveAdded: () => void;
   busyId: string | null; respond: (id: string, action: 'accept' | 'reject') => void;
   sectionOutcome: SectionOutcome | null; setSectionOutcome: (o: SectionOutcome | null) => void;
@@ -447,11 +508,12 @@ function ResearchView(props: {
   );
 }
 
-function FromYourDocumentsPanel({ docs, docCounts, researchItems, pickerOpen, openPicker, setPickerOpen, vaultDocs, selectedDocIds, toggleDoc, extracting, extractError, extractSummary, runDocumentExtraction, busyId, respond }: {
+function FromYourDocumentsPanel({ docs, docCounts, researchItems, pickerOpen, openPicker, setPickerOpen, vaultDocs, selectedDocIds, toggleDoc, extracting, extractError, extractSummary, feedingProgress, runDocumentExtraction, busyId, respond }: {
   docs: DocItem[]; docCounts: DocCounts | null; researchItems: ResearchItem[] | null;
   pickerOpen: boolean; openPicker: () => void; setPickerOpen: (v: boolean) => void;
   vaultDocs: VaultDoc[] | null; selectedDocIds: string[]; toggleDoc: (id: string) => void;
-  extracting: boolean; extractError: string; extractSummary: ExtractSummary | null; runDocumentExtraction: () => void;
+  extracting: boolean; extractError: string; extractSummary: ExtractSummary | null; feedingProgress: FeedingProgress | null;
+  runDocumentExtraction: () => void;
   busyId: string | null; respond: (id: string, action: 'accept' | 'reject') => void;
 }) {
   const emptyState = marketDataEmptyState(docCounts, docs.length);
@@ -558,6 +620,22 @@ function FromYourDocumentsPanel({ docs, docCounts, researchItems, pickerOpen, op
                   </li>
                 ))}
               </ul>
+            )}
+            {/* Prompt 464 §B — real, named progress while this document is
+                read into document_extractions, never a mute spinner. Says
+                only "read" — never "added to your profile" or similar:
+                linkExtractionToClaims (real claims) runs awaited inside
+                extractDocument, but runReconciliationForOrg is still
+                void-fired there and doesn't survive serverless either
+                (same bug, next prompt) — so Identity card/Sherlock Prep/
+                cap table/team are NOT yet reliably fed by this pass. */}
+            {feedingProgress && (
+              <p className="text-[11px] text-gray-400">
+                Reading &quot;{feedingProgress.name}&quot; for the rest of the platform… ({feedingProgress.index} of {feedingProgress.total})
+              </p>
+            )}
+            {extractSummary.platformFeedNote && (
+              <p className="text-[11px] text-gray-600">{extractSummary.platformFeedNote}</p>
             )}
           </div>
         )}

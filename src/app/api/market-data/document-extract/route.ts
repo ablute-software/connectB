@@ -23,8 +23,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'crypto';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
-import { prepareDocumentForAi, extractDocument, type ExtractionSkipReason } from '@/lib/document-extraction-pipeline';
-import { documentExtractionsAvailable } from '@/lib/document-extraction-capability';
+import { prepareDocumentForAi, type ExtractionSkipReason } from '@/lib/document-extraction-pipeline';
 import { truncatePdfToPages } from '@/lib/pdf-truncate';
 import { MAX_EXTRACTION_PAGES } from '@/lib/document-extraction';
 import { marketDocumentExtractionAvailable } from '@/lib/market-data-capability';
@@ -203,32 +202,16 @@ export async function POST(req: Request) {
     .select('id, section, title, detail, document_id, page, confidence, status, source_kind, documents(name)')
     .eq('org_id', orgId).eq('source_kind', 'document').eq('status', 'pending').order('section', { ascending: true });
 
-  // Prompt 463 §C — the SAME bytes now also feed the general extraction
-  // pipeline (document_extractions: Identity card pitch_problem/solution,
-  // reconciliation, Sherlock Prep, cap table, team — Prompt 459/462's own
-  // consumers), not just this route's own market_research_items. Fires
-  // every time this route successfully reads a document set, INCLUDING a
-  // cache hit above: a document already covered by an old market-only
-  // signature (like the real ablute_ deck, market-extracted before this
-  // prompt existed) still needs its own first document_extractions row,
-  // and only this unconditional placement backfills it without the founder
-  // having to change their document selection just to re-trigger it.
-  //
-  // Fire-and-forget, same pattern this codebase already uses for
-  // runReconciliationForOrg inside extractDocument itself — this route has
-  // maxDuration=60 on the Hobby plan and can't wait for one more model call
-  // per document. extractDocument is already cached by (document_id,
-  // sha256): an already-extracted document costs nothing, a new one pays
-  // once (~€0.04) — no second cache is built here. Never awaited and never
-  // folded into this response: a failure lands only in its own
-  // document_extractions.status='failed' row, never spoiling the market
-  // pass above that already succeeded. Known, accepted side effect
-  // (unchanged from what a normal upload already does today, not extended
-  // here): extractDocument also calls linkExtractionToClaims, which can
-  // propose company_claims of origin 'vault_doc'.
-  if (await documentExtractionsAvailable()) {
-    for (const ref of docsByIndex.values()) void extractDocument(admin, apiKey, orgId, ref.id);
-  }
+  // Prompt 464 — Prompt 463 §C used to fire extractDocument here as
+  // fire-and-forget (void, after building the response). REMOVED: verified
+  // in production that it never actually ran — a Vercel serverless
+  // instance is frozen the instant the response is sent, so a pending
+  // promise gets no more CPU. Zero new document_extractions rows, zero new
+  // ai_call_log entries, after a real pass with the deck selected. Left in
+  // place it would have kept looking fixed while doing nothing — see
+  // Prompt 464 §B (MarketDataPanel.tsx's runDocumentExtraction) for the
+  // client-driven replacement, which calls /api/data-room/extract-document
+  // once per document and actually awaits it.
 
   return NextResponse.json({
     ok: true, items: items ?? [], skipped, costEur, cached: alreadyRanForThisSignature,

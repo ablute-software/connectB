@@ -17,6 +17,16 @@ import { extractDocument } from '@/lib/document-extraction-pipeline';
 // Same ceiling every other PDF-reading/upload route in this codebase uses
 // (verify-upload, nda-upload, blueprint/gap-assist) — confirmed by grep
 // before picking this number, not a guess.
+//
+// Prompt 464 §B — this route now also gets a second, heavier caller:
+// MarketDataPanel.tsx calls it once per document right after "Read my
+// documents", awaited, for documents that can run to 11MB/30 pages (the
+// ablute_ deck). 30s may not be enough for that document specifically. If
+// it isn't, it fails VISIBLY — this route returns an error and the
+// caller's own §B.4 shows it by name — instead of vanishing the way the
+// old fire-and-forget did. Bump to 60 (the Hobby plan's own ceiling) in a
+// follow-up prompt if that's confirmed with a real measurement — not a
+// guess made here.
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
