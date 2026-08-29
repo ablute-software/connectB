@@ -203,6 +203,7 @@ async function callClaude(
   });
   if (!res.ok) throw new Error(providerErrorMessage('[gap-assist]', await res.text()));
   const data = await res.json();
+  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
   void logAiCall({ route: '/api/blueprint/gap-assist', purpose, model, usage: data.usage, orgId });
   const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
   if (!toolUse) throw new Error('No draft produced — try again.');

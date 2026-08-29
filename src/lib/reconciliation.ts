@@ -179,6 +179,7 @@ export async function callReconciliationModel(
   });
   if (!res.ok) throw new Error(providerErrorMessage('[reconciliation]', await res.text()));
   const data = await res.json();
+  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
   void logAiCall({ route: '/api/blueprint/reconcile', purpose: 'reconciliation', model, usage: data.usage, orgId });
 
   const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
@@ -202,6 +203,13 @@ export interface ReconcileOutcome {
   autoLinked: number;
   suggested: number;
   uncovered: number;
+  // Prompt 465 §B — set ONLY when the model call itself threw (never for
+  // the two legitimate `ran: false` no-op cases below — no candidates, or
+  // every candidate's signature already matched). Without this, `ran:
+  // false` alone can't tell a caller "there was genuinely nothing to do"
+  // apart from "it tried and failed" — and /api/reconciliation/run's own
+  // contract requires exactly that distinction.
+  error?: string;
 }
 
 // The orchestrator — called both on-demand (before /api/blueprint builds the
@@ -239,7 +247,7 @@ export async function reconcileGapCandidates(
     result = await callReconciliationModel(apiKey, model, orgId, needsRun, documents);
   } catch (e) {
     console.error('[reconciliation] model call failed', (e as Error).message);
-    return { ran: false, costEur: 0, autoLinked: 0, suggested: 0, uncovered: 0 };
+    return { ran: false, costEur: 0, autoLinked: 0, suggested: 0, uncovered: 0, error: (e as Error).message };
   }
 
   let autoLinked = 0; let suggested = 0; let uncovered = 0;

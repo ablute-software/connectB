@@ -71,6 +71,7 @@ async function callClaude(apiKey: string, model: string, prompt: string, orgId: 
   });
   if (!res.ok) throw new Error(providerErrorMessage('[entities/enrich]', await res.text()));
   const data = await res.json();
+  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
   void logAiCall({ route: '/api/entities/[id]/enrich', purpose: 'entity_enrich', model, usage: data.usage, orgId });
   const toolUse = (data.content as { type: string; name?: string; input?: unknown }[])
     .filter((b) => b.type === 'tool_use' && b.name === 'propose_fields').pop();

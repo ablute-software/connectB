@@ -118,6 +118,7 @@ export async function POST(req: Request) {
     });
     if (!res.ok) throw new Error(providerErrorMessage('[strengthen-suggest]', await res.text()));
     const data = await res.json();
+    // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
     void logAiCall({ route: '/api/blueprint/strengthen-suggest', purpose: 'strengthen_suggest', model, usage: data.usage, orgId, targetType: 'claim', targetId: claimId });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const output = (toolUse?.input ?? {}) as { sufficient?: boolean; rewrite?: string };

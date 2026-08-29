@@ -176,6 +176,7 @@ async function callClaude(apiKey: string, model: string, prompt: string, canonGa
   });
   if (!res.ok) throw new Error(providerErrorMessage('[compose]', await res.text(), 'AI draft failed — try again in a moment.'));
   const data = await res.json();
+  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
   void logAiCall({ route: '/api/compose', purpose: 'compose_outreach', model, usage: data.usage, orgId });
   const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
   if (!toolUse) throw new Error('AI draft failed — try again in a moment.');

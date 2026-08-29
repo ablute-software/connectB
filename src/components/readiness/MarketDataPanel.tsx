@@ -84,10 +84,13 @@ interface ExtractSummary {
   // the separate feedingProgress line instead).
   platformFeedNote: string | null;
 }
-// Prompt 464 §B.3 — "Reading 'X' for the rest of the platform… (i of n)",
-// the real, named progress this codebase's own North Star invariant 11
-// requires in place of a mute spinner.
-interface FeedingProgress { name: string; index: number; total: number }
+// Prompt 464 §B.3 / Prompt 465 §C — the real, named progress this
+// codebase's own North Star invariant 11 requires in place of a mute
+// spinner, reused across the two sequential phases a "Read my documents"
+// pass now runs client-side: reading each document ("Reading 'X' for the
+// rest of the platform… (i of n)"), then the single, org-level
+// reconciliation call that follows it ("Updating what Sherlock knows…").
+type FeedingProgress = { kind: 'reading'; name: string; index: number; total: number } | { kind: 'reconciling' };
 
 const APPROACH_MAX_LEN = 600;
 
@@ -236,28 +239,47 @@ export function MarketDataPanel() {
             return { ok: false };
           }
         },
-        setFeedingProgress,
+        (p) => setFeedingProgress({ kind: 'reading', ...p }),
       );
+
+      // Prompt 465 §C — the SAME two dead void triggers §A just removed
+      // used to be the only thing that could reconcile a fresh reading
+      // against the founder's claims. This is their real replacement: one
+      // explicit, awaited call, org-level (never per-document — reconciling
+      // N times for N documents in the same pass would be pure waste, the
+      // engine already looks at the whole org's claims/Vault together).
+      setFeedingProgress({ kind: 'reconciling' });
+      const reconcileBody = await fetch('/api/reconciliation/run', { method: 'POST' })
+        .then((r) => r.json()).catch(() => null) as
+        { ok?: boolean; ran?: boolean; autoLinked?: number; suggested?: number } | null;
       setFeedingProgress(null);
-      // Prompt 464 §B.4 — never silence (North Star invariant 11): names
-      // every document that failed, using the route's own skippedReason
-      // (mapped through the same sentence extraction-skip-reason.ts
-      // already provides) when there is one, a fixed clause otherwise.
-      //
-      // Deliberately NEVER says "profile" or "company profile": inside
-      // extractDocument, linkExtractionToClaims is awaited (real — company
-      // claims genuinely get proposed), but runReconciliationForOrg is
-      // still fired with `void` (document-extraction-pipeline.ts, both the
-      // cache-hit and fresh-extraction branches) — the exact same
-      // serverless-freeze bug this prompt exists to fix, just not fixed
-      // for THAT call yet (next prompt, per Fora de âmbito). A "profile
-      // updated" claim would be true by accident and false in essence —
-      // this line asserts only what this prompt actually proves: the
-      // documents were read.
-      const platformFeedNote = failures.length === 0
-        ? 'Sherlock finished reading these documents.'
-        : failures.map((f) => `"${f.name}" could not be read in full`
+
+      // Prompt 465 §C — three states, not two: `ran: true` means "the
+      // reconciliation engine executed," not "something changed" — it can
+      // run and correctly conclude nothing needs updating. Never claims
+      // more than the backend proved (same rule as 464's own "never says
+      // profile"): "updated" only when autoLinked+suggested>0, "checked"
+      // when it ran and found nothing, the plain base sentence (+ a retry
+      // notice only on a REAL error) when it didn't run at all.
+      const reconcileOk = !!reconcileBody?.ok;
+      const reconcileChanged = reconcileOk && !!reconcileBody?.ran && ((reconcileBody?.autoLinked ?? 0) + (reconcileBody?.suggested ?? 0)) > 0;
+      const reconcileRanNoChange = reconcileOk && !!reconcileBody?.ran && !reconcileChanged;
+      const errorClause = reconcileOk ? '' : ' Could not update everything it knows — this will be retried.';
+
+      // Never silence (North Star invariant 11): names every document that
+      // failed to read, using the route's own skippedReason (mapped
+      // through the same sentence extraction-skip-reason.ts already
+      // provides) when there is one, a fixed clause otherwise.
+      let platformFeedNote: string;
+      if (failures.length === 0) {
+        const suffix = reconcileChanged ? ' and updated what it knows.' : reconcileRanNoChange ? ' and checked what it knows.' : '.';
+        platformFeedNote = `Sherlock finished reading these documents${suffix}${errorClause}`;
+      } else {
+        const failureText = failures.map((f) => `"${f.name}" could not be read in full`
           + `${f.skippedReason ? ` — ${extractionSkipReasonMessage(f.skippedReason as ExtractionSkipReason)}` : ''}.`).join(' ');
+        const reconcileSentence = reconcileChanged ? ' Sherlock also updated what it knows.' : reconcileRanNoChange ? ' Sherlock also checked what it knows.' : '';
+        platformFeedNote = `${failureText}${reconcileSentence}${errorClause}`;
+      }
       setExtractSummary((prev) => (prev ? { ...prev, platformFeedNote } : prev));
     } catch {
       setExtractError('Could not read those documents — try again.');
@@ -621,17 +643,15 @@ function FromYourDocumentsPanel({ docs, docCounts, researchItems, pickerOpen, op
                 ))}
               </ul>
             )}
-            {/* Prompt 464 §B — real, named progress while this document is
-                read into document_extractions, never a mute spinner. Says
-                only "read" — never "added to your profile" or similar:
-                linkExtractionToClaims (real claims) runs awaited inside
-                extractDocument, but runReconciliationForOrg is still
-                void-fired there and doesn't survive serverless either
-                (same bug, next prompt) — so Identity card/Sherlock Prep/
-                cap table/team are NOT yet reliably fed by this pass. */}
+            {/* Prompt 464 §B / Prompt 465 §C — real, named progress across
+                both client-driven phases, never a mute spinner: first each
+                document being read into document_extractions, then the
+                single org-level reconciliation call that follows. */}
             {feedingProgress && (
               <p className="text-[11px] text-gray-400">
-                Reading &quot;{feedingProgress.name}&quot; for the rest of the platform… ({feedingProgress.index} of {feedingProgress.total})
+                {feedingProgress.kind === 'reading'
+                  ? `Reading "${feedingProgress.name}" for the rest of the platform… (${feedingProgress.index} of ${feedingProgress.total})`
+                  : 'Updating what Sherlock knows…'}
               </p>
             )}
             {extractSummary.platformFeedNote && (

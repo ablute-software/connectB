@@ -449,10 +449,21 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
     // externally) — gating this on 'clean' alone would silently stop
     // auto-extraction from ever firing for a new upload again.
     if ((malwareScanStatus !== 'clean' && malwareScanStatus !== 'local_only') || !/\.pdf$/i.test(name)) return;
+    // Prompt 465 §A.1 — IMMEDIATE_CLIENT: an upload is the moment the
+    // founder just gave the app new information, exactly where
+    // reconciliation has the most value. Chained via .then(), not awaited
+    // — this whole function stays fire-and-forget from the CALLER's side
+    // (the browser tab doesn't freeze the way a serverless response does,
+    // so that's still correct here), but reconciliation is now genuinely
+    // REQUESTED once extraction finishes, instead of never being asked for
+    // at all (the dead void trigger this replaces, removed from
+    // extractDocument itself in document-extraction-pipeline.ts).
     fetch('/api/data-room/extract-document', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ documentId }),
-    }).catch(() => { /* never blocks the upload */ });
+    })
+      .then(() => fetch('/api/reconciliation/run', { method: 'POST' }))
+      .catch(() => { /* never blocks the upload */ });
   }
 
   useEffect(() => {

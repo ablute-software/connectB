@@ -65,6 +65,7 @@ async function callClaude(params: { apiKey: string; model: string; kind: Kind; c
   });
   if (!res.ok) throw new Error(providerErrorMessage('[company/ai-support]', await res.text()));
   const data = await res.json();
+  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
   void logAiCall({ route: '/api/company/ai-support', purpose: `ai_support_${params.kind}`, model: params.model, usage: data.usage, orgId: params.orgId });
 
   const toolUse = (data.content as { type: string; name?: string; input?: unknown }[])

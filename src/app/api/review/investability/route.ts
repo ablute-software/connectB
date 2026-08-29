@@ -201,6 +201,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: message }, { status: 502 });
     }
     const data = await res.json();
+    // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
     void logAiCall({ route: '/api/review/investability', purpose: 'investability_report', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const report = toolUse?.input as Report | undefined;
@@ -278,6 +279,7 @@ async function generateInvestorSafeSwot(
       return undefined;
     }
     const data = await res.json();
+    // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
     void logAiCall({ route: '/api/review/investability', purpose: 'investor_safe_swot', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     if (!toolUse?.input) return undefined;

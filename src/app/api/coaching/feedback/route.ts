@@ -80,6 +80,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: message }, { status: 502 });
     }
     const data = await res.json();
+    // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
     void logAiCall({ route: '/api/coaching/feedback', purpose: 'coaching_feedback', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId: member.org_id });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const feedback = toolUse?.input as { per_question: { note: string }[]; strengths_to_keep: string[]; top_adjustments: string[] } | undefined;

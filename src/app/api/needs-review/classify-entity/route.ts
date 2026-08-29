@@ -106,6 +106,7 @@ export async function POST(req: NextRequest) {
     });
     if (!res.ok) throw new Error(providerErrorMessage('[needs-review/classify-entity]', await res.text(), 'AI pre-classification failed for this entity — try again in a moment.'));
     const data = await res.json();
+    // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
     void logAiCall({ route: '/api/needs-review/classify-entity', purpose: 'needs_review_classify', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId: entity.org_id as string });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const proposals = (toolUse?.input as { proposals?: AiProposal[] } | undefined)?.proposals ?? [];

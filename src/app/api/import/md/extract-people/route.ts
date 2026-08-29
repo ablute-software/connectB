@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
     });
     if (!res.ok) throw new Error(providerErrorMessage('[import/md/extract-people]', await res.text(), 'AI-assisted people detection failed for this section — try again in a moment.'));
     const data = await res.json();
+    // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
     void logAiCall({ route: '/api/import/md/extract-people', purpose: 'import_extract_people', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId: batch.org_id as string });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const proposedPeople = (toolUse?.input as { people?: ProposedPerson[] } | undefined)?.people ?? [];

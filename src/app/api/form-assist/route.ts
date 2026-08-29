@@ -86,6 +86,7 @@ async function callClaude(apiKey: string, model: string, prompt: string, orgId: 
   });
   if (!res.ok) throw new Error(providerErrorMessage('[form-assist]', await res.text(), 'Form Assist draft failed — try again in a moment.'));
   const data = await res.json();
+  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
   void logAiCall({ route: '/api/form-assist', purpose: 'form_assist_draft', model, usage: data.usage, orgId });
   const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
   if (!toolUse) throw new Error('Form Assist draft failed — try again in a moment.');

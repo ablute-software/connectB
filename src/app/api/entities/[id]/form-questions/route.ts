@@ -48,6 +48,7 @@ async function anthropicCall(apiKey: string, model: string, body: Record<string,
   });
   if (!res.ok) throw new Error(providerErrorMessage('[entities/form-questions]', await res.text()));
   const data = await res.json();
+  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
   void logAiCall({ route: '/api/entities/[id]/form-questions', purpose: 'form_questions_extract', model, usage: data.usage, orgId });
   return data;
 }

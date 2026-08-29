@@ -60,6 +60,7 @@ async function arbitrateEquality(apiKey: string, model: string, field: string, a
   // (cached, reused by any future comparison), not one org — orgId stays
   // null, same shared-catalog convention as enrichment-worker/catalog
   // research calls.
+  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
   void logAiCall({ route: '/api/community-consensus/register', purpose: 'field_arbitration', model, usage: data.usage, orgId: null, targetType: 'catalog_entities', targetId: catalogId });
   const toolUse = (data.content as { type: string; name?: string; input?: unknown }[]).find((b) => b.type === 'tool_use' && b.name === 'judge_equality');
   const input = (toolUse?.input ?? {}) as { same_value?: boolean; canonical_value?: string };

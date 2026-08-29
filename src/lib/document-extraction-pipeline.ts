@@ -16,8 +16,6 @@ import {
   type DocumentExtractionData,
 } from './document-extraction';
 import { linkExtractionToClaims } from './document-extraction-linking';
-import { runReconciliationForOrg } from './reconciliation';
-import { gapReconciliationsAvailable } from './document-extraction-capability';
 import { ensureLinkSnapshot } from './document-link-snapshot';
 
 // Prompt 462 §D — a document-link's own read failure (host not allowed,
@@ -214,7 +212,14 @@ export async function extractDocument(
   if (existing) {
     const extraction = existing.extracted as DocumentExtractionData;
     const linkOutcome = await linkExtractionToClaims(admin, orgId, documentId, docRow.name, extraction);
-    if (await gapReconciliationsAvailable()) void runReconciliationForOrg(admin, apiKey, orgId);
+    // Prompt 465 §A — REMOVED `if (await gapReconciliationsAvailable())
+    // void runReconciliationForOrg(admin, apiKey, orgId);`: confirmed in
+    // production it never ran (a serverless instance is frozen the instant
+    // its response is sent — same root cause as Prompt 464 §C). Semantic
+    // reconciliation is now requested explicitly by a caller that can
+    // await it — see the coverage matrix in Prompt 465 §A.1: the client,
+    // right after the action that made it necessary (§C), or the daily
+    // cron safety net (§D). Never here again.
     return { ok: true, alreadyExtracted: true, extraction, ...linkOutcome };
   }
 
@@ -245,6 +250,7 @@ export async function extractDocument(
     }, { onConflict: 'document_id,sha256' });
     return { ok: false, skippedReason: 'claude_failed' };
   }
+  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
   void logAiCall({ route: ROUTE, purpose: 'document_extraction', model, usage, orgId, targetType: 'document', targetId: documentId });
 
   const extraction = rawExtractionToData(raw, pagesRead, totalPages);
@@ -266,14 +272,14 @@ export async function extractDocument(
   }
 
   const linkOutcome = await linkExtractionToClaims(admin, orgId, documentId, docRow.name, extraction);
-  // Prompt 358 Phase 2.1 — "reconciliation must also run on every document
-  // upload" (Prompt 358's own §2.1): the mechanical link above only catches
-  // literal name/program overlap; this is its semantic counterpart, run
-  // once per fresh extraction. Fire-and-forget from this caller's own
-  // perspective too — extractDocument itself is already only ever awaited
-  // by callers that don't block a user-facing response on it (the
-  // fire-and-forget upload trigger, and the backfill script).
-  if (await gapReconciliationsAvailable()) void runReconciliationForOrg(admin, apiKey, orgId);
+  // Prompt 358 Phase 2.1's original intent stands — "reconciliation must
+  // also run on every fresh document extraction," semantic counterpart to
+  // the mechanical link above — but the trigger that used to live here
+  // (`if (await gapReconciliationsAvailable()) void
+  // runReconciliationForOrg(...)`) is REMOVED as of Prompt 465 §A: it never
+  // actually ran in production. See document-extraction-pipeline.ts's other
+  // removal above and Prompt 465 §A.1's coverage matrix for where this
+  // caller's own reconciliation now comes from instead.
   return { ok: true, extraction, costEur: computeCostEur(model, usage), ...linkOutcome };
 }
 
@@ -295,6 +301,15 @@ export interface SummaryOutcome {
 // completed but summary missing (a document extracted before this feature
 // existed) -> a summary-ONLY call over the same truncated text, never
 // re-paying for claims extraction that already succeeded.
+//
+// Prompt 465 §A.1 — coverage matrix policy: CRON_ONLY, by deliberate
+// choice, not oversight. This function's only caller is
+// /api/portal/doc-summary, and the person clicking there is an INVESTOR —
+// their action must never trigger (or make the founder pay for) the
+// founder's own analytical work. The extraction this call may trigger
+// still happens (and still costs, on the founder's side); reconciling it
+// is left to the daily cron safety net (Prompt 465 §D) instead of an
+// investor's click requesting it directly.
 export async function ensureDocumentSummary(
   admin: SupabaseClient, apiKey: string, orgId: string, documentId: string,
 ): Promise<SummaryOutcome> {
@@ -338,6 +353,7 @@ export async function ensureDocumentSummary(
   } catch {
     return { ok: false, skippedReason: 'claude_failed' };
   }
+  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
   void logAiCall({ route: SUMMARY_ROUTE, purpose: 'doc_summary', model, usage, orgId, targetType: 'document', targetId: documentId });
 
   const summaryData = rawExtractionToSummary(raw);

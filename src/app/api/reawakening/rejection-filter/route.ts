@@ -62,6 +62,7 @@ async function callFilter(apiKey: string, model: string, cases: FilterCase[], or
   });
   if (!res.ok) throw new Error(providerErrorMessage('[reawakening/rejection-filter]', await res.text()));
   const data = await res.json();
+  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
   void logAiCall({ route: '/api/reawakening/rejection-filter', purpose: 'rejection_filter', model, usage: data.usage, orgId });
   const input = data.content?.find((b: { type: string }) => b.type === 'tool_use')?.input as { verdicts?: RawFilterVerdict[] } | undefined;
   return input?.verdicts ?? [];

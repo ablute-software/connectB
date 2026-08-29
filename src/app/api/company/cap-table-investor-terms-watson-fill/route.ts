@@ -86,6 +86,7 @@ export async function POST(req: Request) {
     });
     if (!res.ok) return NextResponse.json({ ok: false, error: providerErrorMessage('[cap-table-investor-terms-watson-fill]', await res.text()) }, { status: 502 });
     const data = await res.json();
+    // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
     void logAiCall({ route: ROUTE, purpose: 'cap_table_investor_terms_watson_fill', model, usage: data.usage, orgId, targetType: 'document', targetId: documentId });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const result = rawInvestorTermsToResult(toolUse?.input);

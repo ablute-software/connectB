@@ -183,6 +183,7 @@ export async function POST(req: Request) {
     if (!res.ok) return NextResponse.json({ ok: false, error: providerErrorMessage('[market-data/document-extract]', await res.text()) }, { status: 502 });
     const data = await res.json();
     costEur = computeCostEur(model, data.usage);
+    // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
     void logAiCall({ route: ROUTE, purpose: 'market_document_extract', model, usage: data.usage, orgId });
 
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');

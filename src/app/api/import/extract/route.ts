@@ -125,6 +125,7 @@ export async function POST(req: NextRequest) {
     });
     if (!res.ok) throw new Error(providerErrorMessage('[import/extract]', await res.text(), 'AI extraction failed — try again in a moment.'));
     const data = await res.json();
+    // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
     void logAiCall({ route: '/api/import/extract', purpose: 'import_extract_history', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId: batch.org_id as string });
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     if (!toolUse) throw new Error('AI extraction failed — try again in a moment.');

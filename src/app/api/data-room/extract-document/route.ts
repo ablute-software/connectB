@@ -7,6 +7,20 @@
 // org_members, viewer block) — this route reads real document content and
 // spends real Anthropic budget, so it gets the same bar as an upload itself,
 // not a looser one.
+//
+// Prompt 465 §A.1 — coverage matrix: this route is the single caller of
+// extractDocument that's reachable from a FOUNDER action, hit by two
+// distinct client triggers, both policy IMMEDIATE_CLIENT:
+//   - store-supabase.tsx's triggerDocumentExtraction (upload of a new PDF)
+//   - MarketDataPanel.tsx's runDocumentExtraction (464 — "Read my
+//     documents"), which itself calls this once per document in series
+// Both now chain an explicit, awaited POST /api/reconciliation/run once
+// extraction finishes (store-supabase.tsx: chained .then(), still fire-
+// and-forget from the caller's own side; MarketDataPanel: awaited outright)
+// — extractDocument's own dead `void runReconciliationForOrg(...)` trigger
+// is gone (465 §A). extractDocument's OTHER real caller, ensureDocumentSummary
+// (an investor opening a document summary in the portal), is deliberately
+// CRON_ONLY instead — see its own comment.
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';

@@ -328,6 +328,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: message }, { status: 502 });
       }
       const data = await res.json();
+      // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
       void logAiCall({
         route: '/api/ai-review', purpose: 'cross_document_review',
         model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage,
@@ -482,6 +483,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: message }, { status: 502 });
     }
     const data = await res.json();
+    // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
     void logAiCall({
       route: '/api/ai-review', purpose: `review:${kind}`,
       model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage,

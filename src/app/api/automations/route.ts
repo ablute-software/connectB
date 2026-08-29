@@ -32,6 +32,8 @@ import {
   malwareScanAvailable, investorVerificationScanAvailable, ndaScanAvailable,
   matchdealPhotoScanAvailable, supportAttachmentScanAvailable, companyMediaScanAvailable,
 } from '@/lib/upload-security-capability';
+import { gapReconciliationsAvailable } from '@/lib/document-extraction-capability';
+import { runReconciliationForOrg } from '@/lib/reconciliation';
 
 // Prompt 201 §3 — limiar de sinal, não de aborto.
 const MONTHLY_DELIVERY_ALERT_THRESHOLD = 100;
@@ -172,6 +174,39 @@ export async function GET() {
     console.error('[automations] daily interest-reminder sweep failed:', e);
   }
 
+  // Prompt 465 §D — the daily safety net: whatever no client got around to
+  // requesting (CRON_ONLY paths like the investor-portal doc-summary
+  // trigger — see ensureDocumentSummary's own comment — or simply a
+  // founder who never revisited the app) still gets reconciled at least
+  // once a day, closing the gap the two dead `void
+  // runReconciliationForOrg(...)` triggers removed in §A used to (never
+  // actually) cover. Same sequential-not-Promise.all discipline as the
+  // monthly delivery block above and for the same reason: a timeout mid-
+  // sweep should only ever strand orgs not yet reached. Cheap by
+  // construction (computeReconciliationSignature makes an unchanged org a
+  // no-op AI call). No batching/ordering by staleness: verified by SQL
+  // before writing this that production has 11 orgs total, 3 of them real
+  // — a full unbatched sweep costs nothing at that scale. Add batching back
+  // only if a real number says otherwise.
+  let reconciliationSweep: { orgsChecked: number; orgsRan: number } | null = null;
+  if (await gapReconciliationsAvailable()) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const { data: reconcileOrgs } = await admin.from('orgs').select('id, is_test');
+    const dueOrgs = ((reconcileOrgs ?? []) as { id: string; is_test: boolean | null }[]).filter((o) => !o.is_test);
+    let orgsRan = 0;
+    for (const org of dueOrgs) {
+      try {
+        const outcome = await runReconciliationForOrg(admin, apiKey, org.id);
+        if (outcome.error) console.error(`[automations] reconciliation failed for org=${org.id}:`, outcome.error);
+        else if (outcome.ran) orgsRan++;
+      } catch (e) {
+        console.error(`[automations] reconciliation threw for org=${org.id}:`, (e as Error).message);
+      }
+    }
+    console.log(`[automations] daily reconciliation sweep: ${dueOrgs.length} orgs checked, ${orgsRan} ran`);
+    reconciliationSweep = { orgsChecked: dueOrgs.length, orgsRan };
+  }
+
   // TODO: implement server-side automation-rules tick — see src/lib/rules.ts
   // (pure functions, ready to reuse). Unchanged scope from before this prompt.
   return NextResponse.json({
@@ -184,5 +219,6 @@ export async function GET() {
     retroscanSweep,
     secondaryMalwareScanSweep,
     interestReminderSweep,
+    reconciliationSweep,
   });
 }

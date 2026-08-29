@@ -112,6 +112,7 @@ export async function regenerateNowSummary(admin: SupabaseClient, orgId: string)
   // triggered by an INVESTOR's action (archiving a startup) rather than the
   // founder's own — so the org it bills to is the startup being archived,
   // which is exactly the orgId already in scope here.
+  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
   void logAiCall({ route: 'startup-snapshot', purpose: 'now_summary', model, usage: body?.usage, orgId });
   const text = body?.content?.[0]?.text?.trim();
   if (!text) return { skipped: 'ai_empty_response' };

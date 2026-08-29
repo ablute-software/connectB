@@ -97,6 +97,7 @@ async function callSherlock(
   });
   if (!res.ok) throw new Error(providerErrorMessage('[reawakening/neglect-evaluate]', await res.text()));
   const data = await res.json();
+  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
   void logAiCall({ route: '/api/reawakening/neglect-evaluate', purpose: 'neglect_evaluate', model, usage: data.usage, orgId });
   const input = data.content?.find((b: { type: string }) => b.type === 'tool_use')?.input as { verdicts?: RawVerdict[] } | undefined;
   return input?.verdicts ?? [];
