@@ -124,7 +124,21 @@ export async function GET() {
       .eq('org_id', orgId).eq('status', 'pending')
       .or('source_kind.eq.document,hypothesis_id.not.is.null')
       .order('section', { ascending: true });
-    researchItems = data ?? [];
+    const rows = (data ?? []) as { document_id: string | null }[];
+    // Prompt 463 §A — resolve names HERE, from `documents` (the table a
+    // name actually lives in), in one query for every distinct id — never
+    // by asking the client to cross-reference against `fromYourDocuments`,
+    // a list built from document_extractions for a different purpose whose
+    // composition doesn't cover a document-link read (Prompt 462): that
+    // mismatch is exactly why the ablute_ deck's own 32 items fell back to
+    // the generic "Vault document" label in production.
+    const docIds = [...new Set(rows.map((r) => r.document_id).filter((id): id is string => !!id))];
+    const namesById = new Map<string, string>();
+    if (docIds.length > 0) {
+      const { data: namedDocs } = await admin.from('documents').select('id, name').in('id', docIds);
+      for (const d of (namedDocs ?? []) as { id: string; name: string }[]) namesById.set(d.id, d.name);
+    }
+    researchItems = rows.map((r) => ({ ...r, documentName: r.document_id ? namesById.get(r.document_id) ?? null : null }));
   }
 
   return NextResponse.json({

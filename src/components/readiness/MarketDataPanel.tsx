@@ -48,6 +48,8 @@ import { type SectionOutcome } from './market/SectionResearchButtons';
 import { MarketPortraitCard } from './market/MarketPortraitCard';
 import { MarketThesisSection } from './market/MarketThesisSection';
 import { PORTRAIT_DOC_HEURISTIC, MAX_PORTRAIT_DOCS } from '@/lib/market-portrait';
+import { extractionSkipReasonMessage } from '@/lib/extraction-skip-reason';
+import type { ExtractionSkipReason } from '@/lib/document-extraction-pipeline';
 
 interface Gate { eligible: boolean; missing: { key: string; label: string; href: string }[] }
 interface DocItem { documentId: string; documentName: string; label: string }
@@ -60,9 +62,23 @@ interface AddedByYou {
 interface ResearchItem {
   id: string; section: string; title: string; detail: string; source_url: string | null; confidence: string | null;
   source_kind?: 'web' | 'document'; document_id?: string | null; page?: number | null;
+  // Prompt 463 §A — resolved server-side, straight from `documents`; never
+  // re-derived here from `docs` (fromYourDocuments), which doesn't cover
+  // every document a research item can point to.
+  documentName?: string | null;
 }
 interface DocCounts { docsTotal: number; docsReadable: number; docsExtracted: number; docsWithMarketContent: number }
 interface VaultDoc { id: string; name: string; folderName: string }
+// Prompt 463 §B.2 — what a "Read my documents" pass actually did, so the
+// panel can say so in words instead of the old bare "Last pass cost"
+// number (which was itself the only acknowledgement a pass had happened at
+// all).
+interface ExtractSummary {
+  readDocuments: { id: string; name: string }[];
+  itemsProposed: number;
+  costEur: number;
+  skipped: { documentId: string; reason: ExtractionSkipReason }[];
+}
 
 const APPROACH_MAX_LEN = 600;
 
@@ -108,7 +124,7 @@ export function MarketDataPanel() {
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState('');
-  const [extractCost, setExtractCost] = useState<number | null>(null);
+  const [extractSummary, setExtractSummary] = useState<ExtractSummary | null>(null);
 
   // Prompt 384 §A — the two sub-views. `view` starts undecided and resolves
   // once ringCount/competitorCount are known (cold start -> Research,
@@ -142,7 +158,7 @@ export function MarketDataPanel() {
   }, [view, ringCount, competitorCount]);
 
   async function openPicker() {
-    setPickerOpen(true); setExtractError(''); setExtractCost(null);
+    setPickerOpen(true); setExtractError(''); setExtractSummary(null);
     if (!vaultDocs) {
       const sb = browserClient();
       const [{ data: docRows }, { data: folderRows }] = await Promise.all([
@@ -164,14 +180,24 @@ export function MarketDataPanel() {
   }
 
   async function runDocumentExtraction() {
-    setExtracting(true); setExtractError(''); setExtractCost(null);
+    setExtracting(true); setExtractError(''); setExtractSummary(null);
     try {
       const res = await fetch('/api/market-data/document-extract', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentIds: selectedDocIds }),
       });
       const body = await res.json();
       if (!body.ok) { setExtractError(body.error ?? 'Could not read those documents — try again.'); return; }
-      setExtractCost(body.costEur ?? 0);
+      // Prompt 463 §B.2/§B.3 — never leave the screen without saying what
+      // just happened (North Star invariant 11): which documents were
+      // actually read, how many proposals resulted, and — by name — which
+      // documents were skipped and why, instead of the old bare cost figure
+      // that was the only sign anything had happened at all.
+      setExtractSummary({
+        readDocuments: (body.readDocuments ?? []) as { id: string; name: string }[],
+        itemsProposed: body.itemsProposed ?? 0,
+        costEur: body.costEur ?? 0,
+        skipped: (body.skipped ?? []) as { documentId: string; reason: ExtractionSkipReason }[],
+      });
       setPickerOpen(false);
       load();
     } catch {
@@ -263,7 +289,7 @@ export function MarketDataPanel() {
               docs={docs} docCounts={docCounts} researchItems={researchItems}
               pickerOpen={pickerOpen} openPicker={openPicker} setPickerOpen={setPickerOpen}
               vaultDocs={vaultDocs} selectedDocIds={selectedDocIds} toggleDoc={toggleDoc}
-              extracting={extracting} extractError={extractError} extractCost={extractCost} runDocumentExtraction={runDocumentExtraction}
+              extracting={extracting} extractError={extractError} extractSummary={extractSummary} runDocumentExtraction={runDocumentExtraction}
               added={added} setAdded={setAdded} savingAdded={savingAdded} saveAdded={saveAdded}
               busyId={busyId} respond={respond}
               sectionOutcome={sectionOutcome} setSectionOutcome={setSectionOutcome}
@@ -400,7 +426,7 @@ function ResearchView(props: {
   docs: DocItem[]; docCounts: DocCounts | null; researchItems: ResearchItem[] | null;
   pickerOpen: boolean; openPicker: () => void; setPickerOpen: (v: boolean) => void;
   vaultDocs: VaultDoc[] | null; selectedDocIds: string[]; toggleDoc: (id: string) => void;
-  extracting: boolean; extractError: string; extractCost: number | null; runDocumentExtraction: () => void;
+  extracting: boolean; extractError: string; extractSummary: ExtractSummary | null; runDocumentExtraction: () => void;
   added: AddedByYou; setAdded: (a: AddedByYou) => void; savingAdded: boolean; saveAdded: () => void;
   busyId: string | null; respond: (id: string, action: 'accept' | 'reject') => void;
   sectionOutcome: SectionOutcome | null; setSectionOutcome: (o: SectionOutcome | null) => void;
@@ -421,11 +447,11 @@ function ResearchView(props: {
   );
 }
 
-function FromYourDocumentsPanel({ docs, docCounts, researchItems, pickerOpen, openPicker, setPickerOpen, vaultDocs, selectedDocIds, toggleDoc, extracting, extractError, extractCost, runDocumentExtraction, busyId, respond }: {
+function FromYourDocumentsPanel({ docs, docCounts, researchItems, pickerOpen, openPicker, setPickerOpen, vaultDocs, selectedDocIds, toggleDoc, extracting, extractError, extractSummary, runDocumentExtraction, busyId, respond }: {
   docs: DocItem[]; docCounts: DocCounts | null; researchItems: ResearchItem[] | null;
   pickerOpen: boolean; openPicker: () => void; setPickerOpen: (v: boolean) => void;
   vaultDocs: VaultDoc[] | null; selectedDocIds: string[]; toggleDoc: (id: string) => void;
-  extracting: boolean; extractError: string; extractCost: number | null; runDocumentExtraction: () => void;
+  extracting: boolean; extractError: string; extractSummary: ExtractSummary | null; runDocumentExtraction: () => void;
   busyId: string | null; respond: (id: string, action: 'accept' | 'reject') => void;
 }) {
   const emptyState = marketDataEmptyState(docCounts, docs.length);
@@ -452,7 +478,11 @@ function FromYourDocumentsPanel({ docs, docCounts, researchItems, pickerOpen, op
         <p className="text-xs text-gray-400">No documents in your Vault yet.</p>
       ) : (
         <>
-          <p className="mb-2 text-xs text-gray-500">Already extracted from your Vault — no new reading, no new cost.</p>
+          {/* Prompt 463 §B.1 — this caption describes the LIST below, never
+              an action: it used to claim "no new reading, no new cost" even
+              immediately after a fresh, real, paid extraction pass — the
+              founder read "nothing happened" right after something did. */}
+          <p className="mb-2 text-xs text-gray-500">Facts already extracted from your Vault.</p>
           <ul className="space-y-1.5">
             {docs.map((d, i) => (
               <li key={i} className="flex items-center gap-2 text-xs text-gray-700">
@@ -505,8 +535,31 @@ function FromYourDocumentsPanel({ docs, docCounts, researchItems, pickerOpen, op
             </button>
           </div>
         )}
-        {extractCost !== null && (
-          <p className="mt-1.5 text-[11px] text-gray-400">Last pass cost ≈ €{extractCost.toFixed(3)}.</p>
+        {/* Prompt 463 §B.2/§B.3 — North Star invariant 11, applied to this
+            screen: never leave it without saying what just happened. Before
+            this, the only trace of a pass was a bare cost figure — present
+            or absent, saying nothing about what was read, what it found, or
+            which documents (if any) it couldn't read at all. */}
+        {extractSummary && (
+          <div className="mt-1.5 space-y-1">
+            <p className="text-[11px] text-gray-600">
+              {extractSummary.itemsProposed === 0
+                ? 'Already read — nothing new in these documents.'
+                : extractSummary.readDocuments.length === 1
+                  ? `Read "${extractSummary.readDocuments[0].name}" — ${extractSummary.itemsProposed} new proposal${extractSummary.itemsProposed === 1 ? '' : 's'} below.`
+                  : `Read ${extractSummary.readDocuments.length} documents — ${extractSummary.itemsProposed} new proposals below.`}
+              {extractSummary.costEur > 0 ? ` (≈ €${extractSummary.costEur.toFixed(3)})` : ''}
+            </p>
+            {extractSummary.skipped.length > 0 && (
+              <ul className="space-y-0.5">
+                {extractSummary.skipped.map((s) => (
+                  <li key={s.documentId} className="text-[11px] text-amber-700">
+                    &quot;{vaultDocs?.find((d) => d.id === s.documentId)?.name ?? 'A document'}&quot; — {extractionSkipReasonMessage(s.reason)}.
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </div>
 
@@ -519,7 +572,7 @@ function FromYourDocumentsPanel({ docs, docCounts, researchItems, pickerOpen, op
               <p className="mt-0.5 text-sm text-gray-800">{item.title}</p>
               {item.detail && <p className="mt-0.5 text-xs text-gray-500">{item.detail}</p>}
               <p className="mt-0.5 text-[11px] text-gray-400">
-                {docs.find((d) => d.documentId === item.document_id)?.documentName ?? 'Vault document'}
+                {item.documentName ?? 'Vault document'}
                 {item.page ? `, page ${item.page}` : ''}
               </p>
               <div className="mt-1.5 flex gap-1.5">
