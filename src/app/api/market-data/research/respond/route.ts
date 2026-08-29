@@ -15,7 +15,8 @@ import { claimsAvailable } from '@/lib/blueprint-capability';
 import { normalizeAtom } from '@/lib/company-claims';
 import { addOrUpdateCompetitor } from '@/lib/market-competitor-write';
 import { vaultCitation } from '@/lib/market-rings';
-import { shouldAutoFillMarketData, type PlayerStructured } from '@/lib/market-research-structured';
+import { shouldAutoFillMarketData } from '@/lib/market-research-structured';
+import type { CompetitorClassification } from '@/lib/market-competition';
 
 // Prompt 370 §C3 / Prompt 447 §C — an item in an auto-fill section merges
 // straight into org_market_data (the "Added by you" form) instead of
@@ -96,7 +97,7 @@ export async function POST(req: Request) {
     // of two independent layers: market-data/route.ts §A already stops
     // serving these items to the UI at all; this layer refuses them even
     // if something calls this endpoint directly, bypassing the UI.
-    const structured = item.structured as { name?: string; company?: string; competitorType?: PlayerStructured['competitorType'] } | null;
+    const structured = item.structured as { name?: string; company?: string; sherlockClassification?: CompetitorClassification } | null;
     const structuredName = structured?.name ?? structured?.company;
     if (!structuredName) {
       return NextResponse.json({
@@ -104,13 +105,29 @@ export async function POST(req: Request) {
         error: 'Cannot accept this suggestion: no structured competitor data behind it. This item predates structured research and can no longer be verified — it stays visible nowhere and cannot be accepted.',
       }, { status: 409 });
     }
+    // Prompt 450 §C — Sherlock's own deterministic classifier (never the
+    // model) decides whether a candidate can become a real competitor row.
+    // A ruled-out, unresolved, or status-quo candidate stays visible
+    // elsewhere (so the founder can see WHY) but can never be accepted —
+    // document-sourced items never carry sherlockClassification at all, so
+    // this gate is a no-op for that provenance, exactly as intended.
+    const classification = structured?.sherlockClassification ?? null;
+    if (classification === 'NOT_COMPETITOR') {
+      return NextResponse.json({ ok: false, error: 'Sherlock could not establish a competitive relationship for this candidate.' }, { status: 409 });
+    }
+    if (classification === 'UNRESOLVED') {
+      return NextResponse.json({ ok: false, error: 'Not enough evidence yet to classify this candidate — it needs more research before it can become a competitor.' }, { status: 409 });
+    }
+    if (classification === 'STATUS_QUO') {
+      return NextResponse.json({ ok: false, error: 'This entry describes the buyer\'s current behavior, not a company — it cannot be added to Competitors.' }, { status: 409 });
+    }
     const name = structuredName.trim();
     const sourceUrl = item.source_url ?? (item.document_id ? vaultCitation(item.document_id as string, null) : undefined);
     try {
       await addOrUpdateCompetitor(admin, orgId, {
         name, description: item.detail || undefined, sourceUrl,
         sourceQuality: item.source_kind === 'document' ? 'founder_document' : 'secondary',
-        addedBy: 'ai', competitorType: structured?.competitorType ?? null,
+        addedBy: 'ai', competitorType: classification,
       });
     } catch (e) {
       return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });

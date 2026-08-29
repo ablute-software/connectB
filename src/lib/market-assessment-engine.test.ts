@@ -5,14 +5,27 @@ import {
 } from './market-assessment-engine';
 import type { SizingStructured, PlayerStructured } from './market-research-structured';
 import type { FactStatus } from './market-intelligence-types';
+import type { ScoredClassification } from './market-competition';
 
 const NO_FOUNDER: FounderBaseline = { sizingValueEur: null, growthPct: null, knownCompetitorNames: [] };
 
 function sizing(valueEur: number, scope: SizingStructured['scope'] = 'TAM'): SizingStructured {
   return { valueEur, scope, year: 2026, geography: 'EU', method: 'top_down' };
 }
-function player(company: string, competitorType: PlayerStructured['competitorType']): PlayerStructured {
-  return { company, competitorType };
+// materialToHypothesis/computeVerdict only ever read .company and
+// .sherlockClassification off a players structured — the facets/stage are
+// irrelevant here (classifyCompetitor itself is exhaustively covered by
+// market-competition.test.ts), so a placeholder all-UNKNOWN relation is
+// enough to satisfy the type.
+function player(company: string, sherlockClassification: ScoredClassification): PlayerStructured {
+  const unknown = { state: 'UNKNOWN' as const, note: null, sourceUrl: null };
+  return {
+    company, candidateStage: 'commercial', sherlockClassification,
+    relation: {
+      problemOrJobOverlap: unknown, outcomeOverlap: unknown, substitutability: unknown,
+      userOrBuyerOverlap: unknown, useContextOverlap: unknown,
+    },
+  };
 }
 
 describe('evidenceEligibleForInsight', () => {
@@ -40,17 +53,17 @@ describe('materialToHypothesis', () => {
       expect(materialToHypothesis('growth', fs, null)).toBe(true);
     });
   });
-  it('players with competitorType direct or functional is material', () => {
-    expect(materialToHypothesis('players', 'VALIDATED_FACT', player('Acme', 'direct'))).toBe(true);
-    expect(materialToHypothesis('players', 'VALIDATED_FACT', player('Acme', 'functional'))).toBe(true);
+  it('players with sherlockClassification DIRECT or FUNCTIONAL is material', () => {
+    expect(materialToHypothesis('players', 'VALIDATED_FACT', player('Acme', 'DIRECT'))).toBe(true);
+    expect(materialToHypothesis('players', 'VALIDATED_FACT', player('Acme', 'FUNCTIONAL'))).toBe(true);
   });
-  it('players with the other four competitorTypes is not material', () => {
-    (['budget', 'status_quo', 'emerging', 'potential_entrant'] as PlayerStructured['competitorType'][]).forEach((type) => {
+  it('players with any other classification is not material', () => {
+    (['BUDGET', 'EMERGING', 'POTENTIAL_ENTRANT', 'ADJACENT', 'NOT_COMPETITOR', 'UNRESOLVED'] as ScoredClassification[]).forEach((type) => {
       expect(materialToHypothesis('players', 'VALIDATED_FACT', player('Acme', type))).toBe(false);
     });
   });
-  it('any players competitorType becomes material under CONFLICTING_FACT', () => {
-    (['budget', 'status_quo', 'emerging', 'potential_entrant'] as PlayerStructured['competitorType'][]).forEach((type) => {
+  it('any players classification becomes material under CONFLICTING_FACT', () => {
+    (['BUDGET', 'EMERGING', 'POTENTIAL_ENTRANT', 'ADJACENT', 'NOT_COMPETITOR', 'UNRESOLVED'] as ScoredClassification[]).forEach((type) => {
       expect(materialToHypothesis('players', 'CONFLICTING_FACT', player('Acme', type))).toBe(true);
     });
   });
@@ -118,20 +131,21 @@ describe('computeVerdict', () => {
 
   it('(d) players, name already in knownCompetitorNames -> CONFIRMED, promotedToInsight=false', () => {
     const founder: FounderBaseline = { ...NO_FOUNDER, knownCompetitorNames: ['acme'] };
-    const v = computeVerdict('players', 'VALIDATED_FACT', player('Acme', 'direct'), founder);
+    const v = computeVerdict('players', 'VALIDATED_FACT', player('Acme', 'DIRECT'), founder);
     expect(v).toEqual({ changeClass: 'CONFIRMED', deltaType: null, comparisonBaseline: 'FOUNDER_CLAIM', implication: null, insightConfidence: 'high', promotedToInsight: false });
   });
 
-  it('(e) players, new name, competitorType=direct -> DISCOVERED/NEW_COMPETITOR, promotedToInsight=true', () => {
-    const v = computeVerdict('players', 'VALIDATED_FACT', player('Rival Inc', 'direct'), NO_FOUNDER);
+  it('(e) players, new name, sherlockClassification=DIRECT -> DISCOVERED/NEW_COMPETITOR, promotedToInsight=true', () => {
+    const v = computeVerdict('players', 'VALIDATED_FACT', player('Rival Inc', 'DIRECT'), NO_FOUNDER);
     expect(v?.changeClass).toBe('DISCOVERED');
     expect(v?.deltaType).toBe('NEW_COMPETITOR');
     expect(v?.promotedToInsight).toBe(true);
     expect(v?.implication?.scope).toBe('COMPETITION');
+    expect(v?.implication?.code).toBe('DIRECT_COMPETITOR_DISCOVERED');
   });
 
-  it('(f) players, new name, competitorType=budget -> material=false -> DISCOVERED with implication=null, promotedToInsight=false', () => {
-    const v = computeVerdict('players', 'VALIDATED_FACT', player('Some Budget Co', 'budget'), NO_FOUNDER);
+  it('(f) players, new name, sherlockClassification=BUDGET -> material=false -> DISCOVERED with implication=null, promotedToInsight=false', () => {
+    const v = computeVerdict('players', 'VALIDATED_FACT', player('Some Budget Co', 'BUDGET'), NO_FOUNDER);
     expect(v).toEqual({ changeClass: 'DISCOVERED', deltaType: null, comparisonBaseline: 'MARKET_THESIS', implication: null, insightConfidence: 'high', promotedToInsight: false });
   });
 
@@ -168,7 +182,7 @@ describe('computeVerdict', () => {
   });
 
   it('a conflicting players item still carries the COMPETITION scope, not the section default', () => {
-    const v = computeVerdict('players', 'CONFLICTING_FACT', player('Acme', 'direct'), NO_FOUNDER);
+    const v = computeVerdict('players', 'CONFLICTING_FACT', player('Acme', 'DIRECT'), NO_FOUNDER);
     expect(v?.implication?.scope).toBe('COMPETITION');
   });
 });

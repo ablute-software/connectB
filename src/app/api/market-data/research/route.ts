@@ -65,12 +65,19 @@ const SECTION_INSTRUCTION: Record<Section, string> = {
   definition: 'the definition and scope of this market/category — what it includes and excludes.',
   sizing: 'market size estimates (TAM/SAM/SOM-style figures), each with its range, year, geography and basis plainly stated — never a bare number.',
   growth: 'the growth rate of this market, with the period and source it comes from.',
-  players: 'the key competitors — for EACH one, classify it: direct (same problem, same buyer), functional (different product, '
-    + 'same job-to-be-done), budget (competes for the same budget line, different category), status_quo (the buyer\'s current '
-    + 'non-product alternative — spreadsheets, manual process, doing nothing), emerging (early-stage, same space), or '
-    + 'potential_entrant (adjacent player who could plausibly enter). A company sharing only a broad sector label with this '
-    + 'product is NOT automatically a competitor — justify the classification from the buyer/problem/use-case match, never from '
-    + 'sector alone.',
+  // Prompt 450 — replaces the free-choice competitorType label: the model
+  // no longer classifies anything, it only scores the RELATIONSHIP against
+  // 5 facets with sourced evidence — classifyCompetitor (market-
+  // competition.ts) is the only thing that turns that into a classification.
+  players: 'the key competitors. For EACH candidate, do not just name it — score the RELATIONSHIP against 5 facets: does it '
+    + 'solve the same problem/job-to-be-done, deliver a substitutable outcome, for the same buyer/user, in the same use context? '
+    + 'Every MATCH or PARTIAL needs a source URL for THAT specific claim, ideally the candidate\'s own site/product page — not '
+    + 'just wherever you first found the name (a directory or "top N startups" listicle is fine for finding a name, never for '
+    + 'proving a relationship). A shared sector label alone is NOT evidence of any facet. If you cannot find evidence for a '
+    + 'facet, say UNKNOWN honestly — do not guess, and do not mark it NO_MATCH just because you found nothing. If the true '
+    + 'comparison is not another company but the buyer\'s current non-product alternative (a spreadsheet, a manual process, '
+    + 'doing nothing), say so directly instead of forcing a relationship score. If the candidate is still research-stage or '
+    + 'pre-commercial, say so — it changes the classification.',
   // Prompt 384 §F — these two were the only sections timing out (Vercel's
   // 504 at maxDuration=60, confirmed via real runtime logs: a 42.8s success
   // and an actual 60-80s/504 failure on the exact same open, multi-entity
@@ -99,10 +106,26 @@ interface RawItem {
 // REAL per-section requiredness is enforced afterward, server-side, by
 // parseStructuredForSection. Trends/regulatory/definition simply never
 // populate this and are never required to.
+// Prompt 450 — players' facet-scoring shape, shared by the 5 decisive
+// facets and the 5 optional/auxiliary ones: state is what the candidate
+// actually scores, note is free-text context, sourceUrl is required by
+// parseStructuredForSection (market-research-structured.ts) whenever state
+// is MATCH or PARTIAL — a facet that comes back without one regresses to
+// UNKNOWN there rather than being trusted uncited.
+const FACET_SCHEMA = {
+  type: 'object',
+  properties: {
+    state: { type: 'string', enum: ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'] },
+    note: { type: 'string' },
+    sourceUrl: { type: 'string', description: 'required when state is MATCH or PARTIAL' },
+  },
+};
+
 const STRUCTURED_SCHEMA = {
   type: 'object',
   description: 'Structured fields for this item — which ones apply depends on section. sizing needs valueEur/scope/year/geography/method. '
-    + 'growth needs pct/periodYears (segment optional). rounds needs company/amountEur/date/stage. players needs company/competitorType. '
+    + 'growth needs pct/periodYears (segment optional). rounds needs company/amountEur/date/stage. players needs company, then EITHER '
+    + 'statusQuoNote (buyer\'s current non-product behavior) OR candidateStage + relation (a real candidate, scored). '
     + 'Omit fields that do not apply to this item\'s section.',
   properties: {
     valueEur: { type: 'number', description: 'sizing: the market value in EUR' },
@@ -117,9 +140,19 @@ const STRUCTURED_SCHEMA = {
     amountEur: { type: 'number', description: 'rounds only: the round amount in EUR' },
     date: { type: 'string', description: 'rounds only' },
     stage: { type: 'string', description: 'rounds only: the round stage (e.g. Series A)' },
-    competitorType: {
-      type: 'string', enum: ['direct', 'functional', 'budget', 'status_quo', 'emerging', 'potential_entrant'],
-      description: 'players only — justified from buyer/problem/use-case match, never from sector alone',
+    candidateStage: { type: 'string', enum: ['commercial', 'pre_commercial', 'unknown'], description: 'players only' },
+    statusQuoNote: { type: 'string', description: 'players only — fill this INSTEAD of relation when the true comparison is the buyer\'s current non-product behavior' },
+    relation: {
+      type: 'object',
+      description: 'players only — omit if statusQuoNote is used. problemOrJobOverlap/outcomeOverlap/substitutability/'
+        + 'userOrBuyerOverlap/useContextOverlap are required; budgetOverlap/technologyOverlap/inputOverlap/geographyOverlap/'
+        + 'channelOverlap are optional context',
+      properties: {
+        problemOrJobOverlap: FACET_SCHEMA, outcomeOverlap: FACET_SCHEMA, substitutability: FACET_SCHEMA,
+        userOrBuyerOverlap: FACET_SCHEMA, useContextOverlap: FACET_SCHEMA,
+        budgetOverlap: FACET_SCHEMA, technologyOverlap: FACET_SCHEMA, inputOverlap: FACET_SCHEMA,
+        geographyOverlap: FACET_SCHEMA, channelOverlap: FACET_SCHEMA,
+      },
     },
   },
 };

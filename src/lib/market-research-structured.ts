@@ -4,6 +4,10 @@
 import { createHash } from 'crypto';
 import type { Section } from './market-research-sections';
 import type { FactStatus } from './market-intelligence-types';
+import {
+  classifyCompetitor, qualifyingSourcesOnly,
+  type CandidateStage, type CompetitiveRelation, type FacetEvidence, type MatchState, type ScoredClassification,
+} from './market-competition';
 
 // Prompt 445 §A — lives here (not in research/route.ts) so it's testable:
 // Next.js route files may only export the reserved handler names (GET,
@@ -23,10 +27,17 @@ export interface SizingStructured {
 }
 export interface GrowthStructured { pct: number; periodYears: number; segment: string | null }
 export interface RoundStructured { company: string; amountEur: number; date: string; stage: string }
-export interface PlayerStructured {
-  company: string;
-  competitorType: 'direct' | 'functional' | 'budget' | 'status_quo' | 'emerging' | 'potential_entrant';
-}
+// Prompt 450 — replaces the free competitorType enum with the Competition
+// Contract (market-competition.ts, Prompt 449): a candidate is either a
+// real relationship scored across 5 decisive facets (sherlockClassification
+// computed by classifyCompetitor — never a value the model fills in
+// itself), or the buyer's status-quo behavior described in its own words
+// (statusQuoNote) — the ONE classification the model is trusted to assert
+// directly, since it's a description of the buyer, not a claim about a
+// competitor.
+export type PlayerStructured =
+  | { company: string; candidateStage: CandidateStage; relation: CompetitiveRelation; sherlockClassification: ScoredClassification }
+  | { company: string; statusQuoNote: string; sherlockClassification: 'STATUS_QUO' };
 export type StructuredForSection = SizingStructured | GrowthStructured | RoundStructured | PlayerStructured;
 
 // trends/regulatory/definition stay without typed structured this phase
@@ -57,13 +68,70 @@ export function shouldAutoFillMarketData(section: string, sourceKind: string | n
 
 const SIZING_SCOPES = ['TAM', 'SAM', 'SOM'];
 const SIZING_METHODS = ['top_down', 'bottom_up', 'analyst_report', 'secondary_citation'];
-const COMPETITOR_TYPES = ['direct', 'functional', 'budget', 'status_quo', 'emerging', 'potential_entrant'];
+const CANDIDATE_STAGES = ['commercial', 'pre_commercial', 'unknown'];
+const MATCH_STATES = ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'];
 
 function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 function str(v: unknown): string | null {
   return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
+// Prompt 450 — a facet with no valid state defaults to UNKNOWN rather than
+// rejecting the candidate (an omitted facet is exactly what UNKNOWN means).
+// A MATCH/PARTIAL with no sourceUrl is unverifiable, so that ONE facet
+// regresses to UNKNOWN too — never invent a source, never discard the whole
+// candidate over one missing citation.
+function parseFacet(raw: unknown): FacetEvidence {
+  if (!raw || typeof raw !== 'object') return { state: 'UNKNOWN', note: null, sourceUrl: null };
+  const f = raw as Record<string, unknown>;
+  const stateRaw = str(f.state);
+  const state = (stateRaw && MATCH_STATES.includes(stateRaw) ? stateRaw : 'UNKNOWN') as MatchState;
+  const sourceUrl = str(f.sourceUrl);
+  if ((state === 'MATCH' || state === 'PARTIAL') && !sourceUrl) return { state: 'UNKNOWN', note: null, sourceUrl: null };
+  return { state, note: str(f.note), sourceUrl };
+}
+
+// Returns null when there is truly nothing to work with — all 5 decisive
+// facets AND budgetOverlap ended up UNKNOWN after parsing (a candidate with
+// zero usable evidence isn't worth persisting even as UNRESOLVED).
+function parseCompetitiveRelation(raw: Record<string, unknown>): CompetitiveRelation | null {
+  const problemOrJobOverlap = parseFacet(raw.problemOrJobOverlap);
+  const outcomeOverlap = parseFacet(raw.outcomeOverlap);
+  const substitutability = parseFacet(raw.substitutability);
+  const userOrBuyerOverlap = parseFacet(raw.userOrBuyerOverlap);
+  const useContextOverlap = parseFacet(raw.useContextOverlap);
+  const budgetOverlap = raw.budgetOverlap != null ? parseFacet(raw.budgetOverlap) : undefined;
+  const technologyOverlap = raw.technologyOverlap != null ? parseFacet(raw.technologyOverlap) : undefined;
+  const inputOverlap = raw.inputOverlap != null ? parseFacet(raw.inputOverlap) : undefined;
+  const geographyOverlap = raw.geographyOverlap != null ? parseFacet(raw.geographyOverlap) : undefined;
+  const channelOverlap = raw.channelOverlap != null ? parseFacet(raw.channelOverlap) : undefined;
+
+  const decisiveAllUnknown = [problemOrJobOverlap, outcomeOverlap, substitutability, userOrBuyerOverlap, useContextOverlap]
+    .every((f) => f.state === 'UNKNOWN');
+  if (decisiveAllUnknown && (!budgetOverlap || budgetOverlap.state === 'UNKNOWN')) return null;
+
+  return {
+    problemOrJobOverlap, outcomeOverlap, substitutability, userOrBuyerOverlap, useContextOverlap,
+    budgetOverlap, technologyOverlap, inputOverlap, geographyOverlap, channelOverlap,
+  };
+}
+
+// Prompt 450 — the qualifying (tier A/B, non-aggregator) sourceUrls behind
+// a players item's OWN relation facets — used by computeFactStatusForRun
+// below instead of the item's single top-level source_url, since a
+// candidate's classification stands or falls on how many independent real
+// sources back ITS facets, not on how many separate research items
+// happened to propose it.
+function playersRelationSourceUrls(structured: StructuredForSection | null): string[] {
+  if (!structured || !('relation' in structured) || !structured.relation) return [];
+  const r = structured.relation;
+  const facets = [
+    r.problemOrJobOverlap, r.outcomeOverlap, r.substitutability, r.userOrBuyerOverlap, r.useContextOverlap,
+    r.budgetOverlap, r.technologyOverlap, r.inputOverlap, r.geographyOverlap, r.channelOverlap,
+  ];
+  return facets.filter((f): f is FacetEvidence => !!f?.sourceUrl).map((f) => f.sourceUrl as string);
 }
 
 // Validates shape + required fields per section; returns null if
@@ -99,9 +167,23 @@ export function parseStructuredForSection(section: Section, raw: unknown): Struc
   }
   if (section === 'players') {
     const company = str(r.company);
-    const competitorType = str(r.competitorType);
-    if (!company || !competitorType || !COMPETITOR_TYPES.includes(competitorType)) return null;
-    return { company, competitorType: competitorType as PlayerStructured['competitorType'] };
+    if (!company) return null;
+    // Prompt 450 — the buyer's current non-product behavior, asserted
+    // directly by the model (never scored against the 5 facets — there is
+    // no "relationship" to a spreadsheet or to doing nothing).
+    const statusQuoNote = str(r.statusQuoNote);
+    if (statusQuoNote) return { company, statusQuoNote, sherlockClassification: 'STATUS_QUO' };
+    const candidateStageRaw = str(r.candidateStage);
+    if (!candidateStageRaw || !CANDIDATE_STAGES.includes(candidateStageRaw)) return null;
+    if (!r.relation || typeof r.relation !== 'object') return null;
+    const relation = parseCompetitiveRelation(r.relation as Record<string, unknown>);
+    if (!relation) return null;
+    const candidateStage = candidateStageRaw as CandidateStage;
+    // Prompt 450 — the classification is always computed here, from the
+    // parsed facets, never read from a field the model tried to fill in
+    // itself (the tool schema doesn't even offer one).
+    const sherlockClassification = classifyCompetitor(relation, candidateStage);
+    return { company, candidateStage, relation, sherlockClassification };
   }
   return null;
 }
@@ -194,7 +276,15 @@ export function computeFactStatusForRun(items: RunItemForFactStatus[]): Map<numb
   const result = new Map<number, FactStatus>();
   for (const indices of groups.values()) {
     const groupItems = indices.map((i) => items[i]);
-    const sourceCount = countIndependentSources(groupItems.filter((it) => it.sourceUrl).map((it) => ({ sourceUrl: it.sourceUrl })));
+    // Prompt 450 — for `players`, independence is evaluated over the
+    // RELATION's own qualifying (tier A/B) facet sourceUrls, not the item's
+    // single top-level source_url. computeFactStatus itself is unchanged —
+    // only what's counted as "a source" changes, and only for this section.
+    const sourceCount = groupItems[0]?.section === 'players'
+      ? countIndependentSources(
+        qualifyingSourcesOnly(groupItems.flatMap((it) => playersRelationSourceUrls(it.structured))).map((sourceUrl) => ({ sourceUrl })),
+      )
+      : countIndependentSources(groupItems.filter((it) => it.sourceUrl).map((it) => ({ sourceUrl: it.sourceUrl })));
 
     const values = groupItems.map((it) => numericFieldOf(it.structured)).filter((v): v is number => v != null);
     let conflictingValues = false;

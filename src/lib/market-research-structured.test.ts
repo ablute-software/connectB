@@ -3,6 +3,22 @@ import {
   parseStructuredForSection, computeFactStatus, countIndependentSources, valuesConflict, computeFactStatusForRun, signatureFor,
   shouldAutoFillMarketData, type RunItemForFactStatus,
 } from './market-research-structured';
+import type { MatchState } from './market-competition';
+
+function facetRaw(state: MatchState, sourceUrl?: string) {
+  return { state, sourceUrl: sourceUrl ?? (state === 'MATCH' || state === 'PARTIAL' ? 'https://acme.com/product' : undefined) };
+}
+// A relation with every decisive facet MATCH + a real source — enough for
+// parseStructuredForSection to accept it and classifyCompetitor to reach
+// DIRECT; the exact classification cascade is market-competition.test.ts's
+// job, not this file's.
+function fullRelationRaw(overrides: Record<string, ReturnType<typeof facetRaw>> = {}) {
+  return {
+    problemOrJobOverlap: facetRaw('MATCH'), outcomeOverlap: facetRaw('MATCH'), substitutability: facetRaw('MATCH'),
+    userOrBuyerOverlap: facetRaw('MATCH'), useContextOverlap: facetRaw('MATCH'),
+    ...overrides,
+  };
+}
 
 // Prompt 447 §C — the exact behavior change this section verifies directly
 // (not just by code reading): a web-sourced sizing/growth item now
@@ -87,14 +103,45 @@ describe('parseStructuredForSection — rounds', () => {
 });
 
 describe('parseStructuredForSection — players', () => {
-  it('accepts a valid competitorType', () => {
-    expect(parseStructuredForSection('players', { company: 'Rival Inc', competitorType: 'direct' })).toEqual({ company: 'Rival Inc', competitorType: 'direct' });
+  it('accepts a status-quo candidate directly, untouched by classification', () => {
+    const result = parseStructuredForSection('players', { company: 'Manual spreadsheet tracking', statusQuoNote: 'Founder said most buyers still track this in Excel.' });
+    expect(result).toEqual({ company: 'Manual spreadsheet tracking', statusQuoNote: 'Founder said most buyers still track this in Excel.', sherlockClassification: 'STATUS_QUO' });
   });
-  it('rejects an invalid competitorType — this is the exact bug this phase fixes', () => {
-    expect(parseStructuredForSection('players', { company: 'Cleanwatts', competitorType: 'same_sector' })).toBeNull();
+  it('rejects a missing company, statusQuoNote or not', () => {
+    expect(parseStructuredForSection('players', { statusQuoNote: 'no company here' })).toBeNull();
+    expect(parseStructuredForSection('players', { candidateStage: 'commercial', relation: fullRelationRaw() })).toBeNull();
   });
-  it('rejects a missing company', () => {
-    expect(parseStructuredForSection('players', { competitorType: 'direct' })).toBeNull();
+  it('accepts a real candidate: company + candidateStage + relation -> sherlockClassification computed, never model-supplied', () => {
+    const result = parseStructuredForSection('players', { company: 'Rival Inc', candidateStage: 'commercial', relation: fullRelationRaw() }) as { sherlockClassification?: string };
+    expect(result?.sherlockClassification).toBe('DIRECT'); // classifyCompetitor's own cascade, not read from input
+  });
+  it('rejects an invalid candidateStage', () => {
+    expect(parseStructuredForSection('players', { company: 'Rival Inc', candidateStage: 'seed', relation: fullRelationRaw() })).toBeNull();
+  });
+  it('rejects a missing or malformed relation', () => {
+    expect(parseStructuredForSection('players', { company: 'Rival Inc', candidateStage: 'commercial' })).toBeNull();
+    expect(parseStructuredForSection('players', { company: 'Rival Inc', candidateStage: 'commercial', relation: 'not an object' })).toBeNull();
+  });
+  it('a MATCH facet with no sourceUrl regresses to UNKNOWN for that facet alone, never discards the candidate', () => {
+    const result = parseStructuredForSection('players', {
+      company: 'Rival Inc', candidateStage: 'commercial',
+      relation: fullRelationRaw({ userOrBuyerOverlap: { state: 'MATCH', sourceUrl: undefined } }), // no sourceUrl
+    }) as { relation?: { userOrBuyerOverlap: { state: string; sourceUrl: string | null } } };
+    expect(result?.relation?.userOrBuyerOverlap).toEqual({ state: 'UNKNOWN', note: null, sourceUrl: null });
+  });
+  it('returns null when every decisive facet and budgetOverlap are UNKNOWN — nothing to work with', () => {
+    const allUnknown = fullRelationRaw({
+      problemOrJobOverlap: facetRaw('UNKNOWN'), outcomeOverlap: facetRaw('UNKNOWN'), substitutability: facetRaw('UNKNOWN'),
+      userOrBuyerOverlap: facetRaw('UNKNOWN'), useContextOverlap: facetRaw('UNKNOWN'),
+    });
+    expect(parseStructuredForSection('players', { company: 'Obscure Co', candidateStage: 'unknown', relation: allUnknown })).toBeNull();
+  });
+  it('a single decisive MATCH is enough to avoid the all-UNKNOWN discard, even alone', () => {
+    const oneMatch = {
+      problemOrJobOverlap: facetRaw('MATCH'), outcomeOverlap: facetRaw('UNKNOWN'), substitutability: facetRaw('UNKNOWN'),
+      userOrBuyerOverlap: facetRaw('UNKNOWN'), useContextOverlap: facetRaw('UNKNOWN'),
+    };
+    expect(parseStructuredForSection('players', { company: 'Obscure Co', candidateStage: 'unknown', relation: oneMatch })).not.toBeNull();
   });
 });
 
@@ -223,5 +270,42 @@ describe('computeFactStatusForRun — grouping + the four cases end to end', () 
     const result = computeFactStatusForRun(items);
     expect(result.get(0)).toBe('PARTIAL_FACT');
     expect(result.get(1)).toBe('PARTIAL_FACT');
+  });
+
+  // Prompt 450 — players is the one section where sourceCount comes from
+  // the RELATION's own facet sourceUrls (qualifying tier A/B only), never
+  // the item's single top-level source_url. Every decisive facet is given
+  // explicitly in each case below (never left to fullRelationRaw's default
+  // acme.com source) so the domain count in each assertion is exact, not
+  // incidentally right because of a bled-in default.
+  describe('players: sourceCount from qualifying relation facets, not the item source_url', () => {
+    function playersItem(relation: ReturnType<typeof fullRelationRaw>): RunItemForFactStatus {
+      const structured = parseStructuredForSection('players', { company: 'Rival Inc', candidateStage: 'commercial', relation });
+      return { section: 'players', title: 'Rival Inc', sourceUrl: 'https://tracxn.com/companies/rival-inc', structured };
+    }
+
+    it('two decisive facets backed by two different qualifying domains -> VALIDATED_FACT, even though the item\'s own source_url is an aggregator', () => {
+      const items = [playersItem({
+        problemOrJobOverlap: facetRaw('UNKNOWN'), outcomeOverlap: facetRaw('UNKNOWN'), substitutability: facetRaw('UNKNOWN'),
+        userOrBuyerOverlap: facetRaw('MATCH', 'https://a.com/pricing'), useContextOverlap: facetRaw('MATCH', 'https://b.com/product'),
+      })];
+      expect(computeFactStatusForRun(items).get(0)).toBe('VALIDATED_FACT');
+    });
+
+    it('every facet source from the same domain only counts as one -> PARTIAL_FACT', () => {
+      const items = [playersItem({
+        problemOrJobOverlap: facetRaw('UNKNOWN'), outcomeOverlap: facetRaw('UNKNOWN'), substitutability: facetRaw('UNKNOWN'),
+        userOrBuyerOverlap: facetRaw('MATCH', 'https://a.com/pricing'), useContextOverlap: facetRaw('MATCH', 'https://a.com/product'),
+      })];
+      expect(computeFactStatusForRun(items).get(0)).toBe('PARTIAL_FACT');
+    });
+
+    it('facet sources that are all known aggregators never reach VALIDATED_FACT, even with two distinct domains', () => {
+      const items = [playersItem({
+        problemOrJobOverlap: facetRaw('UNKNOWN'), outcomeOverlap: facetRaw('UNKNOWN'), substitutability: facetRaw('UNKNOWN'),
+        userOrBuyerOverlap: facetRaw('MATCH', 'https://tracxn.com/companies/rival-inc'), useContextOverlap: facetRaw('MATCH', 'https://crunchbase.com/organization/rival-inc'),
+      })];
+      expect(computeFactStatusForRun(items).get(0)).toBe('PARTIAL_FACT');
+    });
   });
 });

@@ -14,6 +14,75 @@ interface PlayerSuggestion {
   structured?: Record<string, unknown> | null;
 }
 
+// Prompt 450 §D — the 5 decisive facets classifyCompetitor reads, shown to
+// the founder as the reason behind a NOT_COMPETITOR/UNRESOLVED verdict.
+interface FacetEvidenceView { state: string; note: string | null; sourceUrl: string | null }
+const DECISIVE_FACETS: { key: string; label: string }[] = [
+  { key: 'problemOrJobOverlap', label: 'Problem / job-to-be-done' },
+  { key: 'outcomeOverlap', label: 'Outcome' },
+  { key: 'substitutability', label: 'Substitutability' },
+  { key: 'userOrBuyerOverlap', label: 'Buyer / user' },
+  { key: 'useContextOverlap', label: 'Use context' },
+];
+function sherlockClassificationOf(s: PlayerSuggestion): string | undefined {
+  return (s.structured as { sherlockClassification?: string } | undefined)?.sherlockClassification;
+}
+function relationOf(s: PlayerSuggestion): Record<string, FacetEvidenceView> | undefined {
+  return (s.structured as { relation?: Record<string, FacetEvidenceView> } | undefined)?.relation;
+}
+
+// Prompt 450 §D — "Considered and excluded" (NOT_COMPETITOR) and "Needs
+// more evidence" (UNRESOLVED) are collapsed, distinct, and never show an
+// Accept button — the whole point is that Sherlock's own classifier, not
+// the founder, already decided these don't (yet) qualify. Discovered-via
+// vs. classified-using is shown separately so the founder can see that
+// finding a name and qualifying a relationship are two different things.
+function SecondaryCandidateGroup({ title, tone, items }: { title: string; tone: 'excluded' | 'unresolved'; items: PlayerSuggestion[] }) {
+  const [open, setOpen] = useState(false);
+  if (items.length === 0) return null;
+  const toneCls = tone === 'excluded' ? 'border-gray-200 bg-gray-50' : 'border-amber-100 bg-amber-50/40';
+  return (
+    <div className={`rounded-lg border p-2 ${toneCls}`}>
+      <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between text-left text-[11px] font-medium text-gray-500">
+        <span>{title} ({items.length})</span>
+        <span className="text-gray-400">{open ? 'Hide' : 'Show'}</span>
+      </button>
+      {open && (
+        <div className="mt-1.5 space-y-2">
+          {items.map((s) => {
+            const relation = relationOf(s);
+            return (
+              <div key={s.id} className="rounded border border-gray-200 bg-white p-2 text-xs">
+                <p className="font-medium text-gray-800">{s.title.replace(/^Competitor:\s*/i, '')}</p>
+                <p className="mt-1 text-[10px] text-gray-400">
+                  {s.source_url ? <>Discovered via <a href={s.source_url} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">{s.source_url}</a></> : 'Discovered from your own document'}
+                </p>
+                {relation && (
+                  <div className="mt-1.5 space-y-1">
+                    {DECISIVE_FACETS.map(({ key, label }) => {
+                      const f = relation[key];
+                      if (!f) return null;
+                      return (
+                        <p key={key} className="text-[11px] text-gray-600">
+                          <span className="font-medium text-gray-500">{label}:</span> {f.state}
+                          {f.note ? ` — ${f.note}` : ''}
+                          {f.sourceUrl && (
+                            <> · <a href={f.sourceUrl} target="_blank" rel="noreferrer" className="text-[#0E7490] hover:underline">classified using this source</a></>
+                          )}
+                        </p>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Company {
   id: string; name: string; domain: string | null; sectors: string[] | null; description: string | null;
   company_type: string | null; life_status: string | null; last_round_type: string | null;
@@ -266,16 +335,30 @@ export function CompetitorsCard({ onChanged }: { onChanged?: () => void }) {
 
   if (competitors === null) return <p className="text-sm text-gray-400">Loading…</p>;
 
+  // Prompt 450 §D — STATUS_QUO items describe the buyer's current behavior,
+  // not a competitor candidate at all; they're excluded here entirely
+  // rather than forced into either secondary group (neither "excluded" nor
+  // "unresolved" describes them accurately) — a dedicated surface for them
+  // is a decision for a later prompt, not invented here. A document-sourced
+  // item never carries sherlockClassification, so it always lands in
+  // realCandidates, unaffected by this split.
+  const realCandidates = playerSuggestions.filter((s) => {
+    const c = sherlockClassificationOf(s);
+    return c !== 'NOT_COMPETITOR' && c !== 'UNRESOLVED' && c !== 'STATUS_QUO';
+  });
+  const notCompetitor = playerSuggestions.filter((s) => sherlockClassificationOf(s) === 'NOT_COMPETITOR');
+  const unresolved = playerSuggestions.filter((s) => sherlockClassificationOf(s) === 'UNRESOLVED');
+
   return (
     <div className="space-y-2">
       <p className="text-xs text-gray-500">
         Each competitor is a real card — identity, money, positioning, and life signal — always with a source, shared
         across every startup on the platform (never duplicated per org).
       </p>
-      {playerSuggestions.length > 0 && (
+      {realCandidates.length > 0 && (
         <div className="rounded-lg border border-cyan-100 bg-cyan-50/40 p-2">
           <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">Proposed — review and add as a competitor card</p>
-          {playerSuggestions.map((s) => (
+          {realCandidates.map((s) => (
             <div key={s.id} className="mt-1 flex items-center justify-between gap-2 text-xs">
               <span className="min-w-0 text-gray-700">
                 <span className="truncate">{s.title.replace(/^Competitor:\s*/i, '')}</span>
@@ -301,6 +384,8 @@ export function CompetitorsCard({ onChanged }: { onChanged?: () => void }) {
           hypothesis card above (Market Thesis) and research competitors from there.
         </p>
       )}
+      <SecondaryCandidateGroup title="Considered and excluded" tone="excluded" items={notCompetitor} />
+      <SecondaryCandidateGroup title="Needs more evidence" tone="unresolved" items={unresolved} />
       {addError && <p className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-[#B00000]">{addError}</p>}
       {competitors.map((c) => <CompetitorCard key={c.id} c={c} onChanged={load} />)}
       <AddCompetitorForm onAdded={load} />

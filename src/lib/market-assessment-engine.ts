@@ -20,19 +20,22 @@ export function evidenceEligibleForInsight(factStatus: FactStatus | null): boole
 
 // Not all eligible evidence is material to the hypothesis. sizing/growth
 // are always material (they feed TAM/SAM/SOM/growth directly). players is
-// only material when competitorType is 'direct'/'functional' (a real
+// only material when sherlockClassification is DIRECT/FUNCTIONAL (a real
 // threat) OR when there's a source conflict (a disagreement about ANY
-// competitor is worth surfacing). rounds is never material alone in this
-// phase — one comparable round in isolation doesn't change the market
-// reading; the synthesis that does (median vs the founder's ask) is phase
-// 448. A source conflict on rounds stays material — two sources
-// disagreeing about the same round is itself information.
+// competitor is worth surfacing) — every other classification (BUDGET,
+// EMERGING, POTENTIAL_ENTRANT, ADJACENT, STATUS_QUO, NOT_COMPETITOR,
+// UNRESOLVED) is not, same threshold as before Prompt 450, just against the
+// wider vocabulary. rounds is never material alone in this phase — one
+// comparable round in isolation doesn't change the market reading; the
+// synthesis that does (median vs the founder's ask) is phase 448. A source
+// conflict on rounds stays material — two sources disagreeing about the
+// same round is itself information.
 export function materialToHypothesis(section: Section, factStatus: FactStatus, structured: StructuredForSection | null): boolean {
   if (factStatus === 'CONFLICTING_FACT') return true;
   if (section === 'sizing' || section === 'growth') return true;
   if (section === 'players') {
-    const type = (structured as PlayerStructured | null)?.competitorType;
-    return type === 'direct' || type === 'functional';
+    const classification = (structured as PlayerStructured | null)?.sherlockClassification;
+    return classification === 'DIRECT' || classification === 'FUNCTIONAL';
   }
   return false; // rounds (non-conflict), trends/regulatory/definition (no structured, never eligible in the first place)
 }
@@ -136,9 +139,12 @@ export function computeVerdict(
     if (!p) return null;
     const known = founder.knownCompetitorNames.includes(p.company.trim().toLowerCase());
     if (known) return { changeClass: 'CONFIRMED', deltaType: null, comparisonBaseline: 'FOUNDER_CLAIM', implication: null, insightConfidence, promotedToInsight: false };
+    // sherlockClassification is already uppercase (ScoredClassification) —
+    // and, by the time we reach here, always DIRECT or FUNCTIONAL: the
+    // `!material` branch above already returned for every other value.
     return {
       changeClass: 'DISCOVERED', deltaType: 'NEW_COMPETITOR', comparisonBaseline: 'FOUNDER_CLAIM',
-      implication: { code: `${p.competitorType.toUpperCase()}_COMPETITOR_DISCOVERED`, scope: 'COMPETITION', direction: 'RAISES_RISK' },
+      implication: { code: `${p.sherlockClassification}_COMPETITOR_DISCOVERED`, scope: 'COMPETITION', direction: 'RAISES_RISK' },
       insightConfidence, promotedToInsight: true,
     };
   }

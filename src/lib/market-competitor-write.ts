@@ -10,24 +10,32 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { findMatchingMarketCompany } from './market-companies-dedup';
 import { marketCompanyExtendedFieldsAvailable, orgCompetitorsCompetitorTypeAvailable } from './market-data-capability';
-import type { PlayerStructured } from './market-research-structured';
+import type { ScoredClassification } from './market-competition';
 
 export interface CompetitorCandidate {
   name: string; domain?: string | null; sectors?: string[]; description?: string | null;
   companyType?: string | null; sourceUrl?: string | null; sourceQuality?: string | null;
   positioning?: string | null; note?: string | null; addedBy?: 'ai' | 'founder';
-  // Prompt 447 §B — only ever set for a web-research-sourced accept (445's
-  // PlayerStructured); absent for a manual add or a document-sourced one.
-  competitorType?: PlayerStructured['competitorType'] | null;
+  // Prompt 447 §B / Prompt 450 — only ever set for a web-research-sourced
+  // accept (market-competition.ts's classifyCompetitor output); absent for
+  // a manual add or a document-sourced one. NOT_COMPETITOR/UNRESOLVED/
+  // STATUS_QUO never reach here — respond/route.ts rejects those three
+  // before addOrUpdateCompetitor is ever called, so in practice this is
+  // always one of the 6 real competitor classifications.
+  competitorType?: ScoredClassification | null;
 }
 
 // Deliberate, not perfect mapping — relation keeps the closest value so the
 // existing UI that already reads relation doesn't break; competitor_type
 // stores the original finer classification for whoever needs it later.
-export function relationForCompetitorType(t: PlayerStructured['competitorType']): 'direct' | 'indirect' | 'adjacent' {
-  if (t === 'direct') return 'direct';
-  if (t === 'emerging' || t === 'potential_entrant') return 'adjacent';
-  return 'indirect'; // functional, budget, status_quo
+// competitor_type itself is stored lowercase (the column's existing
+// convention, and the exact casing the check constraint uses) even though
+// ScoredClassification is uppercase — the lowercase happens at the write
+// below, once, at the DB boundary.
+export function relationForCompetitorType(t: ScoredClassification): 'direct' | 'indirect' | 'adjacent' {
+  if (t === 'DIRECT') return 'direct';
+  if (t === 'EMERGING' || t === 'POTENTIAL_ENTRANT' || t === 'ADJACENT') return 'adjacent';
+  return 'indirect'; // FUNCTIONAL, BUDGET
 }
 
 async function findOrCreateCompany(admin: SupabaseClient, candidate: CompetitorCandidate): Promise<string> {
@@ -63,7 +71,7 @@ export async function addOrUpdateCompetitor(admin: SupabaseClient, orgId: string
   const { error } = await admin.from('org_competitors').upsert({
     org_id: orgId, market_company_id: companyId, relation,
     note: candidate.note ?? null, positioning: candidate.positioning ?? null, added_by: candidate.addedBy ?? 'founder', updated_at: new Date().toISOString(),
-    ...(competitorTypeAvailable ? { competitor_type: candidate.competitorType ?? null } : {}),
+    ...(competitorTypeAvailable ? { competitor_type: candidate.competitorType ? candidate.competitorType.toLowerCase() : null } : {}),
   }, { onConflict: 'org_id,market_company_id' });
   if (error) throw new Error(error.message);
   return companyId;

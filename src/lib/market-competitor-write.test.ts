@@ -1,22 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { relationForCompetitorType } from './market-competitor-write';
-import type { PlayerStructured } from './market-research-structured';
+import type { ScoredClassification } from './market-competition';
 
 describe('relationForCompetitorType', () => {
-  it('maps direct to direct', () => {
-    expect(relationForCompetitorType('direct')).toBe('direct');
+  it('maps DIRECT to direct', () => {
+    expect(relationForCompetitorType('DIRECT')).toBe('direct');
   });
-  it('maps emerging and potential_entrant to adjacent', () => {
-    expect(relationForCompetitorType('emerging')).toBe('adjacent');
-    expect(relationForCompetitorType('potential_entrant')).toBe('adjacent');
+  it('maps EMERGING, POTENTIAL_ENTRANT and ADJACENT to adjacent', () => {
+    expect(relationForCompetitorType('EMERGING')).toBe('adjacent');
+    expect(relationForCompetitorType('POTENTIAL_ENTRANT')).toBe('adjacent');
+    expect(relationForCompetitorType('ADJACENT')).toBe('adjacent');
   });
-  it('maps functional, budget and status_quo to indirect', () => {
-    expect(relationForCompetitorType('functional')).toBe('indirect');
-    expect(relationForCompetitorType('budget')).toBe('indirect');
-    expect(relationForCompetitorType('status_quo')).toBe('indirect');
+  it('maps FUNCTIONAL and BUDGET to indirect', () => {
+    expect(relationForCompetitorType('FUNCTIONAL')).toBe('indirect');
+    expect(relationForCompetitorType('BUDGET')).toBe('indirect');
   });
-  it('covers all six PlayerStructured competitorType values with no gaps', () => {
-    const types: PlayerStructured['competitorType'][] = ['direct', 'functional', 'budget', 'status_quo', 'emerging', 'potential_entrant'];
+  it('covers every ScoredClassification value reachable from respond/route.ts with no gaps', () => {
+    // NOT_COMPETITOR/UNRESOLVED are part of the ScoredClassification type
+    // but never actually reach this function in production — respond/
+    // route.ts rejects both before addOrUpdateCompetitor is ever called.
+    // Still covered here so the mapping itself never throws if that guard
+    // is ever bypassed.
+    const types: ScoredClassification[] = ['DIRECT', 'FUNCTIONAL', 'BUDGET', 'EMERGING', 'POTENTIAL_ENTRANT', 'ADJACENT', 'NOT_COMPETITOR', 'UNRESOLVED'];
     for (const t of types) {
       expect(() => relationForCompetitorType(t)).not.toThrow();
       expect(['direct', 'indirect', 'adjacent']).toContain(relationForCompetitorType(t));
