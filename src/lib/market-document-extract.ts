@@ -93,6 +93,13 @@ export function parseMarketExtractionRaw(raw: unknown, docsByIndex: Map<number, 
       detail: str(item.source_quote) ?? '', documentId: resolved.doc.id, documentName: resolved.doc.name, page: resolved.page,
       structured: {
         valueEur: currency === 'EUR' ? value : null, currency, scope, year,
+        // Prompt 467 §C — `value` (the raw figure, independent of currency)
+        // alongside the pre-existing `valueEur` (kept unchanged — the old
+        // org_market_data auto-fill in research/respond/route.ts still
+        // reads it): valueEur is null for anything not already in EUR,
+        // which would otherwise leave a non-EUR market size with no usable
+        // number at all for the normalization pipeline below.
+        value,
         // Prompt 466 §B — candidate context for the (not-yet-wired, 467)
         // normalization pipeline. Captured now so nothing the widened
         // schema returns is silently dropped in the meantime.

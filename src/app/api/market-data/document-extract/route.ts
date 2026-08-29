@@ -26,11 +26,22 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { prepareDocumentForAi, type ExtractionSkipReason } from '@/lib/document-extraction-pipeline';
 import { truncatePdfToPages } from '@/lib/pdf-truncate';
 import { MAX_EXTRACTION_PAGES } from '@/lib/document-extraction';
-import { marketDocumentExtractionAvailable } from '@/lib/market-data-capability';
-import { parseMarketExtractionRaw, type MarketDocRef } from '@/lib/market-document-extract';
+import { marketDocumentExtractionAvailable, marketFactsAvailable } from '@/lib/market-data-capability';
+import { parseMarketExtractionRaw, type MarketDocRef, type MarketProposal } from '@/lib/market-document-extract';
+import { normalizeMarketCandidates, type MarketFactCandidate } from '@/lib/market-fact-normalization';
+import { writeMarketFact, type ObservationInput, type RetrievalMethod, type EvidenceSourceKind } from '@/lib/market-facts-db';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+
+// Prompt 467 §C — a document read through THIS route is, by its own system
+// prompt above, "pitch decks, market sizing sheets, competitive landscape
+// analyses, business plans" — never resolvable to a single fixed
+// source_kind. A cheap, real (not invented) signal: the document's own
+// name. Anything else this route reads defaults to 'internal_doc', the
+// closer of the two to "some other founder document" among the check
+// constraint's options.
+const PITCH_DECK_NAME = /pitch|deck/i;
 
 export const maxDuration = 60;
 
@@ -158,6 +169,13 @@ export async function POST(req: Request) {
   const textBlocks: { type: 'text'; text: string }[] = [];
   const sha256s: string[] = [];
   const skipped: { documentId: string; reason: ExtractionSkipReason }[] = [];
+  // Prompt 467 §C — retrieval_method "conforme o documento": a real signal,
+  // not a guess. ensureLinkSnapshot (document-link-snapshot.ts, migration
+  // 0278) stores a fetched link's bytes under storage_path prefixed
+  // 'link-snapshots/…' — prepareDocumentForAi returns exactly that path for
+  // a document-link, and an ordinary uploaded file's own storage_path never
+  // starts with it.
+  const retrievalMethodByDocId = new Map<string, RetrievalMethod>();
   let index = 1;
   for (const documentId of documentIds) {
     const prep = await prepareDocumentForAi(admin, orgId, documentId);
@@ -165,6 +183,7 @@ export async function POST(req: Request) {
     try {
       const t = await truncatePdfToPages(prep.prepared.bytes, MAX_EXTRACTION_PAGES);
       docsByIndex.set(index, { id: prep.prepared.docRow.id, name: prep.prepared.docRow.name });
+      retrievalMethodByDocId.set(prep.prepared.docRow.id, prep.prepared.docRow.storage_path.startsWith('link-snapshots/') ? 'link_snapshot' : 'vault_extraction');
       textBlocks.push({ type: 'text', text: `Document ${index} (name: "${prep.prepared.docRow.name}"):` });
       documentBlocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: t.bytes.toString('base64') } });
       sha256s.push(prep.prepared.sha256);
@@ -195,6 +214,12 @@ export async function POST(req: Request) {
   // Postgres actually inserted — is what makes this count true rather than
   // an upper bound.
   let itemsProposed = 0;
+  // Prompt 467 §C — how many typed market_facts THIS pass wrote (created OR
+  // updated via the fingerprint upsert — writeMarketFact doesn't
+  // distinguish the two, same as itemsProposed above never distinguishes
+  // "new" from "already existed", since a founder never sees the difference
+  // in the copy either).
+  let factsWritten = 0;
   if (!alreadyRanForThisSignature) {
     const interleaved: unknown[] = [];
     for (let i = 0; i < textBlocks.length; i++) { interleaved.push(textBlocks[i]); interleaved.push(documentBlocks[i]); }
@@ -220,7 +245,17 @@ export async function POST(req: Request) {
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const proposals = parseMarketExtractionRaw(toolUse?.input, docsByIndex);
 
-    for (const p of proposals) {
+    // Prompt 467 §C — growth/market_size no longer become
+    // market_research_items proposals at all: a number pulled from the
+    // founder's own deck is evidence of what the founder ASSERTS, never
+    // evidence the market actually behaves that way (invariable 1). They go
+    // straight through normalizeMarketCandidates (466) into typed
+    // market_facts below. Every other section — segments, players, trends,
+    // regulatory — is completely untouched by this prompt.
+    const legacyProposals = proposals.filter((p) => p.section !== 'growth' && p.section !== 'sizing');
+    const typedProposals = proposals.filter((p) => p.section === 'growth' || p.section === 'sizing');
+
+    for (const p of legacyProposals) {
       const { data: inserted } = await admin.from('market_research_items').upsert({
         org_id: orgId, run_signature: signature, section: p.section, title: p.title, detail: p.detail,
         source_kind: 'document', document_id: p.documentId, page: p.page, structured: p.structured ?? null,
@@ -228,11 +263,108 @@ export async function POST(req: Request) {
       }, { onConflict: 'org_id,section,title', ignoreDuplicates: true }).select('id');
       itemsProposed += (inserted ?? []).length;
     }
+
+    if (typedProposals.length > 0 && (await marketFactsAvailable())) {
+      // Lineage lookup — the ONLY path to a supersession row (§C): a
+      // positive-identity match on the exact (org_id, section, title) key
+      // market_research_items already uses for its own dedup, never a
+      // document+page+value heuristic (invariable 14 — the same page can
+      // carry two different figures for two different markets, and a
+      // heuristic match would hide the wrong card).
+      const { data: legacyRows } = await admin.from('market_research_items')
+        .select('id, section, title').eq('org_id', orgId).in('section', ['growth', 'sizing']);
+      const legacyIdByKey = new Map(
+        ((legacyRows ?? []) as { id: string; section: string; title: string }[]).map((r) => [`${r.section}::${r.title}`, r.id]),
+      );
+
+      const observationMeta = new Map<string, { proposal: MarketProposal; legacyItemId: string | null }>();
+      const candidates: MarketFactCandidate[] = [];
+      let obsCounter = 0;
+      for (const p of typedProposals) {
+        const observationId = `obs-${obsCounter++}`;
+        observationMeta.set(observationId, { proposal: p, legacyItemId: legacyIdByKey.get(`${p.section}::${p.title}`) ?? null });
+
+        const s = (p.structured ?? {}) as Record<string, unknown>;
+        const marketDefinition = typeof s.marketDefinition === 'string' ? s.marketDefinition : null;
+        const geography = typeof s.geography === 'string' ? s.geography : null;
+        const bound = s.bound === 'point' || s.bound === 'lower' || s.bound === 'upper' ? s.bound : null;
+
+        // A proposal reaching this point always has a numeric pct/value —
+        // parseMarketExtractionRaw already refuses to create a growth/sizing
+        // MarketProposal without one — so neither branch below is ever
+        // silently skipped in practice; the typeof guard is belt-and-braces
+        // against that upstream contract changing, never a real gap today.
+        if (p.section === 'growth' && typeof s.pct === 'number') {
+          candidates.push({
+            kind: 'growth', observationId, documentId: p.documentId, page: p.page,
+            sourceQuote: typeof s.sourceQuote === 'string' ? s.sourceQuote : null,
+            marketDefinition, geography, bound,
+            metric: s.metric === 'CAGR' || s.metric === 'annual' || s.metric === 'other' ? s.metric : null,
+            pct: s.pct,
+            periodStart: typeof s.periodStart === 'number' ? s.periodStart : null,
+            periodEnd: typeof s.periodEnd === 'number' ? s.periodEnd : null,
+          });
+        } else if (p.section === 'sizing' && typeof s.value === 'number') {
+          candidates.push({
+            kind: 'size', observationId, documentId: p.documentId, page: p.page,
+            // sizing's own `detail` field (not `structured`) already holds
+            // the source quote — see market-document-extract.ts's parser.
+            sourceQuote: p.detail || null,
+            marketDefinition, geography, bound,
+            metric: s.metric === 'TAM' || s.metric === 'SAM' || s.metric === 'SOM' || s.metric === 'category' || s.metric === 'other' ? s.metric : null,
+            value: s.value,
+            currency: typeof s.currency === 'string' ? s.currency : null,
+            asOfYear: typeof s.asOfYear === 'number' ? s.asOfYear : null,
+            methodology: s.methodology === 'bottom_up' || s.methodology === 'external_estimate' || s.methodology === 'other' ? s.methodology : null,
+          });
+        }
+      }
+
+      const facts = normalizeMarketCandidates(candidates);
+      for (const fact of facts) {
+        const observations: ObservationInput[] = fact.observationIds.map((oid) => {
+          const meta = observationMeta.get(oid);
+          if (!meta) throw new Error(`document-extract: observation "${oid}" is missing from its own meta map — normalizeMarketCandidates returned an id this route never created`);
+          const { proposal, legacyItemId } = meta;
+          const sourceKind: EvidenceSourceKind = PITCH_DECK_NAME.test(proposal.documentName) ? 'pitch_deck' : 'internal_doc';
+          const structuredQuote = proposal.structured && typeof proposal.structured.sourceQuote === 'string' ? proposal.structured.sourceQuote : null;
+          return {
+            evidence: {
+              documentId: proposal.documentId, page: proposal.page,
+              // growth's quote lives in structured.sourceQuote; sizing's
+              // lives in the proposal's own top-level detail — see the
+              // candidate-building loop above for the same asymmetry.
+              quote: fact.kind === 'growth' ? structuredQuote : (proposal.detail || null),
+              sourceUrl: null, publishedAt: null,
+              origin: 'founder_document', sourceKind,
+              retrievalMethod: retrievalMethodByDocId.get(proposal.documentId) ?? 'vault_extraction',
+            },
+            extractionRunId: signature, rawCandidate: proposal.structured ?? null, legacyItemId,
+          };
+        });
+        await writeMarketFact(admin, orgId, fact, observations);
+        factsWritten += 1;
+      }
+    }
   }
 
-  const { data: items } = await admin.from('market_research_items')
+  let { data: items } = await admin.from('market_research_items')
     .select('id, section, title, detail, document_id, page, confidence, status, source_kind, documents(name)')
     .eq('org_id', orgId).eq('source_kind', 'document').eq('status', 'pending').order('section', { ascending: true });
+
+  // Prompt 467 §D — "Item legacy com ≥1 linha de supersessão deixa de ser
+  // listado. Sem linha, continua listado." A legacy growth/sizing card
+  // whose replacement fact now exists (lineage-confirmed, §C) stops
+  // appearing here; anything without a supersession row — including every
+  // OTHER section, untouched by this prompt — stays exactly as visible as
+  // before. Never a delete: the row (and the audit trail behind it) stays,
+  // only the listing changes.
+  if (items && items.length > 0 && (await marketFactsAvailable())) {
+    const { data: supersessions } = await admin.from('market_research_item_supersessions')
+      .select('legacy_item_id').eq('org_id', orgId).in('legacy_item_id', items.map((i) => i.id as string));
+    const supersededIds = new Set(((supersessions ?? []) as { legacy_item_id: string }[]).map((s) => s.legacy_item_id));
+    if (supersededIds.size > 0) items = items.filter((i) => !supersededIds.has(i.id as string));
+  }
 
   // Prompt 464 — Prompt 463 §C used to fire extractDocument here as
   // fire-and-forget (void, after building the response). REMOVED: verified
@@ -252,6 +384,6 @@ export async function POST(req: Request) {
     // "Read {result.documentsRead} document(s)" line; readDocuments is the
     // new, separate {id,name}[] this prompt actually asked for, additive
     // rather than a breaking type change on a field another route depends on.
-    documentsRead: documentBlocks.length, readDocuments: [...docsByIndex.values()], itemsProposed,
+    documentsRead: documentBlocks.length, readDocuments: [...docsByIndex.values()], itemsProposed, factsWritten,
   });
 }

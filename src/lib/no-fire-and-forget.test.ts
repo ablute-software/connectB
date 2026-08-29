@@ -140,3 +140,34 @@ describe('no fire-and-forget after the response — the real sweep (Prompt 465 �
     ).toEqual([]);
   });
 });
+
+// Prompt 467 §B.5 — a second, unrelated guard added to this same file
+// (Nuno's own instruction: "Acrescenta ao guarda do Prompt 465 §E"). Not
+// about fire-and-forget at all — about market-facts-db.ts being the ONLY
+// place allowed to write market_facts, same "one chokepoint, mechanically
+// enforced" discipline this codebase already applies elsewhere (e.g.
+// verification_insert_* in migration 0183 being the only path to
+// interactions/deal_messages for test fixtures). A second writer bypasses
+// writeMarketFact's revalidation and derived verification_status — exactly
+// the kind of drift a code-review comment can miss and a test cannot.
+const MARKET_FACTS_WRITE = /\.from\(\s*['"]market_facts['"]\s*\)[\s\S]{0,200}?\.(insert|upsert)\s*\(/;
+const MARKET_FACTS_DB_FILE = join('src', 'lib', 'market-facts-db.ts');
+
+describe('market_facts has exactly one writer (Prompt 467 §B.5)', () => {
+  it('no file other than market-facts-db.ts calls .insert(/.upsert( on market_facts', () => {
+    const offenders: string[] = [];
+    for (const root of ROOTS) {
+      for (const file of listSourceFiles(join(process.cwd(), root))) {
+        const relative = file.slice(process.cwd().length + 1);
+        if (relative === MARKET_FACTS_DB_FILE) continue;
+        const text = readFileSync(file, 'utf8');
+        if (MARKET_FACTS_WRITE.test(text)) offenders.push(relative);
+      }
+    }
+    expect(
+      offenders,
+      `market-facts-db.ts's writeMarketFact is the only permitted writer of market_facts — it revalidates and derives `
+      + `verification_status before writing, which a direct .insert(/.upsert( bypasses entirely. Offending file(s):\n${offenders.join('\n')}`,
+    ).toEqual([]);
+  });
+});

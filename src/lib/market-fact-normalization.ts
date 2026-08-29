@@ -107,7 +107,10 @@ export interface MarketSizeCandidate extends CandidateBase {
 
 export type MarketFactCandidate = GrowthCandidate | MarketSizeCandidate;
 
-function normalizeText(s: string): string {
+// Exported for market-facts-db.ts (467 §B) — fingerprinting needs the exact
+// same normalization grouping already uses, so two candidates that would
+// group together here also fingerprint identically there.
+export function normalizeText(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
