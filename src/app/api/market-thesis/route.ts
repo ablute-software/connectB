@@ -33,15 +33,25 @@ export async function GET() {
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const hypothesesAvail = await marketHypothesesAvailable();
 
-  const [{ data: thesis }, hypothesesResult] = await Promise.all([
+  const [{ data: thesis }, hypothesesResult, { data: org }] = await Promise.all([
     admin.from('org_market_thesis').select('*').eq('org_id', orgId).maybeSingle(),
     hypothesesAvail
       ? admin.from('org_market_hypotheses').select('id, label, definition, thesis_version, status, position')
         .eq('org_id', orgId).eq('status', 'active').order('position', { ascending: true })
       : Promise.resolve({ data: [] as unknown[] }),
+    admin.from('orgs').select('intro_problem, intro_solution, country').eq('id', orgId).maybeSingle(),
   ]);
 
-  return NextResponse.json({ available: true, thesis: thesis ?? null, hypotheses: hypothesesResult.data ?? [] });
+  // Prompt 456 — real, zero-LLM-cost suggestions for the 3 text fields that
+  // already have a founder-confirmed source elsewhere (Settings → Intro
+  // pitch, and the org's own country). Never overwrites a field the
+  // founder already has here, even if it differs from the source.
+  const suggestions: Partial<Record<'product_summary' | 'core_problem' | 'geography', string>> = {};
+  if (!thesis?.product_summary?.trim() && org?.intro_solution?.trim()) suggestions.product_summary = org.intro_solution.trim();
+  if (!thesis?.core_problem?.trim() && org?.intro_problem?.trim()) suggestions.core_problem = org.intro_problem.trim();
+  if (!thesis?.geography?.trim() && org?.country?.trim()) suggestions.geography = org.country.trim();
+
+  return NextResponse.json({ available: true, thesis: thesis ?? null, hypotheses: hypothesesResult.data ?? [], suggestions });
 }
 
 export async function PATCH(req: Request) {

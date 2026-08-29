@@ -18,6 +18,7 @@
 // panel now just points here).
 import { useEffect, useState } from 'react';
 import { SectionResearchButton, SECTIONS, SECTION_LABEL, type Section, type SectionOutcome } from './SectionResearchButtons';
+import { MARKET_THESIS_TEXT_MAX } from '@/lib/market-thesis';
 
 interface MarketThesis {
   product_summary: string | null; core_problem: string | null; primary_user: string | null;
@@ -261,6 +262,7 @@ export function MarketThesisSection() {
   const [available, setAvailable] = useState<boolean | null>(null);
   const [thesis, setThesis] = useState<MarketThesis>(BLANK);
   const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
+  const [suggestions, setSuggestions] = useState<Partial<Record<TextFieldKey, string>>>({});
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -270,14 +272,19 @@ export function MarketThesisSection() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   function load() {
-    fetch('/api/market-thesis').then((r) => r.json()).then((body: { available: boolean; thesis?: MarketThesis | null; hypotheses?: Hypothesis[] }) => {
+    fetch('/api/market-thesis').then((r) => r.json()).then((body: { available: boolean; thesis?: MarketThesis | null; hypotheses?: Hypothesis[]; suggestions?: Partial<Record<TextFieldKey, string>> }) => {
       if (!body.available) { setAvailable(false); return; }
       setAvailable(true);
       setThesis(body.thesis ? { ...BLANK, ...body.thesis } : BLANK);
       setHypotheses(body.hypotheses ?? []);
+      setSuggestions(body.suggestions ?? {});
     }).catch(() => setAvailable(false));
   }
   useEffect(load, []);
+
+  function acceptSuggestion(key: TextFieldKey, value: string) {
+    setThesis((prev) => ({ ...prev, [key]: value.slice(0, MARKET_THESIS_TEXT_MAX) }));
+  }
 
   async function save() {
     setSaving(true);
@@ -339,14 +346,35 @@ export function MarketThesisSection() {
       </p>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        {FIELDS.map((f) => (
-          <div key={f.key}>
-            <label className="mb-1 block text-[11px] font-medium text-gray-500">{f.label}</label>
-            <input value={thesis[f.key] ?? ''} maxLength={300} placeholder={f.placeholder}
-              onChange={(e) => setThesis((prev) => ({ ...prev, [f.key]: e.target.value }))}
-              className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
-          </div>
-        ))}
+        {FIELDS.map((f) => {
+          const suggestion = !thesis[f.key]?.trim() ? suggestions[f.key] : undefined;
+          return (
+            <div key={f.key}>
+              <label className="mb-1 block text-[11px] font-medium text-gray-500">{f.label}</label>
+              <div className="relative">
+                <input
+                  value={thesis[f.key] ?? ''} maxLength={300}
+                  placeholder={suggestion ?? f.placeholder}
+                  onChange={(e) => setThesis((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (!suggestion) return;
+                    if ((e.key === 'Enter' || e.key === 'ArrowRight') && e.currentTarget.selectionStart === 0 && !thesis[f.key]) {
+                      e.preventDefault();
+                      acceptSuggestion(f.key, suggestion);
+                    }
+                  }}
+                  className={`w-full rounded border border-gray-300 px-2 py-1.5 text-sm ${suggestion ? 'pr-7' : ''}`} />
+                {suggestion && (
+                  <button type="button" onClick={() => acceptSuggestion(f.key, suggestion)}
+                    aria-label="Use suggestion" title={suggestion}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-[#0E7490]">
+                    +
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
         <TagInput label="Adjacent technologies" values={thesis.adjacent_technologies}
           onChange={(next) => setThesis((prev) => ({ ...prev, adjacent_technologies: next }))}
           placeholder="Add and press Enter…" />
