@@ -1,0 +1,39 @@
+-- Prompt 473 §2 — the cost control that makes the automatic "Suggest from
+-- your documents" pass safe to run without a click.
+--
+-- Prompt 471 deliberately took this pass OUT of the GET and put it behind a
+-- button, precisely so a page load could never trigger a paid model call.
+-- Prompt 473 reintroduces the automatic trigger, so it has to reintroduce
+-- the protection too — in the only place a page reload cannot erase: the
+-- database. Without a persisted mark, F5 fires the pass again, and again,
+-- and again.
+--
+--   document_suggest_auto_signature   — a hash of the org's candidate
+--     document set (the ids pickPortraitDocuments selects), NOT the clock.
+--     Same principle as document-extract's own run_signature: new documents
+--     -> different signature -> the automatic pass may fire once more; no
+--     new documents -> same signature -> it never fires again, no matter
+--     how many reloads.
+--   document_suggest_auto_attempted_at — when that attempt happened. Not
+--     read by any decision (the signature alone decides); it exists so a
+--     human can answer "when did this last run for this org?" without
+--     reading logs, and it is what the §21 reach query counts.
+--
+-- STRICTLY ADDITIVE (AUTONOMOUS_EXECUTION_MODE_v2 §12, boundary as widened
+-- 30/08): both columns are nullable, with no default and no not-null, on an
+-- existing table. In Postgres 11+ that is a metadata-only change — it does
+-- not rewrite the table and does not block reads. No backfill, no data
+-- change, no constraint on existing rows: every current row reads as
+-- exactly what it already was (both columns null = "never auto-attempted",
+-- which is true).
+--
+-- Rollback: `alter table org_market_thesis drop column
+-- document_suggest_auto_attempted_at, drop column
+-- document_suggest_auto_signature;`. Safe at any point — nothing else in
+-- the schema references either column, and the application reads them
+-- behind a capability probe (marketThesisDocumentSuggestMarkAvailable),
+-- which fails CLOSED: with the columns absent the automatic trigger is
+-- simply off, and the manual button behaves exactly as it does today.
+alter table org_market_thesis
+  add column if not exists document_suggest_auto_attempted_at timestamptz,
+  add column if not exists document_suggest_auto_signature text;

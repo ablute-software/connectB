@@ -8,8 +8,11 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
-import { marketThesisAvailable, marketHypothesesAvailable } from '@/lib/market-data-capability';
-import { sanitizeMarketThesisFields, nextMarketThesisVersion, MARKET_THESIS_TEXT_MAX, type MarketThesisFields } from '@/lib/market-thesis';
+import { marketThesisAvailable, marketHypothesesAvailable, marketThesisDocumentSuggestMarkAvailable } from '@/lib/market-data-capability';
+import { sanitizeMarketThesisFields, nextMarketThesisVersion, MARKET_THESIS_TEXT_MAX, MARKET_THESIS_TEXT_FIELD_KEYS, type MarketThesisFields, type MarketThesisTextFieldKey } from '@/lib/market-thesis';
+import {
+  readCandidateDocumentIds, computeDocumentSuggestSignature, isThesisIncomplete, shouldAutoSuggestFromDocuments,
+} from '@/lib/market-thesis-document-suggest';
 import { truncateAtWord } from '@/lib/text-truncate';
 
 async function resolveOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string): Promise<string | null> {
@@ -61,7 +64,37 @@ export async function GET() {
   if (!thesis?.core_problem?.trim() && org?.intro_problem?.trim()) suggestions.core_problem = org.intro_problem.trim();
   if (!thesis?.geography?.trim() && org?.country?.trim()) suggestions.geography = org.country.trim();
 
-  return NextResponse.json({ available: true, thesis: thesis ?? null, hypotheses: hypothesesResult.data ?? [], suggestions });
+  // Prompt 473 §1 — whether the client should fire the automatic
+  // document-suggestion pass. Decided HERE, on the server, because two of
+  // the three conditions (the recorded signature, the candidate document
+  // set) are things the browser cannot know. This GET itself stays
+  // zero-cost: no model call, and the two document queries below only run
+  // when the thesis is actually incomplete — a founder with a complete
+  // thesis pays nothing extra for this field existing.
+  //
+  // The POST re-checks all of this independently; this flag is a hint to
+  // the client, never an authorisation.
+  const thesisFields: Partial<Record<MarketThesisTextFieldKey, string | null>> = {};
+  for (const key of MARKET_THESIS_TEXT_FIELD_KEYS) {
+    const v = (thesis as Record<string, unknown> | null)?.[key];
+    thesisFields[key] = typeof v === 'string' ? v : null;
+  }
+  let autoSuggestEligible = false;
+  if (isThesisIncomplete(thesisFields) && (await marketThesisDocumentSuggestMarkAvailable())) {
+    const candidateIds = await readCandidateDocumentIds(admin, orgId);
+    autoSuggestEligible = shouldAutoSuggestFromDocuments({
+      thesisIncomplete: true,
+      candidateDocumentCount: candidateIds.length,
+      currentSignature: candidateIds.length > 0 ? computeDocumentSuggestSignature(candidateIds) : null,
+      storedSignature: ((thesis as Record<string, unknown> | null)?.document_suggest_auto_signature as string | null) ?? null,
+      markCapabilityAvailable: true,
+    });
+  }
+
+  return NextResponse.json({
+    available: true, thesis: thesis ?? null, hypotheses: hypothesesResult.data ?? [], suggestions,
+    autoSuggest: { eligible: autoSuggestEligible },
+  });
 }
 
 export async function PATCH(req: Request) {

@@ -57,6 +57,18 @@ export const marketHypothesesAvailable = makeCapabilityProbe(async (admin) => {
   return !error;
 });
 
+// Prompt 473 §2 — migration 0281's two mark columns on org_market_thesis.
+// Probed on the signature column; both ship in the same migration, so
+// there is no skew case worth a second probe. Read by the automatic
+// "Suggest from your documents" trigger, which fails CLOSED when this is
+// false: with nowhere to record "already attempted", the pass would re-fire
+// on every page load, which is precisely the cost Prompt 471 avoided by
+// putting it behind a button in the first place.
+export const marketThesisDocumentSuggestMarkAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('org_market_thesis').select('document_suggest_auto_signature').limit(1);
+  return !error;
+});
+
 // Prompt 447 §B — migration 0275's new column.
 export const orgCompetitorsCompetitorTypeAvailable = makeCapabilityProbe(async (admin) => {
   const { error } = await admin.from('org_competitors').select('competitor_type').limit(1);

@@ -34,12 +34,14 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
-import { marketThesisAvailable } from '@/lib/market-data-capability';
-import { pickPortraitDocuments } from '@/lib/market-portrait';
+import { marketThesisAvailable, marketThesisDocumentSuggestMarkAvailable } from '@/lib/market-data-capability';
 import { prepareDocumentForAi, type ExtractionSkipReason } from '@/lib/document-extraction-pipeline';
 import { truncatePdfToPages } from '@/lib/pdf-truncate';
 import { MAX_EXTRACTION_PAGES } from '@/lib/document-extraction';
-import { parseThesisDocumentSuggestions, type ThesisDocRef } from '@/lib/market-thesis-document-suggest';
+import {
+  parseThesisDocumentSuggestions, readCandidateDocumentIds, computeDocumentSuggestSignature,
+  isThesisIncomplete, shouldAutoSuggestFromDocuments, recordDocumentSuggestAttempt, type ThesisDocRef,
+} from '@/lib/market-thesis-document-suggest';
 import { MARKET_THESIS_TEXT_FIELD_KEYS, type MarketThesisTextFieldKey } from '@/lib/market-thesis';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
@@ -110,20 +112,31 @@ export async function POST(req: Request) {
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
+  // Prompt 473 §1 — `auto: true` marks the pass the page fired by itself,
+  // as opposed to the founder clicking the button. It only ever RESTRICTS
+  // what this route will do (the eligibility re-check below); a caller
+  // cannot use it to obtain anything the manual path wouldn't already give
+  // them, so it is safe to take from the client.
+  const requestBody = await req.json().catch(() => ({})) as { auto?: unknown };
+  const auto = requestBody.auto === true;
+
   // Prompt 471 §A point 1 — founder-initiated, no picker: the same
   // single-click gesture as MarketPortraitCard's "Read my documents",
   // always the auto-pick heuristic (pickPortraitDocuments already caps
   // itself at MAX_PORTRAIT_DOCS), never a silent full-Vault sweep and never
   // an explicit-selection second path.
-  const [{ data: docRows }, { data: folderRows }] = await Promise.all([
-    admin.from('documents').select('id, name, folder_id').eq('org_id', orgId),
-    admin.from('folders').select('id, name').eq('org_id', orgId),
-  ]);
-  const folderNameById = new Map(((folderRows ?? []) as { id: string; name: string }[]).map((f) => [f.id, f.name]));
-  const documentIds = pickPortraitDocuments(((docRows ?? []) as { id: string; name: string; folder_id: string | null }[])
-    .map((d) => ({ id: d.id, name: d.name, folderName: d.folder_id ? folderNameById.get(d.folder_id) ?? '' : '' })));
+  //
+  // Prompt 473 — the same reader the GET's eligibility check uses
+  // (readCandidateDocumentIds), never a second copy: if the two disagreed
+  // about which documents count, the signature written here would never
+  // match the one the GET compares against, and the automatic pass would
+  // re-fire on every page load forever.
+  const documentIds = await readCandidateDocumentIds(admin, orgId);
 
   if (documentIds.length === 0) {
+    // No mark is written here, deliberately: the pass did not run, nothing
+    // was paid, and there is no document set to record an attempt against.
+    // Adding a document later changes the signature anyway.
     return NextResponse.json({
       ok: false, noDocuments: true,
       error: 'No market-looking documents in your Vault yet — upload your pitch deck or a one-pager, then try again.',
@@ -141,6 +154,26 @@ export async function POST(req: Request) {
   for (const key of MARKET_THESIS_TEXT_FIELD_KEYS) {
     const v = existingRowUntyped?.[key];
     existingThesis[key] = typeof v === 'string' ? v : null;
+  }
+
+  // Prompt 473 §2 — the automatic trigger re-checks its own conditions here
+  // rather than trusting the client's `auto` claim: a browser can be
+  // reloaded, raced against another tab, or simply wrong. The manual button
+  // (auto absent/false) is never gated by this — "o botão manual continua a
+  // existir e a funcionar sempre, mesmo com a assinatura já tentada".
+  const markAvailable = await marketThesisDocumentSuggestMarkAvailable();
+  const signature = computeDocumentSuggestSignature(documentIds);
+  if (auto) {
+    const stillEligible = shouldAutoSuggestFromDocuments({
+      thesisIncomplete: isThesisIncomplete(existingThesis),
+      candidateDocumentCount: documentIds.length,
+      currentSignature: signature,
+      storedSignature: (existingRowUntyped?.document_suggest_auto_signature as string | null) ?? null,
+      markCapabilityAvailable: markAvailable,
+    });
+    // Costs nothing and says so: no model call, no document download beyond
+    // the id list already read above.
+    if (!stillEligible) return NextResponse.json({ ok: true, autoSkipped: true });
   }
 
   const docsByIndex = new Map<number, ThesisDocRef>();
@@ -162,6 +195,13 @@ export async function POST(req: Request) {
     }
   }
   if (documentBlocks.length === 0) {
+    // Prompt 473 §2 — the mark IS written here. No model call happened, but
+    // real work did: every candidate document was downloaded and put
+    // through the scan gate and the PDF parser. Without recording the
+    // attempt, an org whose documents are all unreadable would repeat that
+    // download-and-fail work on every single page load — a slower, quieter
+    // version of exactly the leak this section exists to close.
+    if (markAvailable) await recordDocumentSuggestAttempt(admin, orgId, signature, new Date().toISOString());
     return NextResponse.json({ ok: false, error: 'None of your market-looking documents could be read.', skipped });
   }
 
@@ -191,6 +231,16 @@ export async function POST(req: Request) {
   // logAiCall already swallows its own errors (ai-cost-log.ts), so
   // awaiting it can never fail this route. Do not "optimize" this to void.
   await logAiCall({ route: ROUTE, purpose: 'market_thesis_document_suggest', model, usage: data.usage, orgId });
+
+  // Prompt 473 §2 — "Grava a marca sempre que a passagem corre, sucesso ou
+  // 'not found' honesto." Written HERE, before the response is built and
+  // before the model's answer is even parsed, so that a pass which
+  // honestly found nothing records its attempt exactly like one that found
+  // seven fields. Placed above parseThesisDocumentSuggestions on purpose:
+  // there is then no point in this function where the mark could come to
+  // depend on what was found. The pass ran; the money is spent; that is
+  // the fact being recorded, and the outcome is irrelevant to it.
+  if (markAvailable) await recordDocumentSuggestAttempt(admin, orgId, signature, new Date().toISOString());
 
   const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
   const suggestions = parseThesisDocumentSuggestions(toolUse?.input, docsByIndex, existingThesis);

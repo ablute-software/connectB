@@ -16,7 +16,7 @@
 // hypothesisId) and its pending items are scoped per hypothesis, never a
 // global list mixing them (MarketDataPanel.tsx's old per-section research
 // panel now just points here).
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SectionResearchButton, SECTIONS, SECTION_LABEL, type Section, type SectionOutcome } from './SectionResearchButtons';
 import { TIMEOUT_MESSAGE } from '@/lib/market-research-outcome';
 import { MARKET_THESIS_TEXT_MAX, type MarketThesisTextFieldKey } from '@/lib/market-thesis';
@@ -312,9 +312,20 @@ export function MarketThesisSection() {
   const [docSuggestBusy, setDocSuggestBusy] = useState(false);
   const [docSuggestError, setDocSuggestError] = useState('');
   const [docSuggestResult, setDocSuggestResult] = useState<{ documentsRead: number; costEur: number; suggestedCount: number } | null>(null);
+  // Prompt 473 §3 — true only while the pass the PAGE started is running.
+  // The manual button already shows its own busy label, so the explanatory
+  // notice is for the automatic case alone; without this flag the founder
+  // would be told to "please wait" for something they just clicked.
+  const [docSuggestAuto, setDocSuggestAuto] = useState(false);
+  // Prompt 473 §4 — the auto-trigger's own double-fire guard. A ref, not
+  // the effect's empty dependency array: under React StrictMode the mount
+  // effect runs twice against the SAME component instance, and `load` is
+  // additionally re-called after confirming or editing hypotheses. A ref
+  // survives all of those and fires the paid pass at most once per mount.
+  const autoTriggeredRef = useRef(false);
 
   function load() {
-    fetch('/api/market-thesis').then((r) => r.json()).then((body: { available: boolean; thesis?: MarketThesis | null; hypotheses?: Hypothesis[]; suggestions?: Partial<Record<TextFieldKey, string>> }) => {
+    fetch('/api/market-thesis').then((r) => r.json()).then((body: { available: boolean; thesis?: MarketThesis | null; hypotheses?: Hypothesis[]; suggestions?: Partial<Record<TextFieldKey, string>>; autoSuggest?: { eligible?: boolean } }) => {
       if (!body.available) { setAvailable(false); return; }
       setAvailable(true);
       setThesis(body.thesis ? { ...BLANK, ...body.thesis } : BLANK);
@@ -326,6 +337,27 @@ export function MarketThesisSection() {
       // which pass produced it.
       const raw = body.suggestions ?? {};
       setSuggestions(Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, { value: v }])) as Partial<Record<TextFieldKey, FieldSuggestion>>);
+
+      // Prompt 473 §1 — the automatic pass. Every condition that decides
+      // this lives on the server (thesis completeness, the candidate
+      // document set, and whether this exact document set was already
+      // attempted — see /api/market-thesis's own autoSuggest block); the
+      // client's job is only to honour the answer once. The route re-checks
+      // all of it anyway, so a stale or raced flag costs nothing.
+      //
+      // Deliberately fired AFTER the GET's own setSuggestions above, and
+      // that order is load-bearing rather than cosmetic (caught in this
+      // prompt's adversarial pass): the line above REPLACES the suggestion
+      // map wholesale, while the document pass MERGES into it
+      // (setSuggestions((prev) => ...)). Fire first and the two writes race
+      // — a document suggestion landing before the replace would be wiped
+      // by it. Today the pass always awaits a fetch before touching state,
+      // so it cannot actually win that race; ordering it here means the
+      // correctness no longer depends on that remaining true.
+      if (body.autoSuggest?.eligible && !autoTriggeredRef.current) {
+        autoTriggeredRef.current = true;
+        void suggestFromDocuments({ auto: true });
+      }
     }).catch(() => setAvailable(false));
   }
   useEffect(load, []);
@@ -343,7 +375,12 @@ export function MarketThesisSection() {
   // until the founder accepts one (acceptSuggestion above, unchanged).
   // Deliberately uncached — see the route's own comment for why clicking
   // this twice pays twice, on purpose, not by oversight.
-  async function suggestFromDocuments() {
+  async function suggestFromDocuments({ auto = false }: { auto?: boolean } = {}) {
+    // Prompt 473 §1 — never two passes at once: the automatic trigger and
+    // the manual button share this one function and this one busy flag, so
+    // a click landing while the page's own pass is still running is
+    // ignored rather than paying twice.
+    if (docSuggestBusy) return;
     // Adversarial pass (Prompt 471) — deliberately does NOT clear
     // docSuggestResult here: an earlier successful run's "not found in your
     // documents" notes (rendered below, keyed off docSuggestResult being
@@ -353,15 +390,31 @@ export function MarketThesisSection() {
     // out a perfectly valid first result along with it — the founder would
     // lose real "not found" information to an unrelated later failure that
     // told them nothing new.
-    setDocSuggestBusy(true); setDocSuggestError('');
+    setDocSuggestBusy(true); setDocSuggestAuto(auto); setDocSuggestError('');
     try {
-      const res = await fetch('/api/market-thesis/suggest-from-documents', { method: 'POST' });
+      const res = await fetch('/api/market-thesis/suggest-from-documents', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ auto }),
+      });
       const body = await res.json().catch(() => null) as {
-        ok?: boolean; error?: string;
+        ok?: boolean; error?: string; autoSkipped?: boolean;
         suggestions?: Partial<Record<TextFieldKey, { value: string; documentName: string; page: number | null }>>;
         documentsRead?: number; costEur?: number;
       } | null;
-      if (!body?.ok) { setDocSuggestError(body?.error ?? 'Could not read your documents — try again.'); return; }
+      // The route re-checked and decided this document set was already
+      // attempted. Nothing ran, nothing was paid, and there is nothing to
+      // report — showing a result line here would claim a reading that
+      // never happened.
+      if (body?.autoSkipped) return;
+      if (!body?.ok) {
+        // Prompt 473 §1 — an automatic pass fails SILENTLY. The founder did
+        // not ask for it, so a red error box for a background attempt they
+        // never started would add exactly the weight the Sherlock golden
+        // rule forbids. The manual button is right there, unchanged, and
+        // reports its own failures in full. A manual click is a request,
+        // and a request always gets an answer.
+        if (!auto) setDocSuggestError(body?.error ?? 'Could not read your documents — try again.');
+        return;
+      }
       const found = body.suggestions ?? {};
       // Never overwrites a field the founder already filled in — the route
       // (market-thesis-document-suggest.ts) already drops those server-side,
@@ -379,8 +432,10 @@ export function MarketThesisSection() {
       });
       setDocSuggestResult({ documentsRead: body.documentsRead ?? 0, costEur: body.costEur ?? 0, suggestedCount: Object.keys(found).length });
     } catch {
-      setDocSuggestError('Could not reach the server — check your connection and try again.');
-    } finally { setDocSuggestBusy(false); }
+      // Same rule as the !ok branch above: silent for the automatic pass,
+      // spoken for a click the founder actually made.
+      if (!auto) setDocSuggestError('Could not reach the server — check your connection and try again.');
+    } finally { setDocSuggestBusy(false); setDocSuggestAuto(false); }
   }
 
   async function save() {
@@ -450,6 +505,15 @@ export function MarketThesisSection() {
           className="text-[11px] font-medium text-[#0E7490] hover:underline disabled:opacity-40">
           {docSuggestBusy ? 'Reading your documents…' : 'Suggest from your documents'}
         </button>
+        {/* Prompt 473 §3 — shown only for the pass the page started by
+            itself, and only while it runs. Informational, not an error:
+            nothing has gone wrong, and the founder can keep typing in every
+            field below while this finishes — no overlay, no disabled form. */}
+        {docSuggestBusy && docSuggestAuto && (
+          <p className="mt-1 text-[11px] text-gray-500">
+            Suggested answers from your documents are being processed — please wait a few seconds.
+          </p>
+        )}
         {docSuggestError && <p className="mt-1 text-[11px] text-[#B00000]">{docSuggestError}</p>}
         {docSuggestResult && (
           <p className="mt-1 text-[11px] text-gray-400">
