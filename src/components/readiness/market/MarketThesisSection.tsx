@@ -151,7 +151,26 @@ function HypothesisResearch({ hypothesisId }: { hypothesisId: string }) {
       <div className="flex flex-wrap gap-1.5">
         {SECTIONS.map((s) => (
           <SectionResearchButton key={s} section={s} hypothesisId={hypothesisId}
-            onDone={(outcome) => { setOutcomeBySection((prev) => ({ ...prev, [s]: outcome })); void loadSection(s); }} />
+            // Prompt 470 §A point 3 — this IS the real reload mechanism for
+            // this list (loadSection, already used elsewhere in this same
+            // component), reached through onDone since SectionResearchButton
+            // has no other handle on it. Sequenced deliberately: await the
+            // reload BEFORE setting the outcome, so — same discipline as
+            // Prompt 468's MarketPortraitCard — a timeout message never
+            // renders ahead of the founder seeing whatever actually got
+            // saved. onDone's own type stays `(outcome) => void`; the caller
+            // never awaits it, so this only delays when THIS callback's own
+            // state updates land, never the button's re-enable.
+            //
+            // .catch(() => {}) is load-bearing, not decorative: loadSection's
+            // own `fetch` can reject outright on a real network failure
+            // (unlike a non-2xx response, which fetch resolves, not
+            // rejects). Without this, that rejection would propagate through
+            // .then() and silently skip setOutcomeBySection entirely — the
+            // founder would see NO message at all, which is worse than the
+            // fire-and-forget version this replaces. The outcome must always
+            // eventually show, whether or not the reload itself succeeded.
+            onDone={(outcome) => { void loadSection(s).catch(() => {}).then(() => setOutcomeBySection((prev) => ({ ...prev, [s]: outcome }))); }} />
         ))}
       </div>
 

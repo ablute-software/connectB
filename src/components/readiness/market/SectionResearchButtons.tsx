@@ -20,16 +20,14 @@
 // unchanged — only the render shape (one button, not a row) moved.
 import { useEffect, useState } from 'react';
 import { SECTIONS, type Section } from '@/lib/market-research-sections';
+import { classifySectionResponse, type SectionOutcome } from '@/lib/market-research-outcome';
 
 const SECTION_LABEL: Record<Section, string> = {
   definition: 'Definition & scope', sizing: 'Market size', growth: 'Growth', players: 'Competitors',
   rounds: 'Comparable rounds', trends: 'Trends & drivers', regulatory: 'Regulatory',
 };
 
-export type SectionOutcome =
-  | { kind: 'error'; section: Section; message: string }
-  | { kind: 'empty'; section: Section; costEur: number | null }
-  | { kind: 'found'; section: Section; costEur: number | null; count: number };
+export type { SectionOutcome };
 
 // Prompt 445 §A/§G — hypothesisId is now required: a research run is
 // always scoped to one market hypothesis, never the whole org (this is
@@ -58,27 +56,17 @@ export function SectionResearchButton({ section, hypothesisId, onDone }: {
       // A 504/HTML gateway page is NOT json — this is the exact failure the
       // founder hit, and it must surface as words on screen, not a rejected
       // promise nobody catches.
+      //
+      // Prompt 470 §A (correction) — the actual criterion, corrected after
+      // 468 §C answered a different question: NOT "is there a separate
+      // inner call whose own success could be lost" but "does work persist
+      // before the response can time out." It does — see
+      // classifySectionResponse (market-research-outcome.ts) for the full
+      // evidence (the write order inside research/route.ts, and the real
+      // measured 42.8s-success/60-80s-504 window from that file's own
+      // Prompt 384 §F comment). body === null here is NOT proof of failure.
       const body = await res.json().catch(() => null);
-      if (!body) {
-        // Prompt 468 §C — verified, not assumed to be the same as
-        // MarketPortraitCard's case: /api/market-data/research is ONE flat
-        // request (single AI call, then upserts, all in this route's own
-        // maxDuration=60) with no separate inner call whose own successful
-        // response this wrapper could have already received before dying —
-        // unlike portrait, which chains into document-extract's OWN already-
-        // completed request. If THIS route gets killed by the gateway, the
-        // browser has no earlier confirmed-success signal to have lost, so
-        // "took too long or failed — try again" stays honest as-is.
-        onDone({ kind: 'error', section, message: 'The search took too long or failed on the server — try again.' });
-        return;
-      }
-      if (body.ok === false || body.aiError) {
-        onDone({ kind: 'error', section, message: body.aiError ?? body.error ?? 'Could not run this search — try again.' });
-        return;
-      }
-      const count = (body.items ?? []).length;
-      if (count === 0) onDone({ kind: 'empty', section, costEur: body.costEur ?? null });
-      else onDone({ kind: 'found', section, costEur: body.costEur ?? null, count });
+      onDone(classifySectionResponse(section, body));
     } catch {
       onDone({ kind: 'error', section, message: 'The search couldn\'t reach the server — check your connection and try again.' });
     } finally {
