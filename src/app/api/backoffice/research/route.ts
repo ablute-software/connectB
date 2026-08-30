@@ -84,8 +84,15 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
   // independently owns a matching name (see the `rows.flatMap` below) —
   // never one org's cost, orgId stays null (same shared-catalog
   // convention as enrichment-worker/community-consensus arbitration).
-  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
-  void logAiCall({ route: '/api/backoffice/research', purpose: 'admin_research', model, usage: data.usage, orgId: null });
+  // Prompt 469 §B — awaited: ai_call_log is used as an ACCEPTANCE
+  // CRITERION (a missing entry has, more than once, been read as proof a
+  // pipeline never ran), so losing an entry to a frozen serverless
+  // instance invalidates a proof, not just a cost number. logAiCall
+  // already swallows its own errors (ai-cost-log.ts) — awaiting it can
+  // never fail this route, only add a Supabase insert's tens of
+  // milliseconds against a model call that just took seconds. Do not
+  // "optimize" this back to void.
+  await logAiCall({ route: '/api/backoffice/research', purpose: 'admin_research', model, usage: data.usage, orgId: null });
   const toolUse = (data.content as { type: string; name?: string; input?: unknown }[])
     .filter((b) => b.type === 'tool_use' && b.name === 'propose_fields').pop();
   if (!toolUse) return { proposals: [] as ProposedField[], raw: data };

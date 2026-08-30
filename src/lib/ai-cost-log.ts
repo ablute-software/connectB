@@ -3,13 +3,42 @@
 // that previously discarded `usage` entirely (confirmed by direct
 // reading: none of the 17 instrumented routes read `usage` before this).
 //
-// Never blocks or fails the caller's real response: logAiCall swallows
-// its own errors (network/RLS/etc.) and callers should invoke it as
-// `void logAiCall(...)` — fire-and-forget, same spirit as
-// triggerEnrichmentEnqueue in store-supabase.tsx. Cost observability must
-// never be the reason a founder-facing AI feature fails.
+// Prompt 469 — ai_call_log stopped being pure telemetry the day it started
+// getting used as evidence. It serves THREE functions today, and the third
+// changes everything: (1) observability — did it run; (2) FinOps — what did
+// it cost; (3) ACCEPTANCE CRITERION — was there really a model call. #3 was
+// used repeatedly on 2026-08-29: the ABSENCE of entries proved Prompt 463
+// §C's fire-and-forget never ran, and the PRESENCE of a €0.066 entry proved
+// Prompt 464 worked. A tool used as proof has to be trustworthy, and a
+// `void logAiCall(...)` call site is not: it runs mid-handler and only
+// "works" because there's usually more work after it — if the response
+// goes out first, the serverless instance freezes and the entry vanishes,
+// silently, no error. That is the exact Prompt 464/465 failure class,
+// applied to the table this codebase used to PROVE that failure class
+// exists. Until this was fixed, "zero entries" was not proof of "didn't
+// run" — one of this project's own verification tools wasn't trustworthy.
+//
 import 'server-only';
 import { createClient } from '@supabase/supabase-js';
+
+// Telemetry used for cost accounting, auditing, or acceptance criteria is
+// DURABLE WORK and cannot be fire-and-forget. Telemetry that can genuinely
+// be lost without consequence still can be — the distinction is now part
+// of the type, not left to whoever is calling:
+export type TelemetryDurability =
+  | 'best_effort' // may be lost with no consequence — no current caller of logAiCall needs this; kept for when one does
+  | 'audit';      // cost accounting, auditing, or acceptance criteria — never fire-and-forget
+
+// ai_call_log is 'audit', by its REAL usage above — every call site now
+// `await`s logAiCall (never `void`). This still never blocks or fails the
+// caller's real response on ITS OWN account: logAiCall swallows its own
+// errors (network/RLS/etc., see the try/catch below), so awaiting it can
+// only ever ADD the latency of one Supabase insert (tens of milliseconds)
+// against a model call that just took seconds — never make an AI feature
+// fail because its cost log couldn't be written. Do not "optimize" this
+// back to `void`: that is what silently broke the acceptance tooling
+// before this prompt.
+export const AI_CALL_LOG_DURABILITY: TelemetryDurability = 'audit';
 
 // Same USD/1M pricing as supabase/functions/enrichment-worker/index.ts's
 // own PRICING table — duplicated, not imported: that worker runs on Deno

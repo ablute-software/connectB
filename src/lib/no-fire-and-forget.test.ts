@@ -49,12 +49,16 @@ import { join, extname } from 'path';
 //
 // Exemption: a reviewed, legitimate case is marked with an explicit
 // `// fire-and-forget-ok: <reason>` comment on the line immediately before
-// it — never by loosening the regex below. See the ~35 `void
-// logAiCall(...)` call sites across this codebase for the standing example:
-// logAiCall's own contract (ai-cost-log.ts) is fire-and-forget BY DESIGN
-// (it swallows its own errors) and a dropped cost-log entry never corrupts
-// state, unlike reconciliation, whose entire job IS writing the very rows
-// this bug used to silently skip.
+// it — never by loosening the regex below. Prompt 469 removed the 38 `void
+// logAiCall(...)` sites that used to be this file's own standing example of
+// a legitimate exemption: ai_call_log turned out to be used as an
+// ACCEPTANCE CRITERION (a missing entry has, more than once, been read as
+// proof a pipeline never ran), not just disposable cost telemetry, so
+// "logAiCall swallows its own errors" stopped being a sufficient reason —
+// see the dedicated, unconditional guard below, which does not accept the
+// exemption comment for that one function at all. As of Prompt 469 there
+// are zero active `fire-and-forget-ok` exemptions anywhere in this
+// codebase; the mechanism stays for a future case that actually earns it.
 
 const ROOTS = ['src/lib', 'src/app/api'];
 const VOID_CALL = /\bvoid\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/;
@@ -101,7 +105,10 @@ describe('findViolations (detector self-test — proves the mechanism before tru
   });
 
   it('does NOT flag a call with an exemption comment on the line directly before it', () => {
-    expect(findViolations('// fire-and-forget-ok: logAiCall swallows its own errors by design\nvoid logAiCall({ route: \'x\' });')).toEqual([]);
+    // Deliberately NOT logAiCall as the example — that function no longer
+    // honors this exemption at all (Prompt 469 §C, guard below), so using
+    // it here would misleadingly suggest it still does.
+    expect(findViolations('// fire-and-forget-ok: sendMetric swallows its own errors by design\nvoid sendMetric({ route: \'x\' });')).toEqual([]);
   });
 
   it('does NOT flag `void` mentioned only in prose inside a full-line comment (the known false positive this test was written against)', () => {
@@ -206,5 +213,40 @@ describe('document-extract route takes exactly one capability snapshot (Prompt 4
       + 'anywhere in this file can observe a different result than the first across the probe\'s own negative-cache window and '
       + 'silently, permanently burn the one-time cutover opportunity for an already-processed document (Prompt 467 v3 §1b).',
     ).toBe(1);
+  });
+});
+
+// Prompt 469 §C — a fourth, also unrelated guard. logAiCall is used as an
+// ACCEPTANCE CRITERION (§1's own findings, 2026-08-29: the ABSENCE of
+// ai_call_log entries proved a fire-and-forget pass never ran; the
+// PRESENCE of one proved a later fix worked), not just cost telemetry — so
+// unlike every other function the general guard above protects, a
+// `fire-and-forget-ok` comment is NOT a valid exemption for logAiCall
+// specifically: losing an entry doesn't just cost a number, it invalidates
+// a proof. This check is deliberately UNCONDITIONAL — it does not consult
+// EXEMPTION at all, on purpose, so a future exemption comment placed above
+// a `void logAiCall(` can never silence it.
+const VOID_LOG_AI_CALL = /\bvoid\s+logAiCall\s*\(/;
+
+describe('logAiCall must always be awaited — no exemption possible (Prompt 469 §C)', () => {
+  it('no server file contains `void logAiCall(`, with or without a fire-and-forget-ok comment', () => {
+    const offenders: string[] = [];
+    for (const root of ROOTS) {
+      for (const file of listSourceFiles(join(process.cwd(), root))) {
+        const relative = file.slice(process.cwd().length + 1);
+        const text = readFileSync(file, 'utf8');
+        if (/^['"]use client['"]/.test(text.trimStart())) continue;
+        for (const line of text.split('\n')) {
+          if (/^\s*\/\//.test(line)) continue;
+          if (VOID_LOG_AI_CALL.test(line)) offenders.push(relative);
+        }
+      }
+    }
+    expect(
+      offenders,
+      'logAiCall must always be `await`ed, never `void` — it is used as an acceptance criterion (a missing ai_call_log entry '
+      + 'has, more than once, been read as proof a pipeline never ran), so a fire-and-forget write here can silently invalidate '
+      + `that proof. logAiCall already swallows its own errors, so awaiting it can never fail the caller. Offending file(s):\n${offenders.join('\n')}`,
+    ).toEqual([]);
   });
 });

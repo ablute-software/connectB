@@ -65,8 +65,15 @@ async function callClaude(params: { apiKey: string; model: string; kind: Kind; c
   });
   if (!res.ok) throw new Error(providerErrorMessage('[company/ai-support]', await res.text()));
   const data = await res.json();
-  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
-  void logAiCall({ route: '/api/company/ai-support', purpose: `ai_support_${params.kind}`, model: params.model, usage: data.usage, orgId: params.orgId });
+  // Prompt 469 §B — awaited: ai_call_log is used as an ACCEPTANCE
+  // CRITERION (a missing entry has, more than once, been read as proof a
+  // pipeline never ran), so losing an entry to a frozen serverless
+  // instance invalidates a proof, not just a cost number. logAiCall
+  // already swallows its own errors (ai-cost-log.ts) — awaiting it can
+  // never fail this route, only add a Supabase insert's tens of
+  // milliseconds against a model call that just took seconds. Do not
+  // "optimize" this back to void.
+  await logAiCall({ route: '/api/company/ai-support', purpose: `ai_support_${params.kind}`, model: params.model, usage: data.usage, orgId: params.orgId });
 
   const toolUse = (data.content as { type: string; name?: string; input?: unknown }[])
     .filter((b) => b.type === 'tool_use' && b.name === 'suggest_text').pop();

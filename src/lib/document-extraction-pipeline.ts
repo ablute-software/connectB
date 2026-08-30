@@ -250,8 +250,15 @@ export async function extractDocument(
     }, { onConflict: 'document_id,sha256' });
     return { ok: false, skippedReason: 'claude_failed' };
   }
-  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
-  void logAiCall({ route: ROUTE, purpose: 'document_extraction', model, usage, orgId, targetType: 'document', targetId: documentId });
+  // Prompt 469 §B — awaited: ai_call_log is used as an ACCEPTANCE
+  // CRITERION (a missing entry has, more than once, been read as proof a
+  // pipeline never ran), so losing an entry to a frozen serverless
+  // instance invalidates a proof, not just a cost number. logAiCall
+  // already swallows its own errors (ai-cost-log.ts) — awaiting it can
+  // never fail this route, only add a Supabase insert's tens of
+  // milliseconds against a model call that just took seconds. Do not
+  // "optimize" this back to void.
+  await logAiCall({ route: ROUTE, purpose: 'document_extraction', model, usage, orgId, targetType: 'document', targetId: documentId });
 
   const extraction = rawExtractionToData(raw, pagesRead, totalPages);
   await admin.from('document_extractions').upsert({
@@ -353,8 +360,15 @@ export async function ensureDocumentSummary(
   } catch {
     return { ok: false, skippedReason: 'claude_failed' };
   }
-  // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
-  void logAiCall({ route: SUMMARY_ROUTE, purpose: 'doc_summary', model, usage, orgId, targetType: 'document', targetId: documentId });
+  // Prompt 469 §B — awaited: ai_call_log is used as an ACCEPTANCE
+  // CRITERION (a missing entry has, more than once, been read as proof a
+  // pipeline never ran), so losing an entry to a frozen serverless
+  // instance invalidates a proof, not just a cost number. logAiCall
+  // already swallows its own errors (ai-cost-log.ts) — awaiting it can
+  // never fail this route, only add a Supabase insert's tens of
+  // milliseconds against a model call that just took seconds. Do not
+  // "optimize" this back to void.
+  await logAiCall({ route: SUMMARY_ROUTE, purpose: 'doc_summary', model, usage, orgId, targetType: 'document', targetId: documentId });
 
   const summaryData = rawExtractionToSummary(raw);
   await admin.from('document_summaries').upsert({
