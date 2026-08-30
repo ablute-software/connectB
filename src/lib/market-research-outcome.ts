@@ -17,6 +17,7 @@ import type { Section } from './market-research-sections';
 
 export type SectionOutcome =
   | { kind: 'error'; section: Section; message: string }
+  | { kind: 'timeout'; section: Section }
   | { kind: 'empty'; section: Section; costEur: number | null }
   | { kind: 'found'; section: Section; costEur: number | null; count: number };
 
@@ -47,7 +48,17 @@ export function classifySectionResponse(
   section: Section,
   body: ({ ok?: boolean; aiError?: string; error?: string; items?: unknown[]; costEur?: number } & Record<string, unknown>) | null,
 ): SectionOutcome {
-  if (!body) return { kind: 'error', section, message: TIMEOUT_MESSAGE };
+  // Prompt 471 §B (Nuno's correction) — this used to be `{ kind: 'error',
+  // message: TIMEOUT_MESSAGE }`, so MarketThesisSection.tsx's own "any
+  // kind==='error' paints red" rule painted this message red too — the
+  // exact "a red box asserts failed through color alone" mistake Prompt 468
+  // §A had just fixed on the button next to it. A `kind` of its own is more
+  // honest than inspecting the message string (copy changes; a message
+  // string is not something call sites should pattern-match on): no
+  // `message` field here either, matching BuildError's own `{kind:'timeout'}`
+  // (market-portrait.ts) — the copy is a fixed constant (TIMEOUT_MESSAGE),
+  // not server-supplied data, so it doesn't belong on the object.
+  if (!body) return { kind: 'timeout', section };
   if (body.ok === false || body.aiError) {
     const message = (typeof body.aiError === 'string' && body.aiError)
       || (typeof body.error === 'string' && body.error)
