@@ -1,0 +1,50 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(git fetch*)",
+      "Bash(git checkout*)",
+      "Bash(git merge*)",
+      "Bash(git branch*)",
+      "Bash(git stash*)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Edit",
+      "Write",
+      "Read",
+      "Glob",
+      "Grep"
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push origin +*)",
+      "Bash(git reset --hard*)",
+      "Bash(git branch -D*)",
+      "Bash(git branch --delete --force*)",
+      "Bash(git clean -f*)",
+      "Bash(git clean -fd*)",
+      "Bash(rm -rf*)",
+      "Bash(rm -r -f*)",
+      "Bash(*--no-verify*)",
+      "Bash(*--no-gpg-sign*)",
+      "Bash(git config*)",
+      "Bash(gh secret*)",
+      "Bash(gh release delete*)",
+      "Bash(gh repo delete*)",
+      "Bash(vercel env*)",
+      "Bash(vercel remove*)",
+      "Bash(vercel --prod*)",
+      "Bash(supabase db reset*)",
+      "Bash(supabase secrets*)",
+      "Bash(curl * -X DELETE*)",
+      "Bash(sudo*)"
+    ]
+  }
+}
