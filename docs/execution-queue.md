@@ -41,7 +41,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | 470 | Merge do 467 + §C do 468 | — | `DONE` — `49b1595` | — |
 | 471 | Destravar as hipóteses | — | `DONE` — `5e99175`. **G2 PASSOU**: 3 hipóteses em produção | — |
 | **D1** | `no-floating-promises` no lint | `READY — especificado aqui` | `DONE` — 1 violação real corrigida | — |
-| **D2** | `blueprint/reconcile` → `reconciliation/run` | `READY — especificado aqui` | `READY` | nada |
+| **D2** | `blueprint/reconcile` → `reconciliation/run` | `READY — especificado aqui` | `DONE` — delega; sem caminho próprio | — |
 | **D3** | Consulta de alcance por capacidade | `READY — especificado aqui` | `DONE` — `docs/capability-reach.md` | — |
 | 472 | Ponto D — dois eixos do `gap_disposition` | — | `DONE` — `1404513` em `main`, **provado em produção (7 → 3)** | — |
 | 473 | Consolidar os dois vocabulários `FactStatus` | `NO_PROMPT — não executar` | — | prompt |
@@ -52,7 +52,21 @@ condição de STOP legítima (§18-A), não um fracasso.
 | — | Bloco 4 — Capital Landscape | `NO_PROMPT — não executar` | — | **decisão de produto** (fontes) |
 | G2 | Aceitação visual na app | — | `DONE` — 30/08 14:17, 3 hipóteses criadas | — |
 
-**Ordem recomendada:** ~~merge do 472~~ → ~~D3~~ → **D1 → D2**.
+**Ordem recomendada:** ~~merge do 472 → D3 → D1 → D2~~ — **tudo feito**. Não
+resta nenhuma entrada executável: as restantes são `NO_PROMPT` (contexto,
+não trabalho) e precisam de um prompt ou de uma decisão de produto. Isso é
+a condição de STOP §18-A, não um fracasso.
+
+**Próxima ação recomendada** (por ordem de retorno, e nenhuma delas é
+executável sem prompt):
+1. **Uma passagem de "Read my documents"** na app — 30 segundos, e é o que
+   distingue "o 467 está inerte porque ninguém clicou" de "o desvio para
+   `market_facts` não acontece". Ver `docs/capability-reach.md` §2.
+2. **473** — consolidar os dois vocabulários de `FactStatus`. Bloqueia ligar
+   a pesquisa web aos factos tipados, que é o que faria o §2 sair do
+   estado do meio por uso real e não por um clique de teste.
+3. **474** — pôr os factos tipados no ecrã. Existem na base de dados desde
+   a `0279` e o founder nunca os vê.
 
 **A migração `0280` está aplicada e verificada em produção** (colunas
 nullable, sem default, zero backfill, 99 claims intactas, `gap_disposition`
@@ -210,7 +224,69 @@ esperado é zero violações não justificadas.
 
 ---
 
-## D2 — `/api/blueprint/reconcile` passa a chamar `/api/reconciliation/run`
+## D2 — `/api/blueprint/reconcile` passa a chamar `/api/reconciliation/run` — `DONE`
+
+### Critério 1 — o que a `blueprint/reconcile` fazia que a outra não faz
+
+Lido antes de mudar seja o que for. **Nada que se perca.** As diferenças,
+lado a lado:
+
+| | `blueprint/reconcile` (antes) | `reconciliation/run` |
+|---|---|---|
+| `assertNotViewer` | **não** | sim |
+| `maxDuration` | por omissão | 60 |
+| `try/catch` à volta do motor | não | sim |
+| log do resultado | não | sempre |
+| resposta | `{ok, ...ReconcileOutcome}` — inclui `costEur` | `{ok, ran, autoLinked, suggested, uncovered, reason}` |
+
+A única coisa que a `blueprint/reconcile` fazia e a outra não é **devolver
+`costEur` no corpo**. Não é uma diferença real de comportamento: o **único**
+chamador é
+`fetch('/api/blueprint/reconcile', {method:'POST'}).catch(() => {})`
+(`store-supabase.tsx:1270`, no `renameDocument`) e **nunca lê o corpo**.
+Tudo o resto são coisas que a `reconciliation/run` faz **a mais**, não a
+menos — por isso não é caso de `WAITING_HUMAN`: não há nada a decidir entre
+duas alternativas, há uma que é estritamente mais protegida.
+
+**Uma mudança de comportamento, declarada:** um developer-viewer deixa de
+poder disparar uma reconciliação paga ao renomear um documento
+(`assertNotViewer` passa a aplicar-se aqui). Fecha uma falha, não remove uma
+capacidade, e o caminho do founder fica igual — critério 3 cumprido.
+
+### O que foi feito
+
+A rota mantém o URL (nada de 404 para o chamador existente) e **delega**:
+importa o handler da `reconciliation/run` e chama-o. Zero lógica duplicada.
+`maxDuration` teve de ser re-declarado — config de rota do Next não viaja
+com um handler importado, e sem isso esta rota ficaria com o orçamento curto
+para o trabalho que reencaminha.
+
+**Teste que prova que já não tem caminho próprio** (critério de verificação):
+`reconciliation.test.ts` → `describe('reconciliation has exactly one
+implementation (task D2)')`, 4 asserções ao nível do ficheiro — não chama
+`runReconciliationForOrg`, delega mesmo, re-declara `maxDuration`, e a
+`reconciliation/run` continua a ser a dona do mecanismo com
+`assertNotViewer` e o probe de capacidade. Os comentários são despidos antes
+de verificar a ausência: o teste apanhou o próprio cabeçalho da rota (que
+explica em prosa o que ela **deixou** de fazer) — a mesma falsa positiva que
+o `no-fire-and-forget.test.ts` já documenta.
+
+**Por verificar, e porquê:** um POST real contra a rota já deployada não foi
+exercitado — o build lista as duas rotas e os testes provam a delegação ao
+nível do código, mas importar um handler entre rotas é um padrão que só o
+runtime confirma a 100%. `TECHNICAL PASS — PRODUCTION GATE PENDING` nesse
+ponto específico: renomear um documento na app e confirmar que
+`gap_reconciliations` continua a crescer (a consulta de alcance abaixo).
+
+**Achado adjacente, NÃO corrigido (fora do âmbito da D2):**
+`reconciliation.ts:190` grava sempre `route: '/api/blueprint/reconcile'` no
+`ai_call_log`, seja qual for a rota que despoletou — o cron e a
+`reconciliation/run` incluídos. Já era enganador antes desta tarefa; agora
+que o mecanismo vive na `reconciliation/run`, é claramente a etiqueta
+errada, e o 469 elevou esta tabela a critério de aceitação. Correção
+proposta, de uma linha: passar a rota real como parâmetro a
+`callReconciliationModel` em vez da constante. Fica registado em vez de
+corrigido em silêncio.
 
 `READY — especificado aqui`. Sem migração → merge e push próprios.
 

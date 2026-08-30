@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeReconciliationSignature, reconcileGapCandidates, type ReconcilableDocument } from './reconciliation';
 import type { CompanyClaim } from './types';
@@ -207,5 +209,60 @@ describe('reconcileGapCandidates — F.3 concurrency: the gap this prompt does N
     // The day a lock exists, this drops to 1 — and this line must be
     // edited on purpose, not left to silently start failing.
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+// Task D2 (docs/execution-queue.md) — "um teste que prove que a
+// blueprint/reconcile já não tem um caminho de reconciliação próprio."
+//
+// Source-level, like no-fire-and-forget.test.ts and for the same reason:
+// what is being asserted is a property of the FILE (does this route still
+// carry its own copy of the mechanism?), which no runtime test of the
+// handler can answer — a duplicated implementation and a delegating one
+// both return a valid response.
+//
+// Prompt 465 replaced two dead fire-and-forget triggers with ONE awaited
+// entry point, /api/reconciliation/run. /api/blueprint/reconcile was left
+// as a second path to the same operation, and that route's own header
+// recorded the overlap as a known debt. Two paths to the same work is how
+// 465 came about in the first place: one of them drifts, and the one that
+// drifts is the one nobody is looking at.
+describe('reconciliation has exactly one implementation (task D2)', () => {
+  const reconcileRoute = readFileSync(
+    join(process.cwd(), 'src/app/api/blueprint/reconcile/route.ts'), 'utf8',
+  );
+
+  // Full-line comments stripped before asserting absence — the same known
+  // false positive no-fire-and-forget.test.ts documents, and this test hit
+  // it immediately: that route's header explains what it USED to call, in
+  // prose, and a raw substring check counts the explanation as the thing
+  // it is explaining. The assertion is about the code path, not the words.
+  const reconcileCode = reconcileRoute
+    .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+
+  it('blueprint/reconcile no longer calls runReconciliationForOrg itself', () => {
+    expect(reconcileCode).not.toContain('runReconciliationForOrg');
+  });
+
+  it('blueprint/reconcile delegates to the single mechanism instead', () => {
+    expect(reconcileRoute).toContain('@/app/api/reconciliation/run/route');
+    expect(reconcileRoute).toMatch(/return\s+reconciliationRun\(/);
+  });
+
+  it('blueprint/reconcile re-declares maxDuration — Next route config is not inherited through an imported handler', () => {
+    expect(reconcileRoute).toMatch(/export const maxDuration = 60/);
+  });
+
+  it('/api/reconciliation/run is still the one that owns the mechanism', () => {
+    const runRoute = readFileSync(
+      join(process.cwd(), 'src/app/api/reconciliation/run/route.ts'), 'utf8',
+    );
+    expect(runRoute).toContain('runReconciliationForOrg');
+    // The protections the delegating route now inherits rather than
+    // duplicating. If any of these disappears from here, it disappears for
+    // BOTH callers at once — which is the point of consolidating, and the
+    // reason this assertion lives next to the one above.
+    expect(runRoute).toContain('assertNotViewer');
+    expect(runRoute).toContain('gapReconciliationsAvailable');
   });
 });
