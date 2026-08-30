@@ -60,6 +60,15 @@ export function SectionResearchButton({ section, hypothesisId, onDone }: {
       // promise nobody catches.
       const body = await res.json().catch(() => null);
       if (!body) {
+        // Prompt 468 §C — verified, not assumed to be the same as
+        // MarketPortraitCard's case: /api/market-data/research is ONE flat
+        // request (single AI call, then upserts, all in this route's own
+        // maxDuration=60) with no separate inner call whose own successful
+        // response this wrapper could have already received before dying —
+        // unlike portrait, which chains into document-extract's OWN already-
+        // completed request. If THIS route gets killed by the gateway, the
+        // browser has no earlier confirmed-success signal to have lost, so
+        // "took too long or failed — try again" stays honest as-is.
         onDone({ kind: 'error', section, message: 'The search took too long or failed on the server — try again.' });
         return;
       }

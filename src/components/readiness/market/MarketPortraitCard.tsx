@@ -7,32 +7,36 @@
 // every time — including "nothing found", which is a real answer, not a
 // failure to show anything.
 import { useState } from 'react';
-
-interface PortraitResult {
-  documentsRead: number; costEur: number; cached: boolean;
-  ringsProposed: number; ringsNote: string | null; competitorsProposed: number;
-}
+import {
+  classifyPortraitResponse, TIMEOUT_MESSAGE, NETWORK_MESSAGE,
+  type PortraitResult, type BuildError,
+} from '@/lib/market-portrait';
 
 export function MarketPortraitCard({ coldStart, onDone }: { coldStart: boolean; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [buildError, setBuildError] = useState<BuildError | null>(null);
   const [result, setResult] = useState<PortraitResult | null>(null);
 
   async function build() {
-    setBusy(true); setError(''); setResult(null);
+    setBusy(true); setBuildError(null); setResult(null);
     try {
       const res = await fetch('/api/market-data/portrait', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}),
       });
-      // Same §A discipline as the section buttons: a 504/HTML answer must
-      // become words on screen, never a rejected promise nobody catches.
       const body = await res.json().catch(() => null);
-      if (!body) { setError('The pass took too long or failed on the server — try again.'); return; }
-      if (!body.ok) { setError(body.error ?? 'Could not build your market portrait — try again.'); return; }
-      setResult(body as PortraitResult);
+      const outcome = classifyPortraitResponse(body);
+      if (outcome.kind === 'error') {
+        // Never infer from the HTTP outcome alone — see
+        // classifyPortraitResponse's own header for why the timeout case
+        // must reload before the message ever renders.
+        if (outcome.callOnDoneFirst) onDone();
+        setBuildError(outcome.buildError);
+        return;
+      }
+      setResult(outcome.result);
       onDone();
     } catch {
-      setError('Could not reach the server — check your connection and try again.');
+      setBuildError({ kind: 'network' });
     } finally { setBusy(false); }
   }
 
@@ -55,9 +59,20 @@ export function MarketPortraitCard({ coldStart, onDone }: { coldStart: boolean; 
         </button>
       </div>
 
-      {error && (
+      {buildError && buildError.kind === 'timeout' ? (
+        // Prompt 468 §A — amber/informational, not red: a red box asserts
+        // "failed" through color alone, independent of what the words say,
+        // which would undo the whole point of this message. Retry exists
+        // (fewer documents genuinely helps if nothing shows up below) but
+        // is deliberately NOT offered as the first, primary action the way
+        // the other two cases still correctly do.
+        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+          {TIMEOUT_MESSAGE}
+          {' '}If nothing new appears below, <button onClick={build} disabled={busy} className="font-medium underline disabled:opacity-40">try again with fewer documents</button>.
+        </div>
+      ) : buildError && (
         <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-[#B00000]">
-          {error}
+          {buildError.kind === 'network' ? NETWORK_MESSAGE : buildError.message}
           <button onClick={build} disabled={busy} className="ml-2 font-medium underline disabled:opacity-40">Retry</button>
         </div>
       )}
