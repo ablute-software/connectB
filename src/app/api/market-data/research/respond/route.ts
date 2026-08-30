@@ -108,9 +108,23 @@ export async function POST(req: Request) {
     // Prompt 450 §C — Sherlock's own deterministic classifier (never the
     // model) decides whether a candidate can become a real competitor row.
     // A ruled-out, unresolved, or status-quo candidate stays visible
-    // elsewhere (so the founder can see WHY) but can never be accepted —
-    // document-sourced items never carry sherlockClassification at all, so
-    // this gate is a no-op for that provenance, exactly as intended.
+    // elsewhere (so the founder can see WHY) but can never be accepted.
+    //
+    // Prompt 478 — this gate USED to be a no-op for document-sourced items,
+    // because they never carried sherlockClassification at all. That was
+    // the defect 478 fixed (13 competitors in production, 0 classified, 10
+    // of them from documents), so the gate is now live for BOTH provenances
+    // — which is the point: an entry describing the buyer's current
+    // behaviour is not a competitor whether it was read off a web page or
+    // out of the founder's own deck. Two consequences worth knowing before
+    // reading a 409 here as a bug:
+    //   - a document candidate the model DID describe well enough to
+    //     classify can now be refused acceptance, where before it would
+    //     have been accepted with competitor_type null;
+    //   - a document candidate whose facets are missing or unusable still
+    //     carries no classification (parseCompetitiveRelation returns null),
+    //     so this gate stays a no-op for it and it is accepted exactly as
+    //     it is today — the no-regression case Prompt 478 §5 protects.
     const classification = structured?.sherlockClassification ?? null;
     if (classification === 'NOT_COMPETITOR') {
       return NextResponse.json({ ok: false, error: 'Sherlock could not establish a competitive relationship for this candidate.' }, { status: 409 });

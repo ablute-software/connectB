@@ -70,9 +70,36 @@ export function shouldAutoFillMarketData(section: string, sourceKind: string | n
 
 const SIZING_SCOPES = ['TAM', 'SAM', 'SOM'];
 const SIZING_METHODS = ['top_down', 'bottom_up', 'analyst_report', 'secondary_citation'];
-const CANDIDATE_STAGES = ['commercial', 'pre_commercial', 'unknown'];
-const CANDIDATE_KINDS = ['COMPANY', 'PRODUCT', 'PROCESS', 'MANUAL_WORKFLOW', 'DO_NOTHING', 'OTHER'];
+// Prompt 478 — exported so the DOCUMENT extraction path validates against
+// the exact same vocabulary as the web path instead of declaring a second,
+// drifting copy of these lists.
+export const CANDIDATE_STAGES = ['commercial', 'pre_commercial', 'unknown'];
+export const CANDIDATE_KINDS = ['COMPANY', 'PRODUCT', 'PROCESS', 'MANUAL_WORKFLOW', 'DO_NOTHING', 'OTHER'];
 const MATCH_STATES = ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'];
+
+// Prompt 478 — how a facet's evidence is anchored, which differs between
+// the two paths for a real reason rather than a convenience one.
+//
+// A WEB candidate's facets can each come from a different page, so each one
+// carries its own sourceUrl and a MATCH/PARTIAL without one is
+// unverifiable. A DOCUMENT candidate's facets all come from the same
+// document, and that document is already recorded mechanically on the row
+// itself (market_research_items.document_id + page), resolved through
+// market-document-extract.ts's server-trusted document_index map — an item
+// whose index doesn't resolve is dropped before it is ever stored. So the
+// citation exists; it just isn't a URL, and it isn't per-facet.
+//
+// This is why documentBacked is a narrow, explicit opt-in and not a
+// "skip validation" flag: without it, every MATCH/PARTIAL the model reports
+// from a document would regress to UNKNOWN for lack of a URL that cannot
+// exist, parseCompetitiveRelation would return null for every document
+// candidate, and the document path would silently never classify anything
+// — which is exactly the state Prompt 478 exists to fix. The alternative,
+// asking the model for a sourceUrl on a document candidate, would be
+// inviting it to invent one.
+export interface RelationParseOptions {
+  documentBacked?: boolean;
+}
 
 function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
@@ -86,30 +113,35 @@ function str(v: unknown): string | null {
 // A MATCH/PARTIAL with no sourceUrl is unverifiable, so that ONE facet
 // regresses to UNKNOWN too — never invent a source, never discard the whole
 // candidate over one missing citation.
-function parseFacet(raw: unknown): FacetEvidence {
+function parseFacet(raw: unknown, opts?: RelationParseOptions): FacetEvidence {
   if (!raw || typeof raw !== 'object') return { state: 'UNKNOWN', note: null, sourceUrl: null };
   const f = raw as Record<string, unknown>;
   const stateRaw = str(f.state);
   const state = (stateRaw && MATCH_STATES.includes(stateRaw) ? stateRaw : 'UNKNOWN') as MatchState;
   const sourceUrl = str(f.sourceUrl);
-  if ((state === 'MATCH' || state === 'PARTIAL') && !sourceUrl) return { state: 'UNKNOWN', note: null, sourceUrl: null };
+  // documentBacked (Prompt 478): the citation is the document on the row,
+  // not a URL — see RelationParseOptions above. sourceUrl stays null rather
+  // than being filled with something URL-shaped that isn't one.
+  if ((state === 'MATCH' || state === 'PARTIAL') && !sourceUrl && !opts?.documentBacked) {
+    return { state: 'UNKNOWN', note: null, sourceUrl: null };
+  }
   return { state, note: str(f.note), sourceUrl };
 }
 
 // Returns null when there is truly nothing to work with — all 5 decisive
 // facets AND budgetOverlap ended up UNKNOWN after parsing (a candidate with
 // zero usable evidence isn't worth persisting even as UNRESOLVED).
-function parseCompetitiveRelation(raw: Record<string, unknown>): CompetitiveRelation | null {
-  const problemOrJobOverlap = parseFacet(raw.problemOrJobOverlap);
-  const outcomeOverlap = parseFacet(raw.outcomeOverlap);
-  const substitutability = parseFacet(raw.substitutability);
-  const userOrBuyerOverlap = parseFacet(raw.userOrBuyerOverlap);
-  const useContextOverlap = parseFacet(raw.useContextOverlap);
-  const budgetOverlap = raw.budgetOverlap != null ? parseFacet(raw.budgetOverlap) : undefined;
-  const technologyOverlap = raw.technologyOverlap != null ? parseFacet(raw.technologyOverlap) : undefined;
-  const inputOverlap = raw.inputOverlap != null ? parseFacet(raw.inputOverlap) : undefined;
-  const geographyOverlap = raw.geographyOverlap != null ? parseFacet(raw.geographyOverlap) : undefined;
-  const channelOverlap = raw.channelOverlap != null ? parseFacet(raw.channelOverlap) : undefined;
+export function parseCompetitiveRelation(raw: Record<string, unknown>, opts?: RelationParseOptions): CompetitiveRelation | null {
+  const problemOrJobOverlap = parseFacet(raw.problemOrJobOverlap, opts);
+  const outcomeOverlap = parseFacet(raw.outcomeOverlap, opts);
+  const substitutability = parseFacet(raw.substitutability, opts);
+  const userOrBuyerOverlap = parseFacet(raw.userOrBuyerOverlap, opts);
+  const useContextOverlap = parseFacet(raw.useContextOverlap, opts);
+  const budgetOverlap = raw.budgetOverlap != null ? parseFacet(raw.budgetOverlap, opts) : undefined;
+  const technologyOverlap = raw.technologyOverlap != null ? parseFacet(raw.technologyOverlap, opts) : undefined;
+  const inputOverlap = raw.inputOverlap != null ? parseFacet(raw.inputOverlap, opts) : undefined;
+  const geographyOverlap = raw.geographyOverlap != null ? parseFacet(raw.geographyOverlap, opts) : undefined;
+  const channelOverlap = raw.channelOverlap != null ? parseFacet(raw.channelOverlap, opts) : undefined;
 
   const decisiveAllUnknown = [problemOrJobOverlap, outcomeOverlap, substitutability, userOrBuyerOverlap, useContextOverlap]
     .every((f) => f.state === 'UNKNOWN');

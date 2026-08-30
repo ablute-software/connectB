@@ -27,6 +27,7 @@ import { truncatePdfToPages } from '@/lib/pdf-truncate';
 import { MAX_EXTRACTION_PAGES } from '@/lib/document-extraction';
 import { marketDocumentExtractionAvailable, marketFactsAvailable } from '@/lib/market-data-capability';
 import { parseMarketExtractionRaw, computeExtractionSignature, type MarketDocRef, type MarketProposal } from '@/lib/market-document-extract';
+import { CANDIDATE_KINDS, CANDIDATE_STAGES } from '@/lib/market-research-structured';
 import { normalizeMarketCandidates, type MarketFactCandidate } from '@/lib/market-fact-normalization';
 import { writeMarketFact, type ObservationInput, type RetrievalMethod, type EvidenceSourceKind } from '@/lib/market-facts-db';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
@@ -66,7 +67,33 @@ const SYSTEM = 'You read a startup founder\'s own documents (pitch decks, market
   + 'and maximum of the SAME underlying figure), report both as separate items sharing the exact same market_definition '
   + 'and geography, with bound set to "lower" on the minimum and "upper" on the maximum — that pairing is what lets a '
   + 'later step recognize them as one range instead of two unrelated numbers. '
+  // Prompt 478 — the same instruction the web research path already gives
+  // for these fields, extended to this second path. The rule it restates is
+  // Prompt 455's and is not reopened here: the model reports what it
+  // OBSERVES, and Sherlock's own function decides what the candidate is.
+  + 'For each competitor you report, ALSO describe how it relates to what the founder does, using only what the document states: '
+  + 'candidateKind (whether the document presents it as a company, a product, a process, a manual workflow, or doing nothing at all), '
+  + 'candidateStage (already commercial, or still pre-commercial), and relation — for each facet, the state you can support '
+  + '(MATCH / PARTIAL / NO_MATCH) plus a note quoting or paraphrasing what the document says. NEVER state or imply a final '
+  + 'competitive classification (direct competitor, status quo, adjacent, and so on): that is decided by Sherlock from the facets '
+  + 'you report, never by you. Leave a facet out entirely when the document does not address it — an omitted facet is read as '
+  + '"unknown", which is the honest answer, and is always better than a guess. '
   + DOCUMENT_CONTENT_INSTRUCTION;
+
+// Prompt 478 — the web path's FACET_SCHEMA minus `sourceUrl`, and that
+// omission is the whole point: a candidate read out of the founder's own
+// PDF has no URL to cite, and offering the field would invite the model to
+// invent one. The citation for these facets is the document itself, which
+// this route already records mechanically on the row (document_id + page,
+// resolved through the server-trusted document_index map). `state` and
+// `note` keep the exact names and meanings the web path uses.
+const DOCUMENT_FACET_SCHEMA = {
+  type: 'object',
+  properties: {
+    state: { type: 'string', enum: ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'] },
+    note: { type: 'string', description: 'What the document actually says that supports this state — quote or paraphrase it.' },
+  },
+};
 
 const MARKET_EXTRACT_TOOL_SCHEMA = {
   type: 'object' as const,
@@ -119,6 +146,29 @@ const MARKET_EXTRACT_TOOL_SCHEMA = {
         properties: {
           name: { type: 'string' }, country: { type: 'string' }, stage: { type: 'string' }, note: { type: 'string' },
           document_index: { type: 'number' }, page: { type: 'number' },
+          // Prompt 478 — the same three fields the web research path already
+          // asks for (market-data/research/route.ts's STRUCTURED_SCHEMA),
+          // under the same names, so classifyCompetitor can run on a
+          // document-sourced candidate exactly as it does on a web one.
+          // Optional on purpose: a document that doesn't say enough still
+          // yields a usable, unclassified competitor.
+          candidateKind: {
+            type: 'string', enum: [...CANDIDATE_KINDS],
+            description: 'What the candidate actually IS, as the document describes it — never a classification. '
+              + 'Sherlock\'s own function, not you, decides whether a PROCESS/MANUAL_WORKFLOW/DO_NOTHING candidate counts as the status quo.',
+          },
+          candidateStage: { type: 'string', enum: [...CANDIDATE_STAGES], description: 'Whether the document shows this candidate as already commercial or still pre-commercial.' },
+          relation: {
+            type: 'object',
+            description: 'How this candidate relates to what the founder does, scored the same way regardless of candidateKind. '
+              + 'problemOrJobOverlap/outcomeOverlap/substitutability/userOrBuyerOverlap/useContextOverlap are the ones that matter; '
+              + 'budgetOverlap is optional context. Leave a facet out entirely when the document does not address it — that is what UNKNOWN means.',
+            properties: {
+              problemOrJobOverlap: DOCUMENT_FACET_SCHEMA, outcomeOverlap: DOCUMENT_FACET_SCHEMA,
+              substitutability: DOCUMENT_FACET_SCHEMA, userOrBuyerOverlap: DOCUMENT_FACET_SCHEMA,
+              useContextOverlap: DOCUMENT_FACET_SCHEMA, budgetOverlap: DOCUMENT_FACET_SCHEMA,
+            },
+          },
         },
         required: ['name', 'document_index'],
       },

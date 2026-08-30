@@ -12,6 +12,16 @@
 // That is the mechanical enforcement of "never a fact without a real
 // document+page of origin" — no item survives without one.
 import { createHash } from 'crypto';
+// Prompt 478 — the SAME parser, constants and classifier the web path uses.
+// The competition classifier (449/450) never reached the document path: the
+// tool schema here only ever asked for name/country/stage/note, so
+// classifyCompetitor was never called for a document-sourced candidate and
+// `structured` never carried sherlockClassification. Measured on 30/08: 13
+// competitors in production, 0 classified, 10 of them created from
+// documents after the classifier was already live. Importing rather than
+// re-declaring is the point — a second copy of this vocabulary would drift.
+import { parseCompetitiveRelation, CANDIDATE_KINDS, CANDIDATE_STAGES } from './market-research-structured';
+import { classifyCompetitor, type CandidateKind, type CandidateStage } from './market-competition';
 
 export type MarketSection = 'sizing' | 'growth' | 'segments' | 'players' | 'trends' | 'regulatory';
 
@@ -73,7 +83,14 @@ interface RawGrowth extends RawItemBase {
   market_definition?: unknown; geography?: unknown; metric?: unknown; bound?: unknown; period_start?: unknown; period_end?: unknown; source_quote?: unknown;
 }
 interface RawSegment extends RawItemBase { name?: unknown }
-interface RawCompetitor extends RawItemBase { name?: unknown; country?: unknown; stage?: unknown; note?: unknown }
+// Prompt 478 — candidateKind/candidateStage/relation use the exact field
+// names the web path already uses (market-research-structured.ts), never a
+// second vocabulary. All three are optional here: a document that doesn't
+// support them still yields a usable, simply-unclassified competitor item.
+interface RawCompetitor extends RawItemBase {
+  name?: unknown; country?: unknown; stage?: unknown; note?: unknown;
+  candidateKind?: unknown; candidateStage?: unknown; relation?: unknown;
+}
 interface RawTextItem extends RawItemBase { title?: unknown; detail?: unknown }
 
 interface RawMarketExtraction {
@@ -177,11 +194,42 @@ export function parseMarketExtractionRaw(raw: unknown, docsByIndex: Map<number, 
     const country = str(item.country);
     const stage = str(item.stage);
     const note = str(item.note);
+    // Prompt 478 — the classifier's inputs, when the document actually
+    // supports them. Everything below is additive: `name/country/stage/note`
+    // are untouched, so a document that only yields those still produces
+    // exactly the item it produces today, just unclassified — the same
+    // honest path every pre-450 item already takes, not a new error.
+    const structured: Record<string, unknown> = {
+      name, country: country ?? undefined, stage: stage ?? undefined, note: note ?? undefined,
+    };
+    const candidateKindRaw = str(item.candidateKind);
+    const candidateStageRaw = str(item.candidateStage);
+    if (candidateKindRaw && CANDIDATE_KINDS.includes(candidateKindRaw)
+      && candidateStageRaw && CANDIDATE_STAGES.includes(candidateStageRaw)
+      && item.relation && typeof item.relation === 'object') {
+      // documentBacked: a document candidate's facets are cited by the
+      // document on this very item (documentId + page above), not by a URL
+      // — see RelationParseOptions in market-research-structured.ts.
+      const relation = parseCompetitiveRelation(item.relation as Record<string, unknown>, { documentBacked: true });
+      if (relation) {
+        const candidateKind = candidateKindRaw as CandidateKind;
+        const candidateStage = candidateStageRaw as CandidateStage;
+        structured.candidateKind = candidateKind;
+        structured.candidateStage = candidateStage;
+        structured.relation = relation;
+        // classifyCompetitor is the ONLY thing that decides DIRECT/
+        // STATUS_QUO/etc., in this path exactly as in the web one. The tool
+        // schema deliberately offers the model no field to state a
+        // classification itself (Prompt 455's rule, now covering both paths).
+        structured.sherlockClassification = classifyCompetitor(relation, candidateStage, candidateKind);
+      }
+    }
+
     out.push({
       section: 'players', title: `Competitor: ${name}`,
       detail: [country, stage, note].filter(Boolean).join(' · '),
       documentId: resolved.doc.id, documentName: resolved.doc.name, page: resolved.page,
-      structured: { name, country: country ?? undefined, stage: stage ?? undefined, note: note ?? undefined },
+      structured,
     });
   }
 
