@@ -148,7 +148,75 @@ describe('no fire-and-forget after the response — the real sweep (Prompt 465 �
   });
 });
 
-// Prompt 469 §C — a second, unrelated guard. logAiCall is used as an
+// Prompt 467 §B.5 — a second, unrelated guard added to this same file
+// (Nuno's own instruction: "Acrescenta ao guarda do Prompt 465 §E"). Not
+// about fire-and-forget at all — about market-facts-db.ts being the ONLY
+// place allowed to write market_facts, same "one chokepoint, mechanically
+// enforced" discipline this codebase already applies elsewhere (e.g.
+// verification_insert_* in migration 0183 being the only path to
+// interactions/deal_messages for test fixtures). A second writer bypasses
+// writeMarketFact's revalidation and derived verification_status — exactly
+// the kind of drift a code-review comment can miss and a test cannot.
+const MARKET_FACTS_WRITE = /\.from\(\s*['"]market_facts['"]\s*\)[\s\S]{0,200}?\.(insert|upsert)\s*\(/;
+const MARKET_FACTS_DB_FILE = join('src', 'lib', 'market-facts-db.ts');
+
+describe('market_facts has exactly one writer (Prompt 467 §B.5)', () => {
+  it('no file other than market-facts-db.ts calls .insert(/.upsert( on market_facts', () => {
+    const offenders: string[] = [];
+    for (const root of ROOTS) {
+      for (const file of listSourceFiles(join(process.cwd(), root))) {
+        const relative = file.slice(process.cwd().length + 1);
+        if (relative === MARKET_FACTS_DB_FILE) continue;
+        const text = readFileSync(file, 'utf8');
+        if (MARKET_FACTS_WRITE.test(text)) offenders.push(relative);
+      }
+    }
+    expect(
+      offenders,
+      `market-facts-db.ts's writeMarketFact is the only permitted writer of market_facts — it revalidates and derives `
+      + `verification_status before writing, which a direct .insert(/.upsert( bypasses entirely. Offending file(s):\n${offenders.join('\n')}`,
+    ).toEqual([]);
+  });
+});
+
+// Prompt 467 v3 §1b (Nuno's review) — a third, also unrelated guard. The
+// document-extract route must take exactly ONE marketFactsAvailable()
+// snapshot per execution and reuse it for the run-signature, the typed/
+// legacy routing split, and the legacy-items supersession filter. Two
+// independent calls in the same execution can observe DIFFERENT results
+// across the capability probe's own ~60s negative-cache window right after
+// migration 0279 is applied — and the dangerous direction is a signature
+// that persists "typed:on" for a run that actually fell back to legacy:
+// since a document's sha256s never change again on their own, that
+// signature would never re-trigger the typed pipeline for it, permanently.
+// There is no existing infrastructure in this codebase for testing a
+// Next.js route handler's live call count (zero route.ts files have their
+// own test file — every test here targets src/lib), so this is the
+// equivalent guarantee at the level this codebase actually tests: the
+// route's OWN source contains only one call site, which is what makes two
+// disagreeing snapshots structurally impossible in the first place.
+const MARKET_FACTS_AVAILABLE_CALL = /\bmarketFactsAvailable\s*\(/;
+const DOCUMENT_EXTRACT_ROUTE_FILE = join('src', 'app', 'api', 'market-data', 'document-extract', 'route.ts');
+
+describe('document-extract route takes exactly one capability snapshot (Prompt 467 v3 §1b)', () => {
+  it('marketFactsAvailable() is called at most once in route.ts', () => {
+    const text = readFileSync(join(process.cwd(), DOCUMENT_EXTRACT_ROUTE_FILE), 'utf8');
+    // Same full-line-comment skip as findViolations above — this file's
+    // own explanatory comments say "marketFactsAvailable() is called
+    // EXACTLY ONCE" in prose, which would otherwise miscount as a second
+    // call site.
+    const callSites = text.split('\n').filter((line) => !/^\s*\/\//.test(line) && MARKET_FACTS_AVAILABLE_CALL.test(line));
+    expect(
+      callSites.length,
+      'marketFactsAvailable() must be called exactly once per route execution (into `typedPipelineOn`) and that single value '
+      + 'reused for the run-signature, the typed/legacy routing split, and the legacy-items supersession filter — a second call '
+      + 'anywhere in this file can observe a different result than the first across the probe\'s own negative-cache window and '
+      + 'silently, permanently burn the one-time cutover opportunity for an already-processed document (Prompt 467 v3 §1b).',
+    ).toBe(1);
+  });
+});
+
+// Prompt 469 §C — a fourth, also unrelated guard. logAiCall is used as an
 // ACCEPTANCE CRITERION (§1's own findings, 2026-08-29: the ABSENCE of
 // ai_call_log entries proved a fire-and-forget pass never ran; the
 // PRESENCE of one proved a later fix worked), not just cost telemetry — so

@@ -47,6 +47,7 @@ import { MarketPublishToggle } from './market/MarketPublishToggle';
 import { type SectionOutcome } from './market/SectionResearchButtons';
 import { MarketPortraitCard } from './market/MarketPortraitCard';
 import { MarketThesisSection } from './market/MarketThesisSection';
+import { MarketFactsCard } from './market/MarketFactsCard';
 import { PORTRAIT_DOC_HEURISTIC, MAX_PORTRAIT_DOCS } from '@/lib/market-portrait';
 import { extractionSkipReasonMessage } from '@/lib/extraction-skip-reason';
 import type { ExtractionSkipReason } from '@/lib/document-extraction-pipeline';
@@ -687,6 +688,13 @@ function FromYourDocumentsPanel({ docs, docCounts, researchItems, pickerOpen, op
           ))}
         </div>
       )}
+
+      {/* Prompt 467 §D — growth/market_size, document-sourced, no longer
+          land in the list above at all (§C cuts them over to typed
+          market_facts instead). This is where they surface now, grouped by
+          verification_status rather than presented as undifferentiated
+          proposal cards. */}
+      <MarketFactsCard />
     </Card>
   );
 }

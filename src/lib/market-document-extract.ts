@@ -11,7 +11,35 @@
 // server-trusted lookup, and DROPS any item whose index doesn't resolve.
 // That is the mechanical enforcement of "never a fact without a real
 // document+page of origin" — no item survives without one.
+import { createHash } from 'crypto';
+
 export type MarketSection = 'sizing' | 'growth' | 'segments' | 'players' | 'trends' | 'regulatory';
+
+// Prompt 467 v3 §1/§1b (Nuno's review) — a real, confirmed bug: the route's
+// old signature was a bare hash of document SHA-256s, with no marker for
+// which PIPELINE VERSION or MODE processed them. The ablute_ deck was
+// already processed under the pre-467 pipeline with those exact SHA-256s,
+// so an unversioned signature would read as "already ran" and skip the
+// entire normalizeMarketCandidates -> writeMarketFact block forever — the
+// fixture that was supposed to prove the new architecture works would
+// never actually reach it. Bump PIPELINE_VERSION whenever processing logic
+// changes in a way that should re-run against already-seen documents.
+export const PIPELINE_VERSION = 'market-document-extract:v467';
+
+// `typedPipelineOn` is NOT an implementation detail — it's part of the
+// signature's own identity, and it must be the caller's single, already-
+// resolved marketFactsAvailable() snapshot (never called again in here):
+// a deck first processed while the typed pipeline is off (migration not
+// yet applied — falls back to the legacy path) must get a DIFFERENT
+// signature than the same deck processed once the migration is live, or
+// the one-time cutover opportunity for that document is silently and
+// permanently lost the moment the deck's signature is `true`, since a
+// document's own sha256 list never changes again on its own.
+export function computeExtractionSignature(sha256s: string[], typedPipelineOn: boolean): string {
+  return createHash('sha256')
+    .update([PIPELINE_VERSION, typedPipelineOn ? 'typed:on' : 'typed:off', ...sha256s.slice().sort()].join('|'))
+    .digest('hex');
+}
 
 export interface MarketDocRef { id: string; name: string }
 
@@ -93,6 +121,13 @@ export function parseMarketExtractionRaw(raw: unknown, docsByIndex: Map<number, 
       detail: str(item.source_quote) ?? '', documentId: resolved.doc.id, documentName: resolved.doc.name, page: resolved.page,
       structured: {
         valueEur: currency === 'EUR' ? value : null, currency, scope, year,
+        // Prompt 467 §C — `value` (the raw figure, independent of currency)
+        // alongside the pre-existing `valueEur` (kept unchanged — the old
+        // org_market_data auto-fill in research/respond/route.ts still
+        // reads it): valueEur is null for anything not already in EUR,
+        // which would otherwise leave a non-EUR market size with no usable
+        // number at all for the normalization pipeline below.
+        value,
         // Prompt 466 §B — candidate context for the (not-yet-wired, 467)
         // normalization pipeline. Captured now so nothing the widened
         // schema returns is silently dropped in the meantime.

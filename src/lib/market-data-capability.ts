@@ -62,3 +62,15 @@ export const orgCompetitorsCompetitorTypeAvailable = makeCapabilityProbe(async (
   const { error } = await admin.from('org_competitors').select('competitor_type').limit(1);
   return !error;
 });
+
+// Prompt 467 §A — migration 0279's four new tables (prepared and committed,
+// NOT applied — Nuno approves before it touches production). Probed on the
+// one table every reader/writer touches first, same "one table stands for
+// the whole migration" shorthand as marketThesisAvailable above; the other
+// three (market_evidence, market_fact_observations,
+// market_research_item_supersessions) always land in the same migration so
+// there is no real skew case between them to probe separately.
+export const marketFactsAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('market_facts').select('id').limit(1);
+  return !error;
+});
