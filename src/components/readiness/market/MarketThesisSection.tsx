@@ -18,7 +18,8 @@
 // panel now just points here).
 import { useEffect, useState } from 'react';
 import { SectionResearchButton, SECTIONS, SECTION_LABEL, type Section, type SectionOutcome } from './SectionResearchButtons';
-import { MARKET_THESIS_TEXT_MAX } from '@/lib/market-thesis';
+import { TIMEOUT_MESSAGE } from '@/lib/market-research-outcome';
+import { MARKET_THESIS_TEXT_MAX, type MarketThesisTextFieldKey } from '@/lib/market-thesis';
 
 interface MarketThesis {
   product_summary: string | null; core_problem: string | null; primary_user: string | null;
@@ -28,12 +29,21 @@ interface MarketThesis {
 interface Hypothesis { id: string; label: string; definition: string; thesis_version: number; status: string; position: number }
 interface Candidate { label: string; definition: string }
 
+// Prompt 471 §A — a suggestion now optionally carries its provenance: the
+// zero-cost GET cascade (456/457) has none (it's derived from the org's own
+// settings, not a document), while the new document-based pass always does
+// (point 5 — "every suggestion says where it came from"). `source` is
+// optional rather than the type splitting in two, since both kinds are
+// otherwise handled identically everywhere else (placeholder text, the "+"
+// accept button, the accept-on-Enter/ArrowRight gesture).
+interface FieldSuggestion { value: string; source?: { documentName: string; page: number | null } }
+
 const BLANK: MarketThesis = {
   product_summary: null, core_problem: null, primary_user: null, economic_buyer: null,
   beachhead: null, geography: null, primary_use_case: null, adjacent_technologies: [], excluded_markets: [],
 };
 
-type TextFieldKey = 'product_summary' | 'core_problem' | 'primary_user' | 'economic_buyer' | 'beachhead' | 'geography' | 'primary_use_case';
+type TextFieldKey = MarketThesisTextFieldKey;
 const FIELDS: { key: TextFieldKey; label: string; placeholder: string }[] = [
   { key: 'product_summary', label: 'What do you do?', placeholder: 'A biochip that detects X from a drop of blood in under 10 minutes.' },
   { key: 'core_problem', label: 'What core problem does it solve?', placeholder: 'Late diagnosis, because current tests take days and a lab.' },
@@ -181,9 +191,16 @@ function HypothesisResearch({ hypothesisId }: { hypothesisId: string }) {
         return (
           <div key={s} className="mt-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{SECTION_LABEL[s]}</p>
+            {/* Prompt 471 §B (Nuno's correction) — timeout is its own `kind`,
+                rendered amber like MarketPortraitCard's identical case, never
+                the same red as a real error: painting it red would repeat
+                the exact "a red box asserts failed through color alone"
+                mistake Prompt 468 §A had just fixed on the button next to
+                this one. */}
             {outcome && (
-              <p className={`mt-0.5 text-[11px] ${outcome.kind === 'error' ? 'text-[#B00000]' : 'text-gray-400'}`}>
+              <p className={`mt-0.5 text-[11px] ${outcome.kind === 'error' ? 'text-[#B00000]' : outcome.kind === 'timeout' ? 'text-amber-700' : 'text-gray-400'}`}>
                 {outcome.kind === 'error' ? outcome.message
+                  : outcome.kind === 'timeout' ? TIMEOUT_MESSAGE
                   : outcome.kind === 'empty'
                     ? `Nothing with a verifiable source found${outcome.costEur != null ? ` · €${outcome.costEur.toFixed(3)} spent` : ''}.`
                     : `${outcome.count} item${outcome.count === 1 ? '' : 's'} found${outcome.costEur != null ? ` · €${outcome.costEur.toFixed(3)}` : ''}.`}
@@ -281,7 +298,7 @@ export function MarketThesisSection() {
   const [available, setAvailable] = useState<boolean | null>(null);
   const [thesis, setThesis] = useState<MarketThesis>(BLANK);
   const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
-  const [suggestions, setSuggestions] = useState<Partial<Record<TextFieldKey, string>>>({});
+  const [suggestions, setSuggestions] = useState<Partial<Record<TextFieldKey, FieldSuggestion>>>({});
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -289,6 +306,12 @@ export function MarketThesisSection() {
   const [genError, setGenError] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Prompt 471 §A — the founder-initiated, document-based suggestion pass.
+  // Kept separate from the passive GET load above: this one costs real
+  // money (a model call) and must only ever run on an explicit click.
+  const [docSuggestBusy, setDocSuggestBusy] = useState(false);
+  const [docSuggestError, setDocSuggestError] = useState('');
+  const [docSuggestResult, setDocSuggestResult] = useState<{ documentsRead: number; costEur: number; suggestedCount: number } | null>(null);
 
   function load() {
     fetch('/api/market-thesis').then((r) => r.json()).then((body: { available: boolean; thesis?: MarketThesis | null; hypotheses?: Hypothesis[]; suggestions?: Partial<Record<TextFieldKey, string>> }) => {
@@ -296,13 +319,68 @@ export function MarketThesisSection() {
       setAvailable(true);
       setThesis(body.thesis ? { ...BLANK, ...body.thesis } : BLANK);
       setHypotheses(body.hypotheses ?? []);
-      setSuggestions(body.suggestions ?? {});
+      // Prompt 471 §A — the zero-cost GET cascade (456/457) returns bare
+      // strings with no provenance; wrapped here into the same
+      // FieldSuggestion shape the document-based pass below returns, so
+      // every render below only ever deals with one shape regardless of
+      // which pass produced it.
+      const raw = body.suggestions ?? {};
+      setSuggestions(Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, { value: v }])) as Partial<Record<TextFieldKey, FieldSuggestion>>);
     }).catch(() => setAvailable(false));
   }
   useEffect(load, []);
 
   function acceptSuggestion(key: TextFieldKey, value: string) {
     setThesis((prev) => ({ ...prev, [key]: value.slice(0, MARKET_THESIS_TEXT_MAX) }));
+  }
+
+  // Prompt 471 §A — founder-initiated only, never automatic: reads the
+  // Vault's market-looking documents (same auto-pick heuristic as
+  // MarketPortraitCard's "Read my documents") and asks for all 7 text
+  // fields in one pass, never just the field that happens to hurt today —
+  // see the route's own header for why that would repeat Prompt 457's
+  // mistake. Returns suggestions only; nothing is written to the thesis
+  // until the founder accepts one (acceptSuggestion above, unchanged).
+  // Deliberately uncached — see the route's own comment for why clicking
+  // this twice pays twice, on purpose, not by oversight.
+  async function suggestFromDocuments() {
+    // Adversarial pass (Prompt 471) — deliberately does NOT clear
+    // docSuggestResult here: an earlier successful run's "not found in your
+    // documents" notes (rendered below, keyed off docSuggestResult being
+    // non-null) stay correct until a NEW result actually replaces them. The
+    // first draft cleared it unconditionally at the top of this function,
+    // which meant a failed retry (second click, e.g. a network blip) wiped
+    // out a perfectly valid first result along with it — the founder would
+    // lose real "not found" information to an unrelated later failure that
+    // told them nothing new.
+    setDocSuggestBusy(true); setDocSuggestError('');
+    try {
+      const res = await fetch('/api/market-thesis/suggest-from-documents', { method: 'POST' });
+      const body = await res.json().catch(() => null) as {
+        ok?: boolean; error?: string;
+        suggestions?: Partial<Record<TextFieldKey, { value: string; documentName: string; page: number | null }>>;
+        documentsRead?: number; costEur?: number;
+      } | null;
+      if (!body?.ok) { setDocSuggestError(body?.error ?? 'Could not read your documents — try again.'); return; }
+      const found = body.suggestions ?? {};
+      // Never overwrites a field the founder already filled in — the route
+      // (market-thesis-document-suggest.ts) already drops those server-side,
+      // so anything reaching `found` is safe to merge in directly. A
+      // document-sourced suggestion replaces any earlier GET-only one for
+      // the same field: it is strictly more informative (it carries a real
+      // citation) and the founder just explicitly asked for it.
+      setSuggestions((prev) => {
+        const next = { ...prev };
+        for (const key of Object.keys(found) as TextFieldKey[]) {
+          const s = found[key];
+          if (s) next[key] = { value: s.value, source: { documentName: s.documentName, page: s.page } };
+        }
+        return next;
+      });
+      setDocSuggestResult({ documentsRead: body.documentsRead ?? 0, costEur: body.costEur ?? 0, suggestedCount: Object.keys(found).length });
+    } catch {
+      setDocSuggestError('Could not reach the server — check your connection and try again.');
+    } finally { setDocSuggestBusy(false); }
   }
 
   async function save() {
@@ -364,6 +442,26 @@ export function MarketThesisSection() {
         Tell Sherlock what you actually do — this grounds every market search from here on, instead of guessing from your sector tags.
       </p>
 
+      {/* Prompt 471 §A — founder-initiated, additive to the zero-cost GET
+          cascade above (never replaces it). Same single-click gesture as
+          MarketPortraitCard's own document-reading button. */}
+      <div className="mt-2">
+        <button type="button" onClick={() => void suggestFromDocuments()} disabled={docSuggestBusy}
+          className="text-[11px] font-medium text-[#0E7490] hover:underline disabled:opacity-40">
+          {docSuggestBusy ? 'Reading your documents…' : 'Suggest from your documents'}
+        </button>
+        {docSuggestError && <p className="mt-1 text-[11px] text-[#B00000]">{docSuggestError}</p>}
+        {docSuggestResult && (
+          <p className="mt-1 text-[11px] text-gray-400">
+            Read {docSuggestResult.documentsRead} document{docSuggestResult.documentsRead === 1 ? '' : 's'} · €{docSuggestResult.costEur.toFixed(3)}.
+            {' '}
+            {docSuggestResult.suggestedCount > 0
+              ? `${docSuggestResult.suggestedCount} field${docSuggestResult.suggestedCount === 1 ? '' : 's'} suggested below.`
+              : 'Nothing new found in those documents for the fields still empty.'}
+          </p>
+        )}
+      </div>
+
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         {FIELDS.map((f) => {
           const suggestion = !thesis[f.key]?.trim() ? suggestions[f.key] : undefined;
@@ -373,24 +471,40 @@ export function MarketThesisSection() {
               <div className="relative">
                 <input
                   value={thesis[f.key] ?? ''} maxLength={300}
-                  placeholder={suggestion ?? f.placeholder}
+                  placeholder={suggestion?.value ?? f.placeholder}
                   onChange={(e) => setThesis((prev) => ({ ...prev, [f.key]: e.target.value }))}
                   onKeyDown={(e) => {
                     if (!suggestion) return;
                     if ((e.key === 'Enter' || e.key === 'ArrowRight') && e.currentTarget.selectionStart === 0 && !thesis[f.key]) {
                       e.preventDefault();
-                      acceptSuggestion(f.key, suggestion);
+                      acceptSuggestion(f.key, suggestion.value);
                     }
                   }}
                   className={`w-full rounded border border-gray-300 px-2 py-1.5 text-sm ${suggestion ? 'pr-7' : ''}`} />
                 {suggestion && (
-                  <button type="button" onClick={() => acceptSuggestion(f.key, suggestion)}
-                    aria-label="Use suggestion" title={suggestion}
+                  <button type="button" onClick={() => acceptSuggestion(f.key, suggestion.value)}
+                    aria-label="Use suggestion" title={suggestion.value}
                     className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-[#0E7490]">
                     +
                   </button>
                 )}
               </div>
+              {/* Prompt 471 §A point 5 — every document-sourced suggestion
+                  says where it came from; a GET-cascade suggestion (no
+                  `source`) shows nothing extra here, unchanged from before. */}
+              {suggestion?.source && (
+                <p className="mt-0.5 text-[10px] text-gray-400">
+                  From <span className="font-medium">{suggestion.source.documentName}</span>{suggestion.source.page ? `, p.${suggestion.source.page}` : ''}
+                </p>
+              )}
+              {/* Prompt 471 §A point 6 — "better empty than invented": once a
+                  document pass has actually run, a field it still didn't
+                  answer says so, rather than sitting blank with no
+                  explanation. Never shown before the founder has asked —
+                  an unrun field isn't a failure. */}
+              {!suggestion && docSuggestResult && !thesis[f.key]?.trim() && (
+                <p className="mt-0.5 text-[10px] text-gray-400">Not found in your documents.</p>
+              )}
             </div>
           );
         })}

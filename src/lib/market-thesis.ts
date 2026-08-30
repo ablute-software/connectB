@@ -19,6 +19,19 @@ export const MARKET_THESIS_ARRAY_ITEM_MAX = 60;
 export const MARKET_THESIS_ARRAY_MAX_ITEMS = 8;
 export const MAX_ACTIVE_HYPOTHESES = 3;
 
+// Prompt 471 §A — the 7 text-field keys, as a single source of truth. Used
+// to be duplicated implicitly wherever code needed "the list of thesis text
+// fields" (MarketThesisSection.tsx's own local TextFieldKey union). Now
+// shared so a new consumer (market-thesis-document-suggest.ts, and the
+// route built on top of it) can validate a field name the model echoes back
+// without hand-copying this list a third time and risking it drift.
+export type MarketThesisTextFieldKey =
+  | 'product_summary' | 'core_problem' | 'primary_user' | 'economic_buyer'
+  | 'beachhead' | 'geography' | 'primary_use_case';
+export const MARKET_THESIS_TEXT_FIELD_KEYS: readonly MarketThesisTextFieldKey[] = [
+  'product_summary', 'core_problem', 'primary_user', 'economic_buyer', 'beachhead', 'geography', 'primary_use_case',
+];
+
 // Same discipline as approach_note/0249: trim, cap length, empty -> null
 // (never an empty string sitting in the column).
 export function sanitizeMarketThesisText(value: unknown): string | null {

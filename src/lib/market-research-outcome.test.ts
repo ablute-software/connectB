@@ -5,10 +5,28 @@
 import { describe, expect, it } from 'vitest';
 import { classifySectionResponse, TIMEOUT_MESSAGE } from './market-research-outcome';
 
-describe('classifySectionResponse — the unreadable-response case (Prompt 470 §A)', () => {
-  it('body === null classifies as an error carrying the timeout message, never as the route\'s own error', () => {
+describe('classifySectionResponse — the unreadable-response case (Prompt 470 §A / 471 §B)', () => {
+  it('body === null classifies as its own "timeout" kind, never as "error" and never as the route\'s own error', () => {
     const outcome = classifySectionResponse('growth', null);
-    expect(outcome).toEqual({ kind: 'error', section: 'growth', message: TIMEOUT_MESSAGE });
+    expect(outcome).toEqual({ kind: 'timeout', section: 'growth' });
+  });
+
+  // Prompt 471 §B (Nuno's correction) — the real bug: this used to be
+  // `{ kind: 'error', message: TIMEOUT_MESSAGE }`, so MarketThesisSection.tsx's
+  // "any kind==='error' paints red" rule painted the timeout message red too
+  // — undoing 468 §A's own "never look like failure" reasoning on the very
+  // next case. A distinct `kind` is what lets a caller tell them apart
+  // without inspecting copy (which changes) — this test is the one that
+  // would have caught the original mistake.
+  it('the timeout outcome is never classified as kind "error" — that would repaint it red', () => {
+    const outcome = classifySectionResponse('growth', null);
+    expect(outcome.kind).not.toBe('error');
+    expect(outcome.kind).toBe('timeout');
+  });
+
+  it('the timeout outcome carries no message field — TIMEOUT_MESSAGE is fixed copy, not server-supplied data, same discipline as BuildError\'s own {kind:"timeout"} in market-portrait.ts', () => {
+    const outcome = classifySectionResponse('growth', null);
+    expect('message' in outcome).toBe(false);
   });
 
   it('ok: false with its own error message is unaffected — still that exact message, untouched', () => {
