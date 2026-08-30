@@ -1,7 +1,7 @@
 # Fila de execução — Sherlock Deal
 
 **Local canónico:** `docs/execution-queue.md` no repositório `connectB`.
-**Atualizado:** 30/08/2026 (14:35 — 472 em `main`, D3 entregue, G2 passou)
+**Atualizado:** 30/08/2026 (15:20 — 473 em `main`, migração `0281` aplicada)
 **Lê-se com:** `AUTONOMOUS_EXECUTION_MODE_v2` (o §0 desse documento aponta
 para este ficheiro).
 
@@ -44,7 +44,8 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **D2** | `blueprint/reconcile` → `reconciliation/run` | `READY — especificado aqui` | `DONE` — delega; sem caminho próprio | — |
 | **D3** | Consulta de alcance por capacidade | `READY — especificado aqui` | `DONE` — `docs/capability-reach.md` | — |
 | 472 | Ponto D — dois eixos do `gap_disposition` | — | `DONE` — `1404513` em `main`, **provado em produção (7 → 3)** | — |
-| 473 | Consolidar os dois vocabulários `FactStatus` | `NO_PROMPT — não executar` | — | prompt |
+| **473** | *Suggest from your documents* dispara sozinho | `READY — prompt entregue` | `DONE` — `c72a6ad` em `main`; migração `0281` **aplicada e verificada** | — |
+| ~~473~~ **477** | Consolidar os dois vocabulários `FactStatus` | `NO_PROMPT — não executar` | — | prompt |
 | 474 | Bloco 2 no ecrã (factos tipados visíveis) | `NO_PROMPT — não executar` | — | 471 + prompt |
 | 475 | Invariável 6 — visibilidade que propaga | `NO_PROMPT — não executar` | — | prompt |
 | 476 | Lock por organização (465 §F.3) | `NO_PROMPT — não executar` | — | decisão de desenho |
@@ -52,17 +53,37 @@ condição de STOP legítima (§18-A), não um fracasso.
 | — | Bloco 4 — Capital Landscape | `NO_PROMPT — não executar` | — | **decisão de produto** (fontes) |
 | G2 | Aceitação visual na app | — | `DONE` — 30/08 14:17, 3 hipóteses criadas | — |
 
-**Ordem recomendada:** ~~merge do 472 → D3 → D1 → D2~~ — **tudo feito**. Não
-resta nenhuma entrada executável: as restantes são `NO_PROMPT` (contexto,
-não trabalho) e precisam de um prompt ou de uma decisão de produto. Isso é
-a condição de STOP §18-A, não um fracasso.
+**Ordem recomendada:** ~~merge do 472 → D3 → D1 → D2~~ — **tudo feito**, e o
+473 entregue depois disso também. Não resta nenhuma entrada executável: as
+restantes são `NO_PROMPT` (contexto, não trabalho) e precisam de um prompt
+ou de uma decisão de produto. Isso é a condição de STOP §18-A, não um
+fracasso.
+
+**Colisão de numeração, registada em vez de resolvida em silêncio:** esta
+fila já tinha o número **473** reservado para a consolidação dos dois
+vocabulários `FactStatus`, e o prompt que o Nuno entregou a 30/08 como 473
+é outro (o disparo automático das sugestões por documento). O prompt
+entregue fica com o 473 (é o que está no commit e no ficheiro do prompt); a
+consolidação do `FactStatus` passa a **477**. Nada foi executado ao abrigo
+do número errado — a entrada do `FactStatus` continua `NO_PROMPT`.
+
+**Alcance real do 473, medido por SQL a 30/08 depois da `0281`** — e é o
+achado que mais interessa desta tarefa: **a ablute_ não vai disparar**. A
+tese da ablute_ ficou **completa** (os 7 campos preenchidos, `version` 5),
+e "tese completa → não dispara" é o comportamento especificado. Das 11
+orgs, **exatamente 2 podem disparar hoje** — `Caramel Biscuit` (2
+documentos candidatos) e `Estojo` (1). As outras 8 não têm nenhum documento
+que passe a heurística de nome/pasta. Consequência prática: **abrir a
+ablute_ e não ver nada é o comportamento correto, não uma avaria** — para
+ver o disparo é preciso uma org com tese incompleta e documentos.
 
 **Próxima ação recomendada** (por ordem de retorno, e nenhuma delas é
 executável sem prompt):
 1. **Uma passagem de "Read my documents"** na app — 30 segundos, e é o que
    distingue "o 467 está inerte porque ninguém clicou" de "o desvio para
    `market_facts` não acontece". Ver `docs/capability-reach.md` §2.
-2. **473** — consolidar os dois vocabulários de `FactStatus`. Bloqueia ligar
+2. **477** (era 473 nesta fila — ver a colisão de numeração acima) —
+   consolidar os dois vocabulários de `FactStatus`. Bloqueia ligar
    a pesquisa web aos factos tipados, que é o que faria o §2 sair do
    estado do meio por uso real e não por um clique de teste.
 3. **474** — pôr os factos tipados no ecrã. Existem na base de dados desde
@@ -392,3 +413,45 @@ Estão aqui para saberes para onde isto vai. **Nenhuma é executável.**
 - **Bloco 4 — Capital Landscape:** não existe; o 460 removeu
   players/rounds do menu. **Precisa de decisão de produto sobre fontes
   antes de qualquer prompt.**
+
+---
+
+## 473 — "Suggest from your documents" dispara sozinho — `DONE`
+
+`c72a6ad` em `main`. Migração `0281` (duas colunas nullable, sem default,
+sem backfill) **aplicada e verificada por SQL** a 30/08: as duas colunas
+existem, `is_nullable = YES`, `column_default = null`, e a única tese
+existente ficou intacta (conteúdo e `version` 5 inalterados).
+
+**Consulta de alcance (§21):**
+```sql
+select
+  count(*) filter (where document_suggest_auto_attempted_at is not null) as auto_tentadas,
+  count(*) as theses_total
+from org_market_thesis;
+```
+Valor atual: `auto_tentadas = 0`, `theses_total = 1`. Esperado depois de uma
+org **com tese incompleta e documentos** abrir a página: `auto_tentadas > 0`.
+
+**A ablute_ não serve para esse teste** (tese completa → não dispara, por
+desenho). As duas orgs que disparam são `Caramel Biscuit` e `Estojo`.
+Distinguir os três estados do §21:
+- *a funcionar* → `auto_tentadas > 0`;
+- *existe mas ninguém lá chega* → `auto_tentadas = 0` **e** existe pelo
+  menos uma org com tese incompleta e documentos candidatos (hoje: 2);
+- *ainda não aplicável* → nenhuma org com tese incompleta e documentos.
+
+**Buraco residual, conhecido e deliberado:** um erro do fornecedor (502) não
+grava a marca — o critério do prompt diz "sucesso ou *not found* honesto", e
+gravar num 502 desligaria o disparo automático para sempre por causa de uma
+falha transitória. O custo é que, durante uma indisponibilidade do
+fornecedor, cada recarga da página volta a descarregar e a analisar os
+documentos. Limitado pelo número de recargas; nenhuma chamada ao modelo é
+paga.
+
+**Achado para um prompt futuro (mesma família do que ficou registado no
+471):** quando a passagem automática falha, o founder não vê nada — por
+desenho, porque não foi ele que a pediu. Mas o caso "todos os documentos
+ilegíveis" também fica silencioso, e aí havia mesmo algo útil a dizer. É a
+mesma classe de legenda ausente que o 463 §B corrigiu e que o 471 deixou em
+aberto com o `skipped`.
