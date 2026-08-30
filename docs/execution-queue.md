@@ -45,6 +45,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **D3** | Consulta de alcance por capacidade | `READY — especificado aqui` | `DONE` — `docs/capability-reach.md` | — |
 | 472 | Ponto D — dois eixos do `gap_disposition` | — | `DONE` — `1404513` em `main`, **provado em produção (7 → 3)** | — |
 | **473** | *Suggest from your documents* dispara sozinho | `READY — prompt entregue` | `DONE` — `c72a6ad` em `main`; migração `0281` **aplicada e verificada** | — |
+| **478** | Classificador de concorrência chega aos documentos | `READY — prompt entregue` | `DONE` — `a1bfa4c` em `main`; sem migração | — |
 | ~~473~~ **477** | Consolidar os dois vocabulários `FactStatus` | `NO_PROMPT — não executar` | — | prompt |
 | 474 | Bloco 2 no ecrã (factos tipados visíveis) | `NO_PROMPT — não executar` | — | 471 + prompt |
 | 475 | Invariável 6 — visibilidade que propaga | `NO_PROMPT — não executar` | — | prompt |
@@ -455,3 +456,51 @@ desenho, porque não foi ele que a pediu. Mas o caso "todos os documentos
 ilegíveis" também fica silencioso, e aí havia mesmo algo útil a dizer. É a
 mesma classe de legenda ausente que o 463 §B corrigiu e que o 471 deixou em
 aberto com o `skipped`.
+
+---
+
+## 478 — o classificador de concorrência chega aos documentos — `DONE`
+
+`a1bfa4c` em `main`. Sem migração (só o shape de `structured`, jsonb).
+
+**Nasceu de um erro deste próprio repositório:** a D3 escreveu, em
+`capability-reach.md` §3, uma hipótese benigna ("talvez sejam anteriores à
+`0275`") e **não a verificou**. Era falsa para 10 dos 13. A regra que fica
+está escrita lá: uma consulta de alcance no estado do meio ou traz a
+hipótese verificada, ou diz que não foi verificada — nunca oferece um álibi
+por verificar.
+
+**Consulta de alcance (§21)** — a do prompt não corre como estava escrita
+(`org_competitors` não tem `source_quality` nem chave para
+`market_research_items`); mede-se onde a alteração cai:
+
+```sql
+select source_kind, count(*) as items,
+       count(*) filter (where structured ? 'sherlockClassification') as classificados
+from market_research_items where section = 'players' group by source_kind;
+```
+
+Estado a 30/08 17:20, antes de qualquer passagem nova: `document` **18 / 0**;
+`web` 26 / 0. Esperado depois de um "Read my documents" novo: `document`
+com `classificados > 0`, e daí `competitor_type` preenchido ao aceitar.
+
+**Distinguir os três estados:** *a funcionar* → `classificados > 0` no
+`document`; *existe mas ninguém lá chega* → itens `document` > 0 e
+`classificados = 0` **depois** de uma passagem posterior a `a1bfa4c`;
+*ainda não aplicável* → nenhum item `players` de documento.
+
+**Os 26 itens `web` não são um segundo defeito:** são de 25/08 18:56,
+anteriores ao 449/450. O caminho web nunca voltou a correr a secção
+`players` desde então — o que correu hoje às 14:27 foram 10 itens
+estruturados de outras secções. Ou seja, o caminho web também não tem prova
+positiva em produção, e isso não é um bug: é falta de uma execução.
+
+**Alteração de comportamento, declarada:** o portão de aceitação em
+`research/respond/route.ts` recusa `NOT_COMPETITOR`/`UNRESOLVED`/
+`STATUS_QUO`, e o comentário dele afirmava ser "a no-op" para itens de
+documento. Deixou de ser. Um candidato de documento que o modelo descreva
+bem o suficiente para ser classificado pode agora ser recusado, onde antes
+era aceite com `competitor_type` nulo — que é o contrato do 449/450, não uma
+regressão. Um documento sem facetos utilizáveis continua sem classificação e
+continua a ser aceite exactamente como hoje (§5 do prompt). Comentário
+corrigido no mesmo commit.

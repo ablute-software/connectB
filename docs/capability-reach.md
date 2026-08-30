@@ -49,7 +49,7 @@ uma consulta com uma coluna inventada é pior do que nenhuma.
 |---|---|---|---|---|
 | 1 | **444/445** — Market Thesis → hipóteses | [§1](#1--444445--hipóteses-de-mercado) | `active_hypotheses > 0` · verdicto `A FUNCIONAR` | ✅ `A FUNCIONAR` — 3 hipóteses |
 | 2 | **446/467** — factos de mercado tipados | [§2](#2--446467--factos-de-mercado-tipados) | `typed_facts > 0`, com `evidence_rows ≥ typed_facts` | ⚠️ `EXISTE MAS NINGUEM LA CHEGA` — 0 factos, 60 itens legacy |
-| 3 | **449/450** — competition engine | [§3](#3--449450--competition-engine) | `competitors_classified > 0` | ⚠️ `EXISTE MAS NINGUEM LA CHEGA` — 13 concorrentes, 0 classificados |
+| 3 | **449/450** — competition engine | [§3](#3--449450--competition-engine) | `competitors_classified > 0` | ⚠️ `EXISTE MAS NINGUEM LA CHEGA` — 13 concorrentes, 0 classificados · **causa encontrada e corrigida (478, `a1bfa4c`)**; falta uma passagem nova para provar |
 | 4 | **462** — link snapshots | [§4](#4--462--link-snapshots) | `snapshots_ok > 0` para links existentes | ✅ `A FUNCIONAR` — 1 ok / 2 links |
 | 5 | **464/465** — reconciliação semântica | [§5](#5--464465--reconciliação-semântica) | `reconciliations > 0` e `last_reconciliation` recente | ✅ `A FUNCIONAR` — 14, última 14:23 |
 | 6 | **469** — `ai_call_log` durável | [§6](#6--469--ai_call_log-durável) | `calls_last_7d > 0` sempre que houve trabalho de AI | ✅ `A FUNCIONAR` — 181 chamadas / 7 dias |
@@ -197,10 +197,45 @@ select
 `competitors_classified = 0` · `distinct_types_used = 0`. Ou seja: o motor
 que **encontra** concorrentes funciona e já produziu 13 linhas; o
 `competitor_type` que os 449/450 introduziram **nunca foi escrito uma única
-vez**. As 13 linhas podem ser anteriores à `0275`, o que explicaria tudo sem
-haver bug nenhum — mas isso confirma-se com `select min(created_at),
-max(created_at) from org_competitors` contra a data da `0275`, e não foi
-feito. É a segunda capacidade construída e por medir desta lista.
+vez**. ~~As 13 linhas podem ser anteriores à `0275`, o que explicaria tudo
+sem haver bug nenhum~~ — **essa hipótese foi verificada a 30/08 e é falsa
+para a maioria** (Prompt 478).
+
+> **A hipótese benigna era a parte errada deste ficheiro.** Escrever "pode
+> não haver bug nenhum" e não verificar transformou um achado real em algo
+> que se lê e se arquiva. Dos 13, só 3 (28/08 23:23) são anteriores à
+> `0275`; os outros 10 foram criados **depois** de o classificador estar em
+> produção. Regra que fica: uma consulta de alcance que devolve o estado do
+> meio ou traz a hipótese **verificada**, ou diz que não foi verificada —
+> nunca oferece um álibi por verificar.
+
+**Causa real, encontrada pelo Prompt 478:** o classificador nunca chegou ao
+caminho dos **documentos**. O schema da ferramenta do
+`document-extract/route.ts` só pedia `name/country/stage/note`, por isso
+`classifyCompetitor` nunca era chamado para um candidato vindo de documento
+e o `structured` nunca levava `sherlockClassification`. Corrigido em
+`a1bfa4c`.
+
+**Corte adicional, mais próximo da causa** (o `org_competitors` não tem
+coluna de proveniência, por isso a medição faz-se onde a alteração cai):
+
+```sql
+select source_kind, count(*) as items,
+       count(*) filter (where structured ? 'sherlockClassification') as classificados
+from market_research_items where section = 'players' group by source_kind;
+```
+
+Estado a 30/08 17:20, **antes** de qualquer passagem nova: `document` 18
+itens / **0** classificados; `web` 26 itens / 0 classificados. Os 26 do
+`web` são de **25/08 18:56**, anteriores ao 449/450 — para esses a hipótese
+benigna é verdadeira, e é por isso que o caminho web não tem aqui prova
+positiva nenhuma (nunca voltou a correr a secção `players` desde então; o
+que correu hoje às 14:27 foram 10 itens estruturados de **outras** secções).
+Os 18 do `document` são de **29/08 12:37–15:36**, depois do classificador —
+esses são o defeito.
+
+Esperado depois de um "Read my documents" novo: `document` com
+`classificados > 0`.
 
 ---
 
