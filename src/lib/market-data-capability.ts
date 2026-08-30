@@ -57,6 +57,15 @@ export const marketHypothesesAvailable = makeCapabilityProbe(async (admin) => {
   return !error;
 });
 
+// Prompt 481 §2 — migration 0283's manual Capital Landscape rounds. Fails
+// CLOSED: with the table absent the card shows exactly what it shows today
+// (tracked + researched rounds), which is a correct, complete view — just
+// without the founder's own entries, which cannot exist yet anyway.
+export const capitalLandscapeManualRoundsAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('org_capital_landscape_rounds').select('id').limit(1);
+  return !error;
+});
+
 // Prompt 473 §2 — migration 0281's two mark columns on org_market_thesis.
 // Probed on the signature column; both ship in the same migration, so
 // there is no skew case worth a second probe. Read by the automatic

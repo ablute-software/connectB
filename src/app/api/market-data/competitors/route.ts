@@ -13,6 +13,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { orgCompetitorsAvailable, marketCompanyFlagsAvailable, marketResearchItemsAvailable } from '@/lib/market-data-capability';
 import { addOrUpdateCompetitor } from '@/lib/market-competitor-write';
 import { mergeComparableRounds, type MergedRound } from '@/lib/market-rounds-merge';
+import { capitalLandscapeManualRoundsAvailable } from '@/lib/market-data-capability';
 import type { RoundStructured } from '@/lib/market-research-structured';
 
 async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
@@ -86,7 +87,26 @@ export async function GET() {
       investedAt: r.structured.date, roundType: r.structured.stage, source: 'research' as const,
     }));
 
-  return NextResponse.json({ available: true, competitors, rounds: mergeComparableRounds(trackedRounds, researchedRounds) });
+  // Prompt 481 §2/§7 — the founder's own entries, carrying their own
+  // provenance so the card can attach the right warning per item. Read
+  // behind a capability probe: with migration 0283 unapplied the card shows
+  // exactly what it shows today.
+  const manualRounds: MergedRound[] = (await capitalLandscapeManualRoundsAvailable())
+    ? (((await admin.from('org_capital_landscape_rounds')
+      .select('company_name, investor_name, amount_eur, round_type, invested_at')
+      .eq('org_id', orgId)).data ?? []) as {
+        company_name: string; investor_name: string | null; amount_eur: number | null;
+        round_type: string | null; invested_at: string | null;
+      }[]).map((r) => ({
+        companyName: r.company_name, investorName: r.investor_name, amountEur: r.amount_eur,
+        investedAt: r.invested_at, roundType: r.round_type, source: 'manual' as const,
+      }))
+    : [];
+
+  return NextResponse.json({
+    available: true, competitors,
+    rounds: mergeComparableRounds(trackedRounds, researchedRounds, manualRounds),
+  });
 }
 
 export async function POST(req: Request) {
