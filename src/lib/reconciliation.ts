@@ -44,6 +44,8 @@ import { providerErrorMessage } from './ai-provider-error';
 import type { DocumentExtractionData } from './document-extraction';
 import { readExistingClaims, hasAnyVaultDocument } from './company-knowledge-db';
 import { ruleG4, isAwaitingDocumentSearch } from './company-gaps';
+import { reconciliationLocksAvailable } from './document-extraction-capability';
+import { acquireReconciliationLock, releaseReconciliationLock, type LockOptions } from './reconciliation-lock';
 
 export interface ReconcilableDocument {
   id: string;
@@ -217,6 +219,14 @@ export interface ReconcileOutcome {
   // apart from "it tried and failed" — and /api/reconciliation/run's own
   // contract requires exactly that distinction.
   error?: string;
+  // Prompt 480 — a THIRD kind of `ran: false`, distinct from both above:
+  // another run held this org's lock for longer than this caller was
+  // willing to wait, so nothing was attempted. Not an error (nothing
+  // failed) and not "nothing to do" (there may well be plenty) — the
+  // founder simply gets this response without a fresh reconciliation, and
+  // is told so. Kept separate precisely because collapsing it into either
+  // existing case would make the panel say something untrue.
+  skipped?: boolean;
 }
 
 // The orchestrator — called both on-demand (before /api/blueprint builds the
@@ -295,6 +305,38 @@ export async function reconcileGapCandidates(
 // here since every caller of this function runs precisely because the
 // Vault's documents/claims may have changed.
 export async function runReconciliationForOrg(
+  admin: SupabaseClient, apiKey: string | undefined, orgId: string,
+  lockOptions: LockOptions = {},
+): Promise<ReconcileOutcome> {
+  // Prompt 480 — the lock lives HERE, at the single function every caller
+  // already goes through, rather than being re-implemented at each of the
+  // four call sites. That is the whole reason it can be trusted: a fifth
+  // caller added later is locked by construction, not by whoever writes it
+  // remembering to. (The same reasoning D2 applied when it made
+  // /api/blueprint/reconcile delegate instead of keeping a second path.)
+  //
+  // Fails OPEN when migration 0282 isn't applied: reconciliation then
+  // behaves exactly as it did before this prompt. See the probe's own
+  // comment for why open beats closed here.
+  const locking = await reconciliationLocksAvailable();
+  if (locking) {
+    const acquisition = await acquireReconciliationLock(admin, orgId, lockOptions);
+    if (acquisition === 'busy') {
+      console.log(`[reconciliation] org=${orgId} skipped: another run holds the lock`);
+      return { ran: false, costEur: 0, autoLinked: 0, suggested: 0, uncovered: 0, skipped: true };
+    }
+  }
+  try {
+    return await runReconciliationUnlocked(admin, apiKey, orgId);
+  } finally {
+    // §5 — success, error, or this run's own timeout: the lock leaves with
+    // the run that took it. In a `finally` so no future edit to the body
+    // above can accidentally create a path that keeps it.
+    if (locking) await releaseReconciliationLock(admin, orgId);
+  }
+}
+
+async function runReconciliationUnlocked(
   admin: SupabaseClient, apiKey: string | undefined, orgId: string,
 ): Promise<ReconcileOutcome> {
   const [claims, hasVaultDocuments] = await Promise.all([

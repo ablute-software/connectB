@@ -178,8 +178,18 @@ describe('reconcileGapCandidates — F.2 sequential idempotency', () => {
   });
 });
 
-describe('reconcileGapCandidates — F.3 concurrency: the gap this prompt does NOT close', () => {
-  it('two overlapping runs against the SAME org+signature BOTH call the model and BOTH pay — a known, accepted, double-cost-only gap', async () => {
+// Prompt 480 — this block's title used to end "the gap this prompt does
+// NOT close". It is closed now, one layer up: runReconciliationForOrg takes
+// an org-level lock (reconciliation-lock.ts, migration 0282), so the four
+// real callers can no longer overlap for the same org. Edited deliberately
+// rather than left to drift, exactly as the note at the bottom of this test
+// asked — but NOT deleted, because what it exercises is still true and
+// still worth pinning: reconcileGapCandidates itself, the inner engine,
+// remains lock-free by design. The lock belongs at the entry point every
+// caller shares, not buried in the engine where a future direct caller
+// could bypass it without noticing.
+describe('reconcileGapCandidates — F.3 concurrency: the INNER engine is deliberately unlocked (the lock lives in runReconciliationForOrg, Prompt 480)', () => {
+  it('two overlapping runs against the SAME org+signature BOTH call the model and BOTH pay — true of this function, no longer reachable through the real callers', async () => {
     // Prompt 465's own "Decisão de desenho": needsRun is computed from
     // gap_reconciliations BEFORE the model call, and each claim's run_hash
     // is only written AFTER that claim's own verdict — so two overlapping

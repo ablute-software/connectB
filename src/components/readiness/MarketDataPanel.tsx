@@ -34,6 +34,7 @@
 // same component with the exact same props, just re-homed and, for
 // Research, shown one section at a time instead of all at once.
 import { useEffect, useMemo, useState } from 'react';
+import { ReconciliationBusyNotice } from './ReconciliationBusyNotice';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
 import { browserClient } from '@/lib/supabase';
@@ -116,6 +117,7 @@ const MAX_DOCUMENT_PASS = MAX_PORTRAIT_DOCS;
 type ResearchMenuKey = 'documents' | 'added';
 
 export function MarketDataPanel() {
+  const [reconciliationBusy, setReconciliationBusy] = useState(false);
   const [gate, setGate] = useState<Gate | null>(null);
   const [notAvailable, setNotAvailable] = useState(false);
   const [docs, setDocs] = useState<DocItem[]>([]);
@@ -252,8 +254,14 @@ export function MarketDataPanel() {
       setFeedingProgress({ kind: 'reconciling' });
       const reconcileBody = await fetch('/api/reconciliation/run', { method: 'POST' })
         .then((r) => r.json()).catch(() => null) as
-        { ok?: boolean; ran?: boolean; autoLinked?: number; suggested?: number } | null;
+        { ok?: boolean; ran?: boolean; autoLinked?: number; suggested?: number; reconciliationSkipped?: boolean } | null;
       setFeedingProgress(null);
+      // Prompt 480 §6 — this panel is the fourth surface that can hit the
+      // org lock, but it reaches reconciliation through
+      // /api/reconciliation/run rather than /api/blueprint (which it never
+      // calls), so the flag arrives on THIS response instead. Same notice,
+      // same wording, different route.
+      setReconciliationBusy(!!reconcileBody?.reconciliationSkipped);
 
       // Prompt 465 §C — three states, not two: `ran: true` means "the
       // reconciliation engine executed," not "something changed" — it can
@@ -317,6 +325,7 @@ export function MarketDataPanel() {
 
   return (
     <div className="max-w-5xl space-y-4">
+      <ReconciliationBusyNotice show={reconciliationBusy} />
       <p className="text-xs text-gray-500">
         Closed by default — nothing here reaches an investor until you publish it, group by group, below. Everything you
         publish shows exactly as you see it, sources included.

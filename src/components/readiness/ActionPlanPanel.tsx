@@ -20,6 +20,7 @@
 // "Cross-document check" card. Nothing here mutates CRM data or sends
 // anything; every output is a report, same guardrail as the Review tab.
 import { useEffect, useState } from 'react';
+import { ReconciliationBusyNotice } from './ReconciliationBusyNotice';
 import { useStore } from '@/lib/store';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
@@ -138,6 +139,7 @@ function ClusterRow({ cluster, allActions, docsById, existingVersions, documentV
 }
 
 export function ActionPlanPanel() {
+  const [reconciliationBusy, setReconciliationBusy] = useState(false);
   const { db, addDocumentVersion } = useStore();
   const [reviews, setReviews] = useState<AiReviewRow[]>([]);
   const [contradictions, setContradictions] = useState<Contradiction[]>([]);
@@ -178,7 +180,11 @@ export function ActionPlanPanel() {
   // — never a third, independent shape of the same data.
   function loadClaims() {
     if (!authEnabled || !db.org.id) return;
-    fetch('/api/blueprint').then((r) => r.json()).then((body) => setClaims((body.claims ?? []) as CompanyClaim[])).catch(() => {});
+    fetch('/api/blueprint').then((r) => r.json()).then((body) => {
+      // Prompt 480 §6 — see ReconciliationBusyNotice.
+      setReconciliationBusy(!!body?.reconciliationSkipped);
+      setClaims((body.claims ?? []) as CompanyClaim[]);
+    }).catch(() => {});
   }
   useEffect(loadClaims, [db.org.id]);
 
@@ -197,6 +203,7 @@ export function ActionPlanPanel() {
 
   return (
     <>
+      <ReconciliationBusyNotice show={reconciliationBusy} />
       {/* Prompt 374 §F — three plain-language questions, one line each: what
           this is, where it comes from, what the founder gains. No jargon
           ("clusters", "severity ranking") in this fixed block — that detail

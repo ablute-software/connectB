@@ -48,6 +48,17 @@ export const gapQuestionsAvailable = makeCapabilityProbe(async (admin) => {
   return !error;
 });
 
+// Prompt 480 — migration 0282's lock table. This probe fails OPEN, unlike
+// most in this file: with the table absent, reconciliation runs exactly as
+// it does today (unlocked), which is the behaviour that shipped for months.
+// Failing closed would mean a missing table silently disables reconciliation
+// altogether — trading a rare double-run for a permanent outage, which is
+// the worse of the two by a wide margin.
+export const reconciliationLocksAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('reconciliation_locks').select('org_id').limit(1);
+  return !error;
+});
+
 // Prompt 359 Block D — migration 0238's suggestion memory.
 export const roadmapEventSuggestionsAvailable = makeCapabilityProbe(async (admin) => {
   const { error } = await admin.from('roadmap_event_suggestions').select('id').limit(1);

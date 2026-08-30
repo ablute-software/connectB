@@ -198,6 +198,12 @@ export async function GET() {
       try {
         const outcome = await runReconciliationForOrg(admin, apiKey, org.id);
         if (outcome.error) console.error(`[automations] reconciliation failed for org=${org.id}:`, outcome.error);
+        // Prompt 480 §7 — the cron goes through the same lock as everyone
+        // else and gives up SILENTLY when another run holds it: there is no
+        // founder here to warn, and tomorrow's sweep tries again. Logged
+        // rather than counted, so a sweep that skipped everything is
+        // distinguishable from one that found nothing to do.
+        else if (outcome.skipped) console.log(`[automations] reconciliation skipped for org=${org.id}: lock held by another run`);
         else if (outcome.ran) orgsRan++;
       } catch (e) {
         console.error(`[automations] reconciliation threw for org=${org.id}:`, (e as Error).message);

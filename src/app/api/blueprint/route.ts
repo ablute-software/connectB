@@ -21,6 +21,7 @@ import { normalizeAtom, findDuplicateCandidate } from '@/lib/company-claims';
 import { detectGaps, templateFor, gapKey, rankGaps, impactWhy } from '@/lib/company-gaps';
 import { gapReconciliationsAvailable } from '@/lib/document-extraction-capability';
 import { runReconciliationForOrg, readReconcilableDocuments } from '@/lib/reconciliation';
+import { FAST_ROUTE_LOCK_WAIT_MS } from '@/lib/reconciliation-lock';
 
 async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
   const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
@@ -78,8 +79,15 @@ export async function GET() {
   // that's why claims/live are re-read afterward when anything actually
   // changed, so the SAME request's gap list reflects it.
   const apiKey = process.env.ANTHROPIC_API_KEY;
+  // Prompt 480 — this route declares no maxDuration, so it runs on the
+  // platform default (10s on Hobby), which is why it waits far less than
+  // the 15s a maxDuration=60 route can afford. Exceeding the function's own
+  // budget here would kill the whole panel load — a worse outcome than the
+  // duplicated run the lock prevents. See FAST_ROUTE_LOCK_WAIT_MS.
+  let reconciliationSkipped = false;
   if (await gapReconciliationsAvailable()) {
-    const outcome = await runReconciliationForOrg(admin, apiKey, orgId);
+    const outcome = await runReconciliationForOrg(admin, apiKey, orgId, { waitBudgetMs: FAST_ROUTE_LOCK_WAIT_MS });
+    reconciliationSkipped = !!outcome.skipped;
     if (outcome.ran && outcome.autoLinked > 0) {
       claims = await readExistingClaims(admin, orgId);
       live = claims.filter((c) => c.status !== 'rejected');
@@ -142,6 +150,11 @@ export async function GET() {
 
   return NextResponse.json({
     available: true,
+    // Prompt 480 §6 — true when another run held this org's lock longer
+    // than this request could wait. Everything else in this response is
+    // still complete and correct; only the freshness of the reconciliation
+    // is missing, which is exactly what the panels tell the founder.
+    reconciliationSkipped,
     analysesAvailable: await blueprintAnalysesAvailable(),
     claims: claimsWithDuplicates,
     gaps: rankGaps(gaps.filter((g) => !answeredRules.has(gapKey(g))))

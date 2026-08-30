@@ -13,6 +13,7 @@
 // (score/strengths/weaknesses/risks/recommendations) for every one of them,
 // not just investability.
 import { useEffect, useState } from 'react';
+import { ReconciliationBusyNotice } from './ReconciliationBusyNotice';
 import { useStore } from '@/lib/store';
 import { Card, Toggle } from '@/components/ui';
 import { softCircledThisRound } from '@/lib/round-capital';
@@ -76,6 +77,7 @@ function TopTierLocked() {
 interface ReviewQuota { quota: number; used: number; remaining: number; resetsAt: string }
 
 export function ReviewPanel() {
+  const [reconciliationBusy, setReconciliationBusy] = useState(false);
   const { db, updateOrg } = useStore();
   const [caps, setCaps] = useState<{
     ai: boolean; reviewRuns: boolean; reviewOptimization: boolean; reviewTopTierTools: boolean; reviewClarifications: boolean;
@@ -153,6 +155,8 @@ export function ReviewPanel() {
 
   function loadGaps() {
     fetch('/api/blueprint').then((r) => r.json()).then((body) => {
+      // Prompt 480 §6 — see ReconciliationBusyNotice.
+      setReconciliationBusy(!!body?.reconciliationSkipped);
       if (body.available) {
         setGaps(body.gaps ?? []);
         setGapAnalysisId(body.analysis?.id);
@@ -414,6 +418,7 @@ export function ReviewPanel() {
 
   return (
     <>
+      <ReconciliationBusyNotice show={reconciliationBusy} />
       {/* Prompt 298 §1 — critical/high gaps block review PRECISION, not
           access: the founder can still run a review on thin data if they
           choose, but not without knowing what it'll cost them. */}

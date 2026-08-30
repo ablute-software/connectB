@@ -66,10 +66,18 @@ export async function POST(req: Request) {
     console.error(`[reconciliation/run] org=${orgId} failed:`, outcome.error);
     return NextResponse.json({ ok: false, ran: false, reason: outcome.error });
   }
-  console.log(`[reconciliation/run] org=${orgId} ran=${outcome.ran} autoLinked=${outcome.autoLinked} suggested=${outcome.suggested} uncovered=${outcome.uncovered}`);
+  console.log(`[reconciliation/run] org=${orgId} ran=${outcome.ran} skipped=${!!outcome.skipped} autoLinked=${outcome.autoLinked} suggested=${outcome.suggested} uncovered=${outcome.uncovered}`);
   return NextResponse.json({
     ok: true, ran: outcome.ran,
+    // Prompt 480 §6 — a lock-skip is NOT "nothing to reconcile": there may
+    // be plenty, it simply wasn't attempted because another run for this
+    // org was already in flight. Reported as its own flag, and the `reason`
+    // below must never claim the signature was unchanged when that isn't
+    // what happened.
+    reconciliationSkipped: !!outcome.skipped,
     autoLinked: outcome.autoLinked, suggested: outcome.suggested, uncovered: outcome.uncovered,
-    reason: outcome.ran ? undefined : 'Nothing to reconcile — signature unchanged.',
+    reason: outcome.ran ? undefined
+      : outcome.skipped ? 'Another check for this organization was already running — nothing was attempted this time.'
+        : 'Nothing to reconcile — signature unchanged.',
   });
 }

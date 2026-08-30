@@ -11,6 +11,7 @@
 // Sem AI (bloco 4) e sem gating de tier (bloco 6). A UI só desenha; toda a
 // classificação vive no servidor, sobre as funções puras dos blocos 1 e 2.
 import { useEffect, useState } from 'react';
+import { ReconciliationBusyNotice } from './ReconciliationBusyNotice';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
 import type { CompanyClaim, ClaimCategory } from '@/lib/types';
@@ -80,6 +81,7 @@ function DocumentRefsBadge({ refs }: { refs: CompanyClaim['documentRefs'] }) {
 
 export function BlueprintPanel() {
   const [state, setState] = useState<BlueprintState | null>(null);
+  const [reconciliationBusy, setReconciliationBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<{ statement: string; category: string }>({ statement: '', category: 'solucao' });
@@ -97,7 +99,12 @@ export function BlueprintPanel() {
   const [showAllGaps, setShowAllGaps] = useState(false);
 
   function load() {
-    fetch('/api/blueprint').then((r) => r.json()).then(setState).catch(() => setState(null));
+    fetch('/api/blueprint').then((r) => r.json()).then((body) => {
+      // Prompt 480 §6 — another run held this org's lock; the data below
+      // is complete, only the freshest matching pass is missing.
+      setReconciliationBusy(!!body?.reconciliationSkipped);
+      setState(body);
+    }).catch(() => setState(null));
   }
   useEffect(load, []);
 
@@ -231,6 +238,7 @@ export function BlueprintPanel() {
 
   return (
     <div className="space-y-4">
+      <ReconciliationBusyNotice show={reconciliationBusy} />
       <Card title="Pitch Blueprint">
         <p className="text-xs text-gray-500">
           Reads everything the workspace already knows about your company — confirmed facts, profile, roadmap,
