@@ -134,8 +134,15 @@ export async function POST(req: NextRequest) {
       });
       if (res.ok) {
         const data = await res.json();
-        // fire-and-forget-ok: logAiCall's own contract (ai-cost-log.ts) is fire-and-forget by design — errors are swallowed there, and a dropped cost-log entry never corrupts state, unlike reconciliation.
-        void logAiCall({ route: '/api/data-room/nda-upload', purpose: 'nda_cross_check', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId });
+        // Prompt 469 §B — awaited: ai_call_log is used as an ACCEPTANCE
+        // CRITERION (a missing entry has, more than once, been read as proof a
+        // pipeline never ran), so losing an entry to a frozen serverless
+        // instance invalidates a proof, not just a cost number. logAiCall
+        // already swallows its own errors (ai-cost-log.ts) — awaiting it can
+        // never fail this route, only add a Supabase insert's tens of
+        // milliseconds against a model call that just took seconds. Do not
+        // "optimize" this back to void.
+        await logAiCall({ route: '/api/data-room/nda-upload', purpose: 'nda_cross_check', model: process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5', usage: data.usage, orgId });
         const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
         const result = toolUse?.input as { match_status?: NdaMatchStatus; notes?: string } | undefined;
         if (result?.match_status) { match_status = result.match_status; match_notes = result.notes; }
