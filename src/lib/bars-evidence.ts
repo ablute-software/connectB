@@ -99,6 +99,19 @@ export function useEvidenceCandidates(orgId: string, enabled: boolean): { candid
       }
 
       setCandidates(out);
+    }).catch(() => {
+      // Task D1 — the one real @typescript-eslint/no-floating-promises
+      // violation in server code, and not a false positive: safeJson above
+      // swallows each individual fetch's own failure, but the aggregation
+      // in .then() can still throw on its own (a route answering 200 with
+      // a missing key makes `access.sections` undefined, and the for-of
+      // right below it throws a TypeError). That rejection had no handler:
+      // .finally() re-throws rather than catching, so it surfaced as an
+      // unhandled rejection AND left the PREVIOUS org's candidates on
+      // screen, since setCandidates never ran. Clearing them is the honest
+      // outcome — showing another org's evidence is worse than showing
+      // none. Fixed, not silenced with `void`.
+      if (!cancelled) setCandidates([]);
     }).finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };

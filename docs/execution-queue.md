@@ -40,7 +40,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | 469 | `ai_call_log` durável | — | `DONE` — `feaad58` | — |
 | 470 | Merge do 467 + §C do 468 | — | `DONE` — `49b1595` | — |
 | 471 | Destravar as hipóteses | — | `DONE` — `5e99175`. **G2 PASSOU**: 3 hipóteses em produção | — |
-| **D1** | `no-floating-promises` no lint | `READY — especificado aqui` | `READY` | nada |
+| **D1** | `no-floating-promises` no lint | `READY — especificado aqui` | `DONE` — 1 violação real corrigida | — |
 | **D2** | `blueprint/reconcile` → `reconciliation/run` | `READY — especificado aqui` | `READY` | nada |
 | **D3** | Consulta de alcance por capacidade | `READY — especificado aqui` | `DONE` — `docs/capability-reach.md` | — |
 | 472 | Ponto D — dois eixos do `gap_disposition` | — | `DONE` — `1404513` em `main`, **provado em produção (7 → 3)** | — |
@@ -141,7 +141,40 @@ funciona.** A versão completa da consulta (que também cobre o eixo novo
 
 ---
 
-## D1 — `@typescript-eslint/no-floating-promises`
+## D1 — `@typescript-eslint/no-floating-promises` — `DONE`
+
+Regra ligada em `.eslintrc.json` para `src/lib/**/*.ts` e
+`src/app/api/**/*.ts`, com `parserOptions.project` (é uma regra que precisa
+de tipos). **Uma única violação em todo o código de servidor**, corrigida —
+não silenciada, e não foi acrescentado nenhum `eslint-disable` (os 4 que
+existem em `src/lib` são todos `react-hooks/exhaustive-deps`, anteriores e
+sem relação).
+
+`src/lib/bars-evidence.ts:72` — `Promise.all([...]).then(...)` sem `.catch`.
+Não era falso positivo: o `safeJson` engole a falha de cada `fetch`
+individual, mas o agregador dentro do `.then` pode rebentar sozinho (uma
+rota a responder 200 sem a chave esperada torna `access.sections` undefined,
+e o `for...of` logo a seguir lança). O `.finally` **não** apanha rejeições —
+re-lança — por isso ficava uma unhandled rejection **e** os candidatos da
+org ANTERIOR no ecrã, porque o `setCandidates` nunca chegava a correr.
+
+**Provado, não assumido:** um ficheiro-sonda temporário com uma promise a
+flutuar fez o `npx next lint` simples (o mesmo que o `npm run lint` e o
+`next build` correm) sair com erro. A regra está mesmo a ser aplicada, não
+só quando se passa `--dir` à mão.
+
+**Desvio, declarado:** o critério diz "código de servidor (`src/lib`,
+`src/app/api`)". A regra ficou em `.ts`, **não** em `.tsx`. Medido antes de
+decidir: incluir `.tsx` acrescenta **14 violações em exatamente dois
+ficheiros** — `src/lib/onboarding/OnboardingProvider.tsx` (5) e
+`src/lib/store-supabase.tsx` (9). Ambos são componentes React de cliente que
+só por acaso vivem em `src/lib`; não são código de servidor, e uma aba do
+browser não congela como uma resposta serverless (é o mesmo raciocínio pelo
+qual o guarda do 465 §E nunca varre `src/components/`). Corrigir os 14 seria
+um refactor da gestão de estado do cliente — exatamente o que o critério 4
+manda não fazer sob a etiqueta de dívida técnica. **Ficam medidos e nomeados
+aqui em vez de desaparecerem em silêncio**; se se quiser fechá-los, é um
+prompt próprio, com âmbito de cliente.
 
 `READY — especificado aqui`. Sem migração → merge e push próprios.
 

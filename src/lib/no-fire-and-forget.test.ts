@@ -25,6 +25,21 @@ import { join, extname } from 'path';
 // long-term, and explicitly out of scope for this prompt. A green run of
 // this test is proof the ONE known pattern hasn't come back, nothing more.
 //
+// UPDATE (task D1, docs/execution-queue.md) — that static analysis now
+// EXISTS: @typescript-eslint/no-floating-promises is on as an error for
+// src/lib and src/app/api (.eslintrc.json). It does NOT replace this file,
+// and deleting these guards because "the rule already covers it" would be
+// a real loss on two counts the rule cannot serve:
+//   1. the rule accepts `void fn()` as a correct, deliberate marking —
+//      which is exactly the pattern this codebase has been burned by twice
+//      and that this file exists to forbid outright in server code;
+//   2. the 469 §C guard below is deliberately UNEXEMPTABLE for logAiCall,
+//      and carries the product reason (ai_call_log is an acceptance
+//      criterion, not telemetry) in its own failure message. An eslint
+//      error says "promise not awaited"; it can never say why THAT one
+//      matters.
+// Wide net (the rule) plus fine net with the explanation (these guards).
+//
 // Also known and accepted: line-based, not AST-based, so it only skips a
 // FULL-LINE `//` comment before matching (the concrete false positive this
 // test was written against: this very codebase's own
