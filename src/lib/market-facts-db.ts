@@ -32,6 +32,15 @@ export type RetrievalMethod = 'vault_extraction' | 'link_snapshot' | 'web_fetch'
 // real cross-fact comparison existing would invite writing it by hand —
 // exactly what "derived, not hand-written" (§A) forbids. Add it back only
 // alongside the code that actually computes it.
+// Prompt 479 (decision, Nuno, 30/08) — the mirror of the note beside
+// FactStatus in market-intelligence-types.ts. This pair
+// (validation_status / verification_status) belongs to the TYPED DOCUMENT
+// path — market_facts, read by MarketFactsCard — and is deliberately
+// distinct from the web path's FactStatus
+// (VALIDATED_FACT/PARTIAL_FACT/CONFLICTING_FACT/INSUFFICIENT_FACT) on
+// market_research_items. Deliberately not unified: different consumers,
+// both already in production. See that file's own comment for the full
+// reasoning and for the conditions under which the decision gets revisited.
 export type VerificationStatus = 'founder_reported' | 'externally_sourced' | 'corroborated';
 export type FactType = 'growth' | 'market_size';
 

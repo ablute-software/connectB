@@ -30,6 +30,24 @@
 //    scarcity is a quality signal, not a failure.
 // 6. The LLM is the expression layer, never the decision layer.
 
+// Prompt 479 (decision, Nuno, 30/08) — this vocabulary belongs to the WEB
+// path: it lives on market_research_items and is consumed by computeVerdict
+// (market-assessment-engine.ts). It is deliberately DISTINCT from the
+// validation_status / verification_status pair that market_facts uses for
+// the typed document path (Prompt 467, consumed by MarketFactsCard).
+//
+// The two were not unified, and that is a decision rather than a backlog
+// item nobody got to: they already have different consumers in production,
+// so consolidating would mean touching the Block 5 verdict engine — which
+// works — for a gain that today is only aesthetic.
+//
+// NOT NORMATIVE for future code that genuinely needs to bridge the two
+// paths (the obvious case: web research one day writing directly into
+// market_facts). If that arrives, this decision is revisited with the
+// concrete case in front of it — never re-argued in the abstract, and
+// never treated as a rule nobody knows how to revoke. Closing 477 this way
+// exists to stop the question being silently reopened, not to forbid ever
+// answering it differently.
 export type FactStatus = 'VALIDATED_FACT' | 'PARTIAL_FACT' | 'CONFLICTING_FACT' | 'INSUFFICIENT_FACT';
 
 export type DeltaType =

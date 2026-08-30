@@ -1,7 +1,7 @@
 # Fila de execução — Sherlock Deal
 
 **Local canónico:** `docs/execution-queue.md` no repositório `connectB`.
-**Atualizado:** 30/08/2026 (17:25 — 478 em `main`; 473 + migração `0281` antes)
+**Atualizado:** 30/08/2026 (17:40 — 479 fecha o 477; 478 e 473 antes)
 **Lê-se com:** `AUTONOMOUS_EXECUTION_MODE_v2` (o §0 desse documento aponta
 para este ficheiro).
 
@@ -46,7 +46,8 @@ condição de STOP legítima (§18-A), não um fracasso.
 | 472 | Ponto D — dois eixos do `gap_disposition` | — | `DONE` — `1404513` em `main`, **provado em produção (7 → 3)** | — |
 | **473** | *Suggest from your documents* dispara sozinho | `READY — prompt entregue` | `DONE` — `c72a6ad` em `main`; migração `0281` **aplicada e verificada** | — |
 | **478** | Classificador de concorrência chega aos documentos | `READY — prompt entregue` | `DONE` — `a1bfa4c` em `main`; sem migração | — |
-| ~~473~~ **477** | Consolidar os dois vocabulários `FactStatus` | `NO_PROMPT — não executar` | — | prompt |
+| ~~473~~ **477** | Consolidar os dois vocabulários `FactStatus` | — | **`CLOSED` — decisão: não unificar (30/08)**, `479` | — |
+| **479** | Fechar o 477 com a decisão escrita no código | `READY — prompt entregue` | `DONE` — só comentários | — |
 | 474 | Bloco 2 no ecrã (factos tipados visíveis) | `NO_PROMPT — não executar` | — | 471 + prompt |
 | 475 | Invariável 6 — visibilidade que propaga | `NO_PROMPT — não executar` | — | prompt |
 | 476 | Lock por organização (465 §F.3) | `NO_PROMPT — não executar` | — | decisão de desenho |
@@ -66,7 +67,8 @@ vocabulários `FactStatus`, e o prompt que o Nuno entregou a 30/08 como 473
 é outro (o disparo automático das sugestões por documento). O prompt
 entregue fica com o 473 (é o que está no commit e no ficheiro do prompt); a
 consolidação do `FactStatus` passa a **477**. Nada foi executado ao abrigo
-do número errado — a entrada do `FactStatus` continua `NO_PROMPT`.
+do número errado — a entrada do `FactStatus` **foi entretanto fechada pelo
+479** (decisão de não unificar), sem nunca ter sido executada.
 
 **Alcance real do 473, medido por SQL a 30/08 depois da `0281`** — e é o
 achado que mais interessa desta tarefa: **a ablute_ não vai disparar**. A
@@ -83,10 +85,11 @@ executável sem prompt):
 1. **Uma passagem de "Read my documents"** na app — 30 segundos, e é o que
    distingue "o 467 está inerte porque ninguém clicou" de "o desvio para
    `market_facts` não acontece". Ver `docs/capability-reach.md` §2.
-2. **477** (era 473 nesta fila — ver a colisão de numeração acima) —
-   consolidar os dois vocabulários de `FactStatus`. Bloqueia ligar
-   a pesquisa web aos factos tipados, que é o que faria o §2 sair do
-   estado do meio por uso real e não por um clique de teste.
+2. ~~**477** — consolidar os dois vocabulários de `FactStatus`.~~
+   **`CLOSED` a 30/08 pelo 479: decisão de NÃO unificar.** Já não bloqueia
+   nada — ligar a pesquisa web aos factos tipados deixou de depender de uma
+   consolidação prévia, e se e quando isso se fizer, é aí que a decisão se
+   revisita, com o caso concreto à frente.
 3. **474** — pôr os factos tipados no ecrã. Existem na base de dados desde
    a `0279` e o founder nunca os vê.
 
@@ -397,13 +400,51 @@ nenhuma).
 
 ---
 
+## 477 / 479 — os dois vocabulários de confiança — `CLOSED`
+
+**Decisão do Nuno, 30/08: não unificar.** O `FactStatus`
+(`VALIDATED_FACT`/`PARTIAL_FACT`/`CONFLICTING_FACT`/`INSUFFICIENT_FACT`, em
+`market_research_items`, caminho web, lido pelo `computeVerdict` do
+`market-assessment-engine.ts`) e o par `validation_status` /
+`verification_status` do `market_facts` (caminho de documentos tipado, 467,
+lido pelo `MarketFactsCard`) **coexistem de propósito**.
+
+Razão, na frase do prompt: são consumidores diferentes já em produção;
+unificar obrigaria a tocar no motor de veredictos do Bloco 5, que já
+funciona, por um ganho hoje só estético.
+
+**Isto é uma decisão, não um adiamento por falta de tempo** — e é essa a
+diferença que faz o 477 fechar em vez de ficar `NO_PROMPT` para sempre a
+tentar quem passar.
+
+`479` (`main`) escreveu-a nos dois sítios onde alguém a vai encontrar
+naturalmente: junto ao `FactStatus` e junto ao `VerificationStatus`. Zero
+alteração de comportamento, zero alteração de tipos — só comentários.
+
+**A decisão não é normativa** para código futuro que precise mesmo de
+ligar os dois caminhos (o caso óbvio: pesquisa web a escrever directamente
+em `market_facts`). Nesse dia revisita-se com o caso concreto à frente,
+nunca em abstracto. Fechar o 477 assim serve para a pergunta não ser
+reaberta em silêncio — não para proibir que um dia seja respondida de outra
+maneira.
+
+---
+
 ## Entradas `NO_PROMPT` — contexto, não trabalho
 
 Estão aqui para saberes para onde isto vai. **Nenhuma é executável.**
 
-- **473 — dois vocabulários de confiança:** o `FactStatus` do pipeline web
-  e os dois eixos do pipeline de documentos coexistem. Consolidar **antes**
-  de ligar a pesquisa web aos `market_facts`.
+- ~~**473/477 — dois vocabulários de confiança:** consolidar **antes** de
+  ligar a pesquisa web aos `market_facts`.~~ **`CLOSED` a 30/08 (Prompt
+  479): decisão de NÃO unificar.** Coexistem de propósito — consumidores
+  diferentes, ambos já em produção, e consolidar arriscaria o motor de
+  veredictos do Bloco 5 por um ganho hoje só estético. A decisão está
+  escrita nos dois sítios do código (`market-intelligence-types.ts` junto
+  ao `FactStatus`, `market-facts-db.ts` junto ao
+  `VerificationStatus`) e **não é normativa** para o dia em que a pesquisa
+  web precise mesmo de escrever em `market_facts`: aí revisita-se com o
+  caso concreto à frente. **Nenhuma corrida autónoma deve reabrir isto por
+  iniciativa própria.**
 - **474 — Bloco 2 no ecrã:** os factos tipados existem na base de dados
   desde a `0279`; ainda não aparecem ao founder. Restrição do North Star:
   no primeiro corte, **só bottom-up**.
