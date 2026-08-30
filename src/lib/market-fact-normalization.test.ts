@@ -130,7 +130,7 @@ describe('the four required edge cases', () => {
       kind: 'growth', marketDefinition: 'Market A', geography: 'Europe', metric: 'CAGR',
       estimateShape: 'interval', value: null, lowerBound: 8, upperBound: null,
       periodStart: 2026, periodEnd: 2030, sourceRefs: [], observationIds: ['a'],
-      validation: { status: 'valid', missing: [], errors: [], flags: [] },
+      validation: { status: 'valid', missing: [], errors: [], flags: [] }, hasPositiveIdentity: true,
     };
     const validated = validateGrowthFact(fact);
     expect(validated.validation.status).toBe('incomplete');
@@ -143,7 +143,7 @@ describe('the four required edge cases', () => {
       kind: 'growth', marketDefinition: 'Market A', geography: 'Europe', metric: 'CAGR',
       estimateShape: 'point', value: 8, lowerBound: null, upperBound: null,
       periodStart: 2028, periodEnd: 2024, sourceRefs: [], observationIds: ['a'],
-      validation: { status: 'valid', missing: [], errors: [], flags: [] },
+      validation: { status: 'valid', missing: [], errors: [], flags: [] }, hasPositiveIdentity: true,
     };
     const validated = validateGrowthFact(fact);
     expect(validated.validation.status).toBe('invalid');
@@ -158,7 +158,7 @@ describe('validateGrowthFact — no arbitrary plausibility ceiling (§D)', () =>
       kind: 'growth', marketDefinition: 'Niche Market', geography: 'Europe', metric: 'annual',
       estimateShape: 'point', value: 250, lowerBound: null, upperBound: null,
       periodStart: 2026, periodEnd: 2030, sourceRefs: [], observationIds: ['a'],
-      validation: { status: 'valid', missing: [], errors: [], flags: [] },
+      validation: { status: 'valid', missing: [], errors: [], flags: [] }, hasPositiveIdentity: true,
     };
     const validated = validateGrowthFact(fact);
     expect(validated.validation.status).toBe('valid');
@@ -171,7 +171,7 @@ describe('validateGrowthFact — no arbitrary plausibility ceiling (§D)', () =>
       kind: 'growth', marketDefinition: 'Market A', geography: 'Europe', metric: 'annual',
       estimateShape: 'point', value: -150, lowerBound: null, upperBound: null,
       periodStart: 2026, periodEnd: 2030, sourceRefs: [], observationIds: ['a'],
-      validation: { status: 'valid', missing: [], errors: [], flags: [] },
+      validation: { status: 'valid', missing: [], errors: [], flags: [] }, hasPositiveIdentity: true,
     };
     expect(validateGrowthFact(fact).validation.status).toBe('invalid');
   });
@@ -181,7 +181,7 @@ describe('validateGrowthFact — no arbitrary plausibility ceiling (§D)', () =>
       kind: 'growth', marketDefinition: 'Market A', geography: 'Europe', metric: 'annual',
       estimateShape: 'point', lowerBound: null, upperBound: null,
       periodStart: 2026, periodEnd: 2030, sourceRefs: [], observationIds: ['a'],
-      validation: { status: 'valid', missing: [], errors: [], flags: [] },
+      validation: { status: 'valid', missing: [], errors: [], flags: [] }, hasPositiveIdentity: true,
     };
     expect(validateGrowthFact({ ...base, value: NaN }).validation.status).toBe('invalid');
     expect(validateGrowthFact({ ...base, value: Infinity }).validation.status).toBe('invalid');
@@ -202,7 +202,7 @@ describe('MarketSizeFact — the same completeness/validity split, proven indepe
       kind: 'size', marketDefinition: 'Market A', geography: 'Europe', metric: 'TAM',
       estimateShape: 'point', value: 50_000_000, lowerBound: null, upperBound: null,
       currency: 'EUR', asOfYear: 2099, methodology: null, sourceRefs: [], observationIds: ['a'],
-      validation: { status: 'valid', missing: [], errors: [], flags: [] },
+      validation: { status: 'valid', missing: [], errors: [], flags: [] }, hasPositiveIdentity: true,
     };
     const validated = validateMarketSizeFact(fact, new Date('2026-08-29T00:00:00Z'));
     expect(validated.validation.status).toBe('invalid');
@@ -214,7 +214,7 @@ describe('MarketSizeFact — the same completeness/validity split, proven indepe
       kind: 'size', marketDefinition: 'Market A', geography: 'Europe', metric: 'TAM',
       estimateShape: 'point', value: -1, lowerBound: null, upperBound: null,
       currency: 'EUR', asOfYear: 2026, methodology: null, sourceRefs: [], observationIds: ['a'],
-      validation: { status: 'valid', missing: [], errors: [], flags: [] },
+      validation: { status: 'valid', missing: [], errors: [], flags: [] }, hasPositiveIdentity: true,
     };
     expect(validateMarketSizeFact(fact, new Date('2026-08-29T00:00:00Z')).validation.status).toBe('invalid');
   });

@@ -17,6 +17,7 @@ function growthFact(overrides: Partial<GrowthFact> = {}): GrowthFact {
     periodStart: 2025, periodEnd: 2030,
     sourceRefs: [], observationIds: ['obs-1'],
     validation: { status: 'valid', missing: [], errors: [], flags: [] },
+    hasPositiveIdentity: true,
     ...overrides,
   });
 }
@@ -127,6 +128,54 @@ describe('computeFactFingerprint — discrimination (Prompt 467 required test)',
   });
 });
 
+// Prompt 467 v3 §2 (Nuno's review) — the confirmed bug: missing context
+// normalized to '', so two AMBIGUOUS facts from different documents
+// fingerprinted identically and the DB's unique constraint merged them.
+// market-fact-normalization.ts's groupKeyFor already refuses to treat
+// "both null" as identity (hasPositiveIdentity: false on the result) —
+// this is the fingerprint layer honoring that same refusal instead of
+// undoing it.
+describe('computeFactFingerprint — ambiguous singletons must not merge on empty context (Prompt 467 v3 §2)', () => {
+  function ambiguousFact(sourceRefs: { documentId: string; page: number | null; quote: string | null }[]) {
+    return growthFact({
+      marketDefinition: null, geography: null, hasPositiveIdentity: false,
+      value: 8, metric: 'annual', periodStart: null, periodEnd: null,
+      validation: { status: 'incomplete', missing: ['marketDefinition', 'geography', 'period'], errors: [], flags: [] },
+      sourceRefs,
+    });
+  }
+
+  it('required fixture: two incomplete facts, same value/metric/shape, DIFFERENT evidence → two distinct fingerprints, never one', () => {
+    const a = ambiguousFact([{ documentId: 'doc-a', page: 3, quote: '8% annual growth' }]);
+    const b = ambiguousFact([{ documentId: 'doc-b', page: 7, quote: '8% annual growth' }]);
+    expect(computeFactFingerprint(a)).not.toBe(computeFactFingerprint(b));
+  });
+
+  it('required fixture: the SAME incomplete candidate with the SAME evidence, reprocessed → one fingerprint (idempotence survives the fix)', () => {
+    const a = ambiguousFact([{ documentId: 'doc-a', page: 3, quote: '8% annual growth' }]);
+    const b = ambiguousFact([{ documentId: 'doc-a', page: 3, quote: '8% annual growth' }]);
+    expect(computeFactFingerprint(a)).toBe(computeFactFingerprint(b));
+  });
+
+  it('discriminates by document+page alone when quote is null on both sides', () => {
+    const a = ambiguousFact([{ documentId: 'doc-a', page: 3, quote: null }]);
+    const b = ambiguousFact([{ documentId: 'doc-b', page: 3, quote: null }]);
+    expect(computeFactFingerprint(a)).not.toBe(computeFactFingerprint(b));
+  });
+
+  it('a duplicated sourceRef cannot shift the fingerprint (Set, not array)', () => {
+    const once = ambiguousFact([{ documentId: 'doc-a', page: 3, quote: 'x' }]);
+    const twice = ambiguousFact([{ documentId: 'doc-a', page: 3, quote: 'x' }, { documentId: 'doc-a', page: 3, quote: 'x' }]);
+    expect(computeFactFingerprint(once)).toBe(computeFactFingerprint(twice));
+  });
+
+  it('two ambiguous facts sharing evidence but hasPositiveIdentity mismatched with a real fact never collide with a real-identity fact fingerprinting the same value', () => {
+    const ambiguous = ambiguousFact([{ documentId: 'doc-a', page: 3, quote: null }]);
+    const real = growthFact({ value: 8, metric: 'annual', hasPositiveIdentity: true });
+    expect(computeFactFingerprint(ambiguous)).not.toBe(computeFactFingerprint(real));
+  });
+});
+
 describe('deriveVerificationStatus', () => {
   it('is founder_reported when every origin is founder_document', () => {
     expect(deriveVerificationStatus([
@@ -200,6 +249,7 @@ describe('writeMarketFact', () => {
       periodStart: 2030, periodEnd: 2025,
       sourceRefs: [], observationIds: ['obs-1'],
       validation: { status: 'valid', missing: [], errors: [], flags: [] },
+      hasPositiveIdentity: true,
     };
     await writeMarketFact(admin, 'org-1', bad, [observation()]);
     const validation = rpcCalls[0].args.p_validation as { status: string; errors: string[] };

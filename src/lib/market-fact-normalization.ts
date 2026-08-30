@@ -53,6 +53,19 @@ interface FactBase {
   // times did we read it" — an audit trail, not evidence.
   observationIds: string[];
   validation: FactValidation;
+  // Prompt 467 v3 (Nuno's review) — true only when groupKeyFor found a
+  // REAL (non-null) key for this fact's members: every context field
+  // (marketDefinition, geography, metric, period/asOfYear) present and
+  // positively matched. False for the singleton fallback (groupCandidates'
+  // `singleton:${observationId}` branch) — an ambiguous candidate with
+  // missing context that was correctly refused a shared identity here.
+  // market-facts-db.ts's computeFactFingerprint MUST branch on this: a
+  // fingerprint built only from semantic fields would turn "missing
+  // context" into an accidental merge key (two DIFFERENT ambiguous facts
+  // whose empty fields look alike are not thereby the same fact) — exactly
+  // the invariable-14 violation this whole module exists to prevent, just
+  // recreated one layer down, at persistence instead of normalization.
+  hasPositiveIdentity: boolean;
 }
 
 export interface GrowthFact extends FactBase {
@@ -146,13 +159,19 @@ function dedupeSourceRefs(refs: SourceRef[]): SourceRef[] {
 // Groups candidates that share a real key (positive-proof matches);
 // every candidate with no key (groupKeyFor returned null) becomes its own
 // singleton group, keyed by its own observationId so it can never
-// accidentally collide with another ungrouped candidate.
-function groupCandidates<T extends MarketFactCandidate>(candidates: T[]): T[][] {
-  const buckets = new Map<string, T[]>();
+// accidentally collide with another ungrouped candidate. A singleton
+// bucket therefore always has exactly one member — the namespacing key is
+// unique per candidate — which is what lets buildGrowthFact/
+// buildMarketSizeFact safely treat hasPositiveIdentity=false as "this
+// fact's sourceRefs are exactly its own evidence, never shared."
+function groupCandidates<T extends MarketFactCandidate>(candidates: T[]): { members: T[]; hasPositiveIdentity: boolean }[] {
+  const buckets = new Map<string, { members: T[]; hasPositiveIdentity: boolean }>();
   for (const c of candidates) {
-    const key = groupKeyFor(c) ?? `singleton:${c.observationId}`;
-    const list = buckets.get(key);
-    if (list) list.push(c); else buckets.set(key, [c]);
+    const realKey = groupKeyFor(c);
+    const key = realKey ?? `singleton:${c.observationId}`;
+    const existing = buckets.get(key);
+    if (existing) existing.members.push(c);
+    else buckets.set(key, { members: [c], hasPositiveIdentity: realKey !== null });
   }
   return [...buckets.values()];
 }
@@ -186,7 +205,8 @@ function buildEstimate(members: MarketFactCandidate[], numOf: (c: MarketFactCand
 
 const emptyValidation = (): FactValidation => ({ status: 'valid', missing: [], errors: [], flags: [] });
 
-function buildGrowthFact(members: GrowthCandidate[]): GrowthFact {
+function buildGrowthFact(group: { members: GrowthCandidate[]; hasPositiveIdentity: boolean }): GrowthFact {
+  const { members, hasPositiveIdentity } = group;
   const first = members[0];
   const estimate = buildEstimate(members, (c) => (c as GrowthCandidate).pct);
   const missing: string[] = [];
@@ -202,10 +222,12 @@ function buildGrowthFact(members: GrowthCandidate[]): GrowthFact {
     sourceRefs: dedupeSourceRefs(members.map((m) => ({ documentId: m.documentId, page: m.page, quote: m.sourceQuote }))),
     observationIds: members.map((m) => m.observationId),
     validation: { ...emptyValidation(), status: missing.length > 0 ? 'incomplete' : 'valid', missing },
+    hasPositiveIdentity,
   };
 }
 
-function buildMarketSizeFact(members: MarketSizeCandidate[]): MarketSizeFact {
+function buildMarketSizeFact(group: { members: MarketSizeCandidate[]; hasPositiveIdentity: boolean }): MarketSizeFact {
+  const { members, hasPositiveIdentity } = group;
   const first = members[0];
   const estimate = buildEstimate(members, (c) => (c as MarketSizeCandidate).value);
   const missing: string[] = [];
@@ -221,6 +243,7 @@ function buildMarketSizeFact(members: MarketSizeCandidate[]): MarketSizeFact {
     sourceRefs: dedupeSourceRefs(members.map((m) => ({ documentId: m.documentId, page: m.page, quote: m.sourceQuote }))),
     observationIds: members.map((m) => m.observationId),
     validation: { ...emptyValidation(), status: missing.length > 0 ? 'incomplete' : 'valid', missing },
+    hasPositiveIdentity,
   };
 }
 

@@ -102,7 +102,16 @@ create table if not exists market_facts (
   payload jsonb not null,
   validation_status text not null check (validation_status in ('valid', 'incomplete', 'invalid')),
   validation jsonb not null,
-  verification_status text not null check (verification_status in ('founder_reported', 'externally_sourced', 'corroborated', 'conflicting')),
+  -- 'conflicting' deliberately excluded (v3, Nuno's review): a real
+  -- conflict is a relationship between TWO SIBLING facts sharing context
+  -- but disagreeing on value (fact_fingerprint bakes value in, so
+  -- disagreeing sources are always two rows here, never one) — it can
+  -- never be a property this table's own evidence-origin derivation
+  -- produces for a single fact. Leaving the value in the enum ahead of
+  -- that cross-fact mechanism existing would invite writing it by hand,
+  -- exactly the "derived, not hand-written" rule this axis exists to
+  -- enforce. Add it back only alongside the code that actually computes it.
+  verification_status text not null check (verification_status in ('founder_reported', 'externally_sourced', 'corroborated')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (org_id, fact_type, fact_fingerprint)
@@ -124,13 +133,19 @@ comment on table market_facts is
 -- market_evidence which collapses repeat readings of the same locator).
 --
 -- legacy_item_id is the ONLY path into market_research_item_supersessions
--- (below) — set exclusively when the pipeline knows, by construction (the
--- exact same (org_id, section, title) identity market_research_items
--- already uses for its own dedup — never document+page+value heuristics,
--- which v1 of this prompt proposed and which invariable 14 rules out: the
--- same page can carry two distinct figures for two distinct markets, and a
--- heuristic match would hide the wrong card), that this candidate
--- descends from that exact legacy row.
+-- (below) — set only when there is a TRUE, verified provenance link from
+-- this observation to that exact legacy row. v3 (Nuno's review) retracts
+-- an earlier claim that matching market_research_items' own dedup key —
+-- (org_id, section, title) — counted as "by construction" identity: it
+-- does not. That key exists to stop the SAME extraction run reproposing
+-- an identical title, not to prove that two candidates from SEPARATE runs
+-- (possibly different documents) describing the same rounded number
+-- ("Growth: 8% annual") are the same real-world assertion — invariable 14
+-- again: a shared title is not positive proof of identity, and matching on
+-- it would risk superseding the wrong card. §C's own automatic pipeline
+-- therefore never sets this column; it stays null (no supersession row)
+-- until a deliberately verified cutover — human-confirmed, not
+-- heuristic-inferred — sets it explicitly.
 create table if not exists market_fact_observations (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references orgs(id) on delete cascade,
@@ -256,11 +271,17 @@ begin
     values
       (p_org_id, v_fact_id, v_evidence_id, v_obs->>'extraction_run_id', coalesce(v_obs->'raw_candidate', 'null'::jsonb), v_legacy_item_id);
 
-    -- Supersession is born from lineage ONLY (§C) — this is the exact and
-    -- only place a market_research_item_supersessions row is created.
+    -- Supersession is born from lineage ONLY — this is the exact and only
+    -- place a market_research_item_supersessions row is created, and only
+    -- when the CALLER supplied a legacy_item_id (which §C's automatic
+    -- pipeline never does — see market_fact_observations' own comment
+    -- above). The reason text deliberately does not describe a mechanism:
+    -- this function has no way to know HOW the caller established the
+    -- match, and asserting one it didn't verify is exactly the mistake v3
+    -- of this migration corrects.
     if v_legacy_item_id is not null then
       insert into public.market_research_item_supersessions (org_id, legacy_item_id, market_fact_id, reason)
-      values (p_org_id, v_legacy_item_id, v_fact_id, 'lineage: extraction observation matched legacy market_research_items row by (org_id, section, title) identity')
+      values (p_org_id, v_legacy_item_id, v_fact_id, 'legacy_item_id supplied by the caller of write_market_fact as a verified positive match')
       on conflict (legacy_item_id, market_fact_id) do nothing;
     end if;
   end loop;

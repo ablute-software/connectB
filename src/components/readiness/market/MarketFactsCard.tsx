@@ -29,7 +29,6 @@ export function MarketFactsCard() {
   if (!available || !facts || facts.length === 0) return null;
 
   const actionable = facts.filter((f) => f.zone === 'actionable');
-  const conflicting = facts.filter((f) => f.zone === 'conflicting');
   const founderReported = facts.filter((f) => f.zone === 'founder_reported');
   const incomplete = facts.filter((f) => f.zone === 'incomplete');
   const invalid = facts.filter((f) => f.zone === 'invalid');
@@ -40,9 +39,10 @@ export function MarketFactsCard() {
         <FactGroup title="Market Intelligence" titleClassName="text-[#0E7490]" facts={actionable} borderClassName="border-cyan-100" openId={openId} setOpenId={setOpenId} />
       )}
 
-      {conflicting.length > 0 && (
-        <FactGroup title="Conflicting sources — shown side by side, never picked for you" titleClassName="text-amber-700" facts={conflicting} borderClassName="border-amber-200" openId={openId} setOpenId={setOpenId} />
-      )}
+      {/* Prompt 467 v3 §5 — no "conflicting" zone: nothing in this
+          pipeline (or market-facts-db.ts's deriveVerificationStatus) can
+          produce that status today. Add it back alongside the cross-fact
+          comparison that would actually compute it. */}
 
       {founderReported.length > 0 && (
         <div>

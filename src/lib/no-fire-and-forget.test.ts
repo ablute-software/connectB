@@ -171,3 +171,40 @@ describe('market_facts has exactly one writer (Prompt 467 §B.5)', () => {
     ).toEqual([]);
   });
 });
+
+// Prompt 467 v3 §1b (Nuno's review) — a third, also unrelated guard. The
+// document-extract route must take exactly ONE marketFactsAvailable()
+// snapshot per execution and reuse it for the run-signature, the typed/
+// legacy routing split, and the legacy-items supersession filter. Two
+// independent calls in the same execution can observe DIFFERENT results
+// across the capability probe's own ~60s negative-cache window right after
+// migration 0279 is applied — and the dangerous direction is a signature
+// that persists "typed:on" for a run that actually fell back to legacy:
+// since a document's sha256s never change again on their own, that
+// signature would never re-trigger the typed pipeline for it, permanently.
+// There is no existing infrastructure in this codebase for testing a
+// Next.js route handler's live call count (zero route.ts files have their
+// own test file — every test here targets src/lib), so this is the
+// equivalent guarantee at the level this codebase actually tests: the
+// route's OWN source contains only one call site, which is what makes two
+// disagreeing snapshots structurally impossible in the first place.
+const MARKET_FACTS_AVAILABLE_CALL = /\bmarketFactsAvailable\s*\(/;
+const DOCUMENT_EXTRACT_ROUTE_FILE = join('src', 'app', 'api', 'market-data', 'document-extract', 'route.ts');
+
+describe('document-extract route takes exactly one capability snapshot (Prompt 467 v3 §1b)', () => {
+  it('marketFactsAvailable() is called at most once in route.ts', () => {
+    const text = readFileSync(join(process.cwd(), DOCUMENT_EXTRACT_ROUTE_FILE), 'utf8');
+    // Same full-line-comment skip as findViolations above — this file's
+    // own explanatory comments say "marketFactsAvailable() is called
+    // EXACTLY ONCE" in prose, which would otherwise miscount as a second
+    // call site.
+    const callSites = text.split('\n').filter((line) => !/^\s*\/\//.test(line) && MARKET_FACTS_AVAILABLE_CALL.test(line));
+    expect(
+      callSites.length,
+      'marketFactsAvailable() must be called exactly once per route execution (into `typedPipelineOn`) and that single value '
+      + 'reused for the run-signature, the typed/legacy routing split, and the legacy-items supersession filter — a second call '
+      + 'anywhere in this file can observe a different result than the first across the probe\'s own negative-cache window and '
+      + 'silently, permanently burn the one-time cutover opportunity for an already-processed document (Prompt 467 v3 §1b).',
+    ).toBe(1);
+  });
+});

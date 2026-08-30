@@ -19,10 +19,6 @@ describe('factZone — the §D precedence table', () => {
     expect(factZone(fact({ validationStatus: 'valid', verificationStatus: 'corroborated' }))).toBe('actionable');
   });
 
-  it('a valid, conflicting fact is shown as conflicting, never as actionable', () => {
-    expect(factZone(fact({ validationStatus: 'valid', verificationStatus: 'conflicting' }))).toBe('conflicting');
-  });
-
   it('an incomplete fact is the incomplete zone regardless of verification_status', () => {
     expect(factZone(fact({ validationStatus: 'incomplete', verificationStatus: 'founder_reported' }))).toBe('incomplete');
     expect(factZone(fact({ validationStatus: 'incomplete', verificationStatus: 'corroborated' }))).toBe('incomplete');

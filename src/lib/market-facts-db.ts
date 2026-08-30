@@ -23,7 +23,16 @@ import {
 export type EvidenceOrigin = 'founder_document' | 'sherlock_web' | 'external_report';
 export type EvidenceSourceKind = 'pitch_deck' | 'internal_doc' | 'market_report' | 'press' | 'company_site' | 'filing' | 'other';
 export type RetrievalMethod = 'vault_extraction' | 'link_snapshot' | 'web_fetch' | 'manual_entry';
-export type VerificationStatus = 'founder_reported' | 'externally_sourced' | 'corroborated' | 'conflicting';
+// Prompt 467 v3 §5 (Nuno's review) — 'conflicting' deliberately excluded.
+// A real conflict is a relationship between TWO SIBLING facts sharing
+// context but disagreeing on value (fact_fingerprint bakes value in, so
+// disagreement is always two rows, never one — see computeFactFingerprint
+// above), which this function, deriving a status from ONE fact's own
+// evidence origins, can never produce. Leaving it in the type ahead of a
+// real cross-fact comparison existing would invite writing it by hand —
+// exactly what "derived, not hand-written" (§A) forbids. Add it back only
+// alongside the code that actually computes it.
+export type VerificationStatus = 'founder_reported' | 'externally_sourced' | 'corroborated';
 export type FactType = 'growth' | 'market_size';
 
 export interface EvidenceInput {
@@ -69,13 +78,48 @@ export function computeEvidenceFingerprint(e: Pick<EvidenceInput, 'documentId' |
 // is built). Two sources disagreeing on value under the same market/period
 // (8% vs 12%) must fingerprint differently — that disagreement is real
 // signal, never silently merged (invariable 14).
+//
+// Prompt 467 v3 §2 (Nuno's review) — a real, confirmed bug in the first
+// version of this function: missing marketDefinition/geography normalized
+// to '', so two AMBIGUOUS candidates from DIFFERENT documents (both "8%
+// annual", no context) fingerprinted identically and the DB's own
+// unique(org_id, fact_type, fact_fingerprint) merged them into one row —
+// exactly the invariable-14 violation market-fact-normalization.ts's
+// groupKeyFor already correctly refused to commit (it returns null for
+// exactly this case, so buildGrowthFact/buildMarketSizeFact mark the
+// result hasPositiveIdentity: false). One layer respected the invariable,
+// the next silently undid it. Branches on that flag now:
 export function computeFactFingerprint(fact: GrowthFact | MarketSizeFact): string {
   const md = fact.marketDefinition ? normalizeText(fact.marketDefinition) : '';
   const geo = fact.geography ? normalizeText(fact.geography) : '';
-  const parts: unknown[] = fact.kind === 'growth'
-    ? ['growth', md, geo, fact.metric, fact.periodStart, fact.periodEnd, fact.estimateShape, fact.value, fact.lowerBound, fact.upperBound]
-    : ['size', md, geo, fact.metric, fact.asOfYear, fact.estimateShape, fact.value, fact.lowerBound, fact.upperBound, fact.currency];
-  return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
+  const identityParts: unknown[] = fact.kind === 'growth'
+    ? ['growth', md, geo, fact.metric, fact.periodStart, fact.periodEnd]
+    : ['size', md, geo, fact.metric, fact.asOfYear];
+  const estimateParts: unknown[] = [fact.estimateShape, fact.value, fact.lowerBound, fact.upperBound, fact.kind === 'size' ? fact.currency : undefined];
+
+  if (fact.hasPositiveIdentity) {
+    // Real, positively-matched semantic identity — this alone (plus the
+    // resulting estimate) is enough: the SAME proposition reextracted many
+    // times must fingerprint the SAME way every time, so repeated runs
+    // accumulate observations on one fact instead of duplicating it.
+    return createHash('sha256').update(JSON.stringify([...identityParts, ...estimateParts])).digest('hex');
+  }
+
+  // No positive semantic identity: market-fact-normalization.ts already
+  // refused to merge this candidate with anything else. The fingerprint
+  // must not quietly undo that by merging on empty-string context either,
+  // so a positive identity of the EVIDENCE stands in for the semantic
+  // identity that doesn't exist — the deduplicated, sorted set of this
+  // fact's own evidence fingerprints. A Set (not the raw array) so an
+  // accidentally duplicated observation can never shift the fact's own
+  // identity; sorted so member order never matters. Still idempotent:
+  // reprocessing the SAME document+page produces the SAME evidence
+  // fingerprint and therefore the same fact fingerprint — a DIFFERENT
+  // document/page produces a different one, so two equally-ambiguous
+  // candidates from different sources correctly stay two facts.
+  const evidenceFingerprints = fact.sourceRefs.map((r) => computeEvidenceFingerprint({ documentId: r.documentId, page: r.page, quote: r.quote, sourceUrl: null }));
+  const evidenceIdentity = [...new Set(evidenceFingerprints)].sort();
+  return createHash('sha256').update(JSON.stringify([...identityParts, ...estimateParts, ...evidenceIdentity])).digest('hex');
 }
 
 // The origins table from Prompt 467 §A, computed deterministically
@@ -85,18 +129,6 @@ export function computeFactFingerprint(fact: GrowthFact | MarketSizeFact): strin
 // receives external corroboration upgrades correctly instead of being
 // stuck at whatever its first write happened to see.
 //
-// 'conflicting' is deliberately never returned here. Within ONE market_fact
-// every observation shares the same value/bounds (that's what
-// fact_fingerprint identity means — two disagreeing sources are always TWO
-// facts, per computeFactFingerprint above), so "evidence that contradicts
-// itself" cannot arise from one fact's own evidence set. A real
-// cross-fact conflict (two SIBLING facts, same context, different values)
-// is a §D UI-level concept ("shown as conflict, the two statements side by
-// side") that would need comparing across facts, not deriving a single
-// fact's own column — genuinely out of scope here (no test requires it, no
-// code path in this prompt's own pipeline ever produces external evidence
-// at all — see §C). The column still allows 'conflicting' for whatever
-// later mechanism resolves that; this function simply never emits it.
 export function deriveVerificationStatus(
   origins: { origin: EvidenceOrigin; documentId: string | null; sourceUrl: string | null }[],
 ): VerificationStatus {

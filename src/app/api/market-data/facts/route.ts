@@ -16,7 +16,7 @@ import { factZone, type FactView, type FactPayload, type FactValidationView } fr
 interface FactRow {
   id: string; fact_type: 'growth' | 'market_size'; payload: unknown;
   validation_status: 'valid' | 'incomplete' | 'invalid'; validation: unknown;
-  verification_status: 'founder_reported' | 'externally_sourced' | 'corroborated' | 'conflicting';
+  verification_status: 'founder_reported' | 'externally_sourced' | 'corroborated';
 }
 interface EvidenceRow {
   id: string; document_id: string | null; page: number | null; quote: string | null; source_url: string | null;

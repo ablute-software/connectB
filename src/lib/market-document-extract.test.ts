@@ -1,6 +1,7 @@
 // Prompt 370 — pure tests for the market-document-extraction parser.
 import { describe, expect, it } from 'vitest';
-import { parseMarketExtractionRaw, type MarketDocRef } from './market-document-extract';
+import { createHash } from 'crypto';
+import { parseMarketExtractionRaw, computeExtractionSignature, type MarketDocRef } from './market-document-extract';
 
 const DOCS = new Map<number, MarketDocRef>([
   [1, { id: 'doc-pitch', name: 'Pitch deck.pdf' }],
@@ -45,5 +46,39 @@ describe('parseMarketExtractionRaw', () => {
   it('an empty raw response produces no items', () => {
     expect(parseMarketExtractionRaw({}, DOCS)).toEqual([]);
     expect(parseMarketExtractionRaw(undefined, DOCS)).toEqual([]);
+  });
+});
+
+// Prompt 467 v3 §1/§1b (Nuno's review) — the confirmed bug: an unversioned,
+// mode-blind signature meant a deck already processed under the pre-467
+// pipeline would read as "already ran" forever, and (composed with §4's
+// correct legacy fallback) could even burn the one-time cutover
+// opportunity permanently the moment the migration lands. These tests
+// prove the fix at the level that actually decides it: the DB-level
+// "same signature -> same row -> cache hit" behavior (route.ts's own
+// .eq('run_signature', signature) lookup) is a simple equality check whose
+// correctness follows mechanically from these fingerprints being right —
+// verified by route review, same as every other DB-dependent claim in this
+// codebase that can't be exercised without a live Postgres.
+describe('computeExtractionSignature — versioned + mode-aware (Prompt 467 v3 §1/§1b)', () => {
+  it('differs between typed:off and typed:on for the SAME document set — this is what reopens the pass exactly once after cutover', () => {
+    const off = computeExtractionSignature(['sha-a', 'sha-b'], false);
+    const on = computeExtractionSignature(['sha-a', 'sha-b'], true);
+    expect(off).not.toBe(on);
+  });
+
+  it('is stable across repeated calls in the SAME mode — idempotent, never repays', () => {
+    expect(computeExtractionSignature(['sha-a'], true)).toBe(computeExtractionSignature(['sha-a'], true));
+    expect(computeExtractionSignature(['sha-a'], false)).toBe(computeExtractionSignature(['sha-a'], false));
+  });
+
+  it('differs from a bare, unversioned hash of the same sha256 list — proves the version+mode are actually mixed in, not decorative', () => {
+    const bare = createHash('sha256').update(['sha-a', 'sha-b'].join('|')).digest('hex');
+    expect(computeExtractionSignature(['sha-a', 'sha-b'], true)).not.toBe(bare);
+    expect(computeExtractionSignature(['sha-a', 'sha-b'], false)).not.toBe(bare);
+  });
+
+  it('is order-independent over the sha256 list', () => {
+    expect(computeExtractionSignature(['a', 'b'], true)).toBe(computeExtractionSignature(['b', 'a'], true));
   });
 });

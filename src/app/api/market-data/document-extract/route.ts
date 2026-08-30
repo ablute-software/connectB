@@ -20,27 +20,27 @@
 // selection — the button would become instant instead of a fresh AI call.
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { createHash } from 'crypto';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { prepareDocumentForAi, type ExtractionSkipReason } from '@/lib/document-extraction-pipeline';
 import { truncatePdfToPages } from '@/lib/pdf-truncate';
 import { MAX_EXTRACTION_PAGES } from '@/lib/document-extraction';
 import { marketDocumentExtractionAvailable, marketFactsAvailable } from '@/lib/market-data-capability';
-import { parseMarketExtractionRaw, type MarketDocRef, type MarketProposal } from '@/lib/market-document-extract';
+import { parseMarketExtractionRaw, computeExtractionSignature, type MarketDocRef, type MarketProposal } from '@/lib/market-document-extract';
 import { normalizeMarketCandidates, type MarketFactCandidate } from '@/lib/market-fact-normalization';
 import { writeMarketFact, type ObservationInput, type RetrievalMethod, type EvidenceSourceKind } from '@/lib/market-facts-db';
 import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
 import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 
-// Prompt 467 §C — a document read through THIS route is, by its own system
-// prompt above, "pitch decks, market sizing sheets, competitive landscape
-// analyses, business plans" — never resolvable to a single fixed
-// source_kind. A cheap, real (not invented) signal: the document's own
-// name. Anything else this route reads defaults to 'internal_doc', the
-// closer of the two to "some other founder document" among the check
-// constraint's options.
+// Prompt 467 v3 §5 (Nuno's review) — this is a HEURISTIC, not a real
+// signal like retrievalMethodByDocId below (that one reads an actual,
+// mechanical fact — which storage prefix the file came from). A filename
+// regex is a guess, stated honestly as one. It doesn't gate anything
+// epistemically load-bearing: what keeps a fact's verification_status at
+// 'founder_reported' is origin: 'founder_document' below, never
+// source_kind. Swap this for the extraction's own real documentType once
+// one exists.
 const PITCH_DECK_NAME = /pitch|deck/i;
 
 export const maxDuration = 60;
@@ -196,11 +196,34 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'None of the selected documents could be read.', skipped }, { status: 400 });
   }
 
-  // Prompt 370 §C4 — cache by the exact set of documents actually read
-  // (their own content hashes, not just ids — an edited/re-uploaded file
-  // must re-pay). Re-running over an UNCHANGED set costs nothing; a
-  // genuinely different selection always re-runs.
-  const signature = createHash('sha256').update(sha256s.slice().sort().join('|')).digest('hex');
+  // Prompt 467 v3 §1/§1b (Nuno's review) — ONE capability snapshot governs
+  // this entire request. marketFactsAvailable() is called EXACTLY ONCE
+  // here (enforced by a source-level test in no-fire-and-forget.test.ts)
+  // and typedPipelineOn is reused below for the run-signature, the typed/
+  // legacy routing split (§4), and the legacy-items supersession filter.
+  // A second, independent call anywhere in this function could observe a
+  // DIFFERENT result across the ~60s negative-cache window right after
+  // migration 0279 is applied — and the failure mode is not symmetric: a
+  // signature that says "typed:off" while routing actually went typed just
+  // reopens §1b from another angle, but a signature that says "typed:on"
+  // while routing actually fell back to legacy is a PERMANENT lie — these
+  // documents' sha256s never change again, so nothing would ever cross
+  // into the typed pipeline for them.
+  const typedPipelineOn = await marketFactsAvailable();
+
+  // Prompt 370 §C4 / Prompt 467 v3 §1 — cache by the exact set of documents
+  // actually read (their own content hashes, not just ids — an edited/
+  // re-uploaded file must re-pay), the PIPELINE VERSION that processed
+  // them, and the MODE that was actually available (typedPipelineOn,
+  // above). The mode matters because it is a REAL confirmed bug (v3):
+  // without it, a deck first processed while the typed pipeline was off
+  // (migration not yet applied — correctly falls back to legacy, §4) would
+  // keep the SAME signature forever after the migration lands, reading as
+  // "already ran" and never once crossing into the typed pipeline —
+  // silently and permanently burning the one-time cutover opportunity.
+  // Re-running over an UNCHANGED set in the SAME mode costs nothing; a
+  // genuinely different selection, or a mode transition, always re-runs.
+  const signature = computeExtractionSignature(sha256s, typedPipelineOn);
   const { data: existingRows } = await admin.from('market_research_items')
     .select('id').eq('org_id', orgId).eq('source_kind', 'document').eq('run_signature', signature).limit(1);
   const alreadyRanForThisSignature = (existingRows ?? []).length > 0;
@@ -245,15 +268,27 @@ export async function POST(req: Request) {
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const proposals = parseMarketExtractionRaw(toolUse?.input, docsByIndex);
 
-    // Prompt 467 §C — growth/market_size no longer become
-    // market_research_items proposals at all: a number pulled from the
+    // Prompt 467 §C / v3 §4 — growth/market_size go straight through
+    // normalizeMarketCandidates (466) into typed market_facts instead of
+    // becoming market_research_items proposals: a number pulled from the
     // founder's own deck is evidence of what the founder ASSERTS, never
-    // evidence the market actually behaves that way (invariable 1). They go
-    // straight through normalizeMarketCandidates (466) into typed
-    // market_facts below. Every other section — segments, players, trends,
-    // regulatory — is completely untouched by this prompt.
-    const legacyProposals = proposals.filter((p) => p.section !== 'growth' && p.section !== 'sizing');
-    const typedProposals = proposals.filter((p) => p.section === 'growth' || p.section === 'sizing');
+    // evidence the market actually behaves that way (invariable 1). Every
+    // other section — segments, players, trends, regulatory — is completely
+    // untouched by this prompt. BUT this split reuses typedPipelineOn (the
+    // single snapshot above, never a fresh call) — when it's false (0279
+    // not yet applied, or the probe's negative-cache window right after it
+    // is), EVERYTHING including growth/sizing follows the legacy path
+    // instead. A real, confirmed bug in an earlier draft (v3, Nuno's
+    // review): gating only the typed write meant a false probe made
+    // growth/market_size disappear entirely — not typed, not legacy, gone
+    // — after the model call was already paid for. Nothing paid for is
+    // ever allowed to vanish like that.
+    const legacyProposals = typedPipelineOn
+      ? proposals.filter((p) => p.section !== 'growth' && p.section !== 'sizing')
+      : proposals;
+    const typedProposals = typedPipelineOn
+      ? proposals.filter((p) => p.section === 'growth' || p.section === 'sizing')
+      : [];
 
     for (const p of legacyProposals) {
       const { data: inserted } = await admin.from('market_research_items').upsert({
@@ -264,25 +299,29 @@ export async function POST(req: Request) {
       itemsProposed += (inserted ?? []).length;
     }
 
-    if (typedProposals.length > 0 && (await marketFactsAvailable())) {
-      // Lineage lookup — the ONLY path to a supersession row (§C): a
-      // positive-identity match on the exact (org_id, section, title) key
-      // market_research_items already uses for its own dedup, never a
-      // document+page+value heuristic (invariable 14 — the same page can
-      // carry two different figures for two different markets, and a
-      // heuristic match would hide the wrong card).
-      const { data: legacyRows } = await admin.from('market_research_items')
-        .select('id, section, title').eq('org_id', orgId).in('section', ['growth', 'sizing']);
-      const legacyIdByKey = new Map(
-        ((legacyRows ?? []) as { id: string; section: string; title: string }[]).map((r) => [`${r.section}::${r.title}`, r.id]),
-      );
-
-      const observationMeta = new Map<string, { proposal: MarketProposal; legacyItemId: string | null }>();
+    if (typedProposals.length > 0) {
+      // Prompt 467 v3 §3 (Nuno's review) — a REAL bug in the earlier draft:
+      // this used to look up a legacy market_research_items row by
+      // `${section}::${title}` and treat that match as "lineage." It is
+      // not. That key exists ONLY to stop market_research_items' own
+      // dedup — market_research_items has unique(org_id, section, title),
+      // so two DIFFERENT documents that both produced "Growth: 8% annual"
+      // would already have collapsed into ONE ambiguous legacy row before
+      // this route ever looked at it. Matching on it here is exactly the
+      // textual-key heuristic invariable 14 rules out (the same page can
+      // carry two distinct figures for two distinct markets; a heuristic
+      // match risks superseding the wrong card). So: no lookup, no
+      // heuristic — legacyItemId is always null from this automatic
+      // pipeline. The column, market_research_item_supersessions, and the
+      // RPC's conditional insert all stay in place (migration 0279) for a
+      // FUTURE, deliberately verified cutover — human-confirmed, never
+      // inferred — not exercised by this prompt.
+      const observationMeta = new Map<string, MarketProposal>();
       const candidates: MarketFactCandidate[] = [];
       let obsCounter = 0;
       for (const p of typedProposals) {
         const observationId = `obs-${obsCounter++}`;
-        observationMeta.set(observationId, { proposal: p, legacyItemId: legacyIdByKey.get(`${p.section}::${p.title}`) ?? null });
+        observationMeta.set(observationId, p);
 
         const s = (p.structured ?? {}) as Record<string, unknown>;
         const marketDefinition = typeof s.marketDefinition === 'string' ? s.marketDefinition : null;
@@ -323,9 +362,8 @@ export async function POST(req: Request) {
       const facts = normalizeMarketCandidates(candidates);
       for (const fact of facts) {
         const observations: ObservationInput[] = fact.observationIds.map((oid) => {
-          const meta = observationMeta.get(oid);
-          if (!meta) throw new Error(`document-extract: observation "${oid}" is missing from its own meta map — normalizeMarketCandidates returned an id this route never created`);
-          const { proposal, legacyItemId } = meta;
+          const proposal = observationMeta.get(oid);
+          if (!proposal) throw new Error(`document-extract: observation "${oid}" is missing from its own meta map — normalizeMarketCandidates returned an id this route never created`);
           const sourceKind: EvidenceSourceKind = PITCH_DECK_NAME.test(proposal.documentName) ? 'pitch_deck' : 'internal_doc';
           const structuredQuote = proposal.structured && typeof proposal.structured.sourceQuote === 'string' ? proposal.structured.sourceQuote : null;
           return {
@@ -339,7 +377,9 @@ export async function POST(req: Request) {
               origin: 'founder_document', sourceKind,
               retrievalMethod: retrievalMethodByDocId.get(proposal.documentId) ?? 'vault_extraction',
             },
-            extractionRunId: signature, rawCandidate: proposal.structured ?? null, legacyItemId,
+            // Prompt 467 v3 §3 — always null from this automatic pipeline;
+            // see the comment above where typedProposals is processed.
+            extractionRunId: signature, rawCandidate: proposal.structured ?? null, legacyItemId: null,
           };
         });
         await writeMarketFact(admin, orgId, fact, observations);
@@ -353,13 +393,15 @@ export async function POST(req: Request) {
     .eq('org_id', orgId).eq('source_kind', 'document').eq('status', 'pending').order('section', { ascending: true });
 
   // Prompt 467 §D — "Item legacy com ≥1 linha de supersessão deixa de ser
-  // listado. Sem linha, continua listado." A legacy growth/sizing card
-  // whose replacement fact now exists (lineage-confirmed, §C) stops
-  // appearing here; anything without a supersession row — including every
-  // OTHER section, untouched by this prompt — stays exactly as visible as
-  // before. Never a delete: the row (and the audit trail behind it) stays,
-  // only the listing changes.
-  if (items && items.length > 0 && (await marketFactsAvailable())) {
+  // listado. Sem linha, continua listado." Since §3 (v3) never creates a
+  // supersession row from this automatic pipeline, this filter is
+  // currently always a no-op for THIS route's own writes — it stays
+  // because a future, deliberately verified cutover (see §3's own comment
+  // above) writes to the same table, and the UI must honor that the moment
+  // it exists. Never a delete: the legacy row (and its audit trail) stays,
+  // only the listing changes. Reuses typedPipelineOn (the single snapshot,
+  // v3 §1b) rather than a fresh probe call.
+  if (items && items.length > 0 && typedPipelineOn) {
     const { data: supersessions } = await admin.from('market_research_item_supersessions')
       .select('legacy_item_id').eq('org_id', orgId).in('legacy_item_id', items.map((i) => i.id as string));
     const supersededIds = new Set(((supersessions ?? []) as { legacy_item_id: string }[]).map((s) => s.legacy_item_id));

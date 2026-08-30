@@ -12,7 +12,11 @@
 // incomplete fact is never shown as verified market intelligence no
 // matter what its evidence origins say; verification_status only decides
 // among well-formed ('valid') facts.
-export type FactZone = 'actionable' | 'founder_reported' | 'incomplete' | 'invalid' | 'conflicting';
+// Prompt 467 v3 §5 — 'conflicting' dropped along with VerificationStatus's
+// own (market-facts-db.ts): no code path produces it, so no zone should
+// claim to render it either. Re-add both together once a real cross-fact
+// comparison exists.
+export type FactZone = 'actionable' | 'founder_reported' | 'incomplete' | 'invalid';
 
 export interface FactPayload {
   marketDefinition: string | null;
@@ -47,14 +51,13 @@ export interface FactView {
   payload: FactPayload;
   validationStatus: 'valid' | 'incomplete' | 'invalid';
   validation: FactValidationView;
-  verificationStatus: 'founder_reported' | 'externally_sourced' | 'corroborated' | 'conflicting';
+  verificationStatus: 'founder_reported' | 'externally_sourced' | 'corroborated';
   evidence: FactEvidenceView[];
 }
 
 export function factZone(fact: Pick<FactView, 'validationStatus' | 'verificationStatus'>): FactZone {
   if (fact.validationStatus === 'invalid') return 'invalid';
   if (fact.validationStatus === 'incomplete') return 'incomplete';
-  if (fact.verificationStatus === 'conflicting') return 'conflicting';
   if (fact.verificationStatus === 'corroborated' || fact.verificationStatus === 'externally_sourced') return 'actionable';
   return 'founder_reported';
 }
@@ -110,7 +113,6 @@ const ZONE_LABEL: Record<FactZone, string> = {
   founder_reported: 'Founder-reported · unverified',
   incomplete: 'Incomplete',
   invalid: 'Audit — not shown elsewhere',
-  conflicting: 'Conflicting sources',
 };
 
 export function zoneLabel(zone: FactZone): string {
