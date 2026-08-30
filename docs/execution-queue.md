@@ -1,7 +1,7 @@
 # Fila de execução — Sherlock Deal
 
 **Local canónico:** `docs/execution-queue.md` no repositório `connectB`.
-**Atualizado:** 30/08/2026 (15:20 — 473 em `main`, migração `0281` aplicada)
+**Atualizado:** 30/08/2026 (17:25 — 478 em `main`; 473 + migração `0281` antes)
 **Lê-se com:** `AUTONOMOUS_EXECUTION_MODE_v2` (o §0 desse documento aponta
 para este ficheiro).
 
@@ -114,9 +114,13 @@ com o verdicto do meio — **existem, estão em `main`, e ninguém lá chega**:
   de hoje** distingue "ninguém clicou ainda" de "o desvio não acontece". É a
   verificação mais barata que falta.
 - **449/450 — competition engine:** 13 concorrentes, **todos** `added_by =
-  'ai'`, e **zero** com `competitor_type`. Confirmar com
-  `select min(created_at), max(created_at) from org_competitors` contra a
-  data da `0275`: se as 13 linhas forem anteriores, não há bug nenhum.
+  'ai'`, e **zero** com `competitor_type`. ~~Confirmar com `select
+  min(created_at), max(created_at) from org_competitors` contra a data da
+  `0275`: se as 13 linhas forem anteriores, não há bug nenhum.~~
+  **Confirmado a 30/08, e havia bug:** só 3 das 13 são anteriores à `0275`;
+  as outras 10 vieram de documentos, depois do classificador estar em
+  produção. Causa e correção no **478** (`a1bfa4c`) e em
+  `capability-reach.md` §3.
 
 As outras seis estão `A FUNCIONAR`, incluindo as duas mais recentes: o 471
 (botão carregado às 14:17 → `core_problem` preenchido → **3 hipóteses**, o
