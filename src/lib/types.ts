@@ -643,6 +643,30 @@ export interface CompanyClaim {
   // it (migration 0234). See gap-disposition-related comments in
   // company-gaps.ts for exactly which gaps read this and how.
   gapDisposition?: 'no_document' | 'document_pending' | 'confirmed' | null;
+  // Prompt 472 §A — the founder-answer-history axis, split OUT of
+  // gapDisposition above: gapDisposition's own 'no_document'/'document_pending'
+  // values answered "ask again?" correctly but were also being read as "has
+  // evidence?", which they don't actually mean — 7 accepted claims in
+  // production were marked as if documented with zero real document_refs
+  // and zero reconciliation attempts, ever. This column is the "ask again?"
+  // answer, and ONLY that; "has evidence?" is never a stored column — see
+  // hasDocumentaryEvidence (company-gaps.ts), computed live from
+  // documentRefs below, every time, so it can never itself drift out of
+  // sync with reality the way gapDisposition did. gapDisposition itself is
+  // untouched and still means what it always meant for G5/G7's unrelated
+  // 'confirmed' semantics (migration 0280 adds this column alongside it,
+  // never replacing it). Optional/undefined under the same two conditions
+  // as documentRefs/gapDisposition above: the capability probe says the
+  // migration isn't live, or (for a claim answered before this column
+  // existed) it was simply never written — see foundersDocumentAnswer's own
+  // comment in company-gaps.ts for how that second case is handled without
+  // a data migration.
+  founderPromptState?: 'unasked' | 'answered_no_document' | 'answered_document_pending' | 'answered_document_linked' | null;
+  // Prompt 472 §C — set once, when founderPromptState first becomes
+  // 'answered_document_pending'; read by the reconciliation-eligibility
+  // widening (reconciliation.ts) so a promise like this one is never open
+  // forever with nothing tracking how long it's been open.
+  documentPendingSince?: string | null;
   // Prompt 374 §C — "Está bem assim": the founder dismissed this claim's
   // strengthen suggestion permanently, without touching its status or text
   // (migration 0245). Null/undefined means never dismissed.

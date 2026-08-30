@@ -4,7 +4,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   detectGaps, ruleG1, ruleG2, ruleG3, ruleG3b, ruleG3c, ruleG4, ruleG5, ruleG6, ruleG7, ruleG8,
-  templateFor, QUESTION_TEMPLATES, routeAnswer, rankGaps, impactWhy, GAP_QUESTION_BUDGET, type Gap, type GapContext,
+  templateFor, QUESTION_TEMPLATES, routeAnswer, rankGaps, impactWhy, GAP_QUESTION_BUDGET,
+  isAwaitingDocumentSearch, type Gap, type GapContext,
 } from './company-gaps';
 import { normalizeAtom, joinChipAndFreeText } from './company-claims';
 import type { CompanyClaim, ClaimCategory, ClaimSourceKind, ClaimStatus } from './types';
@@ -18,6 +19,8 @@ function claim(
   over: {
     sourceKind?: ClaimSourceKind; status?: ClaimStatus; updatedAt?: string;
     documentRefs?: CompanyClaim['documentRefs']; gapDisposition?: CompanyClaim['gapDisposition'];
+    // Prompt 472 §A
+    founderPromptState?: CompanyClaim['founderPromptState'];
   } = {},
 ): CompanyClaim {
   const sourceKind = over.sourceKind ?? 'fact';
@@ -27,6 +30,7 @@ function claim(
     evidenceClass: n.evidenceClass, specificity: n.specificity,
     status: over.status ?? 'accepted', updatedAt: over.updatedAt ?? '2026-08-01T00:00:00Z',
     documentRefs: over.documentRefs, gapDisposition: over.gapDisposition,
+    founderPromptState: over.founderPromptState,
   };
 }
 
@@ -282,8 +286,17 @@ describe('G4 — claim aceite sem documento no Vault (Prompt 311 §A: lido direc
 
   // Prompt 358 Phase 1 — a founder's honest "no document exists/will
   // exist" answer must close G4 for good, same as a real document link.
+  //
+  // Prompt 472 §A/§B (Nuno's correction) — this used to be the ONLY source
+  // ruleG4 read for a founder's disposition: gapDisposition. It still IS a
+  // valid source, but now only as a fallback for a claim answered BEFORE
+  // migration 0280 existed (foundersDocumentAnswer, company-gaps.ts) — this
+  // fixture is legacy behavior, kept alive on purpose, not the primary path
+  // anymore. See the describe block below for the NEW primary path
+  // (founderPromptState) and for what changed: gapDisposition alone no
+  // longer means "has evidence", only "don't ask again".
   it.each(['no_document', 'document_pending'] as const)(
-    'gapDisposition=%s suppresses G4 permanently, same as a real document link',
+    'LEGACY: gapDisposition=%s (founderPromptState unset) still suppresses G4 — the pre-0280 fallback',
     (disposition) => {
       const claimWithDisposition = claim('team-x', 'equipa', 'Jane Doe, CTO (founder). Ex-Google, 8 years in ML.', { gapDisposition: disposition });
       expect(ruleG4([claimWithDisposition], ctx())).toEqual([]);
@@ -293,6 +306,72 @@ describe('G4 — claim aceite sem documento no Vault (Prompt 311 §A: lido direc
   it('a claim with no disposition and no document still asks — the fix never silently loosens the real gate', () => {
     const claimWithout = claim('team-x', 'equipa', 'Jane Doe, CTO (founder). Ex-Google, 8 years in ML.', { gapDisposition: null });
     expect(ruleG4([claimWithout], ctx())).toHaveLength(1);
+  });
+});
+
+// Prompt 472 §A/§B — company_claims' gap_disposition column used to answer
+// two different questions from one field: "ask the founder again?" (which
+// it answered correctly) and "does this claim have real documentary
+// evidence?" (which it answered WRONGLY — a founder's "it's coming" is not
+// proof anything was ever found). Production, 30/08: 7 accepted claims read
+// as "documented" this way with zero real document_refs and zero
+// reconciliation attempts, ever. founder_prompt_state (migration 0280) is
+// the new "ask again?" axis; "has evidence?" was never a stored column
+// (hasDocumentaryEvidence reads document_refs directly, always live, never
+// a flag that can go stale) — see company-gaps.ts's own comments for the
+// full reasoning.
+describe('Prompt 472 — founder_prompt_state vs. real evidence: the two axes never collapse', () => {
+  const jane = () => claim('team-x', 'equipa', 'Jane Doe, CTO (founder). Ex-Google, 8 years in ML.');
+
+  it('answered_document_pending with no evidence IS eligible for search AND is never asked again — the exact rule §A states', () => {
+    const c = claim('team-x', 'equipa', jane().statement, { founderPromptState: 'answered_document_pending' });
+    expect(ruleG4([c], ctx())).toEqual([]); // never re-asked
+    expect(isAwaitingDocumentSearch(c)).toBe(true); // but still searchable
+  });
+
+  it('answered_no_document is NOT eligible for search and is NOT asked — both axes closed, which is what distinguishes it from document_pending', () => {
+    const c = claim('team-x', 'equipa', jane().statement, { founderPromptState: 'answered_no_document' });
+    expect(ruleG4([c], ctx())).toEqual([]); // never re-asked
+    expect(isAwaitingDocumentSearch(c)).toBe(false); // searching for something the founder said doesn't exist is waste, not diligence
+  });
+
+  it('a claim with real documentRefs is unaffected by this prompt — same as it worked before the fix', () => {
+    const c = claim('team-carla', 'equipa', 'Carla Dias is a WomenTechEU awardee', {
+      documentRefs: [{ documentId: 'doc-1', documentName: 'Grant Agreement.pdf', page: 3 }],
+    });
+    expect(ruleG4([c], ctx())).toEqual([]);
+    expect(isAwaitingDocumentSearch(c)).toBe(false); // already has evidence — nothing left to search for
+  });
+
+  it('founderPromptState=unasked never suppresses G4 on its own — "unasked" means exactly that', () => {
+    const c = claim('team-x', 'equipa', jane().statement, { founderPromptState: 'unasked' });
+    expect(ruleG4([c], ctx())).toHaveLength(1);
+    expect(isAwaitingDocumentSearch(c)).toBe(false);
+  });
+
+  // answered_document_linked is never produced by routeAnswer in this
+  // prompt's scope (see company-gaps.ts's own AnswerRouting comment) — the
+  // one real path to it, attaching a document, always populates
+  // documentRefs in the SAME action (link_claim_document_ref), which is
+  // what actually suppresses G4 for that claim. This fixture documents that
+  // boundary rather than leaving it silently assumed: the value alone,
+  // without real evidence, is not itself sufficient — by design, since it
+  // should never occur in practice.
+  it('founderPromptState=answered_document_linked ALONE (no real documentRefs) does not suppress G4 — real evidence is what actually covers this state in practice', () => {
+    const c = claim('team-x', 'equipa', jane().statement, { founderPromptState: 'answered_document_linked' });
+    expect(ruleG4([c], ctx())).toHaveLength(1);
+  });
+
+  it('isAwaitingDocumentSearch is pure — the same claim gives the same answer every time (reprocessing never flips it by accident)', () => {
+    const c = claim('team-x', 'equipa', jane().statement, { founderPromptState: 'answered_document_pending' });
+    expect(isAwaitingDocumentSearch(c)).toBe(isAwaitingDocumentSearch(c));
+    expect(isAwaitingDocumentSearch(c)).toBe(true);
+    // The DB-level "same signature -> ran:false, zero new model calls, zero
+    // duplicate rows" guarantee this feeds into is unchanged by this prompt
+    // (reconcileGapCandidates itself isn't touched, only which claims are
+    // handed to it) and already has its own dedicated coverage —
+    // reconciliation.test.ts's F.2 ("a second run with the same signature
+    // returns ran:false and makes zero new model calls").
   });
 });
 
@@ -611,8 +690,13 @@ describe('routeAnswer — Prompt 358 Phase 1: which answers are claims, and whic
 
   it('G4\'s three options each route somewhere real, never as verbatim claim text', () => {
     expect(routeAnswer('G4', 'Yes — I will attach it', false)).toEqual({ kind: 'attach_document' });
-    expect(routeAnswer('G4', 'It exists but is not in the Vault yet', false)).toEqual({ kind: 'set_disposition', disposition: 'document_pending' });
-    expect(routeAnswer('G4', 'No document yet', false)).toEqual({ kind: 'set_disposition', disposition: 'no_document' });
+    // Prompt 472 §A/§B — these two used to write gap_disposition
+    // (set_disposition); they now write founder_prompt_state instead, via a
+    // separate routing kind — see AnswerRouting's own comment for why G4's
+    // answers and G7's 'Confirmed, it stays as-is' (still set_disposition,
+    // below) are deliberately no longer the same mechanism.
+    expect(routeAnswer('G4', 'It exists but is not in the Vault yet', false)).toEqual({ kind: 'set_founder_prompt_state', state: 'answered_document_pending' });
+    expect(routeAnswer('G4', 'No document yet', false)).toEqual({ kind: 'set_founder_prompt_state', state: 'answered_no_document' });
   });
 
   it('G5 "Still true" refreshes the existing claim instead of creating a duplicate', () => {
