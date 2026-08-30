@@ -27,7 +27,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { claimsAvailable, blueprintAnalysesAvailable } from '@/lib/blueprint-capability';
-import { gapDispositionAvailable, gapQuestionsAvailable } from '@/lib/document-extraction-capability';
+import { gapDispositionAvailable, gapQuestionsAvailable, founderPromptStateAvailable } from '@/lib/document-extraction-capability';
 import { normalizeAtom, joinChipAndFreeText } from '@/lib/company-claims';
 import { routeAnswer, ruleG1, ruleG6, impactWhy, type GapRule } from '@/lib/company-gaps';
 import { routeFreeTextAnswer } from '@/lib/answer-routing';
@@ -178,6 +178,25 @@ export async function POST(req: Request) {
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
     await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false, disposition: routing.disposition });
     await recordGapQuestion(admin, orgId, targetClaimId, body.gapKey, body.rule, questionText, routing.disposition);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (routing.kind === 'set_founder_prompt_state') {
+    if (!targetClaimId) return NextResponse.json({ ok: false, error: 'No claim to update.' }, { status: 400 });
+    if (!(await founderPromptStateAvailable())) return NextResponse.json({ ok: false, error: 'not configured' });
+    const patch: Record<string, unknown> = { founder_prompt_state: routing.state, updated_at: new Date().toISOString() };
+    // Prompt 472 §C — "a promise without a date is a promise without an
+    // end": recorded the moment this state is FIRST set, never touched
+    // again after — this route only ever reaches this branch once per
+    // gap_key (gap_questions' own unique(org_id, gap_key) constraint, and
+    // shouldStopAskingFounder now suppresses the question the moment this
+    // write lands), so there is no re-answer path here that would need to
+    // decide whether to refresh an existing timestamp.
+    if (routing.state === 'answered_document_pending') patch.document_pending_since = new Date().toISOString();
+    const { error } = await admin.from('company_claims').update(patch).eq('id', targetClaimId).eq('org_id', orgId);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    await recordAsked(admin, orgId, body.analysisId, { key: body.gapKey, rule: body.rule, answered: true, dismissed: false, disposition: routing.state });
+    await recordGapQuestion(admin, orgId, targetClaimId, body.gapKey, body.rule, questionText, routing.state);
     return NextResponse.json({ ok: true });
   }
 

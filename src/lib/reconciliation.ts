@@ -43,7 +43,7 @@ import { logAiCall, computeCostEur } from './ai-cost-log';
 import { providerErrorMessage } from './ai-provider-error';
 import type { DocumentExtractionData } from './document-extraction';
 import { readExistingClaims, hasAnyVaultDocument } from './company-knowledge-db';
-import { ruleG4 } from './company-gaps';
+import { ruleG4, isAwaitingDocumentSearch } from './company-gaps';
 
 export interface ReconcilableDocument {
   id: string;
@@ -302,7 +302,25 @@ export async function runReconciliationForOrg(
     hasAnyVaultDocument(admin, orgId),
   ]);
   const live = claims.filter((c) => c.status !== 'rejected');
-  const candidateIds = new Set(ruleG4(live, { founders: [], now: new Date(), hasVaultDocuments }).map((g) => g.relatedClaimIds[0]));
+  const g4CandidateIds = new Set(ruleG4(live, { founders: [], now: new Date(), hasVaultDocuments }).map((g) => g.relatedClaimIds[0]));
+  // Prompt 472 §C — a claim the founder marked "it's coming" is exactly
+  // what shouldStopAskingFounder now correctly suppresses from ruleG4's own
+  // gap list (that IS the fix — G4 must never ask about it again), which
+  // means it can no longer reach this candidate set through g4CandidateIds
+  // alone. Without this union it would go back to being invisible to
+  // reconciliation too — silenced AND unsearched, reproducing the exact bug
+  // this prompt exists to close. isAwaitingDocumentSearch (company-gaps.ts)
+  // is the SAME predicate the "never re-ask, but keep searching" rule in
+  // this prompt's own spec describes; sharing it here rather than
+  // re-deriving "pending, no evidence yet" a second way is deliberate — see
+  // its own comment for why. This is the entire "become eligible again
+  // when a new document enters the Vault" mechanism §C asks for: every
+  // existing caller of runReconciliationForOrg already re-runs this
+  // candidate computation (on-demand before /api/blueprint's queue, the
+  // extraction-pipeline chain, document rename, the daily cron) — nothing
+  // new to wire.
+  const pendingSearchIds = new Set(live.filter(isAwaitingDocumentSearch).map((c) => c.id));
+  const candidateIds = new Set([...g4CandidateIds, ...pendingSearchIds]);
   const candidates = live.filter((c) => candidateIds.has(c.id));
   const documents = await readReconcilableDocuments(admin, orgId);
   return reconcileGapCandidates(admin, apiKey, orgId, candidates, documents);

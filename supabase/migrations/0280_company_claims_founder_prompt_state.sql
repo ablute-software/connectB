@@ -1,0 +1,51 @@
+-- Prompt 472 §A/§D — company_claims already has ONE column (gap_disposition,
+-- migration 0234) answering two different questions at once: "ask the
+-- founder again?" and "does this claim have real documentary evidence?"
+-- gap_disposition's 'no_document'/'document_pending' values correctly
+-- answer the first question and, by construction, WRONGLY answer the
+-- second — nothing ever verified that a 'document_pending' claim actually
+-- got a document. Confirmed in production, 30/08/2026: 7 accepted claims
+-- read as "documented" for exactly this reason, with zero real
+-- document_refs and zero reconciliation attempts, ever — including one
+-- that literally states "there is a document in the Vault confirming that
+-- Hugo Ferreira holds the position of CSO", never once searched for.
+--
+-- founder_prompt_state is the "ask again?" axis, and ONLY that axis. The
+-- "has real evidence?" axis is deliberately NOT a column here — it is
+-- computed live from the existing document_refs column
+-- (hasDocumentaryEvidence, company-gaps.ts), never stored, so there is
+-- nothing on that side that can drift out of sync with reality the way
+-- gap_disposition did.
+--
+-- document_pending_since records when a claim FIRST entered the
+-- 'answered_document_pending' state — "a promise without a date is a
+-- promise without an end."
+--
+-- Structural note (AUTONOMOUS_EXECUTION_MODE_v2 §12): this is `add column`
+-- on an EXISTING table, not new tables — outside what applies without a
+-- human, unlike 0279 (four new tables, applied without waking anyone).
+-- This migration therefore ships WAITING_VERIFIER, not self-merged:
+--   - both columns are nullable, with no default, and no not-null;
+--   - ZERO backfill in this migration — it creates structure only.
+--     Interpreting EXISTING gap_disposition values (the 7 claims above)
+--     is CODE, not DDL: company-gaps.ts's foundersDocumentAnswer reads
+--     gap_disposition as a fallback, at request time, for any claim whose
+--     founder_prompt_state is still null — it never writes to either
+--     column for those rows. Writing a real data migration that PERSISTS
+--     old gap_disposition values into founder_prompt_state is explicitly
+--     out of scope for this prompt (see its own report) — a later,
+--     separate prompt, once this one is verified;
+--   - gap_disposition itself is NOT removed or altered by this migration,
+--     and nothing here changes what it means for G5/G7's own unrelated
+--     'confirmed' semantics — the two columns coexist.
+--
+-- Rollback: `alter table company_claims drop column founder_prompt_state,
+-- drop column document_pending_since;`. Safe at any point before the
+-- application code that reads/writes them is deployed — nothing else in
+-- the schema references either column, and no other row anywhere depends
+-- on their presence.
+alter table company_claims
+  add column if not exists founder_prompt_state text
+    check (founder_prompt_state is null or founder_prompt_state in
+      ('unasked', 'answered_no_document', 'answered_document_pending', 'answered_document_linked')),
+  add column if not exists document_pending_since timestamptz;

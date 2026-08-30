@@ -212,15 +212,64 @@ const G4_DOCUMENTABLE_CATEGORIES = new Set<ClaimCategory>(['prova_tecnica', 'val
 // ablute_ "Carla Dias is a WomenTechEU awardee" claim is category `equipa`,
 // which hasVaultDocuments never covered (by design, see the comment above) —
 // only a per-claim link like this one can.
-// Prompt 358 Phase 1 — a founder-recorded disposition ('no_document' or
-// 'document_pending') is ALSO "covered", same as a real document link: the
-// founder was asked, answered honestly that no document exists (or exists
-// outside the Vault), and that answer must close the gap for good — never
-// re-ask the same "is there a document?" question forever just because the
-// honest answer wasn't itself a document.
-function hasDocumentBacking(c: CompanyClaim): boolean {
-  return (Array.isArray(c.documentRefs) && c.documentRefs.length > 0)
-    || c.gapDisposition === 'no_document' || c.gapDisposition === 'document_pending';
+// Prompt 472 §A/§B (Nuno's correction) — this used to be hasDocumentBacking,
+// which ALSO treated a founder disposition of 'no_document'/'document_pending'
+// as "covered by evidence". That was wrong: a founder saying "it's coming"
+// answers "should I stop asking?", never "does a document actually exist
+// now" — and nothing ever went looking to find out. Confirmed in
+// production: 7 accepted claims read as "documented" this way with zero
+// real document_refs and zero reconciliation attempts, ever — including
+// one that literally states a document is in the Vault, never once
+// searched for. This function is now the "has evidence?" axis and ONLY
+// that axis — it reads document_refs and nothing else, on purpose, so a
+// founder's promise can never itself count as proof the promise was kept.
+function hasDocumentaryEvidence(c: CompanyClaim): boolean {
+  return Array.isArray(c.documentRefs) && c.documentRefs.length > 0;
+}
+
+// Prompt 472 §A — the OTHER half of what hasDocumentBacking used to
+// conflate: has the founder already answered "is there a document for
+// this?", so G4 must never ask again — independent of whether real
+// evidence has actually shown up. Reads founder_prompt_state (migration
+// 0280), the source of truth going forward.
+//
+// The fallback to the OLD gap_disposition column below is deliberate, not
+// a stopgap left in by accident: migration 0280 ships with ZERO backfill
+// (its own header explains why), so every claim answered BEFORE this
+// column existed — including the very claims that motivate this whole
+// prompt — has founder_prompt_state = null forever, unless something reads
+// their old answer. "Never re-ask" has to stay true for THOSE claims too,
+// or this fix would re-open the exact question Prompt 358 already closed
+// for them, on the claims it matters most for. This reads old data at
+// request time; it never writes it — the "interpreting old data is code,
+// not DDL" license the migration's own header states explicitly. A genuine
+// data migration that PERSISTS these into founder_prompt_state is
+// deliberately separate, later work (see this prompt's own report).
+function foundersDocumentAnswer(c: CompanyClaim): 'no_document' | 'document_pending' | null {
+  if (c.founderPromptState === 'answered_no_document') return 'no_document';
+  if (c.founderPromptState === 'answered_document_pending') return 'document_pending';
+  if (c.founderPromptState === 'answered_document_linked' || c.founderPromptState === 'unasked') return null;
+  // founder_prompt_state is null/undefined: the migration isn't live yet,
+  // or (once it is) this claim was answered before the column existed.
+  if (c.gapDisposition === 'no_document' || c.gapDisposition === 'document_pending') return c.gapDisposition;
+  return null;
+}
+
+function shouldStopAskingFounder(c: CompanyClaim): boolean {
+  return foundersDocumentAnswer(c) !== null;
+}
+
+// Prompt 472 §C — the rule that connects the two axes: a claim the founder
+// said "it's coming" for stays searchable by the reconciliation engine for
+// as long as no real evidence has shown up, REGARDLESS of whether G4 still
+// flags it (it doesn't, once shouldStopAskingFounder is true — that's the
+// whole fix). Exported so reconciliation.ts's own candidate computation can
+// widen its eligible set with exactly this, rather than re-deriving
+// "pending, no evidence yet" a second way — two independent definitions of
+// the same state is how gap_disposition's original conflation happened in
+// the first place.
+export function isAwaitingDocumentSearch(c: CompanyClaim): boolean {
+  return foundersDocumentAnswer(c) === 'document_pending' && !hasDocumentaryEvidence(c);
 }
 
 // Prompt 358 Phase 2.4 — "presumption of truth": what the founder states is
@@ -247,7 +296,8 @@ export function ruleG4(claims: CompanyClaim[], context: GapContext): Gap[] {
   const documentable = claims.filter((c) => G4_DOCUMENTABLE_CATEGORIES.has(c.category) && !isTeamJudgment(c));
   return documentable
     .filter((c) => c.status === 'accepted'
-      && !hasDocumentBacking(c)
+      && !shouldStopAskingFounder(c)
+      && !hasDocumentaryEvidence(c)
       && !(c.category === 'prova_tecnica' && context.hasVaultDocuments))
     .map((c) => ({
       rule: 'G4' as const, severity: 'medium' as const,
@@ -773,7 +823,20 @@ export type AnswerRouting =
   | { kind: 'attach_document' }
   // Records the founder's decision directly on the EXISTING claim
   // (migration 0234) instead of ever creating a second row to hold it.
-  | { kind: 'set_disposition'; disposition: NonNullable<CompanyClaim['gapDisposition']> };
+  // G5/G7 ONLY, since Prompt 472 — G4's two disposition answers moved to
+  // set_founder_prompt_state below; writing gap_disposition from here for
+  // G4 would keep producing a stale column nothing reads correctly for
+  // that question anymore (see company-gaps.ts's own foundersDocumentAnswer
+  // and hasDocumentaryEvidence for why).
+  | { kind: 'set_disposition'; disposition: NonNullable<CompanyClaim['gapDisposition']> }
+  // Prompt 472 §A/§B — G4's two "is it in the Vault?" answers now write
+  // founder_prompt_state (migration 0280), never gap_disposition: that
+  // column's old dual use (also read as "has evidence") is exactly the bug
+  // this prompt fixes, so continuing to write it from here would just
+  // recreate a stale copy. 'answered_document_linked'/'unasked' are never
+  // produced by THIS routing — see foundersDocumentAnswer's own comment for
+  // where those two values do (and, today, don't yet) get set.
+  | { kind: 'set_founder_prompt_state'; state: 'answered_no_document' | 'answered_document_pending' };
 
 const OPTION_ROUTING: Partial<Record<GapRule, Record<string, AnswerRouting>>> = {
   G1: { 'Not yet': { kind: 'dismiss' } },
@@ -781,8 +844,8 @@ const OPTION_ROUTING: Partial<Record<GapRule, Record<string, AnswerRouting>>> = 
   G3c: { 'No one yet': { kind: 'dismiss' } },
   G4: {
     'Yes — I will attach it': { kind: 'attach_document' },
-    'It exists but is not in the Vault yet': { kind: 'set_disposition', disposition: 'document_pending' },
-    'No document yet': { kind: 'set_disposition', disposition: 'no_document' },
+    'It exists but is not in the Vault yet': { kind: 'set_founder_prompt_state', state: 'answered_document_pending' },
+    'No document yet': { kind: 'set_founder_prompt_state', state: 'answered_no_document' },
   },
   G5: {
     'Still true': { kind: 'refresh_claim' },
