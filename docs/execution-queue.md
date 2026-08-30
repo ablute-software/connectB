@@ -1,7 +1,7 @@
 # Fila de execução — Sherlock Deal
 
 **Local canónico:** `docs/execution-queue.md` no repositório `connectB`.
-**Atualizado:** 30/08/2026 (17:40 — 479 fecha o 477; 478 e 473 antes)
+**Atualizado:** 30/08/2026 (21:05 — 480 e 481; migrações 0282 e 0283 aplicadas)
 **Lê-se com:** `AUTONOMOUS_EXECUTION_MODE_v2` (o §0 desse documento aponta
 para este ficheiro).
 
@@ -50,9 +50,10 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **479** | Fechar o 477 com a decisão escrita no código | `READY — prompt entregue` | `DONE` — só comentários | — |
 | 474 | Bloco 2 no ecrã (factos tipados visíveis) | `NO_PROMPT — não executar` | — | 471 + prompt |
 | 475 | Invariável 6 — visibilidade que propaga | `NO_PROMPT — não executar` | — | prompt |
-| 476 | Lock por organização (465 §F.3) | `NO_PROMPT — não executar` | — | decisão de desenho |
+| ~~476~~ **480** | Lock por organização (465 §F.3) | `READY — prompt entregue` | `DONE` — `14c54f6`; migração `0282` **aplicada** | — |
+| **481** | Bloco 4 — Capital Landscape | `READY — prompt entregue` | `DONE` — `40bebdc`; migração `0283` **aplicada** | — |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
-| — | Bloco 4 — Capital Landscape | `NO_PROMPT — não executar` | — | **decisão de produto** (fontes) |
+| ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
 | G2 | Aceitação visual na app | — | `DONE` — 30/08 14:17, 3 hipóteses criadas | — |
 
 **Ordem recomendada:** ~~merge do 472 → D3 → D1 → D2~~ — **tudo feito**, e o
@@ -456,9 +457,15 @@ Estão aqui para saberes para onde isto vai. **Nenhuma é executável.**
   Tem escolhas de desenho reais.
 - **Bloco 5 / milestone D:** derivações CONFIRMED/CHALLENGED/DISCOVERED/
   UNRESOLVED. O maior salto que falta.
-- **Bloco 4 — Capital Landscape:** não existe; o 460 removeu
-  players/rounds do menu. **Precisa de decisão de produto sobre fontes
-  antes de qualquer prompt.**
+- ~~**Bloco 4 — Capital Landscape:** não existe; o 460 removeu
+  players/rounds do menu.~~ **Executado como 481 (`40bebdc`).** E as duas
+  premissas desta linha estavam erradas, o que só se soube ao verificar:
+  o 460 **não** removeu por dados não fiáveis (removeu entradas de menu que
+  apontavam para um painel estático — o commit dele diz que os cartões reais
+  vivem no separador Market analysis), e o Bloco 4 **já existia** ali:
+  `ComparableRoundsCard`, viva, com proveniência por item e duas fontes já
+  fundidas no servidor. O 481 acrescentou a terceira (entrada manual) e os
+  avisos obrigatórios, em vez de reconstruir.
 
 ---
 
@@ -549,3 +556,86 @@ era aceite com `competitor_type` nulo — que é o contrato do 449/450, não uma
 regressão. Um documento sem facetos utilizáveis continua sem classificação e
 continua a ser aceite exactamente como hoje (§5 do prompt). Comentário
 corrigido no mesmo commit.
+
+---
+
+## 480 — lock por organização na reconciliação — `DONE`
+
+`14c54f6` em `main`. Migração `0282` (`reconciliation_locks`) **aplicada e
+verificada**: tabela presente, RLS ligada, **zero políticas de propósito**
+(só o service-role lhe toca), 0 locks órfãos.
+
+**Consulta de alcance (§21):**
+```sql
+select count(*) as locks_orfaos_agora
+from reconciliation_locks where locked_at < now() - interval '90 seconds';
+```
+Valor a 30/08: **0**. Deve andar sempre perto de zero; um valor
+persistentemente alto significa reconciliações a rebentar sem libertar o
+lock antes do auto-recovery de 90s entrar, e merece investigação própria.
+
+**Dois desvios ao prompt, ambos por a realidade do deploy não bater certo
+com o texto:**
+
+1. **A `/api/blueprint` espera 2,5s, não 15s.** Essa rota **não declara
+   `maxDuration`**, por isso corre no default da plataforma (10s no plano
+   Hobby). Uma espera literal de 15s não degradaria com elegância — passava
+   o orçamento da própria função e matava o carregamento do painel, e
+   ainda por cima no chamador que o próprio prompt identifica como o mais
+   provável de colidir (dois separadores abertos). O prompt diz "orçamento
+   curto (ex.: até ~15s)" — exemplo, não mínimo. O resultado visível ao
+   founder é idêntico: a resposta chega, com `reconciliationSkipped`.
+2. **A `MarketDataPanel` não chama a `/api/blueprint`.** O prompt diz que
+   os quatro painéis chamam; três chamam. A quarta chega à reconciliação
+   pela `/api/reconciliation/run`. Os quatro têm o aviso, como o prompt
+   quer — a rota por onde a bandeira chega é que difere num deles.
+
+**Achado da passagem adversarial:** dois caminhos de retry no ciclo de
+aquisição (a linha desapareceu entre o insert e a leitura; tomámos conta de
+um lock obsoleto) saltam de propósito o orçamento de espera — o que também
+significava que nenhum deles era limitado pelo prazo. Não é um spin quente
+(cada passagem custa duas idas à base de dados), e é por isso que podia
+ter passado despercebido. Limitado agora por um tecto de tentativas, com
+teste próprio.
+
+**Nota de risco, registada e não corrigida:** o cron varre as orgs em
+série. Com o orçamento por omissão, 11 orgs × 15s dá 165s no pior caso, e a
+`/api/automations` também não declara `maxDuration`. Na prática o cron corre
+às 9h com a app parada, por isso os locks estão livres e a espera é zero —
+mas se um dia o sweep começar a ficar incompleto, é aqui que se olha.
+
+---
+
+## 481 — Bloco 4: Capital Landscape — `DONE`
+
+`40bebdc` em `main`. Migração `0283` (`org_capital_landscape_rounds`)
+**aplicada e verificada**: tabela presente, RLS ligada, política
+`is_org_member`.
+
+**A verificação "o que existe hoje" que o prompt exigia contradisse as
+premissas do próprio prompt** — e é o achado que mais interessa:
+- o **460 não removeu por dados não fiáveis**; removeu entradas de menu que
+  apontavam para um painel estático;
+- o **Bloco 4 já existia**: `ComparableRoundsCard`, viva e renderizada, com
+  duas fontes já fundidas no servidor (`market-rounds-merge.ts`) e
+  proveniência por item;
+- logo, a metade "pesquisa pública" do §1 é um mecanismo **que já corre**.
+  O que faltava mesmo era a entrada manual e os avisos.
+
+**Consulta de alcance (§21)** — adaptada ao esquema real (as três fontes
+vivem em tabelas diferentes, por reutilização e não por duplicação):
+```sql
+select
+  (select count(*) from org_capital_landscape_rounds where source='manual') as inseridos_a_mao,
+  (select count(*) from market_research_items
+     where section='rounds' and status='accepted')                          as de_fonte_publica,
+  (select count(*) from investor_investments)                               as de_competidores_seguidos;
+```
+Valores a 30/08: **0 / 0 / 0** — `AINDA NAO APLICAVEL`, exactamente como o
+prompt previu. Nota lateral: `investor_investments` a zero significa que
+esta carta **sempre** mostrou o estado vazio; nunca houve rondas para ver.
+
+**§6 verificado mecanicamente, não afirmado:** a tabela nova é lida por
+exactamente duas rotas founder-only, nenhuma superfície de investidor lhes
+chega, e o grupo `rounds` do `dossier-fetch` lê só `investor_investments`,
+já atrás do portão de publicação `visibleGroups`.
