@@ -214,6 +214,45 @@ export async function POST(req: Request) {
   const gate = checkMarketDataGate({ sectors, stage: orgRow.stage, oneLiner: orgRow.one_liner }, marketDocs.length > 0, hasMarketOrSolutionClaim);
   if (!gate.eligible) return NextResponse.json({ ok: false, error: 'Complete your company basics first.' }, { status: 403 });
 
+  // PROMPT 493, Decision 2 — org_market_data is the FOUNDER'S CLAIM side of
+  // Bloco 5 (North Star §8, Milestone D). Recorded here, at the shape the
+  // founder actually writes through, before any comparison engine exists.
+  //
+  // The alternative considered and rejected: company_claims (migration 0176,
+  // type CompanyClaim in types.ts, Prompt 219) is the pitch-NARRATIVE
+  // knowledge base — problema/solucao/prova_tecnica/traccao_gtm/equipa/
+  // mercado_timing/funding/ask. Different domain, and it holds no market
+  // number at all. The numbers the founder states live here:
+  // market_size_value_eur, market_size_scope, market_size_year,
+  // market_size_source, growth_pct (migration 0241) and approach_note
+  // (migration 0249 — NOT 0241, which is where an earlier draft of this
+  // note placed it). They are edited in the "Added by you" panel
+  // (AddedByYouPanel, MarketDataPanel.tsx) and written by this handler.
+  //
+  // So Bloco 5 compares org_market_data (claim) against market_facts
+  // (evidence) — literally North Star §3.3's own example, "founder says
+  // €200M+, verified €204.7M -> CONFIRMED".
+  //
+  // TWO THINGS MEASURED WHILE WRITING THIS, both of which the engine's
+  // author needs and neither of which was obvious:
+  //
+  // 1. The MarketSizeCard (Prompt 487) does NOT read this table, contrary
+  //    to what an earlier draft of this note claimed. It fetches
+  //    /api/market-data/facts only, and that route never touches
+  //    org_market_data. Today the founder's claim and the typed evidence
+  //    are rendered by two components that share no data path — which is
+  //    precisely the gap Bloco 5 closes, and worth knowing before assuming
+  //    half of it already exists.
+  //
+  // 2. THIS TABLE IS ALREADY PARTLY INVESTOR-FACING. dossier-fetch.ts reads
+  //    approach_note into the published dossier when the `rings` group is
+  //    visible. That is legitimate (content DECLARED by the founder — see
+  //    migration 0249's header), but it makes a trap concrete: a Bloco 5
+  //    verdict is the opposite kind of thing. "CHALLENGED — the founder's
+  //    number is not supported by the evidence" is performance DERIVED by
+  //    the platform about the founder, which CLAUDE.md's privacy root rule
+  //    forbids from every investor-facing surface outright, with no toggle.
+  //    A verdict must never travel alongside the field it judges.
   const body = await req.json().catch(() => ({})) as {
     market_size_value_eur?: number | null; market_size_scope?: string | null; market_size_year?: number | null;
     market_size_source?: string | null; growth_pct?: number | null;

@@ -56,6 +56,31 @@ export type DeltaType =
   | 'NEW_REGULATORY_CONSTRAINT' | 'MISSING_EXPECTED_EVIDENCE'
   | 'SOURCE_CONFLICT' | 'ASSUMPTION_UNSUPPORTED';
 
+// Prompt 493, Decision 1 — Bloco 5 (North Star §8, Milestone D, "Sherlock
+// challenges the founder") reuses these four values AS A TYPE, and nothing
+// else. Written down before any derivation engine exists, because the
+// cheapest moment to decide this is before there is code depending on the
+// answer.
+//
+// WHAT THIS TYPE IS TODAY: the verdict of the WEB RESEARCH path, per
+// hypothesis. Computed by computeVerdict() (market-assessment-engine.ts)
+// and stored in market_research_items.change_class (migration 0274).
+//
+// WHAT BLOCO 5 MAY AND MAY NOT DO WITH IT:
+//   - MAY reuse the four values (its verdict can be an alias of this type,
+//     carrying its own comment explaining that they are the same four
+//     answers to a DIFFERENT question);
+//   - MUST NOT call computeVerdict() — that function reads a hypothesis and
+//     a research run, neither of which Bloco 5 has;
+//   - MUST NOT write market_research_items.change_class. A Bloco 5 verdict
+//     is about a founder claim versus typed evidence, not about a
+//     hypothesis versus a research run. Same column, different proposition.
+//
+// This is the 477/479 decision being exercised, not overturned. 479 refused
+// to unify this vocabulary with the typed facts' validation_status/
+// verification_status and wrote "revisita-se quando houver caso concreto".
+// Bloco 5 is that concrete case, and the answer it produces is: share the
+// VALUES, never the machinery or the storage.
 export type ChangeClass = 'CONFIRMED' | 'CHALLENGED' | 'DISCOVERED' | 'UNRESOLVED';
 
 export type ComparisonBaseline =
@@ -104,6 +129,43 @@ export interface InsightCandidate {
 
 // Dual classification — the founder can reject without deleting the fact
 // or changing Sherlock's own reading (phase 446/447).
+//
+// PROMPT 493, Decision 3 — THIS TYPE IS UNUSED. Measured 31/08 across src/,
+// scripts/ and docs/: the only occurrence of the name FounderDisposition,
+// and the only occurrence of 'REJECTED_AS_RELEVANT', is this line. It has
+// never been wired to anything.
+//
+// It is left in place rather than deleted, on purpose, because deleting it
+// would remove the evidence of the mistake it caused. North Star invariable
+// 4 cites `founderDisposition ≠ sherlockClassification` as a precedent
+// "already in production since Prompt 455" — it never was. The citation
+// almost certainly traces to principle 1 at the top of this file
+// ("factStatus, founderDisposition and sherlockClassification are
+// independent states"), which is a design principle written in phase 444,
+// not a description of shipped code. "Exists in the file" is not "is in
+// production", and this type is the standing example.
+//
+// THE REAL PRECEDENT, verified in production and the one Bloco 5 must
+// generalise when it needs "the founder may disagree but may not
+// reclassify":
+//   - the value is computed once by classifyCompetitor()
+//     (market-competition.ts) and assigned in exactly two places —
+//     market-research-structured.ts (web path) and market-document-extract.ts
+//     (document path). Both call the classifier; neither accepts a value
+//     from the model or the founder;
+//   - it is stored inside the `structured` jsonb, and there is NO founder
+//     setter for that field anywhere — the rule is enforced by ABSENCE OF A
+//     WRITE PATH, not by a permission check;
+//   - accepting is gated: research/respond/route.ts returns HTTP 409 when
+//     the classification is NOT_COMPETITOR, UNRESOLVED or STATUS_QUO;
+//   - rejecting moves `status` to 'rejected' and never touches `structured`;
+//   - market-competitor-write.ts fills competitor_type only where it is
+//     null, and deliberately never touches `relation` — which IS
+//     founder-editable — so the founder-editable and platform-derived
+//     fields stay on opposite sides of a line that is drawn in code.
+//
+// So the pattern to copy is: derive it in one function, give it no setter,
+// and gate the transition that would make it consequential. Not this type.
 export type FounderDisposition = 'ACCEPTED' | 'REJECTED_AS_RELEVANT' | 'PENDING';
 
 // No logic beyond the types yet — canPromoteToInsight() and the
