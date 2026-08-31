@@ -39,6 +39,7 @@ import Link from 'next/link';
 import { Card } from '@/components/ui';
 import { browserClient } from '@/lib/supabase';
 import { marketDataEmptyState } from '@/lib/market-data-gate';
+import { MarketSizeCard } from './market/MarketSizeCard';
 import { MarketRingsCard } from './market/MarketRingsCard';
 import { CompetitorsCard } from './market/CompetitorsCard';
 import { ComparableRoundsCard } from './market/ComparableRoundsCard';
@@ -464,6 +465,14 @@ function MarketAnalysisView({ added, setAdded, savingAdded, saveAdded, ringCount
   return (
     <>
       <MarketPublishToggle />
+
+      {/* Prompt 487 §4 — Block 2 goes FIRST, at the same level as
+          Competitors and Comparable rounds, not after everything else.
+          MarketFactsCard stays where it is: it is the audit register this
+          reading is drawn from, not the reading itself. */}
+      <Card title="Market size">
+        <MarketSizeCard />
+      </Card>
 
       <Card title="Market rings">
         <MarketRingsCard onChanged={load} />
