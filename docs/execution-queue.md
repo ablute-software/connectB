@@ -64,6 +64,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **492** | Colisão de título com OUTRO documento contada como releitura | `READY — prompt entregue` | `DONE` — `f9546df`; sem migração | — |
 | **493** | Bloco 5 — as três decisões antes do motor | `READY — prompt entregue` | `DONE` — `a4a0d82`; só comentários | — |
 | **495** | Colisão cross-document chega ao founder | `READY — prompt entregue` | `DONE` — `ab219b0`; sem migração | — |
+| **496** | Zona Incomplete domina o Market Data tab | `READY — prompt entregue` | `DONE` — `47f56ed`; sem migração | — |
 | **494** | Configuração do autoMode no ficheiro errado | `READY — prompt entregue` | `BLOQUEADO` — escrita recusada pelo classificador nos dois caminhos | Nuno |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
 | ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
@@ -1701,3 +1702,89 @@ o ir buscar ao `Record<string, unknown>` do `telemetry` no cliente. Mesmo
 ciclo, mesma fonte de verdade, na mesma sem escrita nova — mas tipado de
 ponta a ponta e igual ao caminho que os três contadores irmãos já fazem, em
 vez de um cast não verificado dentro do componente.
+
+---
+
+## 496 — a zona Incomplete lida como material de apoio, não como a resposta — `DONE`
+
+**Estado:** `DONE` — commit `47f56ed`, em `main`. Sem rota nova, sem escrita
+nova, sem migração.
+
+**Medido primeiro, e pior do que o prompt estimava.** Dos **80**
+`market_facts`: **68** `incomplete` (58 `market_size` + 10 `growth`) contra
+**12** `founder_reported`, **0** `actionable` e **0** `invalid`. Ou seja, a
+secção que não responde a nenhuma das quatro perguntas não era só a maior
+coisa do separador — era **85% do cartão** — e a zona "Market Intelligence"
+que ela ofuscava **ainda não existe de todo**. O "55 contra ~22" do prompt
+tinha a forma certa e ficava aquém.
+
+**O que mudou.** No `MarketFactsCard.tsx`, o bloco `Incomplete` (13 linhas,
+uma div cinzenta sempre aberta por facto, sem cap, sem agrupamento) dá lugar
+a um componente `IncompleteZone`. **Dois `<details>` encaixados**: a zona
+colapsa numa linha — *"Incomplete — 68 items across 16 markets"* — e, ao
+abrir, mostra **uma linha colapsada por mercado** com a contagem, em vez de
+todas as linhas de uma vez. O `market-facts-view.ts` ganha
+`groupIncompleteByMarket` e `incompleteZoneSummary`, ambas puras. **Nada é
+escondido nem apagado**: as mesmas 68 linhas, a dois cliques em vez de vários
+ecrãs de scroll.
+
+**Porquê as duas direcções e não uma.** Colapsar sozinho resolvia "a maior
+coisa no ecrã" e, ao primeiro clique, reproduzia exactamente a parede que
+vinha remover — 68 linhas indiferenciadas sem nada a separar *smart toilet*
+de *biosensors* de *digital health*. Um cap sozinho ("mostro 5, e mais 63")
+deixa a zona com o mesmo peso visual e troca a parede por um número sem
+estrutura. Agrupado-e-encaixado é a única combinação em que **abrir a zona
+diz alguma coisa** ao founder: para que mercados há matéria-prima, e quanta.
+O vocabulário `<details>` não é novo aqui — a zona `invalid` usa-o desde o
+467.
+
+**Igualdade exacta da string, e o preço vê-se.** O agrupamento usa o
+`marketDefinition` guardado, verbatim. Nos dados reais isso significa que
+*"combined addressable opportunity across point-of-care urinalysis and
+biosensors"* e *"Combined addressable opportunity…"* — a diferir numa **única
+maiúscula**, duas linhas cada — ficam **dois grupos**, tal como *"biosensors"*
+(12) e *"Biosensors Market"* (11). Os dois casos estão fixados em testes com
+as strings de produção. Fundi-los seria merge sem prova positiva, e o facto
+de parecer obviamente certo a olho humano é precisamente a razão pela qual
+não pode ser o código a decidi-lo. **Isso é do Bloco 5, com evidência.**
+
+**Encontrado na passagem adversarial e corrigido antes do commit:** usar
+`g.label` como `key` do `<details>` de grupo colidiria para um mercado
+literalmente chamado *"Market not stated"* (o rótulo do grupo nulo). Passou a
+usar o valor cru, único por construção por ser a chave do agrupamento. O caso
+`null` vs `"null"` tem teste próprio.
+
+**Não mexido, conforme a lista do prompt:** `actionable` e `founder_reported`
+(as **únicas** remoções do diff são o bloco `Incomplete` antigo e a linha de
+import que ele exigia), `MarketSizeCard`, `org_market_data`. **Não** foi
+acrescentada proveniência às linhas `incomplete` — um facto incompleto é
+malformado por definição, e pôr-lhe proveniência ao lado dava-lhe uma
+credibilidade que o `factZone` já decidiu que não tem. Visibilidade ao
+investidor inalterada: `/readiness` é rota só do founder e o `dossier-fetch.ts`
+continua a nunca ler `market_facts`.
+
+Nove testes novos. **DESVIOS AO PROMPT:** nenhum.
+
+---
+
+## Verificações humanas pendentes — RESOLVIDAS a 31/08 pela leitura do Nuno
+
+O Nuno correu uma passagem de *"Read my documents"* (13:47 e 16:12 de 31/08).
+Isso fechou, **sem ninguém ter de perguntar**, as duas verificações que
+estavam à espera:
+
+- **491 — `A FUNCIONAR`.** `select count(*) from market_facts where
+  publishability is not null` → **14** linhas com `publishability =
+  'not_publishable'`, derivadas e escritas pelo overload de 9 argumentos; 66
+  ficam a `NULL` (as anteriores ao 491, nunca reescritas) e **0**
+  `publishable` — que é a resposta honesta, porque toda a evidência continua
+  `'private'` e não há UI para mudar isso. Exactamente o verdicto que a
+  consulta de alcance previa.
+- **490 — `A FUNCIONAR`.** O par contextless "Biosensors Market" saiu
+  **fundido**: uma única linha `interval` 30 000 000 000–34 000 000 000 USD,
+  `external_estimate`, sem sobras. Com a chave do 488 sozinha teria ficado por
+  fundir.
+
+Continua por confirmar (precisa da consola aberta durante a leitura): a linha
+`[document-extract] telemetry` do 486 e o balde `title_collision_cross_document`
+do 492/495 — nenhum deles observável a posteriori por SQL, por construção.
