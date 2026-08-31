@@ -1316,3 +1316,101 @@ order by 1, 2;
 | `A FUNCIONAR` | depois de uma leitura nova do deck: "Biosensors Market" aparece como **um** `interval` 30–34B com `metodo` null **mais** um `lower_bound` 30B com `metodo='other'` — duas linhas, não três |
 | `EXISTE MAS NINGUEM LA CHEGA` | continuam três `lower_bound`/`upper_bound` soltos → o modelo deixou de marcar `bound`, ou passou a preencher `geography`, e o problema está na extracção, não no emparelhamento |
 | `AINDA NAO APLICAVEL` | não houve leitura nova desde o deploy — as linhas de 30/08 ficam como estão, porque nada nesta alteração reescreve o passado |
+
+---
+
+## 491 — a invariável 6 tinha um elo, e era decorativo — `DONE`
+
+**Estado:** `DONE` — commit `33c2c88`, em `main`. **Migração `0284` aplicada
+e verificada em produção antes do commit.**
+
+North Star §3, invariável 6: as permissões propagam
+`evidence.visibility → fact.publishability → derivation.publishability →
+artifact.eligibility`. Só o primeiro elo existia (`market_evidence.visibility`,
+migração `0279`) e está **inerte** — medido a 31/08: as **43** linhas de
+`market_evidence` são todas `'private'`, nada em `src/` alguma vez escreveu
+essa coluna, e o grep confirma que também **ninguém a lê** (a
+`/api/market-data/facts` selecciona sete colunas de `market_evidence` e
+`visibility` não é nenhuma delas). Este prompt constrói o segundo elo **e
+liga-o**: ao contrário do primeiro, nasce com um valor a ser escrito em todas
+as escritas.
+
+**Migração `0284`, aditiva:**
+- `market_facts.publishability` — nullable, sem default, sem not-null, com
+  `CHECK` que admite `NULL` (mesma forma da `0280`);
+- um **overload de 9 argumentos** do `write_market_fact`, que chama o de 8 e
+  depois carimba o valor derivado — **dentro da mesma invocação**, logo da
+  mesma transacção, para que "o `writeMarketFact` faz exactamente UMA chamada
+  mutante" continue literalmente verdadeiro.
+
+**Porquê um overload e não uma substituição.** Uma lista de argumentos
+diferente é uma função diferente em Postgres, por isso substituir no lugar é
+impossível; e largar o de 8 partiria o código que está vivo em produção na
+janela entre aplicar a migração e o deploy aterrar — uma avaria auto-infligida
+no caminho da extracção, por arrumação. O `p_publishability` **não tem
+default** de propósito: com default, uma chamada com os 8 argumentos nomeados
+antigos casaria com as DUAS funções e o Postgres não saberia escolher.
+**Verificado empiricamente** com um par descartável de overloads da mesma
+forma: a chamada nomeada de 2 argumentos resolveu para a de 2, a de 3 para a
+de 3, sem ambiguidade em nenhuma direcção.
+
+**Porquê um vocabulário de dois valores e não os três do `visibility`.**
+Reutilizar `('private','publishable','published')` poria na coluna um valor
+que a derivação **nunca pode emitir**: `'published'` é um estado do mundo, não
+algo computável a partir da evidência — é assunto do quarto elo. O 467 v3 §5
+tirou `'conflicting'` do `verification_status` exactamente por esta razão.
+
+**A leitura da invariável, escrita no código para ninguém ter de a
+reconstruir.** "Exclusivamente" é uma propriedade do CONJUNTO: no momento em
+que UMA peça de evidência não é privada, a dependência deixa de ser exclusiva.
+Logo — publicável sse pelo menos uma peça tem `visibility !== 'private'`. O
+comentário diz também o que a função **deliberadamente não verifica**: o
+"suficiente para a sustentar sozinha" da invariável é um juízo semântico sobre
+significado, e uma função que fingisse fazê-lo estaria a inventar uma
+avaliação.
+
+**Hoje a resposta honesta para todos os factos é "não publicável"**, e os
+testes dizem-no em vez de o esconderem atrás de uma fixture que finge o
+contrário. Nada aqui constrói a UI para o founder mudar `evidence.visibility`,
+e nada é ligado ao `MarketPublishToggle` nem ao `dossier-fetch.ts` — sistemas
+diferentes, sem consumidor comum, o mesmo risco que a decisão do 477/479 já
+registou.
+
+**Verificado em produção antes do commit** (nos ACLs, não no facto de o
+`revoke` ter sido escrito): coluna nullable sem default; `CHECK` admite NULL;
+**ambos** os overloads com `EXECUTE` só para `postgres`/`service_role`; os 67
+factos pré-existentes continuam a NULL, zero backfill. O wrapper foi provado
+ponta a ponta dentro de um bloco `DO` cuja **única** saída é um `RAISE` —
+escreveu um facto, leu `publishability = 'publishable'` e uma observação, e
+reverteu tudo; a contagem seguinte confirmou 67 factos e 43 evidências
+inalterados, sem resto nenhum. Advisors do Supabase: **zero ERRORs**, e nem a
+função nova nem a coluna aparecem sinalizadas.
+
+**DESVIOS AO PROMPT:** **um, e é da fronteira, não do critério.** A secção de
+risco do prompt sugeria "um default estático de `'private'`" para as linhas
+existentes; a fronteira aditiva do §12 proíbe `add column` **com** default, por
+isso a coluna ficou nullable sem default e as linhas existentes ficam a `NULL`.
+Mesmo resultado que o prompt queria (sem backfill computado), sem alargar a
+fronteira — e `NULL` é o marcador mais honesto, porque essas linhas nunca foram
+derivadas de todo. Registado aqui em vez de substituído em silêncio.
+
+**Consulta de alcance (§21):**
+```sql
+select
+  (select count(*) from market_facts) as factos,
+  (select count(*) from market_facts where publishability is null) as nunca_derivados,
+  (select count(*) from market_facts where publishability = 'not_publishable') as derivados_nao_publicaveis,
+  (select count(*) from market_facts where publishability = 'publishable') as derivados_publicaveis,
+  (select count(*) from market_evidence where visibility <> 'private') as evidencia_nao_privada;
+```
+| verdicto | significa |
+|---|---|
+| `A FUNCIONAR` | depois de uma leitura nova do deck: `nunca_derivados` deixa de cobrir tudo — os factos escritos nessa passagem têm `not_publishable` (correcto: `evidencia_nao_privada` = 0, não há UI para mudar isso) |
+| `EXISTE MAS NINGUEM LA CHEGA` | houve leitura nova e **todos** os factos continuam a `NULL` → o overload de 9 argumentos não está a ser chamado, e o problema é do deploy ou da resolução de overload, não da derivação |
+| `AINDA NAO APLICAVEL` | não houve leitura nova desde o deploy — os 67 factos ficam a `NULL`, que é exactamente o que "a derivação nunca correu nesta linha" quer dizer |
+
+O terceiro e o quarto elo (`derivation.publishability`, `artifact.eligibility`)
+continuam por construir **de propósito**: não há derivações (Bloco 5 continua
+`NO_PROMPT`) nem artefacto publicado que leia `market_facts`, e construir uma
+permissão para um consumidor que não existe é exactamente como o primeiro elo
+acabou decorativo.
