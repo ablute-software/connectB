@@ -1,7 +1,7 @@
 # Fila de execução — Sherlock Deal
 
 **Local canónico:** `docs/execution-queue.md` no repositório `connectB`.
-**Atualizado:** 31/08/2026 (484; sem migração)
+**Atualizado:** 31/08/2026 (485; sem migração)
 **Lê-se com:** `AUTONOMOUS_EXECUTION_MODE_v2` (o §0 desse documento aponta
 para este ficheiro).
 
@@ -55,6 +55,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **482** | Colisão de título engolia a classificação do 478 | `READY — prompt entregue` | `DONE` — `4c81be9`; sem migração | — |
 | **483** | Concorrente já aceite recebe a classificação em falta | `READY — prompt entregue` | `DONE` — `d1339f0`; sem migração | — |
 | **484** | "Read my documents" falhava antes de chegar ao modelo | `READY — prompt entregue` | `DONE` — `619d329`; sem migração | — |
+| **485** | O tempo é da resposta, não da leitura do PDF | `READY — prompt entregue` | `DONE` — `7d9c083`; sem migração | — |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
 | ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
 | G2 | Aceitação visual na app | — | `DONE` — 30/08 14:17, 3 hipóteses criadas | — |
@@ -899,3 +900,101 @@ order by created_at desc limit 5;
 `Competitive_Landscape_and_Moat.docx.pdf` sozinho. Passe ou falhe, desta vez
 há sempre rasto: ou uma linha em `ai_call_log`, ou uma mensagem específica
 no ecrã, ou uma linha na consola do browser a dizer qual dos três casos foi.
+
+---
+
+## 485 — o tempo é da resposta, não da leitura do documento — `DONE`
+
+`7d9c083` em `main`. **Sem migração.**
+
+**A hipótese do prompt estava ao contrário, e são duas medições que o
+mostram.** O §2 supunha que o tempo se ia a **ler** o PDF e propunha baixar
+o `MAX_EXTRACTION_PAGES`. Duas linhas do `ai_call_log` de 30/08:
+
+```
+21:52:47.871  document-extract    31 725 in / 4 000 out
+21:52:48.590  document-extract   157 444 in / 4 000 out
+```
+
+Duas chamadas concorrentes, **cinco vezes** de diferença no input, a
+terminar **a 0,72 s uma da outra**. Se fosse a leitura a mandar no relógio,
+a segunda teria acabado muitos segundos depois. E na direcção contrária, na
+mesma noite e com o mesmo tecto de 60 s:
+
+```
+21:51:53.074  market-thesis/suggest-from-documents  155 915 in / 652 out
+```
+
+**4,75× o input** da chamada que estoura, e volta à vontade — porque gera
+652 tokens em vez de 4 000.
+
+**Logo o relógio é da saída.** Baixar as páginas encolhia a variável que não
+está a limitar. O que limita é o `max_tokens`, que esta rota bate
+**exactamente** — 4000/4000/4000/4000 em todas as passagens desde o 478 —
+o que também quer dizer que todas elas foram cortadas a meio do JSON sem o
+dizer.
+
+**O ritmo**, da única cronometragem limpa: download `22:18:06.882Z` → linha
+`ai_call_log` `22:18:47.348Z` = 40,5 s para 4 000 tokens ⇒ ~100 tokens/s
+**no melhor caso**. Pedir 4 000 tokens dentro de um orçamento de ~45 s é
+pedir ~40 s de geração ao melhor ritmo alguma vez observado — e não há
+melhor caso todos os dias. Foi por isso que o prazo real do 484 disparou em
+vez de a chamada voltar.
+
+**O que mudou:** o `max_tokens` passa a ser **derivado do que sobra do
+orçamento**, a um ritmo deliberadamente mais lento do que qualquer um
+medido (`0,07 tok/ms` contra `~0,099` observado), preso a `[1500, 4000]` e
+**nunca acima** do que a rota já pedia — um pedido maior é uma chamada mais
+lenta. O `MIN_MODEL_WAIT_MS` deixou de ser um número redondo e passou a
+estar amarrado à mesma aritmética: abaixo do orçamento em que o piso de
+saída se torna pagável, a rota recusa começar em vez de construir um pedido
+que não pode cumprir o próprio prazo. E o system prompt passa a pedir os
+achados mais importantes primeiro, para que o corte, quando bater, perca a
+cauda menos importante em vez do que calhar.
+
+**Tudo o que o 484 garantiu fica intacto** (§4): JSON real em qualquer
+saída, reserva pós-modelo, e `stop_reason === 'max_tokens'` registado —
+agora com `maxTokens` e `tokensOut` ao lado, para a próxima passagem dizer
+se o tecto novo ainda bate.
+
+**A troca, dita e não enterrada:** uma passagem passa a reportar **menos
+achados** em troca de **voltar mesmo**. É exactamente o critério de
+aceitação do §5 ("uma chamada que **voltou** dentro do prazo").
+
+**DESVIOS AO PROMPT — dois:**
+1. **Não baixei o `MAX_EXTRACTION_PAGES`** nem dividi a chamada em duas — as
+   duas opções que o §2 oferecia. A evidência do §1 diz que nenhuma delas
+   ataca a variável que limita. Dividir em duas chamadas sequenciais também
+   não cabe: o tempo total é o mesmo e paga-se o input duas vezes.
+2. **Não consegui medir o PDF em si** (páginas depois do `truncatePdfToPages`,
+   bytes do base64), como o §1 também pedia: não há chave de serviço neste
+   ambiente e o bucket `data-room` é privado, e nem a tabela `documents` nem
+   a `document_extractions` guardam número de páginas. As duas medições do
+   `ai_call_log` acima respondem à mesma pergunta por outro caminho, e
+   respondem-na melhor: comparam input contra tempo directamente.
+
+**LACUNA NOVA, criada por esta correcção e registada em vez de escondida:**
+se a passagem truncar, as linhas inseridas levam na mesma o `run_signature`,
+por isso **uma nova leitura da mesma selecção faz curto-circuito** e a cauda
+perdida não é recuperável. Isto já era verdade antes; o tecto mais baixo
+torna-o mais provável. Corrigir isto (não gravar assinatura numa passagem
+truncada, ou dizê-lo ao founder) é **decisão de produto** e precisa de
+prompt próprio — envolve re-cobrar uma leitura.
+
+**Consulta de alcance (§21):**
+```sql
+select created_at, tokens_in, tokens_out, cost_eur
+from ai_call_log
+where route = '/api/market-data/document-extract'
+order by created_at desc limit 3;
+```
+| verdicto | significa |
+|---|---|
+| `A FUNCIONAR` | **há linha nova** — a chamada voltou dentro do prazo (é o critério do §5, independentemente de `tokens_out`) |
+| `EXISTE MAS NINGUEM LA CHEGA` | há linha nova mas `tokens_out` igual ao `maxTokens` do log — voltou, mas ainda trunca; o passo seguinte é reduzir secções por chamada |
+| `AINDA NAO APLICAVEL` | continua sem linha nova → o gargalo não é o comprimento da resposta, e o `console.error` novo traz `spentMs`/`modelBudgetMs`/`maxTokens` para o dizer |
+
+**Nota sobre o `maxDuration`** (§3): continua em 60 e não subiu. Vale a pena
+saberes que o plano Pro do Vercel leva funções até 300 s — resolveria isto
+de vez e sem cortar achados nenhuns. **É decisão de custo tua**, não uma
+correcção de código, e está aqui só como informação.
