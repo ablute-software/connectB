@@ -85,16 +85,16 @@ describe('document-extract: the model call must own its own deadline', () => {
   it('leaves real room for the writes that happen after the model answers', () => {
     const src = routeSource();
     const reserve = /const POST_MODEL_RESERVE_MS = ([\d_]+);/.exec(src);
-    const minWait = /const MIN_MODEL_WAIT_MS = ([\d_]+);/.exec(src);
     expect(reserve, 'POST_MODEL_RESERVE_MS is gone').not.toBeNull();
-    expect(minWait, 'MIN_MODEL_WAIT_MS is gone').not.toBeNull();
     // logAiCall, the typed-facts writes and one to three queries per proposal
     // all run after the model answers. A reserve near zero passes every other
     // check here and still loses everything that comes after the response.
     expect(Number(reserve![1].replace(/_/g, ''))).toBeGreaterThanOrEqual(10_000);
-    // And a floor below which starting a call is just paying for an answer
-    // that cannot arrive.
-    expect(Number(minWait![1].replace(/_/g, ''))).toBeGreaterThan(0);
+    // MIN_MODEL_WAIT_MS used to be a literal here. Prompt 485 tied it to
+    // MIN_USEFUL_MODEL_BUDGET_MS instead — this guard caught that change on
+    // the first run, which is the guard working. Its value is now checked
+    // where it is derived (document-extract-budget.test.ts) and its identity
+    // is pinned by the dedicated test below.
   });
 
   it('a failed model call returns JSON instead of letting the function die', () => {
@@ -106,6 +106,27 @@ describe('document-extract: the model call must own its own deadline', () => {
     const afterCall = call.slice(0, 2000);
     expect(afterCall).toMatch(/catch \(e\)/);
     expect(afterCall).toMatch(/NextResponse\.json\(\{\s*\n?\s*ok: false/);
+  });
+
+  it('the ask is sized to the budget, never a hardcoded ceiling (Prompt 485)', () => {
+    const src = routeSource();
+    // The flat `max_tokens: 4000` was hit on every single pass since Prompt
+    // 478 — both the slowest possible response and a truncated one, every
+    // time. It must come from the budget now, and the route must not quietly
+    // grow a literal back.
+    expect(src).toMatch(/const maxTokens = maxOutputTokensForBudget\(modelBudgetMs\);/);
+    expect(src).toMatch(/max_tokens: maxTokens,/);
+    expect(src).not.toMatch(/max_tokens:\s*\d/);
+  });
+
+  it('the floor on waiting agrees with the floor on what is asked for', () => {
+    const src = routeSource();
+    // If MIN_MODEL_WAIT_MS were lower than MIN_USEFUL_MODEL_BUDGET_MS, the
+    // route would start calls whose ask it has already clamped up beyond what
+    // the remaining time can carry — a request built to miss its own
+    // deadline. Tying the two together is the point; a round number here
+    // would silently break it.
+    expect(src).toMatch(/const MIN_MODEL_WAIT_MS = MIN_USEFUL_MODEL_BUDGET_MS;/);
   });
 
   it('a response cut off at max_tokens is recorded, not treated as complete', () => {

@@ -26,6 +26,7 @@ import { prepareDocumentForAi, type ExtractionSkipReason } from '@/lib/document-
 import { truncatePdfToPages } from '@/lib/pdf-truncate';
 import { upsertOrEnrichResearchItem } from '@/lib/market-research-item-upsert';
 import { MAX_EXTRACTION_PAGES } from '@/lib/document-extraction';
+import { maxOutputTokensForBudget, MIN_USEFUL_MODEL_BUDGET_MS } from '@/lib/document-extract-budget';
 import { marketDocumentExtractionAvailable, marketFactsAvailable } from '@/lib/market-data-capability';
 import { parseMarketExtractionRaw, computeExtractionSignature, type MarketDocRef, type MarketProposal } from '@/lib/market-document-extract';
 import { CANDIDATE_KINDS, CANDIDATE_STAGES } from '@/lib/market-research-structured';
@@ -79,8 +80,12 @@ const MAX_DURATION_MS = 60_000;
 const POST_MODEL_RESERVE_MS = 12_000;
 // Below this there is no point paying for a call whose answer cannot arrive
 // in time. Returning immediately is cheaper AND more honest than starting a
-// request we will abandon.
-const MIN_MODEL_WAIT_MS = 20_000;
+// request we will abandon. Prompt 485 tied this to the output floor rather
+// than leaving it a round number: it must be at least enough for the
+// time-to-first-token allowance plus MIN_OUTPUT_TOKENS at the conservative
+// rate, or the route would start calls it has already decided are too small
+// to be worth paying for. model-call-deadline.test.ts pins the agreement.
+const MIN_MODEL_WAIT_MS = MIN_USEFUL_MODEL_BUDGET_MS;
 
 const SYSTEM = 'You read a startup founder\'s own documents (pitch decks, market sizing sheets, competitive landscape '
   + 'analyses, business plans) and extract ONLY market facts that are literally present in the text — market size '
@@ -119,6 +124,11 @@ const SYSTEM = 'You read a startup founder\'s own documents (pitch decks, market
   // of that growth (five facets per competitor, each with free prose, on a
   // competitive-landscape document full of competitors).
   + 'Keep every note short — a dozen words or so, never a paragraph. Long notes are the reason a reading gets cut off before it finishes. '
+  // Prompt 485 — the ceiling is now sized to the time available, so it can
+  // bind. When it does, the cut lands wherever the model happened to be;
+  // this makes the tail the least important part instead of a coin toss,
+  // and stops a half-written item being emitted at the boundary.
+  + 'If you cannot report everything, report the most important findings FIRST and simply stop — never leave an item half-written. '
   + DOCUMENT_CONTENT_INSTRUCTION;
 
 // Prompt 478 — the web path's FACET_SCHEMA minus `sourceUrl`, and that
@@ -381,6 +391,13 @@ export async function POST(req: Request) {
       }, { status: 504 });
     }
 
+    // Prompt 485 — the ask is sized to the time that is actually left, at a
+    // rate deliberately slower than the best one ever measured here. The old
+    // flat 4000 was hit on EVERY pass since 478 (4000/4000/4000/4000), which
+    // means the response was both the slowest it could be and truncated
+    // mid-JSON every single time.
+    const maxTokens = maxOutputTokensForBudget(modelBudgetMs);
+
     let res: Response;
     try {
       res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -388,7 +405,7 @@ export async function POST(req: Request) {
         headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
         signal: AbortSignal.timeout(modelBudgetMs),
         body: JSON.stringify({
-          model, max_tokens: 4000, system: SYSTEM,
+          model, max_tokens: maxTokens, system: SYSTEM,
           messages: [{ role: 'user', content: [...interleaved, { type: 'text', text: wrapDocumentContent(userText) }] }],
           tools: [{ name: 'report_market_data', description: 'Return the extracted market facts.', input_schema: MARKET_EXTRACT_TOOL_SCHEMA }],
           tool_choice: { type: 'tool', name: 'report_market_data' },
@@ -402,7 +419,7 @@ export async function POST(req: Request) {
       const timedOut = name === 'TimeoutError' || name === 'AbortError';
       console.error(`[market-data/document-extract] model call did not return`, {
         timedOut, name, message: e instanceof Error ? e.message : String(e),
-        deadlineMs: modelBudgetMs, spentMs, documents: documentBlocks.length,
+        deadlineMs: modelBudgetMs, spentMs, maxTokens, documents: documentBlocks.length,
       });
       return NextResponse.json({
         ok: false,
@@ -422,7 +439,7 @@ export async function POST(req: Request) {
     truncatedRun = data.stop_reason === 'max_tokens';
     if (truncatedRun) {
       console.warn(`[market-data/document-extract] response hit max_tokens — the extraction is incomplete`, {
-        documents: documentBlocks.length, tokensOut: data.usage?.output_tokens ?? null,
+        documents: documentBlocks.length, maxTokens, tokensOut: data.usage?.output_tokens ?? null,
       });
     }
     costEur = computeCostEur(model, data.usage);
