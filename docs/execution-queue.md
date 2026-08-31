@@ -59,6 +59,8 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **486** | Duas leituras pagas, zero efeito — instrumentação | `READY — prompt entregue` | `DONE` — `563b7a3`; sem migração; **espera medição** | — |
 | **487** | Bloco 2 — Market Size lido dos factos que já existem | `READY — prompt entregue` | `DONE` — `cacb09c`; sem migração | — |
 | **488** | Gama partida em dois + cartões zombie do pré-467 | `READY — prompt entregue` | `DONE` — `cea6d7c`; sem migração | — |
+| **490** | Par lower/upper ignorava moeda e método | `READY — prompt entregue` | `DONE` — `5129188`; sem migração | — |
+| **491** | Invariável 6 — segundo elo (`fact.publishability`) | `READY — prompt entregue` | `DONE` — `33c2c88`; migração `0284` **aplicada e verificada** | — |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
 | ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
 | G2 | Aceitação visual na app | — | `DONE` — 30/08 14:17, 3 hipóteses criadas | — |
