@@ -14,7 +14,7 @@ interface StartupOrgRow {
   profileReached80At: string | null; roundRaising: boolean | null; pipelineSize: number; contacted: number;
   activityState: string; pendingAccessRequests: number;
 }
-interface InvestorOrgRow { entityId: string; name: string; verified: boolean; planTier: string | null; seatsLinked: number; startupsAnalyzed: number; activityState: string }
+interface InvestorOrgRow { entityId: string; name: string; verified: boolean; planTier: string | null; seatsLinked: number; seatLimit: number; seatsOverLimit: boolean; startupsAnalyzed: number; activityState: string }
 interface OrganizationsData { lists: Record<string, ActionListRow[]>; startups: StartupOrgRow[]; investors: InvestorOrgRow[] }
 
 const LIST_LABELS: Record<string, string> = {
@@ -108,7 +108,7 @@ export function OrganizationsTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
-                  <th className="py-1.5">Investor</th><th>MatchDeal tier</th><th>Seats linked</th><th>Startups analyzed</th><th>Activity</th>
+                  <th className="py-1.5">Investor</th><th>MatchDeal tier</th><th>Seats (linked / plan)</th><th>Startups analyzed</th><th>Activity</th>
                 </tr>
               </thead>
               <tbody>
@@ -116,7 +116,21 @@ export function OrganizationsTab() {
                   <tr key={o.entityId} className="border-t border-gray-50">
                     <td className="py-1.5 font-medium">{o.name}</td>
                     <td className="text-gray-500">{o.planTier ?? '—'}</td>
-                    <td>{o.seatsLinked}</td><td>{o.startupsAnalyzed}</td>
+                    {/* Prompt 497 — linked seats against what the tier is
+                        billed for. Over-limit is flagged, never acted on:
+                        no seat is revoked and no account is blocked
+                        retroactively; adding a NEW one is what's gated. */}
+                    <td>
+                      <span className={o.seatsOverLimit ? 'font-semibold text-[#B00000]' : ''}>{o.seatsLinked}</span>
+                      <span className="text-gray-400"> / {o.seatLimit}</span>
+                      {o.seatsOverLimit && (
+                        <span className="ml-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-[#B00000]"
+                          title="More seats linked than this tier includes. Existing seats are left alone — only adding another is blocked.">
+                          over
+                        </span>
+                      )}
+                    </td>
+                    <td>{o.startupsAnalyzed}</td>
                     <td><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${ACTIVITY_COLOR[o.activityState]}`}>{o.activityState.replace('_', ' ')}</span></td>
                   </tr>
                 ))}
@@ -125,8 +139,9 @@ export function OrganizationsTab() {
           </div>
         )}
         <p className="mt-2 text-[11px] text-gray-400">
-          Seats/qualified-opportunities/Vault Data Room/DD-access LIMIT usage isn&apos;t shown — investor plan tiers aren&apos;t wired to
-          enforced counters yet (matchdeal_tier_limits governs swipe/like caps only). Manage individual benefits from{' '}
+          Seats are now enforced against the plan tier (blocked when a new one is added, never retroactively) and qualified
+          opportunities against the tier&apos;s monthly cap. Vault Data Room and DD-access limits are still not wired to enforced
+          counters, so their usage isn&apos;t shown here. Manage individual benefits from{' '}
           <Link href="/backoffice/catalog" className="text-[#0E7490] hover:underline">Catalog → Assist</Link>.
         </p>
       </Card>

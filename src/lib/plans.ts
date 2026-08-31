@@ -457,3 +457,78 @@ export const PRIVATE_DETECTIVE_PLAN = {
   description: 'Get a personalized service and pricing.',
   ctaLabel: 'Contact the Sherlock Team',
 };
+
+// --- Investor seats: the enforced rule (Prompt 497) ----------------------
+// `InvestorPlanRow.seats` above was sales copy on /investors and nothing
+// else — backoffice-metrics.ts's own comment named this gap by hand
+// ("Seats/qualified-opportunities/Data Room/DD access LIMITS need the
+// investor plan tiers to actually be wired to enforced counters"). The
+// counter half was already real: an active `matchdeal_investor_members`
+// row IS a linked seat, and investorOrgRows() has counted them since
+// Prompt 123. What was missing is the comparison against the tier's limit
+// at the moment a seat is added.
+//
+// SCOPE, deliberately: seats only. Qualified opportunities already have
+// their own enforced gate (`monthlyCap`, investor-pipeline.ts, Prompt 153);
+// Data Room and DD access limits stay unenforced and MEASURED only — see
+// this prompt's report. `matchdeal_tier_limits()` (swipe/like) is untouched.
+//
+// The tier source of truth is `matchdeal_profiles.plan_tier` (MatchDeal's
+// tier_a/b/c codes), mapped through MATCHDEAL_TIER_TO_INVESTOR_PLAN — NOT
+// `plan_tier_requested`, which is only the investor's request pending a
+// manual back-office application. 'pro_scout' (1 seat) is the fail-closed
+// default for a firm with no tier set anywhere, matching the exact same
+// 'tier_a' fallback investor-pipeline.ts and portal-access.ts already use.
+export function investorSeatLimit(tier: InvestorPlanTier): number {
+  return investorPlanRow(tier).seats;
+}
+
+export interface InvestorSeatVerdict {
+  allowed: boolean;
+  tier: InvestorPlanTier;
+  /** Display name of the tier, e.g. "Pro Scout" — the message must say WHICH plan. */
+  planName: string;
+  /** Seats this tier includes. */
+  limit: number;
+  /** Active seats already linked to this firm, EXCLUDING the seat being added. */
+  used: number;
+  /** Investor-facing explanation when blocked; null when allowed. */
+  reason: string | null;
+}
+
+// Pure: the caller counts the seats and resolves the tier, this decides.
+// `used` is the firm's OTHER active seats — the one being added is never
+// counted in it. The "is this person already seated here?" case is not this
+// function's job and must be settled by the caller BEFORE asking (see
+// investor-seats.ts's checkSeatAvailable and migration 0285's trigger, both
+// of which short-circuit to allowed): re-linking someone who already holds
+// a seat is a no-op write, not growth, and on a firm at or over its limit
+// the remaining seats would otherwise refuse it.
+//
+// Existing over-limit firms are NOT broken by this: the comparison is
+// `used >= limit` at ADD time only, so a firm already sitting above its
+// limit keeps every seat it has — nothing is revoked, downgraded or
+// retroactively blocked. Removing seats from such a firm is Nuno's call,
+// not the code's (measured 2026-08-31: exactly one firm is over its limit,
+// `ablute_ — Internal QA` at 2 seats on tier_a, and it is the internal QA
+// fixture — `source='ablute_internal_qa'`, `catalog_status='demo'` — not a
+// paying account; zero real accounts are over limit).
+export function checkInvestorSeatLimit(args: {
+  tier: InvestorPlanTier;
+  /** Active seats on the firm, excluding the one being added. */
+  used: number;
+}): InvestorSeatVerdict {
+  const row = investorPlanRow(args.tier);
+  const limit = row.seats;
+  const used = Math.max(0, args.used);
+  if (used < limit) {
+    return { allowed: true, tier: args.tier, planName: row.name, limit, used, reason: null };
+  }
+  const nextUp = INVESTOR_PLANS[INVESTOR_PLANS.findIndex((p) => p.tier === args.tier) + 1];
+  const upgrade = nextUp ? ` To add another, upgrade to ${nextUp.name} (${nextUp.seats} seats).` : '';
+  return {
+    allowed: false, tier: args.tier, planName: row.name, limit, used,
+    reason: `Your firm is on ${row.name}, which includes ${limit} seat${limit === 1 ? '' : 's'}`
+      + `, and ${used} ${used === 1 ? 'is' : 'are'} already linked.${upgrade}`,
+  };
+}

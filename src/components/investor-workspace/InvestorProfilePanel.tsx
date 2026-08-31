@@ -261,9 +261,12 @@ function LinkEntityFlow({ onLinked }: { onLinked: () => void }) {
       });
       const body = await res.json();
       // Identity verification Fase A (prompt 63) — a domain mismatch no
-      // longer blocks linking (link/route.ts always succeeds now); this
-      // branch only ever fires for a genuine failure (network, entity
-      // deleted, etc.), never "couldn't verify your domain."
+      // longer blocks linking, never "couldn't verify your domain."
+      // Prompt 497 — it CAN now fail on the firm's seat limit (409):
+      // body.error already carries the full "you're on <plan>, which
+      // includes N seats" explanation, so it renders as-is here; the
+      // structured body.seatLimit is there for a richer treatment later
+      // (an upgrade CTA) without re-parsing the sentence.
       if (!body.ok) { setErr(body.error ?? 'Could not link.'); return; }
       onLinked();
     } finally { setLinking(null); }

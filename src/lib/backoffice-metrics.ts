@@ -6,7 +6,7 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isExcludedOrgName } from './analytics-events';
-import { PLANS } from './plans';
+import { PLANS, MATCHDEAL_TIER_TO_INVESTOR_PLAN, investorSeatLimit } from './plans';
 import { discountedPriceEur, benefitStillActive } from './promo';
 import type { PlanTier } from './types';
 
@@ -902,16 +902,30 @@ export interface InvestorOrgRow {
   // plan is displayed as one firm-level value even though it technically
   // lives per matchdeal_investor_members seat.
   planTierRequested: string | null; planTierRequestedAt: string | null;
-  seatsLinked: number; startupsAnalyzed: number; activityState: 'highly_active' | 'active' | 'low_activity' | 'inactive';
+  seatsLinked: number;
+  // Prompt 497 — seats have been counted here since Prompt 123 but were
+  // never compared against what the tier is billed for. These two close
+  // that half: the limit from INVESTOR_PLANS via plans.ts (single source,
+  // never a hand-copied number), and whether this firm sits above it.
+  // `seatsOverLimit` is a REPORT, not an action — no seat is revoked and no
+  // account is blocked retroactively (see plans.ts's checkInvestorSeatLimit
+  // and migration 0285 for why the gate only fires when a seat is ADDED).
+  seatLimit: number; seatsOverLimit: boolean;
+  startupsAnalyzed: number; activityState: 'highly_active' | 'active' | 'low_activity' | 'inactive';
 }
 
-// 12.2 — per-investor view. Seats/qualified-opportunities/Data Room/DD
-// access LIMITS need the investor plan tiers to actually be wired to
-// enforced counters — today matchdeal_tier_limits() governs swipe/like
-// caps only (Prompt 74's own finding), so seat/opportunity/access limit
-// USAGE isn't tracked yet. Shown here: what IS real (linked seats,
-// startups swiped on, verification, activity) — the rest is a documented
-// gap pending the investor billing/limits build.
+// 12.2 — per-investor view. This comment used to name four unenforced
+// limits (seats, qualified opportunities, Data Room, DD access). Two are
+// now real: qualified opportunities via `monthlyCap` (investor-pipeline.ts,
+// Prompt 153) and SEATS via plans.ts's checkInvestorSeatLimit + migration
+// 0285's trigger (Prompt 497) — seatLimit/seatsOverLimit below are the
+// back-office half of that. Still unenforced and MEASURED only: Vault Data
+// Room access and Due Diligence access, both per-startup-per-month caps in
+// the plan copy with no counter behind them (measured 2026-08-31: 3 grantee
+// accounts across 101 active access_grants, all against a single org; 3
+// due-diligence documents platform-wide, 1 diligence-checklist row — the
+// numbers a future prompt should design against instead of guessing).
+// matchdeal_tier_limits() still governs swipe/like caps only.
 export async function investorOrgRows(admin: SupabaseClient): Promise<InvestorOrgRow[]> {
   const investors = await realInvestorEntities(admin);
   const { data: members } = await admin.from('matchdeal_investor_members').select('id, catalog_entity_id, status');
@@ -965,9 +979,14 @@ export async function investorOrgRows(admin: SupabaseClient): Promise<InvestorOr
     const planTierRequested = memberIds.map((id) => planTierRequestedByMember.get(id)).find(Boolean) ?? null;
     const planTierRequestedAt = memberIds.map((id) => planTierRequestedAtByMember.get(id)).find(Boolean) ?? null;
     const verificationStatus = c.verification_status as 'verified' | 'pending' | 'rejected';
+    // Same 'tier_a' fallback as investor-seats.ts / portal-access.ts — a
+    // firm with no tier set anywhere is treated as the entry plan, never as
+    // unlimited.
+    const seatLimit = investorSeatLimit(MATCHDEAL_TIER_TO_INVESTOR_PLAN[planTier ?? 'tier_a'] ?? 'pro_scout');
     return {
       entityId: c.id, name: c.name, verified: verificationStatus === 'verified', verificationStatus,
       planTier, planTierRequested, planTierRequestedAt, seatsLinked: memberIds.length,
+      seatLimit, seatsOverLimit: memberIds.length > seatLimit,
       startupsAnalyzed: new Set(entitySwipes.map((s) => s.target_profile_id)).size, activityState,
     };
   });
