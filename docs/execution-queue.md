@@ -1,7 +1,7 @@
 # Fila de execução — Sherlock Deal
 
 **Local canónico:** `docs/execution-queue.md` no repositório `connectB`.
-**Atualizado:** 30/08/2026 (21:40 — 482; sem migração)
+**Atualizado:** 31/08/2026 (483; sem migração)
 **Lê-se com:** `AUTONOMOUS_EXECUTION_MODE_v2` (o §0 desse documento aponta
 para este ficheiro).
 
@@ -53,6 +53,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | ~~476~~ **480** | Lock por organização (465 §F.3) | `READY — prompt entregue` | `DONE` — `14c54f6`; migração `0282` **aplicada** | — |
 | **481** | Bloco 4 — Capital Landscape | `READY — prompt entregue` | `DONE` — `40bebdc`; migração `0283` **aplicada** | — |
 | **482** | Colisão de título engolia a classificação do 478 | `READY — prompt entregue` | `DONE` — `4c81be9`; sem migração | — |
+| **483** | Concorrente já aceite recebe a classificação em falta | `READY — prompt entregue` | `DONE` — `d1339f0`; sem migração | — |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
 | ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
 | G2 | Aceitação visual na app | — | `DONE` — 30/08 14:17, 3 hipóteses criadas | — |
@@ -713,3 +714,100 @@ o próprio prompt exclui.
 classificação — o §4 proíbe mexer na aceitação e o prompt exclui
 re-processamento em massa. São 3 linhas em produção. Precisa de um prompt
 próprio.
+
+---
+
+## 483 — o concorrente já aceite que nunca recebia a classificação — `DONE`
+
+`d1339f0` em `main`. **Sem migração.**
+
+Fecha a lacuna residual que o próprio relatório do 482 registou. A guarda 3
+do 482 pára o enriquecimento em `status='pending'`, por isso um
+`org_competitors` criado a partir de um item aceite **antes** de o
+classificador existir ficava com `competitor_type` a null para sempre.
+Produção a 31/08: **13 concorrentes, 13 com `competitor_type` a null** — 10
+`pending` (que o 482 já sabe enriquecer, à espera de uma leitura nova) mais
+**3 `accepted`** sem caminho nenhum.
+
+**O §3 exigia confirmar a chave antes de desenhar a consulta — e a chave não
+existe.** Verificado contra a migração `0246` e o `addOrUpdateCompetitor`: o
+`org_competitors` tem `market_company_id` e **nada** que aponte de volta para
+um `market_research_items`. A única ligação é a que o próprio caminho de
+aceitação percorre:
+
+```
+structured.name (ou .company)
+  -> findMatchingMarketCompany (domínio primeiro, depois lower(name))
+    -> market_companies.id
+      -> org_competitors.market_company_id      [único por org]
+```
+
+O `backfillCompetitorTypeFromClassification` volta a juntá-las percorrendo
+**esse mesmo caminho com esse mesmo comparador** — nunca uma comparação de
+nomes própria. Uma segunda noção de "a mesma empresa" é exactamente o bug
+que o 384 §E colapsou num único caminho de escrita. A leitura é limitada aos
+concorrentes **da org**, nunca uma varredura da biblioteca partilhada.
+
+**Só muda o ramo `accepted` da guarda 3.** `rejected` continua a ser uma
+decisão do founder e fica intacta, e a **linha de item aceite continua a não
+ser reescrita** — está arquivada, não é servida a ninguém, e o `status` não
+se mexe. A única coisa que muda é uma coluna a null num concorrente.
+
+**Deliberadamente não tocados:**
+- **`relation`.** É editável pelo founder (`competitors/route.ts`, acção
+  `edit`, aceita `body.relation`), por isso voltar a derivá-la da nova
+  classificação podia apagar em silêncio uma correcção feita à mão. O "nunca
+  ao contrário" do §2 aplica-se-lhe com mais força do que ao
+  `competitor_type`, que não tem caminho de edição nenhum.
+- **Qualquer `competitor_type` já preenchido** (§2), garantido duas vezes:
+  leitura primeiro, e `.is('competitor_type', null)` no próprio update.
+- **`STATUS_QUO`, `NOT_COMPETITOR` e `UNRESOLVED`** nunca se tornam
+  `competitor_type`: o primeiro é valor válido da coluna mas é um dos três
+  que o portão de aceitação recusa; os outros dois nem sequer são valores
+  válidos. O `isScoredClassification` reutiliza essa regra que já existia.
+
+**Dois factos confirmados antes de escrever o código, e qualquer um deles
+tornaria isto silenciosamente errado:** o join encaixado `market_companies`
+devolve um **objecto** (é assim que o `research/route.ts` e o
+`dossier-fetch` já o lêem, não uma lista); e o `competitor_type` **não é
+seleccionado** pela rota de concorrentes que o founder vê, por isso
+preenchê-lo não pode contradizer o `relation` mostrado ao lado.
+
+**DESVIOS AO PROMPT — um, declarado:** o §2 diz que o preenchimento se faz
+"a partir da linha `market_research_items` que o originou", o que se pode ler
+como "a linha aceite ganha primeiro a classificação, e o concorrente é
+preenchido a partir dela". Não é o que ficou: a linha aceite **não** é
+reescrita (a guarda do 482 mantém-se) e a classificação vem da proposta que
+a reclassifica, que é o que o §4 descreve mecanicamente. Consequência
+registada: a linha arquivada continua com o `structured` antigo enquanto o
+concorrente passa a ter a classificação. A operação é idempotente — na
+passagem seguinte o `competitor_type` já não é null e nada acontece.
+
+**Achado que interessa mais do que a própria tarefa:** o `competitor_type`
+**não tem hoje um único leitor**. Nenhuma rota o selecciona para mostrar,
+nenhum componente o renderiza — as únicas leituras no código são a sonda de
+capacidade e este backfill. O 483 preenche uma coluna que ninguém vê. Isto
+não invalida a tarefa (o prompt pede que seja preenchível, e a consulta de
+alcance mede exactamente isso), mas é um `EXISTE MAS NINGUEM LA CHEGA` novo,
+e fica escrito em vez de passar por sucesso. **Contraste com o 482:** o
+caminho `pending` desse **aparece mesmo** — o `CompetitorsCard` lê
+`structured.sherlockClassification` e agrupa por ela. O caminho `accepted`
+deste não. Mostrar a classificação de um concorrente já aceite precisa de um
+prompt próprio.
+
+**Consulta de alcance (§21):**
+```sql
+select count(*) filter (where competitor_type is not null) as classificados,
+       count(*) as total
+from org_competitors;
+```
+Estado a 31/08, antes: **0 / 13**. Esperado depois do deploy **e de uma
+leitura nova** do `Competitive_Landscape_and_Moat.docx.pdf`: os 3 `accepted`
+passam a ter `competitor_type`. Os 10 `pending` só contam depois de o founder
+os aceitar — já classificados, pelo 482.
+
+| verdicto | significa |
+|---|---|
+| `A FUNCIONAR` | `classificados > 0` depois de uma leitura nova |
+| `EXISTE MAS NINGUEM LA CHEGA` | `classificados > 0` **e** nenhuma superfície os mostra — **é o estado de hoje por construção**, ver o achado acima |
+| `AINDA NAO APLICAVEL` | `total = 0` — a org não segue concorrentes nenhuns |
