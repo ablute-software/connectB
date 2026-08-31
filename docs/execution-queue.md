@@ -61,6 +61,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **488** | Gama partida em dois + cartões zombie do pré-467 | `READY — prompt entregue` | `DONE` — `cea6d7c`; sem migração | — |
 | **490** | Par lower/upper ignorava moeda e método | `READY — prompt entregue` | `DONE` — `5129188`; sem migração | — |
 | **491** | Invariável 6 — segundo elo (`fact.publishability`) | `READY — prompt entregue` | `DONE` — `33c2c88`; migração `0284` **aplicada e verificada** | — |
+| **492** | Colisão de título com OUTRO documento contada como releitura | `READY — prompt entregue` | `DONE` — `f9546df`; sem migração | — |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
 | ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
 | G2 | Aceitação visual na app | — | `DONE` — 30/08 14:17, 3 hipóteses criadas | — |
@@ -1416,3 +1417,89 @@ continuam por construir **de propósito**: não há derivações (Bloco 5 contin
 `NO_PROMPT`) nem artefacto publicado que leia `market_facts`, e construir uma
 permissão para um consumidor que não existe é exactamente como o primeiro elo
 acabou decorativo.
+
+---
+
+## 492 — a colisão com OUTRO documento contada como releitura idempotente — `DONE`
+
+**Estado:** `DONE` — commit `f9546df`, em `main`. Sem migração.
+
+O `upsertOrEnrichResearchItem` devolvia `'unchanged'` para um insert engolido
+**sem nunca ler a linha incumbente**, sempre que a proposta não trouxesse os
+quatro campos de classificação. `segments`/`trends`/`regulatory` **nunca** os
+trazem — para essas secções isso era **todas** as colisões que podem ter — e
+`'unchanged'` é também o que uma releitura honesta do mesmo documento
+devolve. As duas causas eram indistinguíveis no código e na telemetria do
+486, que conta colisões mas nunca comparava o `document_id` da incumbente com
+o do documento acabado de ler.
+
+É o mecanismo do 482 com um âmbito que o 482 nunca reclamou: o 482 corrigiu o
+caso em que os quatro campos existem. Onde nunca existem, nada tinha sido
+corrigido.
+
+**O que mudou.** A leitura passa a acontecer **antes** do guarda da
+classificação, e devolve-se um resultado novo — `'title_collision_cross_document'`
+— quando a incumbente veio de um documento diferente (ou de uma linha sem
+`document_id`). O `isCrossDocumentCollision` é uma função pura à parte, para
+a decisão inteira ser testável sem base de dados. O `OutcomeTally` ganha o
+balde e o `describeExtractionTelemetry` nomeia-o, com uma frase que diz o que
+aconteceu **e o que não foi verificado** — "the contents were never compared"
+é a metade accionável, porque "colidiu" não é a mesma afirmação que "era
+duplicado".
+
+**Não é merge nem overwrite.** Um título igual é ausência de distinção, nunca
+prova de identidade (invariável 14) — resolver a colisão exigiria prova
+positiva que não existe. A correcção é deixar de lhe chamar `'unchanged'`.
+
+**A optimização do próprio 482 é revertida de propósito, e a asserção do teste
+dela é reformada em vez de editada em silêncio.** O guarda 1 estava acima da
+leitura exactamente para poupar um round-trip, e o teste fixava
+`counts.selects === 0`. Sem essa leitura não há como distinguir as duas
+causas, por isso o guarda desceu, o comentário que a defendia foi apagado (um
+comentário desactualizado é pior do que o round-trip que defendia) e o teste
+passa a fixar a metade que continua a importar: **nada é escrito**. O custo é
+limitado — um `select` extra por proposta **em colisão**, nunca por proposta,
+porque um título livre continua a devolver `'inserted'` logo do upsert sem
+leitura nenhuma (com teste próprio).
+
+**Medido, e corrigiu uma afirmação que eu tinha escrito no comentário.** O
+ramo do `document_id` nulo **não** são as zombies pré-467: a divisão é
+perfeitamente limpa — as **143** linhas `web` têm todas `document_id` nulo, e
+as **56** linhas `document` (zombies incluídas) têm todas um id real.
+Comentário e teste corrigidos contra a medição. E a superfície de colisão é
+real, não teórica: `players` tem 17 linhas de documento vindas de **2**
+documentos distintos, e `trends` tem 9 vindas de **2** — e `trends` é
+precisamente uma secção que nunca carrega classificação.
+
+**ACHADO, registado e não corrigido, e é o limite honesto desta alteração:**
+o `extractionSummarySentence` continua a dizer ao founder *"Already read —
+nothing new in these documents."* quando todas as propostas foram engolidas
+cross-document. É a mesma frase que o comentário do próprio 482 condena, e o
+conhecimento para a contradizer passa a existir — mas só num `console.info`
+que o founder nunca abre. Mostrá-lo implica levar o número até ao cliente **e**
+decidir o que dizer sobre uma proposta que ninguém consegue recuperar, o que
+é decisão de produto (o prompt põe a recuperação fora de âmbito) e mexe em
+copy sob a regra de ouro do Sherlock. Decisão do Nuno, não minha — por isso
+fica escrita, não tomada.
+
+**DESVIOS AO PROMPT:** nenhum. O âmbito do prompt (propostas sem os quatro
+campos) está implementado tal e qual; os caminhos com proposta classificada
+(guarda 2, e ambos-classificados do 482 §2) continuam a devolver `'unchanged'`
+simples — e, ao contrário do caso corrigido, esses **leram e compararam** a
+incumbente antes de decidir.
+
+**Alcance (§21) — e aqui a consulta honesta é dizer que não há uma.** Uma
+colisão cross-document real depende de dois documentos genuinamente
+diferentes produzirem o mesmo título; as linhas engolidas, por definição,
+nunca chegam a existir, por isso **não há consulta SQL que a torne observável
+a pedido** — o próprio prompt diz para não fingir que há. O que existe é a
+superfície, essa sim mensurável:
+```sql
+select section, count(*) filter (where source_kind='document') as linhas_documento,
+       count(distinct document_id) filter (where source_kind='document') as documentos_distintos
+from market_research_items group by section
+having count(distinct document_id) filter (where source_kind='document') > 1;
+```
+Hoje devolve `players` (2 documentos) e `trends` (2 documentos) — as duas
+secções onde uma colisão cross-document já é possível. A confirmação de que o
+balde novo funciona vem da telemetria de uma leitura real, não daqui.
