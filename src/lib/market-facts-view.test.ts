@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { factZone, factSummaryLine, missingFieldsLabel, type FactView } from './market-facts-view';
+import {
+  factZone, factSummaryLine, groupIncompleteByMarket, incompleteZoneSummary,
+  missingFieldsLabel, NO_MARKET_STATED_LABEL, type FactView,
+} from './market-facts-view';
 
 function fact(overrides: Partial<Pick<FactView, 'validationStatus' | 'verificationStatus'>> = {}) {
   return { validationStatus: 'valid' as const, verificationStatus: 'founder_reported' as const, ...overrides };
@@ -79,5 +82,94 @@ describe('missingFieldsLabel', () => {
 
   it('falls back to the raw key for an unmapped field rather than dropping it silently', () => {
     expect(missingFieldsLabel(['someNewField'])).toBe('someNewField missing');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Prompt 496 — the Incomplete zone's grouping. The card itself cannot be
+// rendered in a test here (no jsdom, no @testing-library, no JSX transform
+// for vitest), so the whole decision the component makes lives in these two
+// pure functions and is pinned here.
+
+function incompleteOf(marketDefinition: string | null, id: string) {
+  return { id, payload: { marketDefinition } };
+}
+
+describe('groupIncompleteByMarket — Prompt 496', () => {
+  it('groups the real ablute_ shape and orders biggest market first', () => {
+    // The four largest groups measured in production 31/08: biosensors 12,
+    // Biosensors Market 11, point-of-care urinalysis 11, Urinalysis Market 8.
+    const facts = [
+      ...Array.from({ length: 8 }, (_, i) => incompleteOf('Urinalysis Market', `u${i}`)),
+      ...Array.from({ length: 12 }, (_, i) => incompleteOf('biosensors', `b${i}`)),
+      ...Array.from({ length: 11 }, (_, i) => incompleteOf('point-of-care urinalysis', `p${i}`)),
+    ];
+    const groups = groupIncompleteByMarket(facts);
+
+    expect(groups.map((g) => [g.label, g.facts.length])).toEqual([
+      ['biosensors', 12],
+      ['point-of-care urinalysis', 11],
+      ['Urinalysis Market', 8],
+    ]);
+    // Nothing is dropped by grouping — every fact still reachable.
+    expect(groups.reduce((n, g) => n + g.facts.length, 0)).toBe(facts.length);
+  });
+
+  it('EXACT string equality only — a one-letter case difference stays two groups', () => {
+    // Not hypothetical: these two strings both exist in production, two rows
+    // each, differing only in the leading capital. Folding them would be a
+    // merge with no positive proof (invariable 14), and the fact that it
+    // looks obviously right to a human is exactly why the code must not
+    // decide it. Bloco 5's job, with evidence.
+    const groups = groupIncompleteByMarket([
+      incompleteOf('combined addressable opportunity across point-of-care urinalysis and biosensors', 'a'),
+      incompleteOf('Combined addressable opportunity across point-of-care urinalysis and biosensors', 'b'),
+    ]);
+    expect(groups).toHaveLength(2);
+  });
+
+  it('never groups on similarity either — biosensors and Biosensors Market stay apart', () => {
+    const groups = groupIncompleteByMarket([
+      incompleteOf('biosensors', 'a'),
+      incompleteOf('Biosensors Market', 'b'),
+    ]);
+    expect(groups).toHaveLength(2);
+  });
+
+  it('a fact with no market at all gets an honest label, not the string "null"', () => {
+    const groups = groupIncompleteByMarket([incompleteOf(null, 'a'), incompleteOf(undefined as unknown as null, 'b')]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].marketDefinition).toBeNull();
+    expect(groups[0].label).toBe(NO_MARKET_STATED_LABEL);
+  });
+
+  it('a market literally named "null" is not the same as no market', () => {
+    const groups = groupIncompleteByMarket([incompleteOf('null', 'a'), incompleteOf(null, 'b')]);
+    expect(groups).toHaveLength(2);
+  });
+
+  it('ties break by label, so the order is stable across renders', () => {
+    const groups = groupIncompleteByMarket([
+      incompleteOf('smart toilet', 'a'),
+      incompleteOf('corporate wellness', 'b'),
+    ]);
+    expect(groups.map((g) => g.label)).toEqual(['corporate wellness', 'smart toilet']);
+  });
+
+  it('is empty for no facts — the zone renders nothing at all', () => {
+    expect(groupIncompleteByMarket([])).toEqual([]);
+  });
+});
+
+describe('incompleteZoneSummary — Prompt 496', () => {
+  it('states scale and structure, and claims nothing about content', () => {
+    // The real numbers this shipped against.
+    expect(incompleteZoneSummary(68, 16)).toBe('68 items across 16 markets');
+  });
+
+  it('agrees with itself in the singular, both halves independently', () => {
+    expect(incompleteZoneSummary(1, 1)).toBe('1 item across 1 market');
+    expect(incompleteZoneSummary(3, 1)).toBe('3 items across 1 market');
+    expect(incompleteZoneSummary(1, 1)).not.toContain('items');
   });
 });

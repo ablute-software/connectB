@@ -108,6 +108,70 @@ export function missingFieldsLabel(missing: string[]): string {
   return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]} missing`;
 }
 
+// ---------------------------------------------------------------------------
+// Prompt 496 — the Incomplete zone was the biggest thing on the tab.
+//
+// MEASURED 31/08, and worse than the prompt estimated: of 80 market_facts,
+// 68 are `incomplete` (58 market_size + 10 growth) against 12
+// founder_reported, 0 actionable and 0 invalid. So the section that answers
+// none of the four questions was not merely the largest on screen — it was
+// 85% of the card, and the "Market Intelligence" zone it visually dwarfed
+// does not exist yet at all. Every one of the 68 rendered as its own
+// always-open grey div: no cap, no grouping, several screens of scroll.
+//
+// Nothing here hides or deletes a fact. This is grouping and collapsing:
+// the same 68 rows, reachable in two clicks instead of occupying the tab.
+//
+// EXACT STRING EQUALITY, AND ONLY THAT. Grouping keys on the stored
+// marketDefinition verbatim — never on similarity, case-folding, or any
+// inference that two names denote one market. That restraint has a visible
+// price in the real data, which is the point: 'combined addressable
+// opportunity across point-of-care urinalysis and biosensors' and
+// 'Combined addressable opportunity across point-of-care urinalysis and
+// biosensors' differ by ONE capital letter and stay two groups, as do
+// 'biosensors' (12 rows) and 'Biosensors Market' (11). Folding them would
+// be a merge without positive proof — invariable 14 — and the fact that it
+// looks obviously right to a human eye is exactly why the code must not be
+// the one to decide it. That belongs to Bloco 5, with evidence.
+export interface IncompleteMarketGroup<T> {
+  // The stored value, verbatim, or null when the fact never carried one.
+  marketDefinition: string | null;
+  label: string;
+  facts: T[];
+}
+
+// Honest label for the group of facts that never stated a market at all.
+// Zero such rows today (measured), but the branch exists rather than
+// letting a null collapse into the string "null" on screen.
+export const NO_MARKET_STATED_LABEL = 'Market not stated';
+
+export function groupIncompleteByMarket<T extends { payload: { marketDefinition?: string | null } }>(
+  facts: readonly T[],
+): IncompleteMarketGroup<T>[] {
+  const byKey = new Map<string, IncompleteMarketGroup<T>>();
+  for (const f of facts) {
+    const md = f.payload.marketDefinition ?? null;
+    // JSON.stringify keys the null bucket apart from a fact whose market is
+    // literally the four characters "null".
+    const key = JSON.stringify(md);
+    const existing = byKey.get(key);
+    if (existing) existing.facts.push(f);
+    else byKey.set(key, { marketDefinition: md, label: md ?? NO_MARKET_STATED_LABEL, facts: [f] });
+  }
+  // Biggest first (that is the order a founder scans), then by label so the
+  // list is stable across renders and across test runs.
+  return [...byKey.values()].sort((a, b) => b.facts.length - a.facts.length || a.label.localeCompare(b.label));
+}
+
+// "68 items across 16 markets" — the one line the collapsed zone shows. It
+// states scale and structure and claims nothing about content, because the
+// content is precisely what is incomplete.
+export function incompleteZoneSummary(itemCount: number, marketCount: number): string {
+  const items = `${itemCount} item${itemCount === 1 ? '' : 's'}`;
+  const markets = `${marketCount} market${marketCount === 1 ? '' : 's'}`;
+  return `${items} across ${markets}`;
+}
+
 const ZONE_LABEL: Record<FactZone, string> = {
   actionable: 'Market Intelligence',
   founder_reported: 'Founder-reported · unverified',
