@@ -30,8 +30,46 @@ import { backfillCompetitorTypeFromClassification, isScoredClassification } from
 // classification now carries this proposal's. 'competitor_backfilled'
 // (Prompt 483) — the incumbent row was already ACCEPTED, so it is left
 // alone, but the org_competitors row it created had competitor_type null and
-// now carries the classification. 'unchanged' — nothing moved.
-export type ProposalUpsertOutcome = 'inserted' | 'enriched' | 'competitor_backfilled' | 'unchanged';
+// now carries the classification. 'unchanged' — nothing moved, and nothing
+// was lost: the same document being re-read. 'title_collision_cross_document'
+// (Prompt 492) — nothing moved and something may well have been lost: the
+// title was already owned by a row from a DIFFERENT document (or from a row
+// with no document at all), and the two were never compared.
+export type ProposalUpsertOutcome =
+  | 'inserted' | 'enriched' | 'competitor_backfilled' | 'unchanged'
+  | 'title_collision_cross_document';
+
+// Prompt 492 — the whole of the new decision, isolated so it can be tested
+// without a database.
+//
+// A shared title is NOT proof that two readings are the same thing; it is
+// absence of distinction, which invariable 14 says is never grounds for
+// treating two things as one. The unique(org_id, section, title) constraint
+// nevertheless merges them, and `ignoreDuplicates` does it without a word.
+// This function does not fix that — it decides only whether the swallowing
+// deserves to be reported. Same document: it does not (a re-read of the same
+// source producing the same title is genuinely idempotent, nothing is lost).
+// Any other case: it does.
+//
+// A NULL incumbent document_id counts as DIFFERENT, never as "probably the
+// same" — there is no evidence such a row came from the document being read
+// now, and inventing that evidence to keep the quieter answer is the exact
+// move this prompt exists to stop.
+//
+// MEASURED 31/08, correcting what an earlier draft of this comment asserted:
+// the split is perfectly clean and it is NOT the pre-467 legacy rows that
+// have a null document_id. All 143 web-sourced rows have one and all 56
+// document-sourced rows (the pre-467 zombies included) have a real
+// document_id. So this branch is reached by web incumbents only — for which
+// "another document" is loose wording but the substance is exact: a
+// different source, whose content was never compared with this proposal's.
+export function isCrossDocumentCollision(
+  existingDocumentId: string | null | undefined,
+  proposalDocumentId: string,
+): boolean {
+  if (!existingDocumentId) return true;
+  return existingDocumentId !== proposalDocumentId;
+}
 
 export interface EnrichableProposal {
   section: string;
@@ -77,12 +115,28 @@ export function shouldEnrichExistingItem(
 //
 // THREE guards, each one measured rather than assumed:
 //
-// 1. `hasCompetitorClassification(p.structured)` first, before any read.
-//    Nothing below can change anything without it (shouldEnrichExistingItem
-//    requires it), so checking it here keeps the extra round-trip off every
-//    non-players proposal and every unclassified players one — the large
-//    majority — on a route that already spends most of its maxDuration=60
-//    budget inside the model call.
+// 1. `hasCompetitorClassification(p.structured)` — the proposal has nothing
+//    to give, so nothing below can change anything (shouldEnrichExistingItem
+//    requires it).
+//
+//    PROMPT 492 MOVED THIS GUARD BEHIND THE READ, deliberately reversing
+//    482's own optimisation, and the old comment here ("first, before any
+//    read... keeps the extra round-trip off every non-players proposal")
+//    is deleted rather than left standing, because it is no longer true and
+//    a stale comment is worse than the round-trip it was defending. The
+//    reason for the reversal: returning 'unchanged' without ever looking at
+//    the incumbent made a collision with a COMPLETELY DIFFERENT document
+//    indistinguishable from an idempotent re-read of the same one — for
+//    segments/trends/regulatory, which never carry a classification, that
+//    was every collision they can have.
+//
+//    THE COST, stated rather than waved away: one extra select per COLLIDING
+//    proposal. Not per proposal — a free title still returns 'inserted'
+//    straight off the upsert with no read at all. So the extra round-trips
+//    are bounded by exactly the set of proposals that were being swallowed
+//    in silence, which is the set this prompt exists to account for. On a
+//    route whose budget is dominated by the model call (485: ~40s of a 60s
+//    ceiling), that is the right trade.
 //
 // 2. `source_kind = 'document'`. The collision this prompt fixes is
 //    document-against-document, and so is every collision that can actually
@@ -135,17 +189,33 @@ export async function upsertOrEnrichResearchItem(
   }, { onConflict: 'org_id,section,title', ignoreDuplicates: true }).select('id');
   if ((inserted ?? []).length > 0) return 'inserted';
 
-  // Guard 1 — the proposal itself has nothing to give.
-  if (!hasCompetitorClassification(p.structured)) return 'unchanged';
-
   // The insert was swallowed: some row already owns this (org, section,
   // title). Read the incumbent — this is the read the pass never did before,
   // and the reason a whole class of proposals vanished without a trace.
   const { data: existing } = await admin.from('market_research_items')
-    .select('id, status, source_kind, structured')
+    .select('id, status, source_kind, structured, document_id')
     .eq('org_id', orgId).eq('section', p.section).eq('title', p.title)
     .maybeSingle();
+  // The upsert said a row owns this title, and now the read cannot find it —
+  // it was deleted in between, or the constraint matched on something these
+  // filters do not. Reported as 'unchanged', NOT as a cross-document
+  // collision: there is no incumbent to compare against, so claiming one
+  // came from another document would be asserting exactly the thing that
+  // could not be checked (invariable 7 — better empty than invented).
   if (!existing) return 'unchanged';
+
+  // Prompt 492 — the outcome for every path below that leaves the incumbent
+  // alone WITHOUT having compared the two readings' content. Computed once,
+  // here, from the row that was actually read.
+  const swallowed: ProposalUpsertOutcome = isCrossDocumentCollision(existing.document_id, p.documentId)
+    ? 'title_collision_cross_document'
+    : 'unchanged';
+
+  // Guard 1 — the proposal itself has nothing to give. This is where
+  // segments/trends/regulatory always land, and unclassified players with
+  // them; before 492 it returned a flat 'unchanged' from above the read.
+  if (!hasCompetitorClassification(p.structured)) return swallowed;
+
   if (existing.source_kind !== 'document') return 'unchanged'; // guard 2
   if (!shouldEnrichExistingItem(p.structured, existing.structured as Record<string, unknown> | null)) return 'unchanged';
 

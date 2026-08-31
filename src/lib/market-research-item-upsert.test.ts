@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   hasCompetitorClassification,
+  isCrossDocumentCollision,
   shouldEnrichExistingItem,
   upsertOrEnrichResearchItem,
   type EnrichableProposal,
@@ -175,16 +176,33 @@ describe('upsertOrEnrichResearchItem — the production case Prompt 478 could no
   });
 
   // Guard 1 — an unclassified proposal costs exactly what it cost before
-  // this prompt: one upsert, no follow-up read. Asserted on the query
-  // count, not on a comment, because the whole point of the guard is the
-  // round-trip it does not make.
-  it('an unclassified proposal never triggers the follow-up read at all', async () => {
-    const { admin, counts } = makeFakeAdmin([row()]);
+  // PROMPT 492 RETIRED THIS TEST'S ORIGINAL ASSERTION, and says so rather
+  // than quietly editing the number. As written for 482 it pinned
+  // `counts.selects === 0` — "one upsert, no follow-up read" — because
+  // guard 1 sat above the read. 492 moved that guard below it on purpose:
+  // without reading the incumbent there is no way to tell a collision with
+  // a completely different document from an idempotent re-read of the same
+  // one, and for segments/trends/regulatory (which never carry a
+  // classification) that was every collision they can have. So the read now
+  // happens, and what is pinned instead is the half that still matters and
+  // was never the point of the optimisation: NOTHING IS WRITTEN.
+  it('an unclassified proposal reads the incumbent but never writes anything', async () => {
+    const { admin, counts, rows } = makeFakeAdmin([row()]);
     const outcome = await upsertOrEnrichResearchItem(admin, 'org-1', 'sig-new', proposal({ structured: { name: 'Withings' } }));
 
-    expect(outcome).toBe('unchanged');
-    expect(counts.selects).toBe(0);
+    expect(outcome).toBe('title_collision_cross_document');
+    expect(counts.selects).toBe(1);
     expect(counts.updates).toBe(0);
+    expect(rows[0].structured).toEqual({ name: 'Withings' });
+    expect(rows[0].run_signature).toBe('sig-old');
+  });
+
+  // The other half of the trade, and the reason the extra round-trip is
+  // bounded: a free title never reads anything at all.
+  it('a proposal whose title is free still makes no follow-up read', async () => {
+    const { admin, counts } = makeFakeAdmin([]);
+    expect(await upsertOrEnrichResearchItem(admin, 'org-1', 'sig-new', proposal({ structured: { name: 'Withings' } }))).toBe('inserted');
+    expect(counts.selects).toBe(0);
   });
 
   it('§2 — an incumbent that already carries a classification is left exactly as it was', async () => {
@@ -198,12 +216,17 @@ describe('upsertOrEnrichResearchItem — the production case Prompt 478 could no
     expect(rows[0].run_signature).toBe('sig-old');
   });
 
-  it('§2 — an unclassified proposal colliding with an unclassified row still does nothing, exactly as today', async () => {
+  it('§2 — an unclassified proposal colliding with an unclassified row still touches nothing (492 only changes what it is CALLED)', async () => {
     const { admin, rows } = makeFakeAdmin([row()]);
     const outcome = await upsertOrEnrichResearchItem(admin, 'org-1', 'sig-new', proposal({ structured: { name: 'Withings' } }));
 
-    expect(outcome).toBe('unchanged');
+    // 482's rule is intact: no merge, no overwrite, first-come stays. What
+    // 492 changes is only that the swallowing is now reported as what it is
+    // — the fixture's incumbent is doc-deck and the proposal is
+    // doc-landscape, which was never a re-read of anything.
+    expect(outcome).toBe('title_collision_cross_document');
     expect(rows[0].detail).toBe('France · growth');
+    expect(rows[0].document_id).toBe('doc-deck');
   });
 
   // Prompt 483 changed what happens NEXT for an accepted row (the
@@ -248,13 +271,106 @@ describe('upsertOrEnrichResearchItem — the production case Prompt 478 could no
     expect(await upsertOrEnrichResearchItem(admin, 'org-1', 'sig-new', proposal())).toBe('unchanged');
   });
 
-  it('a non-players section is untouched by all of this — no classification, no enrichment', async () => {
+  it('a non-players section is still never enriched — but its collision is no longer silent', async () => {
+    // trends/regulatory/segments NEVER carry the four classification fields,
+    // so before 492 every collision they can have came back as a flat
+    // 'unchanged', indistinguishable from re-reading the same document.
     const existing = row({ section: 'trends', title: 'Trend: home diagnostics', structured: null });
     const { admin, rows } = makeFakeAdmin([existing]);
     const outcome = await upsertOrEnrichResearchItem(admin, 'org-1', 'sig-new',
       proposal({ section: 'trends', title: 'Trend: home diagnostics', structured: null }));
 
+    expect(outcome).toBe('title_collision_cross_document');
+    expect(rows[0].detail).toBe('France · growth');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Prompt 492 — a collision with ANOTHER document was exactly as silent as
+// before 482. 482 fixed the case where the four classifications exist;
+// segments/trends/regulatory never have them, so for those sections nothing
+// was fixed at all — and nothing could tell the two causes apart.
+
+describe('isCrossDocumentCollision — Prompt 492 §2', () => {
+  it('the same document is not a cross-document collision — that is an idempotent re-read', () => {
+    expect(isCrossDocumentCollision('doc-a', 'doc-a')).toBe(false);
+  });
+
+  it('a different document is', () => {
+    expect(isCrossDocumentCollision('doc-a', 'doc-b')).toBe(true);
+  });
+
+  it('an incumbent with no document_id counts as different, never as "probably the same"', () => {
+    // Measured 31/08: the rows with a null document_id are the 143
+    // web-sourced ones, never the document-sourced ones (all 56 of those
+    // carry a real id, pre-467 zombies included). There is no evidence such
+    // a row came from the document being read now, and inventing it to keep
+    // the quieter answer is the move this prompt exists to stop
+    // (invariable 14 — absence of distinction is not proof of identity).
+    expect(isCrossDocumentCollision(null, 'doc-b')).toBe(true);
+    expect(isCrossDocumentCollision(undefined, 'doc-b')).toBe(true);
+    expect(isCrossDocumentCollision('', 'doc-b')).toBe(true);
+  });
+});
+
+describe('upsertOrEnrichResearchItem — Prompt 492, the collision that was indistinguishable from a re-read', () => {
+  // The scenario the prompt asks for, built exactly: incumbent document_id
+  // = A, proposal with an identical title and document_id = B.
+  it('an unclassified proposal colliding with a row from ANOTHER document reports it', async () => {
+    const { admin, rows } = makeFakeAdmin([row({ section: 'trends', title: 'Trend: home diagnostics', document_id: 'doc-A', structured: null })]);
+    const outcome = await upsertOrEnrichResearchItem(admin, 'org-1', 'sig-new',
+      proposal({ section: 'trends', title: 'Trend: home diagnostics', documentId: 'doc-B', structured: null }));
+
+    expect(outcome).toBe('title_collision_cross_document');
+    // The correction is the REPORT, never a merge or an overwrite — those
+    // would need positive proof of identity, which a shared title is not.
+    expect(rows).toHaveLength(1);
+    expect(rows[0].document_id).toBe('doc-A');
+    expect(rows[0].detail).toBe('France · growth');
+  });
+
+  it('the SAME document re-read stays plain unchanged — nothing is lost, nothing is reported', async () => {
+    const { admin, rows } = makeFakeAdmin([row({ section: 'trends', title: 'Trend: home diagnostics', document_id: 'doc-A', structured: null })]);
+    const outcome = await upsertOrEnrichResearchItem(admin, 'org-1', 'sig-new',
+      proposal({ section: 'trends', title: 'Trend: home diagnostics', documentId: 'doc-A', structured: null }));
+
     expect(outcome).toBe('unchanged');
     expect(rows[0].detail).toBe('France · growth');
+  });
+
+  it('an incumbent with no document_id at all counts as another document', async () => {
+    // Not a shape production holds today (measured: every document-sourced
+    // row has a real document_id, and web rows are covered by the test
+    // below) — pinned because the branch exists and its failure mode is the
+    // quiet one.
+    const { admin } = makeFakeAdmin([row({ section: 'growth', title: 'Growth: 8% 2026-2030', document_id: null, structured: null })]);
+    const outcome = await upsertOrEnrichResearchItem(admin, 'org-1', 'sig-new',
+      proposal({ section: 'growth', title: 'Growth: 8% 2026-2030', documentId: 'doc-B', structured: null }));
+
+    expect(outcome).toBe('title_collision_cross_document');
+  });
+
+  it('a web incumbent is another source too — its document_id is null by construction', async () => {
+    const { admin } = makeFakeAdmin([row({ section: 'trends', title: 'Trend: home diagnostics', source_kind: 'web', document_id: null, structured: null })]);
+    expect(await upsertOrEnrichResearchItem(admin, 'org-1', 'sig-new',
+      proposal({ section: 'trends', title: 'Trend: home diagnostics', documentId: 'doc-B', structured: null })))
+      .toBe('title_collision_cross_document');
+  });
+
+  it('a real enrichment still wins over the collision report — something DID change', async () => {
+    // 482's path is untouched: when the proposal carries a classification the
+    // incumbent lacks, the row is enriched and the outcome says so, even
+    // though the two rows came from different documents.
+    const { admin, rows } = makeFakeAdmin([row({ document_id: 'doc-A' })]);
+    const outcome = await upsertOrEnrichResearchItem(admin, 'org-1', 'sig-new', proposal({ documentId: 'doc-B' }));
+
+    expect(outcome).toBe('enriched');
+    expect(rows[0].document_id).toBe('doc-B');
+  });
+
+  it('a title that is free is still an insert, never a collision of any kind', async () => {
+    const { admin } = makeFakeAdmin([]);
+    expect(await upsertOrEnrichResearchItem(admin, 'org-1', 'sig-new',
+      proposal({ section: 'trends', title: 'Trend: nobody owns this', structured: null }))).toBe('inserted');
   });
 });

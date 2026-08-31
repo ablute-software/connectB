@@ -124,7 +124,7 @@ describe('describeExtractionTelemetry — the three explanations that look ident
         competitors: [fullCompetitor(), { name: 'B', document_index: 1 }, { name: 'C', document_index: 1 }],
       }),
       parsedBySection: { players: 3 },
-      outcomes: { inserted: 1, enriched: 1, competitor_backfilled: 0, unchanged: 1 },
+      outcomes: { ...emptyOutcomeTally(), inserted: 1, enriched: 1, unchanged: 1 },
       factsWritten: 0,
     })).toBe('1 inserted, 1 enriched, 0 competitor(s) backfilled; 2 of 3 competitor(s) arrived without the facets a classification needs');
   });
@@ -134,7 +134,7 @@ describe('describeExtractionTelemetry — the three explanations that look ident
       rawSections: countRawSections({ competitors: [{}] }),
       competitors: auditRawCompetitors({ competitors: [fullCompetitor()] }),
       parsedBySection: { players: 1 },
-      outcomes: { inserted: 1, enriched: 0, competitor_backfilled: 0, unchanged: 0 },
+      outcomes: { ...emptyOutcomeTally(), inserted: 1 },
       factsWritten: 0,
     })).toBe('1 inserted, 0 enriched, 0 competitor(s) backfilled');
   });
@@ -163,5 +163,75 @@ describe('describeExtractionTelemetry — the branch the adversarial pass found'
       outcomes: emptyOutcomeTally(),
       factsWritten: 2,
     })).toBe('0 inserted, 0 enriched, 0 competitor(s) backfilled, 2 typed fact(s) written (nothing went through the legacy loop)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Prompt 492 — the bucket that separates "we read the same document twice"
+// from "a proposal was swallowed by a row from somewhere else entirely".
+
+describe('describeExtractionTelemetry — cross-document title collisions (Prompt 492 §3)', () => {
+  const CLAUSE_2 = '; 2 proposal(s) were not stored because the title was already owned by an item from another document'
+    + ' — the contents were never compared, so there may be new information here that nobody has seen';
+  const CLAUSE_1 = '; 1 proposal(s) were not stored because the title was already owned by an item from another document'
+    + ' — the contents were never compared, so there may be new information here that nobody has seen';
+
+  it('names them when nothing changed and every collision was cross-document', () => {
+    expect(describeExtractionTelemetry({
+      rawSections: countRawSections({ trends: [{}, {}] }),
+      competitors: auditRawCompetitors({}),
+      parsedBySection: { trends: 2 },
+      outcomes: { ...emptyOutcomeTally(), title_collision_cross_document: 2 },
+      factsWritten: 0,
+    })).toBe('2 item(s) parsed and none changed anything — 2 collided with rows that already exist' + CLAUSE_2);
+  });
+
+  it('counts both kinds of collision in the total, and names only the cross-document ones', () => {
+    // The distinction is the whole point: 3 proposals collided, but only 1 of
+    // them may have lost something — the other 2 were the same document read
+    // again.
+    expect(describeExtractionTelemetry({
+      rawSections: countRawSections({ trends: [{}, {}, {}] }),
+      competitors: auditRawCompetitors({}),
+      parsedBySection: { trends: 3 },
+      outcomes: { ...emptyOutcomeTally(), unchanged: 2, title_collision_cross_document: 1 },
+      factsWritten: 0,
+    })).toBe('3 item(s) parsed and none changed anything — 3 collided with rows that already exist' + CLAUSE_1);
+  });
+
+  it('is reported even when the pass DID change other things', () => {
+    // A cross-document collision is never folded into a success count: the
+    // sentence says what landed and, separately, what was swallowed.
+    expect(describeExtractionTelemetry({
+      rawSections: countRawSections({ competitors: [{}, {}] }),
+      competitors: auditRawCompetitors({ competitors: [fullCompetitor(), fullCompetitor({ name: 'Bisu' })] }),
+      parsedBySection: { players: 2 },
+      outcomes: { ...emptyOutcomeTally(), inserted: 1, title_collision_cross_document: 1 },
+      factsWritten: 0,
+    })).toBe('1 inserted, 0 enriched, 0 competitor(s) backfilled' + CLAUSE_1);
+  });
+
+  it('says nothing at all when there were none — the clause never appears empty', () => {
+    expect(describeExtractionTelemetry({
+      rawSections: countRawSections({ competitors: [{}] }),
+      competitors: auditRawCompetitors({ competitors: [fullCompetitor()] }),
+      parsedBySection: { players: 1 },
+      outcomes: { ...emptyOutcomeTally(), inserted: 1 },
+      factsWritten: 0,
+    })).not.toContain('another document');
+  });
+
+  it('a cross-document collision counts as having gone through the legacy loop', () => {
+    // legacyTotal drives the "(nothing went through the legacy loop)" note.
+    // A swallowed proposal reached the loop — it just did not survive it —
+    // so claiming the loop never ran would be a second false statement on
+    // top of the one this prompt is removing.
+    expect(describeExtractionTelemetry({
+      rawSections: countRawSections({ competitors: [{}], growth: [{}] }),
+      competitors: auditRawCompetitors({ competitors: [fullCompetitor()] }),
+      parsedBySection: { players: 1, growth: 1 },
+      outcomes: { ...emptyOutcomeTally(), title_collision_cross_document: 1 },
+      factsWritten: 1,
+    })).not.toContain('nothing went through the legacy loop');
   });
 });

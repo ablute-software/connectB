@@ -100,11 +100,28 @@ export function countProposalsBySection(proposals: readonly { section: string }[
   return out;
 }
 
-export type ProposalOutcomeName = 'inserted' | 'enriched' | 'competitor_backfilled' | 'unchanged';
+// Kept as its own union rather than imported from market-research-item-upsert
+// (that module is `server-only`; this one is deliberately not). The two are
+// kept in step MECHANICALLY, not by discipline: document-extract/route.ts
+// does `outcomeTally[outcome] += 1`, so a name added on one side and not the
+// other is a tsc error at that line — which is exactly how Prompt 492's own
+// new name announced itself.
+export type ProposalOutcomeName =
+  | 'inserted' | 'enriched' | 'competitor_backfilled' | 'unchanged'
+  | 'title_collision_cross_document';
 export type OutcomeTally = Record<ProposalOutcomeName, number>;
 
 export function emptyOutcomeTally(): OutcomeTally {
-  return { inserted: 0, enriched: 0, competitor_backfilled: 0, unchanged: 0 };
+  return { inserted: 0, enriched: 0, competitor_backfilled: 0, unchanged: 0, title_collision_cross_document: 0 };
+}
+
+// Prompt 492 — the sentence for the bucket that has no other way of being
+// seen. It says what happened AND what was not checked, because the second
+// half is the actionable part: nothing here compared the two readings, so
+// "collided" is not the same claim as "was a duplicate".
+function crossDocumentClause(n: number): string {
+  if (n === 0) return '';
+  return `; ${n} proposal(s) were not stored because the title was already owned by an item from another document — the contents were never compared, so there may be new information here that nobody has seen`;
 }
 
 // The line that finally distinguishes "the model said nothing" from
@@ -127,15 +144,22 @@ export function describeExtractionTelemetry(input: {
   const { rawSections, competitors, parsedBySection, outcomes, factsWritten } = input;
   const rawTotal = MARKET_EXTRACTION_SECTIONS.reduce((n, s) => n + rawSections[s], 0);
   const parsedTotal = Object.values(parsedBySection).reduce((n, v) => n + v, 0);
-  const legacyTotal = outcomes.inserted + outcomes.enriched + outcomes.competitor_backfilled + outcomes.unchanged;
+  // The new bucket counts as having gone through the legacy loop — it is a
+  // proposal that reached it and was swallowed, not one that never arrived.
+  const legacyTotal = outcomes.inserted + outcomes.enriched + outcomes.competitor_backfilled
+    + outcomes.unchanged + outcomes.title_collision_cross_document;
 
   if (rawTotal === 0) return 'the model reported nothing in any section';
   if (parsedTotal === 0) return `the model reported ${rawTotal} item(s) and every one was dropped before storage`;
 
+  // Deliberately NOT counted in `changed`: a cross-document collision changed
+  // nothing. It is reported beside the zero, never folded into it.
   const changed = outcomes.inserted + outcomes.enriched + outcomes.competitor_backfilled + factsWritten;
   if (changed === 0) {
-    if (outcomes.unchanged > 0) {
-      return `${parsedTotal} item(s) parsed and none changed anything — ${outcomes.unchanged} collided with rows that already exist`;
+    const collided = outcomes.unchanged + outcomes.title_collision_cross_document;
+    if (collided > 0) {
+      return `${parsedTotal} item(s) parsed and none changed anything — ${collided} collided with rows that already exist`
+        + crossDocumentClause(outcomes.title_collision_cross_document);
     }
     // Parsed, but nothing reached either destination: every proposal was
     // routed to the typed pipeline and none of it produced a fact.
@@ -148,5 +172,6 @@ export function describeExtractionTelemetry(input: {
     : '';
   const factsNote = factsWritten > 0 ? `, ${factsWritten} typed fact(s) written` : '';
   return `${outcomes.inserted} inserted, ${outcomes.enriched} enriched, ${outcomes.competitor_backfilled} competitor(s) backfilled${factsNote}${facetNote}`
+    + crossDocumentClause(outcomes.title_collision_cross_document)
     + (legacyTotal === 0 ? ' (nothing went through the legacy loop)' : '');
 }
