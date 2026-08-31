@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   writeMarketFact, computeEvidenceFingerprint, computeFactFingerprint, deriveVerificationStatus,
+  derivePublishability,
   type EvidenceInput, type ObservationInput,
 } from './market-facts-db';
 import { validateGrowthFact, type GrowthFact } from './market-fact-normalization';
@@ -52,7 +53,10 @@ function makeQuery(result: { data: unknown; error: unknown }) {
 
 function makeFakeAdmin(opts: {
   existingFact?: { id: string } | null;
-  existingObservations?: { market_evidence: { origin: string; document_id: string | null; source_url: string | null } | null }[];
+  // visibility is optional here on purpose: market_evidence.visibility is
+  // NOT NULL DEFAULT 'private', so a row a test does not mention is a row
+  // that is private in the database — the fake says the same thing.
+  existingObservations?: { market_evidence: { origin: string; document_id: string | null; source_url: string | null; visibility?: string } | null }[];
   rpcResult?: { data: unknown; error: { message: string } | null };
 } = {}) {
   const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
@@ -324,5 +328,102 @@ describe('writeMarketFact', () => {
       // function that could ever leave a partial write behind.
       expect(rpcCalls).toHaveLength(1);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Prompt 491 — invariable 6, second link: evidence.visibility -> fact.publishability
+
+describe('derivePublishability', () => {
+  it('all evidence private -> not publishable, which is EVERY fact that exists today', () => {
+    // Not a hypothetical: measured 31/08, all 43 market_evidence rows in
+    // production (behind 67 market_facts) have visibility 'private',
+    // because nothing in src/ has ever written that column and migration
+    // 0279 defaults it — grep confirms zero readers too. There is no
+    // founder UI to change it, and Prompt 491 deliberately does not build
+    // one — so the honest derivation for the whole existing corpus is "not
+    // publishable", and this test says so instead of hiding it behind a
+    // fixture that pretends otherwise.
+    expect(derivePublishability([{ visibility: 'private' }])).toBe('not_publishable');
+    expect(derivePublishability([{ visibility: 'private' }, { visibility: 'private' }, { visibility: 'private' }])).toBe('not_publishable');
+  });
+
+  it('at least one publishable or published -> publishable', () => {
+    // The reading of the invariable, in the two shapes it can arrive in:
+    // "exclusively" is a property of the SET, so one non-private piece is
+    // enough to make the dependence non-exclusive.
+    expect(derivePublishability([{ visibility: 'private' }, { visibility: 'publishable' }])).toBe('publishable');
+    expect(derivePublishability([{ visibility: 'private' }, { visibility: 'published' }])).toBe('publishable');
+    expect(derivePublishability([{ visibility: 'publishable' }])).toBe('publishable');
+    expect(derivePublishability([{ visibility: 'published' }])).toBe('publishable');
+  });
+
+  it('no evidence at all -> not publishable, handled rather than forgotten', () => {
+    // writeMarketFact refuses a fact with zero observations (the throw is
+    // asserted below), so this input cannot reach the function through the
+    // chokepoint. It is defined anyway, and defined as "no", because a
+    // permission function whose answer to "I know nothing" is anything but
+    // "no" is a leak waiting for its first caller.
+    expect(derivePublishability([])).toBe('not_publishable');
+  });
+
+  it('order does not matter — it is a property of the set', () => {
+    expect(derivePublishability([{ visibility: 'publishable' }, { visibility: 'private' }])).toBe('publishable');
+    expect(derivePublishability([{ visibility: 'private' }, { visibility: 'publishable' }])).toBe('publishable');
+  });
+});
+
+describe('writeMarketFact stamps publishability at the chokepoint (Prompt 491 §3)', () => {
+  it('passes a derived publishability to the RPC on every write', () => {
+    // The point of the prompt: the second link must not arrive inert the
+    // way the first one did. A value reaches the database on every write,
+    // computed, never supplied by a caller.
+    const { admin, rpcCalls } = makeFakeAdmin();
+    return writeMarketFact(admin, 'org-1', growthFact(), [observation()]).then(() => {
+      expect(rpcCalls).toHaveLength(1);
+      expect(rpcCalls[0].args).toHaveProperty('p_publishability');
+      expect(rpcCalls[0].args.p_publishability).toBe('not_publishable');
+    });
+  });
+
+  it('a fact whose evidence on file is already publishable comes out publishable', async () => {
+    // The union that makes this link live rather than frozen: the founder
+    // marking an evidence row publishable (through a UI that does not exist
+    // yet — 0279's column is writable, nothing writes it) is picked up the
+    // next time the fact is written, exactly the way external corroboration
+    // upgrades verification_status.
+    const { admin, rpcCalls } = makeFakeAdmin({
+      existingFact: { id: 'fact-1' },
+      existingObservations: [{ market_evidence: { origin: 'founder_document', document_id: 'doc-1', source_url: null, visibility: 'publishable' } }],
+    });
+    await writeMarketFact(admin, 'org-1', growthFact(), [observation()]);
+    expect(rpcCalls[0].args.p_publishability).toBe('publishable');
+  });
+
+  it('evidence already on file that is private leaves the fact not publishable', async () => {
+    const { admin, rpcCalls } = makeFakeAdmin({
+      existingFact: { id: 'fact-1' },
+      existingObservations: [{ market_evidence: { origin: 'founder_document', document_id: 'doc-1', source_url: null } }],
+    });
+    await writeMarketFact(admin, 'org-1', growthFact(), [observation()]);
+    expect(rpcCalls[0].args.p_publishability).toBe('not_publishable');
+  });
+
+  it('an unrecognised visibility fails closed rather than throwing or guessing', async () => {
+    // market_evidence.visibility is NOT NULL with a CHECK, so this cannot
+    // happen today. It is pinned because the failure mode of the opposite
+    // choice is a fact published on evidence nobody authorised.
+    const { admin, rpcCalls } = makeFakeAdmin({
+      existingFact: { id: 'fact-1' },
+      existingObservations: [{ market_evidence: { origin: 'founder_document', document_id: 'doc-1', source_url: null, visibility: 'something_new' } }],
+    });
+    await writeMarketFact(admin, 'org-1', growthFact(), [observation()]);
+    expect(rpcCalls[0].args.p_publishability).toBe('not_publishable');
+  });
+
+  it('the no-evidence case never reaches the derivation — the chokepoint refuses it first', async () => {
+    const { admin, rpcCalls } = makeFakeAdmin();
+    await expect(writeMarketFact(admin, 'org-1', growthFact(), [])).rejects.toThrow(/at least one observation/);
+    expect(rpcCalls).toHaveLength(0);
   });
 });

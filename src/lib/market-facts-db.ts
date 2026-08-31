@@ -44,6 +44,14 @@ export type RetrievalMethod = 'vault_extraction' | 'link_snapshot' | 'web_fetch'
 export type VerificationStatus = 'founder_reported' | 'externally_sourced' | 'corroborated';
 export type FactType = 'growth' | 'market_size';
 
+// Prompt 491 — invariable 6's vocabulary, on both sides of the second link.
+// EvidenceVisibility mirrors market_evidence.visibility (migration 0279)
+// exactly. FactPublishability deliberately does NOT: see derivePublishability
+// below, and migration 0284's own comment, for why 'published' has no place
+// in a DERIVED column.
+export type EvidenceVisibility = 'private' | 'publishable' | 'published';
+export type FactPublishability = 'publishable' | 'not_publishable';
+
 export interface EvidenceInput {
   documentId: string | null;
   page: number | null;
@@ -150,6 +158,45 @@ export function deriveVerificationStatus(
   return independent.size >= 2 ? 'corroborated' : 'externally_sourced';
 }
 
+// Prompt 491 — the second link of North Star §3, invariable 6. Same
+// discipline as deriveVerificationStatus above: deterministic, computed
+// from the fact's own evidence, never hand-written, never set by a caller.
+//
+// THE READING OF THE INVARIABLE, chosen and stated so the next person does
+// not have to reconstruct it from the code. The invariable says a published
+// conclusion may never depend EXCLUSIVELY on evidence the audience is not
+// allowed to see. "Exclusively" is the operative word and it is a statement
+// about the whole set, not about each piece: the moment ONE piece of
+// evidence is not private, the dependence stops being exclusive. So:
+// publishable iff at least one piece of evidence has visibility !== 'private'.
+//
+// WHAT THIS DELIBERATELY DOES NOT CHECK, because it cannot. The invariable's
+// full form adds "...a menos que exista OUTRA evidência pública suficiente
+// para a sustentar sozinha" — SUFFICIENT to support it alone. Whether one
+// public quote actually supports a number is a semantic judgement about
+// meaning, and nothing here can make it; a function that pretended to would
+// be inventing an assessment. This function answers only the structural half
+// ("is the dependence exclusive?") and the day a real consumer needs the
+// sufficiency half, that is a separate, visible decision — not something to
+// be read into this return value.
+//
+// Empty input returns 'not_publishable' rather than throwing. writeMarketFact
+// already refuses a fact with no observations, so this is unreachable through
+// the chokepoint — but a permission function whose "I know nothing" answer is
+// anything other than "no" is a leak waiting for its first caller, and the
+// safe answer costs nothing.
+export function derivePublishability(evidence: { visibility: EvidenceVisibility }[]): FactPublishability {
+  if (evidence.length === 0) return 'not_publishable';
+  return evidence.some((e) => e.visibility !== 'private') ? 'publishable' : 'not_publishable';
+}
+
+// market_evidence.visibility is NOT NULL with a CHECK, so the three values
+// are all that can come back — but a permission decision reading an
+// unexpected value must fail closed, not throw and not guess.
+function asVisibility(v: unknown): EvidenceVisibility {
+  return v === 'publishable' || v === 'published' ? v : 'private';
+}
+
 // What actually goes in market_facts.payload: the fact's own semantic
 // content only. sourceRefs/observationIds are deliberately excluded — that
 // lineage already lives in market_evidence/market_fact_observations, and
@@ -165,29 +212,42 @@ function factPayload(fact: GrowthFact | MarketSizeFact): Record<string, unknown>
     : { ...base, currency: fact.currency, asOfYear: fact.asOfYear, methodology: fact.methodology };
 }
 
-interface ExistingOrigin { origin: EvidenceOrigin; documentId: string | null; sourceUrl: string | null }
+// Prompt 491 — this used to read origins only (existingOriginsFor). It now
+// also reads visibility, because BOTH derivations behind a write are unions
+// of "what is already on file for this fact" with "what this call brings":
+// verification_status so external corroboration arriving later upgrades a
+// fact instead of leaving it stuck at whatever its first write saw, and
+// publishability so a founder marking one evidence row publishable is
+// reflected the next time the fact is written. One read, both answers.
+interface ExistingEvidence { origin: EvidenceOrigin; documentId: string | null; sourceUrl: string | null; visibility: EvidenceVisibility }
 
-async function existingOriginsFor(admin: SupabaseClient, orgId: string, factType: FactType, fingerprint: string): Promise<ExistingOrigin[]> {
+async function existingEvidenceFor(admin: SupabaseClient, orgId: string, factType: FactType, fingerprint: string): Promise<ExistingEvidence[]> {
   const { data: existingFact } = await admin.from('market_facts')
     .select('id').eq('org_id', orgId).eq('fact_type', factType).eq('fact_fingerprint', fingerprint).maybeSingle();
   const factId = (existingFact as { id: string } | null)?.id;
   if (!factId) return [];
   const { data: rows } = await admin.from('market_fact_observations')
-    .select('market_evidence(origin, document_id, source_url)').eq('market_fact_id', factId);
-  type Row = { market_evidence: { origin: EvidenceOrigin; document_id: string | null; source_url: string | null } | null };
+    .select('market_evidence(origin, document_id, source_url, visibility)').eq('market_fact_id', factId);
+  type Row = { market_evidence: { origin: EvidenceOrigin; document_id: string | null; source_url: string | null; visibility?: unknown } | null };
   return ((rows ?? []) as unknown as Row[])
     .map((r) => r.market_evidence)
     .filter((e): e is NonNullable<Row['market_evidence']> => !!e)
-    .map((e) => ({ origin: e.origin, documentId: e.document_id, sourceUrl: e.source_url }));
+    .map((e) => ({ origin: e.origin, documentId: e.document_id, sourceUrl: e.source_url, visibility: asVisibility(e.visibility) }));
 }
 
 // §B — the chokepoint. Revalidates the fact (never trusts what arrives),
-// derives verification_status, then makes exactly ONE mutating call
-// (write_market_fact) — no other insert/update in this function, which is
-// what makes "no market_fact left orphaned by a partial write" true from
-// the application's side; the RPC itself is atomic by ordinary Postgres
-// function semantics (an unhandled exception rolls back everything the
-// function did, no explicit BEGIN/COMMIT needed).
+// derives verification_status and (Prompt 491) publishability, then makes
+// exactly ONE mutating call (write_market_fact) — no other insert/update in
+// this function, which is what makes "no market_fact left orphaned by a
+// partial write" true from the application's side; the RPC itself is atomic
+// by ordinary Postgres function semantics (an unhandled exception rolls back
+// everything the function did, no explicit BEGIN/COMMIT needed).
+//
+// Prompt 491 kept that literally true rather than approximately: migration
+// 0284's 9-argument write_market_fact stamps publishability INSIDE the same
+// function invocation, so this stayed one call. Adding a second .update()
+// here would have been the easy version and would have made the sentence
+// above false — a fact could end up written with no publishability at all.
 export async function writeMarketFact(
   admin: SupabaseClient,
   orgId: string,
@@ -202,9 +262,28 @@ export async function writeMarketFact(
   const validated = fact.kind === 'growth' ? validateGrowthFact(fact) : validateMarketSizeFact(fact);
   const fingerprint = computeFactFingerprint(validated);
 
-  const existing = await existingOriginsFor(admin, orgId, factType, fingerprint);
-  const incoming = observations.map((o) => ({ origin: o.evidence.origin, documentId: o.evidence.documentId, sourceUrl: o.evidence.sourceUrl }));
-  const verificationStatus = deriveVerificationStatus([...existing, ...incoming]);
+  const existing = await existingEvidenceFor(admin, orgId, factType, fingerprint);
+  // Prompt 491 — incoming evidence is 'private', and that is a measured fact
+  // about this pipeline rather than an assumption: EvidenceInput carries no
+  // visibility, migration 0279's write_market_fact never writes the column,
+  // so every row it creates takes the DB default. Inventing a visibility
+  // field for callers to set would be building the founder's UI by the back
+  // door, which this prompt explicitly does not ask for.
+  //
+  // ONE KNOWN LIMIT, fail-closed and self-healing, stated rather than found
+  // later: if an evidence row already exists (same fingerprint) with a
+  // non-private visibility but is NOT yet linked to THIS fact, it is not in
+  // `existing` and is counted private here — so the fact reads
+  // not_publishable when it could be publishable. That is the safe
+  // direction, and the very next write of the same fact sees it in
+  // `existing` (the observation now links them) and upgrades.
+  const incoming = observations.map((o) => ({
+    origin: o.evidence.origin, documentId: o.evidence.documentId, sourceUrl: o.evidence.sourceUrl,
+    visibility: 'private' as const,
+  }));
+  const allEvidence = [...existing, ...incoming];
+  const verificationStatus = deriveVerificationStatus(allEvidence);
+  const publishability = derivePublishability(allEvidence);
 
   const pObservations = observations.map((o) => ({
     evidence_fingerprint: computeEvidenceFingerprint(o.evidence),
@@ -230,6 +309,7 @@ export async function writeMarketFact(
     p_validation: validated.validation,
     p_verification_status: verificationStatus,
     p_observations: pObservations,
+    p_publishability: publishability,
   });
   if (error) throw new Error(`writeMarketFact: ${error.message}`);
 
