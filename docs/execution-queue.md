@@ -1,7 +1,7 @@
 # Fila de execução — Sherlock Deal
 
 **Local canónico:** `docs/execution-queue.md` no repositório `connectB`.
-**Atualizado:** 30/08/2026 (21:05 — 480 e 481; migrações 0282 e 0283 aplicadas)
+**Atualizado:** 30/08/2026 (21:40 — 482; sem migração)
 **Lê-se com:** `AUTONOMOUS_EXECUTION_MODE_v2` (o §0 desse documento aponta
 para este ficheiro).
 
@@ -52,6 +52,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | 475 | Invariável 6 — visibilidade que propaga | `NO_PROMPT — não executar` | — | prompt |
 | ~~476~~ **480** | Lock por organização (465 §F.3) | `READY — prompt entregue` | `DONE` — `14c54f6`; migração `0282` **aplicada** | — |
 | **481** | Bloco 4 — Capital Landscape | `READY — prompt entregue` | `DONE` — `40bebdc`; migração `0283` **aplicada** | — |
+| **482** | Colisão de título engolia a classificação do 478 | `READY — prompt entregue` | `DONE` — `4c81be9`; sem migração | — |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
 | ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
 | G2 | Aceitação visual na app | — | `DONE` — 30/08 14:17, 3 hipóteses criadas | — |
@@ -639,3 +640,76 @@ esta carta **sempre** mostrou o estado vazio; nunca houve rondas para ver.
 exactamente duas rotas founder-only, nenhuma superfície de investidor lhes
 chega, e o grupo `rounds` do `dossier-fetch` lê só `investor_investments`,
 já atrás do portão de publicação `visibleGroups`.
+
+---
+
+## 482 — a colisão de título que engolia o 478 — `DONE`
+
+`4c81be9` em `main`. **Sem migração** — é lógica de upsert.
+
+**Como apareceu:** a verificação humana do 478 (Nuno, 30/08). Três leituras
+de `Competitive_Landscape_and_Moat.docx.pdf`, três passagens reais pagas
+(€0,141, €0,091, €0,091), **zero** linhas escritas, e a mensagem no ecrã a
+dizer "Already read — nothing new". O modelo corria com o schema novo do
+478 e todas as propostas colidiam com linhas deixadas por **outro**
+documento (`"ablute_ investor deck"`, lido a 29/08, antes de o classificador
+existir) — descartadas em silêncio pelo `ignoreDuplicates`.
+
+**Três guardas, e cada uma foi medida antes de ser escrita:**
+
+1. **A proposta tem de trazer classificação, verificado ANTES da leitura.**
+   Nada a jusante pode agir sem ela, por isso uma proposta não classificada
+   (ou de outra secção) custa exactamente o que custava antes: um upsert e
+   mais nada. O teste assenta na **contagem de queries**, não num comentário.
+2. **A linha existente tem de ser `source_kind='document'`.** Uma linha web
+   carrega um veredicto inteiro derivado do seu **próprio** `structured` pelo
+   `computeVerdict` — `fact_status`, `change_class`, `delta_type`,
+   `comparison_baseline`, `implication_code/scope/direction`,
+   `insight_confidence`, `promoted_to_insight` — mais `confidence`,
+   `source_url`, `source_accessed_at` e `hypothesis_id`. Trocar o
+   `structured` por baixo disso deixava **nove colunas a descrever dados que
+   a linha já não tem**: uma mentira mais silenciosa e maior do que a que se
+   está a corrigir. Medido em produção: as 10 linhas `players` de documento
+   usam todas o template `Competitor: {nome}` deste caminho, e **0 das 26 de
+   web** o usam — a colisão web/documento nunca aconteceu.
+3. **A linha tem de estar `pending`**, na leitura e outra vez no `.eq` do
+   próprio update (o founder pode aceitar entre as duas). Uma linha aceite já
+   produziu o seu `org_competitors`; reescrever-lhe a evidência não muda nada
+   visível, não actualiza o `competitor_type` (o §4 mantém o fluxo de
+   aceitação intacto) e deixaria o item a citar um documento enquanto a linha
+   de concorrente que ele criou cita outro.
+
+**Nunca "a mais recente ganha":** ambas classificadas, ou nenhuma, e a linha
+existente fica exactamente como estava. Uma leitura pior a substituir uma
+melhor é o mesmo bug pelo outro lado (§2).
+
+**Consulta de alcance (§21)** — a do prompt **não corre como está escrita**
+(junta `org_competitors` a `market_research_items` só por `org_id`, e o
+`org_competitors` não tem nenhuma coluna de proveniência). Versão corrigida e
+valores em `docs/capability-reach.md` §3. Estado **antes** da correção:
+`10 items de documento / 0 classificados / 13 concorrentes / 0 classificados`.
+**Só muda com uma leitura nova** — o 482 não re-processa nada em massa, como
+o próprio prompt exclui.
+
+**DESVIOS AO PROMPT — três, todos declarados:**
+
+1. **A guarda `source_kind='document'`** não está no prompt. O §1 diz "a
+   linha existente" sem qualificar. Motivo acima; e nenhuma colisão
+   web/documento existe em produção, medido.
+2. **A guarda `status='pending'`** também não está no prompt, pelo §4: uma
+   linha aceite não pode propagar a classificação para o `competitor_type`
+   sem mexer no fluxo de aceitação, que o prompt proíbe.
+3. **`run_signature` e `itemsEnriched` são acrescentos.** O prompt não os
+   pede. O `run_signature` passa a acompanhar o enriquecimento porque a cache
+   de extracção indexa por `(org, documento, run_signature)` e uma passagem
+   cujo resultado foi só enriquecimento não deixava lá rastro nenhum — que é
+   exactamente porque a mesma passagem foi cobrada três vezes. O
+   `itemsEnriched` existe porque "Already read — nothing new" era a frase que
+   o Nuno leu **enquanto pagava**; agora essa frase só aparece quando de
+   facto nada mudou.
+
+**Lacuna residual, registada e não corrigida:** uma linha `players`
+**aceite** com `competitor_type` a null continua sem caminho para receber a
+classificação — o §4 proíbe mexer na aceitação e o prompt exclui
+re-processamento em massa. São 3 linhas em produção. Precisa de um prompt
+próprio.

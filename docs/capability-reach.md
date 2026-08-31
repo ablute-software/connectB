@@ -237,6 +237,57 @@ esses são o defeito.
 Esperado depois de um "Read my documents" novo: `document` com
 `classificados > 0`.
 
+
+**Segundo corte, do Prompt 482 — o 478 estava certo e continuava a não
+chegar.** A verificação humana do 478 (Nuno, 30/08) leu
+`Competitive_Landscape_and_Moat.docx.pdf` **três vezes**, pagou três
+passagens reais (€0,141, €0,091, €0,091) e escreveu **zero** linhas. O
+`market_research_items` é `unique(org_id, section, title)` e a inserção usa
+`ignoreDuplicates`: a primeira linha alguma vez escrita com um título fica
+dona dele para sempre — incluindo uma linha lida de **outro documento**
+antes de o classificador existir. O `"ablute_ investor deck"` (lido a 29/08)
+já tinha `"Competitor: Withings"`, `"Competitor: Bisu"`, `"Competitor:
+Vivoo"` com `sherlockClassification` a null, e por isso todas as propostas
+classificadas para esses nomes foram descartadas em silêncio. Corrigido em
+`4c81be9` (enriquecimento em vez de descarte).
+
+**A consulta do prompt 482 não corre como está escrita** — junta
+`org_competitors` a `market_research_items` só por `org_id` (produto
+cartesiano por org) e vai buscar `source_kind` a uma tabela e
+`competitor_type` à outra; além disso o `org_competitors` **não tem nenhuma
+coluna de proveniência** (verificado no `information_schema`: zero colunas
+com `source` no nome). Versão que corre:
+
+```sql
+select
+  (select count(*) from market_research_items
+     where section='players' and source_kind='document')            as items_documento,
+  (select count(*) from market_research_items
+     where section='players' and source_kind='document'
+       and structured ? 'sherlockClassification')                   as items_documento_classificados,
+  (select count(*) from org_competitors)                            as competidores,
+  (select count(*) from org_competitors where competitor_type is not null)
+                                                                    as competidores_classificados;
+```
+
+Estado a 30/08 **antes** da correção do 482: `10 / 0 / 13 / 0`. Os 10 (em
+vez dos 18 medidos às 17:20) são porque o Nuno apagou manualmente, com
+autorização própria, as linhas antigas do
+`Competitive_Landscape_and_Moat.docx.pdf` para forçar a re-inserção — a
+descida de 18 para 10 é isso, não perda de dados.
+
+| verdicto | significa |
+|---|---|
+| `A FUNCIONAR` | `items_documento_classificados > 0` **e**, depois de o founder aceitar, `competidores_classificados > 0` |
+| `EXISTE MAS NINGUEM LA CHEGA` | `items_documento > 0` e `items_documento_classificados = 0` **depois** de uma leitura nova — o classificador correu e nada ficou guardado |
+| `AINDA NAO APLICAVEL` | `items_documento = 0` — nenhuma leitura de documento ainda produziu candidatos |
+
+**Requer uma leitura nova para mudar de valor.** O 482 não re-processa nada
+em massa (o próprio prompt exclui isso): a correção só garante que, quando o
+founder voltar a carregar em "Read my documents", o resultado deixa de ser
+descartado. Enquanto ninguém carregar, este corte fica em `EXISTE MAS
+NINGUEM LA CHEGA` — e isso é o estado correto, não um bug novo.
+
 ---
 
 ## 4 — 462 — link snapshots
