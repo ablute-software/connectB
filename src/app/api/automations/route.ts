@@ -5,8 +5,10 @@
 // decide independently whether there's anything to actually do today.)
 //
 // In demo mode the automation-rules tick runs client-side (store.runAutomationTick).
-// Server-side rule evaluation (src/lib/rules.ts) is not yet wired to this route —
-// unchanged from before this prompt, still a placeholder.
+// Prompt 498 — server-side rule evaluation (src/lib/rules.ts) IS now wired to
+// this route: runAutomationRulesSweep, at the bottom, feeds live per-org data
+// to the same pure functions and turns what they return into real founder
+// tasks. It never sends anything: tasks only, draft-review by construction.
 //
 // Prompt 179 §B — this route now ALSO runs the monthly catalog-quota-growth
 // job (previously entirely unbuilt — see plans.ts's own "not yet built"
@@ -34,6 +36,8 @@ import {
 } from '@/lib/upload-security-capability';
 import { gapReconciliationsAvailable } from '@/lib/document-extraction-capability';
 import { runReconciliationForOrg } from '@/lib/reconciliation';
+import { automationRulesSweepAvailable } from '@/lib/automation-rules-capability';
+import { runAutomationRulesSweep, type AutomationRulesSweepResult } from '@/lib/automation-rules-tick-server';
 
 // Prompt 201 §3 — limiar de sinal, não de aborto.
 const MONTHLY_DELIVERY_ALERT_THRESHOLD = 100;
@@ -213,11 +217,25 @@ export async function GET() {
     reconciliationSweep = { orgsChecked: dueOrgs.length, orgsRan };
   }
 
-  // TODO: implement server-side automation-rules tick — see src/lib/rules.ts
-  // (pure functions, ready to reuse). Unchanged scope from before this prompt.
+  // Prompt 498 — o TODO que esteve aqui desde o início: o tick de regras
+  // (src/lib/rules.ts) a correr sobre a base de dados real, e não só
+  // client-side em modo demo. Mesmo padrão de loop por org, mesma tolerância
+  // a erro por org, mesma disciplina de idempotência que os sweeps acima.
+  // Só cria TAREFAS — nunca despacha nada (ver automation-rules-tick-server.ts).
+  let automationRulesSweep: AutomationRulesSweepResult | null = null;
+  try {
+    if (await automationRulesSweepAvailable()) {
+      automationRulesSweep = await runAutomationRulesSweep(admin, new Date(now));
+      console.log(`[automations] tick de regras: ${automationRulesSweep.orgsWithRulesEnabled}/${automationRulesSweep.orgsChecked} orgs com regras ligadas, ${automationRulesSweep.tasksCreated} tarefas criadas`);
+    }
+  } catch (e) {
+    console.error('[automations] tick de regras falhou:', e);
+  }
+
   return NextResponse.json({
     ok: true,
-    message: 'Engine tick placeholder — automation-rules tick not yet wired to the real database.',
+    message: 'Engine tick complete.',
+    automationRulesSweep,
     monthlyDelivery,
     pioneerBadges,
     metricsSnapshot,

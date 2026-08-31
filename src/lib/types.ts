@@ -558,7 +558,14 @@ export interface TaskItem {
   // ('investor_interest', 'interest_level_request') — they always existed
   // in the rows the store loads (select '*'); the type just didn't admit
   // them, so TodayPanel couldn't branch on them.
-  source?: 'suggested' | 'manual' | 'investor_interest' | 'interest_level_request' | 'document_request';
+  // Prompt 498 — 'automation_follow_up'/'automation_dormant' (migração 0286):
+  // as duas formas que o tick de regras do servidor cria
+  // (automation-rules-tick.ts). Distintas de 'suggested' de propósito —
+  // 'suggested' quer dizer "o founder aceitou uma sugestão"; estas nascem
+  // sem ninguém as aceitar, e é por `source` que o guarda de idempotência do
+  // sweep as reconhece entre corridas.
+  source?: 'suggested' | 'manual' | 'investor_interest' | 'interest_level_request' | 'document_request'
+    | 'automation_follow_up' | 'automation_dormant';
   // Prompt 126 D — free-text detail from the "create appointment" modal
   // (migration 0123, propose-only). `reminder_at` is when the in-workspace
   // popup should next fire for this task; cleared by Dismiss (explicit
