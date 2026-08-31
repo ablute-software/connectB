@@ -128,17 +128,27 @@ export default function ReportPage({ params, searchParams }: { params: { id: str
         <div className="text-xs text-gray-400">{kindLabel} · {createdAt.slice(0, 10)}</div>
       </div>
 
-      <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 print:hidden">
-        This link only opens for people signed in to this workspace — sharing it with an investor who hasn&apos;t been
-        granted access will show them a login page, not the report.
-      </p>
-
-      <div className="flex flex-wrap gap-2 print:hidden">
-        <a href={mailHref} className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50">Email</a>
-        <a href={waHref} target="_blank" rel="noopener noreferrer" className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50">WhatsApp</a>
-        <button onClick={copyMarkdown} className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50">
-          {copied ? 'Copied ✓' : 'Copy as Markdown'}
-        </button>
+      {/* Prompt 503 §3 — este aviso era uma barra AMARELA isolada no topo do
+          conteúdo, e o Nuno leu-a como se o relatório tivesse falhado a
+          abrir. Não é um estado de erro: é texto estático, sempre mostrado
+          quando o relatório carrega BEM (o caso de falha, 'not_found', é uma
+          página completamente diferente, mais acima). A informação é real e
+          importa antes de partilhar — o que muda é onde e como aparece:
+          deixa de ser um alerta no topo e passa a ser a nota de rodapé dos
+          próprios botões de partilha, que é o momento em que serve para
+          alguma coisa. Sem amarelo, porque não é um aviso de problema. */}
+      <div className="print:hidden">
+        <div className="flex flex-wrap items-center gap-2">
+          <a href={mailHref} className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50">Email</a>
+          <a href={waHref} target="_blank" rel="noopener noreferrer" className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50">WhatsApp</a>
+          <button onClick={copyMarkdown} className="rounded border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50">
+            {copied ? 'Copied ✓' : 'Copy as Markdown'}
+          </button>
+        </div>
+        <p className="mt-1.5 text-[11px] text-gray-400">
+          Before you share: this link only opens for people signed in to this workspace. An investor who hasn&apos;t been
+          granted access sees a login page, not the report.
+        </p>
       </div>
 
       <Card title={loaded.kind === 'review_run' ? 'Investability ranking — readiness vs round value' : title}>

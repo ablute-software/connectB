@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
+import { can, type OrgRole } from '@/lib/permissions';
 import { Card } from '@/components/ui';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { ReviewResultBody } from './ReviewResultBody';
@@ -38,6 +39,8 @@ interface HistoryItem {
   key: string; reportHref: string; created_at: string; title: string; kindLabel: string;
   originalText: string | null;
   body: React.ReactNode;
+  // Prompt 503 §2 — de onde a linha veio, para o Delete saber o que apagar.
+  table: 'ai_reviews' | 'review_runs'; id: string;
 }
 
 export const KIND_LABEL: Record<string, string> = {
@@ -63,7 +66,7 @@ function aiReviewToItem(row: AiReviewRow): HistoryItem {
   const kindLabel = KIND_LABEL[row.kind] ?? row.kind;
   const originalText = row.input_text ?? row.interaction_draft ?? null;
   return {
-    key: `ai_review:${row.id}`, reportHref: `/readiness/report/${row.id}?type=ai_review`,
+    key: `ai_review:${row.id}`, table: 'ai_reviews', id: row.id, reportHref: `/readiness/report/${row.id}?type=ai_review`,
     created_at: row.created_at, title: row.title ?? kindLabel, kindLabel, originalText,
     body: <ReviewResultBody kind={row.kind} result={row.result} />,
   };
@@ -123,7 +126,7 @@ function reviewRunToItem(
     </div>
   );
   return {
-    key: `review_run:${row.id}`, reportHref: `/readiness/report/${row.id}?type=review_run`,
+    key: `review_run:${row.id}`, table: 'review_runs', id: row.id, reportHref: `/readiness/report/${row.id}?type=review_run`,
     created_at: row.created_at, title: 'Investability ranking', kindLabel: 'Investability ranking', originalText: null, body,
   };
 }
@@ -134,12 +137,43 @@ export function HistoryPanel() {
   const [items, setItems] = useState<HistoryItem[] | null>(null);
   const [err, setErr] = useState('');
   const [clarifications, setClarifications] = useState<ReviewClarification[]>([]);
+  // Prompt 503 §2 — o mesmo `orgRole` que /api/me já devolve e que outros
+  // gates deste código já lêem; a decisão de quem pode vive na matriz de
+  // permissions.ts, não num literal aqui.
+  const [orgRole, setOrgRole] = useState<OrgRole | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [delErr, setDelErr] = useState('');
 
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' }).then((r) => r.json())
-      .then((me) => setCaps({ ai: !!me.capabilities?.ai, reviewRuns: !!me.capabilities?.reviewRuns, reviewClarifications: !!me.capabilities?.reviewClarifications }))
+      .then((me) => {
+        setCaps({ ai: !!me.capabilities?.ai, reviewRuns: !!me.capabilities?.reviewRuns, reviewClarifications: !!me.capabilities?.reviewClarifications });
+        setOrgRole((me.orgRole as OrgRole | null) ?? null);
+      })
       .catch(() => setCaps({ ai: false, reviewRuns: false, reviewClarifications: false }));
   }, []);
+
+  const canDelete = can(orgRole, 'delete_review_history');
+
+  async function deleteEntry(it: HistoryItem) {
+    // Apagar é permanente (hard delete — ver a rota) e não há undo, por isso
+    // uma confirmação explícita antes, não um clique só.
+    if (!window.confirm(`Delete “${it.title}” permanently? This cannot be undone.`)) return;
+    setDelErr(''); setDeleting(it.key);
+    try {
+      const res = await fetch('/api/readiness/history', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ table: it.table, id: it.id }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!body?.ok) { setDelErr(body?.error ?? 'Could not delete this entry.'); return; }
+      // Removido localmente em vez de refazer as duas queries: a linha já não
+      // existe, e um refetch aqui recarregaria 60 linhas para tirar uma.
+      setItems((prev) => (prev ?? []).filter((x) => x.key !== it.key));
+    } catch {
+      setDelErr('Could not delete this entry — check your connection and try again.');
+    } finally { setDeleting(null); }
+  }
 
   useEffect(() => {
     if (!authEnabled || !caps?.reviewClarifications || !db.org.id) return;
@@ -180,9 +214,10 @@ export function HistoryPanel() {
   return (
     <Card title="History — every past review, one archive">
       <p className="mb-2 text-xs text-gray-500">
-        Every AI review and investability run you&apos;ve ever done, newest first. Nothing here can be edited or re-sent —
-        it&apos;s a read-only record.
+        Every AI review and investability run you&apos;ve ever done, newest first. Nothing here can be edited or re-sent.
+        {canDelete && ' As the account owner or an admin, you can delete an entry — that is permanent.'}
       </p>
+      {delErr && <p className="mb-2 text-xs text-[#B00000]">{delErr}</p>}
       {!caps ? <p className="text-sm text-gray-400">Loading…</p>
         : !caps.ai ? <p className="rounded-lg bg-gray-50 px-4 py-3 text-center text-xs text-gray-400">Coming soon to your workspace.</p>
         : err ? <p className="text-xs text-[#B00000]">{err}</p>
@@ -199,9 +234,20 @@ export function HistoryPanel() {
                   </summary>
                   {it.body}
                   <OriginalText text={it.originalText} />
-                  <Link href={it.reportHref} target="_blank" className="mt-2 inline-block text-xs font-medium text-[#0E7490] hover:underline">
-                    Open full report (print / share) ↗
-                  </Link>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <Link href={it.reportHref} target="_blank" className="text-xs font-medium text-[#0E7490] hover:underline">
+                      Open full report (print / share) ↗
+                    </Link>
+                    {/* §2 — só visível a owner/admin, mas o gate a sério é
+                        server-side (/api/readiness/history): esconder o botão
+                        é conveniência, não segurança. */}
+                    {canDelete && (
+                      <button onClick={() => deleteEntry(it)} disabled={deleting === it.key}
+                        className="text-xs text-gray-400 hover:text-[#B00000] hover:underline disabled:opacity-40">
+                        {deleting === it.key ? 'Deleting…' : 'Delete'}
+                      </button>
+                    )}
+                  </div>
                 </details>
               </li>
             ))}

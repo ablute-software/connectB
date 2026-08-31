@@ -111,21 +111,43 @@ function CompetitorCard({ c, onChanged }: { c: CompetitorRow; onChanged: () => v
   const [flagging, setFlagging] = useState(false);
   const [flagReason, setFlagReason] = useState('');
   const [busy, setBusy] = useState(false);
+  // Prompt 503 §1 — save() era silenciosa: não lia `body.ok`, não mostrava
+  // erro nem confirmação. O Nuno editou Positioning, carregou em Save, e não
+  // teve sinal nenhum de que algo tinha acontecido. Os dois padrões que
+  // faltavam já existiam no código e são reutilizados tal e qual:
+  // `error`/`setError` do AddCompetitorForm aqui ao lado, e o "Saved ✓"
+  // temporário do `copied` em readiness/report/[id]/page.tsx.
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
 
   async function save() {
-    setBusy(true);
+    setError(''); setSaved(false); setBusy(true);
     try {
-      await fetch('/api/market-data/competitors', {
+      const res = await fetch('/api/market-data/competitors', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'edit', id: c.id, positioning }),
       });
+      const body = await res.json().catch(() => null);
+      if (!body?.ok) { setError(body?.error ?? 'Could not save this change.'); return; }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
       onChanged();
+    } catch {
+      // Uma rede em baixo é indistinguível de "não aconteceu nada" para
+      // quem está a olhar — é exactamente o que este item corrige.
+      setError('Could not save this change — check your connection and try again.');
     } finally { setBusy(false); }
   }
   async function remove() {
-    setBusy(true);
+    setError(''); setBusy(true);
     try {
-      await fetch('/api/market-data/competitors', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'remove', id: c.id }) });
+      const res = await fetch('/api/market-data/competitors', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'remove', id: c.id }) });
+      const body = await res.json().catch(() => null);
+      // Remove tinha o mesmo silêncio que save(); aqui o sucesso já é
+      // visível (o card desaparece), por isso só falta dizer quando FALHA.
+      if (!body?.ok) { setError(body?.error ?? 'Could not remove this competitor.'); return; }
       onChanged();
+    } catch {
+      setError('Could not remove this competitor — check your connection and try again.');
     } finally { setBusy(false); }
   }
   async function flag() {
@@ -201,10 +223,13 @@ function CompetitorCard({ c, onChanged }: { c: CompetitorRow; onChanged: () => v
       </label>
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <button disabled={busy} onClick={save} className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">Save</button>
+        <button disabled={busy} onClick={save} className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
+          {saved ? 'Saved ✓' : busy ? 'Saving…' : 'Save'}
+        </button>
         <button disabled={busy} onClick={remove} className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">Remove</button>
         <button onClick={() => setFlagging((v) => !v)} className="text-xs text-gray-400 hover:underline">Flag a wrong fact</button>
       </div>
+      {error && <p className="mt-1 text-xs text-[#B00000]">{error}</p>}
 
       {/* §E.2 — the source, demoted to a quiet footer rather than competing
           with the content above it. */}
@@ -280,6 +305,7 @@ export function CompetitorsCard({ onChanged }: { onChanged?: () => void }) {
   const [playerSuggestions, setPlayerSuggestions] = useState<PlayerSuggestion[]>([]);
   const [hasActiveHypothesis, setHasActiveHypothesis] = useState(false);
   const [addError, setAddError] = useState('');
+  const [addingAll, setAddingAll] = useState(false);
 
   function load() {
     fetch('/api/market-data/competitors').then((r) => r.json()).then((body) => {
@@ -322,15 +348,50 @@ export function CompetitorsCard({ onChanged }: { onChanged?: () => void }) {
   // against the shared market_companies library, and the competitorType →
   // relation mapping all happen once, server-side, in the branch that's
   // actually guarded.
-  async function acceptSuggestionAsCompetitor(item: PlayerSuggestion) {
+  // Prompt 503 §4 — devolve ok/erro em vez de tratar do erro e do reload ela
+  // própria, para "Add all" poder correr N destas e só recarregar uma vez no
+  // fim. O caminho de um-a-um continua a ser exactamente o mesmo pedido.
+  async function acceptSuggestion(item: PlayerSuggestion): Promise<{ ok: boolean; error?: string }> {
     const res = await fetch('/api/market-data/research/respond', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id: item.id, action: 'accept' }),
-    });
+    }).catch(() => null);
+    if (!res) return { ok: false, error: 'Could not reach the server.' };
     const body = await res.json().catch(() => null);
-    if (!body?.ok) { setAddError(body?.error ?? 'Could not add this competitor.'); return; }
+    return body?.ok ? { ok: true } : { ok: false, error: body?.error ?? 'Could not add this competitor.' };
+  }
+
+  async function acceptSuggestionAsCompetitor(item: PlayerSuggestion) {
+    const r = await acceptSuggestion(item);
+    if (!r.ok) { setAddError(r.error!); return; }
     setAddError('');
     load();
+  }
+
+  // Prompt 503 §4 — sequencial e NÃO Promise.all: são N escritas na mesma
+  // rota, e /respond faz dedup contra a biblioteca partilhada de
+  // market_companies — dispará-las em paralelo é pedir uma corrida a essa
+  // deduplicação. Um único load() no fim, em vez de N.
+  async function addAllSuggestions(items: PlayerSuggestion[]) {
+    setAddError(''); setAddingAll(true);
+    let added = 0;
+    const failures: string[] = [];
+    try {
+      for (const item of items) {
+        const r = await acceptSuggestion(item);
+        if (r.ok) added++; else failures.push(r.error!);
+      }
+      // Parcial é o caso realista (um dedup falha, os outros passam) — dizer
+      // quantos entraram é mais útil do que só a primeira mensagem de erro.
+      if (failures.length > 0) {
+        setAddError(added > 0
+          ? `Added ${added} of ${items.length}. ${failures.length} could not be added: ${failures[0]}`
+          : failures[0]);
+      }
+    } finally {
+      setAddingAll(false);
+      load();
+    }
   }
 
   if (competitors === null) return <p className="text-sm text-gray-400">Loading…</p>;
@@ -357,7 +418,17 @@ export function CompetitorsCard({ onChanged }: { onChanged?: () => void }) {
       </p>
       {realCandidates.length > 0 && (
         <div className="rounded-lg border border-cyan-100 bg-cyan-50/40 p-2">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">Proposed — review and add as a competitor card</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">Proposed — review and add as a competitor card</p>
+            {/* §4 — os botões "Add" individuais mantêm-se para quem quiser
+                escolher um a um; este só acrescenta o caminho rápido. */}
+            {realCandidates.length > 1 && (
+              <button onClick={() => addAllSuggestions(realCandidates)} disabled={addingAll}
+                className="shrink-0 rounded-lg border border-[#0E7490] px-2 py-0.5 text-[11px] font-medium text-[#0E7490] transition hover:bg-cyan-50 disabled:opacity-40">
+                {addingAll ? 'Adding…' : `Add all (${realCandidates.length})`}
+              </button>
+            )}
+          </div>
           {realCandidates.map((s) => (
             <div key={s.id} className="mt-1 flex items-center justify-between gap-2 text-xs">
               <span className="min-w-0 text-gray-700">
@@ -368,7 +439,8 @@ export function CompetitorsCard({ onChanged }: { onChanged?: () => void }) {
                   {s.document_id ? `from your own document${s.page != null ? `, p. ${s.page}` : ''}` : 'from web research'}
                 </span>
               </span>
-              <button onClick={() => acceptSuggestionAsCompetitor(s)} className="shrink-0 rounded-lg bg-[#0E7490] px-2 py-0.5 text-white">Add</button>
+              <button onClick={() => acceptSuggestionAsCompetitor(s)} disabled={addingAll}
+                className="shrink-0 rounded-lg bg-[#0E7490] px-2 py-0.5 text-white disabled:opacity-40">Add</button>
             </div>
           ))}
         </div>
