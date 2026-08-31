@@ -1,9 +1,8 @@
 'use client';
 // Investor-side pricing block for /investors. Same Monthly/Annual toggle
 // pattern as the founder PricingSection, but reads from INVESTOR_PLANS
-// (plans.ts) — no free tier, and the two higher annual prices are marked
-// `annualPending` until the founder confirms them (still rendered so the
-// page is functional, just easy to swap in plans.ts when confirmed).
+// (plans.ts) — no free tier. All six prices are founder-confirmed (Prompt
+// 501 removed the last `annualPending` placeholders).
 import { useState } from 'react';
 import { INVESTOR_PLANS, INVESTOR_PLAN_FOOTNOTES } from '@/lib/plans';
 import { PrivateDetectiveCard } from '@/components/plans/PrivateDetectiveCard';
@@ -74,8 +73,14 @@ export function InvestorPricingSection() {
                 <p className={s.perYear} style={{ marginTop: 8 }}>
                   {INVESTOR_PLAN_FOOTNOTES.dataRoom}<br />{INVESTOR_PLAN_FOOTNOTES.dueDiligence}
                 </p>
-                {/* Investor plans don't exist in Stripe yet — CTA points at the
-                    same signup entry point as the rest of the page, not checkout. */}
+                {/* Prompt 501 — investor plans ARE in Stripe now (see
+                    /api/stripe/investor-checkout), but this CTA deliberately
+                    still points at signup, not checkout: checkout needs a
+                    `catalog_entity_id`, which only exists once the investor
+                    has created or joined a firm. The founder's own public
+                    PricingSection.tsx does exactly the same (href="/signup",
+                    verified before changing this) — a public pricing page
+                    sells the plan, the workspace sells the checkout. */}
                 <a className={`${s.btn} ${popular ? s.btnTeal : s.btnGhostLight}`} href="/signup?as=investor">Claim your profile</a>
               </div>
             );

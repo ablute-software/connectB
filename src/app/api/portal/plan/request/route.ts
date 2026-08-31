@@ -10,13 +10,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { INVESTOR_PLANS, type InvestorPlanTier } from '@/lib/plans';
+import { INVESTOR_PLANS, INVESTOR_PLAN_TO_MATCHDEAL_TIER, type InvestorPlanTier } from '@/lib/plans';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { assertNotViewer } from '@/lib/developer-viewer';
-
-const TIER_TO_MATCHDEAL: Record<InvestorPlanTier, string> = {
-  pro_scout: 'tier_a', ace_spotter: 'tier_b', legendary_sleuth: 'tier_c',
-};
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -40,7 +36,7 @@ export async function POST(req: Request) {
   if (!member) return NextResponse.json({ ok: false, error: 'No linked investor profile yet.' }, { status: 403 });
 
   const { error } = await admin.from('matchdeal_profiles')
-    .update({ plan_tier_requested: TIER_TO_MATCHDEAL[tier as InvestorPlanTier], plan_tier_requested_at: new Date().toISOString() })
+    .update({ plan_tier_requested: INVESTOR_PLAN_TO_MATCHDEAL_TIER[tier as InvestorPlanTier], plan_tier_requested_at: new Date().toISOString() })
     .eq('membership_id', member.id).eq('kind', 'investor');
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

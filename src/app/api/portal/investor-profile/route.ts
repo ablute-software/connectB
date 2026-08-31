@@ -20,6 +20,7 @@ import { ALL_SECTOR_NAMES } from '@/lib/sector-taxonomy';
 import { computeIdentityStatus } from '@/lib/investor-identity';
 import { countDistinctVoucherEntities } from '@/lib/investor-vouching';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
+import { investorBillingConfigured } from '@/lib/stripe-env';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
 const EDITABLE = [
@@ -98,8 +99,21 @@ export async function GET(req: Request) {
   const { data: memberRow } = await admin.from('matchdeal_investor_members')
     .select('pipeline_confirmed_at, notify_new_eligible_startup').eq('id', member.id).maybeSingle();
 
+  // Prompt 501 — o estado de billing da FIRMA, para o painel de Plans saber
+  // se mostra checkout real, "Manage subscription", ou o fluxo antigo de
+  // pedido manual. Deliberadamente só DOIS booleanos: o stripe_customer_id e
+  // o stripe_subscription_id nunca saem do servidor (é essa a razão de
+  // investor_billing ter RLS sem policies — ver migração 0287). Pendurado
+  // nesta rota, que o painel já busca, em vez de um segundo fetch a /api/me.
+  const { data: firmBilling } = await admin.from('investor_billing')
+    .select('stripe_subscription_id').eq('catalog_entity_id', member.catalog_entity_id).maybeSingle();
+
   return NextResponse.json({
     linked: true, entityName: entity?.name ?? null, profile, completeness: completeness(profile ?? {}),
+    billing: {
+      configured: investorBillingConfigured(),
+      hasSubscription: !!firmBilling?.stripe_subscription_id,
+    },
     sectorOptions: ALL_SECTOR_NAMES, identityStatus,
     pipelineConfirmedAt: (memberRow?.pipeline_confirmed_at as string | null) ?? null,
     notifyNewEligibleStartup: (memberRow?.notify_new_eligible_startup as boolean | null) ?? false,

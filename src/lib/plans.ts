@@ -364,8 +364,6 @@ export interface InvestorPlanRow {
   monthlyEur: number;
   annualEur: number;
   annualPerMonthEur: number;
-  /** True while the annual price is a placeholder pending founder confirmation. */
-  annualPending?: boolean;
   seats: number;
   /** Qualified opportunities/month cap — also drives the landing page teaser line. */
   monthlyCap: number;
@@ -395,9 +393,10 @@ export const INVESTOR_PLANS: InvestorPlanRow[] = [
   },
   {
     tier: 'ace_spotter', name: 'Ace Spotter', tagline: 'For active VC and FO teams',
-    monthlyEur: 240,
-    // TODO: annual price pending confirmation — placeholder from the spec.
-    annualEur: 2220, annualPerMonthEur: 185, annualPending: true,
+    // Prompt 501 — preços confirmados pelo Nuno com screenshot das páginas
+    // ao vivo; a bandeira `annualPending` foi removida (dizia "por
+    // confirmar" sobre o valor que a app já mostrava e cobra).
+    monthlyEur: 240, annualEur: 2220, annualPerMonthEur: 185,
     seats: 2, monthlyCap: 22,
     bullets: [
       '2 seats',
@@ -414,9 +413,7 @@ export const INVESTOR_PLANS: InvestorPlanRow[] = [
   },
   {
     tier: 'legendary_sleuth', name: 'The Legendary Sleuth', tagline: 'For high-volume funds',
-    monthlyEur: 450,
-    // TODO: annual price pending confirmation — placeholder from the spec.
-    annualEur: 4140, annualPerMonthEur: 345, annualPending: true,
+    monthlyEur: 450, annualEur: 4140, annualPerMonthEur: 345,
     seats: 5, monthlyCap: 46,
     bullets: [
       '5 seats',
@@ -446,6 +443,25 @@ export function investorPlanRow(tier: InvestorPlanTier): InvestorPlanRow {
 export const MATCHDEAL_TIER_TO_INVESTOR_PLAN: Record<string, InvestorPlanTier> = {
   tier_a: 'pro_scout', tier_b: 'ace_spotter', tier_c: 'legendary_sleuth',
 };
+
+// Prompt 501 — o mapa inverso, para quem escreve `matchdeal_profiles.plan_tier`
+// (o webhook do Stripe, /api/portal/plan/request). Era um `const
+// TIER_TO_MATCHDEAL` local dentro de plan/request/route.ts; centralizado aqui
+// pela mesma razão que o mapa de cima, agora que passa a ter um segundo
+// escritor — duas cópias de uma tradução são duas hipóteses de divergirem.
+export const INVESTOR_PLAN_TO_MATCHDEAL_TIER: Record<InvestorPlanTier, string> = {
+  pro_scout: 'tier_a', ace_spotter: 'tier_b', legendary_sleuth: 'tier_c',
+};
+
+// O piso do lado investidor. Não existe tier gratuito por desenho ("No free
+// tier", landing /investors) e `matchdeal_profiles.plan_tier` é `text NOT
+// NULL` (verificado no schema real), portanto um cancelamento NÃO pode
+// escrever null nem um estado "sem plano" — esse estado não existe no modelo
+// de hoje. 'tier_a' é o mesmo valor que investor-pipeline.ts e
+// portal-access.ts já assumem como fallback para uma firma sem tier, por
+// isso é o único destino que não inventa produto novo. Consequência a dizer
+// em voz alta: cancelar faz descer ao tier mais baixo, não revoga o acesso.
+export const INVESTOR_PLAN_FLOOR_MATCHDEAL_TIER = 'tier_a';
 
 // PLAN-02 — the 4th plan: no fixed price, a contact form instead of a
 // checkout/request CTA. Deliberately NOT part of INVESTOR_PLANS (which
