@@ -63,6 +63,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **491** | Invariável 6 — segundo elo (`fact.publishability`) | `READY — prompt entregue` | `DONE` — `33c2c88`; migração `0284` **aplicada e verificada** | — |
 | **492** | Colisão de título com OUTRO documento contada como releitura | `READY — prompt entregue` | `DONE` — `f9546df`; sem migração | — |
 | **493** | Bloco 5 — as três decisões antes do motor | `READY — prompt entregue` | `DONE` — `a4a0d82`; só comentários | — |
+| **495** | Colisão cross-document chega ao founder | `READY — prompt entregue` | `DONE` — `ab219b0`; sem migração | — |
 | **494** | Configuração do autoMode no ficheiro errado | `READY — prompt entregue` | `BLOQUEADO` — escrita recusada pelo classificador nos dois caminhos | Nuno |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
 | ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
@@ -1625,3 +1626,78 @@ que acontecer com a precedência — e uma linha `$schema`.
 
 **DESVIOS AO PROMPT:** nenhum. O prompt mandava parar e reportar exactamente
 o bloqueio se a escrita falhasse; é o que está acima.
+
+---
+
+## 495 — a colisão cross-document chega ao founder, na voz do Sherlock — `DONE`
+
+**Estado:** `DONE` — commit `ab219b0`, em `main`. Sem migração, sem endpoint
+novo, sem escrita nova.
+
+O 492 ensinou o pipeline a distinguir *"o mesmo documento lido duas vezes"*
+(inofensivo) de *"uma proposta foi engolida por uma linha vinda de outro
+sítio"* (pode faltar alguma coisa) — e depois pôs a resposta num
+`console.info` que ninguém abre. O 492 registou isso como achado e deixou a
+decisão de produto em aberto. **Esta é essa decisão, tomada.**
+
+**O que entrou:** `crossDocumentNoticeSentence` (função pura em
+`extraction-skip-reason.ts`, devolve `null` abaixo de 1); a contagem levada
+pela rota como número de primeira classe ao lado do
+`itemsProposed`/`itemsEnriched`/`competitorsBackfilled`; **uma linha discreta**
+no `MarketDataPanel`, por baixo do resumo.
+
+**O tom é a funcionalidade** (regra de ouro do Sherlock — reduzir peso
+percebido, nunca acrescentar), e está fixado em testes, não deixado ao
+critério de quem editar a seguir:
+- o sujeito é **o Sherlock a reparar**, nunca o founder a ter falhado. Um
+  teste rejeita `lost`/`fail`/`error`/`warning`/`problem`/`wrong`/
+  `should have`;
+- **nunca afirma saber o QUE a proposta dizia** — não pode, porque as duas
+  leituras nunca foram comparadas e a perdedora nunca foi guardada. Também
+  com teste próprio: é a invariável 7 numa frase;
+- devolve `null` a zero, por isso **não há linha de tranquilização** para ler
+  em cada passagem normal. `null` e não `''`, para o componente não desenhar
+  elemento nenhum em vez de um parágrafo vazio a ocupar espaço;
+- deliberadamente **não** o âmbar que a lista de documentos saltados usa: um
+  documento saltado *não aconteceu* e repete-se; isto *aconteceu* e não se
+  desfaz, e vesti-lo de aviso acrescentaria um peso que o founder não tem
+  como descarregar.
+
+Ficou **função separada** do `extractionSummarySentence`, não uma quinta
+cláusula lá dentro: aquela frase responde *"o que é que esta passagem
+conseguiu"*, esta responde *"o que é que ela não te conseguiu dizer"*. Um
+teste mantém-nas separadas para uma proposta engolida nunca ser lida como um
+quarto tipo de vitória.
+
+**Testado onde este projecto consegue testar:** não há jsdom, nem
+`@testing-library`, nem transform de JSX para o vitest — por isso a regra
+visível ao cliente vive no módulo puro que o componente chama. Sete testes,
+incluindo o critério do próprio prompt nos dois sentidos (0 → nada, >0 → a
+linha).
+
+**MEDIDO, e confirma a razão do prompt para escolher isto em vez do motor do
+Bloco 5 — com mais força do que o prompt afirmava.** Em **11 orgs** existe
+exactamente **uma** linha de `org_market_data`, com um único market size e
+**zero `growth_pct` em toda a plataforma**. E essa linha diz €16.200.000.000
+TAM 2025 com `market_size_source` = *"From Sherlock research (Europe Remote
+Patient Monitoring Devices Market (2025–2026))"* — investigação do próprio
+Sherlock devolvida, não uma claim independente do founder. Construir o motor
+de comparação agora seria testá-lo contra um caso em que **o Sherlock estaria
+a desafiar-se a si próprio**.
+
+**ACHADO, registado e não corrigido:** com esta linha presente, o par pode
+ler-se *"Already read — nothing new in these documents."* seguido de
+*"Sherlock also noticed 3 items…"*. A segunda explica a primeira e o "also"
+faz a ponte, por isso o founder deixa de ser induzido em erro — mas a
+primeira frase continua **literalmente inexacta** quando houve propostas
+engolidas (havia coisa nova; é que não pôde ser guardada). Apertá-la para
+*"nothing new was added"* é uma mudança de copy numa frase que este prompt
+não mandou tocar, por isso fica escrita, não tomada.
+
+**DESVIOS AO PROMPT:** um, pequeno. O prompt diz que o número *"já existe na
+resposta do servidor"* via `telemetry` e que isto é só ligar. Acrescentei o
+`crossDocumentCollisions` como **campo tipado próprio** da resposta em vez de
+o ir buscar ao `Record<string, unknown>` do `telemetry` no cliente. Mesmo
+ciclo, mesma fonte de verdade, na mesma sem escrita nova — mas tipado de
+ponta a ponta e igual ao caminho que os três contadores irmãos já fazem, em
+vez de um cast não verificado dentro do componente.
