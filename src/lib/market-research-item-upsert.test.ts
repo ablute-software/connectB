@@ -206,12 +206,20 @@ describe('upsertOrEnrichResearchItem — the production case Prompt 478 could no
     expect(rows[0].detail).toBe('France · growth');
   });
 
+  // Prompt 483 changed what happens NEXT for an accepted row (the
+  // org_competitors row it created can now have its competitor_type filled
+  // in — see market-competitor-backfill.test.ts, which mocks the capability
+  // probe so that path really runs). What this test pins is the half that
+  // did NOT change and matters more here: the accepted ITEM row is never
+  // rewritten. Under this file's fixture the probe is off, so the backfill
+  // returns before touching any table and the outcome stays 'unchanged'.
   it('§4 — an accepted row is never rewritten: it already produced its org_competitors row', async () => {
     const { admin, rows } = makeFakeAdmin([row({ status: 'accepted' })]);
     const outcome = await upsertOrEnrichResearchItem(admin, 'org-1', 'sig-new', proposal());
 
     expect(outcome).toBe('unchanged');
     expect(rows[0].structured).toEqual({ name: 'Withings' });
+    expect(rows[0].status).toBe('accepted');
   });
 
   it('a rejected row is a decision the founder already made — left alone too', async () => {

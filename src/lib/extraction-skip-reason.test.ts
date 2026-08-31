@@ -33,24 +33,46 @@ describe('extractionSkipReasonMessage', () => {
 
 describe('extractionSummarySentence — the screen stops saying "nothing new" when something changed', () => {
   it('says nothing new only when genuinely nothing changed', () => {
-    expect(extractionSummarySentence({ itemsProposed: 0, itemsEnriched: 0, documentNames: ['A.pdf'] }))
+    expect(extractionSummarySentence({ itemsProposed: 0, itemsEnriched: 0, competitorsBackfilled: 0, documentNames: ['A.pdf'] }))
       .toBe('Already read — nothing new in these documents.');
   });
 
   it('reports enrichment when no row was inserted — the exact case that read as "nothing new" in production', () => {
-    expect(extractionSummarySentence({ itemsProposed: 0, itemsEnriched: 3, documentNames: ['Competitive_Landscape_and_Moat.docx.pdf'] }))
+    expect(extractionSummarySentence({ itemsProposed: 0, itemsEnriched: 3, competitorsBackfilled: 0, documentNames: ['Competitive_Landscape_and_Moat.docx.pdf'] }))
       .toBe('Read "Competitive_Landscape_and_Moat.docx.pdf" — no new proposals, but 3 existing suggestions now carry Sherlock\'s classification.');
   });
 
   it('keeps the singular honest', () => {
-    expect(extractionSummarySentence({ itemsProposed: 0, itemsEnriched: 1, documentNames: ['A.pdf', 'B.pdf'] }))
+    expect(extractionSummarySentence({ itemsProposed: 0, itemsEnriched: 1, competitorsBackfilled: 0, documentNames: ['A.pdf', 'B.pdf'] }))
       .toBe('Read 2 documents — no new proposals, but 1 existing suggestion now carries Sherlock\'s classification.');
-    expect(extractionSummarySentence({ itemsProposed: 1, itemsEnriched: 0, documentNames: ['A.pdf'] }))
+    expect(extractionSummarySentence({ itemsProposed: 1, itemsEnriched: 0, competitorsBackfilled: 0, documentNames: ['A.pdf'] }))
       .toBe('Read "A.pdf" — 1 new proposal below.');
   });
 
   it('reports both when a pass did both', () => {
-    expect(extractionSummarySentence({ itemsProposed: 2, itemsEnriched: 3, documentNames: ['A.pdf', 'B.pdf'] }))
-      .toBe('Read 2 documents — 2 new proposals below, and 3 existing suggestions now carry Sherlock\'s classification.');
+    expect(extractionSummarySentence({ itemsProposed: 2, itemsEnriched: 3, competitorsBackfilled: 0, documentNames: ['A.pdf', 'B.pdf'] }))
+      .toBe('Read 2 documents — 2 new proposals below and 3 existing suggestions now carry Sherlock\'s classification.');
+  });
+});
+
+describe('extractionSummarySentence — Prompt 483, the third destination', () => {
+  it('says accepted competitors separately from proposals and from suggestions (§6)', () => {
+    expect(extractionSummarySentence({ itemsProposed: 0, itemsEnriched: 0, competitorsBackfilled: 3, documentNames: ['A.pdf'] }))
+      .toBe('Read "A.pdf" — no new proposals, but 3 accepted competitors now carry Sherlock\'s classification.');
+  });
+
+  it('keeps the singular honest here too', () => {
+    expect(extractionSummarySentence({ itemsProposed: 0, itemsEnriched: 0, competitorsBackfilled: 1, documentNames: ['A.pdf'] }))
+      .toBe('Read "A.pdf" — no new proposals, but 1 accepted competitor now carries Sherlock\'s classification.');
+  });
+
+  it('says all three when a pass did all three, in one sentence', () => {
+    expect(extractionSummarySentence({ itemsProposed: 2, itemsEnriched: 3, competitorsBackfilled: 1, documentNames: ['A.pdf', 'B.pdf'] }))
+      .toBe('Read 2 documents — 2 new proposals below, 3 existing suggestions now carry Sherlock\'s classification and 1 accepted competitor now carries Sherlock\'s classification.');
+  });
+
+  it('still says nothing new only when all three are zero', () => {
+    expect(extractionSummarySentence({ itemsProposed: 0, itemsEnriched: 0, competitorsBackfilled: 0, documentNames: ['A.pdf'] }))
+      .toBe('Already read — nothing new in these documents.');
   });
 });

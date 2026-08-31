@@ -296,6 +296,11 @@ export async function POST(req: Request) {
   // statements and the founder acts on them differently.
   let itemsProposed = 0;
   let itemsEnriched = 0;
+  // Prompt 483 — a third destination: an org_competitors row the founder had
+  // already accepted, whose competitor_type was null because it was accepted
+  // before the classifier existed. No model call, no cost — database work
+  // over what this pass already extracted.
+  let competitorsBackfilled = 0;
   // Prompt 467 §C — how many typed market_facts THIS pass wrote (created OR
   // updated via the fingerprint upsert — writeMarketFact doesn't
   // distinguish the two, same as itemsProposed above never distinguishes
@@ -363,6 +368,7 @@ export async function POST(req: Request) {
       });
       if (outcome === 'inserted') itemsProposed += 1;
       else if (outcome === 'enriched') itemsEnriched += 1;
+      else if (outcome === 'competitor_backfilled') competitorsBackfilled += 1;
     }
 
     if (typedProposals.length > 0) {
@@ -492,6 +498,6 @@ export async function POST(req: Request) {
     // "Read {result.documentsRead} document(s)" line; readDocuments is the
     // new, separate {id,name}[] this prompt actually asked for, additive
     // rather than a breaking type change on a field another route depends on.
-    documentsRead: documentBlocks.length, readDocuments: [...docsByIndex.values()], itemsProposed, itemsEnriched, factsWritten,
+    documentsRead: documentBlocks.length, readDocuments: [...docsByIndex.values()], itemsProposed, itemsEnriched, competitorsBackfilled, factsWritten,
   });
 }

@@ -84,6 +84,10 @@ interface ExtractSummary {
   // the founder to the list to decide; "3 existing suggestions now
   // classified" tells them something they already saw just got better.
   itemsEnriched: number;
+  // Prompt 483 — competitors the founder had ALREADY accepted whose
+  // classification only arrived now. A third distinct statement, not a
+  // variant of the other two.
+  competitorsBackfilled: number;
   costEur: number;
   skipped: { documentId: string; reason: ExtractionSkipReason }[];
   // Prompt 464 §B — filled in once the serial per-document pass below
@@ -218,6 +222,7 @@ export function MarketDataPanel() {
         readDocuments,
         itemsProposed: body.itemsProposed ?? 0,
         itemsEnriched: body.itemsEnriched ?? 0,
+        competitorsBackfilled: body.competitorsBackfilled ?? 0,
         costEur: body.costEur ?? 0,
         skipped: (body.skipped ?? []) as { documentId: string; reason: ExtractionSkipReason }[],
         platformFeedNote: null,
@@ -651,6 +656,7 @@ function FromYourDocumentsPanel({ docs, docCounts, researchItems, pickerOpen, op
               {extractionSummarySentence({
                 itemsProposed: extractSummary.itemsProposed,
                 itemsEnriched: extractSummary.itemsEnriched,
+                competitorsBackfilled: extractSummary.competitorsBackfilled,
                 documentNames: extractSummary.readDocuments.map((d) => d.name),
               })}
               {extractSummary.costEur > 0 ? ` (≈ €${extractSummary.costEur.toFixed(3)})` : ''}

@@ -24,12 +24,14 @@
 // side, with a worse reading overwriting a better one.
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { backfillCompetitorTypeFromClassification, isScoredClassification } from './market-competitor-write';
 
 // 'inserted' — a genuinely new row. 'enriched' — an existing row that had no
-// classification now carries this proposal's. 'unchanged' — the incumbent
-// row stays exactly as it was (it already had a classification, this
-// proposal has none, or the founder has already decided on it).
-export type ProposalUpsertOutcome = 'inserted' | 'enriched' | 'unchanged';
+// classification now carries this proposal's. 'competitor_backfilled'
+// (Prompt 483) — the incumbent row was already ACCEPTED, so it is left
+// alone, but the org_competitors row it created had competitor_type null and
+// now carries the classification. 'unchanged' — nothing moved.
+export type ProposalUpsertOutcome = 'inserted' | 'enriched' | 'competitor_backfilled' | 'unchanged';
 
 export interface EnrichableProposal {
   section: string;
@@ -145,8 +147,20 @@ export async function upsertOrEnrichResearchItem(
     .maybeSingle();
   if (!existing) return 'unchanged';
   if (existing.source_kind !== 'document') return 'unchanged'; // guard 2
-  if (existing.status !== 'pending') return 'unchanged';       // guard 3
   if (!shouldEnrichExistingItem(p.structured, existing.structured as Record<string, unknown> | null)) return 'unchanged';
+
+  // Guard 3, and Prompt 483's one change to it: WHY the row is not pending
+  // now matters. Rejected is a decision the founder made and stays
+  // untouched, exactly as before. Accepted is the case 482 had no landing
+  // place for — the row already produced an org_competitors row through
+  // research/respond, and if that happened before the classifier existed,
+  // its competitor_type is null with no path to ever be filled. That path
+  // is here, and only here: the item row itself is still NOT rewritten
+  // (482's reasoning holds — it is archived, served to nobody, and its
+  // status must not move), so the only thing this can change is one null
+  // column on one competitor.
+  if (existing.status === 'accepted') return await backfillAcceptedCompetitor(admin, orgId, p);
+  if (existing.status !== 'pending') return 'unchanged';
 
   const { error } = await admin.from('market_research_items').update({
     structured: p.structured ?? null,
@@ -162,4 +176,23 @@ export async function upsertOrEnrichResearchItem(
   // removed from this screen.
   if (error) return 'unchanged';
   return 'enriched';
+}
+
+// Prompt 483 §2/§3/§5 — no model call, no cost: this is database work over
+// what was already extracted. Returns 'competitor_backfilled' only when a
+// row really changed.
+async function backfillAcceptedCompetitor(
+  admin: SupabaseClient, orgId: string, p: EnrichableProposal,
+): Promise<ProposalUpsertOutcome> {
+  const s = p.structured ?? {};
+  // The same name rule research/respond/route.ts uses to create the
+  // competitor in the first place (`structured?.name ?? structured?.company`)
+  // — the document path writes `name`, the web path writes `company`.
+  const name = typeof s.name === 'string' && s.name.trim()
+    ? s.name.trim()
+    : (typeof s.company === 'string' && s.company.trim() ? s.company.trim() : null);
+  if (!name) return 'unchanged';
+  if (!isScoredClassification(s.sherlockClassification)) return 'unchanged';
+  const filled = await backfillCompetitorTypeFromClassification(admin, orgId, name, s.sherlockClassification);
+  return filled ? 'competitor_backfilled' : 'unchanged';
 }

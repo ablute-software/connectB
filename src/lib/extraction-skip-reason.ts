@@ -40,22 +40,41 @@ export function extractionSkipReasonMessage(reason: ExtractionSkipReason): strin
 // different document and been discarded. Now that a pass can change
 // something without inserting anything, "nothing new" has to mean nothing
 // new.
+//
+// Prompt 483 §6 — extended, not duplicated: a pass can now also fill in the
+// classification of a competitor the founder had ALREADY accepted, which is
+// a third distinct thing and is said as one. Clauses are built and joined
+// rather than nested, so a fourth destination is one push, not another
+// ternary.
+function plural(n: number, one: string, many: string): string { return n === 1 ? one : many; }
+
+function joinClauses(parts: string[]): string {
+  if (parts.length === 1) return parts[0];
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
 export function extractionSummarySentence(input: {
   itemsProposed: number;
   itemsEnriched: number;
+  competitorsBackfilled: number;
   documentNames: string[];
 }): string {
-  const { itemsProposed, itemsEnriched, documentNames } = input;
+  const { itemsProposed, itemsEnriched, competitorsBackfilled, documentNames } = input;
+  const parts: string[] = [];
+  if (itemsProposed > 0) parts.push(`${itemsProposed} new ${plural(itemsProposed, 'proposal', 'proposals')} below`);
+  if (itemsEnriched > 0) {
+    parts.push(`${itemsEnriched} existing ${plural(itemsEnriched, 'suggestion', 'suggestions')} now ${plural(itemsEnriched, 'carries', 'carry')} Sherlock's classification`);
+  }
+  if (competitorsBackfilled > 0) {
+    parts.push(`${competitorsBackfilled} accepted ${plural(competitorsBackfilled, 'competitor', 'competitors')} now ${plural(competitorsBackfilled, 'carries', 'carry')} Sherlock's classification`);
+  }
+  if (parts.length === 0) return 'Already read — nothing new in these documents.';
+
   const read = documentNames.length === 1
     ? `Read "${documentNames[0]}"`
     : `Read ${documentNames.length} documents`;
-  const enrichedClause = itemsEnriched === 1
-    ? '1 existing suggestion now carries Sherlock\'s classification'
-    : `${itemsEnriched} existing suggestions now carry Sherlock's classification`;
-
-  if (itemsProposed === 0 && itemsEnriched === 0) return 'Already read — nothing new in these documents.';
-  if (itemsProposed === 0) return `${read} — no new proposals, but ${enrichedClause}.`;
-  const proposals = `${itemsProposed} new proposal${itemsProposed === 1 ? '' : 's'} below`;
-  if (itemsEnriched === 0) return `${read} — ${proposals}.`;
-  return `${read} — ${proposals}, and ${enrichedClause}.`;
+  // "no new proposals, but ..." only when there genuinely were none: the
+  // whole point is that "nothing new" must mean nothing new.
+  const body = itemsProposed === 0 ? `no new proposals, but ${joinClauses(parts)}` : joinClauses(parts);
+  return `${read} — ${body}.`;
 }
