@@ -27,6 +27,10 @@ import { truncatePdfToPages } from '@/lib/pdf-truncate';
 import { upsertOrEnrichResearchItem } from '@/lib/market-research-item-upsert';
 import { MAX_EXTRACTION_PAGES } from '@/lib/document-extraction';
 import { maxOutputTokensForBudget, MIN_USEFUL_MODEL_BUDGET_MS } from '@/lib/document-extract-budget';
+import {
+  auditRawCompetitors, countProposalsBySection, countRawSections,
+  describeExtractionTelemetry, emptyOutcomeTally,
+} from '@/lib/market-extraction-telemetry';
 import { marketDocumentExtractionAvailable, marketFactsAvailable } from '@/lib/market-data-capability';
 import { parseMarketExtractionRaw, computeExtractionSignature, type MarketDocRef, type MarketProposal } from '@/lib/market-document-extract';
 import { CANDIDATE_KINDS, CANDIDATE_STAGES } from '@/lib/market-research-structured';
@@ -357,6 +361,12 @@ export async function POST(req: Request) {
   // Prompt 484 — hoisted so the response can report it; false when the run
   // was served from the signature cache and no model call happened at all.
   let truncatedRun = false;
+  // Prompt 486 — carried on the RESPONSE, not only into the server log.
+  // Prompt 484 established that the Vercel logs are not reachable from this
+  // project's working setup; a counter that only lands there is a counter
+  // nobody reads. On the response it reaches the browser console, which is
+  // where the last two diagnoses actually came from.
+  let telemetry: Record<string, unknown> | null = null;
   // Prompt 467 §C — how many typed market_facts THIS pass wrote (created OR
   // updated via the fingerprint upsert — writeMarketFact doesn't
   // distinguish the two, same as itemsProposed above never distinguishes
@@ -455,6 +465,13 @@ export async function POST(req: Request) {
 
     const toolUse = (data.content as { type: string; input?: unknown }[]).find((b) => b.type === 'tool_use');
     const proposals = parseMarketExtractionRaw(toolUse?.input, docsByIndex);
+    // Prompt 486 — counted at every stage a thing can disappear. Two complete,
+    // paid reads on 31/08 changed nothing at all and the route could not say
+    // why, because between "the model answered" and "nothing was written"
+    // there was no measurement of any kind. Cheap, so permanent.
+    const rawSections = countRawSections(toolUse?.input);
+    const competitorAudit = auditRawCompetitors(toolUse?.input);
+    const parsedBySection = countProposalsBySection(proposals);
 
     // Prompt 467 §C / v3 §4 — growth/market_size go straight through
     // normalizeMarketCandidates (466) into typed market_facts instead of
@@ -478,11 +495,13 @@ export async function POST(req: Request) {
       ? proposals.filter((p) => p.section === 'growth' || p.section === 'sizing')
       : [];
 
+    const outcomeTally = emptyOutcomeTally();
     for (const p of legacyProposals) {
       const outcome = await upsertOrEnrichResearchItem(admin, orgId, signature, {
         section: p.section, title: p.title, detail: p.detail,
         documentId: p.documentId, page: p.page, structured: p.structured ?? null,
       });
+      outcomeTally[outcome] += 1;
       if (outcome === 'inserted') itemsProposed += 1;
       else if (outcome === 'enriched') itemsEnriched += 1;
       else if (outcome === 'competitor_backfilled') competitorsBackfilled += 1;
@@ -575,6 +594,20 @@ export async function POST(req: Request) {
         factsWritten += 1;
       }
     }
+
+    // Prompt 486 — one line that separates the three explanations that all
+    // look identical from the outside: the model said nothing; the parser
+    // dropped everything (a document_index that does not resolve); or every
+    // item collided with a row that already exists and came back unchanged.
+    telemetry = {
+      documents: documentBlocks.length,
+      documentIndexesOffered: [...docsByIndex.keys()],
+      rawSections, competitorAudit, parsedBySection, outcomes: outcomeTally, factsWritten,
+      summary: describeExtractionTelemetry({
+        rawSections, competitors: competitorAudit, parsedBySection, outcomes: outcomeTally, factsWritten,
+      }),
+    };
+    console.warn(`[market-data/document-extract] extraction telemetry`, telemetry);
   }
 
   let { data: items } = await admin.from('market_research_items')
@@ -608,6 +641,7 @@ export async function POST(req: Request) {
   // client-driven replacement, which calls /api/data-room/extract-document
   // once per document and actually awaits it.
 
+
   return NextResponse.json({
     ok: true, items: items ?? [], skipped, costEur, cached: alreadyRanForThisSignature,
     // documentsRead stays the existing COUNT — portrait/route.ts already
@@ -621,5 +655,9 @@ export async function POST(req: Request) {
     // prompt is about unblocking the read, and a founder-facing truncation
     // notice is its own decision.
     truncated: truncatedRun,
+    // Prompt 486 — null when the run was served from the signature cache and
+    // no model call happened, so "no telemetry" and "nothing found" stay
+    // distinguishable.
+    telemetry,
   });
 }

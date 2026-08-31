@@ -85,6 +85,10 @@ interface ExtractResponse {
   costEur?: number;
   skipped?: { documentId: string; reason: ExtractionSkipReason }[];
   truncated?: boolean;
+  // Prompt 486 — counts per stage, so a pass that changes nothing can say
+  // whether the model reported nothing, the parser dropped everything, or
+  // every item collided with a row that already exists.
+  telemetry?: Record<string, unknown> | null;
 }
 // Prompt 463 §B.2 — what a "Read my documents" pass actually did, so the
 // panel can say so in words instead of the old bare "Last pass cost"
@@ -264,6 +268,9 @@ export function MarketDataPanel() {
         skipped: body.skipped ?? [],
         platformFeedNote: null,
       });
+      // Prompt 486 — always logged, including (especially) on a pass that
+      // changed nothing: that is the case with no other trace anywhere.
+      if (body.telemetry) console.info('[document-extract] telemetry', body.telemetry);
       setPickerOpen(false);
       load();
 
