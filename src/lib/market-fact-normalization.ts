@@ -200,14 +200,45 @@ function dedupeSourceRefs(refs: SourceRef[]): SourceRef[] {
 // Context must be absent CONSISTENTLY: a candidate with a geography never
 // pairs with one without, and two different geographies never pair at all —
 // those stay the genuine ambiguity invariable 14 is about.
+//
+// Prompt 490 — the same discipline, applied to the two size-only fields it
+// was missing. A market_size candidate also carries `currency` and
+// `methodology`, and buildMarketSizeFact reads BOTH from members[0] — always
+// the `lower`, by construction of the [lower, upper] array below. So before
+// this, a bottom-up figure in USD could pair with an external estimate in
+// EUR and the resulting fact would silently claim to be bottom-up USD. That
+// matters beyond tidiness: Prompt 487 uses `payload.methodology ===
+// 'bottom_up'` as the ONLY gate for the Block 2 headline number.
+//
+// Both fields go into the key the same way `metric` already does — as a
+// value, with null as one of the values. That IS the consistent-absence
+// rule, expressed by construction rather than by a separate check: two nulls
+// produce the same key and pair; one filled and one null produce different
+// keys and do not; two different values produce different keys and do not.
+//
+// currency is normalised with normalizeText, the treatment groupKeyFor
+// already gives free-text context fields: 'USD' and 'usd' are the same
+// currency and that is a fact, not a guess. '$' and 'USD' stay unequal —
+// asserting THAT equivalence would be exactly the kind of invention this
+// module exists to refuse. methodology is a closed enum, so it goes in raw.
+//
+// One honest note for the next reader, found by reading the upstream parser
+// rather than assumed: market-document-extract.ts writes
+// `str(item.currency) ?? 'EUR'`, so a currency the model never stated
+// arrives here as 'EUR', not as null. Through the document path the "both
+// null" branch of the currency term is therefore close to unreachable, and
+// the term's real work is separating two STATED currencies.
 function contextlessBoundPairKey(c: MarketFactCandidate): string | null {
   if (!c.marketDefinition) return null;
   if (c.bound !== 'lower' && c.bound !== 'upper') return null;
   if (c.geography) return null;
+  const base = [c.kind, normalizeText(c.marketDefinition), c.metric ?? null];
   if (c.kind === 'growth') {
     if (c.periodStart !== null || c.periodEnd !== null) return null;
-  } else if (c.asOfYear !== null) return null;
-  return JSON.stringify([c.kind, normalizeText(c.marketDefinition), c.metric ?? null]);
+    return JSON.stringify(base);
+  }
+  if (c.asOfYear !== null) return null;
+  return JSON.stringify([...base, c.currency ? normalizeText(c.currency) : null, c.methodology ?? null]);
 }
 
 function pairContextlessBounds<T extends MarketFactCandidate>(

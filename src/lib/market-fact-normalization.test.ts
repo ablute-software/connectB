@@ -322,3 +322,114 @@ describe('Prompt 488 — invariable 14 does not break because of this fix', () =
     expect(facts).toHaveLength(2);
   });
 });
+
+// Prompt 490 — the pair key compared marketDefinition and metric, but for
+// market_size it never compared `currency` or `methodology`, and
+// buildMarketSizeFact takes both from members[0] (always the `lower`).
+describe('Prompt 490 — a bound pair must agree on currency and methodology too', () => {
+  it('a bottom-up USD lower never pairs with an external-estimate EUR upper', () => {
+    // The case Prompt 490 names: the merged fact would have inherited
+    // 'bottom_up' and 'USD' from the lower half alone, and Prompt 487 uses
+    // `methodology === 'bottom_up'` as the ONLY gate for the Block 2
+    // headline — so half a range would have carried a headline claim.
+    const facts = normalizeMarketCandidates([
+      size({ observationId: 'lo', value: 30_000_000_000, marketDefinition: 'Biosensors Market', bound: 'lower', methodology: 'bottom_up', currency: 'USD' }),
+      size({ observationId: 'hi', value: 34_000_000_000, marketDefinition: 'Biosensors Market', bound: 'upper', methodology: 'external_estimate', currency: 'EUR' }),
+    ]) as MarketSizeFact[];
+
+    expect(facts).toHaveLength(2);
+    expect(facts.map((f) => f.estimateShape).sort()).toEqual(['lower_bound', 'upper_bound']);
+  });
+
+  it('one field stated and the other null is inconsistent absence, exactly like geography', () => {
+    const byMethodology = normalizeMarketCandidates([
+      size({ observationId: 'lo', value: 30_000_000_000, marketDefinition: 'Biosensors Market', bound: 'lower', methodology: 'bottom_up' }),
+      size({ observationId: 'hi', value: 34_000_000_000, marketDefinition: 'Biosensors Market', bound: 'upper' }),
+    ]);
+    expect(byMethodology).toHaveLength(2);
+
+    const byCurrency = normalizeMarketCandidates([
+      size({ observationId: 'lo', value: 30_000_000_000, marketDefinition: 'Biosensors Market', bound: 'lower', currency: 'USD' }),
+      size({ observationId: 'hi', value: 34_000_000_000, marketDefinition: 'Biosensors Market', bound: 'upper' }),
+    ]);
+    expect(byCurrency).toHaveLength(2);
+  });
+
+  it('both fields consistently absent still pairs — absence is only a bar when it is inconsistent', () => {
+    const facts = normalizeMarketCandidates([
+      size({ observationId: 'lo', value: 30_000_000_000, marketDefinition: 'Biosensors Market', bound: 'lower' }),
+      size({ observationId: 'hi', value: 34_000_000_000, marketDefinition: 'Biosensors Market', bound: 'upper' }),
+    ]) as MarketSizeFact[];
+
+    expect(facts).toHaveLength(1);
+    expect(facts[0].estimateShape).toBe('interval');
+    expect(facts[0].currency).toBeNull();
+    expect(facts[0].methodology).toBeNull();
+  });
+
+  it('both fields stated and equal pairs, and the merged fact carries them', () => {
+    const facts = normalizeMarketCandidates([
+      size({ observationId: 'lo', value: 30_000_000_000, marketDefinition: 'Biosensors Market', bound: 'lower', methodology: 'bottom_up', currency: 'USD' }),
+      size({ observationId: 'hi', value: 34_000_000_000, marketDefinition: 'Biosensors Market', bound: 'upper', methodology: 'bottom_up', currency: 'USD' }),
+    ]) as MarketSizeFact[];
+
+    expect(facts).toHaveLength(1);
+    expect([facts[0].lowerBound, facts[0].upperBound]).toEqual([30_000_000_000, 34_000_000_000]);
+    expect(facts[0].methodology).toBe('bottom_up');
+    expect(facts[0].currency).toBe('USD');
+  });
+
+  it("'USD' and 'usd' are the same currency; '$' and 'USD' are not", () => {
+    // The deliberate line of the normalisation: case and whitespace are
+    // notation, so they are normalised away. A symbol-vs-code equivalence
+    // would be an assertion about the world, so it is not made.
+    const sameCurrency = normalizeMarketCandidates([
+      size({ observationId: 'lo', value: 30_000_000_000, marketDefinition: 'Biosensors Market', bound: 'lower', currency: 'USD' }),
+      size({ observationId: 'hi', value: 34_000_000_000, marketDefinition: 'Biosensors Market', bound: 'upper', currency: ' usd ' }),
+    ]);
+    expect(sameCurrency).toHaveLength(1);
+
+    const symbolVsCode = normalizeMarketCandidates([
+      size({ observationId: 'lo', value: 30_000_000_000, marketDefinition: 'Biosensors Market', bound: 'lower', currency: 'USD' }),
+      size({ observationId: 'hi', value: 34_000_000_000, marketDefinition: 'Biosensors Market', bound: 'upper', currency: '$' }),
+    ]);
+    expect(symbolVsCode).toHaveLength(2);
+  });
+
+  it('the three Biosensors readings actually in production: 488 alone could not pair them, this can', () => {
+    // Measured 31/08 in market_facts — one extraction pass, 30/08 21:52:51
+    // to 21:52:53, geography and asOfYear null on all three:
+    //   lower 30B, USD, methodology null
+    //   upper 34B, USD, methodology null
+    //   lower 30B, USD, methodology 'other'   <- a duplicate reading
+    // Under 488's key those three share one bucket, so lower.length === 2
+    // and pairContextlessBounds refuses the whole group: three facts, and
+    // the range the slide states never forms. Separating on methodology is
+    // what lets the two halves that DO agree find each other; the odd
+    // reading stays its own fact, unmerged and undiscarded.
+    const facts = normalizeMarketCandidates([
+      size({ observationId: 'lo-null', value: 30_000_000_000, marketDefinition: 'Biosensors Market', bound: 'lower', metric: 'TAM', currency: 'USD' }),
+      size({ observationId: 'hi-null', value: 34_000_000_000, marketDefinition: 'Biosensors Market', bound: 'upper', metric: 'TAM', currency: 'USD' }),
+      size({ observationId: 'lo-other', value: 30_000_000_000, marketDefinition: 'Biosensors Market', bound: 'lower', metric: 'TAM', currency: 'USD', methodology: 'other' }),
+    ]) as MarketSizeFact[];
+
+    expect(facts).toHaveLength(2);
+    const interval = facts.find((f) => f.estimateShape === 'interval')!;
+    expect([interval.lowerBound, interval.upperBound]).toEqual([30_000_000_000, 34_000_000_000]);
+    expect(interval.methodology).toBeNull();
+    expect(interval.observationIds.sort()).toEqual(['hi-null', 'lo-null']);
+    // Nothing is thrown away: the third reading survives as its own fact.
+    const leftover = facts.find((f) => f.estimateShape === 'lower_bound')!;
+    expect(leftover.observationIds).toEqual(['lo-other']);
+    expect(leftover.methodology).toBe('other');
+  });
+
+  it('growth pairing is byte-identical — currency and methodology do not exist there', () => {
+    const facts = normalizeMarketCandidates([
+      growth({ observationId: 'g-lo', pct: 8, marketDefinition: 'Urinalysis Market', bound: 'lower' }),
+      growth({ observationId: 'g-hi', pct: 9.6, marketDefinition: 'Urinalysis Market', bound: 'upper' }),
+    ]) as GrowthFact[];
+    expect(facts).toHaveLength(1);
+    expect([facts[0].lowerBound, facts[0].upperBound]).toEqual([8, 9.6]);
+  });
+});
