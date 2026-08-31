@@ -246,19 +246,25 @@ export function OverviewPanel() {
 
       <Card title={`Overrides log (${db.overrides.length})`}>
         {db.overrides.length === 0 ? <p className="text-sm text-gray-400">No rules overridden. Good.</p> : (
-          <table className="w-full text-sm">
-            <thead><tr className="text-left text-xs text-gray-500"><th className="py-1">Date</th><th>Rule</th><th>Entity</th><th>Justification</th></tr></thead>
-            <tbody>
-              {db.overrides.map((o) => (
-                <tr key={o.id} className="border-t border-gray-100">
-                  <td className="py-1.5 text-xs text-gray-500">{o.created_at.slice(0, 10)}</td>
-                  <td className="text-xs">{o.rule.replace('_', ' ')}</td>
-                  <td className="text-xs">{o.entity_id && <EntityLink id={o.entity_id}>{db.entities.find((e) => e.id === o.entity_id)?.name}</EntityLink>}</td>
-                  <td className="text-xs text-gray-600">{o.justification}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          // Prompt 499 §2 — four columns, one of them free-text
+          // justification, with no wrapper at all: on a phone the table
+          // pushed the page sideways instead of scrolling inside itself.
+          // Same one-line wrapper the rest of the app already uses.
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-left text-xs text-gray-500"><th className="py-1">Date</th><th>Rule</th><th>Entity</th><th>Justification</th></tr></thead>
+              <tbody>
+                {db.overrides.map((o) => (
+                  <tr key={o.id} className="border-t border-gray-100">
+                    <td className="py-1.5 text-xs text-gray-500">{o.created_at.slice(0, 10)}</td>
+                    <td className="text-xs">{o.rule.replace('_', ' ')}</td>
+                    <td className="text-xs">{o.entity_id && <EntityLink id={o.entity_id}>{db.entities.find((e) => e.id === o.entity_id)?.name}</EntityLink>}</td>
+                    <td className="text-xs text-gray-600">{o.justification}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
 

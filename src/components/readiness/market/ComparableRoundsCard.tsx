@@ -137,7 +137,11 @@ export function ComparableRoundsCard() {
       ) : (
         <>
           <p className="text-xs text-gray-500">Rounds to benchmark against — what an investor will ask you to justify your own ask against.</p>
-          <div className="overflow-hidden rounded-lg border border-gray-200">
+          {/* Prompt 499 §3 — was `overflow-hidden`, which CUT the five
+              columns off on a phone instead of letting them scroll. `auto`
+              still clips to the rounded corners (that was the original
+              job), and adds the scroll. */}
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
             <table className="w-full text-xs">
               <thead className="bg-gray-50 text-left text-[10px] uppercase tracking-wide text-gray-400">
                 <tr>

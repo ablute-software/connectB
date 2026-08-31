@@ -584,14 +584,27 @@ export function Tabs({ items, active, onChange }: {
     (e.currentTarget.parentElement?.children[(idx + dir + items.length) % items.length] as HTMLElement | undefined)?.focus();
   }
 
+  // Prompt 499 §1 — on a 375-414px phone this strip used to squash or break:
+  // a bare `flex gap-1` lets every tab shrink below its text, and the
+  // Readiness bar has seven of them. `overflow-x-auto` on the container plus
+  // `shrink-0`/`whitespace-nowrap` on each tab (below) makes it scroll
+  // instead, at full label width. One change, and all nine files that use
+  // this component get it.
+  //
+  // Checked before adding the overflow, because `overflow-x: auto` also
+  // computes `overflow-y` to `auto` (CSS spec: a non-visible value on one
+  // axis forces the other) and would therefore CLIP anything positioned
+  // outside the strip: nothing in src/ ever queries `[data-tour-id]`, so no
+  // overlay is anchored to these buttons, and the badge and glow marker are
+  // ordinary inline children well inside the box.
   return (
-    <div role="tablist" aria-label="Sections" className="mb-4 flex gap-1 border-b border-gray-100">
+    <div role="tablist" aria-label="Sections" className="mb-4 flex gap-1 overflow-x-auto border-b border-gray-100">
       {items.map((it, idx) => {
         const selected = it.key === active;
         return (
           <button key={it.key} role="tab" aria-selected={selected} tabIndex={selected ? 0 : -1} title={it.glowTitle}
             data-tour-id={it.tourId} onClick={() => onChange(it.key)} onKeyDown={(e) => onKeyDown(e, idx)}
-            className={`relative flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition ${
+            className={`relative flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition ${
               selected ? 'border-[#0E7490] text-[#0E7490]' : it.glow ? 'border-transparent text-amber-600' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
             {it.label}
             {it.glow && <span aria-hidden="true" className="text-amber-500">✦</span>}
