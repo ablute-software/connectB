@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractionSkipReasonMessage } from './extraction-skip-reason';
+import { extractionSkipReasonMessage, extractionSummarySentence } from './extraction-skip-reason';
 import type { ExtractionSkipReason } from './document-extraction-pipeline';
 
 // Prompt 463 §B.3 — every ExtractionSkipReason value must have a real
@@ -28,5 +28,29 @@ describe('extractionSkipReasonMessage', () => {
   it('every reason gets a DIFFERENT sentence — no accidental collapsing of distinct failures into one generic message', () => {
     const messages = ALL_REASONS.map((r) => extractionSkipReasonMessage(r));
     expect(new Set(messages).size).toBe(ALL_REASONS.length);
+  });
+});
+
+describe('extractionSummarySentence — the screen stops saying "nothing new" when something changed', () => {
+  it('says nothing new only when genuinely nothing changed', () => {
+    expect(extractionSummarySentence({ itemsProposed: 0, itemsEnriched: 0, documentNames: ['A.pdf'] }))
+      .toBe('Already read — nothing new in these documents.');
+  });
+
+  it('reports enrichment when no row was inserted — the exact case that read as "nothing new" in production', () => {
+    expect(extractionSummarySentence({ itemsProposed: 0, itemsEnriched: 3, documentNames: ['Competitive_Landscape_and_Moat.docx.pdf'] }))
+      .toBe('Read "Competitive_Landscape_and_Moat.docx.pdf" — no new proposals, but 3 existing suggestions now carry Sherlock\'s classification.');
+  });
+
+  it('keeps the singular honest', () => {
+    expect(extractionSummarySentence({ itemsProposed: 0, itemsEnriched: 1, documentNames: ['A.pdf', 'B.pdf'] }))
+      .toBe('Read 2 documents — no new proposals, but 1 existing suggestion now carries Sherlock\'s classification.');
+    expect(extractionSummarySentence({ itemsProposed: 1, itemsEnriched: 0, documentNames: ['A.pdf'] }))
+      .toBe('Read "A.pdf" — 1 new proposal below.');
+  });
+
+  it('reports both when a pass did both', () => {
+    expect(extractionSummarySentence({ itemsProposed: 2, itemsEnriched: 3, documentNames: ['A.pdf', 'B.pdf'] }))
+      .toBe('Read 2 documents — 2 new proposals below, and 3 existing suggestions now carry Sherlock\'s classification.');
   });
 });

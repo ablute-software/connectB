@@ -24,6 +24,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { prepareDocumentForAi, type ExtractionSkipReason } from '@/lib/document-extraction-pipeline';
 import { truncatePdfToPages } from '@/lib/pdf-truncate';
+import { upsertOrEnrichResearchItem } from '@/lib/market-research-item-upsert';
 import { MAX_EXTRACTION_PAGES } from '@/lib/document-extraction';
 import { marketDocumentExtractionAvailable, marketFactsAvailable } from '@/lib/market-data-capability';
 import { parseMarketExtractionRaw, computeExtractionSignature, type MarketDocRef, type MarketProposal } from '@/lib/market-document-extract';
@@ -281,12 +282,20 @@ export async function POST(req: Request) {
   let costEur = 0;
   // Prompt 463 §B.2 — how many market_research_items rows THIS pass
   // actually inserted, never how many the model proposed: a proposal that
-  // collides with an already-pending row under the same (org_id, section,
-  // title) is deliberately left untouched by ignoreDuplicates, so
-  // .select('id') after the upsert — which only ever returns the rows
-  // Postgres actually inserted — is what makes this count true rather than
-  // an upper bound.
+  // collides with an already-existing row under the same (org_id, section,
+  // title) is left untouched by ignoreDuplicates, so only the rows Postgres
+  // really inserted are counted here rather than an upper bound.
+  //
+  // Prompt 482 — that collision turned out to be the defect, not just an
+  // accounting detail: the colliding row can come from a COMPLETELY
+  // DIFFERENT document read before the classifier existed, and it owned the
+  // title forever. upsertOrEnrichResearchItem now enriches such a row
+  // instead of discarding the proposal, and itemsEnriched counts that
+  // separately — never folded into itemsProposed, because "3 new proposals
+  // below" and "3 existing suggestions now classified" are different
+  // statements and the founder acts on them differently.
   let itemsProposed = 0;
+  let itemsEnriched = 0;
   // Prompt 467 §C — how many typed market_facts THIS pass wrote (created OR
   // updated via the fingerprint upsert — writeMarketFact doesn't
   // distinguish the two, same as itemsProposed above never distinguishes
@@ -348,12 +357,12 @@ export async function POST(req: Request) {
       : [];
 
     for (const p of legacyProposals) {
-      const { data: inserted } = await admin.from('market_research_items').upsert({
-        org_id: orgId, run_signature: signature, section: p.section, title: p.title, detail: p.detail,
-        source_kind: 'document', document_id: p.documentId, page: p.page, structured: p.structured ?? null,
-        status: 'pending', updated_at: new Date().toISOString(),
-      }, { onConflict: 'org_id,section,title', ignoreDuplicates: true }).select('id');
-      itemsProposed += (inserted ?? []).length;
+      const outcome = await upsertOrEnrichResearchItem(admin, orgId, signature, {
+        section: p.section, title: p.title, detail: p.detail,
+        documentId: p.documentId, page: p.page, structured: p.structured ?? null,
+      });
+      if (outcome === 'inserted') itemsProposed += 1;
+      else if (outcome === 'enriched') itemsEnriched += 1;
     }
 
     if (typedProposals.length > 0) {
@@ -483,6 +492,6 @@ export async function POST(req: Request) {
     // "Read {result.documentsRead} document(s)" line; readDocuments is the
     // new, separate {id,name}[] this prompt actually asked for, additive
     // rather than a breaking type change on a field another route depends on.
-    documentsRead: documentBlocks.length, readDocuments: [...docsByIndex.values()], itemsProposed, factsWritten,
+    documentsRead: documentBlocks.length, readDocuments: [...docsByIndex.values()], itemsProposed, itemsEnriched, factsWritten,
   });
 }

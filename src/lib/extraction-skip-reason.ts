@@ -26,3 +26,36 @@ export function extractionSkipReasonMessage(reason: ExtractionSkipReason): strin
     case 'link_unreadable': return 'that link did not return a readable file';
   }
 }
+
+// Prompt 482 — the other half of this screen's honesty: what the pass as a
+// whole did. It lives here, not next to the upsert logic that produces the
+// counts, because MarketDataPanel.tsx is a client component and that module
+// is server-only (it takes an admin SupabaseClient) — the same boundary the
+// header above describes.
+//
+// Before this prompt the panel said "Already read — nothing new in these
+// documents." whenever itemsProposed was 0. That is the exact sentence Nuno
+// saw three times while paying for three real model runs (€0.141, €0.091,
+// €0.091): every proposal had collided with a row left behind by a
+// different document and been discarded. Now that a pass can change
+// something without inserting anything, "nothing new" has to mean nothing
+// new.
+export function extractionSummarySentence(input: {
+  itemsProposed: number;
+  itemsEnriched: number;
+  documentNames: string[];
+}): string {
+  const { itemsProposed, itemsEnriched, documentNames } = input;
+  const read = documentNames.length === 1
+    ? `Read "${documentNames[0]}"`
+    : `Read ${documentNames.length} documents`;
+  const enrichedClause = itemsEnriched === 1
+    ? '1 existing suggestion now carries Sherlock\'s classification'
+    : `${itemsEnriched} existing suggestions now carry Sherlock's classification`;
+
+  if (itemsProposed === 0 && itemsEnriched === 0) return 'Already read — nothing new in these documents.';
+  if (itemsProposed === 0) return `${read} — no new proposals, but ${enrichedClause}.`;
+  const proposals = `${itemsProposed} new proposal${itemsProposed === 1 ? '' : 's'} below`;
+  if (itemsEnriched === 0) return `${read} — ${proposals}.`;
+  return `${read} — ${proposals}, and ${enrichedClause}.`;
+}

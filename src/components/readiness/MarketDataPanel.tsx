@@ -50,7 +50,7 @@ import { MarketPortraitCard } from './market/MarketPortraitCard';
 import { MarketThesisSection } from './market/MarketThesisSection';
 import { MarketFactsCard } from './market/MarketFactsCard';
 import { PORTRAIT_DOC_HEURISTIC, MAX_PORTRAIT_DOCS } from '@/lib/market-portrait';
-import { extractionSkipReasonMessage } from '@/lib/extraction-skip-reason';
+import { extractionSkipReasonMessage, extractionSummarySentence } from '@/lib/extraction-skip-reason';
 import type { ExtractionSkipReason } from '@/lib/document-extraction-pipeline';
 import { feedDocumentsToRestOfPlatform } from '@/lib/feed-documents-to-platform';
 
@@ -79,6 +79,11 @@ interface VaultDoc { id: string; name: string; folderName: string }
 interface ExtractSummary {
   readDocuments: { id: string; name: string }[];
   itemsProposed: number;
+  // Prompt 482 — rows that already existed and now carry a classification.
+  // Kept apart from itemsProposed on purpose: "3 new proposals below" sends
+  // the founder to the list to decide; "3 existing suggestions now
+  // classified" tells them something they already saw just got better.
+  itemsEnriched: number;
   costEur: number;
   skipped: { documentId: string; reason: ExtractionSkipReason }[];
   // Prompt 464 §B — filled in once the serial per-document pass below
@@ -212,6 +217,7 @@ export function MarketDataPanel() {
       setExtractSummary({
         readDocuments,
         itemsProposed: body.itemsProposed ?? 0,
+        itemsEnriched: body.itemsEnriched ?? 0,
         costEur: body.costEur ?? 0,
         skipped: (body.skipped ?? []) as { documentId: string; reason: ExtractionSkipReason }[],
         platformFeedNote: null,
@@ -637,11 +643,16 @@ function FromYourDocumentsPanel({ docs, docCounts, researchItems, pickerOpen, op
         {extractSummary && (
           <div className="mt-1.5 space-y-1">
             <p className="text-[11px] text-gray-600">
-              {extractSummary.itemsProposed === 0
-                ? 'Already read — nothing new in these documents.'
-                : extractSummary.readDocuments.length === 1
-                  ? `Read "${extractSummary.readDocuments[0].name}" — ${extractSummary.itemsProposed} new proposal${extractSummary.itemsProposed === 1 ? '' : 's'} below.`
-                  : `Read ${extractSummary.readDocuments.length} documents — ${extractSummary.itemsProposed} new proposals below.`}
+              {/* Prompt 482 — one tested function instead of a nested
+                  ternary here: this exact sentence read "Already read —
+                  nothing new" three times in production while three real
+                  model runs were being paid for and every proposal was
+                  being discarded by a title collision. */}
+              {extractionSummarySentence({
+                itemsProposed: extractSummary.itemsProposed,
+                itemsEnriched: extractSummary.itemsEnriched,
+                documentNames: extractSummary.readDocuments.map((d) => d.name),
+              })}
               {extractSummary.costEur > 0 ? ` (≈ €${extractSummary.costEur.toFixed(3)})` : ''}
             </p>
             {extractSummary.skipped.length > 0 && (

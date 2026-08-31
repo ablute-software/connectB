@@ -1,0 +1,165 @@
+// Prompt 482 — the title collision that swallowed Prompt 478's whole point.
+//
+// market_research_items has `unique(org_id, section, title)`. The document
+// pass inserts with `ignoreDuplicates: true`, so the FIRST row ever written
+// under a title owns that slot forever — including a row read out of a
+// COMPLETELY DIFFERENT document, months earlier, before the classifier
+// existed. Confirmed in production (Nuno, 30/08): "ablute_ investor deck"
+// (read 29/08, before 478) already held "Competitor: Withings", "Competitor:
+// Bisu", "Competitor: Vivoo" with structured.sherlockClassification = null.
+// When Competitive_Landscape_and_Moat.docx.pdf was read AFTER 478, with the
+// full facets, every one of those proposals was discarded in silence — the
+// model ran, the founder paid (€0.141, then €0.091, then €0.091 again), and
+// not one row changed. The panel said "Already read — nothing new".
+//
+// So 478 fixed the schema and the parser and still could not reach any
+// competitor that already had an old row under the same name. That is not a
+// rare corner: it is the state ablute_ was in, and the state of any org that
+// read documents before today.
+//
+// The fix is enrichment, never re-insertion: a proposal that arrives with a
+// classification takes over the structured data of an existing row that has
+// none. A proposal that arrives WITHOUT one never touches a row that has
+// one — "most recent wins" would just reopen the same bug from the other
+// side, with a worse reading overwriting a better one.
+import 'server-only';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+// 'inserted' — a genuinely new row. 'enriched' — an existing row that had no
+// classification now carries this proposal's. 'unchanged' — the incumbent
+// row stays exactly as it was (it already had a classification, this
+// proposal has none, or the founder has already decided on it).
+export type ProposalUpsertOutcome = 'inserted' | 'enriched' | 'unchanged';
+
+export interface EnrichableProposal {
+  section: string;
+  title: string;
+  detail: string;
+  documentId: string;
+  page: number | null;
+  structured: Record<string, unknown> | null;
+}
+
+// The four fields that together mean "Sherlock classified this candidate".
+// All four, never just sherlockClassification: the prompt's own wording is
+// "ou tem um `structured` visivelmente mais pobre — sem `candidateKind`/
+// `candidateStage`/`relation`", and both producers write all four together
+// or none of them (market-research-structured.ts's PlayerStructured for the
+// web path, market-document-extract.ts's competitors branch for this one).
+// Requiring all four also means a hand-written or partial `structured` can
+// never masquerade as classified and block a real classification.
+export function hasCompetitorClassification(structured: Record<string, unknown> | null | undefined): boolean {
+  if (!structured) return false;
+  if (typeof structured.sherlockClassification !== 'string' || !structured.sherlockClassification) return false;
+  if (typeof structured.candidateKind !== 'string' || !structured.candidateKind) return false;
+  if (typeof structured.candidateStage !== 'string' || !structured.candidateStage) return false;
+  if (!structured.relation || typeof structured.relation !== 'object') return false;
+  return true;
+}
+
+// Prompt 482 §1/§2 — the whole decision, in one place, with no "newer wins"
+// anywhere in it:
+//   proposed classified + existing not  -> enrich   (§1, the bug being fixed)
+//   both classified                     -> unchanged (§2, first-come stays)
+//   neither classified                  -> unchanged (§2, first-come stays)
+//   existing classified, proposed not    -> unchanged (§2, never downgrade)
+export function shouldEnrichExistingItem(
+  proposed: Record<string, unknown> | null | undefined,
+  existing: Record<string, unknown> | null | undefined,
+): boolean {
+  return hasCompetitorClassification(proposed) && !hasCompetitorClassification(existing);
+}
+
+// Prompt 482 — insert if the title is free; otherwise enrich the incumbent
+// if (and only if) this proposal carries a classification it lacks.
+//
+// THREE guards, each one measured rather than assumed:
+//
+// 1. `hasCompetitorClassification(p.structured)` first, before any read.
+//    Nothing below can change anything without it (shouldEnrichExistingItem
+//    requires it), so checking it here keeps the extra round-trip off every
+//    non-players proposal and every unclassified players one — the large
+//    majority — on a route that already spends most of its maxDuration=60
+//    budget inside the model call.
+//
+// 2. `source_kind = 'document'`. The collision this prompt fixes is
+//    document-against-document, and so is every collision that can actually
+//    happen: the document path templates its titles (`Competitor: ${name}`)
+//    while the web path stores the model's own free-text title. Measured in
+//    production on 30/08: all 10 document `players` rows use the template,
+//    and 0 of the 26 web ones do. The restriction matters because a web row
+//    carries a whole verdict derived FROM ITS OWN `structured` by
+//    computeVerdict — fact_status, change_class, delta_type,
+//    comparison_baseline, implication_code/scope/direction,
+//    insight_confidence, promoted_to_insight — plus confidence, source_url,
+//    source_accessed_at and hypothesis_id. Replacing `structured` underneath
+//    those would leave nine columns describing data the row no longer holds:
+//    a quieter and larger lie than the one being fixed, and recomputing them
+//    means the hypothesis baseline and a fact-status run, which is the web
+//    pipeline, not this one.
+//
+// 3. `status = 'pending'`, in the read and again in the update's own `.eq`
+//    (the founder can accept between the two). /api/market-data/route.ts
+//    serves ONLY pending items, and an accepted item has already produced
+//    its org_competitors row through research/respond: rewriting the
+//    evidence under it would change nothing the founder can see, would not
+//    update competitor_type (§4 keeps the acceptance flow untouched), and
+//    would leave the item citing one document while the competitor row it
+//    created cites another. A rejected row is a decision already made.
+//    Measured 30/08: 7 of the 10 document `players` rows are pending.
+//
+// Within those guards everything the winning row shows comes from the
+// document that supplied the classification — detail, document_id, page.
+// §3 asks for document_id/page "não ficar presos ao primeiro documento",
+// and spells out why: "a proveniência mostrada ao founder tem de
+// corresponder aos dados realmente guardados."
+//
+// run_signature moves too, so an unchanged selection of the same documents
+// stops re-paying: the extraction cache keys on (org, source_kind='document',
+// run_signature), and a run whose entire output was enrichment leaves no
+// trace there at all today — which is exactly why the same pass was charged
+// three times over in production for zero rows.
+export async function upsertOrEnrichResearchItem(
+  admin: SupabaseClient,
+  orgId: string,
+  runSignature: string,
+  p: EnrichableProposal,
+): Promise<ProposalUpsertOutcome> {
+  const nowIso = new Date().toISOString();
+  const { data: inserted } = await admin.from('market_research_items').upsert({
+    org_id: orgId, run_signature: runSignature, section: p.section, title: p.title, detail: p.detail,
+    source_kind: 'document', document_id: p.documentId, page: p.page, structured: p.structured ?? null,
+    status: 'pending', updated_at: nowIso,
+  }, { onConflict: 'org_id,section,title', ignoreDuplicates: true }).select('id');
+  if ((inserted ?? []).length > 0) return 'inserted';
+
+  // Guard 1 — the proposal itself has nothing to give.
+  if (!hasCompetitorClassification(p.structured)) return 'unchanged';
+
+  // The insert was swallowed: some row already owns this (org, section,
+  // title). Read the incumbent — this is the read the pass never did before,
+  // and the reason a whole class of proposals vanished without a trace.
+  const { data: existing } = await admin.from('market_research_items')
+    .select('id, status, source_kind, structured')
+    .eq('org_id', orgId).eq('section', p.section).eq('title', p.title)
+    .maybeSingle();
+  if (!existing) return 'unchanged';
+  if (existing.source_kind !== 'document') return 'unchanged'; // guard 2
+  if (existing.status !== 'pending') return 'unchanged';       // guard 3
+  if (!shouldEnrichExistingItem(p.structured, existing.structured as Record<string, unknown> | null)) return 'unchanged';
+
+  const { error } = await admin.from('market_research_items').update({
+    structured: p.structured ?? null,
+    detail: p.detail,
+    document_id: p.documentId,
+    page: p.page,
+    run_signature: runSignature,
+    updated_at: nowIso,
+  }).eq('id', existing.id).eq('status', 'pending');
+  // A failed update is reported as 'unchanged', never as 'enriched': the
+  // count this feeds is shown to the founder as a statement of fact about
+  // what just happened, and an optimistic count is the same lie Prompt 463
+  // removed from this screen.
+  if (error) return 'unchanged';
+  return 'enriched';
+}
