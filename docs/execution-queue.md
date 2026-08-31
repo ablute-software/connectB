@@ -65,6 +65,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **493** | Bloco 5 — as três decisões antes do motor | `READY — prompt entregue` | `DONE` — `a4a0d82`; só comentários | — |
 | **495** | Colisão cross-document chega ao founder | `READY — prompt entregue` | `DONE` — `ab219b0`; sem migração | — |
 | **496** | Zona Incomplete domina o Market Data tab | `READY — prompt entregue` | `DONE` — `47f56ed`; sem migração | — |
+| **499** | Telemóvel — três correcções de overflow horizontal | `READY — prompt entregue` | `DONE` — `1edd9dc`; sem migração | — |
 | **494** | Configuração do autoMode no ficheiro errado | `READY — prompt entregue` | `BLOQUEADO` — escrita recusada pelo classificador nos dois caminhos | Nuno |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
 | ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
@@ -1788,3 +1789,60 @@ estavam à espera:
 Continua por confirmar (precisa da consola aberta durante a leitura): a linha
 `[document-extract] telemetry` do 486 e o balde `title_collision_cross_document`
 do 492/495 — nenhum deles observável a posteriori por SQL, por construção.
+
+---
+
+## 499 — telemóvel: as três correcções de overflow horizontal — `DONE`
+
+**Estado:** `DONE` — commit `1edd9dc`, em `main`. Sem migração.
+
+As três confirmadas no código antes de tocar em nada, e as três com a mesma
+forma: **nenhuma está errada em ecrã largo**, que é exactamente a razão pela
+qual nunca ninguém se queixou.
+
+**§1 — a tira de `Tabs` partilhada (`ui.tsx`).** Um `flex gap-1` seco deixa
+cada aba encolher abaixo do próprio texto, por isso num ecrã de 375-414px a
+tira esmagava em vez de fazer scroll; a barra do Readiness tem sete abas. O
+contentor ganha `overflow-x-auto`, cada aba ganha `shrink-0
+whitespace-nowrap`. Uma alteração, e os **nove ficheiros** que usam `<Tabs>`
+recebem-na.
+
+Verificado **antes** de acrescentar o overflow, não depois: `overflow-x: auto`
+força o `overflow-y` a computar também para `auto` (CSS: um valor não-visible
+num eixo leva o outro atrás), logo a tira passaria a **cortar** qualquer coisa
+posicionada fora dela. Nada em `src/` alguma vez consulta `[data-tour-id]` — o
+atributo é escrito e nunca lido de volta — por isso não há overlay de tour
+ancorado a estes botões, e o badge e a marca ✦ são filhos inline normais.
+
+**§2 — o log de overrides do dashboard (`OverviewPanel.tsx`).** Quatro
+colunas, uma delas justificação em texto livre, sem wrapper nenhum: empurrava
+a página inteira de lado em vez de fazer scroll dentro de si. Envolvida no
+mesmo `<div className="overflow-x-auto">` de uma linha que o resto da app já
+usa.
+
+**§3 — comparable rounds (`ComparableRoundsCard.tsx`).** `overflow-hidden` →
+`overflow-x-auto`. Vale a pena dizer porque não é só "apagar a classe de
+overflow": o clipping estava a **fazer trabalho real** — arredondar os cantos
+da tabela contra a borda. O `auto` continua a cortar, e acrescenta o scroll.
+
+**ECRÃ LARGO FICA IGUAL, e isto é raciocínio, não medição** — não existe
+ferramenta de browser MCP neste ambiente, por isso não abri a app em nenhuma
+das larguras e não vou dizer que abri. O argumento: o `overflow-x-auto` não
+desenha barra enquanto o conteúdo couber; o `shrink-0` só actua quando o
+contentor é estreito de mais, e estas abas nunca tiveram `grow`/`flex-1`, logo
+em repouso já estavam à largura do conteúdo; o `whitespace-nowrap` só actua
+num rótulo que de outra forma quebraria, o que exige a mesma falta de espaço.
+A partir de `md` o desenho é idêntico.
+
+**Guarda ao nível da fonte** (`mobile-overflow.test.ts`, 4 testes) fixa as
+classes, com a limitação escrita no próprio ficheiro: consegue dar por
+alguém as apagar, nunca consegue dizer que o layout está certo. **Provada a
+guardar, não assumida** — reverter o `ui.tsx` e o `ComparableRoundsCard.tsx`
+faz falhar 3 dos 4, e repor faz passar os 4.
+
+**Fora de âmbito e não tocado**, conforme o prompt: as 1108 ocorrências de
+letra pequena, a informação só em hover no `PipelinePanel`, e os 14 modais
+que não seguem o padrão `createPortal` (por medir, logo não se corrigem às
+cegas).
+
+**DESVIOS AO PROMPT:** nenhum.
