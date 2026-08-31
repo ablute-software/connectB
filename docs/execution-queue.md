@@ -1,7 +1,7 @@
 # Fila de execução — Sherlock Deal
 
 **Local canónico:** `docs/execution-queue.md` no repositório `connectB`.
-**Atualizado:** 31/08/2026 (485; sem migração)
+**Atualizado:** 31/08/2026 (486; sem migração)
 **Lê-se com:** `AUTONOMOUS_EXECUTION_MODE_v2` (o §0 desse documento aponta
 para este ficheiro).
 
@@ -56,6 +56,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **483** | Concorrente já aceite recebe a classificação em falta | `READY — prompt entregue` | `DONE` — `d1339f0`; sem migração | — |
 | **484** | "Read my documents" falhava antes de chegar ao modelo | `READY — prompt entregue` | `DONE` — `619d329`; sem migração | — |
 | **485** | O tempo é da resposta, não da leitura do PDF | `READY — prompt entregue` | `DONE` — `7d9c083`; sem migração | — |
+| **486** | Duas leituras pagas, zero efeito — instrumentação | `READY — prompt entregue` | `DONE` — `563b7a3`; sem migração; **espera medição** | — |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
 | ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
 | G2 | Aceitação visual na app | — | `DONE` — 30/08 14:17, 3 hipóteses criadas | — |
@@ -998,3 +999,71 @@ order by created_at desc limit 3;
 saberes que o plano Pro do Vercel leva funções até 300 s — resolveria isto
 de vez e sem cortar achados nenhuns. **É decisão de custo tua**, não uma
 correcção de código, e está aqui só como informação.
+
+---
+
+## 486 — duas leituras pagas, zero efeito — `DONE` (à espera de UMA medição)
+
+`563b7a3` em `main`. **Sem migração.** **Nada foi corrigido de propósito** —
+qual das três explicações é decide qual é a correcção, e adivinhar aqui é o
+que o próprio prompt exclui.
+
+**As três explicações que davam exactamente o mesmo do lado de fora:**
+- **(a)** o modelo não reportou nada de extraível;
+- **(b)** reportou itens e o parser descartou-os — um `document_index` que
+  não resolve descarta o item antes de alguma vez ser guardado;
+- **(c)** reportou concorrentes **sem os facetos**, logo nenhum ficou
+  classificado, logo cada um colidiu com uma linha deixada por **outro**
+  documento e voltou `unchanged`.
+
+**Um facto estrutural que já se pode afirmar sem medir**, e que torna a (c)
+mais do que especulação: o schema dos concorrentes exige apenas
+`['name', 'document_index']` — `candidateKind`, `candidateStage` e
+`relation` são **opcionais por desenho**. Um concorrente pode ser
+perfeitamente válido, ser guardado, e não levar classificação nenhuma. Em
+produção há **10** linhas `players` de documento e **0** com facetos.
+
+**A instrumentação** (`market-extraction-telemetry.ts`, pura) conta: itens
+crus por secção na tool call; uma auditoria por concorrente (nome,
+`document_index`, **quais** índices foram citados, e cada um dos três campos
+de faceto); itens que sobreviveram ao parse, por secção; e o **tally dos
+outcomes** do upsert. É o tally que separa as hipóteses — a (a) e a (c)
+deixam ambas `itemsProposed` a zero, e só uma delas tem `unchanged` ≠ 0.
+
+**Vai na RESPOSTA, não só no log do servidor.** O 484 estabeleceu que os
+logs do Vercel não são alcançáveis a partir do teu setup, e um contador que
+ninguém lê não é uma medição; os dois últimos diagnósticos saíram da consola
+do browser, por isso é para lá que isto vai também. É `null` quando a
+passagem veio da cache de assinatura — assim "sem telemetria" e "não
+encontrou nada" continuam distinguíveis.
+
+**Achado da passagem adversarial, sobre a minha própria função:** o tally só
+conta as propostas **legacy**. Um documento que só desse `growth`/`sizing`
+teria sido descrito como *"none changed anything — 0 collided with rows that
+already exist"* — errado duas vezes, e exactamente a espécie de frase
+enganadora que este prompt existe para deixar de produzir. O `factsWritten`
+passou a fazer parte da entrada, com ramo e testes próprios.
+
+**§5 verificado:** o botão é `disabled={extracting || ...}` e o
+`setExtracting(false)` está num `finally` — a protecção contra duplo-submit
+**já existe**. As duas chamadas a 77 s de distância foram **duas corridas
+deliberadas**. E a segunda voltou a cobrar porque a primeira não escreveu
+linha nenhuma, logo nada levava a assinatura para fazer curto-circuito:
+**uma passagem que produz zero linhas volta sempre a cobrar na tentativa
+seguinte**.
+
+**O que falta, e é uma coisa só:** uma leitura deste documento em produção
+depois do deploy, com a consola do browser aberta. A linha
+`[document-extract] telemetry` traz `rawSections`, `competitorAudit`
+(incluindo `citedDocumentIndexes` contra `documentIndexesOffered`),
+`parsedBySection`, `outcomes` e um `summary` em texto que já diz qual das
+três é.
+
+**Consulta de alcance (§21):** a mesma dos 482/483/485 — mas o critério
+desta tarefa não é SQL, é a linha de telemetria:
+
+| verdicto | significa |
+|---|---|
+| `A FUNCIONAR` | a linha de telemetria aparece e o `summary` nomeia uma das três — a partir daí há causa raiz para corrigir |
+| `EXISTE MAS NINGUEM LA CHEGA` | a leitura corre e não aparece linha nenhuma → a passagem veio da cache de assinatura (`telemetry: null`) e é preciso mudar a selecção para forçar uma corrida real |
+| `AINDA NAO APLICAVEL` | não há leitura nova nenhuma desde o deploy |
