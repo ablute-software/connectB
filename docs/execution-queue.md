@@ -62,6 +62,8 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **490** | Par lower/upper ignorava moeda e método | `READY — prompt entregue` | `DONE` — `5129188`; sem migração | — |
 | **491** | Invariável 6 — segundo elo (`fact.publishability`) | `READY — prompt entregue` | `DONE` — `33c2c88`; migração `0284` **aplicada e verificada** | — |
 | **492** | Colisão de título com OUTRO documento contada como releitura | `READY — prompt entregue` | `DONE` — `f9546df`; sem migração | — |
+| **493** | Bloco 5 — as três decisões antes do motor | `READY — prompt entregue` | `DONE` — `a4a0d82`; só comentários | — |
+| **494** | Configuração do autoMode no ficheiro errado | `READY — prompt entregue` | `BLOQUEADO` — escrita recusada pelo classificador nos dois caminhos | Nuno |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
 | ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
 | G2 | Aceitação visual na app | — | `DONE` — 30/08 14:17, 3 hipóteses criadas | — |
@@ -1503,3 +1505,123 @@ having count(distinct document_id) filter (where source_kind='document') > 1;
 Hoje devolve `players` (2 documentos) e `trends` (2 documentos) — as duas
 secções onde uma colisão cross-document já é possível. A confirmação de que o
 balde novo funciona vem da telemetria de uma leitura real, não daqui.
+
+---
+
+## 493 — o Bloco 5 começa por decidir, não por comparar — `DONE`
+
+**Estado:** `DONE` — commit `a4a0d82`, em `main`. **Só comentários**: 101
+inserções, 0 remoções, e **todas** as linhas adicionadas são comentário ou
+vazias — provado com `git diff`, não afirmado.
+
+**Decisão 1** (junto ao `ChangeClass`): o Bloco 5 reutiliza os quatro valores
+**como TIPO** e mais nada — nunca o `computeVerdict()` (que lê uma hipótese e
+uma research run que o Bloco 5 não tem) nem a coluna
+`market_research_items.change_class` (mesma coluna, proposição diferente).
+Isto **exercita** a decisão do 477/479, não a revoga: o 479 recusou unificar
+os vocabulários e escreveu "revisita-se quando houver caso concreto" — este é
+o caso concreto, e a resposta é partilhar os **valores**, nunca a maquinaria
+nem o armazenamento.
+
+**Decisão 2** (junto ao handler que escreve `org_market_data`): o lado da
+claim do founder é o `org_market_data`, não o `company_claims` (base de
+narrativa de pitch, sem um único número de mercado). O Bloco 5 compara
+`org_market_data` contra `market_facts` — o próprio exemplo do North Star
+§3.3.
+
+**Decisão 3** (junto ao `FounderDisposition`): marcado como **não usado**, em
+vez de apagado, para a prova do engano sobreviver. A invariável 4 cita
+`founderDisposition ≠ sherlockClassification` como precedente "em produção
+desde o 455"; medido em `src/`, `scripts/` e `docs/`, a **única** ocorrência
+do nome — e de `'REJECTED_AS_RELEVANT'` — é a própria definição. A citação
+vem do princípio 1 no topo desse ficheiro, que é um princípio de desenho da
+fase 444, não código entregue. O comentário aponta o precedente **real**:
+`classifyCompetitor` computado uma vez, atribuído em exactamente dois sítios,
+sem setter do founder em lado nenhum, gate HTTP 409 no aceitar, rejeitar a
+tocar só no `status`, e `competitor_type` preenchido só onde é null enquanto
+o `relation` (esse sim editável pelo founder) nunca é tocado.
+
+**DUAS AFIRMAÇÕES DO PRÓPRIO PROMPT ESTAVAM ERRADAS e foram corrigidas, não
+copiadas** — de outro modo teriam ficado registo permanente:
+1. *"o `org_market_data` já é lido pelo `MarketSizeCard` do 487"* — **não é**.
+   Esse cartão só faz fetch a `/api/market-data/facts`, e essa rota nunca
+   toca no `org_market_data`. Hoje a claim e a evidência são desenhadas por
+   dois componentes que **não partilham caminho de dados nenhum** — que é
+   precisamente a lacuna que o Bloco 5 fecha, e vale a pena saber antes de
+   assumir que metade já existe.
+2. O `approach_note` é da migração **0249**, não da 0241.
+
+**ACHADO ao verificar, registado no comentário porque quem escrever o motor
+precisa dele:** o `org_market_data` **já é parcialmente visível ao
+investidor** — o `dossier-fetch.ts` lê o `approach_note` para o dossier
+publicado quando o grupo `rings` está visível. É legítimo (conteúdo
+DECLARADO pelo founder), mas torna a armadilha concreta: uma verdict do Bloco
+5 é o oposto disso. *"CHALLENGED — o número do founder não é suportado pela
+evidência"* é performance **DERIVADA pela plataforma** sobre o founder, que a
+regra-raiz de privacidade proíbe de toda a superfície virada ao investidor,
+sem toggle nenhum. **Uma verdict nunca pode viajar ao lado do campo que
+julga.**
+
+**A quarta pergunta fica em aberto de propósito**, como o prompt pede: como é
+que uma linha de `market_facts` (`marketDefinition`/`geography` em texto
+livre) se sabe que fala do mesmo mercado que uma linha de `org_market_data`
+(um número só, sem geografia nem definição estruturada). Inventar essa
+correspondência por substring ou semelhança é exactamente o que a invariável
+14 proíbe. Prompt próprio, a medir primeiro, como o 487 fez com os rings.
+
+**DESVIOS AO PROMPT:** nenhum ao critério. Uma escolha de apresentação: os
+comentários citam símbolos e ficheiros em vez dos números de linha do prompt,
+que apodrecem na edição seguinte.
+
+---
+
+## 494 — a configuração do `autoMode` no sítio errado — `BLOQUEADO` (não é executável por mim)
+
+**Estado:** `BLOQUEADO`. Nada foi escrito. **Precisa do Nuno**, e por uma
+razão mais forte do que a do 489.
+
+**Passo 1 (medir), feito.** `$HOME` = `/root`. O ficheiro de configuração de
+utilizador **não existe** — não havia nada para perder nem para fundir.
+Existe sim um `launcher-settings.json` ao lado (716 bytes, modo 600), com os
+hooks `SessionStart`/`Stop` e uma concessão para a ferramenta `Skill`. Não
+lhe toquei.
+
+**Passo 2 (escrever), recusado duas vezes.** Tentei os dois caminhos naturais
+— Bash a escrever o ficheiro, e a ferramenta `Write` — e ambos devolveram
+*"Permission for this action was denied by the Claude Code auto mode
+classifier. Reason: Blocked by classifier."* Parei aí, como o passo 3 manda,
+sem tentar um terceiro caminho.
+
+**E isto refuta a hipótese do passo 3 do prompt.** O prompt supunha que o
+bloqueio do 489 era *"especificamente sobre `.claude/` dentro do repo"* e
+que, por o ficheiro de utilizador não ser caminho protegido, *"isto não devia
+precisar do Nuno"*. Não é o caso: o mesmo classificador recusa a escrita do
+ficheiro de configuração **dentro e fora do repositório**. É desenho coerente
+— uma sessão não pode alargar as suas próprias permissões, venha a escrita de
+onde vier — e a consequência prática é que **nenhuma sessão minha pode alguma
+vez aplicar esta correcção**, independentemente do caminho.
+
+**Um segundo motivo, independente, que o prompt não podia ter previsto:** este
+contentor é **efémero**. O repositório é clonado de novo a cada arranque e o
+contentor é reciclado por inactividade; a pasta de configuração do utilizador
+**não** está em git. Um ficheiro escrito aqui não sobreviveria à sessão — e
+como a configuração só se lê no arranque, seria um ficheiro que morre antes
+de chegar a ser lido. Para o Claude Code na web, o sítio durável não é um
+ficheiro escrito em runtime: é a **configuração do ambiente** (setup script /
+variáveis do ambiente remoto), que corre a cada arranque de contentor. Ver
+https://code.claude.com/docs/en/claude-code-on-the-web.
+
+**Passo 5 (verificação), feito, e não conclui nada sozinho.** Corri
+`select 1` contra o Supabase e voltou `[{"probe":1}]`. Mas **eu não consigo
+observar se apareceu um pedido de autorização** — esse diálogo é do lado do
+Nuno; do meu lado, "auto-aprovado" e "o Nuno carregou em aceitar" são
+indistinguíveis. Só ele pode dizer qual foi. Nota adjacente: nesta sessão
+corri dezenas de leituras SQL e nenhuma foi **recusada**.
+
+**Conteúdo pretendido:** exactamente o que já está em `.claude/settings.json`
+(commit `4a085da`), mais a ferramenta `Skill` acrescentada ao `allow` — para
+não regredir a concessão que o `launcher-settings.json` já faz, aconteça o
+que acontecer com a precedência — e uma linha `$schema`.
+
+**DESVIOS AO PROMPT:** nenhum. O prompt mandava parar e reportar exactamente
+o bloqueio se a escrita falhasse; é o que está acima.
