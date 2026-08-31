@@ -11,6 +11,7 @@ import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { logAdminAction } from '@/lib/audit';
 import { notifyClaimDecision, sendClaimApprovalTripwire } from '@/lib/investor-entity-claim-notify';
+import { checkSeatAvailable } from '@/lib/investor-seats';
 
 function splitEmails(raw: string | null | undefined): string[] {
   if (!raw) return [];
@@ -31,6 +32,26 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   const { data: entity, error: entityErr } = await admin.from('catalog_entities')
     .select('id, name, email, general_partner_emails').eq('id', claim.catalog_entity_id).single();
   if (entityErr) return NextResponse.json({ ok: false, error: entityErr.message }, { status: 500 });
+
+  // Prompt 497 — the same seat limit the investor-facing link route
+  // enforces. An admin approving a claim is the second (and only other) way
+  // a seat lands on an already-existing firm, so it gets the same gate:
+  // approving would silently push the firm over what its tier is billed
+  // for. Deliberately a block with the reason, NOT a silent skip of the
+  // member upsert — half-approving a claim (entity verified, claim marked
+  // approved, no seat) would be worse than not approving it. Nothing is
+  // written yet at this point, so the claim stays pending and re-approvable
+  // once the plan is raised (Accounts → set investor plan) or a seat freed.
+  const seatVerdict = await checkSeatAvailable(admin, claim.catalog_entity_id as string, claim.claimant_user_id as string);
+  if (!seatVerdict.allowed) {
+    return NextResponse.json({
+      ok: false, error: `Seat limit reached for ${entity.name}. ${seatVerdict.reason}`,
+      seatLimit: {
+        tier: seatVerdict.tier, planName: seatVerdict.planName,
+        limit: seatVerdict.limit, used: seatVerdict.used,
+      },
+    }, { status: 409 });
+  }
 
   const { error: memberErr } = await admin.from('matchdeal_investor_members').upsert({
     user_id: claim.claimant_user_id, catalog_entity_id: claim.catalog_entity_id,

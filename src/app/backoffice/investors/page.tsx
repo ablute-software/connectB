@@ -250,6 +250,8 @@ interface InvestorAccountRow {
   entityId: string; name: string; planTier: string | null;
   planTierRequested: string | null; planTierRequestedAt: string | null;
   registrationDate: string | null; seats: number;
+  // Prompt 497 — what the tier includes, and whether this firm is above it.
+  seatLimit: number; seatsOverLimit: boolean;
   complete: boolean;
   // Prompt 183 §A — verified/pending/rejected, now shown directly since
   // Accounts no longer hides non-verified rows that have real seats.
@@ -359,7 +361,7 @@ function InvestorAccountsTable() {
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
               <th className="whitespace-nowrap py-1.5 pr-3">Org</th><th className="pr-3">Plan</th><th className="pr-3">Registered</th>
-              <th className="pr-3">Seats</th><th className="pr-3">Verification</th><th className="pr-3">% Complete</th><th className="pr-3">Logs/7d</th>
+              <th className="pr-3">Seats (linked / plan)</th><th className="pr-3">Verification</th><th className="pr-3">% Complete</th><th className="pr-3">Logs/7d</th>
               <th className="pr-3">Last login</th><th className="pr-3">Status</th><th className="pr-3">Delete/Suspend</th>
               <th className="pr-3">Access req./mo</th><th className="pr-3">Access granted/mo</th><th className="pr-3">Files viewed/mo</th>
               <th className="pr-3">Pipeline</th><th className="pr-3">Startups</th><th className="pr-3">Comparisons/mo</th><th>AI assist/mo</th>
@@ -383,7 +385,18 @@ function InvestorAccountsTable() {
                   </div>
                 </td>
                 <td className="pr-3 text-xs text-gray-400 whitespace-nowrap">{a.registrationDate ? a.registrationDate.slice(0, 10) : '—'}</td>
-                <td className="pr-3 text-gray-600">{a.seats}</td>
+                {/* Prompt 497 — over-limit is flagged here, never acted on:
+                    existing seats stay, only adding a new one is blocked. */}
+                <td className="pr-3 text-gray-600">
+                  <span className={a.seatsOverLimit ? 'font-semibold text-[#B00000]' : ''}>{a.seats}</span>
+                  <span className="text-gray-400"> / {a.seatLimit}</span>
+                  {a.seatsOverLimit && (
+                    <span className="ml-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-[#B00000]"
+                      title="More seats linked than this tier includes. Existing seats are left alone — only adding another is blocked.">
+                      over
+                    </span>
+                  )}
+                </td>
                 <td className="pr-3">
                   <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${VERIFICATION_STYLE[a.verificationStatus]}`}>
                     {a.verificationStatus}
@@ -502,6 +515,13 @@ function ClaimsQueue() {
   const [claims, setClaims] = useState<EntityClaimRow[] | null>(null);
   const [available, setAvailable] = useState(true);
   const [err, setErr] = useState('');
+  // Prompt 497 — a per-claim action failure is recoverable (the seat-limit
+  // 409 is the first one this route can return: raise the firm's plan in
+  // Accounts, or free a seat, then approve again). Kept separate from `err`
+  // above, which is a load failure and correctly replaces the whole card —
+  // blanking the queue because one approval was refused would hide the
+  // other pending claims and the plan the admin needs to go change.
+  const [actionErr, setActionErr] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
 
   function refresh() {
@@ -514,11 +534,11 @@ function ClaimsQueue() {
   useEffect(refresh, []);
 
   async function act(id: string, action: 'approve' | 'reject') {
-    setBusyId(id);
+    setBusyId(id); setActionErr('');
     try {
       const res = await fetch(`/api/backoffice/investor-entity-claims/${id}/${action}`, { method: 'POST' });
       const body = await res.json();
-      if (!body.ok) { setErr(body.error); return; }
+      if (!body.ok) { setActionErr(body.error ?? 'Action failed.'); return; }
       refresh();
     } finally { setBusyId(null); }
   }
@@ -536,6 +556,9 @@ function ClaimsQueue() {
         Domain match is evidence, never an auto-decision — every claim needs an explicit approve or reject here,
         even when the domain matches exactly.
       </p>
+      {actionErr && (
+        <p className="mb-3 rounded-lg border border-[#B00000]/30 bg-red-50 px-3 py-2 text-xs text-[#B00000]">{actionErr}</p>
+      )}
       {pending.length === 0 ? <p className="text-sm text-gray-400">No pending claims.</p> : (
         <ul className="mb-4 space-y-2">
           {pending.map((c) => (

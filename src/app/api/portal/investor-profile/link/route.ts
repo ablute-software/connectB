@@ -17,6 +17,7 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { checkInvestorDomainMatch, isAutoEligible } from '@/lib/investor-domain-match';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { checkSeatAvailable } from '@/lib/investor-seats';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -38,6 +39,22 @@ export async function POST(req: Request) {
 
   const { data: entity } = await admin.from('catalog_entities').select('id, name, website').eq('id', catalog_entity_id).maybeSingle();
   if (!entity) return NextResponse.json({ ok: false, error: 'Entity not found.' }, { status: 404 });
+
+  // Prompt 497 — seat limit, enforced at the exact moment the seat would be
+  // added rather than surfaced later in the back-office. Runs BEFORE the
+  // upsert (a blocked attempt must leave no row behind) and AFTER the entity
+  // lookup (the message names the firm's plan, which needs the entity). A
+  // user who already holds an active seat here short-circuits to allowed in
+  // checkSeatAvailable(), so a re-link is a no-op write, never a 409.
+  const seatVerdict = await checkSeatAvailable(admin, catalog_entity_id, user.id);
+  if (!seatVerdict.allowed) {
+    return NextResponse.json({
+      ok: false, error: seatVerdict.reason, seatLimit: {
+        tier: seatVerdict.tier, planName: seatVerdict.planName,
+        limit: seatVerdict.limit, used: seatVerdict.used,
+      },
+    }, { status: 409 });
+  }
 
   const verdict = checkInvestorDomainMatch({
     email, firmName: entity.name, entities: [{ id: entity.id, name: entity.name, website: entity.website }],

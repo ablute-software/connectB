@@ -99,6 +99,26 @@ explicitly again.
 - Password reset; verify investor magic-link end-to-end after Phase 0.
 - Back-office: developers verify submitted investors into the shared catalog; distribution log.
 - Keep every deploy Hobby-safe (crons ≤ daily) until/unless upgrading the Vercel plan.
+- **Investor plan limits — the three still unenforced (Prompt 497 measured them; do NOT re-guess).**
+  Seats are now enforced (`plans.ts` `checkInvestorSeatLimit` + migration 0285 trigger, blocked at
+  add time, never retroactively) and qualified opportunities already were (`monthlyCap`,
+  `investor-pipeline.ts`, Prompt 153). What remains, with the real numbers as of **2026-08-31**:
+  - **Qualified opportunities** — enforced, but for the record: 6 admissions total, all in 2026-08,
+    across 3 investor firms (4 / 1 / 1). Every firm is on `tier_a`, whose cap is 10/month, so the
+    gate has never actually bitten in production.
+  - **Vault Data Room access** (plan copy: 5 / 11 / 23 startups per month) — **no counter exists**.
+    Today: 109 `access_grants` rows, 101 not revoked, but only **5 distinct grantee emails** and
+    **1 distinct org** granting (every grant points at ablute_ — see `portal-access.ts`'s own
+    note on why). `document_views`: 9 rows, 3 distinct viewers. Per investor per month the real
+    figure is **1 startup**, i.e. nowhere near any tier's cap.
+  - **DD access** (plan copy: 2 / 5 / 11 startups per month) — **no counter exists**. Today: **3**
+    documents platform-wide at `visibility='due_diligence'`, all in one org, and **1** row in
+    `investor_diligence_checklist`.
+  Consequence for whoever builds these: there is no usage pressure to relieve — the reason to
+  build them is billing correctness, not load, and any enforcement will bite the FIRST time an
+  investor uses the feature rather than gradually. Build the counter and the message together, as
+  Prompt 497 did for seats, and follow the same rule: block at the moment of use, never revoke or
+  reclassify what already exists.
 - My Network growth (Prompt 335 §D3c, registered not implemented): peer-matching between discoverable founders, MatchDeal-style; a Pathfinder-suggested intro between two of your own connections who could help each other; sector+geography connection suggestions surfaced during onboarding.
 
 ---

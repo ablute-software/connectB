@@ -104,6 +104,9 @@ export async function GET() {
       planTierRequested: r.planTierRequested, planTierRequestedAt: r.planTierRequestedAt,
       registrationDate: registeredAtByEntity.get(r.entityId) ?? null,
       seats: r.seatsLinked,
+      // Prompt 497 — the plan's own seat allowance next to the count, so
+      // "5 seats" reads as 5-of-5 or 5-of-2 rather than a bare number.
+      seatLimit: r.seatLimit, seatsOverLimit: r.seatsOverLimit,
       // % Completeness: only a BINARY is_complete exists for investor
       // profiles today (migration 0105's trigger) — no weighted score like
       // companyCompleteness.ts's startup-side one. Rendered as-is, not
