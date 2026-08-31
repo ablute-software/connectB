@@ -1,7 +1,7 @@
 # Fila de execução — Sherlock Deal
 
 **Local canónico:** `docs/execution-queue.md` no repositório `connectB`.
-**Atualizado:** 31/08/2026 (487; sem migração)
+**Atualizado:** 31/08/2026 (488; sem migração)
 **Lê-se com:** `AUTONOMOUS_EXECUTION_MODE_v2` (o §0 desse documento aponta
 para este ficheiro).
 
@@ -58,6 +58,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **485** | O tempo é da resposta, não da leitura do PDF | `READY — prompt entregue` | `DONE` — `7d9c083`; sem migração | — |
 | **486** | Duas leituras pagas, zero efeito — instrumentação | `READY — prompt entregue` | `DONE` — `563b7a3`; sem migração; **espera medição** | — |
 | **487** | Bloco 2 — Market Size lido dos factos que já existem | `READY — prompt entregue` | `DONE` — `cacb09c`; sem migração | — |
+| **488** | Gama partida em dois + cartões zombie do pré-467 | `READY — prompt entregue` | `DONE` — `cea6d7c`; sem migração | — |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
 | ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
 | G2 | Aceitação visual na app | — | `DONE` — 30/08 14:17, 3 hipóteses criadas | — |
@@ -1146,3 +1147,89 @@ yet…"*, seguido de *"Sherlock does have 12 complete figures from other
 methods and 51 more still missing a detail."*, a frase do porquê importa, e
 as estimativas externas listadas por baixo com a etiqueta do método. Sem
 scroll até ao fundo.
+
+---
+
+## 488 — as duas metades da mesma gama, e os cartões que o 467 substituiu sem reformar — `DONE`
+
+`cea6d7c` em `main`. **Sem migração.**
+
+**Medido primeiro (§1):** **16 linhas zombie, numa só org** (ablute_) — 8
+`growth` + 8 `sizing`, todas `source_kind='document'`, `status='pending'`,
+criadas a 29/08 entre 15:36 e 18:55, ou seja **horas antes** de o 467 entrar
+(`5f577f5`, 29/08 21:59). As linhas de origem **web** (5 `growth` + 17
+`sizing` pendentes) **não são isto**: o caminho web continua a produzi-las
+legitimamente e ficam intactas.
+
+**§1 — não há estado novo, e a razão também é medida.** O
+`market_research_items_status_check` admite exactamente
+`('pending','accepted','rejected')`. Não há estado adequado, e marcá-las
+`rejected` registaria uma decisão que o founder nunca tomou. Um estado a
+sério obrigava a alargar um CHECK e a fazer `UPDATE` a 16 linhas de
+produção — e um `UPDATE` dentro de uma migração está fora da fronteira
+aditiva. Por isso: **as linhas ficam exactamente como estão** — nada
+apagado, nada rotulado de outra maneira, continuam legíveis por SQL e pelo
+caminho de auditoria — e apenas deixam de ser oferecidas ao founder como
+decisões. O predicado é uma função pura testada, e a combinação é
+auto-descritiva: desde o 467, um número de growth/sizing vindo de documento
+vive em `market_facts`, logo uma linha legacy com um deles **por construção**
+já não é a forma como esse dado se guarda.
+
+**A passagem adversarial encontrou uma SEGUNDA superfície:** a
+`/api/market-data` não era a única — a resposta da própria
+`document-extract` traz a sua cópia da lista de pendentes, por isso filtrar
+só uma deixaria os mesmos cartões no ecrã **logo a seguir a uma leitura**.
+Ambas filtradas.
+
+**Verificado mecanicamente:** o `dossier-fetch` só lê as secções
+`trends`/`regulatory`/`definition` e só `status='accepted'` — nada disto
+podia alguma vez ter chegado a um investidor.
+
+**§2 — o emparelhamento min/max, mais estreito do que o prompt propunha**, e
+por duas razões encontradas a ler o código, não assumidas:
+1. **Exige exactamente um `bound:'lower'` e um `bound:'upper'`.** Fundir
+   candidatos `point` — a leitura literal de "ambos os contextos ausentes" —
+   cairia no último ramo do `buildEstimate`, que fica com `pointTagged[0]` e
+   **descarta os restantes em silêncio**: um caminho de perda de dados novo,
+   introduzido por uma correcção de fragmentação.
+2. **O grupo fundido mantém `hasPositiveIdentity: FALSE`.** Essa bandeira diz
+   ao `computeFactFingerprint` (467 v3 §2) se a mesma proposição vinda de
+   **outro** documento pode colapsar na mesma linha. Um par de bounds dentro
+   de **uma** extracção prova que aquelas duas leituras são uma gama; não
+   prova nada sobre o "8–9,6% sem contexto" de outro documento — que é
+   exactamente a ambiguidade que o 467 v3 §2 existe para manter separada.
+
+É uma **segunda passagem** sobre o que o `groupKeyFor` deixou singleton, não
+um afrouxamento do `groupKeyFor`. A ausência de contexto tem de ser
+**consistente**: um com geografia nunca emparelha com um sem; duas
+geografias diferentes nunca emparelham; dois `lower` e um `upper` ficam por
+fundir; e um candidato sem `marketDefinition` nunca emparelha — a **Fixture
+A do 466 fica intacta** e continua a passar.
+
+**A outra pergunta do §2, respondida por construção:** o
+`normalizeMarketCandidates` tem **exactamente um** call site
+(`document-extract/route.ts:570`), alimentado pelos candidatos de **uma**
+resposta do modelo — o agrupamento **não pode** atravessar chamadas de
+extracção.
+
+**§4** — a fusão junta as metades e **não inventa nada**: o facto resultante
+fica com `geography` null, período null e validação `incomplete`, que é o
+estado honesto quando a fonte não diz nem uma coisa nem outra.
+
+**§3** — os 4 factos `growth` que já existem ficam exactamente como estão.
+
+**Consulta de alcance (§21):**
+```sql
+select fact_type, payload->>'marketDefinition' as mercado,
+       payload->>'estimateShape' as forma,
+       payload->>'lowerBound' as min, payload->>'upperBound' as max
+from market_facts where fact_type='growth' order by 2,3;
+```
+| verdicto | significa |
+|---|---|
+| `A FUNCIONAR` | depois de uma leitura nova do deck: **2** factos `growth` (Urinalysis, Biosensors) com `estimateShape='interval'`, não 4 |
+| `EXISTE MAS NINGUEM LA CHEGA` | continuam 4 linhas soltas depois de uma leitura nova → o modelo não está a marcar `bound`, e o problema é do lado da extracção, não do agrupamento |
+| `AINDA NAO APLICAVEL` | não houve leitura nova desde o deploy — os 4 antigos ficam como estão, por decisão do §3 |
+
+E no ecrã: os 8+8 cartões `growth`/`sizing` do pré-467 deixam de aparecer na
+lista activa, sem que nenhuma linha tenha sido tocada.
