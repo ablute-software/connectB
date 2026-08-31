@@ -72,6 +72,20 @@ interface ResearchItem {
 }
 interface DocCounts { docsTotal: number; docsReadable: number; docsExtracted: number; docsWithMarketContent: number }
 interface VaultDoc { id: string; name: string; folderName: string }
+// Prompt 484 §2 — the shape /api/market-data/document-extract actually
+// returns, so a missing field is a compile error rather than a silent
+// `undefined ?? 0`.
+interface ExtractResponse {
+  ok?: boolean;
+  error?: string;
+  readDocuments?: { id: string; name: string }[];
+  itemsProposed?: number;
+  itemsEnriched?: number;
+  competitorsBackfilled?: number;
+  costEur?: number;
+  skipped?: { documentId: string; reason: ExtractionSkipReason }[];
+  truncated?: boolean;
+}
 // Prompt 463 §B.2 — what a "Read my documents" pass actually did, so the
 // panel can say so in words instead of the old bare "Last pass cost"
 // number (which was itself the only acknowledgement a pass had happened at
@@ -210,21 +224,44 @@ export function MarketDataPanel() {
       const res = await fetch('/api/market-data/document-extract', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentIds: selectedDocIds }),
       });
-      const body = await res.json();
-      if (!body.ok) { setExtractError(body.error ?? 'Could not read those documents — try again.'); return; }
+      // Prompt 484 §2 — this used to be a bare `await res.json()`. When the
+      // route died on the platform's 60s ceiling the response was a Vercel
+      // error page, not JSON, so `res.json()` threw and the whole thing fell
+      // into the outer catch — which shows the same generic sentence as a
+      // structured `{ok:false, error}` from the route. Two completely
+      // different failures, one indistinguishable message, and nothing in the
+      // console to tell them apart. That is why the 31/08 failures could not
+      // be diagnosed from the browser at all. The founder-facing text is
+      // unchanged; what is new is that each of the three cases now says which
+      // one it was.
+      const raw = await res.text();
+      let body: ExtractResponse | null = null;
+      try { body = JSON.parse(raw) as ExtractResponse; } catch { body = null; }
+      if (!body) {
+        console.error('[document-extract] response was not JSON — the function probably died before it could answer', {
+          status: res.status, statusText: res.statusText, bodyStart: raw.slice(0, 500),
+        });
+        setExtractError('Could not read those documents — try again.');
+        return;
+      }
+      if (!body.ok) {
+        console.error('[document-extract] the route answered with a failure', { status: res.status, error: body.error ?? '(no error field)' });
+        setExtractError(body.error ?? 'Could not read those documents — try again.');
+        return;
+      }
       // Prompt 463 §B.2/§B.3 — never leave the screen without saying what
       // just happened (North Star invariant 11): which documents were
       // actually read, how many proposals resulted, and — by name — which
       // documents were skipped and why, instead of the old bare cost figure
       // that was the only sign anything had happened at all.
-      const readDocuments = (body.readDocuments ?? []) as { id: string; name: string }[];
+      const readDocuments = body.readDocuments ?? [];
       setExtractSummary({
         readDocuments,
         itemsProposed: body.itemsProposed ?? 0,
         itemsEnriched: body.itemsEnriched ?? 0,
         competitorsBackfilled: body.competitorsBackfilled ?? 0,
         costEur: body.costEur ?? 0,
-        skipped: (body.skipped ?? []) as { documentId: string; reason: ExtractionSkipReason }[],
+        skipped: body.skipped ?? [],
         platformFeedNote: null,
       });
       setPickerOpen(false);
@@ -301,7 +338,11 @@ export function MarketDataPanel() {
         platformFeedNote = `${failureText}${reconcileSentence}${errorClause}`;
       }
       setExtractSummary((prev) => (prev ? { ...prev, platformFeedNote } : prev));
-    } catch {
+    } catch (e) {
+      // Reached only when the request itself failed (no response at all), or
+      // when something after a successful read threw — never any more for a
+      // non-JSON response, which is handled above with its own log line.
+      console.error('[document-extract] the pass threw before it could finish', e);
       setExtractError('Could not read those documents — try again.');
     } finally { setExtracting(false); }
   }

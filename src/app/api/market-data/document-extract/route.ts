@@ -50,6 +50,38 @@ export const maxDuration = 60;
 const MAX_DOCS = 8;
 const ROUTE = '/api/market-data/document-extract';
 
+// Prompt 484 — the route had no way to fail. `export const maxDuration = 60`
+// is the Hobby plan's ceiling (it cannot be raised without changing plan), and
+// when the model call ran past it Vercel killed the function mid-flight: no
+// JSON body, so MarketDataPanel's `res.json()` threw and the founder got the
+// generic catch-all sentence; and no `logAiCall`, so `ai_call_log` recorded
+// nothing at all. That is exactly what Nuno hit twice on 31/08 (05:09 and
+// 05:14 UTC) — the storage logs show the PDF downloaded 200 OK on both
+// attempts, the capability probe and the signature query ran right after, and
+// then nothing, ever.
+//
+// Measured on the last SUCCESSFUL pass over the same document: storage
+// download 22:18:06.882Z -> ai_call_log row 22:18:47.348Z = 40.5s of a 60s
+// budget. A second successful pass over two documents: 43.7s. So the route
+// was running at ~2/3 of its hard limit with no headroom, and any normal
+// variance in model latency killed it outright.
+//
+// Aborting at 45s converts that silent death into a real JSON response the
+// panel can show and a real server log line, and still leaves ~15s for
+// logAiCall and the writes that follow.
+// Kept as two values on purpose: Next requires `maxDuration` to be a literal
+// it can read statically, so it cannot be derived from the constant below.
+// model-call-deadline.test.ts asserts the two stay in agreement.
+const MAX_DURATION_MS = 60_000;
+// What the route still has to do AFTER the model answers: logAiCall (an
+// acceptance criterion, never skippable), the typed market_facts writes, and
+// one to three queries per proposal in the 482/483 upsert loop.
+const POST_MODEL_RESERVE_MS = 12_000;
+// Below this there is no point paying for a call whose answer cannot arrive
+// in time. Returning immediately is cheaper AND more honest than starting a
+// request we will abandon.
+const MIN_MODEL_WAIT_MS = 20_000;
+
 const SYSTEM = 'You read a startup founder\'s own documents (pitch decks, market sizing sheets, competitive landscape '
   + 'analyses, business plans) and extract ONLY market facts that are literally present in the text — market size '
   + 'estimates, growth rates, market segments, named competitors, trends, and regulatory notes. Never infer a number, '
@@ -79,6 +111,14 @@ const SYSTEM = 'You read a startup founder\'s own documents (pitch decks, market
   + 'competitive classification (direct competitor, status quo, adjacent, and so on): that is decided by Sherlock from the facets '
   + 'you report, never by you. Leave a facet out entirely when the document does not address it — an omitted facet is read as '
   + '"unknown", which is the honest answer, and is always better than a guess. '
+  // Prompt 484 — a length limit, because the output length is what broke
+  // this route. Before Prompt 478 a pass returned 1634/1846/2647 output
+  // tokens; every pass since has returned EXACTLY 4000 — the max_tokens
+  // ceiling, hit every single time, which also means every one of those
+  // passes was silently truncated mid-JSON. The facet notes are the bulk
+  // of that growth (five facets per competitor, each with free prose, on a
+  // competitive-landscape document full of competitors).
+  + 'Keep every note short — a dozen words or so, never a paragraph. Long notes are the reason a reading gets cut off before it finishes. '
   + DOCUMENT_CONTENT_INSTRUCTION;
 
 // Prompt 478 — the web path's FACET_SCHEMA minus `sourceUrl`, and that
@@ -92,7 +132,7 @@ const DOCUMENT_FACET_SCHEMA = {
   type: 'object',
   properties: {
     state: { type: 'string', enum: ['MATCH', 'PARTIAL', 'NO_MATCH', 'UNKNOWN'] },
-    note: { type: 'string', description: 'What the document actually says that supports this state — quote or paraphrase it.' },
+    note: { type: 'string', description: 'What the document actually says that supports this state — quote or paraphrase it, in 15 words or fewer.' },
   },
 };
 
@@ -193,6 +233,9 @@ const MARKET_EXTRACT_TOOL_SCHEMA = {
 };
 
 export async function POST(req: Request) {
+  // Prompt 484 — the origin every budget below is measured from. Taken first,
+  // before any await, so it really is the whole function's clock.
+  const startedAt = Date.now();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -301,6 +344,9 @@ export async function POST(req: Request) {
   // before the classifier existed. No model call, no cost — database work
   // over what this pass already extracted.
   let competitorsBackfilled = 0;
+  // Prompt 484 — hoisted so the response can report it; false when the run
+  // was served from the signature cache and no model call happened at all.
+  let truncatedRun = false;
   // Prompt 467 §C — how many typed market_facts THIS pass wrote (created OR
   // updated via the fingerprint upsert — writeMarketFact doesn't
   // distinguish the two, same as itemsProposed above never distinguishes
@@ -313,18 +359,72 @@ export async function POST(req: Request) {
     const userText = 'Extract every market fact literally present in the attached document(s). Cite document_index and page for each item.';
 
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model, max_tokens: 4000, system: SYSTEM,
-        messages: [{ role: 'user', content: [...interleaved, { type: 'text', text: wrapDocumentContent(userText) }] }],
-        tools: [{ name: 'report_market_data', description: 'Return the extracted market facts.', input_schema: MARKET_EXTRACT_TOOL_SCHEMA }],
-        tool_choice: { type: 'tool', name: 'report_market_data' },
-      }),
-    });
+    // Prompt 484 — every exit from here returns real JSON. Before this, the
+    // only two outcomes were "a 200 with a body" and "the platform killed the
+    // function", and the second one is indistinguishable, from the client, from
+    // a network failure: no status the panel can read, no body, no log.
+    // The deadline is what is LEFT, not a fixed number counted from here. The
+    // first draft of this fix used a flat 45s measured at the fetch, which
+    // guarantees nothing: the download and the capability probes have already
+    // spent part of the budget by this point, so 10s of download plus 45s of
+    // waiting plus the writes afterwards still overruns 60s and dies exactly
+    // the way it died on 31/08.
+    const spentMs = Date.now() - startedAt;
+    const modelBudgetMs = MAX_DURATION_MS - POST_MODEL_RESERVE_MS - spentMs;
+    if (modelBudgetMs < MIN_MODEL_WAIT_MS) {
+      console.error(`[market-data/document-extract] not enough budget left to start the model call`, {
+        spentMs, modelBudgetMs, documents: documentBlocks.length,
+      });
+      return NextResponse.json({
+        ok: false,
+        error: 'Preparing those documents used up the time Sherlock had to read them. Try again with fewer documents selected.',
+      }, { status: 504 });
+    }
+
+    let res: Response;
+    try {
+      res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(modelBudgetMs),
+        body: JSON.stringify({
+          model, max_tokens: 4000, system: SYSTEM,
+          messages: [{ role: 'user', content: [...interleaved, { type: 'text', text: wrapDocumentContent(userText) }] }],
+          tools: [{ name: 'report_market_data', description: 'Return the extracted market facts.', input_schema: MARKET_EXTRACT_TOOL_SCHEMA }],
+          tool_choice: { type: 'tool', name: 'report_market_data' },
+        }),
+      });
+    } catch (e) {
+      // AbortSignal.timeout raises TimeoutError; a genuine network failure
+      // raises something else. The two are reported differently because they
+      // need different answers from whoever reads the log.
+      const name = e instanceof Error ? e.name : 'unknown';
+      const timedOut = name === 'TimeoutError' || name === 'AbortError';
+      console.error(`[market-data/document-extract] model call did not return`, {
+        timedOut, name, message: e instanceof Error ? e.message : String(e),
+        deadlineMs: modelBudgetMs, spentMs, documents: documentBlocks.length,
+      });
+      return NextResponse.json({
+        ok: false,
+        error: timedOut
+          ? 'Reading those documents took longer than Sherlock is allowed to wait. Try again with fewer documents selected.'
+          : 'Sherlock could not reach the model to read those documents. Try again in a moment.',
+      }, { status: timedOut ? 504 : 502 });
+    }
     if (!res.ok) return NextResponse.json({ ok: false, error: providerErrorMessage('[market-data/document-extract]', await res.text()) }, { status: 502 });
     const data = await res.json();
+    // Prompt 484 — a pass that ends on `max_tokens` was CUT OFF mid-JSON, and
+    // said nothing about it. Measured in production: 1634/1846/2647 output
+    // tokens before Prompt 478, then 4000 / 4000 / 4000 / 4000 — every pass
+    // since has hit the ceiling exactly, so every one of them lost whatever
+    // came after the cut. Logged here so the next pass says whether the
+    // shorter-notes instruction above actually brought it back under.
+    truncatedRun = data.stop_reason === 'max_tokens';
+    if (truncatedRun) {
+      console.warn(`[market-data/document-extract] response hit max_tokens — the extraction is incomplete`, {
+        documents: documentBlocks.length, tokensOut: data.usage?.output_tokens ?? null,
+      });
+    }
     costEur = computeCostEur(model, data.usage);
     // Prompt 469 §B — awaited: ai_call_log is used as an ACCEPTANCE
     // CRITERION (a missing entry has, more than once, been read as proof a
@@ -499,5 +599,10 @@ export async function POST(req: Request) {
     // new, separate {id,name}[] this prompt actually asked for, additive
     // rather than a breaking type change on a field another route depends on.
     documentsRead: documentBlocks.length, readDocuments: [...docsByIndex.values()], itemsProposed, itemsEnriched, competitorsBackfilled, factsWritten,
+    // Prompt 484 — carried so a caller (and the next diagnosis) can tell a
+    // complete pass from a cut-off one. Not rendered by the panel: this
+    // prompt is about unblocking the read, and a founder-facing truncation
+    // notice is its own decision.
+    truncated: truncatedRun,
   });
 }
