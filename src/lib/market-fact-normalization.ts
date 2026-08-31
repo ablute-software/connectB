@@ -164,6 +164,79 @@ function dedupeSourceRefs(refs: SourceRef[]): SourceRef[] {
 // unique per candidate — which is what lets buildGrowthFact/
 // buildMarketSizeFact safely treat hasPositiveIdentity=false as "this
 // fact's sourceRefs are exactly its own evidence, never shared."
+// Prompt 488 — the two halves of ONE range, when the document gave the range
+// but named no geography and no period.
+//
+// The ablute_ deck's TAM slide says "Urinalysis Market: ~USD 4B (↑8–9.6%
+// p.a.)". The model reads that correctly: same market_definition, one
+// candidate tagged bound:'lower' at 8, one tagged bound:'upper' at 9.6 — and
+// no geography or period, because the slide states none. groupKeyFor
+// (correctly, for its own purpose) refuses a key when any context field is
+// null, so those two became two separate facts instead of one interval. The
+// market_size pair on the SAME slide DID merge, and the only difference was
+// that the model happened to fill in geography and asOfYear for it.
+//
+// This is a SECOND pass over what groupKeyFor left as singletons, not a
+// loosening of groupKeyFor itself. It is deliberately the narrowest rule
+// that fixes the case, for two reasons found by reading the code rather
+// than assumed:
+//
+//   1. It requires exactly one 'lower' and exactly one 'upper'. Merging
+//      point-valued candidates instead would reach buildEstimate's last
+//      branch, which keeps pointTagged[0] and DROPS the rest silently — a
+//      new data-loss path, introduced by a fix for a fragmentation bug.
+//      Two lowers, or two uppers, or a stray point alongside, are ambiguous
+//      and stay unmerged.
+//   2. The merged group keeps hasPositiveIdentity: FALSE. That flag means
+//      "positively-matched semantic identity" to computeFactFingerprint
+//      (market-facts-db.ts, 467 v3 §2), which uses it to decide whether the
+//      same proposition from a DIFFERENT document may collapse onto one row.
+//      A bound pair inside one extraction call proves these two readings are
+//      one range; it proves nothing about another document's "8–9.6% with no
+//      context", which is exactly the ambiguity 467 v3 §2 exists to keep
+//      apart. So the pair merges here and still fingerprints on its own
+//      evidence.
+//
+// Context must be absent CONSISTENTLY: a candidate with a geography never
+// pairs with one without, and two different geographies never pair at all —
+// those stay the genuine ambiguity invariable 14 is about.
+function contextlessBoundPairKey(c: MarketFactCandidate): string | null {
+  if (!c.marketDefinition) return null;
+  if (c.bound !== 'lower' && c.bound !== 'upper') return null;
+  if (c.geography) return null;
+  if (c.kind === 'growth') {
+    if (c.periodStart !== null || c.periodEnd !== null) return null;
+  } else if (c.asOfYear !== null) return null;
+  return JSON.stringify([c.kind, normalizeText(c.marketDefinition), c.metric ?? null]);
+}
+
+function pairContextlessBounds<T extends MarketFactCandidate>(
+  groups: { members: T[]; hasPositiveIdentity: boolean }[],
+): { members: T[]; hasPositiveIdentity: boolean }[] {
+  const candidateIndexes = new Map<string, number[]>();
+  groups.forEach((g, i) => {
+    if (g.hasPositiveIdentity || g.members.length !== 1) return;
+    const key = contextlessBoundPairKey(g.members[0]);
+    if (!key) return;
+    const list = candidateIndexes.get(key);
+    if (list) list.push(i); else candidateIndexes.set(key, [i]);
+  });
+
+  const merged = new Set<number>();
+  const pairs: { members: T[]; hasPositiveIdentity: boolean }[] = [];
+  for (const indexes of candidateIndexes.values()) {
+    const lower = indexes.filter((i) => groups[i].members[0].bound === 'lower');
+    const upper = indexes.filter((i) => groups[i].members[0].bound === 'upper');
+    // Exactly one of each. Anything else cannot be resolved into a single
+    // range without guessing which reading pairs with which.
+    if (lower.length !== 1 || upper.length !== 1) continue;
+    merged.add(lower[0]); merged.add(upper[0]);
+    pairs.push({ members: [groups[lower[0]].members[0], groups[upper[0]].members[0]], hasPositiveIdentity: false });
+  }
+  if (pairs.length === 0) return groups;
+  return [...groups.filter((_, i) => !merged.has(i)), ...pairs];
+}
+
 function groupCandidates<T extends MarketFactCandidate>(candidates: T[]): { members: T[]; hasPositiveIdentity: boolean }[] {
   const buckets = new Map<string, { members: T[]; hasPositiveIdentity: boolean }>();
   for (const c of candidates) {
@@ -173,7 +246,8 @@ function groupCandidates<T extends MarketFactCandidate>(candidates: T[]): { memb
     if (existing) existing.members.push(c);
     else buckets.set(key, { members: [c], hasPositiveIdentity: realKey !== null });
   }
-  return [...buckets.values()];
+  // Prompt 488 — second pass, over what the first left ungrouped.
+  return pairContextlessBounds([...buckets.values()]);
 }
 
 // Shared bound/shape/value construction — identical logic for growth (pct)

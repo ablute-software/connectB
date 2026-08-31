@@ -12,6 +12,7 @@
 // never through this route. This route stays exactly what it always was —
 // the founder's own read/write surface — it just isn't the last word on
 // investor visibility any more.
+import { isSupersededByTypedFacts } from '@/lib/market-legacy-typed-items';
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
@@ -124,7 +125,18 @@ export async function GET() {
       .eq('org_id', orgId).eq('status', 'pending')
       .or('source_kind.eq.document,hypothesis_id.not.is.null')
       .order('section', { ascending: true });
-    const rows = (data ?? []) as { document_id: string | null }[];
+    // Prompt 488 §1 — the growth/sizing cards Prompt 467 replaced and nobody
+    // retired. Same discipline as the lot just above: nothing is deleted,
+    // nothing is relabelled, this route simply stops offering them as
+    // decisions the founder has to make one by one. Filtered here rather
+    // than in the query because the condition is a pair of columns, and it
+    // belongs in a tested function rather than a PostgREST string — see
+    // market-legacy-typed-items.ts for the measurement and the trade-off.
+    const served = (data ?? []).filter((r) => !isSupersededByTypedFacts({
+      section: (r as { section: string }).section,
+      sourceKind: (r as { source_kind: string | null }).source_kind,
+    }));
+    const rows = served as { document_id: string | null }[];
     // Prompt 463 §A — resolve names HERE, from `documents` (the table a
     // name actually lives in), in one query for every distinct id — never
     // by asking the client to cross-reference against `fromYourDocuments`,

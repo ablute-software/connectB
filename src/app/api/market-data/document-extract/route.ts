@@ -27,6 +27,7 @@ import { truncatePdfToPages } from '@/lib/pdf-truncate';
 import { upsertOrEnrichResearchItem } from '@/lib/market-research-item-upsert';
 import { MAX_EXTRACTION_PAGES } from '@/lib/document-extraction';
 import { maxOutputTokensForBudget, MIN_USEFUL_MODEL_BUDGET_MS } from '@/lib/document-extract-budget';
+import { isSupersededByTypedFacts } from '@/lib/market-legacy-typed-items';
 import {
   auditRawCompetitors, countProposalsBySection, countRawSections,
   describeExtractionTelemetry, emptyOutcomeTally,
@@ -610,9 +611,18 @@ export async function POST(req: Request) {
     console.warn(`[market-data/document-extract] extraction telemetry`, telemetry);
   }
 
-  let { data: items } = await admin.from('market_research_items')
+  const { data: pendingRows } = await admin.from('market_research_items')
     .select('id, section, title, detail, document_id, page, confidence, status, source_kind, documents(name)')
     .eq('org_id', orgId).eq('source_kind', 'document').eq('status', 'pending').order('section', { ascending: true });
+  // Prompt 488 §1 — the SECOND surface, found by the adversarial pass on
+  // that prompt: filtering /api/market-data alone would still have left the
+  // superseded growth/sizing cards on screen immediately after a read,
+  // because this response carries its own copy of the pending list. Same
+  // predicate, same reasoning (market-legacy-typed-items.ts).
+  let items = (pendingRows ?? []).filter((r) => !isSupersededByTypedFacts({
+    section: (r as { section: string }).section,
+    sourceKind: (r as { source_kind: string | null }).source_kind,
+  }));
 
   // Prompt 467 §D — "Item legacy com ≥1 linha de supersessão deixa de ser
   // listado. Sem linha, continua listado." Since §3 (v3) never creates a

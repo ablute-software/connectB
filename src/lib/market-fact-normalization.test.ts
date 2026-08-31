@@ -219,3 +219,106 @@ describe('MarketSizeFact — the same completeness/validity split, proven indepe
     expect(validateMarketSizeFact(fact, new Date('2026-08-29T00:00:00Z')).validation.status).toBe('invalid');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Prompt 488 — the ablute_ TAM slide: "Urinalysis Market: ~USD 4B (↑8–9.6%
+// p.a.)" and "Biosensors Market: ~USD 30–34B (↑9.1–9.5% p.a.)". The model
+// reads each range correctly — same market_definition, one bound:'lower',
+// one bound:'upper' — but states no geography and no period, because the
+// slide states none. Before this prompt each half became its own fact.
+describe('Prompt 488 — the two halves of one range, when the document names no geography or period', () => {
+  it('pairs lower and upper into ONE interval — the exact ablute_ case', () => {
+    const facts = normalizeMarketCandidates([
+      growth({ observationId: 'obs-lo', pct: 8, marketDefinition: 'Urinalysis Market', bound: 'lower' }),
+      growth({ observationId: 'obs-hi', pct: 9.6, marketDefinition: 'Urinalysis Market', bound: 'upper' }),
+    ]) as GrowthFact[];
+
+    expect(facts).toHaveLength(1);
+    expect(facts[0].estimateShape).toBe('interval');
+    expect(facts[0].lowerBound).toBe(8);
+    expect(facts[0].upperBound).toBe(9.6);
+    expect(facts[0].observationIds.sort()).toEqual(['obs-hi', 'obs-lo']);
+    // §4 — the merge joins the halves; it never invents the missing context.
+    expect(facts[0].geography).toBeNull();
+    expect(facts[0].periodStart).toBeNull();
+    expect(facts[0].validation.status).toBe('incomplete');
+    expect(facts[0].validation.missing).toContain('geography');
+    // 467 v3 §2 stays intact: this pair is one range inside ONE extraction,
+    // never a claim that another document's contextless 8–9.6% is the same
+    // proposition.
+    expect(facts[0].hasPositiveIdentity).toBe(false);
+  });
+
+  it('handles both ranges on the same slide independently', () => {
+    const facts = normalizeMarketCandidates([
+      growth({ observationId: 'u-lo', pct: 8, marketDefinition: 'Urinalysis Market', bound: 'lower' }),
+      growth({ observationId: 'u-hi', pct: 9.6, marketDefinition: 'Urinalysis Market', bound: 'upper' }),
+      growth({ observationId: 'b-lo', pct: 9.1, marketDefinition: 'Biosensors Market', bound: 'lower' }),
+      growth({ observationId: 'b-hi', pct: 9.5, marketDefinition: 'Biosensors Market', bound: 'upper' }),
+    ]) as GrowthFact[];
+
+    expect(facts).toHaveLength(2);
+    const urinalysis = facts.find((f) => f.marketDefinition === 'Urinalysis Market')!;
+    const biosensors = facts.find((f) => f.marketDefinition === 'Biosensors Market')!;
+    expect([urinalysis.lowerBound, urinalysis.upperBound]).toEqual([8, 9.6]);
+    expect([biosensors.lowerBound, biosensors.upperBound]).toEqual([9.1, 9.5]);
+  });
+
+  it('the same fix serves market_size — one function, both kinds', () => {
+    const facts = normalizeMarketCandidates([
+      size({ observationId: 's-lo', value: 30_000_000_000, marketDefinition: 'Biosensors Market', bound: 'lower' }),
+      size({ observationId: 's-hi', value: 34_000_000_000, marketDefinition: 'Biosensors Market', bound: 'upper' }),
+    ]) as MarketSizeFact[];
+
+    expect(facts).toHaveLength(1);
+    expect(facts[0].estimateShape).toBe('interval');
+    expect([facts[0].lowerBound, facts[0].upperBound]).toEqual([30_000_000_000, 34_000_000_000]);
+  });
+});
+
+describe('Prompt 488 — invariable 14 does not break because of this fix', () => {
+  it('DIFFERENT marketDefinition, both without geography, still never merge', () => {
+    const facts = normalizeMarketCandidates([
+      growth({ observationId: 'a', pct: 8, marketDefinition: 'Urinalysis Market', bound: 'lower' }),
+      growth({ observationId: 'b', pct: 9.6, marketDefinition: 'Biosensors Market', bound: 'upper' }),
+    ]);
+    expect(facts).toHaveLength(2);
+  });
+
+  it('one WITH geography and one without is inconsistent absence, not a pair', () => {
+    const facts = normalizeMarketCandidates([
+      growth({ observationId: 'a', pct: 8, marketDefinition: 'Urinalysis Market', bound: 'lower', geography: 'EU' }),
+      growth({ observationId: 'b', pct: 9.6, marketDefinition: 'Urinalysis Market', bound: 'upper' }),
+    ]);
+    expect(facts).toHaveLength(2);
+  });
+
+  it('two lowers and one upper is ambiguous — nothing is guessed', () => {
+    const facts = normalizeMarketCandidates([
+      growth({ observationId: 'lo1', pct: 8, marketDefinition: 'Urinalysis Market', bound: 'lower' }),
+      growth({ observationId: 'lo2', pct: 8.4, marketDefinition: 'Urinalysis Market', bound: 'lower' }),
+      growth({ observationId: 'hi', pct: 9.6, marketDefinition: 'Urinalysis Market', bound: 'upper' }),
+    ]);
+    expect(facts).toHaveLength(3);
+  });
+
+  it('point-valued candidates never pair — buildEstimate would drop all but the first', () => {
+    // The reason this rule is bounds-only rather than "both contexts absent":
+    // merging points reaches buildEstimate's final branch, which keeps
+    // pointTagged[0] and silently discards the rest.
+    const facts = normalizeMarketCandidates([
+      growth({ observationId: 'p1', pct: 8, marketDefinition: 'Urinalysis Market', bound: 'point' }),
+      growth({ observationId: 'p2', pct: 9.6, marketDefinition: 'Urinalysis Market', bound: 'point' }),
+    ]) as GrowthFact[];
+    expect(facts).toHaveLength(2);
+    expect(facts.map((f) => f.value).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([8, 9.6]);
+  });
+
+  it('a candidate with no marketDefinition at all never pairs — Fixture A stays intact', () => {
+    const facts = normalizeMarketCandidates([
+      growth({ observationId: 'a', pct: 8, bound: 'lower' }),
+      growth({ observationId: 'b', pct: 9.6, bound: 'upper' }),
+    ]);
+    expect(facts).toHaveLength(2);
+  });
+});
