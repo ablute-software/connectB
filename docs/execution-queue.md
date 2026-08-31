@@ -1,7 +1,7 @@
 # Fila de execução — Sherlock Deal
 
 **Local canónico:** `docs/execution-queue.md` no repositório `connectB`.
-**Atualizado:** 31/08/2026 (486; sem migração)
+**Atualizado:** 31/08/2026 (487; sem migração)
 **Lê-se com:** `AUTONOMOUS_EXECUTION_MODE_v2` (o §0 desse documento aponta
 para este ficheiro).
 
@@ -57,6 +57,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **484** | "Read my documents" falhava antes de chegar ao modelo | `READY — prompt entregue` | `DONE` — `619d329`; sem migração | — |
 | **485** | O tempo é da resposta, não da leitura do PDF | `READY — prompt entregue` | `DONE` — `7d9c083`; sem migração | — |
 | **486** | Duas leituras pagas, zero efeito — instrumentação | `READY — prompt entregue` | `DONE` — `563b7a3`; sem migração; **espera medição** | — |
+| **487** | Bloco 2 — Market Size lido dos factos que já existem | `READY — prompt entregue` | `DONE` — `cacb09c`; sem migração | — |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
 | ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
 | G2 | Aceitação visual na app | — | `DONE` — 30/08 14:17, 3 hipóteses criadas | — |
@@ -1067,3 +1068,81 @@ desta tarefa não é SQL, é a linha de telemetria:
 | `A FUNCIONAR` | a linha de telemetria aparece e o `summary` nomeia uma das três — a partir daí há causa raiz para corrigir |
 | `EXISTE MAS NINGUEM LA CHEGA` | a leitura corre e não aparece linha nenhuma → a passagem veio da cache de assinatura (`telemetry: null`) e é preciso mudar a selecção para forçar uma corrida real |
 | `AINDA NAO APLICAVEL` | não há leitura nova nenhuma desde o deploy |
+
+---
+
+## 487 — Bloco 2: Market Size, e hoje a resposta honesta é "ainda não" — `DONE`
+
+`cacb09c` em `main`. **Sem migração.**
+
+**A medição decidiu a forma da resposta**, por isso vem primeiro. Contado a
+31/08 antes de desenhar seja o que for:
+
+```
+market_size  valid       12   bottom_up 0   external_estimate 10   (nenhuma) 2
+market_size  incomplete  51   bottom_up 0   external_estimate 42   other 2  (nenhuma) 7
+growth       incomplete   4   bottom_up 0                          (nenhuma) 4
+```
+
+**ZERO factos bottom-up**, nas 67 linhas, todas `founder_reported`. O §2 é
+explícito: a manchete só pode vir de um facto bottom-up — e igualmente
+explícito que *"ainda não há bottom-up suficiente"* é **uma resposta
+legítima**. Por isso o cartão **não mostra número nenhum** hoje: diz o que
+falta, e mantém as estimativas externas à vista, rotuladas, nunca
+promovidas.
+
+**Três premissas do prompt estavam erradas**, e foi a verificação do §1 que
+as apanhou:
+1. **O `org_market_data` NÃO está vazio nem morto**: tem **1 linha**, com
+   `market_size_value_eur = 16 200 000 000` (TAM 2025), origem *"From
+   Sherlock research (Europe Remote Patient Monitoring Devices Market)"*,
+   actualizada a 30/08. É uma **estimativa externa**, por isso também não
+   podia ser a manchete — mas existe e é servida pela
+   `/api/market-data/rings`.
+2. A coluna dos rings é **`ring`**, não `ring_key`.
+3. Os três rings **não estão todos aceites**: `beachhead` está `accepted`,
+   os outros dois ainda `proposed`.
+
+**Decisões, com o porquê (§3/§4):**
+- **Cartão novo, montado PRIMEIRO** no separador Market analysis, acima dos
+  Market rings e ao mesmo nível de Competitors e Comparable rounds. Não é
+  extensão do `MarketRingsCard`, nem reescrita do `MarketFactsCard` — esse
+  fica exactamente onde está: é o **registo de auditoria** de onde esta
+  leitura sai, não a leitura.
+- **Nenhum mapeamento de factos para rings.** Os factos têm
+  `marketDefinition`/`geography` em texto livre, os rings têm chave fixa, e
+  com zero bottom-up não há nada defensável para lá pôr. É a própria regra
+  do §3, e a invariável 14: sem merge sem prova positiva.
+- **Sem rota nova, sem caminho de escrita novo, sem migração**: lê a mesma
+  `/api/market-data/facts` e os mesmos helpers do `market-facts-view.ts`
+  (`factSummaryLine`, `retrievalMethodLabel`, o padrão "Why do we know
+  this?").
+
+**Duas regras que a síntese impõe mecanicamente**, não por intenção: vários
+factos bottom-up são mostrados **como foram lidos e nunca fundidos** numa
+gama inventada; e a confiança é o `verification_status` **mais fraco** dos
+factos por trás da manchete, nunca o mais forte — com uma etiqueta que não
+consegue dizer "confident" nem "verified" sobre evidência só do founder.
+
+**Verificado mecanicamente, não afirmado:** o `MarketDataPanel` só é montado
+pelo `ReadinessPanel` (lado do founder), o `dossier-fetch` lê `market_facts`
+**zero** vezes, e o portal não importa nenhum dos dois cartões. Nada disto
+chega a um investidor.
+
+**Consulta de alcance (§21):**
+```sql
+select fact_type, validation_status, count(*) as n,
+       count(*) filter (where payload->>'methodology' = 'bottom_up') as bottom_up
+from market_facts group by 1,2 order by 1,2;
+```
+| verdicto | significa |
+|---|---|
+| `A FUNCIONAR` | `bottom_up > 0` em linhas `valid` → o cartão mostra um número com método e confiança |
+| `EXISTE MAS NINGUEM LA CHEGA` | `bottom_up > 0` mas o cartão continua sem manchete → o filtro está errado, não os dados |
+| `AINDA NAO APLICAVEL` | `bottom_up = 0` — **é o estado de hoje**, e o cartão diz isso em palavras em vez de ficar vazio |
+
+**O que a ablute_ vê hoje, dado o estado real:** *"No bottom-up market size
+yet…"*, seguido de *"Sherlock does have 12 complete figures from other
+methods and 51 more still missing a detail."*, a frase do porquê importa, e
+as estimativas externas listadas por baixo com a etiqueta do método. Sem
+scroll até ao fundo.
