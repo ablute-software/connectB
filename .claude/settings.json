@@ -1,5 +1,6 @@
 {
   "permissions": {
+    "defaultMode": "auto",
     "allow": [
       "Bash(git status*)",
       "Bash(git diff*)",
@@ -46,5 +47,20 @@
       "Bash(curl * -X DELETE*)",
       "Bash(sudo*)"
     ]
+  },
+  "autoMode": {
+    "hard_deny": ["$defaults",
+      "Never force-push, rewrite published git history, or delete branches.",
+      "Never run destructive filesystem commands (rm -rf and equivalents).",
+      "Never run anything with sudo or otherwise escalate privileges.",
+      "Never change git config, provider secrets, or environment variables in Vercel or Supabase.",
+      "Never reset, drop or truncate a database, and never delete production data.",
+      "Never bypass a commit hook or signature check (--no-verify, --no-gpg-sign).",
+      "Never edit .claude/settings.json itself without the user having asked for that change."],
+    "soft_deny": ["$defaults",
+      "Writing to production data is not routine: an INSERT, UPDATE or DELETE against the live Supabase project needs the user to have asked for that specific change."],
+    "environment": ["$defaults",
+      "This repository verifies its work with direct read-only SQL against the production Supabase project constantly: SELECTs, catalog reads (pg_constraint, information_schema) and log queries are ordinary, expected, non-destructive research.",
+      "The permissions.deny list in this same file is authoritative and stays in force independently of this classifier."]
   }
 }
