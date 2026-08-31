@@ -1,7 +1,7 @@
 # Fila de execução — Sherlock Deal
 
 **Local canónico:** `docs/execution-queue.md` no repositório `connectB`.
-**Atualizado:** 31/08/2026 (483; sem migração)
+**Atualizado:** 31/08/2026 (484; sem migração)
 **Lê-se com:** `AUTONOMOUS_EXECUTION_MODE_v2` (o §0 desse documento aponta
 para este ficheiro).
 
@@ -54,6 +54,7 @@ condição de STOP legítima (§18-A), não um fracasso.
 | **481** | Bloco 4 — Capital Landscape | `READY — prompt entregue` | `DONE` — `40bebdc`; migração `0283` **aplicada** | — |
 | **482** | Colisão de título engolia a classificação do 478 | `READY — prompt entregue` | `DONE` — `4c81be9`; sem migração | — |
 | **483** | Concorrente já aceite recebe a classificação em falta | `READY — prompt entregue` | `DONE` — `d1339f0`; sem migração | — |
+| **484** | "Read my documents" falhava antes de chegar ao modelo | `READY — prompt entregue` | `DONE` — `619d329`; sem migração | — |
 | — | Bloco 5 / milestone D — derivações | `NO_PROMPT — não executar` | — | prompt + migração |
 | ~~—~~ | ~~Bloco 4 — Capital Landscape~~ | — | **decisão de produto tomada (30/08) → executado como 481** | — |
 | G2 | Aceitação visual na app | — | `DONE` — 30/08 14:17, 3 hipóteses criadas | — |
@@ -811,3 +812,90 @@ os aceitar — já classificados, pelo 482.
 | `A FUNCIONAR` | `classificados > 0` depois de uma leitura nova |
 | `EXISTE MAS NINGUEM LA CHEGA` | `classificados > 0` **e** nenhuma superfície os mostra — **é o estado de hoje por construção**, ver o achado acima |
 | `AINDA NAO APLICAVEL` | `total = 0` — a org não segue concorrentes nenhuns |
+
+---
+
+## 484 — a leitura que falhava antes de chegar ao modelo — `DONE`
+
+`619d329` em `main`. **Sem migração.**
+
+**O que a evidência mostra** (logs edge do Supabase + `ai_call_log`), e o
+prompt pedia expressamente para não assumir:
+
+- **A rota correu, das duas vezes.** O PDF descarregou **200 OK** às
+  `05:09:30.323Z` e `05:14:16.275Z`; a sonda de capacidade `market_facts`
+  (`05:14:16.493Z`) e a consulta de assinatura a `market_research_items`
+  (`05:14:16.627Z`) correram logo a seguir. Isto **exclui** autenticação,
+  a org, o documento em falta, o scan-gate e o download — e não há **um
+  único** não-2xx em toda a janela.
+- **Depois, nada.** Nenhum tráfego Supabase adicional para esse pedido,
+  nenhuma linha em `ai_call_log`. A chamada ao modelo nunca voltou.
+- O documento tem **189 KB**. O tamanho não é o problema.
+
+**Porquê:** a chamada está no limite do orçamento e não tinha prazo
+nenhum. Medido na última passagem **bem-sucedida** deste mesmo documento —
+download `22:18:06.882Z` → linha em `ai_call_log` `22:18:47.348Z` —
+**40,5 s de um tecto de 60 s**. Numa passagem de dois documentos, 43,7 s. O
+`maxDuration=60` **é** o tecto do plano Hobby e não sobe sem mudar de plano,
+por isso a rota corria a dois terços do limite sem margem nenhuma, e a
+variação normal de latência do modelo mata-a. Quando morre não há corpo
+JSON: o `res.json()` do painel rebenta e cai no `catch` exterior — que
+mostra a mesma frase genérica que um `{ok:false, error}` estruturado. Duas
+falhas diferentes, uma só mensagem, e nada na consola que as distinga.
+
+**E porque piorou agora: o comprimento da resposta.** Antes do 478 uma
+passagem devolvia **1634 / 1846 / 2647** tokens de saída. Todas as
+passagens desde então devolveram **exactamente 4000** — o tecto do
+`max_tokens`, atingido sempre. O 478 acrescentou cinco facetos por
+concorrente, cada um com prosa livre, e este documento é precisamente um
+*competitive landscape*. Bater no tecto significa também que **todas** essas
+passagens ditas bem-sucedidas foram cortadas a meio do JSON sem o dizer em
+lado nenhum.
+
+**O que mudou:**
+
+1. **A chamada passa a ter um prazo derivado do relógio da própria função**
+   (`MAX_DURATION_MS - POST_MODEL_RESERVE_MS -` tempo já gasto). O primeiro
+   rascunho usava 45 s fixos medidos no `fetch` e a **minha própria
+   passagem adversarial** mostrou que isso não limita nada: o download e as
+   sondas já gastaram parte dos 60 s. Se sobrar menos do que
+   `MIN_MODEL_WAIT_MS`, a rota devolve já em vez de pagar por uma resposta
+   que não pode chegar.
+2. **Todas as saídas da chamada devolvem JSON real com mensagem real**, e
+   registam qual falha foi — timeout e falha de rede separadamente, porque
+   pedem respostas diferentes a quem lê o log.
+3. **`stop_reason === 'max_tokens'` é registado** e viaja na resposta, para
+   a próxima passagem dizer se a instrução de notas curtas trouxe mesmo a
+   saída para baixo do tecto.
+4. **Notas dos facetos limitadas a ~uma dúzia de palavras**, no schema e no
+   system prompt. É correcção de latência, não de estilo.
+5. **O painel lê o corpo como texto e faz `JSON.parse` defensivo**: os três
+   casos — não é JSON, falha estruturada, e o pedido rebentar — passam cada
+   um a ter o seu `console.error`. **O texto mostrado ao founder não muda**,
+   como o §5 pede.
+
+**DESVIOS AO PROMPT — um, e é uma coisa que NÃO consegui fazer:** o §1 pede
+os **logs reais do Vercel**. O CLI do Vercel não existe neste ambiente
+(`which vercel` → nada, sem `~/.vercel`, sem `VERCEL_TOKEN`), por isso
+**não tenho uma linha de log do Vercel a nomear o timeout**. O que está
+acima é o que o Supabase e o código conseguem provar, e exclui todos os
+outros candidatos que o próprio prompt listou. A correcção torna a próxima
+ocorrência auto-explicativa de qualquer maneira.
+
+**Consulta de alcance (§21):**
+```sql
+select created_at, tokens_in, tokens_out, cost_eur
+from ai_call_log
+where route = '/api/market-data/document-extract'
+order by created_at desc limit 5;
+```
+| verdicto | significa |
+|---|---|
+| `A FUNCIONAR` | há linha nova **e** `tokens_out < 4000` — a passagem completou-se sem ser cortada |
+| `EXISTE MAS NINGUEM LA CHEGA` | há linha nova mas `tokens_out = 4000` — voltou a ser cortada; a instrução de notas curtas não chegou e é preciso outra medida (menos secções por chamada) |
+| `AINDA NAO APLICAVEL` | continua sem linha nova — então **não era** o timeout, e o `console.error` novo do painel diz agora qual dos três casos é |
+
+**Verificação humana que fica pendente:** correr "Read my documents" com o
+`Competitive_Landscape_and_Moat.docx.pdf` sozinho. Passe ou falhe, desta vez
+há sempre rasto: ou uma linha em `ai_call_log`, ou uma mensagem específica
+no ecrã, ou uma linha na consola do browser a dizer qual dos três casos foi.
