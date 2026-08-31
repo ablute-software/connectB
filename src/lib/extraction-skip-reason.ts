@@ -78,3 +78,34 @@ export function extractionSummarySentence(input: {
   const body = itemsProposed === 0 ? `no new proposals, but ${joinClauses(parts)}` : joinClauses(parts);
   return `${read} — ${body}.`;
 }
+
+// Prompt 495 — the one thing Prompt 492 learned that the founder could not
+// see. 492 gave the pipeline a way to tell "the same document read twice"
+// (harmless, idempotent) from "a proposal was swallowed by a row that came
+// from somewhere else entirely" (something may be missing) — and then put
+// the answer in a console.info nobody opens.
+//
+// Deliberately a SEPARATE function from extractionSummarySentence rather
+// than a fifth clause inside it. That sentence answers "what did this pass
+// achieve"; this one answers "what did it not manage to tell you", which is
+// a different statement and must not be smuggled into a list of wins.
+//
+// THE TONE IS THE FEATURE, not decoration (CLAUDE.md's Sherlock golden
+// rule: the product reduces perceived weight, never adds it):
+//   - the subject is Sherlock noticing, never the founder having missed
+//     something. No "lost", no "failed", no "error", no warning icon;
+//   - it never claims to know WHAT the proposal said. It cannot: the whole
+//     reason 492 exists is that the two readings were never compared, and
+//     the swallowed one was never stored. A sentence that hinted at the
+//     content would be inventing it;
+//   - "if that's not what you'd expect" leaves the founder free to read it
+//     and move on, which is the honest posture when re-reading the same
+//     documents makes this number perfectly normal;
+//   - returns null at zero. A reassurance line saying "no collisions" would
+//     add a sentence to read on every single pass in exchange for nothing,
+//     which is precisely the weight the golden rule forbids.
+export function crossDocumentNoticeSentence(count: number): string | null {
+  if (count <= 0) return null;
+  return `Sherlock also noticed ${count} ${plural(count, 'item', 'items')} that matched something already on file,`
+    + ` from a different document — worth a second look if that's not what you'd expect.`;
+}

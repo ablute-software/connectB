@@ -359,6 +359,11 @@ export async function POST(req: Request) {
   // before the classifier existed. No model call, no cost — database work
   // over what this pass already extracted.
   let competitorsBackfilled = 0;
+  // Prompt 495 — carried to the client as a first-class number, the way the
+  // three counters above already are, rather than dug back out of the
+  // untyped `telemetry` blob. Same loop, same source of truth; what changes
+  // is only that the founder can now be told.
+  let crossDocumentCollisions = 0;
   // Prompt 484 — hoisted so the response can report it; false when the run
   // was served from the signature cache and no model call happened at all.
   let truncatedRun = false;
@@ -506,6 +511,7 @@ export async function POST(req: Request) {
       if (outcome === 'inserted') itemsProposed += 1;
       else if (outcome === 'enriched') itemsEnriched += 1;
       else if (outcome === 'competitor_backfilled') competitorsBackfilled += 1;
+      else if (outcome === 'title_collision_cross_document') crossDocumentCollisions += 1;
     }
 
     if (typedProposals.length > 0) {
@@ -659,7 +665,7 @@ export async function POST(req: Request) {
     // "Read {result.documentsRead} document(s)" line; readDocuments is the
     // new, separate {id,name}[] this prompt actually asked for, additive
     // rather than a breaking type change on a field another route depends on.
-    documentsRead: documentBlocks.length, readDocuments: [...docsByIndex.values()], itemsProposed, itemsEnriched, competitorsBackfilled, factsWritten,
+    documentsRead: documentBlocks.length, readDocuments: [...docsByIndex.values()], itemsProposed, itemsEnriched, competitorsBackfilled, crossDocumentCollisions, factsWritten,
     // Prompt 484 — carried so a caller (and the next diagnosis) can tell a
     // complete pass from a cut-off one. Not rendered by the panel: this
     // prompt is about unblocking the read, and a founder-facing truncation

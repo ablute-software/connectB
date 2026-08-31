@@ -51,7 +51,7 @@ import { MarketPortraitCard } from './market/MarketPortraitCard';
 import { MarketThesisSection } from './market/MarketThesisSection';
 import { MarketFactsCard } from './market/MarketFactsCard';
 import { PORTRAIT_DOC_HEURISTIC, MAX_PORTRAIT_DOCS } from '@/lib/market-portrait';
-import { extractionSkipReasonMessage, extractionSummarySentence } from '@/lib/extraction-skip-reason';
+import { crossDocumentNoticeSentence, extractionSkipReasonMessage, extractionSummarySentence } from '@/lib/extraction-skip-reason';
 import type { ExtractionSkipReason } from '@/lib/document-extraction-pipeline';
 import { feedDocumentsToRestOfPlatform } from '@/lib/feed-documents-to-platform';
 
@@ -83,6 +83,11 @@ interface ExtractResponse {
   itemsProposed?: number;
   itemsEnriched?: number;
   competitorsBackfilled?: number;
+  // Prompt 495 — proposals swallowed by a row from ANOTHER document
+  // (Prompt 492's title_collision_cross_document). Optional like its
+  // siblings: an older deploy answering a newer client sends no key, and
+  // `undefined ?? 0` is the honest reading of that, not a missing warning.
+  crossDocumentCollisions?: number;
   costEur?: number;
   skipped?: { documentId: string; reason: ExtractionSkipReason }[];
   truncated?: boolean;
@@ -107,6 +112,10 @@ interface ExtractSummary {
   // classification only arrived now. A third distinct statement, not a
   // variant of the other two.
   competitorsBackfilled: number;
+  // Prompt 495 — NOT a fourth thing the pass achieved. It is the one thing
+  // it could not tell the founder, kept separate from the three counters
+  // above for exactly that reason (see crossDocumentNoticeSentence).
+  crossDocumentCollisions: number;
   costEur: number;
   skipped: { documentId: string; reason: ExtractionSkipReason }[];
   // Prompt 464 §B — filled in once the serial per-document pass below
@@ -265,6 +274,7 @@ export function MarketDataPanel() {
         itemsProposed: body.itemsProposed ?? 0,
         itemsEnriched: body.itemsEnriched ?? 0,
         competitorsBackfilled: body.competitorsBackfilled ?? 0,
+        crossDocumentCollisions: body.crossDocumentCollisions ?? 0,
         costEur: body.costEur ?? 0,
         skipped: body.skipped ?? [],
         platformFeedNote: null,
@@ -718,6 +728,20 @@ function FromYourDocumentsPanel({ docs, docCounts, researchItems, pickerOpen, op
               })}
               {extractSummary.costEur > 0 ? ` (≈ €${extractSummary.costEur.toFixed(3)})` : ''}
             </p>
+            {/* Prompt 495 — a quiet line, never an alert. Deliberately NOT
+                the amber the skipped-documents list below uses: a skipped
+                document is something that did not happen and can be retried;
+                this is something that did happen and cannot be undone, and
+                dressing it as a warning would add weight the founder has no
+                way to discharge (Sherlock golden rule). Renders nothing at
+                all when the count is zero — crossDocumentNoticeSentence
+                returns null, so there is no reassurance line to read on
+                every ordinary pass. */}
+            {crossDocumentNoticeSentence(extractSummary.crossDocumentCollisions) && (
+              <p className="text-[11px] text-gray-500">
+                {crossDocumentNoticeSentence(extractSummary.crossDocumentCollisions)}
+              </p>
+            )}
             {extractSummary.skipped.length > 0 && (
               <ul className="space-y-0.5">
                 {extractSummary.skipped.map((s) => (
