@@ -1233,3 +1233,86 @@ from market_facts where fact_type='growth' order by 2,3;
 
 E no ecrã: os 8+8 cartões `growth`/`sizing` do pré-467 deixam de aparecer na
 lista activa, sem que nenhuma linha tenha sido tocada.
+
+---
+
+## 490 — o par lower/upper fundia-se sem confirmar moeda nem método — `DONE`
+
+**Estado:** `DONE` — commit `5129188`, em `main`. Sem migração.
+
+A `contextlessBoundPairKey` (488) decidia que um `bound:'lower'` e um
+`bound:'upper'` eram as duas metades da mesma gama comparando
+`kind` + `marketDefinition` + `metric`, com geografia e período exigidos
+ausentes nos dois. Para `market_size` ficavam **dois campos por comparar** —
+`currency` e `methodology` — e o `buildMarketSizeFact` lê **ambos** de
+`members[0]`, que é **sempre o `lower`** por construção do array
+`[lower, upper]`. Um bottom-up em USD podia, portanto, emparelhar com um
+external_estimate em EUR, e o facto resultante herdava em silêncio
+"bottom_up USD".
+
+Importa para lá da arrumação porque o **487 usa
+`payload.methodology === 'bottom_up'` como o ÚNICO portão da manchete do
+Bloco 2**: meia gama carregaria uma manchete que a outra metade nunca
+mereceu.
+
+**A disciplina, por construção e não por verificação à parte.** Os dois
+campos entram na chave da mesma maneira que o `metric` já entrava — como
+valor, com `null` a ser um dos valores. Dois nulos dão a mesma chave e
+emparelham; um preenchido contra um nulo dá chaves diferentes e não
+emparelha; dois valores diferentes dão chaves diferentes e não emparelham.
+A `currency` é normalizada com `normalizeText` (`'USD'` e `'usd'` são a
+mesma moeda — isso é um facto sobre notação; `'$'` e `'USD'` ficam
+diferentes, porque afirmar ESSA equivalência seria invenção). A
+`methodology` é um enum fechado e entra em cru. **As chaves de `growth`
+ficam byte a byte iguais** — nenhum dos dois campos existe num candidato de
+crescimento, e o `buildGrowthFact` não tira de `members[0]` mais nada que a
+chave já não cubra.
+
+**A premissa do prompt estava errada, e o erro é a favor.** O prompt esperava
+uma correcção só defensiva ("todos têm os dois campos iguais ou ambos
+nulos"). Medido nos `market_facts` a 31/08: numa **única** passagem de
+extracção (30/08, 21:52:51 → 21:52:53) o modelo produziu **três** leituras
+"Biosensors Market" sem geografia nem `asOfYear`:
+
+| leitura | valor | moeda | `methodology` |
+|---|---|---|---|
+| `lower` | 30 000 000 000 | USD | `null` |
+| `upper` | 34 000 000 000 | USD | `null` |
+| `lower` | 30 000 000 000 | USD | `'other'` |
+
+Com a chave do 488 as três caem no mesmo balde, `lower.length === 2`, e a
+`pairContextlessBounds` **recusa o grupo inteiro**: três factos, e a gama
+que o slide de facto afirma nunca se forma. Separar por `methodology` é o
+que deixa as duas metades que concordam encontrarem-se; a leitura ímpar
+fica facto próprio, por fundir e por descartar. **Confirmado a reverter a
+fonte e a ver o teste novo falhar com 3.**
+
+Oito testes, incluindo esse caso de produção tal e qual.
+
+**ACHADO, registado e não corrigido** (fora do âmbito deste prompt, e com
+zero instâncias em produção hoje): o `computeFactFingerprint`
+(`market-facts-db.ts`) não leva `methodology` nem nos `identityParts` nem
+nos `estimateParts`, por isso dois factos **com identidade positiva** que
+difiram só na metodologia colapsariam na mesma linha na persistência — a
+mesma classe de falha, uma camada abaixo. Os dois pares reais que diferem só
+na metodologia têm `geography` null, logo `hasPositiveIdentity` é false e
+são impressos pela evidência; nenhum colide hoje. Precisa de prompt próprio.
+
+**DESVIOS AO PROMPT:** nenhum.
+
+**Consulta de alcance (§21):**
+```sql
+select payload->>'marketDefinition' as mercado,
+       payload->>'estimateShape' as forma,
+       payload->>'currency' as moeda, payload->>'methodology' as metodo,
+       payload->>'lowerBound' as min, payload->>'upperBound' as max
+from market_facts
+where fact_type='market_size'
+  and payload->>'geography' is null and payload->>'asOfYear' is null
+order by 1, 2;
+```
+| verdicto | significa |
+|---|---|
+| `A FUNCIONAR` | depois de uma leitura nova do deck: "Biosensors Market" aparece como **um** `interval` 30–34B com `metodo` null **mais** um `lower_bound` 30B com `metodo='other'` — duas linhas, não três |
+| `EXISTE MAS NINGUEM LA CHEGA` | continuam três `lower_bound`/`upper_bound` soltos → o modelo deixou de marcar `bound`, ou passou a preencher `geography`, e o problema está na extracção, não no emparelhamento |
+| `AINDA NAO APLICAVEL` | não houve leitura nova desde o deploy — as linhas de 30/08 ficam como estão, porque nada nesta alteração reescreve o passado |
