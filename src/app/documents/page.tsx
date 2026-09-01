@@ -131,6 +131,8 @@ function DocumentsPageInner() {
   // already in this file).
   function loadPendingAccessRequests() {
     if (!db.org.id) return;
+    fetch(`/api/data-room/guest-link-views?orgId=${encodeURIComponent(db.org.id)}`).then((r) => r.json())
+      .then((b) => setDeviceCounts({ counts: b.counts ?? {}, threshold: b.threshold ?? 3 })).catch(() => {});
     fetch(`/api/data-room/access-requests?orgId=${db.org.id}`).then((r) => r.json())
       .then((body) => setPendingAccessRequests(body.requests ?? [])).catch(() => {});
   }
@@ -579,6 +581,10 @@ function DocumentsPageInner() {
   // Prompt 518 §3 — the always-visible fallback. Never depends on the
   // clipboard having worked; the founder can select the text by hand.
   const [guestLink, setGuestLink] = useState<{ email: string; link: string; copied: boolean } | null>(null);
+  // Prompt 526 Part C — distinct devices per grant. Visibility only: nothing
+  // here blocks, hides or revokes, and the founder decides what (if anything)
+  // a high number means. Empty until 0292 is applied, by design.
+  const [deviceCounts, setDeviceCounts] = useState<{ counts: Record<string, number>; threshold: number }>({ counts: {}, threshold: 3 });
   async function copyGuestLink(invitedEmail: string) {
     const res = await fetch('/api/data-room/guest-invite', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -1676,6 +1682,16 @@ function DocumentsPageInner() {
                               Revoke all
                             </button>
                           </div>
+                          {/* Prompt 526 Part C — the raw number, and nothing
+                              else. A phone plus a laptop is two and completely
+                              normal, so this only appears from the threshold up,
+                              says nothing about who, and takes no action: the
+                              founder already has Revoke if they want it. */}
+                          {pendingInvite && (deviceCounts.counts[pendingInvite.id] ?? 0) >= deviceCounts.threshold && (
+                            <p className="mt-1 w-full text-[11px] text-amber-700">
+                              Opened from {deviceCounts.counts[pendingInvite.id]} different devices.
+                            </p>
+                          )}
                           {/* Prompt 518 §3 — shown after every Copy, success or
                               not. When the browser refused the clipboard write
                               this is the only way the founder gets the link;
