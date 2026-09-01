@@ -18,6 +18,7 @@ import {
 import { useDecideInterest } from '@/lib/use-decide-interest';
 import { useParkEntity } from '@/lib/use-park-entity';
 import { useConfirm } from '@/lib/confirm';
+import { documentRequestTaskHref } from '@/lib/actions-required';
 import type { ActionType } from '@/lib/types';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 
@@ -209,7 +210,14 @@ export function TodayPanel() {
                   <div className="flex items-center gap-3">
                     {!interestReq && <input type="checkbox" checked={false} onChange={() => completeTask(t.id, t.title)} />}
                     <ActionTypePill type={t.action_type} />
-                    <span className="flex-1">{followUpTaskDisplayTitle(t, now)}
+                    <span className="flex-1">
+                      {/* Prompt 518 §1 — a document_request task now opens the
+                          request it is about. Before, it fell through to the
+                          entity link below and landed on the dossier's ordinary
+                          data room, with no way to reach the review screen. */}
+                      {documentRequestTaskHref(t)
+                        ? <Link href={documentRequestTaskHref(t) as string} className="font-medium text-[#0E7490] hover:underline">{followUpTaskDisplayTitle(t, now)}</Link>
+                        : followUpTaskDisplayTitle(t, now)}
                       {t.entity_id && <> — <EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink></>}
                     </span>
                     {interestReq ? (

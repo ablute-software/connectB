@@ -64,7 +64,24 @@ export async function POST(req: Request) {
   const now = new Date().toISOString();
   const patch: Record<string, unknown> = { resolved_at: now };
 
-  if (body.action === 'grant_existing' || body.action === 'fulfill_document') {
+  // Prompt 518 §1 — a folder item is granted as a folder, not a document.
+  // grant_existing on an item that names a folder needs no documentId: the
+  // target is already on the item. Kept as its own branch rather than widened
+  // into the document branch below, because the NDA gate there is a per-
+  // DOCUMENT visibility check that has no meaning for a folder.
+  if (body.action === 'grant_existing' && !body.documentId && item.folder_id) {
+    const requestedEmail = reqRow.person_id ? null : (reqRow.requested_email as string | null);
+    if (requestedEmail && await isEmailBlocked(admin, requestedEmail)) {
+      return NextResponse.json({ ok: false, error: BLOCKED_EMAIL_ERROR }, { status: 403 });
+    }
+    const { error: grantError } = await admin.from('access_grants').insert({
+      org_id: reqRow.org_id as string, person_id: (reqRow.person_id as string | null) ?? null,
+      invited_email: reqRow.person_id ? null : (reqRow.requested_email as string | null),
+      folder_id: item.folder_id as string, granted_at: now,
+    });
+    if (grantError) return NextResponse.json({ ok: false, error: grantError.message }, { status: 500 });
+    patch.status = 'granted';
+  } else if (body.action === 'grant_existing' || body.action === 'fulfill_document') {
     if (!body.documentId) return NextResponse.json({ ok: false, error: 'documentId is required.' }, { status: 400 });
     const requestedEmail = reqRow.person_id ? null : (reqRow.requested_email as string | null);
     if (requestedEmail && await isEmailBlocked(admin, requestedEmail)) {

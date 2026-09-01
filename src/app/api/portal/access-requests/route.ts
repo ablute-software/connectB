@@ -44,11 +44,33 @@ export async function POST(req: Request) {
   const folderIds = [...new Set(expired.filter((g) => g.folder_id).map((g) => g.folder_id as string))];
   const documentIds = [...new Set(expired.filter((g) => g.document_id).map((g) => g.document_id as string))];
 
-  const { error: insertError } = await admin.from('access_requests').insert({
+  const { data: created, error: insertError } = await admin.from('access_requests').insert({
     org_id: body.orgId, person_id: person?.id ?? null, requested_email: person ? null : email,
     folder_ids: folderIds, document_ids: documentIds, status: 'pending',
-  });
+  }).select('id').single();
   if (insertError) return NextResponse.json({ ok: false, error: insertError.message }, { status: 500 });
+
+  // Prompt 518 §1 — the unification. Until now this route wrote ONLY the flat
+  // folder_ids/document_ids arrays, which made the request a second-class
+  // citizen: /documents/requests/[id] reads access_request_items, so a request
+  // born here had nothing to show and the founder was left with the blind
+  // Grant/Decline buttons on documents/page.tsx instead of a real review
+  // screen. Migration 0290 added folder_id to the items table and backfilled
+  // the pending requests that already existed; this is the other half — every
+  // NEW request gets its items at creation, so the review page always resolves
+  // no matter which endpoint created the request.
+  //
+  // Best-effort by design: the request itself is already saved and visible. If
+  // this insert fails the founder still sees the request, so failing the whole
+  // call here would be worse than a request that degrades to the flat lists.
+  const derivedItems = [
+    ...folderIds.map((folder_id) => ({ request_id: created.id as string, folder_id, status: 'pending' })),
+    ...documentIds.map((document_id) => ({ request_id: created.id as string, document_id, status: 'pending' })),
+  ];
+  if (derivedItems.length > 0) {
+    const { error: itemsError } = await admin.from('access_request_items').insert(derivedItems);
+    if (itemsError) console.error('[access-requests] items insert failed', { requestId: created.id, error: itemsError.message });
+  }
 
   if (resendConfigured) {
     const { data: org } = await admin.from('orgs').select('name, sender_email').eq('id', body.orgId).single();

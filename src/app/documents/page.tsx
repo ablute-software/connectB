@@ -2,6 +2,7 @@
 // Documents & Data Room — folder tree, documents with visibility attributes, grants, engagement
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
@@ -102,7 +103,6 @@ function DocumentsPageInner() {
   // and the guest-token preview flow already shipped; this was the one
   // still-stalled piece, confirmed in scope by Nuno).
   const [pendingAccessRequests, setPendingAccessRequests] = useState<PendingAccessRequest[]>([]);
-  const [requestActionId, setRequestActionId] = useState<string | null>(null);
   // E5 drag-and-drop state. `dragDocId` is the document currently being
   // dragged (reorder within a folder, or move onto a folder node in the
   // tree); `dragOverDocId` / `dragOverFolderId` drive the drop-target
@@ -199,18 +199,6 @@ function DocumentsPageInner() {
       await browserClient().from('vault_privacy_notice_state')
         .upsert({ user_id: vaultNoticeUserId, first_shown_at: firstShownAt.toISOString(), last_shown_at: now.toISOString() });
     } catch { /* best-effort */ }
-  }
-
-  async function respondToAccessRequest(id: string, action: 'grant' | 'decline') {
-    setRequestActionId(id);
-    try {
-      const res = await fetch(`/api/data-room/access-requests/${id}/action`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!body.ok) { setResendMsg(body.error ?? 'Could not update this request.'); return; }
-      setPendingAccessRequests((prev) => prev.filter((r) => r.id !== id));
-    } finally { setRequestActionId(null); }
   }
 
   // Load persisted collapse state once the org id is known.
@@ -1740,16 +1728,19 @@ function DocumentsPageInner() {
                           {[...r.folderNames, ...r.documentNames].join(', ') || 'access'} · requested {new Date(r.requestedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <button onClick={() => respondToAccessRequest(r.id, 'decline')} disabled={requestActionId === r.id}
-                          className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
-                          Decline
-                        </button>
-                        <button onClick={() => respondToAccessRequest(r.id, 'grant')} disabled={requestActionId === r.id}
-                          className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b] disabled:opacity-40">
-                          {requestActionId === r.id ? 'Working…' : 'Grant'}
-                        </button>
-                      </div>
+                      {/* Prompt 518 §1 — this was a blind Grant/Decline pair:
+                          it granted whatever flat ids the request happened to
+                          carry, with no way to see or choose them, and a 409
+                          (both lists empty) rendered nowhere on this page, so
+                          the button genuinely appeared to do nothing. It is a
+                          link into the real review screen now — the request
+                          stays reachable for as long as it is pending, which
+                          is the whole point: who asked, for what, grant or
+                          decline item by item. */}
+                      <Link href={`/documents/requests/${r.id}`}
+                        className="shrink-0 rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
+                        Review request →
+                      </Link>
                     </li>
                   ))}
                 </ul>

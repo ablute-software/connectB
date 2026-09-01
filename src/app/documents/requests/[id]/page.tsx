@@ -9,7 +9,7 @@ import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
 import type { DocVisibility } from '@/lib/types';
 
 interface Item {
-  id: string; documentId: string | null; label: string; status: 'pending' | 'granted' | 'promised' | 'declined';
+  id: string; documentId: string | null; folderId: string | null; label: string; status: 'pending' | 'granted' | 'promised' | 'declined';
   fulfilledDocumentId: string | null; promisedFor: string | null; declineReason: string | null; resolutionNote: string | null;
   itemType: 'cap_table' | null;
 }
@@ -27,6 +27,10 @@ export default function DocumentRequestReviewPage({ params }: { params: { id: st
   const [request, setRequest] = useState<RequestDetail | null>(null);
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
   const [mode, setMode] = useState<Record<string, 'grant' | 'upload' | 'promise' | 'decline' | null>>({});
+  // Per-item, so a failure appears on the row the founder clicked rather than
+  // in a banner somewhere else on the page (Prompt 518 §1's own complaint).
+  const [itemError, setItemError] = useState<Record<string, string>>({});
+  const [itemNote, setItemNote] = useState<Record<string, string>>({});
 
   function load() {
     fetch(`/api/founder/document-requests?id=${params.id}`).then((r) => r.json())
@@ -34,14 +38,31 @@ export default function DocumentRequestReviewPage({ params }: { params: { id: st
   }
   useEffect(load, [params.id]);
 
+  // Prompt 518 §1/§2 — this used to discard the response entirely: a 403, a
+  // 409 "already granted" or a failed insert all looked exactly like success,
+  // which is the "clicking Grant does nothing" Nuno reported. The result is
+  // read now, failures are shown on the item, and a successful grant reports
+  // whether the access email actually left the building.
   async function respond(itemId: string, action: string, extra: Record<string, unknown> = {}) {
     setBusyItemId(itemId);
+    setItemError((e) => ({ ...e, [itemId]: '' }));
+    setItemNote((n) => ({ ...n, [itemId]: '' }));
     try {
-      await fetch('/api/founder/document-requests/respond', {
+      const res = await fetch('/api/founder/document-requests/respond', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ itemId, action, ...extra }),
       });
+      const out = await res.json().catch(() => null) as { ok?: boolean; error?: string; emailSent?: boolean; emailError?: string } | null;
+      if (!res.ok || !out?.ok) {
+        setItemError((e) => ({ ...e, [itemId]: out?.error || `Couldn't save that (HTTP ${res.status}).` }));
+        return;
+      }
+      if (out.emailSent === false) {
+        setItemNote((n) => ({ ...n, [itemId]: `Access granted, but the email didn't send${out.emailError ? `: ${out.emailError}` : ''}. Copy the link and send it yourself.` }));
+      }
       setMode((m) => ({ ...m, [itemId]: null }));
       load();
+    } catch (err) {
+      setItemError((e) => ({ ...e, [itemId]: (err as Error).message || 'Network error.' }));
     } finally { setBusyItemId(null); }
   }
 
@@ -77,9 +98,24 @@ export default function DocumentRequestReviewPage({ params }: { params: { id: st
               <StatusBadge item={item} />
             </div>
 
+            {itemError[item.id] && <p className="mt-2 text-xs text-[#B00000]">{itemError[item.id]}</p>}
+            {itemNote[item.id] && <p className="mt-2 text-xs text-amber-700">{itemNote[item.id]}</p>}
             {item.status === 'pending' && (
               <div className="mt-2 space-y-2">
-                {!mode[item.id] && (
+                {!mode[item.id] && item.folderId && (
+                  // Prompt 518 §1 — a whole-folder request (the shape every
+                  // "Request again" now produces). There is no document to
+                  // pick, so the Vault picker below would be a dead end: the
+                  // target is already on the item and one click grants it.
+                  <div className="flex flex-wrap gap-1.5">
+                    <button onClick={() => respond(item.id, 'grant_existing', {})} disabled={busyItemId === item.id}
+                      className="rounded border border-[#0E7490] px-2 py-1 text-xs font-medium text-[#0E7490] hover:bg-[#E8F4F8] disabled:opacity-40">
+                      {busyItemId === item.id ? 'Granting…' : '📂 Grant this folder'}
+                    </button>
+                    <button onClick={() => setMode((m) => ({ ...m, [item.id]: 'decline' }))} className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">🚫 I won&apos;t share this</button>
+                  </div>
+                )}
+                {!mode[item.id] && !item.folderId && (
                   <div className="flex flex-wrap gap-1.5">
                     {item.itemType === 'cap_table' && (
                       // Prompt 426 §C — a link (not an inline mode), since this
