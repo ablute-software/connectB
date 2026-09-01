@@ -1,7 +1,7 @@
 // Prompt 216 §C — a montagem pura do "Actions required" do founder: uma
 // fonte para o badge e para a lista, para nunca discordarem.
 import { describe, expect, it } from 'vitest';
-import { founderActionsRequired, investorActionsRequired, overdueRevisitTasks, type FounderActionsInput, type InvestorActionsInput } from './actions-required';
+import { founderActionsRequired, investorActionsRequired, overdueRevisitTasks, type FounderActionsInput, type InvestorActionsInput, documentRequestTaskHref } from './actions-required';
 import type { TaskItem } from './types';
 
 const NOW = new Date('2026-08-17T12:00:00Z');
@@ -53,7 +53,9 @@ describe('founderActionsRequired', () => {
     }));
     for (const item of items) expect(item.href).toBeTruthy();
     expect(items.find((i) => i.kind === 'unread_message')?.href).toBe('/messages');
-    expect(items.find((i) => i.kind === 'access_request')?.href).toBe('/documents');
+    // Prompt 518 §1 — was '/documents' (the whole Vault page, where the
+    // request was unreachable); now the per-request review screen.
+    expect(items.find((i) => i.kind === 'access_request')?.href).toBe('/documents/requests/ar1');
     expect(items.find((i) => i.kind === 'unclassified_reply')?.href).toBe('/entities/e2');
     expect(items.find((i) => i.kind === 'overdue_revisit')?.href).toBe('/entities/e9');
   });
@@ -105,5 +107,33 @@ describe('investorActionsRequired', () => {
       newDocs: [{ orgId: 'o1', orgName: 'ablute_', count: 0 }],
     }));
     expect(count).toBe(0);
+  });
+});
+
+// Prompt 518 §1 — the task Nuno clicked that "just opened the normal Vault".
+describe('documentRequestTaskHref', () => {
+  const REQ = '3f2504e0-4f89-11d3-9a0c-0305e82c3301';
+
+  it('links a document_request task straight to its request', () => {
+    expect(documentRequestTaskHref({ source: 'document_request', notes: `priority:2|request:${REQ}` }))
+      .toBe(`/documents/requests/${REQ}`);
+  });
+
+  it('handles the id being the only thing in notes', () => {
+    expect(documentRequestTaskHref({ source: 'document_request', notes: `request:${REQ}` }))
+      .toBe(`/documents/requests/${REQ}`);
+  });
+
+  // Falling back to null is what keeps the caller's existing entity link
+  // working — a malformed note must not produce /documents/requests/null.
+  it('returns null when the note carries no usable id', () => {
+    expect(documentRequestTaskHref({ source: 'document_request', notes: 'priority:2' })).toBeNull();
+    expect(documentRequestTaskHref({ source: 'document_request', notes: null })).toBeNull();
+    expect(documentRequestTaskHref({ source: 'document_request', notes: 'request:not-a-uuid' })).toBeNull();
+  });
+
+  it('ignores tasks from any other source', () => {
+    expect(documentRequestTaskHref({ source: 'interest_level_request', notes: `request:${REQ}` })).toBeNull();
+    expect(documentRequestTaskHref({ source: undefined, notes: `request:${REQ}` })).toBeNull();
   });
 });

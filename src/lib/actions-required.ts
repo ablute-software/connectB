@@ -66,7 +66,12 @@ export function founderActionsRequired(input: FounderActionsInput): { items: Act
     items.push({
       key: `access:${r.id}`, kind: 'access_request',
       label: `${r.requesterName ?? 'An investor'} requested data-room access`,
-      at: r.requestedAt, href: '/documents',
+      // Prompt 518 §1 — this pointed at '/documents', the whole Vault page,
+      // which is where Nuno landed and found no way back into the request.
+      // Every request has access_request_items now (migration 0290 backfilled
+      // the old ones, and the creating route writes them for new ones), so the
+      // per-request review screen always resolves and is the place to act.
+      at: r.requestedAt, href: `/documents/requests/${r.id}`,
     });
   }
 
@@ -152,4 +157,29 @@ export function investorActionsRequired(input: InvestorActionsInput): { items: I
   }
 
   return { items, count: items.length };
+}
+
+// ---------- document-request tasks (Prompt 518 §1) ----------
+//
+// POST /api/portal/document-requests creates a task with source
+// 'document_request' and hides the request id inside `notes` as free text
+// (`priority:X|request:<uuid>`). TodayPanel knew nothing about that shape, so
+// it fell through to the generic entity link and opened the entity dossier's
+// ordinary data room — Nuno's "clicking the task just opens the normal Vault".
+//
+// Parsing the id back out of `notes` is accepted here rather than adding a
+// column: the value is already written that way by a route in production, so a
+// new column would need a migration AND a backfill to help the tasks that
+// already exist. Pure and exported so the href is testable without a browser.
+export function documentRequestIdFromNotes(notes: string | null | undefined): string | null {
+  if (!notes) return null;
+  const m = /(?:^|\|)request:([0-9a-fA-F-]{36})(?:\||$)/.exec(notes);
+  return m ? m[1] : null;
+}
+
+/** Where a task should link, or null to keep whatever the caller does today. */
+export function documentRequestTaskHref(task: Pick<TaskItem, 'source' | 'notes'>): string | null {
+  if (task.source !== 'document_request') return null;
+  const id = documentRequestIdFromNotes(task.notes);
+  return id ? `/documents/requests/${id}` : null;
 }

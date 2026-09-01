@@ -12,7 +12,7 @@ import { allItemsResolved } from '@/lib/document-request-logic';
 // row shape for it the way it does for the rest of this file's literal
 // select strings; this is that shape, supplied explicitly instead.
 interface AccessRequestItemRow {
-  id: string; request_id: string; document_id: string | null; requested_label: string | null;
+  id: string; request_id: string; document_id: string | null; folder_id: string | null; requested_label: string | null;
   status: 'pending' | 'granted' | 'promised' | 'declined'; fulfilled_document_id: string | null;
   promised_for: string | null; decline_reason: string | null; resolution_note: string | null;
   item_type?: string | null;
@@ -65,7 +65,7 @@ export async function GET(req: Request) {
   // this is typed as a plain `string` rather than a literal — postgrest-js's
   // select() otherwise tries to statically PARSE a template-literal type,
   // which fails on a non-literal (ternary-widened) string.
-  const itemsSelect: string = `id, request_id, document_id, requested_label, status, fulfilled_document_id, promised_for, decline_reason, resolution_note${itemTypeAvailable ? ', item_type' : ''}`;
+  const itemsSelect: string = `id, request_id, document_id, folder_id, requested_label, status, fulfilled_document_id, promised_for, decline_reason, resolution_note${itemTypeAvailable ? ', item_type' : ''}`;
   const { data: itemsRaw } = await admin.from('access_request_items')
     .select(itemsSelect)
     .in('request_id', requestIds);
@@ -73,12 +73,18 @@ export async function GET(req: Request) {
 
   const personIds = [...new Set(requests.filter((r) => r.person_id).map((r) => r.person_id as string))];
   const docIds = [...new Set((items ?? []).flatMap((i) => [i.document_id, i.fulfilled_document_id]).filter(Boolean) as string[])];
-  const [{ data: people }, { data: docs }] = await Promise.all([
+  // Prompt 518 §1 — folder items exist now (migration 0290). Without resolving
+  // their names here, a request for a whole folder rendered with an undefined
+  // label: the review screen showed a row the founder could not identify.
+  const folderIds2 = [...new Set((items ?? []).map((i) => i.folder_id).filter(Boolean) as string[])];
+  const [{ data: people }, { data: docs }, { data: folders }] = await Promise.all([
     personIds.length ? admin.from('people').select('id, full_name, entity_id').in('id', personIds) : Promise.resolve({ data: [] as { id: string; full_name: string; entity_id: string | null }[] }),
     docIds.length ? admin.from('documents').select('id, name').in('id', docIds) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+    folderIds2.length ? admin.from('folders').select('id, name').in('id', folderIds2) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
   ]);
   const personById = new Map((people ?? []).map((p) => [p.id as string, p]));
   const docNameById = new Map((docs ?? []).map((d) => [d.id as string, d.name as string]));
+  const folderNameById = new Map((folders ?? []).map((f) => [f.id as string, f.name as string]));
 
   const itemsByRequest = new Map<string, typeof items>();
   for (const i of items ?? []) {
@@ -95,7 +101,13 @@ export async function GET(req: Request) {
       entityId: person?.entity_id ?? null, message: r.message, requestedAt: r.requested_at,
       resolved: allItemsResolved((reqItems as { status: 'pending' | 'granted' | 'promised' | 'declined' }[])),
       items: reqItems.map((i) => ({
-        id: i.id, documentId: i.document_id, label: i.document_id ? (docNameById.get(i.document_id as string) ?? 'Document') : (i.requested_label as string),
+        id: i.id, documentId: i.document_id, folderId: i.folder_id,
+        // Three kinds of target now, in the order the check constraint allows
+        // them: a real document, a whole folder, or free text for something
+        // that does not exist yet.
+        label: i.document_id ? (docNameById.get(i.document_id as string) ?? 'Document')
+          : i.folder_id ? `${folderNameById.get(i.folder_id as string) ?? 'Folder'} (whole folder)`
+            : (i.requested_label as string),
         status: i.status, fulfilledDocumentId: i.fulfilled_document_id,
         promisedFor: i.promised_for, declineReason: i.decline_reason, resolutionNote: i.resolution_note,
         itemType: (i.item_type as 'cap_table' | null) ?? null,
