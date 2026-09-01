@@ -10,6 +10,7 @@ import { Card, EntityLink, PersonLink, fmtRoundEur } from '@/components/ui';
 import { outboundCounts } from '@/lib/rules';
 import { ACTION_TYPE_COLOR, ACTION_TYPE_LABEL, followUpTaskDisplayTitle } from '@/lib/relationship';
 import { FIT_ORDER, liveOverdueEntities } from '@/lib/sherlock-next';
+import { taskDocumentRequestHref } from '@/lib/document-request-logic';
 import { PageTour } from '@/components/onboarding/PageTour';
 import {
   useInterestRequests, interestRequestConsequence,
@@ -169,6 +170,12 @@ export function TodayPanel() {
                 // continuar fechável à mão.
                 const interestReq = t.source === 'interest_level_request' && t.entity_id
                   ? pendingInterestByEntity.get(t.entity_id) : undefined;
+                // Prompt 518 §1 — a document-request task used to link only to
+                // /entities/{id}, i.e. the generic dossier with the normal
+                // Vault, which is Nuno's "abre só o Vault normal". The request
+                // id has been sitting inside notes since the task was created;
+                // this reads it and points at the review screen instead.
+                const requestHref = taskDocumentRequestHref(t);
                 return (
                 <li key={t.id} className="py-2 text-sm">
                   <div className="flex items-center gap-3">
@@ -176,6 +183,9 @@ export function TodayPanel() {
                     <ActionTypePill type={t.action_type} />
                     <span className="flex-1">{followUpTaskDisplayTitle(t, now)}
                       {t.entity_id && <> — <EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink></>}
+                      {requestHref && (
+                        <> · <Link href={requestHref} className="font-semibold text-[#0E7490] hover:underline">Open the request →</Link></>
+                      )}
                     </span>
                     {interestReq ? (
                       <span className="flex shrink-0 items-center gap-1.5">

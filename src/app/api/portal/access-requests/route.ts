@@ -11,6 +11,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { grantStatus } from '@/lib/access-grants';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { accessRequestItemsAvailable, accessRequestItemFolderAvailable } from '@/lib/document-request-capability';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -44,11 +45,30 @@ export async function POST(req: Request) {
   const folderIds = [...new Set(expired.filter((g) => g.folder_id).map((g) => g.folder_id as string))];
   const documentIds = [...new Set(expired.filter((g) => g.document_id).map((g) => g.document_id as string))];
 
-  const { error: insertError } = await admin.from('access_requests').insert({
+  const { data: created, error: insertError } = await admin.from('access_requests').insert({
     org_id: body.orgId, person_id: person?.id ?? null, requested_email: person ? null : email,
     folder_ids: folderIds, document_ids: documentIds, status: 'pending',
-  });
-  if (insertError) return NextResponse.json({ ok: false, error: insertError.message }, { status: 500 });
+  }).select('id').single();
+  if (insertError || !created) return NextResponse.json({ ok: false, error: insertError?.message ?? 'Could not create the request.' }, { status: 500 });
+
+  // Prompt 518 §1 — the flat arrays above are kept (nothing reads them any
+  // less than before), but the request ALSO gets real access_request_items
+  // now. That is what makes it reviewable at /documents/requests/[id] like
+  // every other request, instead of only by the blind Grant/Decline pair that
+  // could not show the founder what was being asked for. Best-effort: the
+  // request itself already committed, and a missing folder_id column (before
+  // migration 0290) must not turn a working "Request again" into a 500.
+  if (await accessRequestItemsAvailable()) {
+    const folderCapable = await accessRequestItemFolderAvailable();
+    const itemRows = [
+      ...(folderCapable ? folderIds.map((folder_id) => ({ request_id: created.id as string, folder_id, status: 'pending' })) : []),
+      ...documentIds.map((document_id) => ({ request_id: created.id as string, document_id, status: 'pending' })),
+    ];
+    if (itemRows.length > 0) {
+      const { error: itemsError } = await admin.from('access_request_items').insert(itemRows);
+      if (itemsError) console.error('[portal/access-requests] items insert failed', itemsError.message);
+    }
+  }
 
   if (resendConfigured) {
     const { data: org } = await admin.from('orgs').select('name, sender_email').eq('id', body.orgId).single();

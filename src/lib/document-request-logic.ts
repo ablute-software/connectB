@@ -60,3 +60,33 @@ export function requestProgress(items: ItemLike[]): { resolved: number; total: n
 export function allItemsResolved(items: ItemLike[]): boolean {
   return items.length > 0 && items.every((i) => i.status !== 'pending');
 }
+
+// Prompt 518 §1 — where a request is reviewed. ONE place builds this href, so
+// the task, the Actions-required item and the "Pending requests" row can never
+// drift into pointing at three different screens again (which is exactly how
+// the task ended up opening the generic Vault instead of the request).
+export function documentRequestHref(requestId: string): string {
+  return `/documents/requests/${requestId}`;
+}
+
+// The request id is stored inside tasks.notes as free text, in the shape
+// `priority:<kind>|request:<uuid>` (portal/document-requests/route.ts writes
+// it). Parsing it here rather than in a component means TodayPanel and
+// actions-required can both resolve a task to its request with one tested
+// function instead of two inline regexes.
+//
+// Deliberately tolerant: notes is free text a human could later edit, so an
+// unparseable value returns null and the caller falls back to its old
+// behaviour rather than producing a broken link.
+export function requestIdFromTaskNotes(notes: string | null | undefined): string | null {
+  if (!notes) return null;
+  const m = /(?:^|\|)request:([0-9a-fA-F-]{36})(?:\||$)/.exec(notes);
+  return m ? m[1] : null;
+}
+
+/** The review href for a task backing a document request, or null if it has none. */
+export function taskDocumentRequestHref(task: { source?: string | null; notes?: string | null }): string | null {
+  if (task.source !== 'document_request') return null;
+  const id = requestIdFromTaskNotes(task.notes);
+  return id ? documentRequestHref(id) : null;
+}

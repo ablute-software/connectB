@@ -4,7 +4,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, authEnabled } from '@/lib/supabase-server';
-import { accessRequestItemsAvailable, documentRequestItemTypeAvailable } from '@/lib/document-request-capability';
+import { accessRequestItemsAvailable, documentRequestItemTypeAvailable, accessRequestItemFolderAvailable } from '@/lib/document-request-capability';
 import { allItemsResolved } from '@/lib/document-request-logic';
 
 // Prompt 426 §A — item_type is only ever selected via a dynamically-built
@@ -16,6 +16,8 @@ interface AccessRequestItemRow {
   status: 'pending' | 'granted' | 'promised' | 'declined'; fulfilled_document_id: string | null;
   promised_for: string | null; decline_reason: string | null; resolution_note: string | null;
   item_type?: string | null;
+  // Prompt 518 §1 — a whole folder, the shape "Request again" asks for.
+  folder_id?: string | null;
 }
 
 async function resolveFounderOrgId(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
@@ -52,9 +54,17 @@ export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
   const unseenOnly = params.get('unseen') === '1';
   const singleId = params.get('id');
+  // Prompt 518 §1 — the `kind = 'document'` filter used to be here, and it is
+  // what made this screen unable to serve half the requests that exist. An
+  // access_requests row created by /api/portal/access-requests carries
+  // kind='access', so it could never be reviewed here — while at the same time
+  // the OTHER list (/api/data-room/access-requests) filters on nothing at all,
+  // so kind='document' rows leak into ITS blind Grant/Decline pair and 409 on
+  // empty folder_ids/document_ids. That pair of mistakes is Nuno's dead
+  // "Grant" button. One screen now answers for both kinds.
   let query = admin.from('access_requests')
-    .select('id, person_id, requested_email, message, requested_at, founder_seen_at')
-    .eq('org_id', orgId).eq('kind', 'document');
+    .select('id, person_id, requested_email, message, requested_at, founder_seen_at, kind, folder_ids, document_ids')
+    .eq('org_id', orgId);
   if (singleId) query = query.eq('id', singleId);
   else if (unseenOnly) query = query.is('founder_seen_at', null);
   const { data: requests } = await query.order('requested_at', { ascending: true });
@@ -65,7 +75,8 @@ export async function GET(req: Request) {
   // this is typed as a plain `string` rather than a literal — postgrest-js's
   // select() otherwise tries to statically PARSE a template-literal type,
   // which fails on a non-literal (ternary-widened) string.
-  const itemsSelect: string = `id, request_id, document_id, requested_label, status, fulfilled_document_id, promised_for, decline_reason, resolution_note${itemTypeAvailable ? ', item_type' : ''}`;
+  const folderItemsAvailable = await accessRequestItemFolderAvailable();
+  const itemsSelect: string = `id, request_id, document_id, requested_label, status, fulfilled_document_id, promised_for, decline_reason, resolution_note${itemTypeAvailable ? ', item_type' : ''}${folderItemsAvailable ? ', folder_id' : ''}`;
   const { data: itemsRaw } = await admin.from('access_request_items')
     .select(itemsSelect)
     .in('request_id', requestIds);
@@ -73,12 +84,21 @@ export async function GET(req: Request) {
 
   const personIds = [...new Set(requests.filter((r) => r.person_id).map((r) => r.person_id as string))];
   const docIds = [...new Set((items ?? []).flatMap((i) => [i.document_id, i.fulfilled_document_id]).filter(Boolean) as string[])];
-  const [{ data: people }, { data: docs }] = await Promise.all([
+  // Folder names come from the items' own folder_id — and, for a request made
+  // before migration 0290 backfilled it, from the legacy flat folder_ids so
+  // the founder still sees what was asked for rather than "Folder".
+  const folderIds = [...new Set([
+    ...(items ?? []).map((i) => i.folder_id).filter(Boolean) as string[],
+    ...requests.flatMap((r) => ((r.folder_ids as string[] | null) ?? [])),
+  ])];
+  const [{ data: people }, { data: docs }, { data: folders }] = await Promise.all([
     personIds.length ? admin.from('people').select('id, full_name, entity_id').in('id', personIds) : Promise.resolve({ data: [] as { id: string; full_name: string; entity_id: string | null }[] }),
     docIds.length ? admin.from('documents').select('id, name').in('id', docIds) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+    folderIds.length ? admin.from('folders').select('id, name').in('id', folderIds) : Promise.resolve({ data: [] as { id: string; name: string }[] }),
   ]);
   const personById = new Map((people ?? []).map((p) => [p.id as string, p]));
   const docNameById = new Map((docs ?? []).map((d) => [d.id as string, d.name as string]));
+  const folderNameById = new Map((folders ?? []).map((f) => [f.id as string, f.name as string]));
 
   const itemsByRequest = new Map<string, typeof items>();
   for (const i of items ?? []) {
@@ -95,7 +115,11 @@ export async function GET(req: Request) {
       entityId: person?.entity_id ?? null, message: r.message, requestedAt: r.requested_at,
       resolved: allItemsResolved((reqItems as { status: 'pending' | 'granted' | 'promised' | 'declined' }[])),
       items: reqItems.map((i) => ({
-        id: i.id, documentId: i.document_id, label: i.document_id ? (docNameById.get(i.document_id as string) ?? 'Document') : (i.requested_label as string),
+        id: i.id, documentId: i.document_id,
+        folderId: (i.folder_id as string | null) ?? null,
+        label: i.folder_id
+          ? `📁 ${folderNameById.get(i.folder_id as string) ?? 'Folder'} (whole folder)`
+          : i.document_id ? (docNameById.get(i.document_id as string) ?? 'Document') : (i.requested_label as string),
         status: i.status, fulfilledDocumentId: i.fulfilled_document_id,
         promisedFor: i.promised_for, declineReason: i.decline_reason, resolutionNote: i.resolution_note,
         itemType: (i.item_type as 'cap_table' | null) ?? null,

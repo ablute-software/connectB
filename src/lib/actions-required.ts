@@ -12,6 +12,7 @@
 // investor-visíveis. Nenhum item cruza a fronteira.
 import type { TaskItem } from './types';
 import { isRevisitTitle } from './exit-effects';
+import { documentRequestHref } from './document-request-logic';
 
 export interface ActionItem {
   key: string;
@@ -30,7 +31,12 @@ export interface ActionItem {
 export interface FounderActionsInput {
   pendingInterest: { id: string; investorName: string; requestedAt: string; entityId: string | null }[];
   unreadThreads: { threadId: string; investorName: string; lastMessageAt: string; unread: boolean }[];
-  pendingAccessRequests: { id: string; requesterName: string | null; requestedAt: string }[];
+  // Prompt 518 §1 — `href` added so an access request points at its own
+  // review screen instead of the generic Vault. Optional so the many existing
+  // callers/tests that never set it keep compiling and keep the old
+  // behaviour; the two real producers (documents/page.tsx and
+  // ActionsRequiredPanel) both set it now.
+  pendingAccessRequests: { id: string; requesterName: string | null; requestedAt: string; href?: string }[];
   unclassifiedReplies: { id: string; entityId: string; entityName: string | null; excerpt: string; at: string }[];
   tasks: TaskItem[];
   now: Date;
@@ -66,7 +72,10 @@ export function founderActionsRequired(input: FounderActionsInput): { items: Act
     items.push({
       key: `access:${r.id}`, kind: 'access_request',
       label: `${r.requesterName ?? 'An investor'} requested data-room access`,
-      at: r.requestedAt, href: '/documents',
+      // '/documents' was the whole complaint: it dropped the founder on the
+      // Vault with no idea which request they were meant to answer. The
+      // review screen for THIS request is the destination.
+      at: r.requestedAt, href: r.href ?? documentRequestHref(r.id),
     });
   }
 

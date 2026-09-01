@@ -22,3 +22,13 @@ export const documentRequestItemTypeAvailable = makeCapabilityProbe(async (admin
   const { error } = await admin.from('access_request_items').select('item_type').limit(1);
   return !error;
 });
+
+// Prompt 518 §1 — migration 0290's folder_id column, which is what lets an
+// "access" request (a whole folder, from "Request again") be reviewed and
+// granted on the same screen as a document request. Same missing-column-safe
+// probe as every other capability here, so the review screen degrades to
+// document-only items rather than 500ing before the migration is applied.
+export const accessRequestItemFolderAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('access_request_items').select('folder_id').limit(1);
+  return !error;
+});

@@ -57,6 +57,20 @@ export async function GET(req: Request) {
   const folderNameById = new Map((folders ?? []).map((f) => [f.id as string, f.name as string]));
   const docNameById = new Map((docs ?? []).map((d) => [d.id as string, d.name as string]));
 
+  // Prompt 518 §1 — a request created through the items-based flow carries
+  // NOTHING in the flat folder_ids/document_ids arrays, so this list used to
+  // render it as the bare word "access": the founder could not tell what was
+  // being asked for, on the row whose button was also silently failing. The
+  // item count is read here so the row says something true.
+  const { data: itemRows } = await admin.from('access_request_items')
+    .select('request_id, status').in('request_id', requests.map((r) => r.id as string));
+  const pendingItemsByRequest = new Map<string, number>();
+  for (const i of itemRows ?? []) {
+    if (i.status !== 'pending') continue;
+    const id = i.request_id as string;
+    pendingItemsByRequest.set(id, (pendingItemsByRequest.get(id) ?? 0) + 1);
+  }
+
   return NextResponse.json({
     requests: requests.map((r) => {
       const person = r.person_id ? personById.get(r.person_id as string) : null;
@@ -66,6 +80,7 @@ export async function GET(req: Request) {
         requesterEmail: (person?.email_verified as string | null | undefined) ?? (r.requested_email as string | null),
         folderNames: ((r.folder_ids as string[]) ?? []).map((id) => folderNameById.get(id) ?? 'Unknown folder'),
         documentNames: ((r.document_ids as string[]) ?? []).map((id) => docNameById.get(id) ?? 'Unknown document'),
+        pendingItemCount: pendingItemsByRequest.get(r.id as string) ?? 0,
         requestedAt: r.requested_at as string,
       };
     }),

@@ -1,6 +1,7 @@
 'use client';
 // Documents & Data Room — folder tree, documents with visibility attributes, grants, engagement
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
@@ -56,6 +57,9 @@ const VISIBILITY_OPTIONS: DocVisibility[] = ['open', 'on_grant', 'due_diligence'
 interface PendingAccessRequest {
   id: string; requesterName: string | null; requesterEmail: string | null;
   folderNames: string[]; documentNames: string[]; requestedAt: string;
+  // Prompt 518 §1 — how many items are still waiting, for requests whose
+  // asks live in access_request_items rather than the flat arrays.
+  pendingItemCount?: number;
 }
 
 export default function DocumentsPage() {
@@ -101,7 +105,6 @@ function DocumentsPageInner() {
   // and the guest-token preview flow already shipped; this was the one
   // still-stalled piece, confirmed in scope by Nuno).
   const [pendingAccessRequests, setPendingAccessRequests] = useState<PendingAccessRequest[]>([]);
-  const [requestActionId, setRequestActionId] = useState<string | null>(null);
   // E5 drag-and-drop state. `dragDocId` is the document currently being
   // dragged (reorder within a folder, or move onto a folder node in the
   // tree); `dragOverDocId` / `dragOverFolderId` drive the drop-target
@@ -198,18 +201,6 @@ function DocumentsPageInner() {
       await browserClient().from('vault_privacy_notice_state')
         .upsert({ user_id: vaultNoticeUserId, first_shown_at: firstShownAt.toISOString(), last_shown_at: now.toISOString() });
     } catch { /* best-effort */ }
-  }
-
-  async function respondToAccessRequest(id: string, action: 'grant' | 'decline') {
-    setRequestActionId(id);
-    try {
-      const res = await fetch(`/api/data-room/access-requests/${id}/action`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!body.ok) { setResendMsg(body.error ?? 'Could not update this request.'); return; }
-      setPendingAccessRequests((prev) => prev.filter((r) => r.id !== id));
-    } finally { setRequestActionId(null); }
   }
 
   // Load persisted collapse state once the org id is known.
@@ -588,6 +579,10 @@ function DocumentsPageInner() {
   // pending invite that doesn't have one cached in `db.grants` yet (e.g. the
   // eager mint above failed, or the store hasn't refetched since).
   const [copiedGuestLinkFor, setCopiedGuestLinkFor] = useState<string | null>(null);
+  // Prompt 518 §3 — when the clipboard write is refused, the link itself, so
+  // the founder can select and copy it by hand. Without this the only
+  // feedback was a "Copied!" that could be a lie.
+  const [guestLinkFallback, setGuestLinkFallback] = useState<{ email: string; link: string } | null>(null);
   async function copyGuestLink(invitedEmail: string) {
     const res = await fetch('/api/data-room/guest-invite', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -596,9 +591,30 @@ function DocumentsPageInner() {
     const body = await res.json().catch(() => ({}));
     if (!body.ok || !body.token) { setResendMsg(body.error ?? 'Could not create a guest link.'); return; }
     const link = `${window.location.origin}/guest/${body.token}`;
-    await navigator.clipboard.writeText(link).catch(() => {});
-    setCopiedGuestLinkFor(invitedEmail);
-    setTimeout(() => setCopiedGuestLinkFor((cur) => (cur === invitedEmail ? null : cur)), 2000);
+    // Prompt 518 §3 — this used to be `.catch(() => {})` followed by an
+    // unconditional "Copied!". The write happens AFTER an await fetch, which
+    // in Safari (and others) is outside the click's user-activation window,
+    // so the browser rejects it with NotAllowedError — silently, because the
+    // rejection was swallowed. The founder saw "Copied!", pasted, and got
+    // whatever was on the clipboard before: plausibly the investor's email
+    // address, visible on the same row. Hence "copia o email".
+    //
+    // Now the real result decides what is shown, and a refusal produces a
+    // selectable field with the link rather than a false success.
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(link);
+      copied = true;
+    } catch { copied = false; }
+
+    if (copied) {
+      setGuestLinkFallback(null);
+      setCopiedGuestLinkFor(invitedEmail);
+      setTimeout(() => setCopiedGuestLinkFor((cur) => (cur === invitedEmail ? null : cur)), 2000);
+    } else {
+      setCopiedGuestLinkFor(null);
+      setGuestLinkFallback({ email: invitedEmail, link });
+    }
   }
 
   async function uploadNda(file: File, inv: { personId?: string; email?: string; documentId?: string }) {
@@ -1578,19 +1594,27 @@ function DocumentsPageInner() {
                       <div>
                         <div className="font-medium text-gray-800">{r.requesterName ?? r.requesterEmail ?? 'Unknown investor'}</div>
                         <div className="text-xs text-gray-400">
-                          {[...r.folderNames, ...r.documentNames].join(', ') || 'access'} · requested {new Date(r.requestedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                          {[...r.folderNames, ...r.documentNames].join(', ')
+                            || (r.pendingItemCount ? `${r.pendingItemCount} item${r.pendingItemCount === 1 ? '' : 's'} waiting` : 'access')}
+                          {' · requested '}{new Date(r.requestedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <button onClick={() => respondToAccessRequest(r.id, 'decline')} disabled={requestActionId === r.id}
-                          className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
-                          Decline
-                        </button>
-                        <button onClick={() => respondToAccessRequest(r.id, 'grant')} disabled={requestActionId === r.id}
-                          className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b] disabled:opacity-40">
-                          {requestActionId === r.id ? 'Working…' : 'Grant'}
-                        </button>
-                      </div>
+                      {/* Prompt 518 §1 — was a blind Grant/Decline pair. It
+                          granted every folder/document on the request at once
+                          with no way to choose, and 409'd on any request whose
+                          flat arrays were empty — which is EVERY request made
+                          through the newer items-based flow, since those keep
+                          what was asked in access_request_items instead. The
+                          409 had nowhere to render (resendMsg only shows in
+                          the manual "Grant access" card far above), so the
+                          button looked dead. That is exactly Nuno's "Grant não
+                          executa nenhuma ação". Now it opens the real review
+                          screen, which shows who asked, for what, and answers
+                          item by item. */}
+                      <Link href={`/documents/requests/${r.id}`}
+                        className="shrink-0 rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
+                        Review request →
+                      </Link>
                     </li>
                   ))}
                 </ul>
@@ -1655,6 +1679,11 @@ function DocumentsPageInner() {
                                 <button onClick={() => copyGuestLink(pendingInvite.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
                                   {copiedGuestLinkFor === pendingInvite.invited_email ? 'Copied!' : 'Copy guest link'}
                                 </button>
+                                {guestLinkFallback && guestLinkFallback.email === pendingInvite.invited_email && (
+                                  <input readOnly value={guestLinkFallback.link} onFocus={(e) => e.currentTarget.select()}
+                                    aria-label="Guest link — copy this yourself"
+                                    className="mt-1 w-full rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] text-gray-700" />
+                                )}
                               </>
                             )}
                             <button onClick={() => revokeAllInGroup(group, labelText)} className="rounded border border-red-200 px-2 py-0.5 text-xs text-[#B00000] hover:bg-red-50">

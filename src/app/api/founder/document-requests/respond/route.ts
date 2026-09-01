@@ -30,8 +30,13 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { allItemsResolved } from '@/lib/document-request-logic';
+import { notifyAccessGranted } from '@/lib/access-grant-notify';
 
-type Action = 'grant_existing' | 'fulfill_document' | 'fulfill_via_message' | 'promise' | 'decline' | 'fulfill_cap_table';
+// Prompt 518 §1 — grant_folder is the action an "access" request needs: its
+// items are whole folders (from "Request again" on an expired grant), which
+// the document-only actions could never answer. Same review screen, one more
+// verb, instead of the separate blind Grant/Decline pair this replaces.
+type Action = 'grant_existing' | 'grant_folder' | 'fulfill_document' | 'fulfill_via_message' | 'promise' | 'decline' | 'fulfill_cap_table';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -45,7 +50,7 @@ export async function POST(req: Request) {
   if (viewerBlock) return viewerBlock;
 
   const body = await req.json().catch(() => ({})) as {
-    itemId?: string; action?: Action; documentId?: string;
+    itemId?: string; action?: Action; documentId?: string; folderId?: string;
     promisedFor?: string; declineReason?: string; resolutionNote?: string; entryCount?: number;
   };
   if (!body.itemId || !body.action) return NextResponse.json({ ok: false, error: 'itemId and action are required.' }, { status: 400 });
@@ -63,8 +68,28 @@ export async function POST(req: Request) {
 
   const now = new Date().toISOString();
   const patch: Record<string, unknown> = { resolved_at: now };
+  // What the recipient is told they can now see, and whether anything was
+  // actually granted (a promise/decline grants nothing, so it must not send
+  // an "access granted" email).
+  let grantedLabel: string | null = null;
 
-  if (body.action === 'grant_existing' || body.action === 'fulfill_document') {
+  if (body.action === 'grant_folder') {
+    const folderId = (body.folderId as string | undefined) ?? (item.folder_id as string | null) ?? null;
+    if (!folderId) return NextResponse.json({ ok: false, error: 'This item is not a folder.' }, { status: 400 });
+    const requestedEmail = reqRow.person_id ? null : (reqRow.requested_email as string | null);
+    if (requestedEmail && await isEmailBlocked(admin, requestedEmail)) {
+      return NextResponse.json({ ok: false, error: BLOCKED_EMAIL_ERROR }, { status: 403 });
+    }
+    const { data: folder } = await admin.from('folders').select('name').eq('id', folderId).maybeSingle();
+    const { error: grantError } = await admin.from('access_grants').insert({
+      org_id: reqRow.org_id as string, person_id: (reqRow.person_id as string | null) ?? null,
+      invited_email: reqRow.person_id ? null : (reqRow.requested_email as string | null),
+      folder_id: folderId, granted_at: now,
+    });
+    if (grantError) return NextResponse.json({ ok: false, error: grantError.message }, { status: 500 });
+    patch.status = 'granted';
+    grantedLabel = `the “${(folder?.name as string | undefined) ?? 'shared'}” folder`;
+  } else if (body.action === 'grant_existing' || body.action === 'fulfill_document') {
     if (!body.documentId) return NextResponse.json({ ok: false, error: 'documentId is required.' }, { status: 400 });
     const requestedEmail = reqRow.person_id ? null : (reqRow.requested_email as string | null);
     if (requestedEmail && await isEmailBlocked(admin, requestedEmail)) {
@@ -87,6 +112,8 @@ export async function POST(req: Request) {
     patch.status = 'granted';
     if (body.action === 'fulfill_document') patch.fulfilled_document_id = body.documentId;
     if (ndaRequired) patch.resolution_note = 'Granted pending NDA — access opens once the signed NDA is on file for this document.';
+    const { data: named } = await admin.from('documents').select('name').eq('id', body.documentId).maybeSingle();
+    grantedLabel = `“${(named?.name as string | undefined) ?? 'a document'}”`;
   } else if (body.action === 'fulfill_via_message') {
     patch.status = 'granted';
     patch.resolution_note = body.resolutionNote?.trim() || 'Sent as a message attachment — not added to the Data Room.';
@@ -112,11 +139,45 @@ export async function POST(req: Request) {
   // Close the backing task only once every item on this request has an
   // outcome — a 3-item request answered on item 1 stays open.
   const { data: siblingItems } = await admin.from('access_request_items').select('status').eq('request_id', item.request_id as string);
-  if (allItemsResolved((siblingItems ?? []) as { status: 'pending' | 'granted' | 'promised' | 'declined' }[])) {
+  const resolvedItems = (siblingItems ?? []) as { status: 'pending' | 'granted' | 'promised' | 'declined' }[];
+  if (allItemsResolved(resolvedItems)) {
     await admin.from('tasks').update({ done: true })
       .eq('org_id', reqRow.org_id as string).eq('source', 'document_request')
       .like('notes', `%request:${item.request_id as string}%`);
+
+    // Prompt 518 §1 — and close the REQUEST itself. Answering item by item
+    // never touched access_requests.status, so a fully-answered request kept
+    // reading as 'pending' forever — which is what the founder-side
+    // "Pending requests" list filters on. Without this the request the
+    // founder just finished would sit there permanently, which is the same
+    // "it never goes away" complaint from the other end.
+    //
+    // 'declined' only when EVERY item was declined; anything actually
+    // granted or promised makes the request as a whole an answer, not a
+    // refusal.
+    const allDeclined = resolvedItems.every((i) => i.status === 'declined');
+    await admin.from('access_requests')
+      .update({ status: allDeclined ? 'declined' : 'granted', responded_at: now })
+      .eq('id', item.request_id as string);
   }
 
-  return NextResponse.json({ ok: true, status: patch.status });
+  // Prompt 518 §2 — this route granted access and sent nothing, ever. It does
+  // now, for every real grant, and the outcome is RETURNED rather than
+  // swallowed so the review screen can say "emailed" or "we couldn't send it,
+  // here's the link" instead of leaving the founder to assume.
+  const notify = grantedLabel
+    ? await notifyAccessGranted(admin, {
+      orgId: reqRow.org_id as string,
+      personId: (reqRow.person_id as string | null) ?? null,
+      invitedEmail: reqRow.person_id ? null : (reqRow.requested_email as string | null),
+      whatChanged: grantedLabel,
+    })
+    : null;
+
+  return NextResponse.json({
+    ok: true, status: patch.status,
+    emailSent: notify?.sent ?? false,
+    emailError: notify?.error,
+    accessLink: notify?.link,
+  });
 }

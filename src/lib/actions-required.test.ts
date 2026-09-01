@@ -53,7 +53,11 @@ describe('founderActionsRequired', () => {
     }));
     for (const item of items) expect(item.href).toBeTruthy();
     expect(items.find((i) => i.kind === 'unread_message')?.href).toBe('/messages');
-    expect(items.find((i) => i.kind === 'access_request')?.href).toBe('/documents');
+    // Prompt 518 §1 — was '/documents'. That generic href was the bug Nuno
+    // reported: it dropped the founder on the Vault with no indication of
+    // WHICH request they were meant to answer. It now points at that
+    // request's own review screen.
+    expect(items.find((i) => i.kind === 'access_request')?.href).toBe('/documents/requests/ar1');
     expect(items.find((i) => i.kind === 'unclassified_reply')?.href).toBe('/entities/e2');
     expect(items.find((i) => i.kind === 'overdue_revisit')?.href).toBe('/entities/e9');
   });

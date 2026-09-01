@@ -12,6 +12,9 @@ interface Item {
   id: string; documentId: string | null; label: string; status: 'pending' | 'granted' | 'promised' | 'declined';
   fulfilledDocumentId: string | null; promisedFor: string | null; declineReason: string | null; resolutionNote: string | null;
   itemType: 'cap_table' | null;
+  // Prompt 518 §1 — set when the item is a whole folder (an "access" request
+  // from "Request again"). Those get one action, not the four document ones.
+  folderId: string | null;
 }
 interface RequestDetail {
   id: string; requesterName: string | null; requesterEmail: string | null; entityId: string | null;
@@ -27,6 +30,10 @@ export default function DocumentRequestReviewPage({ params }: { params: { id: st
   const [request, setRequest] = useState<RequestDetail | null>(null);
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
   const [mode, setMode] = useState<Record<string, 'grant' | 'upload' | 'promise' | 'decline' | null>>({});
+  // Prompt 518 §2 — what actually happened to the notification email, per
+  // item. Granting used to send nothing at all and say nothing about it; now
+  // it either says it emailed them, or hands the founder the link to send.
+  const [emailNote, setEmailNote] = useState<Record<string, { sent: boolean; error?: string; link?: string }>>({});
 
   function load() {
     fetch(`/api/founder/document-requests?id=${params.id}`).then((r) => r.json())
@@ -37,9 +44,16 @@ export default function DocumentRequestReviewPage({ params }: { params: { id: st
   async function respond(itemId: string, action: string, extra: Record<string, unknown> = {}) {
     setBusyItemId(itemId);
     try {
-      await fetch('/api/founder/document-requests/respond', {
+      const res = await fetch('/api/founder/document-requests/respond', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ itemId, action, ...extra }),
       });
+      const body = await res.json().catch(() => ({}));
+      // The response is read now instead of discarded: a grant that could not
+      // email the investor has to say so here, or the founder walks away
+      // believing a link went out that never did.
+      if (body?.ok && (body.emailSent || body.emailError)) {
+        setEmailNote((n) => ({ ...n, [itemId]: { sent: !!body.emailSent, error: body.emailError, link: body.accessLink } }));
+      }
       setMode((m) => ({ ...m, [itemId]: null }));
       load();
     } finally { setBusyItemId(null); }
@@ -77,9 +91,40 @@ export default function DocumentRequestReviewPage({ params }: { params: { id: st
               <StatusBadge item={item} />
             </div>
 
+            {/* Prompt 518 §2 — the honest outcome of the email, right where
+                the grant happened. A silent success is what let "conceder
+                acesso não dispara o email" go unnoticed for so long. */}
+            {emailNote[item.id] && (
+              emailNote[item.id].sent ? (
+                <p className="mt-1 text-xs text-emerald-700">✅ We emailed them the access link.</p>
+              ) : (
+                <div className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5">
+                  <p className="text-xs text-amber-900">{emailNote[item.id].error ?? 'We could not send the email.'}</p>
+                  {emailNote[item.id].link && (
+                    <input readOnly value={emailNote[item.id].link} onFocus={(e) => e.currentTarget.select()}
+                      aria-label="Access link to send yourself"
+                      className="mt-1 w-full rounded border border-amber-300 bg-white px-2 py-1 text-[11px] text-gray-700" />
+                  )}
+                </div>
+              )
+            )}
             {item.status === 'pending' && (
               <div className="mt-2 space-y-2">
-                {!mode[item.id] && (
+                {/* Prompt 518 §1 — a folder item has exactly one sensible
+                    answer: grant the folder, or decline it. The four
+                    document actions (in the Vault / upload / not yet) make
+                    no sense for a folder the founder already owns. */}
+                {!mode[item.id] && item.folderId && (
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => respond(item.id, 'grant_folder')} disabled={busyItemId === item.id}
+                      className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b] disabled:opacity-40">
+                      {busyItemId === item.id ? 'Granting…' : '✅ Grant this folder'}
+                    </button>
+                    <button onClick={() => setMode((m) => ({ ...m, [item.id]: 'decline' }))}
+                      className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">🚫 I won&apos;t share this</button>
+                  </div>
+                )}
+                {!mode[item.id] && !item.folderId && (
                   <div className="flex flex-wrap gap-1.5">
                     {item.itemType === 'cap_table' && (
                       // Prompt 426 §C — a link (not an inline mode), since this
