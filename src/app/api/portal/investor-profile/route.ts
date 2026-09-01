@@ -21,6 +21,7 @@ import { computeIdentityStatus } from '@/lib/investor-identity';
 import { countDistinctVoucherEntities } from '@/lib/investor-vouching';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { investorBillingConfigured } from '@/lib/stripe-env';
+import { isBlockedState } from '@/lib/investor-billing-access';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
 const EDITABLE = [
@@ -58,6 +59,13 @@ function completeness(profile: Record<string, unknown>) {
   return Math.round((filled / total) * 100);
 }
 
+// Prompt 506 — a linha já foi lida acima para o `hasSubscription`; isto é só
+// a leitura do estado a partir dela, sem uma segunda ida à base de dados.
+function readAccessFromRow(row: { access_state?: string | null; plan_tier?: string | null } | null) {
+  const state = row?.access_state ?? 'active';
+  return { blocked: isBlockedState(state), lastPaidTier: row?.plan_tier ?? null };
+}
+
 export async function GET(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -70,7 +78,12 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const member = await resolveActiveInvestorMember(admin, user.id);
+  // Prompt 506 — o GET é uma das três excepções ao bloqueio por falta de
+  // pagamento: é ele que alimenta o painel de Plans e a própria mensagem que
+  // explica o bloqueio. Sem isto, uma firma em dívida veria "sem perfil
+  // ligado" e não teria por onde voltar a pagar. O POST desta mesma rota
+  // (editar o perfil) NÃO leva a excepção — editar é uso a sério.
+  const member = await resolveActiveInvestorMember(admin, user.id, { allowBillingLapsed: true });
   if (!member) return NextResponse.json({ linked: false });
 
   const { data: entity } = await admin.from('catalog_entities').select('name, verification_status').eq('id', member.catalog_entity_id).maybeSingle();
@@ -106,13 +119,21 @@ export async function GET(req: Request) {
   // investor_billing ter RLS sem policies — ver migração 0287). Pendurado
   // nesta rota, que o painel já busca, em vez de um segundo fetch a /api/me.
   const { data: firmBilling } = await admin.from('investor_billing')
-    .select('stripe_subscription_id').eq('catalog_entity_id', member.catalog_entity_id).maybeSingle();
+    .select('stripe_subscription_id, access_state, plan_tier')
+    .eq('catalog_entity_id', member.catalog_entity_id).maybeSingle();
+  // Prompt 506 — `blocked` é o que faz o painel mostrar "sem acesso até
+  // pagar" em vez do estado normal, e `lastPaidTier` é o que lhe permite
+  // dizer QUAL plano reactivar em vez de um genérico. Continua sem sair
+  // daqui nenhum id do Stripe.
+  const firmAccess = readAccessFromRow(firmBilling);
 
   return NextResponse.json({
     linked: true, entityName: entity?.name ?? null, profile, completeness: completeness(profile ?? {}),
     billing: {
       configured: investorBillingConfigured(),
       hasSubscription: !!firmBilling?.stripe_subscription_id,
+      blocked: firmAccess.blocked,
+      lastPaidTier: firmAccess.lastPaidTier,
     },
     sectorOptions: ALL_SECTOR_NAMES, identityStatus,
     pipelineConfirmedAt: (memberRow?.pipeline_confirmed_at as string | null) ?? null,

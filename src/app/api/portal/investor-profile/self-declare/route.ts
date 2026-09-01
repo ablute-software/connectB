@@ -14,6 +14,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
+import { readInvestorFirmBillingAccess } from '@/lib/investor-billing-access';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
 const ACK_VERSION = 'placeholder-v1';
@@ -41,7 +42,19 @@ export async function POST(req: Request) {
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-  const existingMember = await resolveActiveInvestorMember(admin, user.id);
+  // Prompt 506 — `allowBillingLapsed` aqui NÃO é uma isenção: é o contrário.
+  // Esta rota CRIA uma firma e um assento quando não encontra nenhum, por
+  // isso um `null` vindo do bloqueio por falta de pagamento faria uma firma
+  // em dívida ganhar um SEGUNDO assento novo — escapando ao bloqueio e
+  // corrompendo a contagem de assentos ao mesmo tempo. Resolvendo o assento
+  // real primeiro, o bloqueio é aplicado logo a seguir, explicitamente.
+  const existingMember = await resolveActiveInvestorMember(admin, user.id, { allowBillingLapsed: true });
+  if (existingMember) {
+    const access = await readInvestorFirmBillingAccess(admin, existingMember.catalog_entity_id);
+    if (access.blocked) {
+      return NextResponse.json({ ok: false, error: 'Your subscription has ended — reactivate a plan to continue.' }, { status: 402 });
+    }
+  }
 
   let member: { id: string; catalog_entity_id: string } | null = existingMember;
   if (!member) {

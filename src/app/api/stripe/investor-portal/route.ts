@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   if (viewerBlock) return viewerBlock;
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
-  const member = await resolveActiveInvestorMember(admin, user.id);
+  const member = await resolveActiveInvestorMember(admin, user.id, { allowBillingLapsed: true });
   if (!member) return NextResponse.json({ ok: false, error: 'No linked investor profile yet.' }, { status: 403 });
 
   // O customer id nunca sai daqui para o cliente — só a URL do portal. É

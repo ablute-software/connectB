@@ -22,7 +22,7 @@ import { PrivateDetectiveCard } from '@/components/plans/PrivateDetectiveCard';
 import { SECURE_PAYMENT_COPY } from '@/lib/billing';
 
 interface Profile { plan_tier?: string | null; plan_tier_requested?: string | null }
-interface BillingState { configured: boolean; hasSubscription: boolean }
+interface BillingState { configured: boolean; hasSubscription: boolean; blocked?: boolean; lastPaidTier?: string | null }
 
 export function InvestorPlansPanel() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -101,6 +101,13 @@ export function InvestorPlansPanel() {
   const choosePlan = (tier: InvestorPlanTier) => (billingState.configured ? checkout(tier) : requestTier(tier));
 
   const currentRow = INVESTOR_PLANS.find((p) => p.tier === current)!;
+  // Prompt 506 — o último plano pago vem de investor_billing.plan_tier (não
+  // de matchdeal_profiles), que é precisamente porque este continua a ser
+  // guardado quando o acesso é bloqueado: dá "you were on Ace Spotter" em
+  // vez de um convite genérico.
+  const lastPaidName = billingState.lastPaidTier
+    ? INVESTOR_PLANS.find((p) => p.tier === MATCHDEAL_TO_TIER[billingState.lastPaidTier!])?.name ?? null
+    : null;
 
   return (
     // Prompt 121 §2.4 correction — this panel's OWN root was still capped at
@@ -111,6 +118,28 @@ export function InvestorPlansPanel() {
     // this correction — see the commit message.
     <div className="max-w-6xl space-y-4">
       <h1 className="text-lg font-bold text-gray-900">Plans &amp; billing</h1>
+
+      {/* Prompt 506 — a firma deixou de pagar. Bloco explícito e no topo, e
+          NÃO um tier mais baixo mostrado em silêncio: o acesso está mesmo
+          cortado do lado do servidor (resolveActiveInvestorMember devolve
+          null para toda a workspace), portanto a página tem de dizer porquê
+          e como voltar. O painel de Plans continua utilizável de propósito —
+          é o caminho de volta. */}
+      {billingState.blocked && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
+          <p className="text-sm font-bold text-amber-900">Your subscription has ended — access is paused</p>
+          <p className="mt-1 text-xs text-amber-800">
+            Your firm&apos;s workspace stays paused until a plan is active again. Nothing was deleted: pick a plan below
+            {lastPaidName ? <> — you were on <b>{lastPaidName}</b></> : null} and everything comes back as it was.
+          </p>
+          {billingState.hasSubscription && (
+            <button onClick={openPortal} disabled={busy === 'portal'}
+              className="mt-2 rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-800 disabled:opacity-40">
+              {busy === 'portal' ? 'Opening…' : 'Reactivate in the billing portal'}
+            </button>
+          )}
+        </div>
+      )}
 
       <div data-tour-id="plans-current" className="rounded-lg border border-cyan-100 bg-[#E8F4F8] p-4">
         <div className="flex flex-wrap items-baseline gap-2">

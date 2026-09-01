@@ -9,7 +9,23 @@
 // Same "oldest active wins" convention as portal-access.ts already used —
 // a real long-standing membership beats anything seeded in later, and it's
 // deterministic across repeated calls (unlike picking an arbitrary row).
+//
+// Prompt 506 — e, desde então, o ponto onde o bloqueio por falta de
+// pagamento é aplicado. A razão de ser AQUI e não em cada rota: são 50 call
+// sites (medidos), e todos já tratam `null` como "não é investidor com
+// assento" — devolver null numa firma em dívida reutiliza um caminho que
+// todos já têm, em vez de acrescentar 48 ramos de erro novos que se podem
+// esquecer um a um. Falhar fechado por omissão é a propriedade que interessa
+// numa porta de acesso.
+//
+// As rotas que TÊM de continuar a funcionar com a subscrição em falta
+// passam `allowBillingLapsed: true` — sem isso, uma firma em dívida ficaria
+// sem forma de pagar para voltar, que seria uma ratoeira: /api/stripe/
+// investor-checkout, /api/stripe/investor-portal e
+// /api/portal/investor-profile (que é quem alimenta o painel de Plans e a
+// própria mensagem de bloqueio).
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { readInvestorFirmBillingAccess } from './investor-billing-access';
 
 export interface ActiveInvestorMember {
   id: string;
@@ -17,8 +33,13 @@ export interface ActiveInvestorMember {
   domain_verified: boolean;
 }
 
+export interface ResolveInvestorMemberOptions {
+  /** Só para as rotas de pagamento/plans — ver o comentário acima. */
+  allowBillingLapsed?: boolean;
+}
+
 export async function resolveActiveInvestorMember(
-  admin: SupabaseClient, userId: string,
+  admin: SupabaseClient, userId: string, opts: ResolveInvestorMemberOptions = {},
 ): Promise<ActiveInvestorMember | null> {
   const { data, error } = await admin.from('matchdeal_investor_members')
     .select('id, catalog_entity_id, domain_verified')
@@ -28,5 +49,9 @@ export async function resolveActiveInvestorMember(
     console.error('resolveActiveInvestorMember failed:', error.message);
     return null;
   }
-  return (data?.[0] as ActiveInvestorMember | undefined) ?? null;
+  const member = (data?.[0] as ActiveInvestorMember | undefined) ?? null;
+  if (!member || opts.allowBillingLapsed) return member;
+
+  const access = await readInvestorFirmBillingAccess(admin, member.catalog_entity_id);
+  return access.blocked ? null : member;
 }

@@ -170,9 +170,12 @@ export function investorTierForPriceId(
 // O equivalente de planForSubscription, com a diferença que importa: não há
 // tier gratuito para onde cair. Um estado não-pagante, ou um preço que não
 // reconhecemos, resolve para `null` — "sem plano pago" — e é quem aplica o
-// efeito que decide o piso (INVESTOR_PLAN_FLOOR_MATCHDEAL_TIER). Devolver
-// null em vez de já devolver o piso mantém a distinção visível: "o Stripe
-// não diz nada de pago" não é a mesma afirmação que "esta firma é Pro Scout".
+// efeito decide o que fazer com isso. Prompt 506: esse "o que fazer" deixou
+// de ser "descer ao piso" e passou a ser "bloquear o acesso"
+// (investor_billing.access_state) — e é exactamente porque esta função
+// devolve `null` em vez de já devolver um tier que essa mudança coube só no
+// webhook: "o Stripe não diz nada de pago" nunca foi aqui traduzido para
+// "esta firma é Pro Scout".
 export function investorPlanForSubscription(
   status: string, priceId: string | undefined, prices: InvestorStripePriceMap,
 ): { tier: InvestorPlanTier | null; period: BillingPeriod | null } {

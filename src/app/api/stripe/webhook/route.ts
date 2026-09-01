@@ -14,7 +14,8 @@ import {
 import { billingEffectFromEvent, investorBillingEffectFromEvent, parseStripeSigHeader } from '@/lib/billing';
 import { applyPlanChangeSideEffects } from '@/lib/plan-sync';
 import { applyInvestorTierToFirm } from '@/lib/investor-plan-apply';
-import { INVESTOR_PLAN_FLOOR_MATCHDEAL_TIER, INVESTOR_PLAN_TO_MATCHDEAL_TIER } from '@/lib/plans';
+import { INVESTOR_PLAN_TO_MATCHDEAL_TIER } from '@/lib/plans';
+import { accessStateForSubscription } from '@/lib/investor-billing-access';
 
 const TOLERANCE_SECONDS = 5 * 60;
 
@@ -61,30 +62,49 @@ export async function POST(req: Request) {
   const investorEffect = investorBillingEffectFromEvent(event as Record<string, unknown>, investorStripePriceMap());
   if (investorEffect && url && service) {
     const admin = createClient(url, service, { auth: { persistSession: false } });
-    // O tier aplicado a TODOS os assentos activos da firma, pela mesma
-    // função que o backoffice usa (applyInvestorTierToFirm) — um plano é da
-    // firma, não de quem carregou no botão de pagar. `tier: null` significa
-    // "o Stripe não reporta nada de pago": desce ao piso, que é o único
-    // destino possível (matchdeal_profiles.plan_tier é NOT NULL e não há
-    // tier gratuito no modelo do investidor — ver
-    // INVESTOR_PLAN_FLOOR_MATCHDEAL_TIER).
-    const matchdealTier = investorEffect.tier
-      ? INVESTOR_PLAN_TO_MATCHDEAL_TIER[investorEffect.tier]
-      : INVESTOR_PLAN_FLOOR_MATCHDEAL_TIER;
-    const applied = await applyInvestorTierToFirm(admin, investorEffect.catalogEntityId, matchdealTier);
-    if (applied.error) {
-      // Registado, não devolvido como falha: um 500 faria o Stripe repetir o
-      // evento indefinidamente por algo que uma nova tentativa não resolve
-      // (uma firma sem assentos activos continuará sem assentos). O estado do
-      // billing abaixo é gravado à mesma, para o portal continuar a abrir.
-      console.error(`Stripe investor webhook: could not apply tier for firm=${investorEffect.catalogEntityId}:`, applied.error);
+    // Prompt 506 — dois casos, tratados de forma diferente (decisão do Nuno:
+    // "se descer escolherá o plano adequado. se deixar de pagar fica sem
+    // acesso até pagar"):
+    //
+    //   A PAGAR (checkout novo, ou troca de tier no portal) -> aplica o tier
+    //   escolhido a TODOS os assentos activos da firma, pela mesma função que
+    //   o backoffice usa (applyInvestorTierToFirm) — um plano é da firma, não
+    //   de quem carregou no botão. E limpa o bloqueio: a reactivação é
+    //   automática, sem passo manual nenhum, porque é o mesmo webhook.
+    //
+    //   SEM PAGAR (customer.subscription.deleted, ou um update que resolve
+    //   para nada) -> NÃO toca em matchdeal_profiles.plan_tier. O Prompt 501
+    //   descia ao piso 'tier_a' aqui, que dava Pro Scout de graça a quem
+    //   parou de pagar. Agora o bloqueio vive em investor_billing.access_state
+    //   e o tier fica como estava, a servir de memória do último plano ("
+    //   Reactivate Ace Spotter"). Não há valor de plan_tier que signifique
+    //   "nenhum" — ver a migração 0288 para as duas medições que o provam.
+    const paying = investorEffect.tier !== null;
+    const accessState = accessStateForSubscription(paying);
+    let matchdealTier: string | null = null;
+
+    if (paying) {
+      matchdealTier = INVESTOR_PLAN_TO_MATCHDEAL_TIER[investorEffect.tier!];
+      const applied = await applyInvestorTierToFirm(admin, investorEffect.catalogEntityId, matchdealTier);
+      if (applied.error) {
+        // Registado, não devolvido como falha: um 500 faria o Stripe repetir o
+        // evento indefinidamente por algo que uma nova tentativa não resolve
+        // (uma firma sem assentos activos continuará sem assentos). O estado do
+        // billing abaixo é gravado à mesma, para o portal continuar a abrir.
+        console.error(`Stripe investor webhook: could not apply tier for firm=${investorEffect.catalogEntityId}:`, applied.error);
+      }
     }
+
     const full: Record<string, unknown> = {
       catalog_entity_id: investorEffect.catalogEntityId,
       stripe_customer_id: investorEffect.stripeCustomerId,
       stripe_subscription_id: investorEffect.stripeSubscriptionId,
-      plan_tier: matchdealTier,
-      billing_period: investorEffect.period,
+      // Num cancelamento fica `undefined` e é descartado pelo filtro abaixo —
+      // investor_billing.plan_tier guarda o ÚLTIMO tier pago e não deve ser
+      // apagado por deixar de pagar; é dele que sai o "Reactivate X".
+      plan_tier: matchdealTier ?? undefined,
+      billing_period: paying ? investorEffect.period : undefined,
+      access_state: accessState,
       updated_at: new Date().toISOString(),
     };
     // undefined é descartado (o Stripe nem sempre repete o customer em todos

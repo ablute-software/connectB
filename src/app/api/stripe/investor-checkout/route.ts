@@ -56,7 +56,7 @@ export async function POST(req: Request) {
   if (!priceId) return NextResponse.json({ ok: false, error: 'Price unavailable.' }, { status: 400 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
-  const member = await resolveActiveInvestorMember(admin, user.id);
+  const member = await resolveActiveInvestorMember(admin, user.id, { allowBillingLapsed: true });
   if (!member) return NextResponse.json({ ok: false, error: 'No linked investor profile yet.' }, { status: 403 });
   const firmId = member.catalog_entity_id;
 

@@ -453,15 +453,19 @@ export const INVESTOR_PLAN_TO_MATCHDEAL_TIER: Record<InvestorPlanTier, string> =
   pro_scout: 'tier_a', ace_spotter: 'tier_b', legendary_sleuth: 'tier_c',
 };
 
-// O piso do lado investidor. Não existe tier gratuito por desenho ("No free
-// tier", landing /investors) e `matchdeal_profiles.plan_tier` é `text NOT
-// NULL` (verificado no schema real), portanto um cancelamento NÃO pode
-// escrever null nem um estado "sem plano" — esse estado não existe no modelo
-// de hoje. 'tier_a' é o mesmo valor que investor-pipeline.ts e
-// portal-access.ts já assumem como fallback para uma firma sem tier, por
-// isso é o único destino que não inventa produto novo. Consequência a dizer
-// em voz alta: cancelar faz descer ao tier mais baixo, não revoga o acesso.
-export const INVESTOR_PLAN_FLOOR_MATCHDEAL_TIER = 'tier_a';
+// Prompt 506 — aqui esteve `INVESTOR_PLAN_FLOOR_MATCHDEAL_TIER = 'tier_a'`,
+// o piso a que o Prompt 501 descia num cancelamento. Removido: a decisão do
+// Nuno é que quem deixa de pagar fica SEM acesso, não no plano mais barato —
+// descer ao piso dava Pro Scout de graça. O bloqueio passou a viver em
+// `investor_billing.access_state` (migração 0288) e
+// `matchdeal_profiles.plan_tier` deixa de ser tocado num cancelamento,
+// passando a guardar só qual era o plano.
+//
+// A constante não foi substituída por outra: não existe valor de plan_tier
+// que signifique "nenhum" — o CHECK da coluna aceita apenas tier_a/b/c, e
+// `matchdeal_tier_limits` devolve os limites do tier_a para qualquer valor
+// desconhecido (`else 3 / else 1 / else 0`). As duas coisas foram medidas no
+// schema real; ver a migração 0288.
 
 // PLAN-02 — the 4th plan: no fixed price, a contact form instead of a
 // checkout/request CTA. Deliberately NOT part of INVESTOR_PLANS (which
