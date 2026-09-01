@@ -21,7 +21,8 @@ import {
 } from '@/lib/roadmap-canvas';
 import { SHAPE_STYLES, GENERAL_LABEL, type CategoryColor, type CategoryShape } from '@/lib/roadmap-categories';
 import { CATEGORY_BAR, GLASS_PILL, LABEL_CAPS } from './roadmap-visual';
-import type { RoadmapEventStatus } from '@/lib/types';
+import type { RoadmapEventStatus, RoadmapDatePrecision } from '@/lib/types';
+import { dateFromParts, partsFromDate, formatWithPrecision } from '@/lib/roadmap-date-precision';
 
 // Narrower than the full RoadmapCategory (src/lib/types.ts), same discipline
 // as CanvasEvent below: the investor side passes RoadmapCategoryFull (no
@@ -77,6 +78,13 @@ export interface CanvasEvent {
   status: RoadmapEventStatus;
   category_id?: string | null;
   document_id?: string | null;
+  // Prompt 519 §4(d) — carried through the canvas so the detail panel can
+  // seed its editor from the stored value rather than assuming 'exact', and
+  // so a marker can render "Q3 2026" instead of an invented day.
+  // Not `| null`: RoadmapEvent's own field is non-nullable, and widening it
+  // here would make Partial<CanvasEvent> unassignable to Partial<RoadmapEvent>
+  // at the update call site.
+  date_precision?: RoadmapDatePrecision;
 }
 
 interface RoadmapCanvasProps {
@@ -139,6 +147,7 @@ export function RoadmapCanvas({
   // but the minimap lets the founder click anywhere to re-center without
   // leaving the zoomed-in level (§C.2, "arrastar o mini-mapa navega").
   const [focus, setFocus] = useState<Date>(now);
+  const [panning, setPanning] = useState(false);
   const [timeToggle, setTimeToggle] = useState<TimeToggle>('both');
   const [draft, setDraft] = useState<DraftEvent | null>(null);
   const [dragging, setDragging] = useState<{ id: string; edge?: 'start' | 'end' } | null>(null);
@@ -197,6 +206,31 @@ export function RoadmapCanvas({
     if (byId.has(GENERAL_LANE.id)) ordered.push(GENERAL_LANE);
     return ordered;
   }, [filtered, categories]);
+
+  // Prompt 519 §4(f) — continuous movement through time. The lanes' own
+  // pointer handlers are already committed to drag-to-CREATE an event, so
+  // panning lives on the minimap instead of fighting that gesture — the
+  // prompt's own suggested split. The minimap already accepted a click to
+  // jump; this makes holding and moving scrub continuously, which is the
+  // part that was missing. `setPointerCapture` keeps the drag alive when the
+  // pointer leaves the 12px-tall strip, which it immediately does.
+  const panHandlers = {
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      setPanning(true);
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (!panning) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = Math.min(rect.width, Math.max(0, e.clientX - rect.left));
+      setFocus(dateFromX(x, domain.start, domain.end, rect.width));
+    },
+    onPointerUp: (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+      setPanning(false);
+    },
+    onPointerCancel: () => setPanning(false),
+  };
 
   function xOf(date: Date) { return xFromDate(date, view.start, view.end, viewWidth); }
   function dateOf(x: number) { return dateFromX(x, view.start, view.end, viewWidth); }
@@ -295,6 +329,13 @@ export function RoadmapCanvas({
 
   const todayX = xOf(now);
   const todayInView = todayX >= 0 && todayX <= viewWidth;
+  // Prompt 519 §4(b) — foundedYear was only ever used to widen the time
+  // domain; it had no marker of its own, even though types.ts already
+  // describes it as the roadmap's "fixed, non-editable starting point".
+  // Same construction as TODAY above so the two read as one vocabulary:
+  // a vertical rule with a caps label, drawn only when it is in view.
+  const foundedX = foundedYear != null ? xOf(new Date(Date.UTC(foundedYear, 0, 1))) : null;
+  const foundedInView = foundedX != null && foundedX >= 0 && foundedX <= viewWidth;
 
   // Prompt 387 §A — the header ruler picks its own granularity from how
   // much room the CURRENT view actually gives each quarter, never from the
@@ -325,10 +366,14 @@ export function RoadmapCanvas({
           ))}
         </div>
         <div className={`flex items-center gap-0.5 p-0.5 text-xs ${GLASS_PILL}`}>
+          {/* Prompt 519 §4(e) — the glyphs were swapped, not the handlers: the
+              aria-labels were already right (quarter = more zoom = "Zoom in"),
+              so a screen reader got the correct control while a sighted user
+              got the opposite. Only the visible characters move. */}
           <button onClick={() => setZoom('quarter')} aria-label="Zoom in"
-            className={`rounded-full px-2.5 py-1.5 ${zoom === 'quarter' ? 'bg-white text-[#0041c8] shadow-sm' : 'text-[#434656] hover:bg-white/60'}`}>−</button>
+            className={`rounded-full px-2.5 py-1.5 ${zoom === 'quarter' ? 'bg-white text-[#0041c8] shadow-sm' : 'text-[#434656] hover:bg-white/60'}`}>+</button>
           <button onClick={() => setZoom('year')} aria-label="Zoom out"
-            className={`rounded-full px-2.5 py-1.5 ${zoom === 'year' ? 'bg-white text-[#0041c8] shadow-sm' : 'text-[#434656] hover:bg-white/60'}`}>+</button>
+            className={`rounded-full px-2.5 py-1.5 ${zoom === 'year' ? 'bg-white text-[#0041c8] shadow-sm' : 'text-[#434656] hover:bg-white/60'}`}>−</button>
           <button onClick={() => setZoom('all')} className="rounded-full px-2.5 py-1.5 text-[#434656] hover:bg-white/60">Fit</button>
         </div>
       </div>
@@ -342,7 +387,9 @@ export function RoadmapCanvas({
             const clickX = e.clientX - rect.left;
             setFocus(dateFromX(clickX, domain.start, domain.end, rect.width));
           }}
-          className="relative mb-2 h-3 w-full rounded-full bg-[#eaedff]">
+          {...panHandlers}
+          title="Click or drag to move through time"
+          className="relative mb-2 h-3 w-full cursor-ew-resize rounded-full bg-[#eaedff]">
           <div className="absolute top-0 h-full rounded-full bg-[#0041c8]/30"
             style={{
               left: `${(xFromDate(view.start, domain.start, domain.end, 100))}%`,
@@ -378,6 +425,31 @@ export function RoadmapCanvas({
       )}
 
       <div ref={containerRef} className="relative" onPointerMove={onCanvasPointerMove} onPointerUp={onCanvasPointerUp}>
+        {/* Prompt 519 §4(a) — the header drew period labels and the lanes drew
+            events, with nothing joining them: each lane read as an independent
+            strip and the eye had no way to carry "Q3 2026" down to a marker.
+            One line per header boundary, at the SAME xOf() the header cells
+            use, so the two can never drift apart. Purely decorative:
+            pointer-events-none and z-0, so drag-to-create on the lanes and
+            every marker above keep working exactly as before. */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
+          {headerSpans.map((q) => {
+            const left = xOf(q.start);
+            if (left < 0 || left > viewWidth) return null;
+            return <div key={`grid-${q.label}`} className="absolute top-0 h-full border-l border-[#c3c5d9]/25" style={{ left }} />;
+          })}
+        </div>
+        {foundedInView && (
+          // Deliberately quieter than TODAY (dashed, neutral colour, lower
+          // z): it is a fixed origin the founder can never move, not a thing
+          // to act on, and it must never compete with the live "you are here".
+          <div className="absolute top-0 z-10 h-full border-l-2 border-dashed border-[#434656]/40"
+            style={{ left: foundedX as number }} title={`Founded ${foundedYear}`}>
+            <span className={`absolute -top-1 left-0 -translate-x-1/2 whitespace-nowrap rounded-full bg-[#434656]/80 px-2 py-0.5 ${LABEL_CAPS} text-[9px] text-white`}>
+              FOUNDED {foundedYear}
+            </span>
+          </div>
+        )}
         {todayInView && (
           <div className="absolute top-0 z-20 h-full border-l-2 border-[#ba1a1a]" style={{ left: todayX }} title="Today">
             <span className={`absolute -top-1 left-0 -translate-x-1/2 whitespace-nowrap rounded-full bg-[#ba1a1a] px-2 py-0.5 ${LABEL_CAPS} text-[9px] text-white`}>
@@ -508,8 +580,17 @@ function EventMark({ cluster, endX, lane, editable, selected, onOpenDetail, onEx
           above already covers it; this is the one visible-on-hover text
           affordance, shown only via group-hover so the bar itself stays
           bare per §A.1. */}
-      <span className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 whitespace-nowrap rounded bg-[#131b2e] px-1.5 py-0.5 text-[10px] text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-30">
+      {/* Prompt 519 §4(c) — §A.1's "no title inside a bar or dot" still holds
+          for the ordinary case, and is why the canvas stays readable at
+          density. But it had one consequence Nuno hit immediately: the ONLY
+          always-visible text near a marker is the lane's category label, so a
+          just-added event appears to be showing its category instead of its
+          title. Making it visible while SELECTED fixes that without giving
+          the rule up — the founder sees the name of the one event they are
+          looking at, and the canvas is unchanged for the other twenty. */}
+      <span className={`pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 whitespace-nowrap rounded bg-[#131b2e] px-1.5 py-0.5 text-[10px] text-white shadow-md transition-opacity group-hover:opacity-100 z-30 ${selected ? 'opacity-100' : 'opacity-0'}`}>
         {ev.title}
+        <span className="ml-1 text-white/60">{formatWithPrecision(ev.date, ev.date_precision)}</span>
       </span>
     </div>
   );
@@ -525,6 +606,11 @@ function CreatePopover({ draft, categories, onCancel, onSave }: {
   const [endDate, setEndDate] = useState(draft.end_date ?? '');
   const [categoryId, setCategoryId] = useState<string>(draft.laneId === GENERAL_LANE.id ? '' : draft.laneId);
   const [saving, setSaving] = useState(false);
+  // Prompt 519 §4(d) — precision is now the founder's to choose. Defaults to
+  // 'exact' so the common case (a date they actually know) is unchanged and
+  // one click away, but "Q3 2026" no longer forces them to invent a day.
+  const [precision, setPrecision] = useState<RoadmapDatePrecision>('exact');
+  const parts = partsFromDate(date);
   const defaultStatus: RoadmapEventStatus = new Date(date) < new Date() ? 'done' : 'planned';
   const [status, setStatus] = useState<RoadmapEventStatus>(defaultStatus);
 
@@ -535,7 +621,39 @@ function CreatePopover({ draft, categories, onCancel, onSave }: {
         onKeyDown={(e) => { if (e.key === 'Enter' && title.trim()) void submit(); }}
         className="w-full rounded-lg border border-[#c3c5d9] px-2 py-1.5 text-sm" />
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <label className="flex items-center gap-1">Date <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" /></label>
+        <select value={precision} aria-label="Date precision"
+          onChange={(e) => setPrecision(e.target.value as RoadmapDatePrecision)}
+          className="rounded-lg border border-[#c3c5d9] px-1.5 py-1">
+          <option value="exact">Exact date</option>
+          <option value="approx">Month</option>
+          <option value="quarter">Quarter</option>
+        </select>
+        {precision === 'exact' ? (
+          <label className="flex items-center gap-1">Date <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" /></label>
+        ) : precision === 'quarter' ? (
+          <label className="flex items-center gap-1">
+            Quarter
+            <select value={parts.quarter} aria-label="Quarter"
+              onChange={(e) => setDate(dateFromParts('quarter', { year: parts.year, quarter: Number(e.target.value) }))}
+              className="rounded-lg border border-[#c3c5d9] px-1.5 py-1">
+              {[1, 2, 3, 4].map((q) => <option key={q} value={q}>Q{q}</option>)}
+            </select>
+            <input type="number" value={parts.year} aria-label="Year" min={1900} max={2999}
+              onChange={(e) => setDate(dateFromParts('quarter', { year: Number(e.target.value), quarter: parts.quarter }))}
+              className="w-20 rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
+          </label>
+        ) : (
+          <label className="flex items-center gap-1">
+            Month
+            <input type="month" value={`${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}`}
+              aria-label="Month and year"
+              onChange={(e) => {
+                const [y, m] = e.target.value.split('-');
+                if (y && m) setDate(dateFromParts('approx', { year: Number(y), month: Number(m) }));
+              }}
+              className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
+          </label>
+        )}
         <label className="flex items-center gap-1">
           End (optional) <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
         </label>
@@ -561,7 +679,9 @@ function CreatePopover({ draft, categories, onCancel, onSave }: {
   async function submit() {
     setSaving(true);
     try {
-      await onSave({ title: title.trim(), date, end_date: endDate || null, status, category_id: categoryId || null, date_precision: 'exact' });
+      // Was hardcoded 'exact', which silently discarded whatever the founder
+      // meant. The chosen precision now travels with the date.
+      await onSave({ title: title.trim(), date, end_date: endDate || null, status, category_id: categoryId || null, date_precision: precision });
     } finally { setSaving(false); }
   }
 }

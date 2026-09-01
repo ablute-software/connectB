@@ -221,7 +221,17 @@ export function InvestorWorkspaceShell({
     badge: n.key === 'support' && unreadSupport > 0 ? unreadSupport
       : n.key === 'actions' && investorActions.count > 0 ? investorActions.count
       : n.key === 'messages' && messagesUnread > 0 ? messagesUnread : undefined,
-    onSelect: () => setTab(n.key),
+    // Prompt 519 §3 — clicking "Pipeline" must always show the LIST. Every nav
+    // item shared one generic handler that only set `tab`, and the open
+    // startup lives in a separate `openOrgId` state up in portal/page.tsx —
+    // so leaving Pipeline for another tab and coming back re-rendered the
+    // startup card that was open before, because nothing ever cleared it.
+    // (A real page refresh always worked, which is why this only ever showed
+    // up inside one page session.)
+    onSelect: () => {
+      if (n.key === 'pipeline') onBackToPipeline();
+      setTab(n.key);
+    },
   }));
 
   return (

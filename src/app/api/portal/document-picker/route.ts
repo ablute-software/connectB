@@ -35,7 +35,12 @@ export async function GET(req: Request) {
 
   const [{ data: docs }, { data: folders }] = await Promise.all([
     admin.from('documents').select('id, name, folder_id, visibility').eq('org_id', orgId),
-    admin.from('folders').select('id, parent_id').eq('org_id', orgId),
+    // Prompt 519 §1 — `name` added. The folder rows were already read here,
+    // but only to compute access (resolveDocumentAccess needs the parent
+    // chain); the response then threw the folder away entirely, so the
+    // picker received a flat list and could not have grouped even if it
+    // wanted to. The names are what let it.
+    admin.from('folders').select('id, parent_id, name').eq('org_id', orgId),
   ]);
 
   const orParts = [`grantee_email.eq.${email}`, `invited_email.eq.${email}`];
@@ -54,9 +59,23 @@ export async function GET(req: Request) {
   );
   const visibleSet = new Set(visibleIds);
 
-  const requestable = ((docs ?? []) as { id: string; name: string; visibility: string | null }[])
+  const requestable = ((docs ?? []) as { id: string; name: string; folder_id: string | null; visibility: string | null }[])
     .filter((d) => (d.visibility === 'on_grant' || d.visibility === 'due_diligence') && !visibleSet.has(d.id))
-    .map((d) => ({ id: d.id, name: d.name, visibility: d.visibility }));
+    .map((d) => ({ id: d.id, name: d.name, visibility: d.visibility, folderId: d.folder_id ?? null }));
 
-  return NextResponse.json({ documents: requestable });
+  // Only folders that actually contain something requestable are returned.
+  // The investor must never learn the shape of a data room they cannot ask
+  // for — an empty folder's NAME is itself information about the startup
+  // ("Litigation", "Down round"), which is exactly the kind of leak the
+  // visibility rules exist to prevent.
+  const requestableByFolder = new Map<string, number>();
+  for (const d of requestable) {
+    if (!d.folderId) continue;
+    requestableByFolder.set(d.folderId, (requestableByFolder.get(d.folderId) ?? 0) + 1);
+  }
+  const folderList = ((folders ?? []) as { id: string; parent_id: string | null; name: string }[])
+    .filter((f) => requestableByFolder.has(f.id))
+    .map((f) => ({ id: f.id, name: f.name, parentId: f.parent_id ?? null, requestableCount: requestableByFolder.get(f.id) ?? 0 }));
+
+  return NextResponse.json({ documents: requestable, folders: folderList });
 }

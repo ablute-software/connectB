@@ -12,6 +12,7 @@ import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { logAdminAction } from '@/lib/audit';
 import { notifyClaimDecision, sendClaimApprovalTripwire } from '@/lib/investor-entity-claim-notify';
 import { checkSeatAvailable } from '@/lib/investor-seats';
+import { syncInvestorProfileToCatalog } from '@/lib/investor-profile-sync';
 
 function splitEmails(raw: string | null | undefined): string[] {
   if (!raw) return [];
@@ -58,6 +59,14 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     status: 'active', domain_verified: true, role: claim.requested_role,
   }, { onConflict: 'user_id,catalog_entity_id' });
   if (memberErr) return NextResponse.json({ ok: false, error: memberErr.message }, { status: 500 });
+
+  // Prompt 519 §2 — an approved claim is the other moment the platform learns
+  // this profile speaks for this firm, so the same sync runs here. Without it
+  // an investor who completed their profile BEFORE the claim was approved
+  // would never have it reach the catalog: the save-time sync above had
+  // nothing approved to attach it to yet.
+  const claimSync = await syncInvestorProfileToCatalog(admin, claim.catalog_entity_id as string);
+  if (claimSync.error) console.error('[investor-entity-claims/approve] catalog sync failed', claimSync.error);
 
   // §3.3 — "aprovado um claim, a entidade fica gerida".
   const { error: entityUpdateErr } = await admin.from('catalog_entities').update({

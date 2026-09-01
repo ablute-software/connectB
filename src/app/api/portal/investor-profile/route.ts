@@ -23,6 +23,7 @@ import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { investorBillingConfigured } from '@/lib/stripe-env';
 import { isBlockedState } from '@/lib/investor-billing-access';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { syncInvestorProfileToCatalog } from '@/lib/investor-profile-sync';
 
 const EDITABLE = [
   'sectors', 'geographies', 'stages_invested', 'instruments', 'instrument_other',
@@ -174,5 +175,18 @@ export async function POST(req: Request) {
   const { data: updated, error } = await admin.from('matchdeal_profiles').update(patch)
     .eq('membership_id', member.id).eq('kind', 'investor').select('*').single();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, profile: updated, completeness: completeness(updated ?? {}) });
+
+  // Prompt 519 §2 — the moment an investor describes themselves, that
+  // description reaches the shared catalog row, and from there every founder
+  // path that reads it (the Entity summary prefill, unlockPack, the monthly
+  // delivery). Before this it stopped at matchdeal_profiles and the founder's
+  // dossier stayed empty even though the platform had the answer.
+  //
+  // Awaited, but never able to fail this request: syncInvestorProfileToCatalog
+  // returns its error instead of throwing, so a catalog problem cannot make
+  // the investor's own save look like it failed.
+  const catalogSync = await syncInvestorProfileToCatalog(admin, member.catalog_entity_id);
+  if (catalogSync.error) console.error('[investor-profile] catalog sync failed', catalogSync.error);
+
+  return NextResponse.json({ ok: true, profile: updated, completeness: completeness(updated ?? {}), catalogSync: catalogSync.updated });
 }

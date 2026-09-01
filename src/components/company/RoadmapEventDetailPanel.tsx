@@ -9,7 +9,8 @@ import { GENERAL_LABEL, type CategoryColor } from '@/lib/roadmap-categories';
 import { derivedEventState, quarterLabel } from '@/lib/roadmap-canvas';
 import { CATEGORY_BAR, GLASS_CARD, LABEL_CAPS, STATE_CHIP, STATE_LABEL, STATE_DOT } from './roadmap-visual';
 import type { CanvasCategory, CanvasDocOption, CanvasEvent, ResolvedDocChip } from './RoadmapCanvas';
-import type { RoadmapEventStatus } from '@/lib/types';
+import type { RoadmapEventStatus, RoadmapDatePrecision } from '@/lib/types';
+import { dateFromParts, partsFromDate, formatWithPrecision } from '@/lib/roadmap-date-precision';
 
 export function RoadmapEventDetailPanel({
   event, categories, editable, documents = [], resolveDocChip, now = new Date(), onUpdate, onRemove,
@@ -114,7 +115,13 @@ function EditForm({ event, categories, documents, onCancel, onSave, onRemove }: 
   const [status, setStatus] = useState<RoadmapEventStatus>(event.status);
   const [categoryId, setCategoryId] = useState(event.category_id ?? '');
   const [documentId, setDocumentId] = useState(event.document_id ?? '');
+  // Prompt 519 §4(d) — the edit form did not include date_precision in its
+  // patch at all, so an event saved as a quarter silently reverted to
+  // whatever it had (and could never be changed back). Seeded from the event
+  // so opening the form does not itself rewrite the stored precision.
+  const [precision, setPrecision] = useState<RoadmapDatePrecision>(event.date_precision ?? 'exact');
   const [saving, setSaving] = useState(false);
+  const parts = partsFromDate(date);
 
   async function submit() {
     setSaving(true);
@@ -122,6 +129,7 @@ function EditForm({ event, categories, documents, onCancel, onSave, onRemove }: 
       await onSave({
         title: title.trim(), description: description.trim() || null, date, end_date: endDate || null,
         status, category_id: categoryId || null, document_id: documentId || null,
+        date_precision: precision,
       });
     } finally { setSaving(false); }
   }
@@ -133,9 +141,39 @@ function EditForm({ event, categories, documents, onCancel, onSave, onRemove }: 
       <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Description (optional)"
         className="w-full rounded-lg border border-[#c3c5d9] px-2.5 py-1.5 text-sm" />
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <label className="flex items-center gap-1">Date
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
-        </label>
+        <select value={precision} aria-label="Date precision"
+          onChange={(e) => setPrecision(e.target.value as RoadmapDatePrecision)}
+          className="rounded-lg border border-[#c3c5d9] px-1.5 py-1">
+          <option value="exact">Exact date</option>
+          <option value="approx">Month</option>
+          <option value="quarter">Quarter</option>
+        </select>
+        {precision === 'exact' ? (
+          <label className="flex items-center gap-1">Date
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
+          </label>
+        ) : precision === 'quarter' ? (
+          <label className="flex items-center gap-1">Quarter
+            <select value={parts.quarter} aria-label="Quarter"
+              onChange={(e) => setDate(dateFromParts('quarter', { year: parts.year, quarter: Number(e.target.value) }))}
+              className="rounded-lg border border-[#c3c5d9] px-1.5 py-1">
+              {[1, 2, 3, 4].map((q) => <option key={q} value={q}>Q{q}</option>)}
+            </select>
+            <input type="number" value={parts.year} aria-label="Year" min={1900} max={2999}
+              onChange={(e) => setDate(dateFromParts('quarter', { year: Number(e.target.value), quarter: parts.quarter }))}
+              className="w-20 rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
+          </label>
+        ) : (
+          <label className="flex items-center gap-1">Month
+            <input type="month" value={`${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}`}
+              aria-label="Month and year"
+              onChange={(e) => {
+                const [y, m] = e.target.value.split('-');
+                if (y && m) setDate(dateFromParts('approx', { year: Number(y), month: Number(m) }));
+              }}
+              className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
+          </label>
+        )}
         <label className="flex items-center gap-1">End (optional)
           <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
         </label>

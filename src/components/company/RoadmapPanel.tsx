@@ -111,8 +111,14 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
   // fetch" sitting here. Every action now clears it on its own success and
   // prefixes a failure with which action failed, never the raw exception.
   async function handleCreate(input: { title: string; date: string; end_date?: string | null; status: RoadmapEventStatus; category_id: string | null; document_id?: string | null; date_precision?: 'exact' | 'approx' | 'quarter' }) {
-    const { error: err } = await addRoadmapEvent({ ...input, date_precision: input.date_precision ?? 'exact' });
+    const { error: err, id } = await addRoadmapEvent({ ...input, date_precision: input.date_precision ?? 'exact' });
     setError(err ? `Couldn't add the event: ${err}` : '');
+    // Prompt 519 §4(c) — select what was just created. The canvas shows an
+    // event's title while it is selected (markers stay bare otherwise, per
+    // §A.1), so without this a brand-new event still had nothing next to it
+    // but its lane's category label — which is exactly what Nuno read as
+    // "a categoria aparece em vez do título".
+    if (!err && id) setSelectedId(id);
   }
   async function handleUpdate(id: string, patch: Parameters<typeof updateRoadmapEvent>[1]) {
     const { error: err } = await updateRoadmapEvent(id, patch);
