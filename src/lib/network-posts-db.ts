@@ -73,26 +73,46 @@ const STAGE_LABEL: Record<string, string> = {
 // wider, less controlled audience than one investor's own dossier, and that
 // difference in audience size is exactly why this earns its own stricter
 // rule rather than copying the dossier's.
-export async function createRoundMilestonePost(admin: SupabaseClient, params: { authorActorId: string; orgId: string }): Promise<{ ok: true; postId: string } | { ok: false; error: string }> {
+// Prompt 528 — was createRoundMilestonePost, which computed this text and
+// INSERTED it in the same call, straight from a button click with no modal,
+// no preview and no confirmation. That is what published the real post
+// "ablute_ has secured 0% of their pre-seed round." — not a wording bug, but
+// the absence of any "is this worth publishing?" step before the write.
+//
+// Now a read only. It returns the draft; the founder edits or discards it in
+// the composer, and publishing goes through the ordinary createPost path so
+// the text — which can now have been edited by hand — passes checkNetworkContent,
+// the anti-sales linter the old dedicated path never ran.
+export async function readRoundMilestoneDraft(
+  admin: SupabaseClient, orgId: string,
+): Promise<{ available: true; text: string } | { available: false; reason: string }> {
   const { data: org } = await admin.from('orgs')
-    .select('name, stage, round_progress_visible_to_investors, round_target_eur, round_secured_eur').eq('id', params.orgId).maybeSingle();
-  if (!org) return { ok: false, error: 'Org not found.' };
+    .select('name, stage, round_progress_visible_to_investors, round_target_eur, round_secured_eur').eq('id', orgId).maybeSingle();
+  if (!org) return { available: false, reason: 'Org not found.' };
   if (!canShareRoundMilestone(!!org.round_progress_visible_to_investors)) {
-    return { ok: false, error: 'Turn on "share round progress with investors" first — this reuses that same setting.' };
+    return { available: false, reason: 'Turn on "share round progress with investors" first — this reuses that same setting.' };
   }
 
-  const { data: commits } = await admin.from('investor_soft_commits').select('amount_eur').eq('org_id', params.orgId).eq('confirmed_by_founder', true);
+  const { data: commits } = await admin.from('investor_soft_commits').select('amount_eur').eq('org_id', orgId).eq('confirmed_by_founder', true);
   const softCommittedEur = (commits ?? []).reduce((sum, c) => sum + Number(c.amount_eur), 0);
   const securedShown = (org.round_secured_eur ?? 0) + softCommittedEur;
   const percent = computeRoundProgressPercent(securedShown, org.round_target_eur);
-  if (percent == null) return { ok: false, error: 'Set a round target and secured amount first.' };
+  if (percent == null) return { available: false, reason: 'Set a round target and secured amount first.' };
+  // Prompt 528 §3, option (a). The old gate only asked whether progress was
+  // SHAREABLE, never whether there was any progress to share. "secured 0%" is
+  // not a milestone in any reading of the word, and announcing it to the
+  // network is worse than saying nothing. No forward-looking substitute is
+  // generated either: that would be a claim about intent the founder never
+  // made, and this codebase's compose rules already forbid asserting what is
+  // not on file.
+  if (percent <= 0) {
+    return { available: false, reason: 'No progress to celebrate yet — this appears once your round is above 0%.' };
+  }
 
-  const body = formatRoundMilestoneText({ orgName: org.name as string, percent, stageLabel: STAGE_LABEL[org.stage as string] ?? null });
-  const { data, error } = await admin.from('network_posts').insert({
-    author_actor_id: params.authorActorId, body, kind: 'milestone', structured: null, target: 'all', excluded_actor_ids: [],
-  }).select('id').single();
-  if (error || !data) return { ok: false, error: error?.message ?? 'Could not publish milestone.' };
-  return { ok: true, postId: data.id as string };
+  return {
+    available: true,
+    text: formatRoundMilestoneText({ orgName: org.name as string, percent, stageLabel: STAGE_LABEL[org.stage as string] ?? null }),
+  };
 }
 
 // Pedido B — the private cadence coach's own data source: this founder's

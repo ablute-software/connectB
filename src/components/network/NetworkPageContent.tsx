@@ -203,6 +203,12 @@ export function NetworkPageContent({ viewerKind }: { viewerKind?: 'founder' | 'i
   const [composerTarget, setComposerTarget] = useState<'all' | 'group'>('all');
   const [composerGroupId, setComposerGroupId] = useState('');
   const [milestoneAvailable, setMilestoneAvailable] = useState(false);
+  // Prompt 528 — the draft the button pre-fills the composer with. Computed
+  // server-side (same percent maths as before), never published on its own.
+  const [milestoneText, setMilestoneText] = useState('');
+  // Prompt 528 §2 — Watson's suggestion for the Structured update.
+  const [suggestBusy, setSuggestBusy] = useState(false);
+  const [suggestNote, setSuggestNote] = useState<string | null>(null);
   const [updateGap, setUpdateGap] = useState<{ shouldNudge: boolean; daysSince: number | null } | null>(null);
   const [offers, setOffers] = useState<OfferView[]>([]);
   const [offerComposerOpen, setOfferComposerOpen] = useState(false);
@@ -233,7 +239,9 @@ export function NetworkPageContent({ viewerKind }: { viewerKind?: 'founder' | 'i
       .catch(() => setInvestorFollowOn(null));
     fetch('/api/network/pathfinder/asks').then((r) => r.json()).then((b) => setPathfinderAsks(b.asks ?? [])).catch(() => setPathfinderAsks([]));
     fetch('/api/network/post').then((r) => r.json()).then((b) => setPosts(b.posts ?? null)).catch(() => setPosts(null));
-    fetch('/api/network/milestone').then((r) => r.json()).then((b) => setMilestoneAvailable(!!b.available)).catch(() => setMilestoneAvailable(false));
+    fetch('/api/network/milestone').then((r) => r.json())
+      .then((b) => { setMilestoneAvailable(!!b.available); setMilestoneText(b.text ?? ''); })
+      .catch(() => { setMilestoneAvailable(false); setMilestoneText(''); });
     fetch('/api/network/update-gap').then((r) => r.json()).then((b) => setUpdateGap(b.ok ? { shouldNudge: b.shouldNudge, daysSince: b.daysSince } : null)).catch(() => setUpdateGap(null));
     fetch('/api/network/offer').then((r) => r.json()).then((b) => setOffers(b.offers ?? [])).catch(() => setOffers([]));
     fetch('/api/network/scout').then((r) => r.json()).then((b) => setScoutRequests(b.requests ?? [])).catch(() => setScoutRequests([]));
@@ -377,10 +385,42 @@ export function NetworkPageContent({ viewerKind }: { viewerKind?: 'founder' | 'i
     }).finally(() => setBusy(false));
   }
 
-  function submitMilestone() {
-    setBusy(true); setError(null);
-    fetch('/api/network/milestone', { method: 'POST' })
-      .then((r) => r.json()).then((b) => { if (!b.ok) setError(b.error); load(); }).finally(() => setBusy(false));
+  // Prompt 528 — this used to POST straight to /api/network/milestone, which
+  // inserted the post immediately: no modal, no preview, no confirmation. It
+  // now opens the SAME composer every other post uses, pre-filled with the
+  // server-computed draft. Accept is "Post", edit is the textarea, cancel is
+  // "Cancel" — the review step the founder asked for, with no new UI, and the
+  // published text goes through checkNetworkContent like any other post.
+  // Prompt 528 §2 — fills ONE of the four sections with a grounded draft.
+  // Never silently overwrites: a section the founder has already typed into
+  // keeps its text and the suggestion is appended below it, so nothing they
+  // wrote can vanish behind a button they pressed out of curiosity.
+  async function suggestUpdate() {
+    setSuggestBusy(true); setSuggestNote(null); setComposerError(null);
+    try {
+      const b = await fetch('/api/network/update/suggest').then((r) => r.json());
+      if (!b.ok) { setSuggestNote(b.error ?? 'Could not ask Sherlock right now.'); return; }
+      if (!b.available) { setSuggestNote(b.reason ?? 'Nothing to suggest yet.'); return; }
+      setComposerStructured((prev) => {
+        const existing = (prev[b.section as keyof UpdateStructuredView] ?? '').trim();
+        return { ...prev, [b.section]: existing ? `${existing}
+
+${b.text}` : b.text };
+      });
+      setSuggestNote(b.reasoning ? `Sherlock: ${b.reasoning}` : null);
+    } catch {
+      setSuggestNote('Could not ask Sherlock right now.');
+    } finally {
+      setSuggestBusy(false);
+    }
+  }
+
+  function openMilestoneDraft() {
+    setError(null);
+    setComposerKind('freeform');
+    setComposerBody(milestoneText);
+    setComposerError(null);
+    setComposerOpen(true);
   }
 
   function submitOffer() {
@@ -774,7 +814,16 @@ export function NetworkPageContent({ viewerKind }: { viewerKind?: 'founder' | 'i
               className="mt-2 w-full rounded-lg border border-gray-300 p-2 text-sm" />
           ) : (
             <div className="mt-2 space-y-2">
-              <p className="text-[11px] text-gray-400">All optional — fill in whichever sections apply. No round/funding field, on purpose.</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] text-gray-400">All optional — fill in whichever sections apply. No round/funding field, on purpose.</p>
+                {/* Prompt 528 §2 — no new UI beyond this button: the four
+                    textareas below already ARE the edit/accept/discard flow. */}
+                <button type="button" onClick={suggestUpdate} disabled={suggestBusy}
+                  className="shrink-0 rounded-full border border-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-[#0E7490] hover:bg-cyan-50 disabled:opacity-40">
+                  {suggestBusy ? 'Asking Sherlock…' : '✨ Suggest with Watson'}
+                </button>
+              </div>
+              {suggestNote && <p className="text-[11px] text-gray-500">{suggestNote}</p>}
               {([
                 ['productProgress', 'Product'], ['customers', 'Customers'], ['team', 'Team'], ['learnings', 'Learnings'],
               ] as const).map(([key, label]) => (
@@ -1017,7 +1066,7 @@ export function NetworkPageContent({ viewerKind }: { viewerKind?: 'founder' | 'i
               an investor never sees this button (server-side milestoneAvailable
               is left as-is — this is purely the client-facing gate). */}
           {viewerKind !== 'investor' && milestoneAvailable && (
-            <button onClick={submitMilestone} disabled={busy}
+            <button onClick={openMilestoneDraft}
               className="rounded-full border border-emerald-300 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50">
               🎯 Share a round milestone
             </button>
