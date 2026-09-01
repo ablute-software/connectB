@@ -128,3 +128,68 @@ export function isRevisitTitle(title: string): boolean {
 export function revisitTasksToClose(tasks: TaskItem[], entityId: string): string[] {
   return pending(tasks, entityId).filter((t) => isRevisitTitle(t.title)).map((t) => t.id);
 }
+
+// Prompt 527 — the history note a dismissal leaves behind.
+//
+// Until now, every "park this investor" path wrote straight to
+// entities.dormant_since/dormant_reason and logged NOTHING: journey.ts:108-116
+// says so in as many words, as a known gap left on purpose. So the founder
+// could dismiss Sherlock's advice and, a month later, find no record that a
+// decision had ever been made — only an investor that had quietly gone quiet.
+//
+// Pure on purpose: the wording is the part worth testing, and it must never
+// invent provenance a row does not have. A task that was never a Sherlock
+// suggestion says so by omission — it names the task, not an advisor.
+export type DismissSource =
+  | { kind: 'suggestion'; text: string; personName?: string | null }
+  | { kind: 'task'; title: string; fromSherlock: boolean }
+  | { kind: 'reawakening'; text?: string | null }
+  // The dossier's own exit menu: the founder parked deliberately, from the
+  // investor's page, with no Sherlock suggestion on screen to dismiss.
+  // Writing "Dismissed — Sherlock suggested…" there would invent an advisor
+  // that never spoke.
+  | { kind: 'manual'; label: string };
+
+function isoDay(now: Date): string {
+  return now.toISOString().slice(0, 10);
+}
+
+export function dismissNoteContent(source: DismissSource, now: Date): string {
+  const day = isoDay(now);
+  if (source.kind === 'reawakening') {
+    // The entity is ALREADY dormant here — the founder is declining to wake
+    // it, not parking it. "Stayed dormant" rather than "Marked dormant", so
+    // the history does not read as a second, invented state change.
+    const detail = source.text?.trim();
+    return detail
+      ? `Dismissed — Sherlock suggested reawakening this investor (${detail}). Stayed dormant on ${day}.`
+      : `Dismissed — Sherlock suggested reawakening this investor. Stayed dormant on ${day}.`;
+  }
+  if (source.kind === 'task') {
+    // task.source tells us whether Sherlock proposed this or the founder
+    // wrote it themselves. Claiming "Sherlock suggested" for a hand-written
+    // task would be a fabricated provenance in a permanent record.
+    const lead = source.fromSherlock
+      ? `Dismissed — Sherlock suggested: "${source.title.trim()}"`
+      : `Dismissed the follow-up "${source.title.trim()}"`;
+    return `${lead}. Marked dormant on ${day}.`;
+  }
+  if (source.kind === 'manual') {
+    return `Parked by choice — ${source.label.trim()}. Marked dormant on ${day}.`;
+  }
+  const who = source.personName?.trim() ? ` for ${source.personName.trim()}` : '';
+  const quoted = `Dismissed — Sherlock suggested: "${source.text.trim()}"${who}`;
+  // The suggestion is quoted verbatim, so it often already ends in its own
+  // full stop — `"Follow up.".` reads like a typo. A person clause always
+  // needs the stop (a name never carries one), a bare quote that already
+  // ends in terminal punctuation does not.
+  const needsStop = !!who || !/[.!?]"$/.test(quoted);
+  return `${quoted}${needsStop ? '.' : ''} Marked dormant on ${day}.`;
+}
+
+// The reason stamped on entities.dormant_reason when a dismissal parks an
+// investor. dormant_reason is free text with no enum (seed.ts:188, and the
+// propose_dormant automation both write prose), so nothing to migrate.
+export function dismissDormantReason(now: Date): string {
+  return `Dismissed Sherlock's suggestion on ${isoDay(now)}.`;
+}

@@ -161,6 +161,14 @@ export interface StoreApi {
   // Supabase provider posts there), the UI just gates the form.
   updateOrg: (patch: Partial<Org>) => void;
   setEntityStatus: (id: string, status: Db['entities'][0]['status'], reason?: string) => void;
+  // Prompt 527 — a system note in an entity's history: the founder's own
+  // decision, recorded, with no side effects on the relationship itself.
+  // Deliberately NOT logInteraction, which patches the entity (last touch,
+  // status), creates follow-up tasks and applies rule overrides — all wrong
+  // for a note about declining advice. Mirrors setRelationshipStage's
+  // milestone insert instead, and reuses channel 'stage_change' for the
+  // reason documented at that call site.
+  logSystemNote: (entityId: string, content: string) => void;
   setInterest: (id: string, eur: number | undefined) => void;
   // Prompt 273 §3 — 'open' added (was 'resolved_ok' | 'resolved_blocked'
   // only) for the "Unblock"/"Revert" action, which reverts a mistaken or

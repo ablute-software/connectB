@@ -1074,6 +1074,30 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
         return next;
       });
     },
+    // Prompt 527 — the same shape setRelationshipStage's milestone uses, and
+    // for the same reason: this is a note ABOUT the relationship, not a touch
+    // IN it. channel 'stage_change' is reused rather than a new 'system_note'
+    // value, decided by measurement rather than taste — see the commit for the
+    // full argument. Short version: nine separate call sites already exclude
+    // 'stage_change' from "real touches" (relationship.ts:133,421;
+    // dashboard-era.ts:88,194; composer.ts:74; needs-review-logic.ts:220;
+    // NeedsReviewPanel.tsx:282; api/reawakening/evaluate:84), a new value would
+    // have to be added to every one of them, and missing a single one makes a
+    // dismissal silently count as an outbound contact — distorting caps,
+    // last-touch and the "contacted" figure. ThreadDrawer already renders
+    // 'stage_change' as a thin faded line carrying only `content`, which is
+    // exactly how a system note should read, and journey.ts ignores rows whose
+    // content does not parse as "Stage changed to X".
+    logSystemNote(entityId: string, content: string) {
+      setDb((prev) => ({
+        ...prev,
+        interactions: [...prev.interactions, {
+          id: uid('note'), entity_id: entityId, occurred_at: new Date().toISOString(),
+          direction: 'out' as const, channel: 'stage_change' as const, content,
+        }],
+      }));
+    },
+
 
     setRelationshipStage(entityId, stage) {
       // Prompt 214 §C.2 — o id nasce FORA do setDb para poder ser devolvido

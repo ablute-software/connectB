@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Entity, PassReasonCategory } from '@/lib/types';
 import { useStore } from '@/lib/store';
+import { useParkEntity } from '@/lib/use-park-entity';
 import { useConfirm } from '@/lib/confirm';
 import {
   STAGE_LABEL, STAGE_ORDER, relationshipSummary, stageExits, PASS_REASON_CATEGORIES,
@@ -108,6 +109,7 @@ export function RelationshipSummaryCard({
   dealMessageTouches?: DealMessageTouch[];
 }) {
   const { db, setRelationshipStage, undoStageChange, setEntityStatus, addTask, toggleTask, updateTask, updateEntity, logInteraction, addRejectionCode } = useStore();
+  const { applyPlan: applyExitPlan, parkEntity } = useParkEntity();
   const confirm = useConfirm();
   // Prompt 249 §A — 'decision-choose' is the new step: "Move to Decision"
   // no longer advances on click, it asks for the outcome first. Choosing
@@ -187,28 +189,12 @@ export function RelationshipSummaryCard({
   // Executa um plano de exit-effects.ts: cria a task de revisita e resolve
   // as pendentes. A task de revisita vem primeiro para o "Next:" ja a
   // apanhar no mesmo render (§D).
+  // Prompt 527 — this function's body moved to useParkEntity so the Today
+  // panel and the reawakening card can run the same flow. Kept as a thin
+  // wrapper rather than inlined at the two call sites below, so the exit
+  // menu's other actions (pass, advance) keep reading the same way.
   function applyPlan(plan: ExitPlan) {
-    if (plan.revisitTask) {
-      addTask({
-        title: plan.revisitTask.title, due_at: plan.revisitTask.dueAt,
-        entity_id: entity.id, kind: 'follow_up', action_type: 'other', source: 'suggested',
-      });
-    }
-    for (const d of plan.dispositions) {
-      if (d.action === 'done') {
-        toggleTask(d.taskId);
-        // Prompt 269 §1 — exit-effects.ts already computes WHY each task
-        // got auto-closed (d.reason); it was being thrown away instead of
-        // recorded. Appended, never overwriting a founder's own note on
-        // the task (notes is also a real founder-facing field — the
-        // appointment-note flow, AgendaPanel.tsx).
-        const existing = db.tasks.find((t) => t.id === d.taskId)?.notes;
-        updateTask(d.taskId, { notes: existing ? `${existing}\n\n${d.reason}` : d.reason });
-      } else {
-        updateTask(d.taskId, { due_at: d.dueAt });
-      }
-    }
-    setConfirmation(plan.confirmation);
+    setConfirmation(applyExitPlan(entity.id, plan));
   }
   const s = relationshipSummary(db, entity.id, new Date(), dealMessageTouches);
   // Prompt 197 C.2 — continua a ser uma sugestão, nunca uma promoção
@@ -471,8 +457,16 @@ export function RelationshipSummaryCard({
                     // entity and the task exactly as they were.
                     const hasOpenInterest = db.tasks.some((t) => t.entity_id === entity.id && !t.done && t.source === 'investor_interest');
                     if (hasOpenInterest && !(await confirm({ message: "This investor expressed interest and you haven't responded — freeze anyway?" }))) return;
-                    setEntityStatus(entity.id, 'dormant', exits.parkLabel === 'cold' ? 'Cold — no reply' : 'Frozen — no continuity');
-                    applyPlan(planPark(entity, db.tasks, new Date()));
+                    // Prompt 527 — same two effects as before (dormant +
+                    // planPark), now through the shared flow so this menu
+                    // ALSO leaves the history note it never wrote. Its own
+                    // dormant_reason wording is preserved: "cold" and
+                    // "frozen" carry a meaning a generic dismissal does not.
+                    setConfirmation(parkEntity({
+                      entity,
+                      dormantReason: exits.parkLabel === 'cold' ? 'Cold — no reply' : 'Frozen — no continuity',
+                      source: { kind: 'manual', label: exits.parkLabel === 'cold' ? 'Cold / no reply' : 'Frozen / no continuity' },
+                    }));
                   }}
                   className="block w-full rounded-lg px-2.5 py-2 text-left text-xs text-gray-800 hover:bg-gray-100">
                   {exits.parkLabel === 'cold' ? 'Cold / no reply' : 'Frozen / no continuity'} — parks this investor

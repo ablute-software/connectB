@@ -16,6 +16,8 @@ import {
   INTEREST_REQUEST_APPROVE_LABEL, INTEREST_REQUEST_DENY_LABEL,
 } from '@/lib/interest-requests-client';
 import { useDecideInterest } from '@/lib/use-decide-interest';
+import { useParkEntity } from '@/lib/use-park-entity';
+import { useConfirm } from '@/lib/confirm';
 import type { ActionType } from '@/lib/types';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 
@@ -41,6 +43,24 @@ export function TodayPanel() {
   const pendingInterestByEntity = new Map(
     interestRequests.filter((r) => r.status === 'pending' && r.entityId).map((r) => [r.entityId as string, r]));
   const { decideInterest, busyTaskId } = useDecideInterest();
+  // Prompt 527 — the same park flow the dossier's exit menu runs, reachable
+  // from where the founder actually meets the suggestion.
+  const { parkEntity } = useParkEntity();
+  const confirm = useConfirm();
+  const [dismissedNote, setDismissedNote] = useState<string | null>(null);
+
+  async function dismissEntity(entityId: string, source: Parameters<typeof parkEntity>[0]['source'], label: string) {
+    const entity = db.entities.find((e) => e.id === entityId);
+    if (!entity) return;
+    // Same friction the dossier already applies before freezing (Prompt 269's
+    // "freeze anyway?"), through the injected confirm — window.confirm is not
+    // used anywhere in this project.
+    const ok = await confirm({
+      message: `Park ${entity.name} and take it out of your active pipeline? ${label} will be recorded in its history.`,
+    });
+    if (!ok) return;
+    setDismissedNote(parkEntity({ entity, source }));
+  }
   // Prompt 398 §1 — a checkbox click can be a mis-click, and toggleTask is
   // already reversible, but the founder had no way to know that. Same
   // pattern as RelationshipSummaryCard's stage-change undo: local state,
@@ -140,6 +160,9 @@ export function TodayPanel() {
         <ReawakeningQueue />
 
         <Card title={<span className="text-[#B00000]">Overdue ({mergedOverdue.length})</span>}>
+          {dismissedNote && (
+            <p className="mb-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">{dismissedNote}</p>
+          )}
           {mergedOverdue.length === 0 ? <p className="text-sm text-gray-400">Nothing overdue.</p> : (
             <ul className="divide-y divide-gray-100">
               {mergedOverdue.map((entry) => {
@@ -159,6 +182,18 @@ export function TodayPanel() {
                           className="shrink-0 rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white">
                           Reply now
                         </Link>
+                        {/* Prompt 527 — the other honest answer to an overdue
+                            suggestion: not "later", but "no". Quotes the exact
+                            line above into the entity's history. */}
+                        <button
+                          onClick={() => dismissEntity(entry.entityId, {
+                            kind: 'suggestion',
+                            text: entry.text,
+                            personName: db.people.find((p) => p.id === entry.personId)?.full_name ?? null,
+                          }, 'Dismissing this suggestion')}
+                          className="shrink-0 rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50">
+                          Dismiss
+                        </button>
                       </div>
                     </li>
                   );
@@ -185,7 +220,25 @@ export function TodayPanel() {
                           className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">{INTEREST_REQUEST_DENY_LABEL}</button>
                       </span>
                     ) : (
-                      <span className="font-semibold text-[#B00000]">{t.due_at?.slice(0, 10)}</span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="font-semibold text-[#B00000]">{t.due_at?.slice(0, 10)}</span>
+                        {/* Prompt 527 — only where there IS an entity to park.
+                            A task with no entity_id has nothing to take out of
+                            the pipeline, so no button rather than a dead one. */}
+                        {t.entity_id && (
+                          <button
+                            onClick={() => dismissEntity(t.entity_id as string, {
+                              kind: 'task',
+                              title: followUpTaskDisplayTitle(t, now),
+                              // Only 'suggested' tasks came from Sherlock; a
+                              // manual one must not be credited to it.
+                              fromSherlock: t.source === 'suggested',
+                            }, 'Dismissing this follow-up')}
+                            className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50">
+                            Dismiss
+                          </button>
+                        )}
+                      </span>
                     )}
                   </div>
                   {/* Prompt 413 §2.3 — this used to point at "grant them

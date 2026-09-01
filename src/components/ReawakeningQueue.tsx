@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
+import { useParkEntity } from '@/lib/use-park-entity';
 import { Card, Tooltip } from '@/components/ui';
 import type { FitScore } from '@/lib/types';
 
@@ -16,6 +17,10 @@ const FIT_LABEL: Record<FitScore, string> = { high: 'High', medium_high: 'Medium
 
 export function ReawakeningQueue() {
   const { db, approveReawakening, rejectReawakening } = useStore();
+  // Prompt 527 — only the note half. The entity is ALREADY dormant here:
+  // calling setEntityStatus/planPark again would overwrite dormant_since and
+  // put a state change in the history that never happened.
+  const { logDismiss } = useParkEntity();
   const [available, setAvailable] = useState(false);
   // Local per-proposal edits to wave/fit before approval (default = suggested).
   const [edits, setEdits] = useState<Record<string, { wave?: number; fit?: FitScore }>>({});
@@ -161,7 +166,13 @@ export function ReawakeningQueue() {
                   className="ml-auto rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
                   Reopen
                 </button>
-                <button onClick={() => rejectReawakening(p.id)}
+                <button onClick={() => {
+                    rejectReawakening(p.id);
+                    // Unchanged above; the record below is what was missing —
+                    // rejectReawakening only set status='rejected' on the
+                    // proposal, leaving nothing in the entity's own history.
+                    logDismiss(p.entity_id, { kind: 'reawakening', text: p.fact_statement ?? p.rationale ?? null });
+                  }}
                   className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-white">
                   Ignore
                 </button>
