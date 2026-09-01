@@ -33,6 +33,7 @@ import { PageTour } from '@/components/onboarding/PageTour';
 import { LampButton } from '@/components/onboarding/LampButton';
 import { WorkspaceSidebar } from '@/components/workspace-shell/WorkspaceSidebar';
 import { WorkspaceMobileNav } from '@/components/workspace-shell/WorkspaceMobileNav';
+import { useBottomNavHeight, useBottomNavRef } from '@/lib/bottom-nav-context';
 import { WorkspaceHeader } from '@/components/workspace-shell/WorkspaceHeader';
 import { LogoutButton } from '@/components/workspace-shell/LogoutButton';
 import { EmptyState } from '@/components/workspace-shell/EmptyState';
@@ -102,6 +103,8 @@ export function InvestorWorkspaceShell({
   initialEvaluationOrgId?: string | null;
 }) {
   const [tab, setTab] = useState<Tab>(() => initialTab ?? 'pipeline');
+  const investorMobileNavRef = useBottomNavRef<HTMLElement>();
+  const investorBottomNavHeight = useBottomNavHeight();
   // P131-B — set when a Pipeline card's "Ownership calculator" shortcut is
   // clicked, so Evaluation tools opens with that startup already selected
   // instead of the investor having to find it again in a dropdown.
@@ -297,7 +300,14 @@ export function InvestorWorkspaceShell({
             wider max-w-7xl rather than reusing plans/network/pipeline's
             max-w-6xl — those three didn't ask for more room and stay
             unchanged. */}
-        <main className={`mx-auto p-4 md:p-8 ${tab === 'evaluation' ? 'max-w-7xl' : tab === 'plans' || tab === 'network' || tab === 'pipeline' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+        {/* Prompt 504 §2 — mesmo espaço reservado que o shell do founder, e
+            aqui havia uma lacuna a mais: esta nav era renderada SEM ref,
+            portanto a sua altura nunca chegava a ser medida — nem o conteúdo
+            nem o ReportProblemWidget tinham folga nenhuma no workspace do
+            investidor. É o mesmo componente e o mesmo bug, corrigido de uma
+            vez em vez de só do lado onde foi reportado. */}
+        <main style={{ paddingBottom: investorBottomNavHeight ? `calc(1rem + ${investorBottomNavHeight}px)` : undefined }}
+          className={`mx-auto p-4 md:p-8 ${tab === 'evaluation' ? 'max-w-7xl' : tab === 'plans' || tab === 'network' || tab === 'pipeline' ? 'max-w-6xl' : 'max-w-3xl'}`}>
           {tab === 'pipeline' && (
             !gateOpen ? (
               <EmptyState
@@ -355,7 +365,7 @@ export function InvestorWorkspaceShell({
       {/* Prompt 127 Bloco A (addenda §3) — this workspace never had a mobile
           nav at all before: below ~768px there was no way to switch tabs,
           full stop. Same navItems the sidebar uses. */}
-      <WorkspaceMobileNav items={navItems} />
+      <WorkspaceMobileNav ref={investorMobileNavRef} items={navItems} />
       <InvestorReminderPopup />
     </div>
     </OnboardingProvider>

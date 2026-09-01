@@ -17,7 +17,7 @@ import { OrphanAccountRepair } from '@/components/OrphanAccountRepair';
 import { ReminderPopup } from '@/components/ReminderPopup';
 import { InvestorInterestPopup } from '@/components/InvestorInterestPopup';
 import { DocumentRequestPopup } from '@/components/DocumentRequestPopup';
-import { useBottomNavRef } from '@/lib/bottom-nav-context';
+import { useBottomNavHeight, useBottomNavRef } from '@/lib/bottom-nav-context';
 import { BRAND_NAME } from '@/lib/brand';
 import { useUsageHeartbeat } from '@/lib/use-usage-heartbeat';
 import { WorkspaceSidebar } from '@/components/workspace-shell/WorkspaceSidebar';
@@ -130,6 +130,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // Prompt 125 Block A — reports this nav's real rendered height (only
   // ever present on mobile, md:hidden) to ReportProblemWidget.
   const mobileNavRef = useBottomNavRef<HTMLElement>();
+  const bottomNavHeight = useBottomNavHeight();
 
   useEffect(() => {
     fetch('/api/me').then((r) => r.json()).then(setMe).catch(() => setMe({ authEnabled: false, user: null, role: 'none' }));
@@ -340,7 +341,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
             instead of a new Shell prop, since Shell has exactly one call
             site (app/layout.tsx) — a prop would need threading through
             that single site anyway, for no extra flexibility. */}
-        <main className={`mx-auto p-4 md:p-8 ${path === '/pipeline' ? 'max-w-[1600px]' : 'max-w-6xl'}`}>{children}</main>
+        {/* Prompt 504 §2 — o conteúdo reserva o espaço da nav inferior fixa.
+            Sem isto, o fim de qualquer página fica DEBAIXO da barra: a
+            página parece "correr por baixo" dela, que é metade do que o Nuno
+            descreveu. Reutiliza a altura já MEDIDA pelo ResizeObserver do
+            bottom-nav-context (até aqui só o ReportProblemWidget a lia) em
+            vez de um px inventado — a nav é `md:hidden`, portanto em desktop
+            mede 0 e isto não acrescenta nada; num telemóvel com notch já
+            traz o safe-area-inset dentro da medição. */}
+        <main style={{ paddingBottom: bottomNavHeight ? `calc(1rem + ${bottomNavHeight}px)` : undefined }}
+          className={`mx-auto p-4 md:p-8 ${path === '/pipeline' ? 'max-w-[1600px]' : 'max-w-6xl'}`}>{children}</main>
       </div>
 
       <WorkspaceMobileNav ref={mobileNavRef} items={mobileNavItems} />

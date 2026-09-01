@@ -17,9 +17,20 @@ export const WorkspaceMobileNav = forwardRef<HTMLElement, { items: WorkspaceNavI
       // All items, never cut down — width overflow scrolls horizontally
       // instead of hiding one; relative positioning keeps each badge pinned
       // to its own link.
-      <nav ref={ref} className="fixed inset-x-0 bottom-0 z-10 flex gap-1 overflow-x-auto border-t border-gray-100 bg-white px-2 py-1.5 md:hidden">
+      // Prompt 504 §3 — os itens eram `text-xs` (12px) com `px-2.5 py-1`:
+      // ~24px de altura de alvo, contra os ~44px que é o mínimo recomendado
+      // para toque. Agora `min-h-[44px]` com padding e texto maiores. O
+      // `overflow-x-auto` mantém-se (nunca cortar um item em telas
+      // estreitas), e `pb-[env(safe-area-inset-bottom)]` impede que o último
+      // item fique debaixo da barra de gestos num telemóvel com notch — a
+      // altura real continua a ser MEDIDA pelo ResizeObserver do
+      // bottom-nav-context, portanto o espaço que o conteúdo reserva por
+      // baixo acompanha isto sozinho, sem número mágico em lado nenhum.
+      // Sombra em vez de só um border-top: com 1px de linha cinzenta a barra
+      // lia-se como parte do conteúdo, que é metade do que o Nuno reportou.
+      <nav ref={ref} className="fixed inset-x-0 bottom-0 z-10 flex gap-1 overflow-x-auto border-t border-gray-200 bg-white px-2 pb-[env(safe-area-inset-bottom)] pt-1 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] md:hidden">
         {items.map((n) => {
-          const className = `relative shrink-0 px-2.5 py-1 text-xs ${n.active ? 'font-semibold text-[#0E7490]' : 'text-gray-400'} ${n.emphasize ? 'tracking-wide' : ''}`;
+          const className = `relative flex min-h-[44px] shrink-0 items-center px-3 py-2 text-[13px] ${n.active ? 'font-semibold text-[#0E7490]' : 'text-gray-500'} ${n.emphasize ? 'tracking-wide' : ''}`;
           const inner = (
             <>
               {n.label}

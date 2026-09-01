@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { FitTag, StatusPill, Tooltip, WaveTag, fmtEur, statusLabel } from '@/components/ui';
+import pipelineMobile from './pipeline-mobile.module.css';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { MatchDealVisibilityBanner } from '@/components/dashboard/MatchDealVisibilityBanner';
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
@@ -917,8 +918,14 @@ export default function PipelinePage() {
         {/* table-fixed + explicit column widths (colgroup) so the table
             holds to the container's width at every wave filter setting
             instead of growing with content and forcing horizontal scroll;
-            cells wrap (see td classes) rather than truncate. */}
-        <table className="w-full table-fixed text-sm">
+            cells wrap (see td classes) rather than truncate.
+            Prompt 504 §1 — isso continua verdade a partir de md. ABAIXO de
+            md nada disto funciona (9 colunas em % dentro de 390px dão ~15px
+            à Wave e partem o texto letra a letra), por isso a tabela deixa
+            de ser tabela: `pipelineMobile.cards` transforma cada <tr> num
+            card. O <colgroup> fica — é inerte quando as colunas não estão em
+            display:table-cell — e as classes de tabela passam a `md:`. */}
+        <table className={`text-sm md:w-full md:table-fixed ${pipelineMobile.cards}`}>
           <colgroup>
             {SORT_COLUMNS.map((c) => <col key={c.key} style={{ width: c.width }} />)}
           </colgroup>
@@ -966,7 +973,7 @@ export default function PipelinePage() {
               return (
                 <tr key={e.id}
                   className={`border-b border-gray-100 align-top hover:bg-[#E8F4F8]/60 ${zebra} ${suspended ? 'opacity-50' : ''} ${hf ? 'border-l-2 border-l-[#B00000]' : ''}`}>
-                  <td className="break-words px-2 py-1.5 font-medium">
+                  <td data-col="name" data-label="Entity" className="break-words px-2 py-1.5 font-medium">
                     <Link href={`/entities/${e.id}`} className="text-gray-900 hover:text-[#0E7490]">
                       {e.name} {hf && <span title={e.hard_filter} className="text-[#B00000]">⚑</span>}
                       {pathfinderEntityIds.has(e.id) && (
@@ -1049,19 +1056,19 @@ export default function PipelinePage() {
                       )
                     )}
                   </td>
-                  <td className="break-words px-2 py-1.5 text-gray-500">{e.type.replace('_', ' ')}</td>
-                  <td className="break-words px-2 py-1.5 text-gray-500">{e.hq_city ? `${e.hq_city}, ` : ''}{e.hq_country}</td>
-                  <td className="break-words px-2 py-1.5 text-gray-500">{fmtEur(e.check_min_eur)}–{fmtEur(e.check_max_eur)}</td>
-                  <td className="px-2 py-1.5">
+                  <td data-col="type" data-label="Type" className="break-words px-2 py-1.5 text-gray-500">{e.type.replace('_', ' ')}</td>
+                  <td data-col="hq" data-label="HQ" className="break-words px-2 py-1.5 text-gray-500">{e.hq_city ? `${e.hq_city}, ` : ''}{e.hq_country}</td>
+                  <td data-col="check" data-label="Check" className="break-words px-2 py-1.5 text-gray-500">{fmtEur(e.check_min_eur)}–{fmtEur(e.check_max_eur)}</td>
+                  <td data-col="sectors" data-label="Sectors" className="px-2 py-1.5">
                     {e.sectors.slice(0, 2).map((s) => (
                       <span key={s} className="mb-1 mr-1 inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">{s}</span>
                     ))}
                     {e.sectors.length > 2 && <span className="text-[11px] text-gray-400">+{e.sectors.length - 2}</span>}
                   </td>
-                  <td className="px-2 py-1.5"><FitTag fit={e.fit_score} /></td>
-                  <td className="px-2 py-1.5"><WaveTag wave={e.wave} /></td>
-                  <td className="px-2 py-1.5"><StatusPill status={e.status} labelOverride={frozenPillLabel(e)} /></td>
-                  <td className="break-words px-2 py-1.5">
+                  <td data-col="fit" data-label="Fit" className="px-2 py-1.5"><FitTag fit={e.fit_score} /></td>
+                  <td data-col="wave" data-label="Wave" className="px-2 py-1.5"><WaveTag wave={e.wave} /></td>
+                  <td data-col="status" data-label="Status" className="px-2 py-1.5"><StatusPill status={e.status} labelOverride={frozenPillLabel(e)} /></td>
+                  <td data-col="next_action" data-label="Next action" className="break-words px-2 py-1.5">
                     {task ? (
                       <span className="text-xs">
                         <span className="text-gray-700">{followUpTaskDisplayTitle(task)}</span>

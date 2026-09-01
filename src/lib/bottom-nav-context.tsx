@@ -34,7 +34,18 @@ export function useRegisterBottomNav(ref: RefObject<HTMLElement | null>): void {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const observer = new ResizeObserver(([entry]) => setHeight(entry.contentRect.height));
+    // Prompt 504 §2 — border box, não content box. `entry.contentRect`
+    // exclui padding e border, por isso reportava 44px para uma nav que
+    // ocupa 49px no ecrã (pt-1 + border-t + safe-area-inset), enquanto o
+    // `getBoundingClientRect()` da leitura inicial reportava os 49 — as duas
+    // medições do mesmo elemento não concordavam entre si. Medido no
+    // emulador a 390px antes de corrigir. Importa aos dois leitores: o
+    // espaço que o conteúdo reserva por baixo e a altura a que o
+    // ReportProblemWidget flutua ficavam ambos 5px curtos.
+    const observer = new ResizeObserver(([entry]) => {
+      const border = entry.borderBoxSize?.[0]?.blockSize;
+      setHeight(border ?? el.getBoundingClientRect().height);
+    });
     observer.observe(el);
     setHeight(el.getBoundingClientRect().height);
     return () => { observer.disconnect(); setHeight(0); };

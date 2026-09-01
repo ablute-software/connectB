@@ -1,0 +1,105 @@
+/* Prompt 504 §1 — o Pipeline no telemóvel.
+ *
+ * A causa raiz, medida no prompt: `w-full table-fixed` + 9 larguras em
+ * percentagem faz o browser distribuir SEMPRE 100% da largura do contentor
+ * pelas colunas. A ~390px, "Wave" (4%) fica com ~15px e "Fit" (5%) com ~19px;
+ * com `break-words`, o texto que não cabe parte-se letra a letra — a coluna
+ * de uma letra por linha que se vê nos screenshots. O `overflow-x-auto` que
+ * o contentor já tinha nunca chegava a fazer nada, porque o `w-full` impede
+ * a tabela de alguma vez ser mais larga que ele: as duas intenções eram
+ * mutuamente exclusivas e só a segunda estava activa.
+ *
+ * Escolhida a opção (B) do prompt (cards), e não (A) (destapar o scroll
+ * horizontal): uma tabela de 9 colunas não fica confortável em NENHUMA
+ * largura de telemóvel, mesmo scrollável, e obrigar a arrastar para os lados
+ * numa lista de ~700 entidades é exactamente o peso que a regra de ouro do
+ * Sherlock manda tirar, não acrescentar.
+ *
+ * Implementada em CSS sobre a MESMA <table>, e não como uma segunda árvore
+ * de JSX: a célula do nome tem ~100 linhas (badges, RelationshipCompactLine,
+ * reopen_trigger, o botão "Ask Sherlock") que dependem de uma dúzia de
+ * variáveis locais da linha. Uma cópia para mobile seria duas verdades a
+ * divergir na primeira alteração. Assim há um render só; muda o layout.
+ *
+ * Os selectores usam `data-col` (o nome da coluna), nunca :nth-child — se
+ * SORT_COLUMNS mudar de ordem, isto continua certo em vez de estilizar
+ * silenciosamente a coluna errada.
+ */
+@media (max-width: 767px) {
+  .cards thead { display: none; }
+  .cards, .cards tbody, .cards tr, .cards td { display: block; width: auto; }
+
+  /* Cada linha é um card. `border-left` fica intacto para o estado de
+     hard-filter (a <tr> já traz border-l-2 border-l-[#B00000]). */
+  .cards tr {
+    margin-bottom: 0.5rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 0.625rem 0.75rem;
+  }
+  .cards tr:last-child { margin-bottom: 0; }
+
+  /* O nome é o cabeçalho do card: sem etiqueta, maior, com o que já lá está
+     (badges, chips, linha de relação) a fluir por baixo. */
+  .cards td[data-col='name'] {
+    padding: 0 0 0.375rem 0;
+    font-size: 0.9375rem;
+    line-height: 1.35;
+    border-bottom: 1px solid #f3f4f6;
+    margin-bottom: 0.375rem;
+    overflow-wrap: anywhere;
+  }
+
+  /* As três que interessam a decidir: etiqueta à esquerda, valor à direita,
+     uma por linha. */
+  .cards td[data-col='status'],
+  .cards td[data-col='next_action'],
+  .cards td[data-col='fit'] {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.125rem 0;
+    font-size: 0.8125rem;
+  }
+  .cards td[data-col='status']::before,
+  .cards td[data-col='next_action']::before,
+  .cards td[data-col='fit']::before {
+    content: attr(data-label);
+    flex: none;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #9ca3af;
+  }
+
+  /* O resto — Type, HQ, Check, Sectors, Wave — é contexto, não decisão:
+     desce a uma linha secundária, em chips compactos, sem nunca quebrar
+     letra a letra (é `anywhere` só onde há espaço a sério, acima). */
+  .cards td[data-col='type'],
+  .cards td[data-col='hq'],
+  .cards td[data-col='check'],
+  .cards td[data-col='sectors'],
+  .cards td[data-col='wave'] {
+    display: inline-block;
+    width: auto;
+    padding: 0.125rem 0;
+    margin-right: 0.625rem;
+    font-size: 0.75rem;
+    white-space: normal;
+  }
+  .cards td[data-col='type']::before,
+  .cards td[data-col='hq']::before,
+  .cards td[data-col='check']::before,
+  .cards td[data-col='wave']::before {
+    content: attr(data-label) ' ';
+    font-size: 0.6875rem;
+    color: #9ca3af;
+  }
+  /* Uma célula vazia não deve deixar uma etiqueta órfã pendurada. */
+  .cards td:empty { display: none; }
+
+  /* A primeira linha de contexto ganha um respiro do bloco de decisões. */
+  .cards td[data-col='type'] { margin-top: 0.25rem; }
+}
