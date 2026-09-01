@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Fraunces, Inter } from 'next/font/google';
 import { serverClient, authEnabled, resolveRole } from '@/lib/supabase-server';
+import { landingDestination } from '@/lib/landing-redirect';
 import { BRAND_NAME, APP_URL } from '@/lib/brand';
 import { LogoLockup } from '@/components/Logo';
 import { LandingEffects } from '@/components/landing/LandingEffects';
@@ -108,7 +109,11 @@ export default async function InvestorLandingPage() {
     const { data: { user } } = await sb.auth.getUser();
     if (user) {
       const role = await resolveRole(user.id, user.email, sb, user.email_confirmed_at);
-      redirect(role === 'investor' ? '/portal' : '/pipeline');
+      // Prompt 515 — same fix as `/`: role 'none' has nowhere to be sent, so
+      // it sees this public page rather than the founder app. Shared helper
+      // so the two landings can't drift apart again.
+      const dest = landingDestination(role);
+      if (dest) redirect(dest);
     }
   }
 
