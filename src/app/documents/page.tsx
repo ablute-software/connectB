@@ -668,6 +668,17 @@ function DocumentsPageInner() {
   const [copiedGuestLinkFor, setCopiedGuestLinkFor] = useState<string | null>(null);
   const [guestLinkFallback, setGuestLinkFallback] = useState<string | null>(null);
 
+  // Prompt 535 — root cause, kept from the 518 branch when its duplicate fix
+  // was dropped in favour of this one: the original code did
+  // `.catch(() => {})` on the clipboard write and then showed "Copied!"
+  // unconditionally. clipboard.writeText must run inside the click's
+  // user-activation window, and the `await fetch` above can easily outlast
+  // it — Safari especially rejects with NotAllowedError, the rejection was
+  // swallowed, and the clipboard kept whatever it already held: plausibly the
+  // investor's email address, visible on the same row. That is the whole
+  // reported "Copy guest link copies the email" symptom, with no bad URL
+  // anywhere in it. Both fixes make the promise's real outcome decide what
+  // the founder is told; this one additionally falls back to execCommand.
   async function writeToClipboard(text: string): Promise<boolean> {
     try {
       if (navigator.clipboard?.writeText) {

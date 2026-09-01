@@ -30,6 +30,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { allItemsResolved } from '@/lib/document-request-logic';
+import { sendAccessGrantedEmail } from '@/lib/access-grant-email';
 
 type Action = 'grant_existing' | 'fulfill_document' | 'fulfill_via_message' | 'promise' | 'decline' | 'fulfill_cap_table';
 
@@ -63,6 +64,12 @@ export async function POST(req: Request) {
 
   const now = new Date().toISOString();
   const patch: Record<string, unknown> = { resolved_at: now };
+  // Prompt 518 §2 — set by whichever branch actually creates a grant, so the
+  // access email is sent from ONE place below instead of being duplicated (and
+  // forgotten) per branch, which is how four of the five grant paths ended up
+  // silent in the first place.
+  let grantedId: string | null = null;
+  let grantLabel: string | null = null;
 
   // Prompt 518 §1 — a folder item is granted as a folder, not a document.
   // grant_existing on an item that names a folder needs no documentId: the
@@ -74,12 +81,15 @@ export async function POST(req: Request) {
     if (requestedEmail && await isEmailBlocked(admin, requestedEmail)) {
       return NextResponse.json({ ok: false, error: BLOCKED_EMAIL_ERROR }, { status: 403 });
     }
-    const { error: grantError } = await admin.from('access_grants').insert({
+    const { data: newGrant, error: grantError } = await admin.from('access_grants').insert({
       org_id: reqRow.org_id as string, person_id: (reqRow.person_id as string | null) ?? null,
       invited_email: reqRow.person_id ? null : (reqRow.requested_email as string | null),
       folder_id: item.folder_id as string, granted_at: now,
-    });
+    }).select('id').single();
     if (grantError) return NextResponse.json({ ok: false, error: grantError.message }, { status: 500 });
+    grantedId = (newGrant?.id as string) ?? null;
+    const { data: folderRow } = await admin.from('folders').select('name').eq('id', item.folder_id as string).maybeSingle();
+    grantLabel = (folderRow?.name as string | null) ?? null;
     patch.status = 'granted';
   } else if (body.action === 'grant_existing' || body.action === 'fulfill_document') {
     if (!body.documentId) return NextResponse.json({ ok: false, error: 'documentId is required.' }, { status: 400 });
@@ -93,14 +103,17 @@ export async function POST(req: Request) {
     // resolveDocumentAccess (data-room.ts) already treats that exactly like
     // any other pending-NDA grant until nda-upload's document-scoped unlock
     // (see that route) stamps nda_accepted_at for THIS document.
-    const { data: doc } = await admin.from('documents').select('visibility').eq('id', body.documentId).maybeSingle();
+    const { data: doc2 } = await admin.from('documents').select('visibility, name').eq('id', body.documentId).maybeSingle();
+    const doc = doc2;
     const ndaRequired = doc?.visibility === 'due_diligence';
-    const { error: grantError } = await admin.from('access_grants').insert({
+    const { data: newDocGrant, error: grantError } = await admin.from('access_grants').insert({
       org_id: reqRow.org_id as string, person_id: (reqRow.person_id as string | null) ?? null,
       invited_email: reqRow.person_id ? null : (reqRow.requested_email as string | null),
       document_id: body.documentId, granted_at: now, nda_required: ndaRequired,
-    });
+    }).select('id').single();
     if (grantError) return NextResponse.json({ ok: false, error: grantError.message }, { status: 500 });
+    grantedId = (newDocGrant?.id as string) ?? null;
+    grantLabel = (doc2?.name as string | null) ?? null;
     patch.status = 'granted';
     if (body.action === 'fulfill_document') patch.fulfilled_document_id = body.documentId;
     if (ndaRequired) patch.resolution_note = 'Granted pending NDA — access opens once the signed NDA is on file for this document.';
@@ -135,5 +148,25 @@ export async function POST(req: Request) {
       .like('notes', `%request:${item.request_id as string}%`);
   }
 
-  return NextResponse.json({ ok: true, status: patch.status });
+  // Prompt 518 §2 — the actual "granting access doesn't send the email" fix.
+  // This route created access_grants rows and told nobody: no email code
+  // existed in the file at all. It sends now, for every branch that granted,
+  // and reports the outcome instead of swallowing it — the founder is told
+  // when the send failed so they can copy the link rather than believing the
+  // investor was notified.
+  let emailSent: boolean | undefined;
+  let emailError: string | undefined;
+  if (grantedId) {
+    const res = await sendAccessGrantedEmail(admin, {
+      orgId: reqRow.org_id as string,
+      grantId: grantedId,
+      personId: (reqRow.person_id as string | null) ?? null,
+      recipientEmail: reqRow.person_id ? null : (reqRow.requested_email as string | null),
+      whatLabel: grantLabel,
+    });
+    emailSent = res.emailSent;
+    emailError = res.emailError;
+  }
+
+  return NextResponse.json({ ok: true, status: patch.status, emailSent, emailError });
 }
