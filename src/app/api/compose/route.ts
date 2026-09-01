@@ -9,111 +9,14 @@ import { planEntitlements, AI_COMPOSER_LOCKED_COPY, WATSON_DRAFT_QUOTA } from '@
 import { recordWatsonDraft } from '@/lib/watson-draft-record';
 import { logAiCall } from '@/lib/ai-cost-log';
 import type { ComposerContext, ComposerIntent } from '@/lib/composer';
-import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-injection-defense';
+import { DOCUMENT_CONTENT_INSTRUCTION } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import type { Channel, Entity, Person } from '@/lib/types';
+import { buildPrompt } from './build-prompt';
 
 const NOT_CONFIGURED_MSG =
   'AI drafting isn’t available in your workspace yet — compose the message yourself. ' +
   'The linter and pre-flight checks below still apply.';
-
-const CHANNEL_GUIDANCE: Record<Channel, string> = {
-  linkedin_dm: 'LinkedIn DM: under 900 characters, no links to editable docs, conversational.',
-  linkedin_note: 'LinkedIn connection note: very short (under 300 characters), no ask yet — just the reason to connect.',
-  email: 'Email: include a short subject line, keep the body under ~150 words, one clear ask.',
-  web_form: 'Web form submission: formal, complete, no informalities — this is often the first read.',
-  call: 'Call talking points: bullet-style opening lines, not a script to read verbatim.',
-  meeting: 'Meeting follow-up or confirmation: reference what was discussed, confirm next step.',
-  event: 'Event follow-up: reference where you met, keep it light.',
-  intro: 'Warm intro message (to the connector or the target): thank the connector, or open warmly referencing them.',
-  stage_change: 'N/A',
-};
-
-const INTENT_GUIDANCE: Record<ComposerIntent, string> = {
-  first_touch: 'This is the FIRST message ever sent to this person. Open with a specific, true, recent hook about them — never generic. State the one small ask clearly.',
-  follow_up: 'This is a FOLLOW-UP after a period of silence. Do not repeat the first message verbatim. Reference the earlier note briefly, add one new piece of information or angle, keep the ask the same and small.',
-  reply: 'This REPLIES to their most recent inbound message (see prior thread). Address what they actually said — do not ignore it or restate the pitch from scratch.',
-  meeting_ask: 'Propose or confirm a specific meeting — suggest 2-3 concrete time windows, keep logistics simple.',
-};
-
-function buildPrompt(context: ComposerContext, channel: Channel, intent: ComposerIntent) {
-  // IRM_SPEC §11b/§11c — only appended when the caller actually has
-  // confirmed canon facts (see composer.ts's buildComposerContext, itself
-  // gated on confirmedFacts.length > 0). Empty/absent context.companyFacts
-  // means these blocks never render — the prompt is byte-identical to
-  // before §11 for every caller until at least one fact is confirmed.
-  const canonBlock = context.companyFacts?.length ? [
-    '',
-    'CONFIRMED COMPANY FACTS (the ONLY facts about the company you may assert — cite by id):',
-    context.companyFacts.map((f) => `[${f.id}] (${f.category}) ${f.statement}`).join('\n'),
-    '',
-    'PROVENANCE RULE (hard): every factual sentence about the company in your draft must map to one of the',
-    'fact ids above via the claims[] output field. If you need to state something about the company that is',
-    'NOT covered by these facts, do not invent it — instead add a claims[] entry with needsConfirmation',
-    '(a short question + 2-4 suggested answers) and write the draft sentence generically enough to still read',
-    'naturally either way.',
-  ] : [];
-
-  const reopenBlock = context.reopenContext ? [
-    '',
-    `REOPEN CONTEXT — this entity previously passed. Reason given: "${context.reopenContext.reopenTrigger}".`,
-    context.reopenContext.supersededSince.length ? `No longer true: ${context.reopenContext.supersededSince.join('; ')}` : '',
-    context.reopenContext.newSince.length ? `What changed since: ${context.reopenContext.newSince.join('; ')}` : '',
-    'The draft MUST cite the earlier "no" and lead with what changed — never pretend this is a first contact.',
-  ].filter(Boolean) : [];
-
-  // Prompt 272 — Sherlock's own structured adviser breakdown, already
-  // grounded against real company_facts and the actual pending questions
-  // at the point it was generated (/api/reawakening/neglect-evaluate) —
-  // this block hands that already-vetted content to the draft, it does
-  // not re-derive or re-verify it.
-  const briefing = context.sherlockBriefing;
-  const sherlockBlock = briefing ? [
-    '',
-    `SHERLOCK'S BRIEFING — a thread with this investor went cold; nobody ever formally passed. ${briefing.acknowledge}`,
-    briefing.respondTo.length
-      ? `Pending questions to answer, each one:\n${briefing.respondTo.map((r) => `- "${r.question}" → ${r.answer}`).join('\n')}`
-      : '',
-    briefing.newHook ? `Why reopen now: ${briefing.newHook}` : '',
-    briefing.timing ? `Timing guidance: ${briefing.timing}` : '',
-    'The draft MUST acknowledge the gap in one line (no drama, no over-apologizing), answer EVERY pending question above, '
-      + 'and lead the reopen with the "why reopen now" reason — never pretend this is a first contact.',
-  ].filter(Boolean) : [];
-
-  const noPerson = !context.person.fullName;
-
-  return [
-    noPerson
-      ? `Compose a single outreach message for ${context.startup.name} to send to ${context.investor.entityName} generally — ` +
-        `there is no specific named contact for this send (e.g. a web form, an info@ inbox, or the firm's LinkedIn page). ` +
-        `Address it to the firm or team as a whole (e.g. "the team at ${context.investor.entityName}") — never invent a person's name.`
-      : `Compose a single outreach message for ${context.startup.name} to send to ${context.person.fullName}` +
-        (context.person.role ? ` (${context.person.role})` : '') + ` at ${context.investor.entityName}.`,
-    '',
-    `INTENT: ${intent} — ${INTENT_GUIDANCE[intent]}`,
-    `CHANNEL: ${channel} — ${CHANNEL_GUIDANCE[channel]}`,
-    context.person.preferredLanguage === 'pt' ? 'Write in European Portuguese.' : 'Write in English.',
-    '',
-    'CONTEXT (ground truth — do not invent beyond this):',
-    // Prompt 305 §B — priorThread[].snippet can be investor-authored
-    // (third-party) content; wrap the whole context blob as data.
-    wrapDocumentContent(JSON.stringify(context, null, 2)),
-    ...canonBlock,
-    ...reopenBlock,
-    ...sherlockBlock,
-    '',
-    'HARD RULES:',
-    '- Never claim traction, revenue, or clinical results that are not in the context.',
-    context.person.killWords.length ? `- Never use these kill words for this person: ${context.person.killWords.join(', ')}.` : '',
-    '- One ask only, and keep it small.',
-    noPerson
-      ? '- Line 1 must reference something specific/true/recent about the fund — never a generic opener, and never a person\'s name (there isn\'t one).'
-      : '- Line 1 must reference something specific/true/recent about this person or fund — never a generic opener.',
-    '- Never include an editable document link (no "/edit" URLs).',
-    context.constraints.locked ? `- NOTE: this entity is contact-locked until ${context.constraints.lockUntil?.slice(0, 10)} — draft anyway for prep, but flag this in the rationale.` : '',
-    context.constraints.thirdUnansweredRisk ? '- NOTE: two prior messages already went unanswered — this would be a third. Strongly consider proposing to hold instead of drafting a third message; say so in the rationale.' : '',
-  ].filter(Boolean).join('\n');
-}
 
 interface ComposerToolOutput { subject: string; body: string; rationale: string; confidence: number; claims?: { text: string; factId?: string; needsConfirmation?: { question: string; options: string[] } }[] }
 

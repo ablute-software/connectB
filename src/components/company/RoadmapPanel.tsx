@@ -28,6 +28,8 @@ import { RoadmapCanvas } from './RoadmapCanvas';
 import { RoadmapEventDetailPanel } from './RoadmapEventDetailPanel';
 import { CategoryManager } from './RoadmapCard';
 import { SuggestedEventsPanel } from './SuggestedEventsPanel';
+import { RoadmapStarterChecklist } from './RoadmapStarterChecklist';
+import { DEFAULT_LANES } from '@/lib/growth-signal-tiers';
 import { GLASS_CARD, GLASS_PILL } from './roadmap-visual';
 import type { RoadmapEventStatus } from '@/lib/types';
 
@@ -37,13 +39,11 @@ import type { RoadmapEventStatus } from '@/lib/types';
 // the list is empty). Regulatory & IP is its own lane, not folded into
 // "Technology" — for a regulated vertical (the ablute_ case: CE/MDR) this
 // is a first-class investor concern, not an afterthought.
-const DEFAULT_LANES: { label: string; color: 'blue' | 'green' | 'amber' | 'purple' | 'teal'; shape: 'rounded' }[] = [
-  { label: 'Technology & Product', color: 'blue', shape: 'rounded' },
-  { label: 'Market & Commercial', color: 'green', shape: 'rounded' },
-  { label: 'Funding', color: 'amber', shape: 'rounded' },
-  { label: 'Team & Company', color: 'purple', shape: 'rounded' },
-  { label: 'Regulatory & IP', color: 'teal', shape: 'rounded' },
-];
+//
+// Prompt 517 — moved to src/lib/growth-signal-tiers.ts (imported above) so
+// the growth-signal list can type its suggested lane against these exact
+// labels. A lane renamed in one place and not the other is now a type
+// error instead of an event that silently lands with no category.
 
 // Same literal store-demo.tsx's own STORAGE_KEY uses. Duplicated rather than
 // imported from that module on purpose — importing it here introduced a
@@ -126,6 +126,39 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
 
   const hasEvents = db.roadmapEvents.length > 0;
 
+  // Prompt 517 Part 2 — the starter checklist's own handler. Separate from
+  // handleCreate because the checklist shows a failure on the row the founder
+  // just filled in, so it needs the error back rather than only in the shared
+  // banner above; it also carries `description`, which nothing else creating
+  // an event from this panel does.
+  async function handleStarterCreate(input: {
+    title: string; date: string; description?: string | null; status: RoadmapEventStatus;
+    category_id: string | null; date_precision?: 'exact' | 'approx' | 'quarter';
+  }) {
+    const { error: err } = await addRoadmapEvent({ ...input, date_precision: input.date_precision ?? 'exact' });
+    setError(err ? `Couldn't add the event: ${err}` : '');
+    if (!err) setStarterAdded(true);
+    return { error: err };
+  }
+
+  // Prompt 517 Part 2 — when the starter checklist is on screen.
+  //
+  // The spec's gate is `!hasEvents`, with one addition: a bare render gate
+  // would yank a 15-item checklist off screen the instant the founder's FIRST
+  // event lands — mid-flow, the moment it started working. So it also stays
+  // up while THIS card is the thing creating events (starterAdded).
+  //
+  // What it deliberately does NOT do is latch open on mount. That was the
+  // first attempt and it was wrong: in demo mode the store hydrates from
+  // localStorage AFTER first render (the same race the category seeding above
+  // already documents), so a mount-time latch saw zero events on every reload
+  // and pinned the card open forever — reproduced live, not theorised. Keying
+  // off a real add has no such window: events already saved and nothing added
+  // this session means hidden, which is what the spec asks for.
+  const [starterAdded, setStarterAdded] = useState(false);
+  const [starterSkipped, setStarterSkipped] = useState(false);
+  const showStarter = canEdit && !starterSkipped && (!hasEvents || starterAdded);
+
   return (
     <div className={`${roadmapFont.className} max-w-6xl space-y-6`}>
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -170,6 +203,10 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
           onPrefillConsumed={() => setPrefillTitle(null)}
         />
       </div>
+
+      {showStarter && (
+        <RoadmapStarterChecklist onCreate={handleStarterCreate} onSkip={() => setStarterSkipped(true)} />
+      )}
 
       {hasEvents && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
