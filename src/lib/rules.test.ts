@@ -152,3 +152,78 @@ describe('buildFollowUpTask', () => {
     expect(task.person_id).toBeUndefined();
   });
 });
+
+// Prompt 525 — quotation fidelity. The live case: Watson quoted Dr. Golnaz
+// Borghei (APEX Ventures) with quote marks around a compressed version of a
+// real screening question from a real, verified interview. The hook was
+// correct to the word; the draft's "quote" was not. Nothing was sent.
+describe('lintMessage — quotation fidelity', () => {
+  const BORGHEI_HOOK =
+    'In the APEX Ventures "Meet Our Team" interview (11/11/2025) she asks: "Is there a clear path to market? ' +
+    'Is there an exit strategy that makes sense within our time horizon?" She also points to the European ' +
+    'techbio bottleneck, and teaches at Cambridge Judge.';
+  const borghei = makePerson({ id: 'p-borghei', entity_id: 'e-apex', seniority_rank: 2, full_name: 'Golnaz Borghei', hook: BORGHEI_HOOK });
+  const quoteErrors = (findings: { severity: string; message: string }[]) =>
+    findings.filter((f) => f.severity === 'error' && f.message.includes('Quoted text'));
+
+  // (a) the real failure, verbatim as drafted.
+  it('flags the compressed Borghei quote', () => {
+    const draft = 'Golnaz, you ask "clear path to market? exit strategy within our time horizon?" — here is ours.';
+    expect(quoteErrors(lintMessage(draft, borghei, undefined, 'email'))).toHaveLength(1);
+  });
+
+  // (b) the same words, quoted honestly.
+  it('accepts the full quote word-for-word', () => {
+    const draft = 'Golnaz, you ask: "Is there a clear path to market? Is there an exit strategy that makes sense within our time horizon?" Here is ours.';
+    expect(quoteErrors(lintMessage(draft, borghei, undefined, 'email'))).toHaveLength(0);
+  });
+
+  // The escape hatch the prompt points the model at when space is tight.
+  it('accepts a shorter but faithful sub-span', () => {
+    const draft = 'Golnaz, you ask whether there is "a clear path to market" — here is ours.';
+    expect(quoteErrors(lintMessage(draft, borghei, undefined, 'email'))).toHaveLength(0);
+  });
+
+  // (c) a scare-quoted single term is not attributed speech.
+  it('ignores a short quoted term such as a kill word', () => {
+    const person = makePerson({ id: 'p1', entity_id: 'e1', seniority_rank: 1, full_name: 'A Partner', hook: 'Writes about deep tech.' });
+    const draft = 'We deliberately avoid the word "wellness" when describing what we do.';
+    expect(quoteErrors(lintMessage(draft, person, undefined, 'email'))).toHaveLength(0);
+  });
+
+  it('accepts a quote sourced from watch_outs or background, not just hook', () => {
+    const person = makePerson({
+      id: 'p2', entity_id: 'e1', seniority_rank: 1, full_name: 'B Partner',
+      background: 'Previously founded and exited a diagnostics company in Berlin.',
+      watch_outs: 'Dislikes being asked for intros before a demo.',
+    });
+    const fromBackground = 'You "founded and exited a diagnostics company in Berlin" — that is why I am writing.';
+    const fromWatchOuts = 'I know you dislike "being asked for intros before a demo", so here is the demo first.';
+    expect(quoteErrors(lintMessage(fromBackground, person, undefined, 'email'))).toHaveLength(0);
+    expect(quoteErrors(lintMessage(fromWatchOuts, person, undefined, 'email'))).toHaveLength(0);
+  });
+
+  it('accepts a quote from a prior thread snippet passed as an extra source', () => {
+    const person = makePerson({ id: 'p3', entity_id: 'e1', seniority_rank: 1, full_name: 'C Partner', hook: 'Runs the seed practice.' });
+    const draft = 'You said you would "revisit this once you have a lead investor" — that has happened.';
+    const snippets = ['Thanks for sending. Let us revisit this once you have a lead investor in place.'];
+    expect(quoteErrors(lintMessage(draft, person, undefined, 'email'))).toHaveLength(1);
+    expect(quoteErrors(lintMessage(draft, person, undefined, 'email', snippets))).toHaveLength(0);
+  });
+
+  it('treats curly quotes and wrapped whitespace as the same text', () => {
+    const draft = 'Golnaz, you ask: \u201cIs there a clear path to market?\n  Is there an exit strategy that makes sense within our time horizon?\u201d Here is ours.';
+    expect(quoteErrors(lintMessage(draft, borghei, undefined, 'email'))).toHaveLength(0);
+  });
+
+  it('flags a reordered quote even when every word is true', () => {
+    const draft = 'Golnaz, you ask "Is there an exit strategy that makes sense within our time horizon? Is there a clear path to market?" — here is ours.';
+    expect(quoteErrors(lintMessage(draft, borghei, undefined, 'email'))).toHaveLength(1);
+  });
+
+  it('stays silent when the person has no sourced text at all', () => {
+    const bare = makePerson({ id: 'p4', entity_id: 'e1', seniority_rank: 1, full_name: 'D Partner' });
+    const draft = 'You once said "something I have absolutely no source for at all".';
+    expect(quoteErrors(lintMessage(draft, bare, undefined, 'email'))).toHaveLength(0);
+  });
+});

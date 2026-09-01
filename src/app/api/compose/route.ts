@@ -109,6 +109,16 @@ function buildPrompt(context: ComposerContext, channel: Channel, intent: Compose
     noPerson
       ? '- Line 1 must reference something specific/true/recent about the fund — never a generic opener, and never a person\'s name (there isn\'t one).'
       : '- Line 1 must reference something specific/true/recent about this person or fund — never a generic opener.',
+    // Prompt 525 — the model compressed a real quote from a real interview and
+    // kept the quote marks around the result. Stated as its own hard rule
+    // because the general ground-truth instruction above demonstrably did not
+    // cover it: every word was true, the ORDER and the omissions were not.
+    // rules.ts enforces this deterministically as well; this is the half that
+    // tells the model what to do instead of failing the check.
+    '- Any text inside quotation marks must be copied character-for-character from the source field it came from',
+    '  (this person\'s hook, background or watch-outs, or a snippet of a prior message in the thread). Never',
+    '  paraphrase, compress, reorder or trim quoted text while keeping the quote marks around it. If it is too long,',
+    '  either quote a SHORTER but still word-for-word sub-span, or drop the quote marks and paraphrase openly.',
     '- Never include an editable document link (no "/edit" URLs).',
     context.constraints.locked ? `- NOTE: this entity is contact-locked until ${context.constraints.lockUntil?.slice(0, 10)} — draft anyway for prep, but flag this in the rationale.` : '',
     context.constraints.thirdUnansweredRisk ? '- NOTE: two prior messages already went unanswered — this would be a third. Strongly consider proposing to hold instead of drafting a third message; say so in the rationale.' : '',
@@ -251,21 +261,46 @@ export async function POST(req: NextRequest) {
   // with a narrow reconstruction rather than widening the function signature.
   const personLike = {
     full_name: context.person.fullName, kill_words: context.person.killWords, hook: context.person.hook,
+    // Prompt 525 — watch_outs is a sourced field the draft may legitimately
+    // quote, so the quotation-fidelity check has to see it or it would flag a
+    // faithful quote as fabricated. ComposerContext carries no `background`,
+    // so that one stays undefined here; the check simply has one fewer
+    // haystack, never a false error.
+    watch_outs: context.person.watchOuts,
   } as Person;
   const entityLike = { name: context.investor.entityName, the_ask: context.investor.theAsk } as Entity;
+
+  // Every other piece of sourced text this draft may legitimately quote.
+  //
+  // Prior-thread snippets in BOTH directions: accurately quoting our own
+  // earlier message is not a misattribution either, and rejecting it would be
+  // a false positive on an error-severity rule that forces a re-draft.
+  //
+  // The fund's thesis and our own angle/ask/one-liner are here for the same
+  // reason. A draft that writes: your thesis of "backing technical founders in
+  // European deep tech" is quoting real sourced text, not putting words in the
+  // person's mouth — without these the check would call that a fabrication.
+  // Beyond the spec's list, deliberately: the danger being fixed is inventing
+  // what a PERSON said, and every entry here is text the founder or the fund
+  // actually wrote.
+  const threadSnippets = [
+    ...context.relationship.priorThread.map((t) => t.snippet),
+    context.investor.thesis, context.investor.ourAngle, context.investor.theAsk,
+    context.startup.oneLiner,
+  ];
 
   const canonGated = !!context.companyFacts?.length;
 
   try {
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
     let draft = await callClaude(apiKey, model, buildPrompt(context, channel, intent), canonGated, composeOrgId);
-    let findings = lintMessage(draft.body, personLike, entityLike, channel);
+    let findings = lintMessage(draft.body, personLike, entityLike, channel, threadSnippets);
 
     if (findings.some((f) => f.severity === 'error')) {
       const retryPrompt = buildPrompt(context, channel, intent) +
         `\n\nYour previous attempt failed these checks — fix them:\n${findings.filter((f) => f.severity === 'error').map((f) => `- ${f.message}`).join('\n')}`;
       draft = await callClaude(apiKey, model, retryPrompt, canonGated, composeOrgId);
-      findings = lintMessage(draft.body, personLike, entityLike, channel);
+      findings = lintMessage(draft.body, personLike, entityLike, channel, threadSnippets);
     }
 
     // Prompt 106 §B — "incremented whenever a draft is generated successfully"

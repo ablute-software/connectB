@@ -149,7 +149,89 @@ export interface LintFinding {
   message: string;
 }
 
-export function lintMessage(draft: string, person: Person, entity: Entity | undefined, channel: Channel): LintFinding[] {
+// ---------- quotation fidelity (Prompt 525) ----------
+//
+// Watson quoted Dr. Golnaz Borghei (APEX Ventures) with quote marks around
+// words she never wrote in that order. Her `hook` was right — verified against
+// the APEX Substack interview, correct to the word. What the model did was
+// COMPRESS the quote and keep the quote marks:
+//
+//   source: "Is there a clear path to market? Is there an exit strategy that
+//            makes sense within our time horizon?"
+//   draft:  "clear path to market? exit strategy within our time horizon?"
+//
+// In outreach that is worse than no quote at all: the recipient recognises
+// their own words, notices they were edited, and the line meant to prove you
+// read them carefully proves the opposite. Caught in draft — nothing was sent.
+//
+// The compose prompt has a HARD RULE about this now, but a prompt is a request,
+// not a guarantee — the model already had a general ground-truth instruction
+// and compressed the quote anyway. So this is the deterministic half, the same
+// shape as the kill-words check: substring matching, no model in the loop.
+// It is also load-bearing rather than advisory, because /api/compose re-drafts
+// once on any `error` finding — a fabricated quote now costs the model a retry
+// with the failure quoted back at it.
+
+// Straight and curly double quotes only. Single quotes and apostrophes are
+// deliberately excluded: contractions ("don't") and possessives ("Nina's")
+// would generate constant false positives for no safety gain.
+const QUOTE_SPANS = [/"([^"\n]{1,400})"/g, /“([^”\n]{1,400})”/g];
+
+// Below this, a quoted span is a scare-quoted term, not attributed speech —
+// e.g. "wellness" in a kill-words discussion. Flagging those would train
+// founders to ignore the finding, which is how a real one gets missed.
+const MIN_QUOTED_WORDS = 4;
+
+// Whitespace and typographic normalisation ONLY. Curly vs straight apostrophes
+// and line wrapping are rendering differences, not edits to the wording; the
+// comparison stays exact in every other respect, so dropping or reordering a
+// single word still fails.
+function normalizeQuotable(s: string): string {
+  return s
+    .replace(/[‘’ʼ]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function quotedSpans(draft: string): string[] {
+  const out: string[] = [];
+  for (const re of QUOTE_SPANS) {
+    for (const m of draft.matchAll(re)) {
+      const span = m[1].trim();
+      if (span.split(/\s+/).filter(Boolean).length >= MIN_QUOTED_WORDS) out.push(span);
+    }
+  }
+  return out;
+}
+
+/**
+ * Quoted spans that appear in NO sourced field verbatim.
+ *
+ * A shorter but faithful sub-span of a source passes — quoting half a sentence
+ * accurately is fine, and is the escape hatch the prompt points the model at
+ * when space is tight. What fails is text that was reworded, reordered or
+ * stitched together while keeping the quote marks.
+ */
+export function unsourcedQuotes(draft: string, sources: (string | undefined | null)[]): string[] {
+  const haystacks = sources.filter((s): s is string => !!s && s.trim().length > 0).map(normalizeQuotable);
+  if (haystacks.length === 0) return [];
+  return quotedSpans(draft).filter((span) => {
+    const needle = normalizeQuotable(span);
+    return !haystacks.some((h) => h.includes(needle));
+  });
+}
+
+export function lintMessage(
+  draft: string,
+  person: Person,
+  entity: Entity | undefined,
+  channel: Channel,
+  // Sourced text that lives outside the Person record — today, the prior
+  // thread's snippets, which /api/compose already has and rules.ts has no way
+  // to reach. Optional so every existing caller keeps working untouched.
+  extraQuotableSources: (string | undefined | null)[] = [],
+): LintFinding[] {
   const findings: LintFinding[] = [];
   const lower = draft.toLowerCase();
 
@@ -157,6 +239,17 @@ export function lintMessage(draft: string, person: Person, entity: Entity | unde
     if (lower.includes(kw.toLowerCase())) {
       findings.push({ severity: 'error', message: `Contains a kill word for this person: “${kw}”.` });
     }
+  }
+
+  // Same severity as a kill word, because the damage is the same kind: it
+  // burns the contact, and it does so precisely with the person most likely
+  // to notice — the one being quoted.
+  for (const span of unsourcedQuotes(draft, [person.hook, person.background, person.watch_outs, ...extraQuotableSources])) {
+    const shown = span.length > 70 ? `${span.slice(0, 70)}…` : span;
+    findings.push({
+      severity: 'error',
+      message: `Quoted text doesn’t match any sourced field verbatim — this misattributes altered wording to ${person.full_name}: “${shown}”. Quote it exactly, or drop the quote marks and paraphrase.`,
+    });
   }
 
   if (channel === 'linkedin_dm' && draft.length > LINKEDIN_DM_MAX) {
