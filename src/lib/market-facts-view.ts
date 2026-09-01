@@ -63,7 +63,22 @@ export function factZone(fact: Pick<FactView, 'validationStatus' | 'verification
 }
 
 function fmtNum(n: number): string {
-  return Math.abs(n) >= 1000 ? n.toLocaleString() : String(n);
+  // Prompt 530 — locale pinned. A bare toLocaleString() takes the RENDERING
+  // ENVIRONMENT's default locale, so the same market size rendered as
+  // "6,000,000,000" on an en-US machine and "6 000 000 000" (narrow no-break
+  // space) on a pt-PT one. That made market-facts-view.test.ts pass or fail
+  // depending on whose machine ran it — reported as a flaky "pre-existing
+  // locale failure" several times before the cause was pinned — and, worse,
+  // meant the number a real reader saw depended on where the code happened to
+  // run. The product is English-only (see CLAUDE.md), so en-US is the answer,
+  // stated rather than inherited.
+  //
+  // Scope is deliberately this one function: ~40 other unpinned
+  // toLocaleString() call sites exist across the product (metrics, backoffice,
+  // and at least one investor-facing surface). Sweeping them is a product
+  // decision about number and date formatting, taken separately — not smuggled
+  // in behind a test fix.
+  return Math.abs(n) >= 1000 ? n.toLocaleString('en-US') : String(n);
 }
 
 function valuePart(fact: Pick<FactView, 'factType' | 'payload'>): string {
