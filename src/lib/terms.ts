@@ -6,15 +6,22 @@
 // if/else that would need touching at every future bump.
 import { TERMS_V1_MARKDOWN } from '../content/terms/v1';
 import { TERMS_V2_MARKDOWN } from '../content/terms/v2';
+import { TERMS_V3_MARKDOWN } from '../content/terms/v3';
 
-// Prompt 403 §C — new Clause 6.3 (Vault security scanning). v1 stays
-// importable/mapped below so acceptance rows recorded against it (old
-// history) remain resolvable, per that prompt's own instruction.
-export const TERMS_VERSION = '2.0';
+// Prompt 514 — Clause 7.1(d)/(i) broadened (anti-scraping + no use of
+// Content to train any AI model, competing or not, paid plan or free).
+// A material legal change, so it is a version bump, not an edit of v2's
+// text: shouldGateTerms below then requires every signed-in user to
+// re-accept, which is the intended effect, not a regression.
+// (Prompt 403 §C was the previous bump: new Clause 6.3, Vault security
+// scanning.) Every superseded version stays importable/mapped below so
+// acceptance rows recorded against it (old history) remain resolvable.
+export const TERMS_VERSION = '3.0';
 
 const TERMS_MARKDOWN_BY_VERSION: Record<string, string> = {
   '1.0': TERMS_V1_MARKDOWN,
   '2.0': TERMS_V2_MARKDOWN,
+  '3.0': TERMS_V3_MARKDOWN,
 };
 
 export function getTermsMarkdown(version: string = TERMS_VERSION): string {
