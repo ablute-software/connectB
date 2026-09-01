@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card } from '@/components/ui';
+import { ContributePersonDialog } from '@/components/ContributePersonDialog';
 import { useStore } from '@/lib/store';
 import { parseKeyPeopleText } from '@/lib/key-people-parse';
 
@@ -47,7 +48,9 @@ type PanelState =
   | { kind: 'ready'; people: PersonRow[] }
   | { kind: 'error' };
 
-export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPersonAdded }: {
+export function EntityPeoplePanel({
+  entityId, onShowsKeyPeopleFallback, onPersonAdded, openAddRequest, onCanContribute,
+}: {
   entityId: string;
   // Prompt 275 §1 — lets the parent page know whether THIS panel is about
   // to show the key_people fallback list, so it can suppress ContributionBox's
@@ -62,10 +65,23 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
   // row in the "People" card once this fires with the newly created
   // person's id (addPerson returns the row synchronously).
   onPersonAdded?: (personId: string) => void;
+  // Prompt 512 — a counter the parent bumps to open the "+ Add a person"
+  // dialog from outside (the Sherlock banner's own button). A counter
+  // rather than a boolean so a second click after the founder cancels
+  // still reopens it.
+  openAddRequest?: number;
+  // Whether contributing is possible AT ALL for this entity — false when
+  // there is no shared catalog row, in which case this panel renders
+  // nothing and a button elsewhere pointing at it would be a dead click.
+  onCanContribute?: (can: boolean) => void;
 }) {
   const { db, addPerson } = useStore();
   const entity = db.entities.find((e) => e.id === entityId);
   const [state, setState] = useState<PanelState>({ kind: 'loading' });
+  // Prompt 512 — the "+ Add a person" dialog, and a counter the fetch
+  // effect depends on so a successful contribution reloads this list.
+  const [addOpen, setAddOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   // Prompt 262 — entities.key_people (free-text research, e.g. Karista.vc's
   // "Olivier Dubuisson (Managing Partner); ...") already went through the
   // SAME contributions review queue as every other confidence-routed
@@ -88,7 +104,7 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
       .limit(1)
       .then(({ data }) => { if (!cancelled) setKeyPeopleVerified(!!data && data.length > 0); });
     return () => { cancelled = true; };
-  }, [entityId]);
+  }, [entityId, reloadKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,7 +151,10 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
       setState({ kind: 'ready', people: (rows ?? []) as unknown as PersonRow[] });
     })();
     return () => { cancelled = true; };
-  }, [entityId]);
+    // Prompt 512 — reloadKey: a contributed person lands in
+    // catalog_person_affiliations server-side, so this read has to run again
+    // for the founder to see what they just added.
+  }, [entityId, reloadKey]);
 
   const showCatalogPeople = state.kind === 'ready' && state.people.length > 0;
   // Prompt 262 §3 — the catalog (live, more reliable) always wins when it
@@ -150,6 +169,18 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
   // hook must run on every render, including the 'loading' one below) so
   // the parent always learns the current value, not just the ones that
   // happen to reach the JSX return.
+  // Prompt 512 — same Rules-of-Hooks reasoning as the effect below: it
+  // must run on every render, including the ones that return null.
+  const canContribute = state.kind === 'ready' || state.kind === 'pending';
+  useEffect(() => {
+    onCanContribute?.(canContribute);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canContribute]);
+
+  useEffect(() => {
+    if (openAddRequest) setAddOpen(true);
+  }, [openAddRequest]);
+
   useEffect(() => {
     onShowsKeyPeopleFallback?.(showKeyPeopleFallback);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -158,7 +189,11 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
   if (state.kind === 'loading') return null; // avoids a layout flash on every page visit
 
   // Unchanged from before this prompt: truly nothing to show at all stays
-  // invisible rather than an empty Card.
+  // invisible rather than an empty Card. Prompt 512 does NOT loosen this:
+  // 'no_catalog_link' means there is no shared catalog row for this firm,
+  // and a contribution would have nowhere to land (the route returns 409
+  // for exactly that state) — offering "+ Add a person" here would be a
+  // dead end dressed as an action.
   if (!showCatalogPeople && !showKeyPeopleFallback && (state.kind === 'no_catalog_link' || state.kind === 'error')) return null;
 
   return (
@@ -245,6 +280,37 @@ export function EntityPeoplePanel({ entityId, onShowsKeyPeopleFallback, onPerson
           })}
         </ul>
       )}
+
+      {/* Prompt 512 — the entry point that did not exist. Before this, the
+          only way to add a person anywhere on this page was the narrow
+          "Add as contact" button above, which appears solely on the
+          key_people fallback branch; a firm whose catalog team is empty
+          offered nothing at all. Rendered on every branch that HAS a
+          catalog row, so an empty team reads as "one small thing to do"
+          rather than a dead end. */}
+      <div className="mt-3 border-t border-gray-100 pt-3">
+        <button
+          onClick={() => setAddOpen(true)}
+          className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+        >
+          + Add a person
+        </button>
+        <span className="ml-2 text-[11px] text-gray-400">
+          Sherlock checks the link you give and adds them for every founder.
+        </span>
+      </div>
+
+      <ContributePersonDialog
+        entityId={entityId}
+        entityName={entity?.name ?? 'this firm'}
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        // The panel reads catalog_person_affiliations directly, so a
+        // successful contribution only shows up after a refetch. Bumping
+        // the key the effect depends on is cheaper than lifting the whole
+        // fetch into the parent.
+        onContributed={() => setReloadKey((k) => k + 1)}
+      />
     </Card>
   );
 }

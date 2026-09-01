@@ -89,7 +89,7 @@ export function FocusLupa() {
 
 export function SherlockInsightBanner({
   entity, dealMessageTouches = [], onClassifyRequest,
-  canMessage, onSwitchToMessage, onSwitchToLog, focus = null,
+  canMessage, onSwitchToMessage, onSwitchToLog, onAddPerson, focus = null,
 }: {
   entity: Entity;
   dealMessageTouches?: DealMessageTouch[];
@@ -101,6 +101,10 @@ export function SherlockInsightBanner({
   // "Log the first interaction"/"Reply now" land pre-filled.
   onSwitchToMessage?: () => void;
   onSwitchToLog?: (personId?: string) => void;
+  // Prompt 512 — opens the Team card's "+ Add a person" dialog. Optional
+  // so every other caller of this banner is unaffected; without it the
+  // button simply does not render and the line reads as it did before.
+  onAddPerson?: () => void;
   // Prompt 410 §2.4 / Prompt 415 §3 — the raw ?focus= value from the
   // Sherlock Next Clue deep-link (sherlock-next.ts's own target strings).
   // 'interest' (kept as this literal value, not 'interest_request', for
@@ -160,6 +164,12 @@ export function SherlockInsightBanner({
   // instead of the "Reply now" button it's actually meant to mark.
   const showFirstInteractionButton = !pendingInterestReq && !!nextContactPreflight?.green && !!nextContact;
   const showReplyNowButton = !pendingInterestReq && !showFirstInteractionButton && actionButton?.kind === 'follow_up';
+  // The exact state relationship.ts's "Add a contact person first" line
+  // describes: first contact not made, and no person to run pre-flight
+  // against. Recomputed from the same two values that line uses, rather
+  // than by matching its text.
+  const showAddPersonButton = !pendingInterestReq && !showFirstInteractionButton
+    && s.stage === 'not_contacted' && !nextContact && !!onAddPerson;
 
   // Prompt 397 §A.4.4 — no advice, no box. Never an empty banner.
   if (!action) return null;
@@ -219,6 +229,16 @@ export function SherlockInsightBanner({
           ) : showFirstInteractionButton && nextContact ? (
             <button onClick={() => onSwitchToLog?.(nextContact.id)} className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
               Log the first interaction
+            </button>
+          ) : showAddPersonButton ? (
+            // Prompt 512 — "Add a contact person first — pre-flight needs
+            // one to check." (relationship.ts) has told the founder to do
+            // this since Prompt 254, with nothing to click: it is plain
+            // text in the line above, and the only "add a person" control
+            // anywhere on this page appears on one narrow fallback branch
+            // of the Team card. This is the destination it never had.
+            <button onClick={onAddPerson} className="rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-bold text-[#0E7490] hover:bg-white/90">
+              Add a person
             </button>
           ) : showReplyNowButton ? (
             canMessage && onSwitchToMessage ? (

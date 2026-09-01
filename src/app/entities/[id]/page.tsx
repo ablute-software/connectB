@@ -68,6 +68,14 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   const [editingContact, setEditingContact] = useState(false);
   const [contactDraft, setContactDraft] = useState({ website: '', email: '', phone: '', address: '' });
   const [contributionsRefreshKey, setContributionsRefreshKey] = useState(0);
+  // Prompt 512 — the Sherlock banner's "Add a person" button opens the
+  // Team card's dialog. The counter is bumped rather than a boolean set,
+  // so clicking again after a cancel reopens it. canContribute comes back
+  // FROM the panel: it alone knows whether this entity has a shared
+  // catalog row, and without one the panel renders nothing, so the banner
+  // must not offer a button that opens nothing.
+  const [addPersonRequest, setAddPersonRequest] = useState(0);
+  const [canContributePerson, setCanContributePerson] = useState(false);
   // Prompt 275 §1 — set by EntityPeoplePanel itself (only it knows whether
   // its live catalog read is empty, which is what decides whether the
   // key_people fallback list renders) so ContributionBox can drop its own
@@ -446,6 +454,7 @@ export default function EntityPage({ params }: { params: { id: string } }) {
         canMessage={canMessagePanel}
         focus={focusParam}
         onSwitchToMessage={() => setPanelMode('message')}
+        onAddPerson={canContributePerson ? () => setAddPersonRequest((n) => n + 1) : undefined}
         onSwitchToLog={(personId) => { setLogPrefill((p) => ({ personId, nonce: p.nonce + 1 })); setPanelMode('log'); }} />
 
       {/* Prompt 397 §B.1 — below the banner: left = Zone B's 4 tabs
@@ -647,7 +656,9 @@ export default function EntityPage({ params }: { params: { id: string } }) {
 
       {activeSection === 'people' && (
         <div className="space-y-4">
-          <EntityPeoplePanel entityId={entity.id} onShowsKeyPeopleFallback={setKeyPeopleShownInTeam} onPersonAdded={setJustAddedPersonId} />
+          <EntityPeoplePanel entityId={entity.id} onShowsKeyPeopleFallback={setKeyPeopleShownInTeam}
+            onPersonAdded={setJustAddedPersonId}
+            openAddRequest={addPersonRequest} onCanContribute={setCanContributePerson} />
 
           {/* Prompt 255 — "People (contact order enforced)" didn't explain
               itself even to the person who wrote the rule. The doctrine
