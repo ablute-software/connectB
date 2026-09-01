@@ -24,6 +24,8 @@ import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { descendantFolderIds, resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
+import { LogoLockup } from '@/components/Logo';
+import { LogoutButton } from '@/components/workspace-shell/LogoutButton';
 import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
 import { InvestorWorkspaceShell, type Tab } from '@/components/investor-workspace/InvestorWorkspaceShell';
 import { InteractionLogDrawer } from '@/components/investor-workspace/InteractionLogDrawer';
@@ -608,9 +610,17 @@ export default function PortalPage() {
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white px-6 py-4">
         <div className="mx-auto flex max-w-3xl items-center justify-between">
-          <div>
-            <span className="text-xl font-bold text-[#0E7490]" style={{ fontFamily: 'Comfortaa, sans-serif' }}>ablute<span className="text-[#22D3EE]">_</span></span>
-            <span className="ml-2 text-sm text-gray-400">Investor data room</span>
+          {/* Prompt 515 — this header (every pre-workspace state of the page:
+              sign-in, "Is this you?", no-access) hard-coded the founder's own
+              wordmark, so an investor signing in saw "ablute_" as if it were
+              the product. `src/lib/brand.ts` exists precisely so nothing
+              user-visible names a product itself; /portal was the last screen
+              still doing it. Same LogoLockup call as /login and /signup. */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 text-xl font-bold tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
+              <LogoLockup size={28} accentClassName="text-[#2a7f8e]" />
+            </div>
+            <span className="text-sm text-gray-400">Investor data room</span>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-[10px] font-bold text-[#B00000]">CONFIDENTIAL — SUBJECT TO NDA</span>
@@ -695,6 +705,17 @@ export default function PortalPage() {
           // which emails do or don't have access.
           <div className="mt-16 text-center text-sm text-gray-500">
             No active access for this account. If you believe this is an error, contact {senderEmail ?? 'the founder'}.
+            {/* Prompt 515 — this branch was a dead end: a live Supabase
+                session with nowhere to go and no way out but clearing
+                cookies by hand. Same fix InvestorWorkspaceShell already
+                carries for the has-access case (BUG-01). Only here: the
+                sign-in branches above have no session to end yet, and
+                "Is this you?" has its own exit. */}
+            {authEnabled && (
+              <div className="mt-4 flex justify-center">
+                <LogoutButton />
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-4">

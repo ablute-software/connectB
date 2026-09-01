@@ -2,14 +2,17 @@
 // landing-reference.html. Server component; the only client bits are the
 // scroll/reveal effects and the pricing toggle.
 //
-// Routing: this is `/`. An authenticated visitor never sees it — they are
-// redirected straight to the app (/pipeline). Auth logic itself is untouched:
-// this only reads the session, it never sets or clears one.
+// Routing: this is `/`. An authenticated visitor with a place in the product
+// is redirected straight to it (/pipeline, or /portal for an investor); a
+// session whose role is 'none' has no such place and sees this page like any
+// other visitor (Prompt 515). Auth logic itself is untouched: this only reads
+// the session, it never sets or clears one.
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Fraunces, Inter } from 'next/font/google';
 import { serverClient, authEnabled, resolveRole } from '@/lib/supabase-server';
+import { landingDestination } from '@/lib/landing-redirect';
 import { BRAND_NAME, APP_URL } from '@/lib/brand';
 import { LogoLockup } from '@/components/Logo';
 import { LandingEffects } from '@/components/landing/LandingEffects';
@@ -159,7 +162,11 @@ export default async function LandingPage() {
     const { data: { user } } = await sb.auth.getUser();
     if (user) {
       const role = await resolveRole(user.id, user.email, sb, user.email_confirmed_at);
-      redirect(role === 'investor' ? '/portal' : '/pipeline');
+      // Prompt 515 — a null destination means this session has no home of
+      // its own (role 'none'): it stays on the public landing instead of
+      // being pushed into the founder app. See landing-redirect.ts.
+      const dest = landingDestination(role);
+      if (dest) redirect(dest);
     }
   }
 
