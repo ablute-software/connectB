@@ -21,6 +21,7 @@ import { nextMonthlyDeliveryDate } from '@/lib/catalog-monthly-delivery';
 import { classifyEntityFrozenState, type EntityFrozenState } from '@/lib/frozen-classifier';
 import { viewForFrozenState, pillLabelForFrozenState } from '@/lib/frozen-view-grouping';
 import type { NeglectOutcome } from '@/lib/neglect-evaluation';
+import { neglectAskState, type NeglectAskState, type NeglectProposalRecord } from '@/lib/neglect-history';
 import { competitorInvestmentSummary, type CompetitorInvestmentItem } from '@/lib/competitor-investment-copy';
 import type { Db, Entity, Interaction, TaskItem } from '@/lib/types';
 
@@ -314,14 +315,59 @@ function PipelineUnlockBadge({ unlock }: { unlock: { gateComplete: boolean } | n
 // silence); 'not_worth_it' is the plain reason. Never reactivate on its
 // own text — the queue is the single place a ready-to-draft reactivation
 // is ever acted on.
-function NeglectResultLine({ result }: { result: { outcome: NeglectOutcome; rationale: string; newHook?: string; holdReason?: string } }) {
-  if (result.outcome === 'reactivate') {
-    return <p className="mt-0.5 text-[11px] font-medium text-[#0f5132]">→ Sherlock proposed a reactivation — see the queue above.</p>;
+// Prompt 513 §2 — deliberately locale-independent (fixed month names, UTC
+// parts) rather than toLocaleDateString: this renders inside a client
+// component whose data arrives after hydration, and a locale-dependent
+// string here is exactly the kind of thing that starts differing between
+// server and client renders later.
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getUTCDate()} ${SHORT_MONTHS[d.getUTCMonth()]}`;
+}
+
+function NeglectResultLine({ outcome, last }: { outcome: NeglectOutcome; last: NeglectProposalRecord }) {
+  const when = shortDate(last.created_at);
+  if (outcome === 'reactivate') {
+    return (
+      <p className="text-[11px] font-medium text-[#0f5132]">
+        → Sherlock proposed a reactivation ({when}) — {last.status === 'pending' ? 'see the queue above.' : 'already resolved in the queue.'}
+      </p>
+    );
   }
-  if (result.outcome === 'hold_for_hook') {
-    return <p className="mt-0.5 text-[11px] text-amber-700">Sherlock: not yet — {result.holdReason ?? result.rationale}</p>;
+  if (outcome === 'hold_for_hook') {
+    return <p className="text-[11px] text-amber-700">Sherlock already checked ({when}): not yet — {last.advice?.holdReason ?? last.rationale}</p>;
   }
-  return <p className="mt-0.5 text-[11px] text-gray-500">Sherlock: not worth it — {result.rationale}</p>;
+  return <p className="text-[11px] text-gray-500">Sherlock already checked ({when}): not worth it — {last.rationale}</p>;
+}
+
+// Prompt 513 §2/§3 — the row's whole "Ask Sherlock" area, for BOTH the
+// individual link and what "evaluate all" leaves behind. The verdict now
+// comes from the persisted reawakening_proposals row, not from React state
+// that a reload erases, and re-asking is a SEPARATE, differently-worded
+// control ("Ask Sherlock again") so it can never read as a first-time ask.
+function NeglectAskCell({ state, asking, onAsk }: {
+  state: NeglectAskState; asking: boolean; onAsk: (force: boolean) => void;
+}) {
+  if (asking) return <p className="mt-0.5 text-[11px] text-gray-400">Asking Sherlock…</p>;
+  if (!state.last || !state.outcome) {
+    return (
+      <button onClick={() => onAsk(false)} className="mt-0.5 text-[11px] font-semibold text-[#0f5132] hover:underline">
+        Ask Sherlock
+      </button>
+    );
+  }
+  return (
+    <div className="mt-0.5 space-y-0.5">
+      <NeglectResultLine outcome={state.outcome} last={state.last} />
+      {state.manualAskable && (
+        <button onClick={() => onAsk(true)} className="text-[11px] text-gray-500 underline decoration-dotted hover:text-[#0f5132]">
+          Ask Sherlock again
+        </button>
+      )}
+    </div>
+  );
 }
 
 // Prompt 257 §1/§2 — the founder's own default read of the list, three
@@ -363,14 +409,16 @@ function sortValue(db: Db, key: SortKey, e: Entity): unknown {
 export default function PipelinePage() {
   useTrackPageView('/pipeline');
   const { db, loading, markEntityVerified, askSherlock } = useStore();
-  // Prompt 271 §3 / Prompt 272 — per-entity Sherlock evaluation state for
-  // the "Stand by" view. 'loading' while the request is in flight; a
-  // verdict object once it resolves (shown inline — 'hold_for_hook' and
+  // Prompt 271 §3 / Prompt 272 / Prompt 513 §2 — this state is now ONLY
+  // "a request is in flight for these entities". The verdict itself used
+  // to live here too, which was the whole bug: 'hold_for_hook' and
   // 'not_worth_it' are recorded in reawakening_proposals but never
-  // surfaced by ReawakeningQueue, so this is the ONLY place the founder
-  // ever sees that reasoning). Absent from the map = idle, still showing
-  // the "Ask Sherlock" button.
-  const [neglectResults, setNeglectResults] = useState<Record<string, 'loading' | { outcome: NeglectOutcome; rationale: string; newHook?: string; holdReason?: string }>>({});
+  // surfaced by ReawakeningQueue, so this map was the only place the
+  // founder ever saw that reasoning — and a reload, a route change or a
+  // remount erased it, leaving no trace that the entity had been asked
+  // about at all. The verdict is read back from db.reawakeningProposals
+  // instead (neglectAskStates below), which is where it always was.
+  const [askingIds, setAskingIds] = useState<string[]>([]);
   const [q, setQ] = useState('');
   const [wave, setWave] = useState<string[]>([]);
   const [status, setStatus] = useState<string[]>([]);
@@ -633,28 +681,66 @@ export default function PipelinePage() {
   const noEntities = db.entities.length === 0;
   const noneClassified = !noEntities && db.entities.every((e) => e.wave == null);
 
+  // Prompt 513 §2 — the persisted history, read once per render pass for
+  // every dormant entity. Only dormant ones can be stand_by, so nothing
+  // else needs the lookup. Interactions are grouped once rather than
+  // filtered per entity: this page routinely renders several hundred rows
+  // against a few thousand interactions.
+  const neglectAskStates = useMemo(() => {
+    const now = new Date();
+    const confirmedFacts = db.companyFacts.filter((f) => f.status === 'confirmed');
+    const byEntity = new Map<string, Interaction[]>();
+    for (const i of db.interactions) {
+      if (!i.entity_id) continue;
+      const list = byEntity.get(i.entity_id);
+      if (list) list.push(i); else byEntity.set(i.entity_id, [i]);
+    }
+    const map = new Map<string, NeglectAskState>();
+    for (const e of db.entities) {
+      if (e.status !== 'dormant') continue;
+      map.set(e.id, neglectAskState(db.reawakeningProposals, e.id, {
+        interactions: byEntity.get(e.id) ?? [], confirmedFacts, now,
+      }));
+    }
+    return map;
+  }, [db.entities, db.interactions, db.companyFacts, db.reawakeningProposals]);
+
+  // A never-evaluated entity has no stored state; treat it as a first ask.
+  const NEVER_ASKED: NeglectAskState = { autoAskable: true, manualAskable: true, reaskReason: null };
+  function askStateFor(entityId: string): NeglectAskState {
+    return neglectAskStates.get(entityId) ?? NEVER_ASKED;
+  }
+
   // Prompt 271 §3 — on-demand only, never automatic: askSherlock is only
   // ever called from these two explicit click handlers.
-  async function askSherlockFor(entityIds: string[]) {
-    setNeglectResults((prev) => {
-      const next = { ...prev };
-      for (const id of entityIds) next[id] = 'loading';
-      return next;
-    });
-    const results = await askSherlock(entityIds);
-    setNeglectResults((prev) => {
-      const next = { ...prev };
-      for (const id of entityIds) {
-        const r = results.find((x) => x.entityId === id);
-        // A missing result (already-pending ask, or server-side reclassified
-        // as not actually dropped_by_us) reverts to idle rather than
-        // getting stuck on "loading" forever — the button just reappears.
-        if (r) next[id] = { outcome: r.outcome, rationale: r.rationale, newHook: r.newHook, holdReason: r.holdReason };
-        else delete next[id];
-      }
-      return next;
-    });
+  // Prompt 513 §2 — `force` is set ONLY by the per-row "Ask Sherlock
+  // again" click. The bulk button never sets it, so it can no longer
+  // re-spend an API call on an entity whose verdict is still current
+  // (see neglectAskState's own criterion). The route re-derives the same
+  // decision server-side — this flag asks for the override, it doesn't
+  // grant it, and a `pending` proposal is never overridable either way.
+  async function askSherlockFor(entityIds: string[], force = false) {
+    setAskingIds((prev) => [...new Set([...prev, ...entityIds])]);
+    try {
+      // The verdicts land in reawakening_proposals and come back through
+      // the store's own refetch — nothing to keep in local state now, which
+      // is exactly why the result survives a reload.
+      await askSherlock(entityIds, force);
+    } finally {
+      setAskingIds((prev) => prev.filter((id) => !entityIds.includes(id)));
+    }
   }
+
+  // Prompt 513 §2 — what "evaluate all" would actually spend a call on:
+  // stand_by rows in the current view that have never been evaluated, or
+  // whose last verdict is no longer current (a new interaction, a newly
+  // confirmed company fact, or 30 days — see neglectReaskReason). An
+  // in-flight ask is excluded so a double click can't double-bill.
+  const bulkAskIds = rows
+    .filter((e) => entityFrozenStates.get(e.id) === 'stand_by'
+      && !askingIds.includes(e.id)
+      && askStateFor(e.id).autoAskable)
+    .map((e) => e.id);
 
   // Top-of-page summary — counts + up to 6 most-recently-updated relationships.
   // "In talks" is in_conversation's display label here specifically (matches
@@ -848,18 +934,18 @@ export default function PipelinePage() {
             exception. Kept visible while it's the ACTIVE view even at 0, so
             toggling it back off never needs a second, different control. */}
         <button onClick={() => setFrozenView((v) => v === 'frozen' ? 'none' : 'frozen')}
-          title="Chegaram a um impasse — não evoluirão sem alteração das condições."
+          title="Reached an impasse — won't move without a change in conditions."
           className={`ml-auto rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'frozen' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
           {frozenView === 'frozen' ? '❄ Showing frozen' : `❄ Frozen (${frozenCount})`}
         </button>
         <button onClick={() => setFrozenView((v) => v === 'stale' ? 'none' : 'stale')}
-          title="Por alguma coisa caíram no esquecimento."
+          title="Fell through the cracks, for one reason or another."
           className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'stale' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
           {frozenView === 'stale' ? '💤 Showing stale' : `💤 Stale (${staleCount})`}
         </button>
         {(reportedCount > 0 || frozenView === 'reported') && (
           <button onClick={() => setFrozenView((v) => v === 'reported' ? 'none' : 'reported')}
-            title="Não são investidores — requer prova (denúncia de fraude com justificação)."
+            title="Not real investors — flagged with evidence (fraud report)."
             className={`rounded-lg border px-2.5 py-1.5 text-sm font-medium ${frozenView === 'reported' ? 'border-[#0E7490] bg-[#E8F4F8] text-[#0E7490]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
             {frozenView === 'reported' ? '🚨 Showing reported' : `🚨 Reported (${reportedCount})`}
           </button>
@@ -869,10 +955,18 @@ export default function PipelinePage() {
             acts on the stand_by rows WITHIN it, never the no_data ones now
             sharing the view — the server-side re-verification itself is
             unchanged. */}
-        {frozenView === 'stale' && rows.some((e) => entityFrozenStates.get(e.id) === 'stand_by' && !neglectResults[e.id]) && (
-          <button onClick={() => askSherlockFor(rows.filter((e) => entityFrozenStates.get(e.id) === 'stand_by' && !neglectResults[e.id]).map((e) => e.id))}
+        {/* Prompt 513 §2 — the count is now "not yet evaluated, or evaluated
+            and something has since changed", not "no verdict in this
+            browser tab's memory". Before, every dismissed verdict was
+            invisible to this filter, so the same entities were re-evaluated
+            (and re-billed) on every visit — three identical runs in three
+            minutes, confirmed in ai_call_log. At 0 the button disappears
+            rather than offering a no-op; re-asking one entity is the row's
+            own explicit "Ask Sherlock again". */}
+        {frozenView === 'stale' && bulkAskIds.length > 0 && (
+          <button onClick={() => askSherlockFor(bulkAskIds)}
             className="rounded-lg bg-[#0f5132] px-2.5 py-1.5 text-sm font-medium text-white hover:bg-[#0c4028]">
-            Ask Sherlock — evaluate all ({rows.filter((e) => entityFrozenStates.get(e.id) === 'stand_by' && !neglectResults[e.id]).length})
+            Ask Sherlock — evaluate all ({bulkAskIds.length})
           </button>
         )}
         <button data-tour-id="pipeline-import" onClick={() => setAddInvestorOpen(true)} className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-[#0E7490] hover:bg-[#E8F4F8]">+ Add investor</button>
@@ -1045,15 +1139,11 @@ export default function PipelinePage() {
                         and 'not_worth_it' never reach that queue, so this
                         IS the only place their reasoning is ever shown. */}
                     {frozenView === 'stale' && entityFrozenStates.get(e.id) === 'stand_by' && (
-                      neglectResults[e.id] === 'loading' ? (
-                        <p className="mt-0.5 text-[11px] text-gray-400">Asking Sherlock…</p>
-                      ) : neglectResults[e.id] ? (
-                        <NeglectResultLine result={neglectResults[e.id] as { outcome: NeglectOutcome; rationale: string; newHook?: string; holdReason?: string }} />
-                      ) : (
-                        <button onClick={() => askSherlockFor([e.id])} className="mt-0.5 text-[11px] font-semibold text-[#0f5132] hover:underline">
-                          Ask Sherlock
-                        </button>
-                      )
+                      <NeglectAskCell
+                        state={askStateFor(e.id)}
+                        asking={askingIds.includes(e.id)}
+                        onAsk={(force) => askSherlockFor([e.id], force)}
+                      />
                     )}
                   </td>
                   <td data-col="type" data-label="Type" className="break-words px-2 py-1.5 text-gray-500">{e.type.replace('_', ' ')}</td>

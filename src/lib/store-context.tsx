@@ -341,12 +341,15 @@ export interface StoreApi {
   // scan): the founder clicks "Ask Sherlock" (one entity or "evaluate
   // all"), this calls /api/reawakening/neglect-evaluate and refetches so
   // any new proposal appears in the same queue as the other two origins.
-  // Returns the per-entity verdicts too, for immediate inline feedback —
-  // 'hold_for_hook'/'not_worth_it' are recorded (dismissed) but never
-  // surfaced in ReawakeningQueue, so the caller needs the verdict itself
-  // to show the founder anything for those two cases. Demo mode has no
-  // server route to call — always resolves to [].
-  askSherlock: (entityIds: string[]) => Promise<{
+  // Returns the per-entity verdicts too — the caller uses them only to
+  // know whether anything was written at all; the verdict the founder
+  // reads comes from the refetched reawakening_proposals row, so it
+  // survives a reload (Prompt 513 §2 — it previously lived in React state
+  // and vanished on remount). Demo mode has no server route to call —
+  // always resolves to [].
+  // `force` is the founder's explicit per-row "Ask Sherlock again": without
+  // it the route skips any entity whose last verdict is still current.
+  askSherlock: (entityIds: string[], force?: boolean) => Promise<{
     entityId: string; outcome: NeglectOutcome; rationale: string;
     newHook?: string; holdReason?: string;
   }[]>;

@@ -1407,15 +1407,16 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('reawakening_proposals').update({ status: 'rejected', resolved_at: now }).eq('id', proposalId), 'rejectReawakening');
     },
 
-    // Prompt 271 §3 / Prompt 272 — founder-initiated only. Any 'reactivate'
-    // verdict lands as a new reawakening_proposals row server-side;
-    // refetch so it shows up in the same queue the other two origins
-    // already use.
-    async askSherlock(entityIds: string[]) {
+    // Prompt 271 §3 / Prompt 272 — founder-initiated only. EVERY verdict
+    // (not just 'reactivate') lands as a reawakening_proposals row
+    // server-side, so Prompt 513 §2 refetches on any non-empty result, not
+    // only when something reopened: the dismissed rows are what the
+    // Pipeline now reads its "Sherlock already checked…" line back from.
+    async askSherlock(entityIds: string[], force = false) {
       try {
         const res = await fetch('/api/reawakening/neglect-evaluate', {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ entityIds }),
+          body: JSON.stringify({ entityIds, force }),
         });
         const body = await res.json() as {
           results?: { entityId: string; verdict: { outcome: NeglectOutcome; rationale: string; newHook?: string; holdReason?: string } }[];
@@ -1424,7 +1425,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
           entityId: r.entityId, outcome: r.verdict.outcome, rationale: r.verdict.rationale,
           newHook: r.verdict.newHook, holdReason: r.verdict.holdReason,
         }));
-        if (results.some((r) => r.outcome === 'reactivate')) await refetch();
+        if (results.length > 0) await refetch();
         return results;
       } catch {
         return [];

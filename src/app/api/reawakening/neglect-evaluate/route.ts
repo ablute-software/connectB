@@ -29,6 +29,7 @@ import {
   buildNeglectEvaluationPrompt, entityToNeglectCase, neglectProposalPayload,
   type NeglectCase, type NeglectOutcome, type NeglectVerdict,
 } from '@/lib/neglect-evaluation';
+import { neglectAskState, type NeglectProposalRecord } from '@/lib/neglect-history';
 import { chunk } from '@/lib/reawakening';
 import { DOCUMENT_CONTENT_INSTRUCTION } from '@/lib/prompt-injection-defense';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
@@ -121,7 +122,12 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ ok: false, error: 'Sign in first.' }, { status: 401 });
 
-  const body = await req.json().catch(() => ({})) as { entityIds?: string[] };
+  // Prompt 513 §2 — `force` is the founder's explicit per-row "Ask
+  // Sherlock again". It is a REQUEST for the override, never the grant:
+  // the decision is re-derived below from the stored history, and a
+  // proposal still sitting `pending` in the queue is never overridable.
+  const body = await req.json().catch(() => ({})) as { entityIds?: string[]; force?: boolean };
+  const force = body.force === true;
   if (!Array.isArray(body.entityIds) || body.entityIds.length === 0) return NextResponse.json({ ok: true, results: [] });
 
   const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
@@ -141,20 +147,48 @@ export async function POST(req: NextRequest) {
   const entities = (entitiesRaw ?? []) as Entity[];
   if (entities.length === 0) return NextResponse.json({ ok: true, results: [] });
 
-  const [{ data: interactionsRaw }, { data: pendingRaw }, { data: peopleRaw }, { data: factsRaw }] = await Promise.all([
+  const [{ data: interactionsRaw }, { data: priorRaw }, { data: peopleRaw }, { data: factsRaw }] = await Promise.all([
     admin.from('interactions').select('*').eq('org_id', orgId).in('entity_id', entities.map((e) => e.id)),
-    admin.from('reawakening_proposals').select('entity_id').eq('org_id', orgId).eq('trigger_kind', 'neglect').eq('status', 'pending').in('entity_id', entities.map((e) => e.id)),
+    // Prompt 513 §2 — every prior neglect verdict, not just the pending
+    // ones. A dismissed verdict IS an answer; treating it as "never asked"
+    // is what let the same entities be re-evaluated (and re-billed) on
+    // every visit to the page.
+    admin.from('reawakening_proposals')
+      // Two literal column lists rather than one template string: the
+      // supabase-js select parser is type-level and can't read an
+      // interpolated one. `advice` is omitted entirely where migration
+      // 0193 isn't applied — same "never name an unknown column"
+      // discipline the insert below already follows.
+      .select(withAdvice
+        ? 'entity_id, trigger_kind, reopens, status, created_at, advice'
+        : 'entity_id, trigger_kind, reopens, status, created_at')
+      .eq('org_id', orgId).eq('trigger_kind', 'neglect').in('entity_id', entities.map((e) => e.id)),
     admin.from('people').select('*').eq('org_id', orgId).in('entity_id', entities.map((e) => e.id)),
-    admin.from('company_facts').select('id, statement, category').eq('org_id', orgId).eq('status', 'confirmed'),
+    // created_at/confirmed_at are for the re-ask rule below (a newly
+    // confirmed fact is exactly what turns a hold_for_hook into a real
+    // hook); the prompt itself still only ever sees id/statement/category.
+    admin.from('company_facts').select('id, statement, category, created_at, confirmed_at').eq('org_id', orgId).eq('status', 'confirmed'),
   ]);
   const interactions = (interactionsRaw ?? []) as Interaction[];
   const people = (peopleRaw ?? []) as Person[];
-  const companyFacts = (factsRaw ?? []) as { id: string; statement: string; category: string }[];
-  // App-level dedup (§3 — no DB uniqueness for neglect, see migration 0192):
-  // never re-ask while a prior ask is still sitting unresolved for this
-  // entity. A resolved (approved/rejected/dismissed) one never blocks a
-  // fresh ask — the underlying "worth it" state can change over time.
-  const alreadyPending = new Set(((pendingRaw ?? []) as { entity_id: string }[]).map((r) => r.entity_id));
+  const companyFacts = (factsRaw ?? []) as {
+    id: string; statement: string; category: string; created_at: string; confirmed_at?: string;
+  }[];
+  // App-level dedup (§3 — no DB uniqueness for neglect, see migration 0192).
+  // Prompt 513 §2 replaces the original "pending only" rule, which never
+  // actually deduped anything for the two common outcomes: hold_for_hook
+  // and not_worth_it are written straight to `dismissed`, so they were
+  // re-askable on the very next visit, forever. Now a dismissed verdict
+  // also blocks — until something could plausibly change it (a new
+  // interaction, a newly confirmed company fact, or 30 days), or until the
+  // founder explicitly asks again. `pending` still blocks unconditionally.
+  // `as unknown as` on purpose: supabase-js resolves the row type from the
+  // select string at TYPE level, and the string here is chosen at runtime
+  // (advice column present or not), which its parser can only report as an
+  // error type. The shape is verified by the two literals above, not by
+  // the inference.
+  const priorProposals = (priorRaw ?? []) as unknown as NeglectProposalRecord[];
+  const askNow = new Date();
 
   const byEntity = new Map<string, Interaction[]>();
   for (const it of interactions) {
@@ -177,8 +211,11 @@ export async function POST(req: NextRequest) {
 
   const cases: NeglectCase[] = [];
   for (const e of entities) {
-    if (alreadyPending.has(e.id)) continue;
     const its = byEntity.get(e.id) ?? [];
+    const ask = neglectAskState(priorProposals, e.id, { interactions: its, confirmedFacts: companyFacts, now: askNow });
+    // Never asked → always allowed. Verdict still current → only on the
+    // founder's explicit "Ask again". Pending in the queue → never.
+    if (!ask.autoAskable && !(force && ask.manualAskable)) continue;
     // Server-side re-classification (§ non-clobbering): only genuinely
     // stand_by entities are ever evaluated (Prompt 273 — frozen_cold, e.g.
     // Alter VP's 2-outbound-zero-reply shape, is NOT this list — they
