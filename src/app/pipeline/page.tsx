@@ -28,15 +28,24 @@ import type { Db, Entity, Interaction, TaskItem } from '@/lib/types';
 const fitOrder = { high: 0, medium_high: 1, medium: 2, low: 3 };
 const SORT_STORAGE_KEY = 'ablute-pipeline-sort-v1';
 
-// Prompt 188 §1 — measured in the actual render (demo data, DevTools),
-// not guessed: thead is 32.5px, a single-line row (no relationship line,
-// no reopen-trigger note, no wrapped next-action text) is 57px. Rows with
-// that extra content wrap taller — table cells wrap instead of truncating
-// by design (see the SORT_COLUMNS comment above) — so a wave with a lot of
-// annotated rows will show a little under 15 before the scrollbar kicks
-// in; there's no fixed-height table design that avoids that trade-off
-// without truncating content the app deliberately never truncates.
-const PIPELINE_LIST_MAX_HEIGHT_PX = 888; // 32.5 (thead) + 15 * 57 (row), rounded up
+// Prompt 529 — replaces PIPELINE_LIST_MAX_HEIGHT_PX (888px = "32.5 thead +
+// 15 * 57 row"). Both numbers were re-measured in the live render before
+// this change and both were wrong: thead is 29px, and a row today is 53-113px
+// (median 73) at 1440px wide, 190-251px (median 218) at 390px. So the 888px
+// cap that was meant to show ~15 rows was showing about 4 on a phone.
+//
+// It is not replaced with a better pixel number, deliberately. That number
+// was accurate when written and went stale as soon as a badge was added to a
+// row — it will go stale again the moment the next one is. The cap is now
+// expressed in ROWS, and enforced in viewport units, so nothing has to be
+// re-measured when the row content changes.
+//
+// 40 = the largest plan quota today (motherfunding, catalog_quota=40). An
+// account cannot be delivered more catalog investors than its plan allows, so
+// at this cap every catalog-sourced pipeline fits without an internal scroll
+// on every plan. Above it the list is genuinely long — manual additions on top
+// of a full quota — and its own scroll is the right answer again.
+const PIPELINE_ROWS_WITHOUT_SCROLL_CAP = 40;
 
 // Column widths sum to 100% — table-fixed (below) then holds the table to
 // the container's width at every "wave" filter setting instead of growing
@@ -663,6 +672,14 @@ export default function PipelinePage() {
   // Named reportedCount, not blockedCount — that name is already taken by
   // the unrelated catalog-quota "blocked" count further up (from the
   // catalog_blocked_count() RPC, Prompt 123).
+  // Prompt 529 — drives the height rule below. Counts ONLY rows the account
+  // already has unlocked (`rows`, the rendered list), never the catalog rows
+  // the plan's quota is holding back — those are the frosted panel's business
+  // and must not shrink the founder's own list. Deliberately not the raw
+  // db.entities length either: `rows` is what is actually rendered under the
+  // current view/wave filter, and that is what has to fit.
+  const listExceedsCap = rows.length > PIPELINE_ROWS_WITHOUT_SCROLL_CAP;
+
   const reportedCount = viewCounts.reported;
   const notActivePipelineCount = frozenCount + staleCount + reportedCount;
 
@@ -779,22 +796,32 @@ export default function PipelinePage() {
   }
 
   return (
-    // Prompt 257 §5 — "two elevators" (the whole page, and the list's own
-    // 15-row scroll). Fix is scoped to md+ only (desktop is this table's
-    // real use case — 760 rows on a phone is already a stretch, and mobile
-    // pixel math for a sticky/bounded chrome is a different, riskier
-    // problem not asked for here): the root becomes a flex column bounded
-    // to the viewport height minus WorkspaceHeader (53px, measured live in
-    // the browser, same "measured, not guessed" discipline as
-    // PIPELINE_LIST_MAX_HEIGHT_PX below) minus <main>'s own top+bottom
-    // padding (32px+32px at md+, p-8). Every child keeps its natural size
-    // (shrink-0) EXCEPT the list, which becomes flex-1 and absorbs
-    // whatever space is left — in the common case (short/no banners) that's
-    // most of the viewport, and the list's own overflow-y-auto is the only
-    // scrollbar that ever activates. The root itself keeps overflow-y-auto
-    // too (not hidden) as a graceful fallback if an unusual banner stack
-    // ever exceeds the bounded height, rather than clipping content.
-    <div className="space-y-4 md:flex md:h-[calc(100vh-117px)] md:flex-col md:space-y-0 md:gap-4 md:overflow-y-auto">
+    // Prompt 257 §5 built this as "one elevator": the root is a flex column
+    // bounded to the viewport, every child keeps its natural size, and the
+    // list alone is flex-1 and absorbs whatever is left.
+    //
+    // Prompt 529 — that is right only while there IS space left. Measured on
+    // a real account (Caramel Biscuit, 25 unlocked entities): with the
+    // MatchDeal banner and the stats card both showing, the list was handed
+    // 460px for ~1,000px of rows, so the founder saw one row of the 25 their
+    // own account had. The frosted catalog panel sits immediately below and
+    // read as the cause, but it was not: the rows were hidden by a LACK OF
+    // HEIGHT, not by the plan's quota. Two different things were sharing one
+    // scrollbar.
+    //
+    // So flex-1 is gone, and with it the viewport binding that existed to
+    // feed it. The page is laid out and scrolls normally at every size; the
+    // list is sized by its own content, and every row the account already owns
+    // is reachable without an inner scrollbar no matter how many banners are
+    // stacked above it.
+    //
+    // Keeping flex-1 for the above-cap case only was tried first and measured:
+    // with 59 synthetic rows the list was handed 458px — the same squeeze,
+    // just moved to a different account size. A max-height that banners cannot
+    // eat into replaces it (on the list itself, below), which is what 257 §5
+    // was really reaching for. This inverts its "the page never scrolls"
+    // preference; showing the founder their own rows wins.
+    <div className="space-y-4">
       {/* P131-A — the banner already existed (Dashboard only, addenda to
           Prompt 120); the founder-facing gap was that Pipeline — the page
           this whole "why can't investors see us" mystery is actually about —
@@ -978,17 +1005,15 @@ export default function PipelinePage() {
           on the Pipeline (the DRIVE menu, a full-width investor table), and
           moved to My Network > Connections instead (see
           network/page.tsx's own "My connections" card). This is back to
-          exactly the pre-330 layout: the table div below carries its own
-          md:flex-1/md:min-h-0 directly against this root flex column
-          (Prompt 257 §5), no wrapping row/column needed since there's only
-          ever one column here now. */}
-      {/* Prompt 188 §1 — own vertical scroll capped at ~15 rows so the
-          list doesn't grow the whole page; max-height (not a hard height)
-          so a short pipeline still shrinks to fit instead of leaving dead
-          white space below it — "altura fixa" read literally would do
-          that for every org with fewer than 15 unlocked investors, which
-          is most of them today, so this reads the requirement as "cap at
-          15, don't force it" rather than the literal words. */}
+          exactly the pre-330 layout, no wrapping row/column needed since
+          there's only ever one column here now. (The md:flex-1/md:min-h-0
+          this used to describe was removed by Prompt 529 — see the root
+          div's comment for why.) */}
+      {/* Prompt 188 §1 capped this at ~15 rows via a fixed pixel height, so
+          the list never grew the whole page. Prompt 529 removed that cap
+          below PIPELINE_ROWS_WITHOUT_SCROLL_CAP rows: growing the page is
+          now the DESIRED outcome, because the alternative was hiding rows
+          the account already owns. */}
       {/* Prompt 192 — corrects 188 §2: the blocked-panel used to live
           inside THIS scroll container, after </table>, so it only became
           visible once the user scrolled the 15-row list all the way down.
@@ -996,19 +1021,22 @@ export default function PipelinePage() {
           one keeps its own scroll and, when a panel follows, only rounds
           its TOP corners and drops its bottom border so the two read as
           one continuous shape with no seam. */}
-      {/* Prompt 257 §5 — at md+ this is the ONE scrollbar the root's own
-          bounded flex column exists for: flex-1 + min-h-0 lets it absorb
-          whatever height the (shrink-0) banners/filters above didn't use,
-          overriding the fixed maxHeight below. Below md, the root isn't
-          flex-bound (mobile keeps ordinary page scroll, see the root div's
-          own comment), so the original fixed cap still applies there. */}
-      {/* max-h-[888px] must match PIPELINE_LIST_MAX_HEIGHT_PX above — a
-          literal class, not the JS constant, because Tailwind's build-time
-          scanner can't see a template-interpolated arbitrary value; only
-          applies below md (mobile keeps the original fixed-cap behavior),
-          overridden by md:max-h-none once the flex-1 sizing takes over. */}
+      {/* Prompt 529 — the height rule, in one place.
+          At or below the cap: NO height constraint at all. Not a computed
+          pixel target either — with rows measured between 53px and 113px on
+          desktop and 190px to 251px on mobile, any single number is wrong for
+          most rows in both directions. Letting the table size to its content
+          is exact by construction: every row is visible, and the page's own
+          scrollbar handles the overflow.
+          Above the cap: a viewport-relative cap, so it cannot be squeezed by
+          banners the way flex-1 was, and cannot go stale when a row grows a
+          badge. overflow-y-auto stays either way — it simply has nothing to do
+          in the common case now.
+          The frosted catalog panel is unchanged and still the immediate next
+          sibling, so it continues to sit directly under the last unlocked row.
+          It was never hiding these rows and does not start now. */}
       <div data-tour-id="pipeline-list"
-        className={`overflow-x-auto overflow-y-auto border border-gray-100 bg-white shadow-sm max-h-[888px] md:min-h-0 md:max-h-none md:flex-1 ${blockedCount > 0 ? 'rounded-t-2xl border-b-0' : 'rounded-2xl'}`}>
+        className={`overflow-x-auto overflow-y-auto border border-gray-100 bg-white shadow-sm ${listExceedsCap ? 'max-h-[75vh]' : ''} ${blockedCount > 0 ? 'rounded-t-2xl border-b-0' : 'rounded-2xl'}`}>
         {/* table-fixed + explicit column widths (colgroup) so the table
             holds to the container's width at every wave filter setting
             instead of growing with content and forcing horizontal scroll;
