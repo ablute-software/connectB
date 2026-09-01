@@ -25,6 +25,8 @@ import { authEnabled, browserClient } from '@/lib/supabase';
 import { descendantFolderIds, resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { HelpSupportWidget } from '@/components/HelpSupportWidget';
 import { LogoLockup } from '@/components/Logo';
+import { fmtRoundEur } from '@/lib/format-money';
+import { portalFooterSuffix, portalStageLabel } from '@/lib/portal-footer';
 import { LogoutButton } from '@/components/workspace-shell/LogoutButton';
 import { InvestorSignInForm } from '@/components/auth/InvestorSignInForm';
 import { InvestorWorkspaceShell, type Tab } from '@/components/investor-workspace/InvestorWorkspaceShell';
@@ -228,15 +230,16 @@ function DealSignals({ orgId, current, defaults }: {
   );
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', later: 'Later',
-};
 function fmtEur(n: number | null | undefined) {
   return n != null ? `€${n.toLocaleString('en-US')}` : null;
 }
 
 function SnapshotCard({ s, orgId }: { s: PortalSnapshot; orgId?: string }) {
-  const stageLabel = s.stage === 'other' ? (s.stage_other || 'Other') : STAGE_LABELS[s.stage ?? ''] ?? s.stage;
+  // Prompt 523 — same resolution as before, now shared with the footer
+  // (portal-footer.ts) instead of a second inline copy. 'Other' with
+  // nothing typed stays 'Other' HERE, where the card has room to say it;
+  // the footer drops it instead of printing a bare word.
+  const stageLabel = s.stage === 'other' ? (s.stage_other || 'Other') : portalStageLabel(s) ?? s.stage;
   const location = [s.hq_city, s.country].filter(Boolean).join(', ');
   const instruments = (s.round_instruments ?? []).map((v) => INSTRUMENT_LABELS[v] ?? v)
     .concat(s.round_instruments?.includes('other') && s.round_instrument_other ? [] : []).join(', ');
@@ -496,6 +499,9 @@ export default function PortalPage() {
   }
 
   const signedIn = authEnabled ? !!sessionEmail : demoSignedIn;
+  // Prompt 523 — replaces the hard-coded "ablute_ · Seed Round 2026" in
+  // both footers below. Investor-facing: target only, never secured.
+  const footerSuffix = portalFooterSuffix(real?.snapshot, fmtRoundEur);
   const orgName = authEnabled ? real?.orgName : db.org.name;
   const senderEmail = authEnabled ? real?.senderEmail : db.org.sender_email;
   const pendingNdaCount = authEnabled ? real?.pendingNdaCount ?? 0 : demoPendingNdaCount;
@@ -587,7 +593,7 @@ export default function PortalPage() {
             ))}
           </>
         )}
-        <p className="text-center text-[10px] text-gray-400">Every access is logged. ablute_ · Seed Round 2026</p>
+        <p className="text-center text-[10px] text-gray-400">Every access is logged.{footerSuffix ? ` ${footerSuffix}` : ''}</p>
         <ClaimProfileSection />
       </div>
     );
@@ -757,7 +763,7 @@ export default function PortalPage() {
                 <button onClick={() => openDoc(d)} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">Open</button>
               </div>
             ))}
-            <p className="text-center text-[10px] text-gray-400">Every access is logged. ablute_ · Seed Round 2026</p>
+            <p className="text-center text-[10px] text-gray-400">Every access is logged.{footerSuffix ? ` ${footerSuffix}` : ''}</p>
             <ClaimProfileSection />
           </div>
         )}
