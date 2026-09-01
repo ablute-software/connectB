@@ -34,6 +34,7 @@
 import { useEffect, useState } from 'react';
 import { BRAND_NAME } from '@/lib/brand';
 import { browserClient, authEnabled } from '@/lib/supabase';
+import { FrostedContent } from '@/components/guest/FrostedOverlay';
 
 type GuestFolder = { id: string; name: string; documents: { id: string; name: string }[] };
 type GuestPreview = {
@@ -67,14 +68,19 @@ function FrostedSidebar() {
         </div>
         <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">Investor Workspace</div>
       </div>
-      <nav className="pointer-events-none mt-1 flex-1 select-none space-y-0.5 px-3 pb-4 opacity-50 blur-[1.5px]">
-        {FROSTED_NAV.map((n) => (
-          <div key={n.label} className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] text-gray-600">
-            <span className="w-4 text-center text-gray-400">{n.icon}</span>
-            <span>{n.label}</span>
-          </div>
-        ))}
-      </nav>
+      {/* Prompt 526 Part B — the blur/opacity/pointer-events trio invented
+          here now lives in FrostedContent, so the three preview screens use
+          the same one instead of a fourth copy of these class names. */}
+      <FrostedContent className="mt-1 flex-1">
+        <nav className="space-y-0.5 px-3 pb-4">
+          {FROSTED_NAV.map((n) => (
+            <div key={n.label} className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] text-gray-600">
+              <span className="w-4 text-center text-gray-400">{n.icon}</span>
+              <span>{n.label}</span>
+            </div>
+          ))}
+        </nav>
+      </FrostedContent>
     </aside>
   );
 }
