@@ -8,7 +8,11 @@ import { BRAND_NAME } from './brand';
 
 export const resendConfigured = !!process.env.RESEND_API_KEY;
 
-export async function sendTransactionalEmail(opts: { to: string; subject: string; html: string; replyTo?: string }) {
+// Prompt 526 Part A — `text` added as an optional plain-text alternative.
+// Standard for transactional mail: clients that refuse HTML, screen readers and
+// most spam filters all prefer a multipart message, and Resend takes both parts
+// in the same call. Optional, so every existing caller is unchanged.
+export async function sendTransactionalEmail(opts: { to: string; subject: string; html: string; text?: string; replyTo?: string }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     // Logged, not silent: an unset key used to be indistinguishable from a
@@ -34,7 +38,7 @@ export async function sendTransactionalEmail(opts: { to: string; subject: string
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: opts.to, subject: opts.subject, html: opts.html, ...(replyTo ? { reply_to: replyTo } : {}) }),
+      body: JSON.stringify({ from, to: opts.to, subject: opts.subject, html: opts.html, ...(opts.text ? { text: opts.text } : {}), ...(replyTo ? { reply_to: replyTo } : {}) }),
     });
     if (!res.ok) {
       console.error('Transactional email provider error:', (await res.text()).slice(0, 300));

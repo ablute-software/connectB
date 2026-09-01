@@ -24,9 +24,10 @@ import 'server-only';
 // still copy the link and send it themselves.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { generateRawToken } from '@/lib/matchdeal-pairing';
-import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
+import { resendConfigured, sendTransactionalEmail } from '@/lib/resend';
 import { isEmailBlocked } from '@/lib/blocked-emails-server';
-import { APP_URL, BRAND_NAME } from '@/lib/brand';
+import { APP_URL } from '@/lib/brand';
+import { renderGuestAccessEmailHtml, renderGuestAccessEmailText, guestAccessEmailSubject } from '@/lib/email-templates/guest-access-email';
 
 // Same 14 days guest-invite chose, and for the same reason: long enough that
 // "later" doesn't expire first, short enough that an unconfirmed invite isn't
@@ -35,10 +36,6 @@ import { APP_URL, BRAND_NAME } from '@/lib/brand';
 const GUEST_TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 export const COPY_LINK_FALLBACK = 'Could not send the access email — copy the link and send it yourself.';
-
-function formatExpiry(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-}
 
 export interface AccessEmailResult {
   emailSent: boolean;
@@ -57,8 +54,6 @@ export async function sendAccessGrantedEmail(admin: SupabaseClient, args: {
   grantId: string;
   personId?: string | null;
   recipientEmail?: string | null;
-  /** Shown in the email so the recipient knows what they were given. */
-  whatLabel?: string | null;
 }): Promise<AccessEmailResult> {
   try {
     let to = args.recipientEmail?.trim().toLowerCase() || null;
@@ -95,19 +90,20 @@ export async function sendAccessGrantedEmail(admin: SupabaseClient, args: {
 
     const { data: org } = await admin.from('orgs').select('name').eq('id', args.orgId).maybeSingle();
     const orgName = (org?.name as string | undefined) ?? 'A startup';
-    const heading = `${orgName} shared their data room with you`;
-    const what = args.whatLabel?.trim();
+    // Prompt 526 Part A — the same approved template guest-invite sends, so a
+    // grant answered from a request and an invite sent by hand produce the
+    // identical email. invited_name is read from the grant when present.
+    const { data: grantRow } = await admin.from('access_grants').select('invited_name').eq('id', args.grantId).maybeSingle();
+    const vars = {
+      invitedName: (grantRow?.invited_name as string | null) ?? null,
+      startupName: orgName,
+      guestAccessUrl: `${APP_URL}/guest/${token}`,
+    };
     const result = await sendTransactionalEmail({
       to,
-      subject: heading,
-      html: transactionalTemplate({
-        heading,
-        body: `${orgName} has given you protected access${what ? ` to <b>${what}</b>` : ''} in their data room on ${BRAND_NAME}.`
-          + `<br/><br/>This is a secure, limited preview — you'll only see what's been shared with you, nothing else.`,
-        ctaLabel: 'View data room',
-        ctaUrl: `${APP_URL}/guest/${token}`,
-        footer: expiresAt ? `This link expires on ${formatExpiry(expiresAt)}.` : undefined,
-      }),
+      subject: guestAccessEmailSubject(orgName),
+      html: renderGuestAccessEmailHtml(vars),
+      text: renderGuestAccessEmailText(vars),
     });
     return result.sent ? { emailSent: true, token } : { emailSent: false, emailError: COPY_LINK_FALLBACK, token };
   } catch (e) {

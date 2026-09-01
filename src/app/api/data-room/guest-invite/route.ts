@@ -21,7 +21,8 @@ import { generateRawToken } from '@/lib/matchdeal-pairing';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
-import { APP_URL, BRAND_NAME } from '@/lib/brand';
+import { APP_URL } from '@/lib/brand';
+import { renderGuestAccessEmailHtml, renderGuestAccessEmailText, guestAccessEmailSubject } from '@/lib/email-templates/guest-access-email';
 
 // Decision (2026-08-07, per the mini-prompt's own ask to pick and record
 // one): 14 days. Long enough that "I'll look at this later" doesn't expire
@@ -41,10 +42,6 @@ const RESOLVE_DELAY_MS = 300;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function formatExpiry(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 export async function POST(req: Request) {
@@ -142,19 +139,25 @@ export async function POST(req: Request) {
         : Promise.resolve({ data: null }),
     ]);
     const orgName = (org?.name as string | undefined) ?? 'A startup';
-    const inviterName = (inviterPerson?.full_name as string | undefined) ?? user.email ?? 'The team';
-    const heading = `${orgName} shared their data room with you`;
+    // Prompt 526 Part A — the approved design replaces the generic text shell
+    // here. Same trigger point, same flow, same /guest/{token} link (Prompt
+    // 171); only the HTML changed. plain_text.txt rides along as the multipart
+    // alternative. `inviterName` is no longer used: the approved copy is from
+    // the STARTUP, not from a named individual, and inventing a byline the
+    // design does not have would be exactly the reinterpretation the brief
+    // rules out.
+    const { data: grantForName } = await admin.from('access_grants')
+      .select('invited_name').eq('id', grant.id).maybeSingle();
+    const vars = {
+      invitedName: (grantForName?.invited_name as string | null) ?? null,
+      startupName: orgName,
+      guestAccessUrl: `${APP_URL}/guest/${token}`,
+    };
     const result = await sendTransactionalEmail({
       to: email,
-      subject: heading,
-      html: transactionalTemplate({
-        heading,
-        body: `${inviterName} has given you protected access to specific files and folders in their data room on ${BRAND_NAME}.`
-          + `<br/><br/>This is a secure, limited preview — you'll only see what's been shared with you, nothing else.`,
-        ctaLabel: 'View data room',
-        ctaUrl: `${APP_URL}/guest/${token}`,
-        footer: `This link expires on ${formatExpiry(expiresAt)}.`,
-      }),
+      subject: guestAccessEmailSubject(orgName),
+      html: renderGuestAccessEmailHtml(vars),
+      text: renderGuestAccessEmailText(vars),
     });
     emailSent = result.sent;
     if (!result.sent) emailError = 'Could not send the invite email — copy the link below and send it yourself';

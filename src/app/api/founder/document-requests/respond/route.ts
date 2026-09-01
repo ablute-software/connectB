@@ -69,7 +69,6 @@ export async function POST(req: Request) {
   // forgotten) per branch, which is how four of the five grant paths ended up
   // silent in the first place.
   let grantedId: string | null = null;
-  let grantLabel: string | null = null;
 
   // Prompt 518 §1 — a folder item is granted as a folder, not a document.
   // grant_existing on an item that names a folder needs no documentId: the
@@ -88,8 +87,6 @@ export async function POST(req: Request) {
     }).select('id').single();
     if (grantError) return NextResponse.json({ ok: false, error: grantError.message }, { status: 500 });
     grantedId = (newGrant?.id as string) ?? null;
-    const { data: folderRow } = await admin.from('folders').select('name').eq('id', item.folder_id as string).maybeSingle();
-    grantLabel = (folderRow?.name as string | null) ?? null;
     patch.status = 'granted';
   } else if (body.action === 'grant_existing' || body.action === 'fulfill_document') {
     if (!body.documentId) return NextResponse.json({ ok: false, error: 'documentId is required.' }, { status: 400 });
@@ -103,8 +100,7 @@ export async function POST(req: Request) {
     // resolveDocumentAccess (data-room.ts) already treats that exactly like
     // any other pending-NDA grant until nda-upload's document-scoped unlock
     // (see that route) stamps nda_accepted_at for THIS document.
-    const { data: doc2 } = await admin.from('documents').select('visibility, name').eq('id', body.documentId).maybeSingle();
-    const doc = doc2;
+    const { data: doc } = await admin.from('documents').select('visibility').eq('id', body.documentId).maybeSingle();
     const ndaRequired = doc?.visibility === 'due_diligence';
     const { data: newDocGrant, error: grantError } = await admin.from('access_grants').insert({
       org_id: reqRow.org_id as string, person_id: (reqRow.person_id as string | null) ?? null,
@@ -113,7 +109,6 @@ export async function POST(req: Request) {
     }).select('id').single();
     if (grantError) return NextResponse.json({ ok: false, error: grantError.message }, { status: 500 });
     grantedId = (newDocGrant?.id as string) ?? null;
-    grantLabel = (doc2?.name as string | null) ?? null;
     patch.status = 'granted';
     if (body.action === 'fulfill_document') patch.fulfilled_document_id = body.documentId;
     if (ndaRequired) patch.resolution_note = 'Granted pending NDA — access opens once the signed NDA is on file for this document.';
@@ -162,7 +157,6 @@ export async function POST(req: Request) {
       grantId: grantedId,
       personId: (reqRow.person_id as string | null) ?? null,
       recipientEmail: reqRow.person_id ? null : (reqRow.requested_email as string | null),
-      whatLabel: grantLabel,
     });
     emailSent = res.emailSent;
     emailError = res.emailError;
