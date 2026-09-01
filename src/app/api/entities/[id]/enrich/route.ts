@@ -128,7 +128,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const rows = proposals.map((p) => ({
       subject_type: 'entity' as const, subject_id: entity.id, org_id: entity.org_id,
       field: p.field, value: p.value, source: 'ai' as const, confidence: p.confidence, source_url: p.source_url,
-      note: 'AI-sourced via Request more info', status: 'submitted' as const,
+      // Prompt 520 §5 — button renamed to "Search more info" (it really is an
+      // automated public-source search, never a message to anyone). This note
+      // is internal only: contributions.note is regex-tested for /conflict/ in
+      // ContributionBox and never rendered, so this is for whoever reads the
+      // rows later, not for the founder's screen.
+      note: 'AI-sourced via Search more info', status: 'submitted' as const,
     }));
     const { error: insErr } = await admin.from('contributions').insert(rows);
     if (insErr) return NextResponse.json({ ok: false, error: insErr.message }, { status: 500 });

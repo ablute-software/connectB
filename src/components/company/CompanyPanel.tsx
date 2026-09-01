@@ -38,6 +38,12 @@ import { PreviousFundingCard } from '@/components/PreviousFundingCard';
 import { CapTableCard } from './CapTableCard';
 import { TractionCard } from './TractionCard';
 import { InvestorQACard, RoundUpdatesCard, SoftCommitsCard } from './InvestorEngagementCards';
+
+// Prompt 520 §3 — how long a freshly-opened tab is still considered "landing"
+// (async cards resolve well inside this), and the gestures that mean the
+// founder has taken over the scroll position.
+const SETTLE_WINDOW_MS = 2500;
+const USER_SCROLL_EVENTS = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const;
 import { StartupAxisClassifications } from './StartupAxisClassifications';
 import { CompanySubMenu, type CompanySection } from './CompanySubMenu';
 import { SETTINGS_HEADER_OFFSET_PX } from './settings-layout';
@@ -111,7 +117,50 @@ export function CompanyPanel({ canEdit, companyProfileAvailable, missing, flashI
   // how much the previous section had scrolled the page.
   useEffect(() => {
     if (!contentEl) return;
-    document.getElementById(SECTIONS.find((s) => s.key === active)?.anchorId ?? '')?.scrollIntoView({ block: 'start' });
+    const anchorId = SECTIONS.find((s) => s.key === active)?.anchorId ?? '';
+    const target = document.getElementById(anchorId);
+    if (!target) return;
+    target.scrollIntoView({ block: 'start' });
+
+    // Prompt 520 §3 — why one scrollIntoView is not enough for Identity and
+    // Round specifically. Both grow AFTER this runs: IdentityCard resolves a
+    // Storage signed URL for the logo and an /api/company/intro-pitch-suggestion
+    // paragraph; the Round tab mounts RoundUpdatesCard and SoftCommitsCard,
+    // which both start from an empty list and fill from their own fetches.
+    // The other five sections read the already-loaded store and are their
+    // final height on first paint, which is why only these two were reported.
+    //
+    // The actual mechanism is not "content moves the anchor" — growth inside a
+    // section leaves its top where it was. It is that scrollIntoView({block:
+    // 'start'}) is CLAMPED by document height: near the bottom of a short
+    // page the browser cannot bring the section to the top, so it stops
+    // short, and when the late content makes the page taller the section
+    // drifts from where the founder was left looking.
+    //
+    // So: re-apply the landing spot while the page is still settling, and
+    // stop the moment it either settles or the founder takes over. A bare
+    // re-scroll would be worse than the bug — it would yank the page out from
+    // under someone already reading.
+    let done = false;
+    const stop = () => {
+      if (done) return;
+      done = true;
+      observer.disconnect();
+      window.clearTimeout(timer);
+      for (const ev of USER_SCROLL_EVENTS) window.removeEventListener(ev, stop);
+    };
+    const observer = new ResizeObserver(() => {
+      if (done) return;
+      document.getElementById(anchorId)?.scrollIntoView({ block: 'start' });
+    });
+    observer.observe(contentEl);
+    // Hard ceiling: whatever has not loaded within this window is not going
+    // to be part of "where the tab lands" anyway.
+    const timer = window.setTimeout(stop, SETTLE_WINDOW_MS);
+    // Any deliberate move by the founder ends it immediately — from that
+    // point the scroll position is theirs, not ours.
+    for (const ev of USER_SCROLL_EVENTS) window.addEventListener(ev, stop, { passive: true });
+    return stop;
   }, [active, contentEl]);
 
   // Prompt 379 §A / Prompt 394 §2 — `?flash=<completenessFieldId>` names a

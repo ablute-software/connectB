@@ -56,7 +56,7 @@ export function EnrichmentBadge({ result, subjectType, subjectId, orgId, label, 
       <span className={low ? 'text-amber-600' : 'text-gray-400'}>{label ?? 'Profile'} {result.percent}% complete</span>
       {low && authEnabled && (
         !requested
-          ? <button onClick={requestMoreInfo} className="text-[#0E7490] hover:underline">Request more info</button>
+          ? <button onClick={requestMoreInfo} className="text-[#0E7490] hover:underline">Search more info</button>
           : <span className="text-gray-400">
               {lookup === 'searching' && 'searching public sources…'}
               {lookup === 'found' && '— suggestions added below, unconfirmed'}

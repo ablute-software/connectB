@@ -38,6 +38,16 @@ const SORT_STORAGE_KEY = 'ablute-pipeline-sort-v1';
 // without truncating content the app deliberately never truncates.
 const PIPELINE_LIST_MAX_HEIGHT_PX = 888; // 32.5 (thead) + 15 * 57 (row), rounded up
 
+// Prompt 520 §2 — Nuno's ask: at least 6 entities visible before the list
+// needs its own scroll. On desktop the table was `md:min-h-0 md:flex-1`, i.e.
+// it absorbed only whatever space the shrink-0 siblings above it (MatchDeal
+// banners, unlock badge, stats card, ReawakeningQueue, filter bar) left over —
+// with no floor at all, so a day with two banners open could squeeze it to a
+// couple of rows. Same row/header arithmetic as the constant above: 32.5px of
+// header plus 6 rows at 57px, rounded up. It is a FLOOR, not a fixed height —
+// md:flex-1 still lets it take everything else that is going.
+const PIPELINE_LIST_MIN_HEIGHT_PX = 375; // 32.5 (thead) + 6 * 57 (row), rounded up
+
 // Column widths sum to 100% — table-fixed (below) then holds the table to
 // the container's width at every "wave" filter setting instead of growing
 // with content and forcing horizontal scroll. Cell text wraps instead of
@@ -1002,13 +1012,19 @@ export default function PipelinePage() {
           overriding the fixed maxHeight below. Below md, the root isn't
           flex-bound (mobile keeps ordinary page scroll, see the root div's
           own comment), so the original fixed cap still applies there. */}
-      {/* max-h-[888px] must match PIPELINE_LIST_MAX_HEIGHT_PX above — a
+      {/* Prompt 520 §2 — md:min-h-[375px] must match PIPELINE_LIST_MIN_HEIGHT_PX
+          above, same hand-kept pairing as the max below (Tailwind cannot read
+          a TS constant). It is the FLOOR that was missing: md:min-h-0 let the
+          table shrink to whatever the shrink-0 siblings above left over, so a
+          day with the MatchDeal banners and ReawakeningQueue open could leave
+          barely a couple of rows visible. md:flex-1 still lets it grow.
+          max-h-[888px] must match PIPELINE_LIST_MAX_HEIGHT_PX above — a
           literal class, not the JS constant, because Tailwind's build-time
           scanner can't see a template-interpolated arbitrary value; only
           applies below md (mobile keeps the original fixed-cap behavior),
           overridden by md:max-h-none once the flex-1 sizing takes over. */}
       <div data-tour-id="pipeline-list"
-        className={`overflow-x-auto overflow-y-auto border border-gray-100 bg-white shadow-sm max-h-[888px] md:min-h-0 md:max-h-none md:flex-1 ${blockedCount > 0 ? 'rounded-t-2xl border-b-0' : 'rounded-2xl'}`}>
+        className={`overflow-x-auto overflow-y-auto border border-gray-100 bg-white shadow-sm max-h-[888px] md:min-h-[375px] md:max-h-none md:flex-1 ${blockedCount > 0 ? 'rounded-t-2xl border-b-0' : 'rounded-2xl'}`}>
         {/* table-fixed + explicit column widths (colgroup) so the table
             holds to the container's width at every wave filter setting
             instead of growing with content and forcing horizontal scroll;
@@ -1035,7 +1051,14 @@ export default function PipelinePage() {
                   </Tooltip>
                 );
                 return (
-                  <th key={c.key} className="px-2 py-1.5">
+                  // Prompt 520 §1 — sticky on the <th> rather than the
+                  // <thead>/<tr>: position:sticky on a thead or tr is still
+                  // inconsistent across browsers, while on the cells it is
+                  // universally supported. bg-white is load-bearing, not
+                  // decoration — the header row has no opaque background of
+                  // its own, so without it the scrolling rows show straight
+                  // through the pinned header.
+                  <th key={c.key} className="sticky top-0 z-10 bg-white px-2 py-1.5">
                     {c.key === 'wave' ? <CoachMark itemKey="waves">{headerButton}</CoachMark> : headerButton}
                   </th>
                 );
