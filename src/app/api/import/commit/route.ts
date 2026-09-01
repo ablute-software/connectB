@@ -8,6 +8,9 @@
 // here can touch another org's data.
 import { NextRequest, NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
+import {
+  catalogAutocreateAdmin, ensureCatalogEntriesForEntities, type EntityForCatalog,
+} from '@/lib/entity-catalog-autocreate';
 import { entitiesSourceExpandedAvailable } from '@/lib/entities-source-expanded-capability';
 import type { Channel, Direction, Entity, Person } from '@/lib/types';
 
@@ -49,6 +52,11 @@ export async function POST(req: NextRequest) {
   const entityIdByName = new Map<string, string>();
   const newSubmissions: Record<string, unknown>[] = [];
   let entitiesCreated = 0;
+  // Prompt 510 — every entity this route creates is a candidate for a
+  // shared-catalog row it may not have yet. Collected here and resolved in
+  // ONE batch after the loop, so the catalog is read once per import rather
+  // than once per row.
+  const createdForCatalog: EntityForCatalog[] = [];
   for (const e of approved.entities) {
     const key = norm(e.name);
     if (e.matchId) { entityIdByName.set(key, e.matchId); continue; }
@@ -64,6 +72,7 @@ export async function POST(req: NextRequest) {
     if (error) return NextResponse.json({ ok: false, error: `entity "${e.name}": ${error.message}` }, { status: 500 });
     entityIdByName.set(key, created.id);
     entitiesCreated++;
+    createdForCatalog.push({ id: created.id, name: e.name, website: e.website || null, type: 'vc' });
     newSubmissions.push({
       org_id: orgId, status: 'pending_review',
       payload: { name: e.name, type: 'vc', sectors: [], website: e.website || undefined, notes: `Discovered via history import (batch ${batchId}).` },
@@ -73,6 +82,13 @@ export async function POST(req: NextRequest) {
     const { error } = await sb.from('investor_submissions').insert(newSubmissions);
     if (error) return NextResponse.json({ ok: false, error: `investor_submissions: ${error.message}` }, { status: 500 });
   }
+
+  // Deliberately after the entity writes and deliberately not fatal: an
+  // import that created the founder's entities correctly must not fail
+  // because shared-catalog bookkeeping did. ensureCatalogEntriesForEntities
+  // never throws; it reports per-entity outcomes instead.
+  const catalogAdmin = createdForCatalog.length ? catalogAutocreateAdmin() : null;
+  if (catalogAdmin) await ensureCatalogEntriesForEntities(catalogAdmin, orgId, createdForCatalog);
 
   // ---- 2. people ----
   const personIdByName = new Map<string, string>();

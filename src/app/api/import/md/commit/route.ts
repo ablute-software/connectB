@@ -8,6 +8,9 @@
 // the founder's explicit per-person confirmation before this call.
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
+import {
+  catalogAutocreateAdmin, ensureCatalogEntriesForEntities, type EntityForCatalog,
+} from '@/lib/entity-catalog-autocreate';
 import { matchPerson } from '@/lib/structured-import';
 import { entitiesSourceExpandedAvailable } from '@/lib/entities-source-expanded-capability';
 import type { MdImportPlan } from '@/lib/md-history-import';
@@ -45,6 +48,9 @@ export async function POST(req: Request) {
   const conflictRows: Record<string, unknown>[] = [];
   let entitiesCreated = 0, entitiesUpdated = 0;
 
+  // Prompt 510 — see the identical comment in /api/import/commit: collected
+  // here, resolved in one batch after the loop.
+  const createdForCatalog: EntityForCatalog[] = [];
   for (const item of plan.entities) {
     if (!item.include) continue;
     if (item.chosenId) {
@@ -76,6 +82,10 @@ export async function POST(req: Request) {
       if (error) return NextResponse.json({ ok: false, error: `entity "${item.key}": ${error.message}` }, { status: 500 });
       entityIdByKey.set(item.key, created.id);
       entitiesCreated++;
+      createdForCatalog.push({
+        id: created.id, name: item.key, type: 'vc',
+        website: (item.patch.website as string) ?? null,
+      });
     }
 
     if (item.aliases.length) {
@@ -85,6 +95,10 @@ export async function POST(req: Request) {
       if (error) return NextResponse.json({ ok: false, error: `aliases for "${item.key}": ${error.message}` }, { status: 500 });
     }
   }
+
+  // Prompt 510 — never fatal: the founder's entities are already written.
+  const catalogAdmin = createdForCatalog.length ? catalogAutocreateAdmin() : null;
+  if (catalogAdmin) await ensureCatalogEntriesForEntities(catalogAdmin, orgId, createdForCatalog);
 
   let interactionsCreated = 0, interactionsSkipped = 0;
   const interactionRows: Record<string, unknown>[] = [];

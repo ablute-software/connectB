@@ -7,6 +7,9 @@
 // re-matches everything as already-MATCHED/duplicate and changes nothing.
 import { NextResponse } from 'next/server';
 import { serverClient } from '@/lib/supabase-server';
+import {
+  catalogAutocreateAdmin, ensureCatalogEntriesForEntities, type EntityForCatalog,
+} from '@/lib/entity-catalog-autocreate';
 import { entitiesSourceExpandedAvailable } from '@/lib/entities-source-expanded-capability';
 import type { ImportPlan } from '@/lib/structured-import';
 import type { Channel, Classification, Direction } from '@/lib/types';
@@ -36,6 +39,8 @@ export async function POST(req: Request) {
   const conflictRows: Record<string, unknown>[] = [];
   let entitiesCreated = 0, entitiesUpdated = 0;
 
+  // Prompt 510 — see the identical comment in /api/import/commit.
+  const createdForCatalog: EntityForCatalog[] = [];
   for (const item of plan.entities) {
     if (!item.include) continue;
     if (item.chosenId) {
@@ -71,8 +76,22 @@ export async function POST(req: Request) {
       if (error) return NextResponse.json({ ok: false, error: `entity "${item.key}": ${error.message}` }, { status: 500 });
       entityIdByKey.set(item.key, created.id);
       entitiesCreated++;
+      // The structured import is the one path that already carries
+      // sectors/stage/check/geographies, so those flow into the catalog row
+      // too — still nothing invented, only what the founder's CSV stated.
+      createdForCatalog.push({
+        id: created.id, name: r.name, type: r.type, website: r.website ?? null,
+        hq_city: r.hq_city ?? null, hq_country: r.hq_country ?? null,
+        sectors: r.sectors, stage_min: r.stage_min ?? null, stage_max: r.stage_max ?? null,
+        check_min_eur: r.check_min_eur ?? null, check_max_eur: r.check_max_eur ?? null,
+        invests_in_geographies: r.invests_in_geographies,
+      });
     }
   }
+
+  // Prompt 510 — never fatal: the founder's entities are already written.
+  const catalogAdmin = createdForCatalog.length ? catalogAutocreateAdmin() : null;
+  if (catalogAdmin) await ensureCatalogEntriesForEntities(catalogAdmin, orgId, createdForCatalog);
 
   const personIdByKey = new Map<string, string>();
   let peopleCreated = 0, peopleUpdated = 0, peopleSkipped = 0;
