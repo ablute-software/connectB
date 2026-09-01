@@ -132,6 +132,8 @@ function DocumentsPageInner() {
   // already in this file).
   function loadPendingAccessRequests() {
     if (!db.org.id) return;
+    fetch(`/api/data-room/guest-link-views?orgId=${encodeURIComponent(db.org.id)}`).then((r) => r.json())
+      .then((b) => setDeviceCounts({ counts: b.counts ?? {}, threshold: b.threshold ?? 3 })).catch(() => {});
     fetch(`/api/data-room/access-requests?orgId=${db.org.id}`).then((r) => r.json())
       .then((body) => setPendingAccessRequests(body.requests ?? [])).catch(() => {});
   }
@@ -667,6 +669,11 @@ function DocumentsPageInner() {
   //     message line so it can be selected and copied by hand.
   const [copiedGuestLinkFor, setCopiedGuestLinkFor] = useState<string | null>(null);
   const [guestLinkFallback, setGuestLinkFallback] = useState<string | null>(null);
+
+  // Prompt 526 Part C — distinct devices per grant. Visibility only: nothing
+  // here blocks, hides or revokes, and the founder decides what (if anything)
+  // a high number means. Empty until its migration is applied, by design.
+  const [deviceCounts, setDeviceCounts] = useState<{ counts: Record<string, number>; threshold: number }>({ counts: {}, threshold: 3 });
 
   // Prompt 535 — root cause, kept from the 518 branch when its duplicate fix
   // was dropped in favour of this one: the original code did
@@ -1840,6 +1847,16 @@ function DocumentsPageInner() {
                               Revoke all
                             </button>
                           </div>
+                          {/* Prompt 526 Part C — the raw number, and nothing
+                              else. A phone plus a laptop is two and completely
+                              normal, so this only appears from the threshold up,
+                              says nothing about who, and takes no action: the
+                              founder already has Revoke if they want it. */}
+                          {pendingInvite && (deviceCounts.counts[pendingInvite.id] ?? 0) >= deviceCounts.threshold && (
+                            <p className="mt-1 w-full text-[11px] text-amber-700">
+                              Opened from {deviceCounts.counts[pendingInvite.id]} different devices.
+                            </p>
+                          )}
                         </div>
                         {expanded && (
                           <ul className="mt-2 divide-y divide-gray-50 border-l-2 border-gray-100 pl-3">

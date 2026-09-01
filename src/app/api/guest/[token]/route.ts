@@ -19,6 +19,7 @@ import { descendantFolderIds, resolveDocumentAccess } from '@/lib/data-room';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { grantStatus } from '@/lib/access-grants';
 import { vaultFrozenForOrg } from '@/lib/data-room-server';
+import { GUEST_VISITOR_COOKIE, GUEST_VISITOR_COOKIE_MAX_AGE, newVisitorKey, recordGuestLinkView } from '@/lib/guest-link-views';
 
 // This route reads no cookies/headers — unlike every other GET route in
 // this app, which calls serverClient() first and reads a cookie, implicitly
@@ -148,7 +149,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     .sort((a, b) => a.name.localeCompare(b.name));
   const documentNames = visibleDocs.map((d) => d.name).sort();
 
-  return NextResponse.json({
+  const res = NextResponse.json({
     ok: true,
     orgName: org.name as string,
     orgDescription: (org.one_liner as string | null) ?? (profile?.description as string | null) ?? null,
@@ -159,4 +160,22 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     documentCount: documentNames.length,
     pendingNdaCount: pendingCount,
   });
+
+  // Prompt 526 Part C — record that this link was opened, and from how many
+  // distinct browsers. Deliberately AFTER the response body is built and never
+  // awaited into the caller's critical path in a way that could fail it: a
+  // legitimate visitor must never be denied the data room because bookkeeping
+  // broke. The cookie is opaque, first-party and random — it distinguishes "one
+  // person reloading" from "a second device" and identifies nobody. No IP is
+  // read or stored anywhere; see guest-link-views.ts for why.
+  const existingKey = _req.headers.get('cookie')?.match(/(?:^|;\s*)sd_guest_visitor=([a-f0-9]{32})/)?.[1];
+  const visitorKey = existingKey ?? newVisitorKey();
+  if (!existingKey) {
+    res.cookies.set(GUEST_VISITOR_COOKIE, visitorKey, {
+      httpOnly: true, sameSite: 'lax', secure: true, path: '/', maxAge: GUEST_VISITOR_COOKIE_MAX_AGE,
+    });
+  }
+  await recordGuestLinkView(admin, grant.id as string, visitorKey);
+
+  return res;
 }
