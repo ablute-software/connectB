@@ -104,6 +104,16 @@ function buildPrompt(context: ComposerContext, channel: Channel, intent: Compose
     '',
     'HARD RULES:',
     '- Never claim traction, revenue, or clinical results that are not in the context.',
+    // Prompt 525 — layer 1 of 2. On its own this is NOT a guarantee: the model
+    // already had a general ground-truth instruction and still compressed a
+    // real quote while keeping the quote marks. lintMessage's deterministic
+    // check (rules.ts, unsourcedQuotes) is what actually enforces it; this
+    // exists so the model usually gets it right on the first attempt instead
+    // of relying on the retry.
+    '- Any text inside quotation marks must be copied character-for-character from the source field it came from '
+      + '(this person\'s hook, background or watch-outs, or a snippet of a prior message in this thread). '
+      + 'Never paraphrase, compress, or edit quoted text while keeping the quote marks. If it needs to be shorter, '
+      + 'either drop the quote marks and paraphrase without them, or quote a shorter but still word-for-word sub-span.',
     context.person.killWords.length ? `- Never use these kill words for this person: ${context.person.killWords.join(', ')}.` : '',
     '- One ask only, and keep it small.',
     noPerson
@@ -249,9 +259,18 @@ export async function POST(req: NextRequest) {
   // Minimal Person/Entity shapes for the existing lintMessage() — it only
   // reads these fields, but rules.ts stays untouched so we satisfy its types
   // with a narrow reconstruction rather than widening the function signature.
+  // Prompt 525 — watch_outs added, and the thread snippets passed separately
+  // below. Without them the new quote-fidelity check would have no sources to
+  // compare against and would flag a perfectly legitimate quote from those
+  // fields as unsourced. `background` is deliberately absent: the compose
+  // context genuinely does not carry it (see composer.ts's own person shape),
+  // so there is nothing to pass rather than something being dropped — a quote
+  // from background would be flagged here, which is the safe direction.
   const personLike = {
     full_name: context.person.fullName, kill_words: context.person.killWords, hook: context.person.hook,
+    watch_outs: context.person.watchOuts,
   } as Person;
+  const quoteSources = { threadSnippets: (context.relationship?.priorThread ?? []).map((t) => t.snippet) };
   const entityLike = { name: context.investor.entityName, the_ask: context.investor.theAsk } as Entity;
 
   const canonGated = !!context.companyFacts?.length;
@@ -259,13 +278,13 @@ export async function POST(req: NextRequest) {
   try {
     const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
     let draft = await callClaude(apiKey, model, buildPrompt(context, channel, intent), canonGated, composeOrgId);
-    let findings = lintMessage(draft.body, personLike, entityLike, channel);
+    let findings = lintMessage(draft.body, personLike, entityLike, channel, quoteSources);
 
     if (findings.some((f) => f.severity === 'error')) {
       const retryPrompt = buildPrompt(context, channel, intent) +
         `\n\nYour previous attempt failed these checks — fix them:\n${findings.filter((f) => f.severity === 'error').map((f) => `- ${f.message}`).join('\n')}`;
       draft = await callClaude(apiKey, model, retryPrompt, canonGated, composeOrgId);
-      findings = lintMessage(draft.body, personLike, entityLike, channel);
+      findings = lintMessage(draft.body, personLike, entityLike, channel, quoteSources);
     }
 
     // Prompt 106 §B — "incremented whenever a draft is generated successfully"

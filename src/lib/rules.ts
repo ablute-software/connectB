@@ -149,7 +149,71 @@ export interface LintFinding {
   message: string;
 }
 
-export function lintMessage(draft: string, person: Person, entity: Entity | undefined, channel: Channel): LintFinding[] {
+
+// Prompt 525 — quote fidelity. Watson shortened Dr. Golnaz Borghei's real,
+// correctly-sourced screening question and kept the quotation marks around
+// the result: the hook says «Is there a clear path to market? Is there an
+// exit strategy that makes sense within our time horizon?» and the draft said
+// «clear path to market? exit strategy within our time horizon?». The source
+// was right; the attribution was not. If she had read it she would have
+// recognised that the quoted words were not hers — the exact opposite of what
+// the line was trying to prove.
+//
+// Two layers, the same shape kill words already use: an instruction in the
+// compose prompt, and this — a deterministic check that does not depend on
+// the model behaving. The model already had a general ground-truth
+// instruction and cut the quote anyway, so this is the one that counts.
+
+/** Below this, a quoted span is a term-in-scare-quotes, not attributed speech. */
+export const QUOTE_MIN_WORDS = 5;
+
+// Typography is normalised, wording is NOT. A source written with a curly
+// apostrophe and a draft with a straight one are the same words and must not
+// be flagged; "that makes sense" going missing is a different matter.
+// Deliberately no lowercasing beyond nothing — case is part of the wording.
+function canonicalQuoteText(s: string): string {
+  return s
+    .replace(/[\u2018\u2019\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201F]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * The quoted spans in a draft that are long enough to read as attributed
+ * speech. Straight and curly DOUBLE quotes only — single quotes and
+ * apostrophes are excluded on purpose, because contractions and possessives
+ * ("the founder's deck", "don't") would produce constant false positives.
+ */
+export function extractQuotedSpans(draft: string): string[] {
+  const spans: string[] = [];
+  for (const re of [/"([^"]+)"/g, /\u201C([^\u201D]+)\u201D/g]) {
+    for (const m of draft.matchAll(re)) {
+      const inner = m[1].trim();
+      if (inner.split(/\s+/).filter(Boolean).length >= QUOTE_MIN_WORDS) spans.push(inner);
+    }
+  }
+  return spans;
+}
+
+/** Quoted spans that do NOT appear verbatim in any source given. */
+export function unsourcedQuotes(draft: string, sources: (string | null | undefined)[]): string[] {
+  const haystacks = sources.filter((s): s is string => !!s && s.trim().length > 0).map(canonicalQuoteText);
+  return extractQuotedSpans(draft).filter((q) => {
+    const needle = canonicalQuoteText(q);
+    return !haystacks.some((h) => h.includes(needle));
+  });
+}
+
+export function lintMessage(
+  draft: string, person: Person, entity: Entity | undefined, channel: Channel,
+  // Prompt 525 — extra verbatim sources beyond the person's own fields. The
+  // compose route passes the prior thread's snippets, which are already
+  // treated as third-party data there (Prompt 305 §B); callers that have none
+  // simply omit it and the person's own fields are the only sources.
+  sources?: { threadSnippets?: string[] },
+): LintFinding[] {
   const findings: LintFinding[] = [];
   const lower = draft.toLowerCase();
 
@@ -181,6 +245,18 @@ export function lintMessage(draft: string, person: Person, entity: Entity | unde
   const hasSpecific = specificTerms.some((t) => t.length > 3 && firstLine.toLowerCase().includes(t));
   if (draft.trim().length > 0 && !hasSpecific) {
     findings.push({ severity: 'warning', message: 'Line 1 doesn’t mention anything specific to this person — line 1 is the hook: specific, recent, true.' });
+  }
+
+  // Prompt 525 — same severity as a kill word, because the risk is the same
+  // kind: it burns the contact. Someone who reads words attributed to them
+  // that they did not write stops reading.
+  for (const q of unsourcedQuotes(draft, [
+    person.hook, person.background, person.watch_outs, ...(sources?.threadSnippets ?? []),
+  ])) {
+    findings.push({
+      severity: 'error',
+      message: `Quoted text doesn’t match any sourced field verbatim — this misattributes altered wording to ${person.full_name}: “${q}”.`,
+    });
   }
 
   if (entity?.the_ask) {

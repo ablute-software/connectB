@@ -361,9 +361,20 @@ export function RailLogForm({
     person && direction === 'out' ? preflight(db, person, channel) : [],
     [db, person, channel, direction]);
   const summary = preflightSummary(checks);
+  // Prompt 525 — the quote-fidelity check needs the same sources the compose
+  // route gives it, or a founder legitimately quoting the investor's own
+  // earlier message here would be told they misattributed it. Inbound
+  // messages only: what the FOUNDER wrote before is not a source for
+  // something attributed to the investor.
+  const threadSnippets = useMemo(() =>
+    person ? db.interactions
+      .filter((i) => i.person_id === person.id && i.direction === 'in')
+      .map((i) => i.content)
+      .filter((c): c is string => !!c) : [],
+    [db.interactions, person]);
   const lint = useMemo(() =>
-    person && direction === 'out' && content ? lintMessage(content, person, entity, channel) : [],
-    [content, person, entity, channel, direction]);
+    person && direction === 'out' && content ? lintMessage(content, person, entity, channel, { threadSnippets }) : [],
+    [content, person, entity, channel, direction, threadSnippets]);
   const lintErrors = lint.filter((f) => f.severity === 'error');
 
   const passMissing = direction === 'in' && classification === 'pass' && passReason.trim().length === 0;
