@@ -576,6 +576,9 @@ function DocumentsPageInner() {
   // pending invite that doesn't have one cached in `db.grants` yet (e.g. the
   // eager mint above failed, or the store hasn't refetched since).
   const [copiedGuestLinkFor, setCopiedGuestLinkFor] = useState<string | null>(null);
+  // Prompt 518 §3 — the always-visible fallback. Never depends on the
+  // clipboard having worked; the founder can select the text by hand.
+  const [guestLink, setGuestLink] = useState<{ email: string; link: string; copied: boolean } | null>(null);
   async function copyGuestLink(invitedEmail: string) {
     const res = await fetch('/api/data-room/guest-invite', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -584,9 +587,30 @@ function DocumentsPageInner() {
     const body = await res.json().catch(() => ({}));
     if (!body.ok || !body.token) { setResendMsg(body.error ?? 'Could not create a guest link.'); return; }
     const link = `${window.location.origin}/guest/${body.token}`;
-    await navigator.clipboard.writeText(link).catch(() => {});
-    setCopiedGuestLinkFor(invitedEmail);
-    setTimeout(() => setCopiedGuestLinkFor((cur) => (cur === invitedEmail ? null : cur)), 2000);
+    // Prompt 518 §3 — "Copy guest link copies the email instead of a URL".
+    // The link built here was always correct; what was wrong is that the
+    // clipboard write was fire-and-forget (`.catch(() => {})`) and "Copied!"
+    // was shown unconditionally. clipboard.writeText must happen inside the
+    // click's user-activation window, and the `await fetch` above can easily
+    // outlast it — Safari especially then rejects with NotAllowedError, the
+    // rejection was swallowed, and the clipboard kept whatever it already
+    // held: plausibly the investor's email address, visible on the same row
+    // and a natural thing to have copied moments earlier. That is the whole
+    // reported symptom, with no bad URL anywhere in it.
+    //
+    // Now the promise's real outcome decides what the founder is told, and
+    // the link is always shown in a selectable field either way, so a silent
+    // clipboard policy can never leave them with nothing.
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(link);
+      copied = true;
+    } catch { copied = false; }
+    setGuestLink({ email: invitedEmail, link, copied });
+    if (copied) {
+      setCopiedGuestLinkFor(invitedEmail);
+      setTimeout(() => setCopiedGuestLinkFor((cur) => (cur === invitedEmail ? null : cur)), 2000);
+    }
   }
 
   async function uploadNda(file: File, inv: { personId?: string; email?: string; documentId?: string }) {
@@ -1652,6 +1676,22 @@ function DocumentsPageInner() {
                               Revoke all
                             </button>
                           </div>
+                          {/* Prompt 518 §3 — shown after every Copy, success or
+                              not. When the browser refused the clipboard write
+                              this is the only way the founder gets the link;
+                              when it worked, it also lets them SEE that what
+                              was copied is a URL and not an email address. */}
+                          {guestLink && guestLink.email === pendingInvite?.invited_email && (
+                            <div className="mt-1 w-full">
+                              <p className={`text-[11px] ${guestLink.copied ? 'text-gray-500' : 'text-[#B00000]'}`}>
+                                {guestLink.copied
+                                  ? 'Copied to your clipboard — or select it here:'
+                                  : 'Your browser blocked the copy. Select this link and copy it manually:'}
+                              </p>
+                              <input readOnly value={guestLink.link} onFocus={(e) => e.currentTarget.select()}
+                                className="mt-0.5 w-full rounded border border-gray-200 bg-gray-50 px-1.5 py-1 font-mono text-[11px] text-gray-700" />
+                            </div>
+                          )}
                         </div>
                         {expanded && (
                           <ul className="mt-2 divide-y divide-gray-50 border-l-2 border-gray-100 pl-3">
