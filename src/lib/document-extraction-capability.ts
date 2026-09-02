@@ -70,3 +70,16 @@ export const roadmapEventsAvailable = makeCapabilityProbe(async (admin) => {
   const { error } = await admin.from('roadmap_events').select('id').limit(1);
   return !error;
 });
+
+// Prompt 541 §B — migration 0295's orgs.round_fields_source column. Lives
+// here rather than in its own file because its only caller is the Round
+// suggestion path, which is the same document_extractions pipeline this
+// file already gates. Fails CLOSED (no column -> no provenance -> the
+// suggestion endpoint reports unavailable): without it there is no way to
+// tell a founder's own number from a three-week-old draft deck's, and
+// offering suggestions blind is exactly the behaviour the precedence rule
+// exists to prevent.
+export const roundFieldsSourceAvailable = makeCapabilityProbe(async (admin) => {
+  const { error } = await admin.from('orgs').select('round_fields_source').limit(1);
+  return !error;
+});

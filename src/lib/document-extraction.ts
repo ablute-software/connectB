@@ -14,6 +14,29 @@ export interface ExtractedProgram { name: string; page: number | null }
 export interface ExtractedDate { label: string; date: string; page: number | null }
 export interface ExtractedAmount { amount: number; currency: string; label: string | null; page: number | null }
 
+// Prompt 541 §A — the round facts, when (and only when) the document is the
+// company's own fundraising material. One object rather than nine flat
+// fields: "this document said nothing about the round" is then a single
+// null, not nine independent absences to reason about at every call site.
+// Every field carries its own page reference, same as the closed facts
+// above — a founder deciding whether to trust a number needs to be able to
+// go and look at it.
+export interface ExtractedRoundValue<T> { value: T; page: number | null }
+
+export interface ExtractedRoundFacts {
+  targetEur?: ExtractedRoundValue<number>;
+  // Already mapped onto the app's own round_instruments enum values by
+  // roundInstrumentValue below — never the model's free text.
+  instruments?: ExtractedRoundValue<string[]>;
+  valuationEur?: ExtractedRoundValue<number>;
+  valuationBasis?: ExtractedRoundValue<'pre_money' | 'post_money'>;
+  runwayMonths?: ExtractedRoundValue<number>;
+  runwayPostMonths?: ExtractedRoundValue<number>;
+  targetCloseDate?: ExtractedRoundValue<string>;
+  useOfFunds?: ExtractedRoundValue<string>;
+  minTicketEur?: ExtractedRoundValue<number>;
+}
+
 export interface DocumentExtractionData {
   documentType: string | null;
   namedEntities: ExtractedNamedEntity[];
@@ -28,6 +51,9 @@ export interface DocumentExtractionData {
   // inferred from context.
   pitchProblem: string | null;
   pitchSolution: string | null;
+  // Prompt 541 §A — null for every document that isn't fundraising material,
+  // and for fundraising material that simply doesn't state any of it.
+  round: ExtractedRoundFacts | null;
   // How much of the source PDF this extraction actually saw — set from the
   // truncation step (pdf-truncate.ts), never from the model's own say-so.
   pagesRead: number;
@@ -128,6 +154,59 @@ export const EXTRACTION_TOOL_SCHEMA = {
       type: 'string',
       description: 'ONLY if this document is the company\'s own pitch material and it states what the company\'s solution/product is, in its own words — under ~240 characters. Same rule as pitch_problem: omit if not clearly stated, never infer.',
     },
+    // Prompt 541 §A — the round terms, when this document actually states
+    // them. Optional and never in `required`, same as pitch_problem above:
+    // most documents this pipeline reads have nothing to say here. The
+    // "only if" wording is doing real work — it is what stops the model
+    // pattern-completing a plausible round out of an unrelated PDF (the
+    // exact failure the Faber linkedin_url incident taught us to design
+    // against), and rawExtractionToData below still drops the whole block
+    // if the document type turns out to be incompatible.
+    round: {
+      type: 'object',
+      description: 'ONLY if this document is the company\'s own fundraising material (pitch deck, term sheet, one-pager, investment/round summary, investor teaser) AND it explicitly states the terms below. Include only the sub-fields the document actually states — omit the rest, and omit this object entirely for any other kind of document. Never infer, never carry a number over from an example or a comparable company.',
+      properties: {
+        target_eur: {
+          type: 'object', required: ['value'],
+          properties: { value: { type: 'number', description: 'Amount being raised, in EUR. Convert only if the document itself states the EUR figure.' }, page: { type: 'integer' } },
+        },
+        instruments: {
+          type: 'object', required: ['value'],
+          properties: {
+            value: { type: 'array', items: { type: 'string' }, description: 'The instrument(s) named: equity, SAFE, convertible note, venture debt, grant, revenue-based, or other.' },
+            page: { type: 'integer' },
+          },
+        },
+        valuation_eur: {
+          type: 'object', required: ['value'],
+          properties: { value: { type: 'number', description: 'Valuation or cap in EUR.' }, page: { type: 'integer' } },
+        },
+        valuation_basis: {
+          type: 'object', required: ['value'],
+          properties: { value: { type: 'string', enum: ['pre_money', 'post_money'], description: 'Only if the document says which basis the valuation is on.' }, page: { type: 'integer' } },
+        },
+        runway_months: {
+          type: 'object', required: ['value'],
+          properties: { value: { type: 'number', description: 'Current runway in months.' }, page: { type: 'integer' } },
+        },
+        runway_post_months: {
+          type: 'object', required: ['value'],
+          properties: { value: { type: 'number', description: 'Runway in months AFTER the round closes.' }, page: { type: 'integer' } },
+        },
+        target_close_date: {
+          type: 'object', required: ['value'],
+          properties: { value: { type: 'string', description: 'Target closing date, as YYYY-MM-DD.' }, page: { type: 'integer' } },
+        },
+        use_of_funds: {
+          type: 'object', required: ['value'],
+          properties: { value: { type: 'string', description: 'What the money is for, in the document\'s own words, under ~600 characters.' }, page: { type: 'integer' } },
+        },
+        min_ticket_eur: {
+          type: 'object', required: ['value'],
+          properties: { value: { type: 'number', description: 'Minimum ticket / minimum investment per investor, in EUR.' }, page: { type: 'integer' } },
+        },
+      },
+    },
     // Prompt 355 §C — same pass, a second output: a plain-language summary
     // for whoever is EVALUATING this document (an investor), not the
     // structured facts above. Kept in the SAME tool call (one download/
@@ -161,6 +240,7 @@ interface RawExtraction {
   is_signed?: unknown;
   pitch_problem?: unknown;
   pitch_solution?: unknown;
+  round?: unknown;
 }
 
 function pageOf(v: unknown): number | null {
@@ -175,6 +255,120 @@ function pitchField(v: unknown): string | null {
   if (typeof v !== 'string') return null;
   const trimmed = v.trim();
   return trimmed ? (truncateAtWord(trimmed, INTRO_PITCH_MAX) ?? null) : null;
+}
+
+// Prompt 541 §A — the deterministic half of "only from fundraising
+// material". The tool-schema description above is the first gate (it tells
+// the model when to omit the block); this is the second, and it is the one
+// that can be tested. Deliberately an ALLOW-list, not a block-list: a grant
+// agreement or an invoice can easily contain a big EUR figure and a date,
+// and the cost asymmetry is stark — a dropped suggestion is a founder
+// typing a number they already knew, while a wrong one is a wrong number
+// offered for their round with a document's authority behind it.
+//
+// The trade-off this accepts, stated rather than hidden: a genuinely
+// fundraising document whose model-assigned `document_type` uses none of
+// these words loses its round facts silently. That is why the list covers
+// the labels the schema itself suggests to the model ("term sheet",
+// "pitch deck", …) plus the obvious near-misses, and why a null/absent
+// document_type is allowed through — unknown is not the same as wrong.
+const ROUND_COMPATIBLE_TYPE_WORDS = [
+  'pitch', 'deck', 'term sheet', 'termsheet', 'one-pager', 'one pager', 'onepager',
+  'round', 'fundrais', 'investment summary', 'investor', 'executive summary', 'teaser',
+  'safe', 'convertible note', 'subscription agreement', 'shareholders agreement',
+  'investment memorandum', 'information memorandum', 'memorandum',
+];
+
+export function isRoundCompatibleDocumentType(documentType: string | null): boolean {
+  if (documentType == null) return true;
+  const t = documentType.toLowerCase();
+  if (!t.trim()) return true;
+  return ROUND_COMPATIBLE_TYPE_WORDS.some((w) => t.includes(w));
+}
+
+// The app's own round_instruments enum (RoundCard's INSTRUMENTS list). The
+// model is asked for names, not codes, so this is where free text becomes a
+// value the UI can actually check a box for — anything unrecognised maps to
+// 'other' rather than being dropped, since "the document names an
+// instrument we don't model" is still information worth carrying.
+const INSTRUMENT_ALIASES: [RegExp, string][] = [
+  [/\bsafe\b|simple agreement for future equity/i, 'safe'],
+  [/convertible/i, 'convertible_note'],
+  [/venture debt|\bdebt\b|\bloan\b/i, 'venture_debt'],
+  [/grant|subsid/i, 'grant'],
+  [/revenue[- ]based|\brbf\b/i, 'revenue_based'],
+  [/equity|\bshares?\b|ordinary|preferred/i, 'equity'],
+];
+
+export function roundInstrumentValue(raw: string): string {
+  for (const [re, value] of INSTRUMENT_ALIASES) if (re.test(raw)) return value;
+  return 'other';
+}
+
+const USE_OF_FUNDS_MAX = 600;
+
+interface RawRoundValue { value?: unknown; page?: unknown }
+
+function roundNumber(v: unknown): ExtractedRoundValue<number> | undefined {
+  const r = (v && typeof v === 'object' ? v : {}) as RawRoundValue;
+  // Rejects 0 and negatives as well as non-numbers: a round target of zero
+  // is never a real extracted fact, it is a model filling in a blank.
+  if (typeof r.value !== 'number' || !Number.isFinite(r.value) || r.value <= 0) return undefined;
+  return { value: r.value, page: pageOf(r.page) };
+}
+
+function roundString(v: unknown, max: number): ExtractedRoundValue<string> | undefined {
+  const r = (v && typeof v === 'object' ? v : {}) as RawRoundValue;
+  if (typeof r.value !== 'string' || !r.value.trim()) return undefined;
+  return { value: r.value.trim().slice(0, max), page: pageOf(r.page) };
+}
+
+function roundDate(v: unknown): ExtractedRoundValue<string> | undefined {
+  const r = (v && typeof v === 'object' ? v : {}) as RawRoundValue;
+  if (typeof r.value !== 'string') return undefined;
+  // The column is a date; anything that isn't an ISO date is dropped rather
+  // than handed to Postgres to reject at save time.
+  const m = r.value.trim().match(/^\d{4}-\d{2}-\d{2}$/);
+  if (!m) return undefined;
+  return { value: r.value.trim(), page: pageOf(r.page) };
+}
+
+export function rawExtractionToRound(raw: unknown, documentType: string | null): ExtractedRoundFacts | null {
+  if (!isRoundCompatibleDocumentType(documentType)) return null;
+  const r = (raw && typeof raw === 'object' ? raw : null) as Record<string, unknown> | null;
+  if (!r) return null;
+
+  const facts: ExtractedRoundFacts = {};
+  const targetEur = roundNumber(r.target_eur);
+  if (targetEur) facts.targetEur = targetEur;
+  const valuationEur = roundNumber(r.valuation_eur);
+  if (valuationEur) facts.valuationEur = valuationEur;
+  const runwayMonths = roundNumber(r.runway_months);
+  if (runwayMonths) facts.runwayMonths = runwayMonths;
+  const runwayPostMonths = roundNumber(r.runway_post_months);
+  if (runwayPostMonths) facts.runwayPostMonths = runwayPostMonths;
+  const minTicketEur = roundNumber(r.min_ticket_eur);
+  if (minTicketEur) facts.minTicketEur = minTicketEur;
+
+  const targetCloseDate = roundDate(r.target_close_date);
+  if (targetCloseDate) facts.targetCloseDate = targetCloseDate;
+  const useOfFunds = roundString(r.use_of_funds, USE_OF_FUNDS_MAX);
+  if (useOfFunds) facts.useOfFunds = useOfFunds;
+
+  const basis = (r.valuation_basis && typeof r.valuation_basis === 'object' ? r.valuation_basis : {}) as RawRoundValue;
+  if (basis.value === 'pre_money' || basis.value === 'post_money') {
+    facts.valuationBasis = { value: basis.value, page: pageOf(basis.page) };
+  }
+
+  const instr = (r.instruments && typeof r.instruments === 'object' ? r.instruments : {}) as RawRoundValue;
+  if (Array.isArray(instr.value)) {
+    const mapped = Array.from(new Set(
+      (instr.value as unknown[]).filter((x): x is string => typeof x === 'string' && !!x.trim()).map(roundInstrumentValue),
+    ));
+    if (mapped.length) facts.instruments = { value: mapped, page: pageOf(instr.page) };
+  }
+
+  return Object.keys(facts).length ? facts : null;
 }
 
 // Never trusts the model to have honored the schema exactly — same defensive
@@ -208,13 +402,16 @@ export function rawExtractionToData(raw: unknown, pagesRead: number, totalPages:
       .map((a) => ({ amount: a.amount as number, currency: a.currency as string, label: typeof a.label === 'string' ? a.label : null, page: pageOf(a.page) }))
     : [];
 
+  const documentType = typeof r.document_type === 'string' ? r.document_type : null;
+
   return {
-    documentType: typeof r.document_type === 'string' ? r.document_type : null,
+    documentType,
     namedEntities, programs, dates, amounts,
     documentReference: typeof r.document_reference === 'string' ? r.document_reference : null,
     isSigned: typeof r.is_signed === 'boolean' ? r.is_signed : null,
     pitchProblem: pitchField(r.pitch_problem),
     pitchSolution: pitchField(r.pitch_solution),
+    round: rawExtractionToRound(r.round, documentType),
     pagesRead, totalPages, partial: pagesRead < totalPages,
   };
 }

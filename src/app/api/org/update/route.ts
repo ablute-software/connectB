@@ -14,6 +14,11 @@ import { patchTouchesArchiveRelevantFields, regenerateNowSummary } from '@/lib/s
 import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
 import { logEvent } from '@/lib/analytics-events';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { roundFieldsSourceAvailable } from '@/lib/document-extraction-capability';
+import {
+  ROUND_SOURCE_FIELDS, isRoundSourceField, nextRoundFieldsSource,
+  type RoundFieldsSource, type RoundSourceField,
+} from '@/lib/round-field-precedence';
 
 // Only these columns are editable here — never plan/credits/id/bcc_email.
 // Company tab redesign (migration 0037) added everything from legal_name
@@ -66,6 +71,48 @@ const EDITABLE = [
   'intro_problem', 'intro_solution',
 ] as const;
 
+// Prompt 541 §B — the two provenance hints the Round card may send
+// alongside an ordinary patch. Neither is a column: they are instructions
+// about how to STAMP the round fields being written, and they are handled
+// separately below so they can never be mistaken for editable data.
+//
+// `round_source_accepted` names the fields whose value came from a Vault
+// document the founder accepted as-is. `round_source_kept_own` names the
+// fields where the founder was shown a conflict and kept their own value —
+// which records the rejected candidate so the same warning is not raised
+// again. Everything else that touches a round field is recorded as manual.
+//
+// Client-asserted, and that is fine here: the only thing a caller can
+// achieve by lying is to mark their OWN field document-sourced (removing
+// its protection) or manual (adding protection) on their OWN org. Neither
+// crosses a tenant boundary, and the honest case — the founder clicked
+// "Use suggestion" — is exactly what the flag reports.
+interface RoundSourceAccepted { documentId?: unknown; documentName?: unknown; extractedAt?: unknown }
+
+function readAcceptedHint(raw: unknown): Partial<Record<RoundSourceField, { documentId: string; documentName: string; extractedAt: string }>> {
+  const out: Partial<Record<RoundSourceField, { documentId: string; documentName: string; extractedAt: string }>> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [key, v] of Object.entries(raw as Record<string, RoundSourceAccepted>)) {
+    if (!isRoundSourceField(key) || !v || typeof v !== 'object') continue;
+    if (typeof v.documentId !== 'string' || !v.documentId) continue;
+    out[key] = {
+      documentId: v.documentId,
+      documentName: typeof v.documentName === 'string' ? v.documentName : '',
+      extractedAt: typeof v.extractedAt === 'string' ? v.extractedAt : new Date().toISOString(),
+    };
+  }
+  return out;
+}
+
+function readKeptOwnHint(raw: unknown): Partial<Record<RoundSourceField, string>> {
+  const out: Partial<Record<RoundSourceField, string>> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [key, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (isRoundSourceField(key) && typeof v === 'string' && v) out[key] = v;
+  }
+  return out;
+}
+
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -92,6 +139,23 @@ export async function POST(req: Request) {
   const body = await req.json() as Record<string, unknown>;
   const patch: Record<string, unknown> = {};
   for (const k of EDITABLE) if (k in body) patch[k] = body[k] === '' ? null : body[k];
+
+  // Prompt 541 §B — stamp provenance for any Round field being written, and
+  // for a "keep mine" answer to a conflict (which writes no value at all,
+  // only the record that the candidate was turned down). Probe-gated like
+  // every other migration-dependent column here: with 0295 unapplied this
+  // is skipped entirely and the save behaves exactly as it did before.
+  const accepted = readAcceptedHint(body.round_source_accepted);
+  const keptOwn = readKeptOwnHint(body.round_source_kept_own);
+  const touchesRound = ROUND_SOURCE_FIELDS.some((f) => f in patch) || Object.keys(keptOwn).length > 0;
+  if (touchesRound && await roundFieldsSourceAvailable()) {
+    const { data: current } = await admin.from('orgs').select('round_fields_source').eq('id', member.org_id).maybeSingle();
+    patch.round_fields_source = nextRoundFieldsSource({
+      existing: (current?.round_fields_source ?? null) as RoundFieldsSource | null,
+      patch, accepted, keptOwn, now: new Date().toISOString(),
+    });
+  }
+
   if (Object.keys(patch).length === 0) return NextResponse.json({ ok: false, error: 'Nothing to update.' }, { status: 400 });
 
   const { error } = await admin.from('orgs').update(patch).eq('id', member.org_id);

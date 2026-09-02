@@ -159,7 +159,14 @@ export interface StoreApi {
   // Batch 3 B — edit Organisation data (name, sender, caps, onboarding
   // fields). Owner+admin only; enforced server-side in /api/org/update (the
   // Supabase provider posts there), the UI just gates the form.
-  updateOrg: (patch: Partial<Org>) => void;
+  // Prompt 541 §B — `meta` carries request-only keys that are NOT org
+  // columns: the provenance hints the Round card sends so /api/org/update
+  // knows which of the round fields in `patch` came from a Vault document
+  // the founder accepted, and which conflicts they answered by keeping
+  // their own value. Deliberately a separate argument rather than extra
+  // keys on `patch`: `patch` is merged straight into the local org object,
+  // and a hint has no business living there.
+  updateOrg: (patch: Partial<Org>, meta?: Record<string, unknown>) => void;
   setEntityStatus: (id: string, status: Db['entities'][0]['status'], reason?: string) => void;
   // Prompt 527 — a system note in an entity's history: the founder's own
   // decision, recorded, with no side effects on the relationship itself.

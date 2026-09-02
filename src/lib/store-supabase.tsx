@@ -803,7 +803,7 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('tasks').update(patch).eq('id', id), 'updateTask');
     },
 
-    updateOrg(patch: Partial<Org>) {
+    updateOrg(patch: Partial<Org>, meta?: Record<string, unknown>) {
       const prev = dbRef.current;
       const next = { ...prev, org: { ...prev.org, ...patch } };
       commit(next);
@@ -812,7 +812,9 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       // check) rather than the browser client — fire-and-forget, the local
       // commit already reflects it optimistically.
       fetch('/api/org/update', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
+        // `meta` goes on the wire only — never into `next` above, which is
+        // the local org row (Prompt 541 §B).
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...patch, ...(meta ?? {}) }),
       }).then((r) => r.json()).then((b) => { if (!b.ok) console.error('[supabase-store] updateOrg failed:', b.error); }).catch((e) => console.error('[supabase-store] updateOrg failed:', e));
       // Bloco B — the startup itself changed; 'stage'/'sectors' are the
       // two axes this engine understands structurally today.

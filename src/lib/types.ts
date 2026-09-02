@@ -67,6 +67,35 @@ export type RunStatus =
 export type PlanTier = 'idea' | 'garage' | 'motherfunding';
 export type AiReviewKind = 'deck_review' | 'one_pager_review' | 'message_review' | 'market_data';
 
+// Prompt 541 §B (migration 0295) — provenance for the Round fields. The
+// vocabulary lives here, with the rest of the domain types; the RULE that
+// reads it, and the runtime list of field names, live in
+// src/lib/round-field-precedence.ts (which imports these and asserts at
+// compile time that its list matches this union exactly).
+export type RoundSourceField =
+  | 'round_target_eur'
+  | 'round_instruments'
+  | 'round_valuation_eur'
+  | 'round_valuation_basis'
+  | 'round_runway_months'
+  | 'round_runway_post_months'
+  | 'round_target_close_date'
+  | 'round_use_of_funds'
+  | 'round_min_ticket_eur';
+
+export interface RoundFieldSourceEntry {
+  source: 'manual' | 'document';
+  document_id?: string;
+  document_name?: string;
+  extracted_at?: string;
+  at?: string;
+  // Canonical form of a document value the founder turned down by keeping
+  // their own — so the same conflict is not re-raised on every visit.
+  dismissed_candidate?: string;
+}
+
+export type RoundFieldsSource = Partial<Record<RoundSourceField, RoundFieldSourceEntry>>;
+
 export interface Org {
   id: string;
   name: string;
@@ -154,6 +183,12 @@ export interface Org {
   // Investor Workspace Fase 1 (prompt 54, migration 0054) — Zona 1 snapshot.
   round_min_ticket_eur?: number;
   round_runway_post_months?: number;
+  // Prompt 541 §B (migration 0295) — per-field provenance for the nine
+  // Round fields a Vault document can speak to. Written by /api/org/update,
+  // read by src/lib/round-field-precedence.ts. Absent on any org saved
+  // before that migration, which reads as "no human decision recorded" —
+  // see the migration's own header for why that is the honest default.
+  round_fields_source?: RoundFieldsSource;
   // Prompt 85 Correction 1 (migration 0082) — deliberately separate from
   // `stage` (the round's stage) and from matchdeal_profiles.company_phase/
   // contact (a different system entirely, see the migration's own comment).
