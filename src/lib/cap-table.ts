@@ -55,3 +55,36 @@ const QUARTER_TO_MONTH: Record<'Q1' | 'Q2' | 'Q3' | 'Q4', string> = {
 export function quarterYearToIsoDate(quarter: 'Q1' | 'Q2' | 'Q3' | 'Q4', year: string): string {
   return `${year}-${QUARTER_TO_MONTH[quarter]}-01`;
 }
+
+// Prompt 542 §1 — whether the guided-questions panel opens by itself.
+//
+// The panel was built (Prompt 431) as the ONLY way to fill an empty cap
+// table, after the multi-document "Fill with Watson" selector was removed
+// for dumping the whole Vault at the founder. It was never given a reason
+// to step aside once the table had rows, so a founder with four entries
+// still met a "let us help you start" panel underneath them — Nuno's words:
+// "não ajuda ou acrescenta nada", which is, word for word, the same
+// complaint that killed the selector in 431.
+//
+// The rule: the table's own state decides the DEFAULT, and an explicit
+// click always wins over it. Returning `null` for "never toggled" rather
+// than resolving eagerly matters — the store loads asynchronously, so a
+// value computed once at mount would latch the empty-table default and
+// never correct itself when the rows arrive a moment later.
+//
+// Same "the card goes away when it stops being needed" rule as the
+// onboarding checklist (Prompt 517) and the founded-year suggestion card
+// (Prompt 540); simpler than either, because it depends on nothing but
+// whether the table has rows.
+export function capTableGuidedPanelOpen(params: {
+  hasRows: boolean;
+  userToggled: boolean | null;
+  // A deep link from an investor's own request (?capTableRequestItem=…)
+  // opens the panel regardless of the table's state: there the founder was
+  // sent here specifically to add something.
+  deepLinked?: boolean;
+}): boolean {
+  if (params.deepLinked) return true;
+  if (params.userToggled !== null) return params.userToggled;
+  return !params.hasRows;
+}

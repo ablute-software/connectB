@@ -37,6 +37,31 @@ export interface ExtractedRoundFacts {
   minTicketEur?: ExtractedRoundValue<number>;
 }
 
+// Prompt 542 §3 — a FUTURE target the document states, as distinct from
+// every other field in this file, which records something already true.
+// The three parts are all required: a metric with no number, or a number
+// with no date, is not a projection anyone can put on a roadmap — it is a
+// sentence. Dropping it is correct; guessing the missing part is exactly
+// the failure this whole module is written against.
+//
+// `targetValue` stays a STRING, deliberately, and this is the one place it
+// is worth arguing for: documents say "1,000 users", "EUR 50K MRR",
+// "break-even". Parsing that into a number here would mean inventing a
+// unit, a currency, or a scale the document did not state, and the value's
+// only consumer today is the text of a proposed roadmap milestone. The
+// deferred "did they hit it?" feature (which the prompt explicitly leaves
+// for later) is what will need a number, and it should parse it then, with
+// the founder able to correct it — not have this step guess now.
+export interface ExtractedProjection {
+  metric: string;
+  targetValue: string;
+  targetDate: string; // ISO YYYY-MM-DD
+  // Roadmap's own vocabulary (roadmap_events.date_precision), so a
+  // projection can become an event without a second translation step.
+  datePrecision: 'exact' | 'approx' | 'quarter';
+  page: number | null;
+}
+
 export interface DocumentExtractionData {
   documentType: string | null;
   namedEntities: ExtractedNamedEntity[];
@@ -54,6 +79,9 @@ export interface DocumentExtractionData {
   // Prompt 541 §A — null for every document that isn't fundraising material,
   // and for fundraising material that simply doesn't state any of it.
   round: ExtractedRoundFacts | null;
+  // Prompt 542 §3 — empty for every document that states no explicit
+  // forward-looking target, which is most of them.
+  projections: ExtractedProjection[];
   // How much of the source PDF this extraction actually saw — set from the
   // truncation step (pdf-truncate.ts), never from the model's own say-so.
   pagesRead: number;
@@ -207,6 +235,26 @@ export const EXTRACTION_TOOL_SCHEMA = {
         },
       },
     },
+    // Prompt 542 §3 — forward-looking targets the document actually states.
+    // Optional, never in `required`. The wording carries the whole
+    // guardrail: all three parts must come from the document, and a
+    // document with no explicit projection returns an empty list rather
+    // than a plausible-looking one.
+    projections: {
+      type: 'array',
+      description: 'Explicit FUTURE targets the document states — projected growth, planned milestones, forecast figures (e.g. "1,000 users by Q2 2027", "EUR 50K MRR by end of 2026"). Only include one when the document states ALL THREE of: what is being measured, the target value, and the date it is targeted for. Omit anything the document merely mentions without a target or without a date. Never infer a projection from a trend, never extrapolate, never carry a figure over from a comparable company or an illustrative example. An empty list is the right answer for most documents.',
+      items: {
+        type: 'object',
+        properties: {
+          metric: { type: 'string', description: 'What is being projected, in the document\'s own words — e.g. "new users", "MRR", "paying customers", "pilot hospitals".' },
+          target_value: { type: 'string', description: 'The target figure exactly as the document states it, including any unit or currency — e.g. "1,000", "EUR 50K", "12".' },
+          target_date: { type: 'string', description: 'The date it is targeted for, as YYYY-MM-DD. For a quarter, use the first day of that quarter; for a year alone, use January 1st.' },
+          date_precision: { type: 'string', enum: ['exact', 'approx', 'quarter'], description: '"exact" if the document gives a specific date, "quarter" if it gives a quarter, "approx" if only a year.' },
+          page: { type: 'integer' },
+        },
+        required: ['metric', 'target_value', 'target_date'],
+      },
+    },
     // Prompt 355 §C — same pass, a second output: a plain-language summary
     // for whoever is EVALUATING this document (an investor), not the
     // structured facts above. Kept in the SAME tool call (one download/
@@ -241,6 +289,7 @@ interface RawExtraction {
   pitch_problem?: unknown;
   pitch_solution?: unknown;
   round?: unknown;
+  projections?: unknown;
 }
 
 function pageOf(v: unknown): number | null {
@@ -307,6 +356,11 @@ export function roundInstrumentValue(raw: string): string {
 
 const USE_OF_FUNDS_MAX = 600;
 
+// Shared by the round close date and the projection target date: both are
+// written into real `date` columns, so anything that is not a plain ISO
+// date is dropped here rather than handed to Postgres to reject on save.
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 interface RawRoundValue { value?: unknown; page?: unknown }
 
 function roundNumber(v: unknown): ExtractedRoundValue<number> | undefined {
@@ -328,9 +382,42 @@ function roundDate(v: unknown): ExtractedRoundValue<string> | undefined {
   if (typeof r.value !== 'string') return undefined;
   // The column is a date; anything that isn't an ISO date is dropped rather
   // than handed to Postgres to reject at save time.
-  const m = r.value.trim().match(/^\d{4}-\d{2}-\d{2}$/);
-  if (!m) return undefined;
+  if (!ISO_DATE_RE.test(r.value.trim())) return undefined;
   return { value: r.value.trim(), page: pageOf(r.page) };
+}
+
+const PROJECTION_METRIC_MAX = 120;
+const PROJECTION_VALUE_MAX = 60;
+
+interface RawProjection { metric?: unknown; target_value?: unknown; target_date?: unknown; date_precision?: unknown; page?: unknown }
+
+// All three parts or nothing — see ExtractedProjection's own comment. Also
+// bounded: 12 projections is already more than any real deck states, and an
+// unbounded list from a malformed response has no business reaching the
+// roadmap suggestion prompt.
+const MAX_PROJECTIONS = 12;
+
+export function rawExtractionToProjections(raw: unknown): ExtractedProjection[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ExtractedProjection[] = [];
+  for (const item of raw as RawProjection[]) {
+    if (!item || typeof item !== 'object') continue;
+    const metric = typeof item.metric === 'string' ? item.metric.trim() : '';
+    const targetValue = typeof item.target_value === 'string' ? item.target_value.trim() : '';
+    const targetDate = typeof item.target_date === 'string' ? item.target_date.trim() : '';
+    if (!metric || !targetValue) continue;
+    if (!ISO_DATE_RE.test(targetDate)) continue;
+    const precision = item.date_precision;
+    out.push({
+      metric: metric.slice(0, PROJECTION_METRIC_MAX),
+      targetValue: targetValue.slice(0, PROJECTION_VALUE_MAX),
+      targetDate,
+      datePrecision: precision === 'exact' || precision === 'quarter' ? precision : 'approx',
+      page: pageOf(item.page),
+    });
+    if (out.length >= MAX_PROJECTIONS) break;
+  }
+  return out;
 }
 
 export function rawExtractionToRound(raw: unknown, documentType: string | null): ExtractedRoundFacts | null {
@@ -412,6 +499,7 @@ export function rawExtractionToData(raw: unknown, pagesRead: number, totalPages:
     pitchProblem: pitchField(r.pitch_problem),
     pitchSolution: pitchField(r.pitch_solution),
     round: rawExtractionToRound(r.round, documentType),
+    projections: rawExtractionToProjections(r.projections),
     pagesRead, totalPages, partial: pagesRead < totalPages,
   };
 }

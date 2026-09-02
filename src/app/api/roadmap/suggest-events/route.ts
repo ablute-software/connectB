@@ -78,6 +78,29 @@ async function buildKnowledge(
       if (ex.isSigned != null) parts.push(ex.isSigned ? 'signed' : 'not signed');
       items.push({ kind: 'document', text: parts.join(', ') + '.', documentId: e.document_id });
       sigParts.push(`doc:${e.document_id}:${e.updated_at ?? ''}`);
+
+      // Prompt 542 §3 — a projection is a different KIND of knowledge from
+      // everything else in this list: every other item states something
+      // already true, and this states a target. It gets its own item (and
+      // its own `kind`) rather than being folded into the document line
+      // above, so the system prompt can tell the model to date the proposed
+      // event AT the target and never describe it as achieved.
+      //
+      // No new column is needed downstream to keep the distinction:
+      // roadmap_events.status is already 'done' | 'planned', and the
+      // respond route already derives it from the date
+      // (`date < now ? 'done' : 'planned'`), so a future-dated milestone
+      // lands as 'planned' and the canvas already renders planned,
+      // in_progress and completed differently. Verified against production
+      // before writing this, not assumed.
+      for (const pr of (ex.projections as { metric: string; targetValue: string; targetDate: string }[] | undefined) ?? []) {
+        items.push({
+          kind: 'projection',
+          text: `Projected target from "${docName}": ${pr.metric} — ${pr.targetValue} by ${pr.targetDate}. This has NOT happened yet.`,
+          documentId: e.document_id,
+        });
+        sigParts.push(`proj:${e.document_id}:${pr.metric}:${pr.targetDate}`);
+      }
     }
   }
 
@@ -169,7 +192,15 @@ async function runSuggestionPass(
     + 'question needs a short title (the question itself) and a reasoning explaining exactly which knowledge item it came '
     + 'from. Never invent a name, company, or fact the question refers to — if nothing in the knowledge supports a concrete '
     + 'question, return fewer than 3, or none at all. Never ask about anything already on the roadmap (see the list below, '
-    + 'if any). ' + DOCUMENT_CONTENT_INSTRUCTION;
+    + 'if any). '
+    // Prompt 542 §3 — the one instruction that keeps a target from reading
+    // as an achievement. An investor must never be able to mistake a
+    // projection for something the company already did.
+    + 'Some knowledge items are marked [projection]: these are TARGETS the company has stated for the future, not things '
+    + 'that have happened. Propose each as an event dated at its target date, titled so it plainly reads as a goal (e.g. '
+    + '"Target: 1,000 users"), never as an accomplishment, and never re-dated to the present. Use the projection\'s own '
+    + 'metric and figure exactly as given — never round, rescale, or add one it does not state. '
+    + DOCUMENT_CONTENT_INSTRUCTION;
   const userText = `Company knowledge:\n${wrapDocumentContent(knowledgeText)}${existingText}\n\nPropose roadmap events and, separately, up to 3 grounded questions.`;
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {

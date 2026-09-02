@@ -13,7 +13,7 @@
 // (fulfill_cap_table, §D) — nunca fora deste fluxo com deep-link.
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { capTableTotal, isCapTableTotalOff } from '@/lib/cap-table';
+import { capTableGuidedPanelOpen, capTableTotal, isCapTableTotalOff } from '@/lib/cap-table';
 import type { CapTableEntry } from '@/lib/types';
 
 interface DraftEntry { category: CapTableEntry['category']; label: string; pct: string; asOf: string }
@@ -32,12 +32,18 @@ function fmtPct(n: number) {
   return `${n % 1 === 0 ? n : n.toFixed(1)}%`;
 }
 
-export function CapTableAiFillPanel({ addCapTableEntry }: {
+export function CapTableAiFillPanel({ addCapTableEntry, hasRows = false }: {
   addCapTableEntry: (e: Omit<CapTableEntry, 'id'>) => Promise<{ error?: string }>;
+  // Prompt 542 §1 — whether the cap table already has entries. Drives the
+  // DEFAULT only; see capTableGuidedPanelOpen for why an explicit toggle
+  // is tracked separately rather than seeding useState from this.
+  hasRows?: boolean;
 }) {
   const requestItemId = useSearchParams().get('capTableRequestItem');
-  const [open, setOpen] = useState(false);
+  // null = the founder has not decided; follow the table's own state.
+  const [userToggled, setUserToggled] = useState<boolean | null>(null);
   const [autoOpenDone, setAutoOpenDone] = useState(false);
+  const open = capTableGuidedPanelOpen({ hasRows, userToggled });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [draftEntries, setDraftEntries] = useState<DraftEntry[]>([]);
@@ -49,7 +55,7 @@ export function CapTableAiFillPanel({ addCapTableEntry }: {
   useEffect(() => {
     if (!requestItemId || autoOpenDone) return;
     setAutoOpenDone(true);
-    setOpen(true);
+    setUserToggled(true);
   }, [requestItemId, autoOpenDone]);
 
   function addRow(category: CapTableEntry['category'], label: string, pct: string) {
@@ -90,7 +96,7 @@ export function CapTableAiFillPanel({ addCapTableEntry }: {
   }
 
   function close() {
-    setOpen(false); setDraftEntries([]); setError(''); setSavedCount(null);
+    setUserToggled(false); setDraftEntries([]); setError(''); setSavedCount(null);
   }
 
   const numericEntries = draftEntries.map((e) => ({ category: e.category, label: e.label, pct: Number(e.pct) || 0 }));
@@ -98,9 +104,23 @@ export function CapTableAiFillPanel({ addCapTableEntry }: {
   const totalOff = isCapTableTotalOff(numericEntries);
 
   if (!open) {
+    // Prompt 542 §1 — with rows already in the table this is a quiet text
+    // link, not a bordered call-to-action: the founder is past "help me
+    // start" and only needs a way back in to add a shareholder. With an
+    // empty table the panel is open anyway, so this branch is only reached
+    // there after an explicit Close.
+    if (hasRows) {
+      return (
+        <div className="mt-3">
+          <button onClick={() => setUserToggled(true)} className="text-xs text-gray-500 hover:text-[#0E7490] hover:underline">
+            Add more rows with guided questions
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="mt-3 border-t border-gray-100 pt-3">
-        <button onClick={() => setOpen(true)} className="rounded-full border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
+        <button onClick={() => setUserToggled(true)} className="rounded-full border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:border-[#0E7490]">
           📝 Answer guided questions
         </button>
       </div>

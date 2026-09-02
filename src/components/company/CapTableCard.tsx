@@ -316,7 +316,12 @@ export function CapTableCard() {
         </button>
       </div>
 
-      <CapTableAiFillPanel addCapTableEntry={addCapTableEntry} />
+      {/* Prompt 542 §1 — the guided panel opens by itself only for an empty
+          table. With rows already there it collapses to a quiet link, so a
+          filled cap table is no longer followed by a "let us help you
+          start" panel that, in Nuno's words, "não ajuda ou acrescenta
+          nada". The panel itself is unchanged and still reachable. */}
+      <CapTableAiFillPanel addCapTableEntry={addCapTableEntry} hasRows={entries.length > 0} />
     </Card>
   );
 }
