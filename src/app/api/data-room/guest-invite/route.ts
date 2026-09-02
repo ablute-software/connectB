@@ -17,20 +17,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { generateRawToken } from '@/lib/matchdeal-pairing';
+import { ensureGuestToken } from '@/lib/guest-token-server';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { APP_URL, BRAND_NAME } from '@/lib/brand';
-
-// Decision (2026-08-07, per the mini-prompt's own ask to pick and record
-// one): 14 days. Long enough that "I'll look at this later" doesn't expire
-// before the investor gets to it, short enough that a stale, unconfirmed
-// invite doesn't stay guessable-and-valid indefinitely. Prompt 171 §B — this
-// is now only the FALLBACK for when none of the pending grants for this
-// email have their own expires_at at all; when at least one does, the link
-// follows the latest of those instead (see the mint branch below).
-const GUEST_TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 // The client-side access_grants insert (store-supabase.tsx's addGrant) is a
 // fire-and-forget browser write, not awaited by its caller — this route can
@@ -38,10 +29,6 @@ const GUEST_TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 // the real-world gap without the caller having to change how addGrant works.
 const RESOLVE_RETRIES = 5;
 const RESOLVE_DELAY_MS = 300;
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function formatExpiry(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -76,48 +63,22 @@ export async function POST(req: Request) {
   // creation. A grant that already has a live token gets it handed back
   // unchanged rather than silently rotated (a previously-shared link should
   // keep working); an expired one gets a fresh token + expiry.
-  type PendingGrant = { id: string; guest_token: string | null; guest_token_expires_at: string | null };
-  let grant: PendingGrant | null = null;
-  for (let attempt = 0; attempt < RESOLVE_RETRIES; attempt++) {
-    const { data } = await admin.from('access_grants').select('id, guest_token, guest_token_expires_at')
-      .eq('org_id', orgId).eq('invited_email', email).is('confirmed_at', null).is('revoked_at', null)
-      .order('granted_at', { ascending: false }).limit(1).maybeSingle();
-    if (data) { grant = data as PendingGrant; break; }
-    await sleep(RESOLVE_DELAY_MS);
+  //
+  // Prompt 530 — the mint/reuse itself now lives in ensureGuestToken()
+  // (lib/guest-token-server.ts) so the access-change notification reuses
+  // this exact token instead of minting a second one for the same
+  // relationship. Same behaviour, one owner.
+  const minted = await ensureGuestToken(admin, orgId, email, { retries: RESOLVE_RETRIES, delayMs: RESOLVE_DELAY_MS });
+  if (!minted.ok || !minted.token || !minted.expiresAt) {
+    // 404 = nothing to send to; 409 = there IS a relationship but its access
+    // has lapsed (the founder has to extend it first, which People & Access
+    // can now do in place); 500 only for a genuine write failure.
+    const status = minted.error === 'No pending invite found for that email yet.' ? 404
+      : minted.error?.startsWith('This recipient') ? 409 : 500;
+    return NextResponse.json({ ok: false, error: minted.error ?? 'Could not create a guest link.' }, { status });
   }
-  if (!grant) return NextResponse.json({ ok: false, error: 'No pending invite found for that email yet.' }, { status: 404 });
-
-  let token: string;
-  let expiresAt: string;
-  const stillLive = grant.guest_token && grant.guest_token_expires_at && new Date(grant.guest_token_expires_at) > new Date();
-  if (stillLive) {
-    // Unchanged from before — "a previously-shared link should keep
-    // working," so a live token is handed back as-is, expiry included, not
-    // recomputed against the pending grants' current state.
-    token = grant.guest_token as string;
-    expiresAt = grant.guest_token_expires_at as string;
-  } else {
-    // Prompt 171 §B — the link's own expiry follows the REAL access it
-    // unlocks, not a flat 14 days: the latest expires_at among every
-    // currently-pending grant for this email (Nuno's decision — the link
-    // stays open as long as at least one grant behind it still is;
-    // individual documents still disappear the moment their OWN grant
-    // expires, enforced separately via grantIsActive/grantStatus in
-    // /api/guest/[token]/route.ts). Only when NONE of the pending grants
-    // have an expires_at at all (fully indefinite access) does this fall
-    // back to the original 14-day default.
-    const { data: pendingGrants } = await admin.from('access_grants').select('expires_at')
-      .eq('org_id', orgId).eq('invited_email', email).is('confirmed_at', null).is('revoked_at', null);
-    const datedExpiries = (pendingGrants ?? []).map((g) => g.expires_at as string | null).filter((e): e is string => !!e);
-    const latestGrantExpiry = datedExpiries.length > 0 ? datedExpiries.reduce((a, b) => (a > b ? a : b)) : null;
-
-    token = generateRawToken();
-    expiresAt = latestGrantExpiry ?? new Date(Date.now() + GUEST_TOKEN_TTL_MS).toISOString();
-    const { error } = await admin.from('access_grants')
-      .update({ guest_token: token, guest_token_expires_at: expiresAt })
-      .eq('id', grant.id);
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  }
+  const token = minted.token;
+  const expiresAt = minted.expiresAt;
 
   // `sendEmail` is opt-in: "Copy guest link" (documents/page.tsx) mints/
   // fetches the SAME token without it — that button's whole point is the

@@ -803,6 +803,10 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       setDb((prev) => ({ ...prev, grants: prev.grants.map((g) => g.id === id ? { ...g, revoked_at: new Date().toISOString() } : g) }));
     },
 
+    extendGrant(id, expiresAt) {
+      setDb((prev) => ({ ...prev, grants: prev.grants.map((g) => g.id === id ? { ...g, expires_at: expiresAt } : g) }));
+    },
+
     async invitePersonForGrant(entityId, email, name) {
       const normalizedEmail = email.trim().toLowerCase();
       const existing = db.people.find((p) =>

@@ -1538,6 +1538,17 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       if (orgIdRef.current) persist(sb.from('access_grants').update({ revoked_at }).eq('id', id), 'revokeGrant');
     },
 
+    // Prompt 530 — same shape as revokeGrant, and enforced the same way:
+    // this is the org-member's own RLS-scoped client, so the
+    // `access_grants_all` policy (is_org_member(org_id), migration 0001)
+    // is what actually decides the write. A founder cannot extend a grant
+    // belonging to another org's data room, whatever the UI sends.
+    extendGrant(id: string, expiresAt: string | undefined) {
+      const prev = dbRef.current;
+      commit({ ...prev, grants: prev.grants.map((g) => g.id === id ? { ...g, expires_at: expiresAt } : g) });
+      if (orgIdRef.current) persist(sb.from('access_grants').update({ expires_at: expiresAt ?? null }).eq('id', id), 'extendGrant');
+    },
+
     async invitePersonForGrant(entityId: string, email: string, name: string): Promise<Person> {
       const prev = dbRef.current;
       const normalizedEmail = email.trim().toLowerCase();

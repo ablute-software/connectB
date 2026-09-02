@@ -36,7 +36,21 @@ export function findEffectiveGrant(
   grants: MatrixGrant[], documentId: string | undefined, folderId: string | undefined,
   personIds: Set<string>, folders: TreeFolder[],
 ): MatrixGrant | undefined {
-  const relevant = grants.filter((g) => g.person_id && personIds.has(g.person_id));
+  return findEffectiveGrantAmong(grants.filter((g) => g.person_id && personIds.has(g.person_id)), documentId, folderId, folders);
+}
+
+// Prompt 530 — the same precedence, over an ALREADY-SCOPED set of grants.
+// findEffectiveGrant scopes by person_id, which silently returns "nothing
+// granted" for a data-room relationship that has no person at all (a grant
+// created straight to an email address: person_id is null, only
+// invited_email/grantee_email identify the recipient). That is exactly the
+// `Por associar` case, so the People & Access matrix for a guest recipient
+// was always empty. The caller now decides what belongs to the
+// relationship — by person OR by email — and this function only decides
+// specificity: document > nearest folder ancestor > ... > root.
+export function findEffectiveGrantAmong(
+  relevant: MatrixGrant[], documentId: string | undefined, folderId: string | undefined, folders: TreeFolder[],
+): MatrixGrant | undefined {
   const docGrant = documentId ? relevant.find((g) => g.document_id === documentId) : undefined;
   if (docGrant) return docGrant;
 
