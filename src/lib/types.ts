@@ -67,7 +67,7 @@ export type RunStatus =
 export type PlanTier = 'idea' | 'garage' | 'motherfunding';
 export type AiReviewKind = 'deck_review' | 'one_pager_review' | 'message_review' | 'market_data';
 
-// Prompt 541 §B (migration 0295) — provenance for the Round fields. The
+// Prompt 541 §B (migration 0298) — provenance for the Round fields. The
 // vocabulary lives here, with the rest of the domain types; the RULE that
 // reads it, and the runtime list of field names, live in
 // src/lib/round-field-precedence.ts (which imports these and asserts at
@@ -183,7 +183,7 @@ export interface Org {
   // Investor Workspace Fase 1 (prompt 54, migration 0054) — Zona 1 snapshot.
   round_min_ticket_eur?: number;
   round_runway_post_months?: number;
-  // Prompt 541 §B (migration 0295) — per-field provenance for the nine
+  // Prompt 541 §B (migration 0298) — per-field provenance for the nine
   // Round fields a Vault document can speak to. Written by /api/org/update,
   // read by src/lib/round-field-precedence.ts. Absent on any org saved
   // before that migration, which reads as "no human decision recorded" —
@@ -877,6 +877,10 @@ export interface AccessGrant {
   // account. Cleared (not the row itself) once the account is created and
   // the grant confirmed — see /api/portal/confirm-identity.
   guest_token?: string | null;
+  // Prompt 537 §4.1 — sha256 of guest_token. The hash is what the guest
+  // route looks up; guest_token itself survives only until the last
+  // pre-hash link expires (2026-09-30) and is then dropped.
+  guest_token_hash?: string | null;
   guest_token_expires_at?: string | null;
 }
 

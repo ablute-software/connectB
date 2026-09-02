@@ -33,7 +33,7 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
   const org = db.org;
   // Prompt 541 §D — what the founder's own Vault already says about this
   // round. Loaded once on mount; the endpoint reports `available: false`
-  // (and this stays inert) whenever migration 0295 or the extraction
+  // (and this stays inert) whenever migration 0298 or the extraction
   // pipeline is not in place.
   const suggestions = useRoundSuggestions();
   // Which fields were filled by accepting a suggestion in THIS edit session,

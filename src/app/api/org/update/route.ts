@@ -143,7 +143,7 @@ export async function POST(req: Request) {
   // Prompt 541 §B — stamp provenance for any Round field being written, and
   // for a "keep mine" answer to a conflict (which writes no value at all,
   // only the record that the candidate was turned down). Probe-gated like
-  // every other migration-dependent column here: with 0295 unapplied this
+  // every other migration-dependent column here: with 0298 unapplied this
   // is skipped entirely and the save behaves exactly as it did before.
   const accepted = readAcceptedHint(body.round_source_accepted);
   const keptOwn = readKeptOwnHint(body.round_source_kept_own);

@@ -260,6 +260,7 @@ export async function POST(req: Request) {
         await sendTransactionalEmail({
           to, subject: heading,
           html: transactionalTemplate({ heading, body, ctaLabel: 'Review in your workspace', ctaUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/pipeline` }),
+          context: { orgId, kind: 'other' },
         });
       } catch {
         notifyFailed = true;

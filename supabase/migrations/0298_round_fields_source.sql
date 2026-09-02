@@ -1,9 +1,14 @@
 -- Prompt 541 §B — provenance for the nine Round fields a Vault document can
 -- speak to.
 --
--- NUMBERING: 0294 (Prompt 534's round_blueprint_scenarios) is the highest
--- number on this branch; see its own header for why 0291-0293 are reserved
--- or taken on other branches. 0295 is the next genuinely free number.
+-- NUMBERING: 0298. Originally written as 0295, RENUMBERED after merging
+-- claude/sherlockdeal-git-access-bek6d7, which showed 0295 already taken by
+-- 0295_backfill_lost_catalog_deliveries.sql — and already applied to
+-- production. Prompt 537's own entry in DECISIONS.md is the reason this was
+-- caught: 0293 (claude/prompt-518-reconciled), 0294 (this branch, Prompt
+-- 534), 0295/0296/0297 (the 536/537 branch) are all taken, so 0298 is the
+-- first genuinely free number. Reading `main` alone would have missed it —
+-- `git ls-remote --heads origin` is the check, per that entry.
 --
 -- WHY A COLUMN AND NOT A TABLE. The prompt's own instruction ("não construir
 -- o mecanismo de proveniência como uma tabela nova separada se uma coluna

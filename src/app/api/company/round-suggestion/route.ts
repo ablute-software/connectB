@@ -37,7 +37,7 @@ export async function GET() {
   const orgId = member.org_id as string;
 
   // Both gates, not one: extractions can exist without the provenance column
-  // (0295 unapplied), and suggesting without provenance is exactly what the
+  // (0298 unapplied), and suggesting without provenance is exactly what the
   // precedence rule forbids — there would be no way to tell the founder's
   // own number from a three-week-old draft deck's. See the probe's comment.
   if (!(await documentExtractionsAvailable()) || !(await roundFieldsSourceAvailable())) {

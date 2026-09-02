@@ -91,6 +91,7 @@ export async function POST(req: Request) {
         heading: 'New investor access request',
         body: `<b>${finalEmail}</b>${firm_name ? ` · ${firm_name.trim()}` : ''}<br><br>${(note?.trim() || '(no note)').replace(/\n/g, '<br>')}`,
       }),
+      context: { kind: 'other' },
     });
     if (result.sent) console.log('[investor-access-request] notification email sent, id:', result.id);
     else console.error('[investor-access-request] notification email not sent:', result.error);

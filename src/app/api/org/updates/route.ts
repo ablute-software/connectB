@@ -53,6 +53,7 @@ export async function POST(req: Request) {
           heading: title.trim(), body: updateBody.trim(),
           ctaLabel: 'Open the portal', ctaUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/portal`,
         }),
+        context: { kind: 'other' },
       }).catch(() => ({ sent: false }));
       if (sent.sent) emailedCount++;
     }

@@ -71,7 +71,7 @@ export const roadmapEventsAvailable = makeCapabilityProbe(async (admin) => {
   return !error;
 });
 
-// Prompt 541 §B — migration 0295's orgs.round_fields_source column. Lives
+// Prompt 541 §B — migration 0298's orgs.round_fields_source column. Lives
 // here rather than in its own file because its only caller is the Round
 // suggestion path, which is the same document_extractions pipeline this
 // file already gates. Fails CLOSED (no column -> no provenance -> the

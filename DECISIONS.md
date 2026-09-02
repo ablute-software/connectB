@@ -4048,3 +4048,57 @@ provisions the org at signup time WITH the startup fields (website, sector,
 stage, round target, country, one-liner, acquisition source). The
 `OrphanAccountRepair` path only ever collected org name, full name and
 title.
+## Prompt 537 — migration numbering, and the two things that were guessed at
+
+**Migration numbers taken by this prompt: 0296 and 0297. 0293 and 0294 are
+NOT free.** Checked with `git ls-remote --heads origin` before branching,
+per the prompt's own instruction:
+
+| number | file | branch |
+|---|---|---|
+| 0293 | `0293_guest_link_views.sql` | `claude/prompt-518-reconciled` |
+| 0294 | `0294_round_blueprint_scenarios.sql` | `claude/prompt-534-round-blueprint` |
+| 0295 | `0295_backfill_lost_catalog_deliveries.sql` | this branch (**renumbered from 0293**) |
+| 0296 | `0296_email_send_log.sql` | this branch |
+| 0297 | `0297_guest_token_hash_and_rate_limit.sql` | this branch |
+
+Prompt 536 shipped its backfill as `0293` because `main` alone shows the
+highest number as 0292 — the collision only exists on two unmerged
+branches. **Reading `main` is not enough; `git ls-remote --heads origin`
+is the check.** The renumber is a rename only: the statement is unchanged
+and was already applied to production as
+`backfill_lost_catalog_deliveries`.
+
+**Sender policy (§3) is infra, and the code is deliberately incapable of
+changing it.** Platform emails go out as Sherlock Deal, which requires
+`sherlockdeal.com` verified in Resend (Domains → add → SPF/DKIM at the DNS
+provider → Verified), then on Vercel `RESEND_FROM_EMAIL = Sherlock Deal
+<noreply@sherlockdeal.com>` and `RESEND_REPLY_TO = sherlockdeal.com@gmail.com`,
+then redeploy. Supabase Auth's own SMTP sender must be switched to the same
+address or login/confirmation mail keeps going out under the old one. No
+address is hard-coded in code, the configured sender is never replaced, and
+no alternate sender exists to make a test pass —
+`src/lib/email-sender-identity.ts` is the single resolution point and it
+reads env only. Until the domain is verified there are exactly two states,
+and `/backoffice/email-delivery` now says which one production is in.
+
+**Why `email_send_log` exists.** For three weeks "the invite didn't arrive"
+was answered by guessing, because `invite-by-email/route.ts` logged the
+provider's own reason to `console.error` (Vercel only) and returned the
+founder a generic sentence. Nobody in the loop can read Vercel logs. Every
+send now writes one row — success or failure — with the exact `from` used
+and the provider's verbatim response, readable by the founder on the
+recipient's own People & Access row and by platform admins on the Email
+delivery tab.
+
+**Guest tokens are stored as sha256 (§4.1), with the raw column kept
+temporarily.** Every link minted before 0297 exists only as the raw value
+and some are already in recipients' inboxes, so the guest route accepts a
+raw match as a fallback and *writes the hash onto the row when it does*.
+That self-heal is not tidy-up: 0297's backfill is one-shot, and production
+kept minting raw-only tokens after it ran (observed directly — invites at
+17:10 and 17:15 UTC on 2026-09-02, from the deployed build that has no hash
+write). Healing on read is what stops the raw column gaining new dependents,
+so the later migration that drops it waits on a shrinking set rather than a
+moving target. Drop `access_grants.guest_token` once the last pre-hash token
+has expired (all current ones expire 2026-09-30).

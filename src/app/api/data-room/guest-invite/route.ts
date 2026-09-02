@@ -20,6 +20,7 @@ import { serverClient } from '@/lib/supabase-server';
 import { ensureGuestToken } from '@/lib/guest-token-server';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { resendConfigured, sendTransactionalEmail } from '@/lib/resend';
+import { logEmailRenderFailure } from '@/lib/email-send-log';
 import { buildGuestAccessEmail } from '@/lib/guest-access-email';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { APP_URL } from '@/lib/brand';
@@ -117,6 +118,7 @@ export async function POST(req: Request) {
       });
       const result = await sendTransactionalEmail({
         to: email, subject: rendered.subject, html: rendered.html, text: rendered.text,
+        context: { orgId, kind: 'guest_invite', relatedGrantId: null },
       });
       emailSent = result.sent;
       if (!result.sent) {
@@ -125,7 +127,12 @@ export async function POST(req: Request) {
       }
     } catch (e) {
       // A template with an unresolved placeholder must never go out.
+      // Prompt 537 §1 — and it must not go out SILENTLY either: a render
+      // failure is the one outcome with no provider response of its own, so
+      // without this it was the single branch of this route that left no
+      // trace anywhere a human could read.
       console.error('[guest-invite] email render failed:', (e as Error).message);
+      await logEmailRenderFailure({ orgId, kind: 'guest_invite' }, email, (e as Error).message);
       emailError = 'Could not compose the invite email — copy the link below and send it yourself';
     }
   }

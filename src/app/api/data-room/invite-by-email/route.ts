@@ -34,6 +34,7 @@ import { assertNotViewer } from '@/lib/developer-viewer';
 import { ensureGuestToken } from '@/lib/guest-token-server';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { resendConfigured, sendTransactionalEmail } from '@/lib/resend';
+import { logEmailRenderFailure } from '@/lib/email-send-log';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { buildGuestAccessEmail } from '@/lib/guest-access-email';
 import { APP_URL } from '@/lib/brand';
@@ -169,7 +170,11 @@ export async function POST(req: Request) {
     rendered = buildGuestAccessEmail({ recipientEmail: email, invitedName: name, startupName, guestUrl });
   } catch (e) {
     // A template that still has a {{placeholder}} in it must not go out.
+    // Prompt 537 §1 — recorded, not only console.error'd: this is the one
+    // branch where no provider is ever reached, so it is also the one that
+    // used to disappear completely.
     console.error('[invite-by-email] email render failed:', (e as Error).message);
+    await logEmailRenderFailure({ orgId, kind: 'guest_invite' }, email, (e as Error).message);
     return NextResponse.json({
       ok: true, stage: 'granted_not_emailed', grantsCreated, guestUrl, emailSent: false,
       emailError: 'Access granted and the guest link is ready, but the invitation could not be composed. Copy the link and send it yourself.',
@@ -178,6 +183,10 @@ export async function POST(req: Request) {
 
   const result = await sendTransactionalEmail({
     to: email, subject: rendered.subject, html: rendered.html, text: rendered.text,
+    // Prompt 537 §1 — the exact send this prompt exists for. relatedGrantId
+    // ties the row to one of the grants just created, so People & Access can
+    // show the outcome on the recipient's own row.
+    context: { orgId, kind: 'guest_invite', relatedGrantId: ((inserted ?? [])[0]?.id as string | undefined) ?? null },
   });
   if (!result.sent) {
     // The provider's own reason (a 403 on an unverified sender domain, say)
