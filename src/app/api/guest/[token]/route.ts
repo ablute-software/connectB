@@ -19,6 +19,14 @@ import { descendantFolderIds, resolveDocumentAccess } from '@/lib/data-room';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { grantStatus } from '@/lib/access-grants';
 import { vaultFrozenForOrg } from '@/lib/data-room-server';
+import { clientIp, findGrantByGuestToken, guestLinkRateLimited } from '@/lib/guest-link-security';
+
+// Prompt 537 §4.3 — this response must never be indexed. It carries an
+// invited recipient's email address and a startup's folder/document names;
+// a search engine that crawled a leaked link would make both permanently
+// findable. Belt and braces with robots.ts's disallow and the page's own
+// meta tag: robots.txt is a request, this header travels with the response.
+const NOINDEX_HEADERS = { 'X-Robots-Tag': 'noindex, nofollow, noarchive' };
 
 // This route reads no cookies/headers — unlike every other GET route in
 // this app, which calls serverClient() first and reads a cookie, implicitly
@@ -34,28 +42,37 @@ export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 export const revalidate = 0;
 
-export async function GET(_req: Request, { params }: { params: { token: string } }) {
+export async function GET(req: Request, { params }: { params: { token: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !service) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200 });
-  if (!(await guestGrantTokenAvailable())) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200 });
+  if (!url || !service) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200, headers: NOINDEX_HEADERS });
+  if (!(await guestGrantTokenAvailable())) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200, headers: NOINDEX_HEADERS });
 
   const admin = createClient(url, service, {
     auth: { persistSession: false },
     global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
   });
 
-  const { data: grant } = await admin.from('access_grants').select('*')
-    .eq('guest_token', params.token).is('revoked_at', null).maybeSingle();
+  // Prompt 537 §4.2 — before any lookup, so a scraper enumerating tokens
+  // pays the limit rather than the database. 429 is the one response here
+  // that is NOT deliberately indistinguishable from the others: it tells a
+  // legitimate guest who reloaded too fast what actually happened.
+  if (await guestLinkRateLimited(admin, clientIp(req))) {
+    return NextResponse.json({ ok: false, reason: 'rate_limited' }, { status: 429, headers: NOINDEX_HEADERS });
+  }
+
+  // Prompt 537 §4.1 — by HASH first, raw only as the transition fallback for
+  // links minted before the hash column existed. See findGrantByGuestToken.
+  const { grant } = await findGrantByGuestToken(admin, params.token);
   // Not found, revoked, or already confirmed (the account exists now — this
   // link's job is done, /portal is the right place from here) all read the
   // same to a caller who can't distinguish them from an invalid token
   // anyway; only "found but past guest_token_expires_at" gets its own
   // reason, since that's the one case with a real, actionable next step
   // ("ask the founder for a new one").
-  if (!grant || grant.confirmed_at) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200 });
+  if (!grant || grant.confirmed_at) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200, headers: NOINDEX_HEADERS });
   if (!grant.guest_token_expires_at || new Date(grant.guest_token_expires_at as string) <= new Date()) {
-    return NextResponse.json({ ok: false, reason: 'expired' }, { status: 200 });
+    return NextResponse.json({ ok: false, reason: 'expired' }, { status: 200, headers: NOINDEX_HEADERS });
   }
 
   const orgId = grant.org_id as string;
@@ -67,7 +84,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     admin.from('access_grants').select('folder_id, document_id, nda_required, nda_accepted_at, expires_at')
       .eq('org_id', orgId).eq('invited_email', invitedEmail).is('confirmed_at', null).is('revoked_at', null),
   ]);
-  if (!org) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200 });
+  if (!org) return NextResponse.json({ ok: false, reason: 'invalid' }, { status: 200, headers: NOINDEX_HEADERS });
 
   // Prompt 278 §4 — the kill switch, explicitly confirmed to cover this
   // route too: unlike every other gated path, this one shows folder/
@@ -82,7 +99,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
       orgDescription: (org.one_liner as string | null) ?? (profile?.description as string | null) ?? null,
       orgLogoUrl: (profile?.photo_url as string | null) ?? null,
       invitedEmail, folders: [], documentNames: [], documentCount: 0, pendingNdaCount: 0,
-    });
+    }, { headers: NOINDEX_HEADERS });
   }
 
   // Prompt 171 §B.1 — the bug: this route never checked an individual
@@ -158,5 +175,5 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     documentNames,
     documentCount: documentNames.length,
     pendingNdaCount: pendingCount,
-  });
+  }, { headers: NOINDEX_HEADERS });
 }

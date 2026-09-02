@@ -1,5 +1,13 @@
 -- Prompt 536 §5 — repair the accounting the client-side unlockPack lost.
 --
+-- RENUMBERED 0293 -> 0295 (Prompt 537). 0293 is taken by guest_link_views on
+-- claude/prompt-518-reconciled and 0294 by round_blueprint_scenarios on
+-- claude/prompt-534-round-blueprint — both unmerged when 536 was written, so
+-- the collision was invisible from main alone. Checked with `git ls-remote
+-- --heads origin` before renumbering, per Prompt 537's own instruction. The
+-- content is unchanged and was already applied to production under the name
+-- `backfill_lost_catalog_deliveries`; this rename only fixes replay ordering.
+--
 -- unlockPack fired three persist() inserts in parallel (entities,
 -- pack_unlocks, catalog_deliveries). catalog_deliveries.entity_id
 -- references entities.id, so the deliveries insert raced its own foreign

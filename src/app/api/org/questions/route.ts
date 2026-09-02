@@ -50,6 +50,7 @@ export async function PATCH(req: Request) {
         heading: 'You have an answer', body: answer,
         ctaLabel: 'Open the portal', ctaUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/portal`,
       }),
+      context: { kind: 'other' },
     }).catch(() => {});
   }
 

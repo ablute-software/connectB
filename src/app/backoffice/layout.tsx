@@ -23,6 +23,10 @@ const NAV = [
   { href: '/backoffice/costs', label: 'AI Costs' },
   // Prompt 358 Phase 3.3 — gap-interrogation engine health (gap_reconciliations/gap_questions).
   { href: '/backoffice/gap-engine-health', label: 'Gap Engine Health' },
+  // Prompt 537 §1(b)/§2 — every send attempt with the provider's verbatim
+  // answer, plus the sender-domain health card. Its whole purpose is that
+  // "the email didn't arrive" is answered by reading a row.
+  { href: '/backoffice/email-delivery', label: 'Email delivery' },
   { href: '/backoffice/promo-codes', label: 'Promo Codes & Offers' },
   { href: '/backoffice/plan-requests', label: 'Plan Requests' },
 ];

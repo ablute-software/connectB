@@ -159,6 +159,7 @@ export async function POST(req: Request) {
     to: email,
     subject: heading,
     html: transactionalTemplate({ heading, body: html, ctaLabel, ctaUrl, footer }),
+    context: { orgId, kind: 'access_notify' },
   });
 
   return NextResponse.json({

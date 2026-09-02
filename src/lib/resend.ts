@@ -5,16 +5,38 @@
 // copyable link) when it's false — same pattern as the AI composer.
 import 'server-only';
 import { BRAND_NAME } from './brand';
+import { logEmailSend, type EmailContext } from './email-send-log';
+import { resolvedFromAddress, resolvedReplyTo } from './email-sender-identity';
 
 export const resendConfigured = !!process.env.RESEND_API_KEY;
 
-export async function sendTransactionalEmail(opts: { to: string; subject: string; html: string; replyTo?: string; text?: string }) {
+// Prompt 537 §1 — `context` is the ONLY addition to this function's inputs,
+// and it changes nothing about what gets sent. It carries who the email is
+// for (orgId), which path produced it (kind) and, for access emails, the
+// grant behind it — so every attempt lands in email_send_log with the exact
+// `from` used and the provider's verbatim answer. It is optional at the
+// type level purely so the signature stays back-compatible; all 25 call
+// sites pass it.
+//
+// Sender resolution below is UNTOUCHED, deliberately and under instruction:
+// no address is hard-coded, no domain is hard-coded, the configured sender
+// is not replaced, no temporary or alternate sender is introduced to make
+// anything pass. The point of this prompt is that the code REPORTS what the
+// sender is (see /api/backoffice/email-health) — §3 is infra, not code.
+export async function sendTransactionalEmail(opts: {
+  to: string; subject: string; html: string; replyTo?: string; text?: string; context?: EmailContext;
+}) {
+  const context: EmailContext = opts.context ?? { kind: 'other' };
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     // Logged, not silent: an unset key used to be indistinguishable from a
     // successful send in the logs, which is how a broken notify path stayed
     // invisible. The returned message stays user-facing and vague on purpose.
     console.error('[resend] RESEND_API_KEY is not set — no email was sent.');
+    await logEmailSend({
+      ...context, recipient: opts.to, subject: opts.subject, status: 'not_configured',
+      providerError: 'RESEND_API_KEY is not set in this environment.',
+    });
     return { sent: false, error: 'Email sending is not available in your workspace yet.' };
   }
 
@@ -28,8 +50,13 @@ export async function sendTransactionalEmail(opts: { to: string; subject: string
   // brand; the address stays the verified Resend one until sherlockdeal.com
   // is verified in the provider (infra, not code — see DECISIONS.md).
   // RESEND_FROM_EMAIL/RESEND_REPLY_TO (when set) override both.
-  const from = process.env.RESEND_FROM_EMAIL || `${BRAND_NAME} Support <onboarding@resend.dev>`;
-  const replyTo = opts.replyTo || process.env.RESEND_REPLY_TO || undefined;
+  // Prompt 537 §2 — the SAME expression as before, moved to
+  // email-sender-identity.ts so the back-office health card reports the value
+  // this line actually resolves rather than a second copy of it. Behaviour
+  // is byte-identical: RESEND_FROM_EMAIL when set, the pre-existing sandbox
+  // fallback otherwise. No address added, none replaced.
+  const from = resolvedFromAddress();
+  const replyTo = opts.replyTo || resolvedReplyTo();
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -54,16 +81,35 @@ export async function sendTransactionalEmail(opts: { to: string; subject: string
       // stays the founder-facing sentence, and it never carries the API key.
       const detail = (await res.text()).slice(0, 300);
       console.error('Transactional email provider error:', res.status, detail);
+      const providerError = `HTTP ${res.status}: ${detail}`;
+      // Prompt 537 §1 — THIS is the line that ends three weeks of guessing.
+      // The same string that used to exist only in a Vercel log now lands in
+      // a table the founder and the back-office can read, next to the exact
+      // `from` that produced it. A 403 on an unverified domain now says so.
+      await logEmailSend({
+        ...context, recipient: opts.to, subject: opts.subject, status: 'failed',
+        providerError, fromAddressUsed: from,
+      });
       return {
         sent: false,
         error: 'Email sending failed — try again in a moment.',
-        providerError: `HTTP ${res.status}: ${detail}`,
+        providerError,
       };
     }
     const data = await res.json();
+    await logEmailSend({
+      ...context, recipient: opts.to, subject: opts.subject, status: 'sent',
+      providerId: (data.id as string) ?? null, fromAddressUsed: from,
+    });
     return { sent: true, id: data.id as string };
   } catch (e) {
     console.error('Transactional email provider threw:', (e as Error).message);
+    // A thrown fetch (DNS, TLS, timeout) is as much a failed send as a 4xx,
+    // and used to leave nothing behind at all.
+    await logEmailSend({
+      ...context, recipient: opts.to, subject: opts.subject, status: 'failed',
+      providerError: `threw: ${(e as Error).message}`, fromAddressUsed: from,
+    });
     return { sent: false, error: (e as Error).message };
   }
 }

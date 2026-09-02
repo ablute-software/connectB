@@ -7,7 +7,7 @@
 // Behaviour is unchanged from the inline version, plus one fix (§B below).
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { generateRawToken } from './matchdeal-pairing';
+import { generateRawToken, hashToken } from './matchdeal-pairing';
 
 // Decision (2026-08-07): 14 days. Only the FALLBACK — used when none of the
 // pending grants behind the link carry an expires_at of their own.
@@ -91,8 +91,18 @@ export async function ensureGuestToken(
 
   const token = generateRawToken();
   const expiresAt = latestGrantExpiry ?? new Date(Date.now() + GUEST_TOKEN_TTL_MS).toISOString();
+  // Prompt 537 §4.1 — mint raw, hand the raw value back to the caller (it
+  // goes into the email and the "Copy guest link" button), store the HASH.
+  //
+  // guest_token is still written alongside it, and that is temporary on
+  // purpose: the raw column is what every link minted before this change
+  // resolves through, and the guest route still accepts a raw match as a
+  // fallback until the last of those expires (2026-09-30). Writing only the
+  // hash today would be correct for new links and would leave the route's
+  // fallback path untested against anything real. A later migration drops
+  // the raw column and this line with it — see 0297's own header.
   const { error } = await admin.from('access_grants')
-    .update({ guest_token: token, guest_token_expires_at: expiresAt })
+    .update({ guest_token: token, guest_token_hash: hashToken(token), guest_token_expires_at: expiresAt })
     .eq('id', grant.id);
   if (error) return { ok: false, error: error.message };
   return { ok: true, token, expiresAt };

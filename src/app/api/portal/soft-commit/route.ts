@@ -49,6 +49,7 @@ export async function POST(req: Request) {
           heading: 'A new soft commit', body: `${email} indicated a non-binding interest of €${amount_eur.toLocaleString('en-US')}.`,
           ctaLabel: 'Review in your workspace', ctaUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/company`,
         }),
+        context: { kind: 'other' },
       }).catch(() => {});
     }
   }

@@ -135,6 +135,7 @@ export async function POST(req: Request) {
           heading: 'New support ticket',
           body: `<b>${name.trim()}</b> (${finalEmail}) · ${category} · via ${source}<br><br>${subject.trim()}<br><br>${message.trim().replace(/\n/g, '<br>')}`,
         }),
+        context: { orgId, kind: 'support' },
       });
       if (result.sent) console.log('[support/submit] notification email sent, id:', result.id);
       else console.error('[support/submit] notification email not sent:', result.error);

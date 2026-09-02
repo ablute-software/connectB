@@ -66,6 +66,7 @@ export async function POST(req: Request) {
     const results = await Promise.all(emails.map((to) => sendTransactionalEmail({
       to, subject: heading,
       html: transactionalTemplate({ heading, body, ctaLabel: 'Open your workspace', ctaUrl: `${APP_URL}/plans` }),
+      context: { kind: 'other' },
     })));
     notifyFailed = emails.length === 0 || results.every((r) => !r.sent);
   } else {
