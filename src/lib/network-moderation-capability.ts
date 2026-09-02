@@ -1,8 +1,8 @@
 // Prompt 531 — migration-gate probe for the moderation lifecycle tables
-// (migration 0291), same pattern as every other migration-gated feature in
-// this codebase. Until 0291 is applied, the back-office keeps the strike
-// action it already had and the new surfaces report themselves as not yet
-// available rather than throwing.
+// (migration 0291, applied in production 2026-09-02), same pattern as every
+// other migration-gated feature in this codebase. The probe stays: it is
+// what keeps a preview branch or a not-yet-migrated environment reporting
+// the new surfaces as unavailable rather than throwing.
 import 'server-only';
 import { makeCapabilityProbe } from './capability-probe';
 

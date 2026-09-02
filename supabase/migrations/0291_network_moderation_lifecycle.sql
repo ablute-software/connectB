@@ -1,5 +1,12 @@
 -- Prompt 531 — completes the My Network moderation lifecycle that 0215
--- started. 0215 gave reports a home (support_tickets, category
+-- started. APPLIED IN PRODUCTION 2026-09-02 (project wkjcaoqdvhykrfacsylr);
+-- verified after apply: both new columns on network_posts, all three
+-- partial/unique indexes present, RLS on for all three tables, zero
+-- privileges left to anon/authenticated, and zero ERROR-level Supabase
+-- advisors (the three INFO rls_enabled_no_policy findings are this
+-- migration's own deliberate design — see §5 below).
+--
+-- 0215 gave reports a home (support_tickets, category
 -- 'network_content_report', context 'network_post:{id}') and a strike
 -- counter (network_actors.network_strikes_count / network_suspended_at,
 -- 3 strikes = My Network suspension). What it never gave anyone:
