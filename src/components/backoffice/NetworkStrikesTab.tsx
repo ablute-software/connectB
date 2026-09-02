@@ -25,8 +25,13 @@ interface StrikeRow {
 interface StrikeDetail {
   id: string; status: 'active' | 'reversed'; appliedAt: string; appliedByEmail: string | null;
   reversedAt: string | null; reversedByEmail: string | null; reversalReason: string | null;
-  contentRemoved: boolean; ticketId: string; postId: string | null;
-  contentPreview: string | null; contentCreatedAt: string | null; postRemovedAt: string | null;
+  contentRemoved: boolean; ticketId: string; postId: string | null; postRemovedAt: string | null;
+  evidence: {
+    source: 'snapshot' | 'live_post' | 'unavailable';
+    body: string | null; authorName: string | null; publishedAt: string | null;
+    contentType: 'network_post' | 'network_actor'; contentId: string | null;
+    unavailableReason: string | null;
+  };
   appeal: { id: string; status: 'pending' | 'upheld' | 'reversed'; body: string; createdAt: string; decidedAt: string | null; decisionNote: string | null } | null;
 }
 
@@ -216,10 +221,24 @@ export function NetworkStrikesTab() {
                     </Link>
                   </div>
 
-                  {s.contentPreview && (
+                  {/* Prompt 533 §21/§38 — the content that caused the strike,
+                      through the SAME resolver the report view uses: the
+                      snapshot when there is one, the live post when the
+                      strike came from a pre-snapshot report, and an explicit
+                      unavailable state otherwise. Never a bare UUID. */}
+                  {s.evidence.source === 'unavailable' ? (
+                    <p className="mt-1.5 rounded border border-amber-100 bg-amber-50 p-2 text-xs text-amber-800">
+                      {s.evidence.unavailableReason}
+                    </p>
+                  ) : (
                     <p className="mt-1.5 whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-700">
-                      {s.contentPreview.length > 400 ? `${s.contentPreview.slice(0, 400)}…` : s.contentPreview}
-                      {s.contentCreatedAt && <span className="mt-1 block text-[10px] text-gray-400">Posted {fmt(s.contentCreatedAt)}{s.postRemovedAt ? ` · removed ${fmt(s.postRemovedAt)}` : ''}</span>}
+                      {s.evidence.body && s.evidence.body.length > 400 ? `${s.evidence.body.slice(0, 400)}…` : s.evidence.body}
+                      <span className="mt-1 block text-[10px] text-gray-400">
+                        {s.evidence.authorName && `${s.evidence.authorName} · `}
+                        {s.evidence.publishedAt ? `posted ${fmt(s.evidence.publishedAt)}` : 'publication date unknown'}
+                        {s.postRemovedAt ? ` · removed ${fmt(s.postRemovedAt)}` : ''}
+                        {s.evidence.source === 'live_post' && ' · resolved from the live post (pre-snapshot report)'}
+                      </span>
                     </p>
                   )}
 

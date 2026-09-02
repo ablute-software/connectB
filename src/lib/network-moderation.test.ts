@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   NETWORK_STRIKE_BAN_THRESHOLD, REPORTER_PRIVATE_FIELDS, buildContentSnapshot, describeBanState,
-  shouldBanForStrikes, strikeConsequenceLine, toStartupStrikeView,
+  resolveModerationEvidence, shouldBanForStrikes, strikeConsequenceLine, toStartupStrikeView,
 } from './network-moderation';
 
 // Prompt 531 — two things are worth pinning here above all else: that the
@@ -156,5 +156,103 @@ describe('strikeConsequenceLine', () => {
       const line = strikeConsequenceLine(n, n >= 3).toLowerCase();
       expect(line).not.toContain('report');
     }
+  });
+});
+
+
+// Prompt 533 §44 — the moderator must SEE the reported content. These pin
+// the four resolution cases the brief names, plus the privacy serialization.
+
+const POST = { id: 'post-1', body: 'ORIGINAL MODERATION SNAPSHOT TEST', kind: 'freeform', target: 'all', created_at: '2026-09-02T14:35:00Z', author_actor_id: 'a1' };
+const SNAP = buildContentSnapshot(POST, { authorName: 'zz-test Startup' });
+const LIVE_UNCHANGED = { body: POST.body, createdAt: POST.created_at, deletedAt: null, moderationRemovedAt: null };
+
+describe('resolveModerationEvidence — the moderator sees content, never a UUID', () => {
+  it('resolves a NEW report from its snapshot', () => {
+    const e = resolveModerationEvidence({ snapshot: SNAP, live: LIVE_UNCHANGED, contentId: 'post-1', capturedAt: '2026-09-02T15:02:00Z' });
+    expect(e.source).toBe('snapshot');
+    expect(e.body).toBe('ORIGINAL MODERATION SNAPSHOT TEST');
+    expect(e.authorName).toBe('zz-test Startup');
+    expect(e.publishedAt).toBe('2026-09-02T14:35:00Z');
+    expect(e.liveStatus).toBe('unchanged');
+  });
+
+  it('HISTORICAL report with no snapshot resolves from the live post (§9/§15)', () => {
+    // This is the case the previous pass missed: every report already in the
+    // queue has no snapshot, and the panel rendered no content at all.
+    const e = resolveModerationEvidence({
+      snapshot: null, live: { body: 'A pre-snapshot post', createdAt: '2026-08-01T09:00:00Z', deletedAt: null, moderationRemovedAt: null },
+      contentId: 'post-old', authorName: 'zz-test Startup',
+    });
+    expect(e.source).toBe('live_post');
+    expect(e.body).toBe('A pre-snapshot post');
+    expect(e.authorName).toBe('zz-test Startup');
+    expect(e.unavailableReason).toBeNull();
+  });
+
+  it('SNAPSHOT IMMUTABILITY: an edit after the report never replaces the evidence (§13)', () => {
+    const e = resolveModerationEvidence({
+      snapshot: SNAP,
+      live: { body: 'EDITED AFTER REPORT', createdAt: POST.created_at, deletedAt: null, moderationRemovedAt: null },
+      contentId: 'post-1',
+    });
+    expect(e.body).toBe('ORIGINAL MODERATION SNAPSHOT TEST');
+    expect(e.liveStatus).toBe('edited');
+    expect(e.liveBody).toBe('EDITED AFTER REPORT'); // shown alongside, never instead
+  });
+
+  it('DELETED CONTENT: the snapshot stays reviewable after the author deletes (§14)', () => {
+    const e = resolveModerationEvidence({
+      snapshot: SNAP,
+      live: { body: POST.body, createdAt: POST.created_at, deletedAt: '2026-09-02T16:00:00Z', moderationRemovedAt: null },
+      contentId: 'post-1',
+    });
+    expect(e.source).toBe('snapshot');
+    expect(e.body).toBe('ORIGINAL MODERATION SNAPSHOT TEST');
+    expect(e.liveStatus).toBe('author_deleted');
+  });
+
+  it('the snapshot survives BACK-OFFICE removal too (§19/§20)', () => {
+    const e = resolveModerationEvidence({
+      snapshot: SNAP,
+      live: { body: POST.body, createdAt: POST.created_at, deletedAt: '2026-09-02T16:00:00Z', moderationRemovedAt: '2026-09-02T16:00:00Z' },
+      contentId: 'post-1',
+    });
+    expect(e.body).toBe('ORIGINAL MODERATION SNAPSHOT TEST');
+    expect(e.liveStatus).toBe('moderation_removed');
+  });
+
+  it('hard-deleted post with no snapshot is TRUTHFULLY unavailable, never the UUID (§15/§29)', () => {
+    const e = resolveModerationEvidence({ snapshot: null, live: null, contentId: 'post-gone' });
+    expect(e.source).toBe('unavailable');
+    expect(e.body).toBeNull();
+    expect(e.unavailableReason).toContain('no longer available');
+    // The id survives only as secondary metadata — it is not the content.
+    expect(e.contentId).toBe('post-gone');
+  });
+
+  it('keeps the content id as secondary metadata, not as the body', () => {
+    const e = resolveModerationEvidence({ snapshot: SNAP, live: LIVE_UNCHANGED, contentId: 'post-1' });
+    expect(e.contentId).toBe('post-1');
+    expect(e.body).not.toContain('post-1');
+    expect(e.body).not.toContain('network_post:');
+  });
+
+  it('models media as a list so a post with several images shows all of them (§6)', () => {
+    // Empty today — network_posts is text-only — but the shape is a list,
+    // never a single "first image".
+    expect(resolveModerationEvidence({ snapshot: SNAP, live: LIVE_UNCHANGED, contentId: 'post-1' }).media).toEqual([]);
+  });
+});
+
+describe('§44 startup privacy serialization, against the evidence path', () => {
+  it('the startup-facing view of a struck post carries content but no reporter trace', () => {
+    const view = toStartupStrikeView({
+      id: 's1', appliedAt: '2026-09-02T16:00:00Z', status: 'active',
+      contentRemoved: true, snapshot: SNAP, appeal: null,
+    });
+    expect(view.content?.body).toBe('ORIGINAL MODERATION SNAPSHOT TEST');
+    const json = JSON.stringify(view).toLowerCase();
+    for (const needle of ['reporter', 'ticket', 'spam', 'reason']) expect(json).not.toContain(needle);
   });
 });

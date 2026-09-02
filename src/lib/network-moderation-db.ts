@@ -15,8 +15,8 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logAdminAction } from './audit';
 import {
-  buildContentSnapshot, describeBanState, shouldBanForStrikes, toStartupStrikeView,
-  type AppealStatus, type ReportedContentSnapshot, type StartupStrikeView, type StrikeStatus,
+  buildContentSnapshot, describeBanState, resolveModerationEvidence, shouldBanForStrikes, toStartupStrikeView,
+  type AppealStatus, type ModerationEvidence, type ReportedContentSnapshot, type StartupStrikeView, type StrikeStatus,
 } from './network-moderation';
 import { resolveActorDisplays } from './network-db';
 
@@ -112,6 +112,11 @@ export interface ModerationCase {
    *  identities are not included: the count and the case links are what a
    *  moderator needs here. */
   relatedTicketIds: string[];
+  /** Prompt 533 — what the moderator is actually shown. Snapshot when one
+   *  exists, otherwise the live post (which is what makes every report
+   *  already in the queue reviewable), otherwise an explicit unavailable
+   *  state. The UI renders this and nothing else. */
+  evidence: ModerationEvidence;
 }
 
 export async function readModerationCase(admin: SupabaseClient, ticket: {
@@ -172,6 +177,12 @@ export async function readModerationCase(admin: SupabaseClient, ticket: {
     snapshotId: (snapRow?.id as string | undefined) ?? null,
     capturedAt: (snapRow?.captured_at as string | undefined) ?? null,
     postId, actorId, actorName, actorKind, live, activeStrikeCount, suspendedAt,
+    evidence: resolveModerationEvidence({
+      snapshot: (snapRow?.snapshot as ReportedContentSnapshot | undefined) ?? null,
+      live, contentId: postId,
+      authorName: actorName, authorActorId: actorId,
+      capturedAt: (snapRow?.captured_at as string | undefined) ?? null,
+    }),
     strike: strikeRow
       ? {
         id: strikeRow.id as string, status: strikeRow.status as StrikeStatus,
@@ -568,9 +579,11 @@ export interface StrikeDetailRow {
   contentRemoved: boolean;
   ticketId: string;
   postId: string | null;
-  contentPreview: string | null;
-  contentCreatedAt: string | null;
   postRemovedAt: string | null;
+  /** Prompt 533 §21 — a strike shows the content that caused it, through the
+   *  SAME resolver the report view uses. A strike raised from a pre-snapshot
+   *  report still resolves, from the live post, instead of showing a UUID. */
+  evidence: ModerationEvidence;
   appeal: { id: string; status: AppealStatus; body: string; createdAt: string; decidedAt: string | null; decisionNote: string | null } | null;
 }
 
@@ -586,12 +599,16 @@ export async function readStrikeDetail(admin: SupabaseClient, actorId: string): 
 
   const [{ data: snaps }, { data: posts }, { data: appeals }] = await Promise.all([
     snapshotIds.length ? admin.from('network_report_snapshots').select('id, snapshot').in('id', snapshotIds) : Promise.resolve({ data: [] as { id: string; snapshot: ReportedContentSnapshot }[] }),
-    postIds.length ? admin.from('network_posts').select('id, moderation_removed_at').in('id', postIds) : Promise.resolve({ data: [] as { id: string; moderation_removed_at: string | null }[] }),
+    // body/created_at/deleted_at too, not just the removal flag: they are
+    // what makes a strike from a pre-snapshot report resolvable at all.
+    postIds.length ? admin.from('network_posts').select('id, body, created_at, deleted_at, moderation_removed_at').in('id', postIds) : Promise.resolve({ data: [] as { id: string; body: string; created_at: string; deleted_at: string | null; moderation_removed_at: string | null }[] }),
     admin.from('network_strike_appeals').select('id, strike_id, status, body, created_at, decided_at, decision_note')
       .in('strike_id', strikes.map((s) => s.id as string)).order('created_at', { ascending: false }),
   ]);
   const snapById = new Map((snaps ?? []).map((s) => [s.id as string, s.snapshot as ReportedContentSnapshot]));
-  const postById = new Map((posts ?? []).map((p) => [p.id as string, p.moderation_removed_at as string | null]));
+  const postById = new Map((posts ?? []).map((p) => [p.id as string, p as {
+    id: string; body: string; created_at: string; deleted_at: string | null; moderation_removed_at: string | null;
+  }]));
   const appealByStrike = new Map<string, NonNullable<StrikeDetailRow['appeal']>>();
   for (const a of appeals ?? []) {
     const key = a.strike_id as string;
@@ -610,8 +627,13 @@ export async function readStrikeDetail(admin: SupabaseClient, actorId: string): 
     if (data?.user?.email) emailById.set(id, data.user.email);
   }));
 
+  // One display name lookup for the whole list rather than per strike.
+  const displays = await resolveActorDisplays(admin, [actorId]);
+  const actorName = displays.get(actorId)?.name ?? null;
+
   return strikes.map((s) => {
     const snap = s.snapshot_id ? snapById.get(s.snapshot_id as string) : undefined;
+    const post = s.post_id ? postById.get(s.post_id as string) : undefined;
     return {
       id: s.id as string,
       status: s.status as StrikeStatus,
@@ -623,9 +645,13 @@ export async function readStrikeDetail(admin: SupabaseClient, actorId: string): 
       contentRemoved: !!s.content_removed,
       ticketId: s.ticket_id as string,
       postId: (s.post_id as string | null) ?? null,
-      contentPreview: snap?.body ?? null,
-      contentCreatedAt: snap?.createdAt ?? null,
-      postRemovedAt: s.post_id ? postById.get(s.post_id as string) ?? null : null,
+      postRemovedAt: post?.moderation_removed_at ?? null,
+      evidence: resolveModerationEvidence({
+        snapshot: snap ?? null,
+        live: post ? { body: post.body, createdAt: post.created_at, deletedAt: post.deleted_at, moderationRemovedAt: post.moderation_removed_at } : null,
+        contentId: (s.post_id as string | null) ?? null,
+        authorName: actorName, authorActorId: actorId,
+      }),
       appeal: appealByStrike.get(s.id as string) ?? null,
     };
   });

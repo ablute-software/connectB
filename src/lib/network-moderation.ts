@@ -49,6 +49,159 @@ export function buildContentSnapshot(post: {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Prompt 533 — the moderation EVIDENCE resolver.
+//
+// The complaint this exists to answer: back-office showed
+// "Screen: network_post:2cfc7718-…" and nothing else. A UUID is an internal
+// reference, not evidence — a moderator cannot decide whether a post breaks
+// the rules from an identifier.
+//
+// Prompt 531 added the snapshot, which fixed NEW reports. It did not fix the
+// ones already in the queue: with no snapshot row, the panel fell through to
+// a status line and rendered no content at all. So the moderator's actual
+// experience was unchanged for every report that existed.
+//
+// This is the ONE place that decides what a moderator is shown, for both a
+// report and a strike (§21 — no second resolution path), with an explicit
+// provenance so the UI never has to guess whether it is looking at preserved
+// evidence or at live content that may since have changed.
+
+export type EvidenceSource = 'snapshot' | 'live_post' | 'unavailable';
+
+/** What the live post looks like now, relative to the evidence. */
+export type LiveContentStatus = 'unchanged' | 'edited' | 'author_deleted' | 'moderation_removed' | 'gone';
+
+/**
+ * A media item on the reported content.
+ *
+ * Empty in practice today, and deliberately so rather than omitted: My
+ * Network posts are text-only at the schema level (network_posts has body,
+ * kind and structured — no media column, no join table, and createPost
+ * accepts no media argument). Modelling the field costs nothing, keeps the
+ * renderer honest about "show every image, not just the first" (§6) the day
+ * posts gain media, and — critically — means nothing here fabricates an
+ * image feature the product does not have.
+ */
+export interface EvidenceMedia {
+  /** Resolved, viewable URL. Null when the asset could not be resolved. */
+  url: string | null;
+  kind: 'image' | 'file';
+  label: string | null;
+  /** Set when url is null, so §26 can show an unavailable tile instead of
+   *  breaking the whole report. */
+  unavailableReason?: string;
+}
+
+export interface ModerationEvidence {
+  source: EvidenceSource;
+  /** The reported text. Null only when source is 'unavailable'. */
+  body: string | null;
+  structured: Record<string, string> | null;
+  media: EvidenceMedia[];
+  authorName: string | null;
+  authorActorId: string | null;
+  publishedAt: string | null;
+  /** When the snapshot was taken; null for live-resolved evidence. */
+  capturedAt: string | null;
+  contentType: 'network_post' | 'network_actor';
+  /** The raw id — kept, but as SECONDARY metadata (§3/§23), never as the
+   *  representation of the content. */
+  contentId: string | null;
+  liveStatus: LiveContentStatus;
+  /** The current text, only when it differs from the evidence (§12/§13). */
+  liveBody: string | null;
+  /** Human-readable reason, only when source is 'unavailable' (§15). */
+  unavailableReason: string | null;
+}
+
+export interface ResolveEvidenceInput {
+  snapshot: ReportedContentSnapshot | null;
+  live: { body: string; createdAt: string; deletedAt: string | null; moderationRemovedAt: string | null } | null;
+  contentId: string | null;
+  /** Fallbacks for a live-resolved report whose snapshot never existed. */
+  authorName?: string | null;
+  authorActorId?: string | null;
+  capturedAt?: string | null;
+}
+
+/**
+ * Decides what the moderator sees, in this order:
+ *
+ *   1. the snapshot, when one exists — it is what was actually reported, and
+ *      it stays authoritative even after the author edits or deletes the
+ *      post, and after back-office removes it (§13, §14, §19);
+ *   2. otherwise the LIVE post, for reports created before snapshots
+ *      existed (§9, §15) — this is the case the previous pass missed, and
+ *      it is the one every report currently in the queue is in;
+ *   3. otherwise an explicit unavailable state (§15) — never the UUID
+ *      dressed up as content, and never fabricated text.
+ */
+export function resolveModerationEvidence(input: ResolveEvidenceInput): ModerationEvidence {
+  const { snapshot, live, contentId } = input;
+
+  const liveStatus: LiveContentStatus = !live
+    ? 'gone'
+    : live.moderationRemovedAt ? 'moderation_removed'
+      : live.deletedAt ? 'author_deleted'
+        : 'unchanged';
+
+  if (snapshot && (snapshot.body || snapshot.structured)) {
+    // The author editing the post after the report must never overwrite the
+    // evidence — it is surfaced ALONGSIDE it instead.
+    const edited = !!live && !live.deletedAt && live.body !== snapshot.body;
+    return {
+      source: 'snapshot',
+      body: snapshot.body,
+      structured: snapshot.structured,
+      media: [],
+      authorName: snapshot.authorName ?? input.authorName ?? null,
+      authorActorId: snapshot.authorActorId ?? input.authorActorId ?? null,
+      publishedAt: snapshot.createdAt,
+      capturedAt: input.capturedAt ?? null,
+      contentType: snapshot.postId ? 'network_post' : 'network_actor',
+      contentId: snapshot.postId ?? contentId,
+      liveStatus: edited ? 'edited' : liveStatus,
+      liveBody: edited ? live!.body : null,
+      unavailableReason: null,
+    };
+  }
+
+  if (live) {
+    return {
+      source: 'live_post',
+      body: live.body,
+      structured: null,
+      media: [],
+      authorName: input.authorName ?? null,
+      authorActorId: input.authorActorId ?? null,
+      publishedAt: live.createdAt,
+      capturedAt: null,
+      contentType: 'network_post',
+      contentId,
+      liveStatus,
+      liveBody: null,
+      unavailableReason: null,
+    };
+  }
+
+  return {
+    source: 'unavailable',
+    body: null,
+    structured: null,
+    media: [],
+    authorName: input.authorName ?? null,
+    authorActorId: input.authorActorId ?? null,
+    publishedAt: null,
+    capturedAt: null,
+    contentType: contentId ? 'network_post' : 'network_actor',
+    contentId,
+    liveStatus: 'gone',
+    liveBody: null,
+    unavailableReason: 'The reported content is no longer available, and this report was created before content snapshots were stored.',
+  };
+}
+
 /**
  * Whether My Network access should be suspended, by 0215's rule.
  *
