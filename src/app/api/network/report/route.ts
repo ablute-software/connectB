@@ -14,6 +14,8 @@ import { networkAvailable } from '@/lib/network-capability';
 import { resolveActorId } from '@/lib/network-db';
 import { supportTicketsAvailable } from '@/lib/support-capability';
 import { formatNetworkReportContext } from '@/lib/network-content-policy';
+import { captureReportSnapshot } from '@/lib/network-moderation-db';
+import { networkModerationAvailable } from '@/lib/network-moderation-capability';
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -51,5 +53,19 @@ export async function POST(req: Request) {
     message: body.reason.trim(), context,
   }).select('id').single();
   if (error || !ticket) return NextResponse.json({ ok: false, error: error?.message ?? 'Could not submit report.' });
+
+  // Prompt 531 §3 — freeze the reported content NOW, alongside the report.
+  // Posts are author-deletable (network_posts.deleted_at) and moderation is
+  // asynchronous, so reading network_posts at review time loses the
+  // evidence in exactly the case where it matters most: the author edits or
+  // deletes after being reported. captureReportSnapshot is best-effort and
+  // never blocks the report — a filed report with no snapshot is recoverable
+  // (the live post is usually still there); a lost report is not.
+  if (await networkModerationAvailable()) {
+    await captureReportSnapshot(admin, {
+      ticketId: ticket.id as string, postId: body.postId ?? null, reportedActorId,
+    });
+  }
+
   return NextResponse.json({ ok: true });
 }
