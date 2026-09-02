@@ -7,7 +7,9 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  visiblePipelineSize, isProfileGateComplete, hasAnyDocumentNamed, completeMonthsSince, type PipelineUnlockInput,
+  visiblePipelineSize, isProfileGateComplete, hasDocumentForBonus, completeMonthsSince,
+  DECK_BONUS_FOLDERS, DECK_BONUS_KEYWORDS, BUSINESS_PLAN_BONUS_FOLDERS, BUSINESS_PLAN_BONUS_KEYWORDS,
+  type PipelineUnlockInput,
 } from './pipeline-unlock';
 import { PRESET_FOLDER_NAMES, PRESET_FOLDER_COUNT } from './vault-preset-folders';
 import { normalizePlan } from './plans';
@@ -50,12 +52,21 @@ async function gatherPipelineUnlockInputs(
 
   const folderByName = new Map((folders ?? []).map((f) => [f.name as string, f.id as string]));
   const presetFolderIds = PRESET_FOLDER_NAMES.map((name) => folderByName.get(name)).filter(Boolean) as string[];
-  const docNames = (documents ?? []).map((d) => d.name as string);
   const foldersWithDoc = new Set((documents ?? []).filter((d) => d.folder_id).map((d) => d.folder_id as string));
   const presetFoldersWithFile = presetFolderIds.filter((id) => foldersWithDoc.has(id)).length;
 
-  const investorDeckUploaded = hasAnyDocumentNamed(docNames, ['investor deck', 'pitch deck']);
-  const businessPlanUploaded = hasAnyDocumentNamed(docNames, ['business plan']);
+  // Prompt 536 §4 — the bonus now reads the folder the file sits in, with
+  // the old filename match kept as a fallback (see hasDocumentForBonus).
+  // folderNameById is built from the same `folders` read already in flight
+  // above; no extra query.
+  const folderNameById = new Map((folders ?? []).map((f) => [f.id as string, f.name as string]));
+  const docsForBonus = (documents ?? []).map((d) => ({
+    name: d.name as string,
+    folderName: d.folder_id ? folderNameById.get(d.folder_id as string) ?? null : null,
+  }));
+
+  const investorDeckUploaded = hasDocumentForBonus(docsForBonus, DECK_BONUS_FOLDERS, DECK_BONUS_KEYWORDS);
+  const businessPlanUploaded = hasDocumentForBonus(docsForBonus, BUSINESS_PLAN_BONUS_FOLDERS, BUSINESS_PLAN_BONUS_KEYWORDS);
   const gateComplete = isProfileGateComplete(org);
   const profileCompletedAt = (org.profile_completed_at as string | null) ?? null;
   const months = profileCompletedAt ? completeMonthsSince(profileCompletedAt, new Date().toISOString()) : 0;
