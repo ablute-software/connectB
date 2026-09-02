@@ -271,3 +271,52 @@ describe('Prompt 532 §74 — recipient grouping regression', () => {
     expect(after[0].key).toBe(before[0].key); // same relationship, not a second one
   });
 });
+
+// Prompt 531 — the founder's own screenshot, reproduced byte for byte.
+// "Granted so far — 4 people" already grouped correctly ("test — 2
+// documents"), while the amber box below it read "Por associar (5)" and
+// listed "test → ablute_ investor deck" and "test → One Pager_ ablute_
+// biosphere.pdf" as two separate rows. Five grants, four recipients: the
+// count came from grants, the list from grants, and the same address was
+// asked to associate itself twice. This test pins the number the founder
+// gave — 4, not 5 — against that exact data.
+describe('Prompt 531 — Por associar counts recipients, not grants', () => {
+  const SCREENSHOT_GRANTS = [
+    grant({ invited_email: 'alexandrameira@ablute.pt', document_id: 'd1' }),
+    grant({ invited_email: 'nunomarujo@gmail.com', document_id: 'd1' }),
+    grant({ invited_email: 'nunomarujo@ablute.pt', document_id: 'd1' }),
+    // the one address that received two documents
+    grant({ invited_email: 'test@example.com', document_id: 'd1' }),
+    grant({ invited_email: 'test@example.com', document_id: 'd4' }),
+  ];
+
+  it('five email grants to four addresses yield four pending rows', () => {
+    const rels = build({ grants: SCREENSHOT_GRANTS });
+    const pending = rels.filter((r) => r.status === 'por_associar');
+    expect(SCREENSHOT_GRANTS).toHaveLength(5);
+    expect(pending).toHaveLength(4);
+    expect(pending.map((r) => r.name).sort()).toEqual([
+      'alexandrameira@ablute.pt',
+      'nunomarujo@ablute.pt',
+      'nunomarujo@gmail.com',
+      'test@example.com',
+    ]);
+  });
+
+  it('the repeated address is ONE row holding both of its documents', () => {
+    const rels = build({ grants: SCREENSHOT_GRANTS });
+    const test = rels.filter((r) => r.name === 'test@example.com');
+    expect(test).toHaveLength(1);
+    expect(test[0].grants).toHaveLength(2);
+    expect(test[0].peopleCount).toBe(1);
+    expect(test[0].fileCount).toBe(2);
+  });
+
+  it('the pending list agrees with the "Granted so far — N people" total', () => {
+    const rels = build({ grants: SCREENSHOT_GRANTS });
+    // Both numbers in the screenshot are now read off the same array, so
+    // they cannot disagree the way 4-vs-5 did.
+    expect(rels).toHaveLength(4);
+    expect(rels.reduce((n, r) => n + r.peopleCount, 0)).toBe(4);
+  });
+});
