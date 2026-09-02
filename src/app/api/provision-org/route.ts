@@ -6,6 +6,7 @@ import { isAbluteTeamEmail, serverClient } from '@/lib/supabase-server';
 import { ABLUTE_ORG_ID } from '@/lib/ablute-org';
 import { logAdminAction } from '@/lib/audit';
 import { PRESET_MATERIALS_FOLDERS, PRESET_DATA_ROOM_FOLDERS } from '@/lib/vault-preset-folders';
+import { PLAN_TO_MATCHDEAL_TIER, normalizePlan } from '@/lib/plans';
 import { acquisitionSourceAvailable } from '@/lib/acquisition-source-capability';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
 import { findActorIdByOrgId, materializeEmailInvitesForNewActor } from '@/lib/network-db';
@@ -185,6 +186,28 @@ export async function POST(req: NextRequest) {
     ...PRESET_MATERIALS_FOLDERS.map((name, i) => ({ org_id: org.id, name, kind: 'materials', position: i + 1 })),
     ...PRESET_DATA_ROOM_FOLDERS.map((name, i) => ({ org_id: org.id, name, kind: 'data_room', position: i + 11 })),
   ]);
+
+  // Prompt 543 §A.1 — the startup MatchDeal profile row, EMPTY.
+  //
+  // Nothing ever created one. The four orgs that have a row got it by hand
+  // in July; every org since had none, and /api/company/visibility's own
+  // "Incomplete" branch then reported an empty missing-field list that the
+  // UI rendered as a literal "…", with its only call to action pointing at
+  // /pair — whose no-profile screen pointed straight back here. Nine
+  // production orgs were inside that loop.
+  //
+  // Created empty ON PURPOSE: migration 0105's trigger computes
+  // is_complete = false from the blank fields, so is_visible stays false
+  // and nothing reaches an investor. Publishing is the founder's own act
+  // (POST /api/company/matchdeal/publish) — Prompt 125 Block B rejected
+  // making visibility a side effect of filling in a form, and that stands.
+  //
+  // Best-effort, like the platform_admin grant and the network invites: a
+  // failure here must never fail a sign-up, and migration 0299 backfills
+  // anything that slips through.
+  await admin.from('matchdeal_profiles')
+    .upsert({ membership_id: org.id, kind: 'startup', plan_tier: PLAN_TO_MATCHDEAL_TIER[normalizePlan(null)] },
+      { onConflict: 'membership_id,kind', ignoreDuplicates: true });
 
   await materializeNetworkInvitesIfAny(admin, org.id, email);
   return NextResponse.json({ ok: true, org_id: org.id });

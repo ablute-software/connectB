@@ -5,6 +5,8 @@
 // hidden, so a teammate who suddenly sees nothing in MatchDeal/pipelines
 // has an actual explanation on screen instead of what reads as a bug.
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import type { MatchdealMissingField, MatchdealStartupState } from '@/lib/matchdeal-publish';
 
 const AWAY_REMINDER_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -16,7 +18,11 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
     // are missing. Confirmed live that a profile can be is_visible=false
     // purely from incompleteness, never suspended — this used to render
     // as the same green "Visible" badge as an actually-visible profile.
+    // Prompt 543 §A — `state` replaces the old two-way isComplete guess.
+    // missingFieldLinks carries the About-card anchor for each missing
+    // field, so "Incomplete" can send the founder to the actual input.
     isComplete?: boolean; hasProfile?: boolean; missingFields?: string[];
+    state?: MatchdealStartupState; missingFieldLinks?: MatchdealMissingField[];
   } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,6 +54,24 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
     } finally { setBusy(false); }
   }
 
+  // Prompt 543 §A.2 — the act Prompt 125 requires and the product never
+  // offered. Copies the org's own fields into the MatchDeal profile; the
+  // trigger computes is_complete, which flips is_visible.
+  async function publish() {
+    setBusy(true); setErr('');
+    try {
+      const res = await fetch('/api/company/matchdeal/publish', { method: 'POST' });
+      const b = await res.json().catch(() => null);
+      if (!b?.ok) {
+        setErr(b?.missingFields?.length
+          ? `Still missing: ${(b.missingFields as MatchdealMissingField[]).map((m) => m.label).join(', ')}.`
+          : (b?.error ?? 'Could not publish — try again.'));
+        return;
+      }
+      load();
+    } finally { setBusy(false); }
+  }
+
   async function dismissReminder() {
     setShowReminder(false);
     await fetch('/api/company/visibility', {
@@ -66,7 +90,14 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
   // missing, with nobody having suspended anything. Only meaningful for
   // kind='startup' (the investor side has no equivalent badge to correct
   // here — this addenda's finding was specifically about startup profiles).
-  const incomplete = kind === 'startup' && !status.suspended && !status.platformSuspended && !status.isComplete;
+  // Prompt 543 §A — four states now, from the server. The old `incomplete`
+  // boolean collapsed "you are missing fields" and "you have not published"
+  // into one screen that said neither, and whose missing list was always
+  // empty because it was read off a profile row that did not exist.
+  const state: MatchdealStartupState | null = kind === 'startup' ? (status.state ?? null) : null;
+  const missingLinks = status.missingFieldLinks ?? [];
+  const badgeLabel = state === 'incomplete' ? 'Incomplete' : state === 'unpublished' ? 'Not published yet' : 'Visible';
+  const amber = state === 'incomplete' || state === 'unpublished';
 
   return (
     <div id="visibility-toggle" className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
@@ -84,10 +115,19 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
       ) : (
         <>
           <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-            status.suspended ? 'bg-amber-100 text-amber-800' : incomplete ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}>
-            {status.suspended ? 'Suspended' : incomplete ? 'Incomplete — not visible yet' : 'Visible'}
+            status.suspended || amber ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}>
+            {status.suspended ? 'Suspended' : badgeLabel}
           </span>
-          {status.isOwner ? (
+          {/* Prompt 543 §A.3 — the button the founder never had. Only in
+              the 'unpublished' state: with fields still missing there is
+              nothing to publish, and once published Suspend is the right
+              control. */}
+          {state === 'unpublished' && status.isOwner ? (
+            <button disabled={busy} onClick={() => void publish()}
+              className="rounded-lg bg-[#0E7490] px-3 py-1 text-xs font-medium text-white disabled:opacity-40">
+              Publish to MatchDeal
+            </button>
+          ) : status.isOwner && state !== 'incomplete' ? (
             <button disabled={busy}
               onClick={() => status.suspended ? void setSuspended(false) : setConfirming(true)}
               className="rounded-lg border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
@@ -106,10 +146,24 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
         </div>
       )}
 
-      {incomplete && (
+      {/* Prompt 543 §A.3 — the "…" is gone, and so is the link to /pair:
+          the MatchDeal app cannot complete anything, and pointing there was
+          half of the loop founders were stuck in. */}
+      {state === 'unpublished' && (
         <div className="mt-1 w-full rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Investors can&apos;t find you yet — your MatchDeal profile is missing: {(status.missingFields ?? []).join(', ') || '…'}.{' '}
-          <a href="/pair" className="font-medium underline hover:no-underline">Complete it on the MatchDeal app</a>.
+          Investors will see your company card in MatchDeal from now on. You can suspend at any time.
+        </div>
+      )}
+      {state === 'incomplete' && (
+        <div className="mt-1 w-full rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Investors can&apos;t find you yet — your company profile still needs:{' '}
+          {missingLinks.map((m, i) => (
+            <span key={m.fieldId}>
+              {i > 0 && ', '}
+              <Link href={`/settings?flash=${m.fieldId}`} className="font-medium underline hover:no-underline">{m.label}</Link>
+            </span>
+          ))}
+          .
         </div>
       )}
 

@@ -16,6 +16,8 @@
 // `orgs` row to duplicate onto, and this prompt is entirely about the
 // startup side.
 import { NextResponse } from 'next/server';
+import { matchdealStartupState, orgMatchdealMissing } from '@/lib/matchdeal-publish';
+import type { Org } from '@/lib/types';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
@@ -60,24 +62,34 @@ export async function GET(req: Request) {
       // erroring — reads fall back to `profile`'s copy in that case.
       admin.from('orgs').select('*').eq('id', member.org_id).maybeSingle(),
     ]);
-    const missingFields: string[] = [];
-    if (profile) {
-      if (!profile.photo_url) missingFields.push('Photo');
-      if (!profile.website) missingFields.push('Website');
-      if (!(profile.sectors?.length > 0)) missingFields.push('Sectors');
-      if (!profile.description) missingFields.push('Description');
-      if (!profile.country) missingFields.push('Country');
-      if (!profile.investment_stage_sought) missingFields.push('Stage sought');
-      if (!profile.company_phase) missingFields.push('Company phase');
-    }
+    // Prompt 543 §A — computed from the ORG, not from the profile row.
+    // That is the correction: the old list was read off `profile`, and for
+    // every org created since July there IS no profile row, so the list was
+    // always empty and the UI rendered `[].join(', ') || '…'` as a literal
+    // ellipsis — "your MatchDeal profile is missing: …". Reading the org
+    // means the list is right whether or not the row exists, and each entry
+    // carries the About-card anchor to jump to.
+    const orgMissing = org ? orgMatchdealMissing(org as unknown as Org) : [];
     const ownerSuspendedAt = (org as { owner_suspended_at?: string | null } | null)?.owner_suspended_at ?? profile?.owner_suspended_at ?? null;
     const platformSuspendedAt = (org as { platform_suspended_at?: string | null } | null)?.platform_suspended_at ?? profile?.platform_suspended_at ?? null;
     const remindedAt = (org as { suspension_reminded_at?: string | null } | null)?.suspension_reminded_at ?? profile?.suspension_reminded_at ?? null;
+    const state = matchdealStartupState({
+      isComplete: !!profile?.is_complete,
+      ownerSuspended: !!ownerSuspendedAt,
+      platformSuspended: !!platformSuspendedAt,
+      orgMissing,
+    });
     return NextResponse.json({
       ok: true, isOwner: member.role === 'owner',
       suspended: !!ownerSuspendedAt, platformSuspended: !!platformSuspendedAt,
       suspendedAt: ownerSuspendedAt, remindedAt,
-      isComplete: !!profile?.is_complete, hasProfile: !!profile, missingFields,
+      isComplete: !!profile?.is_complete, hasProfile: !!profile,
+      // Prompt 543 §A — `state` is what the UI branches on now. missingFields
+      // keeps its old name and shape (a string list) for any caller that
+      // still reads it, with missingFieldLinks carrying the anchors.
+      state,
+      missingFields: orgMissing.map((m) => m.label),
+      missingFieldLinks: orgMissing,
     });
   }
 
