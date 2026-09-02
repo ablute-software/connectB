@@ -3942,3 +3942,53 @@ catalog entity + 5 test users covering every acceptance criterion —
 match, freemail, the endsWith attack, subdomain, dispute — asserts, then
 cleans up after itself) for whoever applies 0145 next to run immediately
 after.
+
+---
+
+## `/api/provision-org` is public at the middleware because the route authenticates itself (Prompt 538, 02/09/2026)
+
+`/api/provision-org` is public at the middleware because the route
+authenticates itself (BUG-SEG-1); it was unreachable without a session
+from the day email confirmation was enabled (early August 2026) until this
+fix, which is why every founder org of that period was created through
+`OrphanAccountRepair`.
+
+The mechanism, for whoever reads this next: with Supabase email
+confirmation on, `signUp()` returns **no session**, so the signup form's
+`POST /api/provision-org` carried no cookie. The route was not in
+`PUBLIC` in `src/middleware.ts`, so the middleware answered first with a
+`307` to `/login?next=%2Fapi%2Fprovision-org`; `fetch` followed it,
+`res.json()` threw on the login page's HTML, and `attemptProvision`
+reported *"we couldn't reach the server… check your connection"*. The
+route never executed — production Supabase logs show no
+`GET /auth/v1/admin/users/{id}` at signup time for any affected account.
+Two consequences worth recording: the signup form's optional fields
+(website, sector, stage, round target, country, one-liner, acquisition
+source, newsletter consent) never reached the route on the real path,
+because the repair screen only collects org name, full name and title —
+so orgs created in that period started empty and acquisition-source
+analytics for it are blank; and the route's own no-session branch
+(BUG-SEG-1 case (b)) was dead code in production the whole time.
+
+The route's gate is the real one and was written for exactly this, so it
+is deliberately unchanged: with a session, `caller.id === user_id` or
+`403`; without one, the target account must have been created less than
+10 minutes ago or `403`; blocked emails `403`; the `@ablute.pt` domain
+grant additionally requires `email_confirmed_at`. `OrphanAccountRepair`
+(Prompt 152) stays — it is still the safety net for a provisioning call
+that genuinely fails.
+
+Deploy-order constraint, recorded because getting it backwards is a real
+privilege-escalation window: Prompt 531 (removing
+`sherlockdeal.com@gmail.com` from `OWNER_EMAILS`) must ship **with or
+before** this change, never after. Before this fix, provisioning never
+ran at signup time, so the address was inert; after it, a fresh signup
+with that address would be provisioned straight into the ablute_ org as
+owner and granted `platform_admins`. Both changes are on this branch,
+531's commit first.
+
+Client-side, `attemptProvision` now treats a non-JSON or redirected
+response as its own named failure ("the server answered with a page
+instead of a result") rather than letting it fall into the network
+`catch`. That is what let a routing bug masquerade as a connectivity
+problem for a month.
