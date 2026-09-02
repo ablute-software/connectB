@@ -3992,3 +3992,59 @@ response as its own named failure ("the server answered with a page
 instead of a result") rather than letting it fall into the network
 `catch`. That is what let a routing bug masquerade as a connectivity
 problem for a month.
+
+---
+
+## `sherlockdeal.com@gmail.com` is no longer an OWNER_EMAIL — Sherlock Deal becomes a separate founder org (Prompt 531, 2026-09-01)
+
+Supersedes **"Owner email became a LIST (`OWNER_EMAILS`), 2026-07-27"** and
+the `OWNER_EMAILS` paragraph in the `@ablute.pt` confirmation entry. Both are
+left as written — they record what was true and why, and the reasoning there
+(a single constant silently produces an ordinary founder with an empty org)
+was correct for its moment. What changed is that the "ordinary founder with
+a fresh org" outcome is now the DESIRED one for this address, not the
+failure mode.
+
+Sherlock Deal, the company that builds this platform, becomes its own first
+real customer: a separate startup org, a real use of the product rather than
+a test, with `sherlockdeal.com@gmail.com` as its founder account. While that
+address sat in `OWNER_EMAILS`, that was impossible — provisioning for it
+linked the user into the seeded ablute_ org as owner, upserted
+`platform_admins`, and discarded every startup field the signup form had
+collected. So `OWNER_EMAILS` becomes `['ablutecompany@gmail.com']`.
+
+Verified in production before removing it, not assumed:
+
+- The address had no rows anywhere outside `auth.users` — all 41
+  email-bearing columns in `public` (access_grants, entities,
+  catalog_entities, people, company_people, orgs.sender_email/bcc_email,
+  the investor_* tables, network_email_invites, support_tickets,
+  terms_acceptances, …) plus every `public` function body: zero hits. No
+  data migration step.
+- Admin access does not depend on this constant. `nunomarujo@ablute.pt`
+  holds the real `platform_admins` row and ownership of ablute_, granted by
+  the `@ablute.pt` domain rule (`isAbluteTeamEmail`, migration 0050).
+  Re-confirmed at removal time: 1 membership, 1 admin row.
+- The list had never actually been exercised: `ablutecompany@gmail.com` is
+  orphaned in production too (no org, no `platform_admins` row). It stays in
+  the list, untouched and out of scope — no decision has been made about it.
+
+Not changed, deliberately: the BUG-SEG-1 freshness check,
+`isAbluteTeamEmail`, `resolveRole`, `OrphanAccountRepair`, and the signup
+page. Those are what make the ordinary founder path work.
+
+**Correction to the prompt's premise, found while verifying.** Prompt 531
+described the recovery path as "sign in with the existing orphaned
+`auth.users` row (`57840403-…`, created 2026-07-29) → `resolveRole` returns
+`none` → `OrphanAccountRepair` provisions the new org", and instructed that
+the row must not be deleted. At the time of this change **there is no
+`auth.users` row for `sherlockdeal.com@gmail.com` at all** — neither
+`57840403-…` nor the `ce3f8749…` that Prompt 538 later referenced; an
+`ilike '%sherlockdeal%'` sweep of `auth.users` returns zero rows. Nothing in
+this change deleted it. The practical consequence is an improvement, not a
+loss: with no stale account in the way, the address goes through a plain
+signup, which — now that Prompt 538 makes `/api/provision-org` reachable —
+provisions the org at signup time WITH the startup fields (website, sector,
+stage, round target, country, one-liner, acquisition source). The
+`OrphanAccountRepair` path only ever collected org name, full name and
+title.

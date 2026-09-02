@@ -25,26 +25,31 @@ async function materializeNetworkInvitesIfAny(admin: SupabaseClient, orgId: stri
   } catch { /* never blocks sign-up */ }
 }
 
-// The platform owner. Signing up with one of these specific, hardcoded
-// addresses links to the real ablute_ org (already seeded) as owner AND
-// grants back-office (developer) access — so the owner gets full founder +
-// back-office capabilities from a single sign-up.
+// The platform owner. Signing up with an address in this list links to the
+// real ablute_ org (already seeded) as owner AND grants back-office
+// (developer) access, ignoring every startup field the signup form sent.
 //
-// Prompt 531 — sherlockdeal.com@gmail.com REMOVED from this list. It was
-// added when the project account moved to that address, on the reasoning
-// that a single constant would silently produce an ordinary founder with an
-// empty org and no back-office. That reasoning is now obsolete: the address
-// is used as an ordinary test inbox (it receives the real magic links for
-// verification fixtures), so a signup with it must NOT silently acquire
-// ownership of the real ablute_ org and platform_admin. The existing owner
-// account keeps its access through the platform_admins rows it already has
-// — this constant only ever decides what a NEW signup gets.
+// Prompt 531 (2026-09-01) — `sherlockdeal.com@gmail.com` REMOVED. Sherlock
+// Deal, the company that builds this platform, is now its own first real
+// customer: a SEPARATE startup org, a real use of the product rather than a
+// test, with that address as its founder account. It therefore has to go
+// through the ordinary founder path — a fresh `orgs` row, `org_members`
+// owner, preset Vault folders, and the startup fields the form collected —
+// which is the exact opposite of what this constant does. Keeping it here
+// made that outcome impossible.
 //
-// Ordering note (Prompt 538): this removal must be deployed with, or
-// before, making /api/provision-org reachable at the middleware. Until that
-// fix, provisioning never ran at signup time at all; after it, a fresh
-// signup with this address would have been provisioned straight into the
-// ablute_ org as owner. Same deploy, this commit first.
+// Removing it locks nobody out: back-office access for the team comes from
+// the `@ablute.pt` domain rule (`isAbluteTeamEmail`, migration 0050), which
+// is how Nuno's real admin account (`nunomarujo@ablute.pt`) is granted.
+// Verified in production before removal: the address had no rows anywhere
+// outside `auth.users` — all 41 email-bearing columns in `public` and every
+// `public` function body searched, zero hits — so there was no data to
+// migrate.
+//
+// `ablutecompany@gmail.com` stays, untouched and deliberately out of scope
+// (no decision has been made about it). Worth knowing that it is orphaned
+// in production too — no org, no `platform_admins` row — so this list has
+// never actually been exercised by a real provisioning call.
 const OWNER_EMAILS = ['ablutecompany@gmail.com'];
 
 export async function POST(req: NextRequest) {
