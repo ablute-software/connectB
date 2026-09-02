@@ -25,17 +25,27 @@ async function materializeNetworkInvitesIfAny(admin: SupabaseClient, orgId: stri
   } catch { /* never blocks sign-up */ }
 }
 
-// The platform owner. Signing up with either of these two specific,
-// hardcoded addresses links to the real ablute_ org (already seeded) as
-// owner AND grants back-office (developer) access — so the owner gets full
-// founder + back-office capabilities from a single sign-up.
+// The platform owner. Signing up with one of these specific, hardcoded
+// addresses links to the real ablute_ org (already seeded) as owner AND
+// grants back-office (developer) access — so the owner gets full founder +
+// back-office capabilities from a single sign-up.
 //
-// A LIST, not a single address, deliberately: the project account moved to
-// sherlockdeal.com@gmail.com, and with a single constant, signing up as the
-// new address would have silently produced an ordinary founder with a fresh
-// empty org and no back-office — locking the owner out of the platform
-// console with no error to explain why. Both addresses stay valid.
-const OWNER_EMAILS = ['ablutecompany@gmail.com', 'sherlockdeal.com@gmail.com'];
+// Prompt 531 — sherlockdeal.com@gmail.com REMOVED from this list. It was
+// added when the project account moved to that address, on the reasoning
+// that a single constant would silently produce an ordinary founder with an
+// empty org and no back-office. That reasoning is now obsolete: the address
+// is used as an ordinary test inbox (it receives the real magic links for
+// verification fixtures), so a signup with it must NOT silently acquire
+// ownership of the real ablute_ org and platform_admin. The existing owner
+// account keeps its access through the platform_admins rows it already has
+// — this constant only ever decides what a NEW signup gets.
+//
+// Ordering note (Prompt 538): this removal must be deployed with, or
+// before, making /api/provision-org reachable at the middleware. Until that
+// fix, provisioning never ran at signup time at all; after it, a fresh
+// signup with this address would have been provisioned straight into the
+// ablute_ org as owner. Same deploy, this commit first.
+const OWNER_EMAILS = ['ablutecompany@gmail.com'];
 
 export async function POST(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
