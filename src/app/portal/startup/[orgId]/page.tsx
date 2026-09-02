@@ -818,6 +818,31 @@ export default function StartupDossierPage() {
   }
 }
 
+// Prompt 546 — hoisted out of DocumentsTab: a component declared in
+// another component's body gets a new identity every render, which React
+// remounts instead of re-rendering. Found by the lint rule Prompt 546
+// turned on after the Vault tree bug.
+function ScoreBadge({ documentId, documentName, trackEvaluate, docScores, focusedDocId, onFocusDoc }: {
+  documentId: string; documentName: string;
+  trackEvaluate?: boolean; docScores?: Record<string, DocScoreEntry>;
+  focusedDocId?: string | null; onFocusDoc?: (id: string, name: string) => void;
+}) {
+  if (!trackEvaluate) return null;
+  const s = docScores?.[documentId];
+  const isFocused = focusedDocId === documentId;
+  const label = s?.current ? `★ ${s.current.score}/10` : s?.needsReRate ? '⚠ Update?' : 'Rate';
+  return (
+    <button onClick={() => onFocusDoc?.(documentId, documentName)}
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+        isFocused ? 'bg-[#0E7490] text-white'
+          : s?.current ? 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+            : s?.needsReRate ? 'border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200'
+              : 'border border-dashed border-gray-200 text-gray-400 hover:border-gray-400'}`}>
+      {label}
+    </button>
+  );
+}
+
 function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate, docScores, focusedDocId, onFocusDoc }: {
   orgId: string;
   hasAccess: boolean; docs: { sections: DocSection[]; pendingNdaCount: number } | null; sharedInMessages: DealMessage[];
@@ -856,23 +881,6 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
   // informational badge. A document whose founder-uploaded new version
   // outdated the old rating shows an amber "Update?" state instead of the
   // stale score, distinct from "Rate" (never rated) and from a real score.
-  function ScoreBadge({ documentId, documentName }: { documentId: string; documentName: string }) {
-    if (!trackEvaluate) return null;
-    const s = docScores?.[documentId];
-    const isFocused = focusedDocId === documentId;
-    const label = s?.current ? `★ ${s.current.score}/10` : s?.needsReRate ? '⚠ Update?' : 'Rate';
-    return (
-      <button onClick={() => onFocusDoc?.(documentId, documentName)}
-        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-          isFocused ? 'bg-[#0E7490] text-white'
-            : s?.current ? 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
-              : s?.needsReRate ? 'border border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200'
-                : 'border border-dashed border-gray-200 text-gray-400 hover:border-gray-400'}`}>
-        {label}
-      </button>
-    );
-  }
-
   // P134-C — "Shared in messages": the mini-prompt's own "documents
   // exchanged in conversation should stay reachable there" ask. Cross-refs
   // each message's document_ids against the docs already known to be
@@ -914,7 +922,7 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
                       Open{d.version && ` · ${d.version}`}{d.watermark && ' · watermarked'}{!d.downloadable && ' · view only, no download'}
                     </div>
                   </div>
-                  <ScoreBadge documentId={d.id} documentName={d.name} />
+                  <ScoreBadge documentId={d.id} documentName={d.name} trackEvaluate={trackEvaluate} docScores={docScores} focusedDocId={focusedDocId} onFocusDoc={onFocusDoc} />
                   <SherlockSummaryButton orgId={orgId} documentId={d.id} />
                   <button onClick={() => openDoc(d)} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">Open</button>
                 </div>
@@ -941,7 +949,7 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
                     <path d="M10.5 1.5v3h3" />
                   </svg>
                   <div className="flex-1 text-sm font-medium">{d.name}</div>
-                  <ScoreBadge documentId={d.id} documentName={d.name} />
+                  <ScoreBadge documentId={d.id} documentName={d.name} trackEvaluate={trackEvaluate} docScores={docScores} focusedDocId={focusedDocId} onFocusDoc={onFocusDoc} />
                   <SherlockSummaryButton orgId={orgId} documentId={d.id} />
                   <button onClick={() => openDoc(d)} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white">Open</button>
                 </div>

@@ -24,6 +24,31 @@ function toICS(tasks: TaskItem[], now: Date) {
   return lines.join('\r\n');
 }
 
+// Prompt 546 — hoisted out of AgendaPanel. Declared inline it was a new
+// component type on every render, so React remounted the whole task list
+// instead of re-rendering it. Caught by the lint rule Prompt 546 turned on
+// after the Vault tree scroll bug.
+function TaskRow({ t, now, toggleTask, setSelected, entityName }: {
+  t: TaskItem; now: Date;
+  toggleTask: (id: string) => void;
+  setSelected: (t: TaskItem) => void;
+  entityName: (id: string) => string | undefined;
+}) {
+  return (
+    <li className={`flex items-start gap-2 rounded px-1 ${t.done ? 'bg-green-50' : ''}`}>
+      <input type="checkbox" checked={t.done} onChange={() => toggleTask(t.id)} className="mt-1" onClick={(e) => e.stopPropagation()} />
+      <button onClick={() => setSelected(t)} className="flex-1 text-left">
+        <span className={`mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${ACTION_TYPE_COLOR[t.action_type]}`}>
+          {ACTION_TYPE_LABEL[t.action_type]}
+        </span>
+        <span className={t.done ? 'text-green-700 line-through' : ''}>{t.done && '✓ '}{followUpTaskDisplayTitle(t, now)}</span>
+        {t.entity_id && <span className="block text-xs"><EntityLink id={t.entity_id}>{entityName(t.entity_id)}</EntityLink></span>}
+      </button>
+      <span className="text-xs text-gray-400">{t.due_at?.slice(5, 10)}</span>
+    </li>
+  );
+}
+
 export function AgendaPanel() {
   const { db, toggleTask, addTask } = useStore();
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
@@ -139,21 +164,7 @@ export function AgendaPanel() {
     a.href = URL.createObjectURL(blob); a.download = 'ablute-agenda.ics'; a.click();
   }
 
-  function TaskRow({ t }: { t: TaskItem }) {
-    return (
-      <li className={`flex items-start gap-2 rounded px-1 ${t.done ? 'bg-green-50' : ''}`}>
-        <input type="checkbox" checked={t.done} onChange={() => toggleTask(t.id)} className="mt-1" onClick={(e) => e.stopPropagation()} />
-        <button onClick={() => setSelected(t)} className="flex-1 text-left">
-          <span className={`mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${ACTION_TYPE_COLOR[t.action_type]}`}>
-            {ACTION_TYPE_LABEL[t.action_type]}
-          </span>
-          <span className={t.done ? 'text-green-700 line-through' : ''}>{t.done && '✓ '}{followUpTaskDisplayTitle(t, now)}</span>
-          {t.entity_id && <span className="block text-xs"><EntityLink id={t.entity_id}>{db.entities.find((e) => e.id === t.entity_id)?.name}</EntityLink></span>}
-        </button>
-        <span className="text-xs text-gray-400">{t.due_at?.slice(5, 10)}</span>
-      </li>
-    );
-  }
+  const entityName = (id: string) => db.entities.find((e) => e.id === id)?.name;
 
   return (
     <div className="grid gap-4 lg:grid-cols-4">
@@ -233,7 +244,7 @@ export function AgendaPanel() {
               </button>
             }>
               {isOpen && hasItems && (
-                <ul className="space-y-1.5 text-sm">{g.items.map((t) => <TaskRow key={t.id} t={t} />)}</ul>
+                <ul className="space-y-1.5 text-sm">{g.items.map((t) => <TaskRow key={t.id} t={t} now={now} toggleTask={toggleTask} setSelected={setSelected} entityName={entityName} />)}</ul>
               )}
             </Card>
           );

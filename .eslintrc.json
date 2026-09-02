@@ -1,5 +1,13 @@
 {
   "extends": "next/core-web-vitals",
+  "rules": {
+    "react/no-unstable-nested-components": [
+      "error",
+      {
+        "allowAsProps": true
+      }
+    ]
+  },
   "overrides": [
     {
       "files": ["src/lib/**/*.ts", "src/app/api/**/*.ts"],

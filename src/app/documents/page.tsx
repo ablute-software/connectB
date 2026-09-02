@@ -24,6 +24,9 @@ import { PageTour } from '@/components/onboarding/PageTour';
 import { vaultAccessAdvice } from '@/lib/vault-access-advice';
 import { VaultPinGate } from '@/components/documents/VaultPinGate';
 import { VaultPrivacyNoticeModal } from '@/components/documents/VaultPrivacyNoticeModal';
+// Prompt 546 — hoisted out of this component's body; see VaultTrees.tsx for
+// why declaring them inline made every click reset the scroll position.
+import { FolderNode, GrantTreeNode, TriStateBox, type FolderTreeCtx, type GrantTreeCtx } from '@/components/documents/VaultTrees';
 import { isVaultPrivacyNoticeDue, readDemoVaultPrivacyNotice, writeDemoVaultPrivacyNotice } from '@/lib/vault-privacy-notice';
 import { useTrackPageView } from '@/lib/use-track-page-view';
 
@@ -953,82 +956,20 @@ function DocumentsPageInner() {
     }
   }
 
-  function FolderNode({ f, depth }: { f: Folder; depth: number }) {
-    const kids = children(f.id);
-    const isCollapsed = collapsed.has(f.id);
-    return (
-      <div>
-        <div className="group flex items-center gap-1" style={{ paddingLeft: `${8 + depth * 14}px` }}>
-          {renamingFolderId === f.id ? (
-            <>
-              <input value={folderRenameText} onChange={(e) => setFolderRenameText(e.target.value)} autoFocus
-                className="flex-1 rounded border border-gray-300 px-1.5 py-0.5 text-sm" />
-              <button onClick={saveRenameFolder} className="text-xs text-cyan-700 hover:underline">save</button>
-            </>
-          ) : (
-            <>
-              {kids.length > 0 ? (
-                <button onClick={() => toggleCollapse(f.id)} title={isCollapsed ? 'Expand' : 'Collapse'}
-                  className="w-3 shrink-0 text-[10px] text-gray-400 hover:text-gray-700">{isCollapsed ? '▸' : '▾'}</button>
-              ) : (
-                <span className="w-3 shrink-0" />
-              )}
-              <button onClick={() => setSelFolder(f.id)}
-                onDragOver={dragDocId ? (e) => { e.preventDefault(); setDragOverFolderId(f.id); } : undefined}
-                onDragLeave={dragDocId ? () => setDragOverFolderId((cur) => cur === f.id ? null : cur) : undefined}
-                onDrop={dragDocId ? (e) => { e.preventDefault(); handleDropOnFolder(f.id); } : undefined}
-                className={`flex flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm ${
-                  dragOverFolderId === f.id ? 'bg-cyan-100 ring-1 ring-cyan-400'
-                    : selFolder === f.id ? 'bg-[#E8F4F8] font-medium text-[#0E7490]' : 'text-gray-700 hover:bg-gray-50'}`}>
-                <span>{f.kind === 'data_room' ? '▣' : '▤'}</span> {f.name}
-                <span className="ml-auto text-[10px] text-gray-400">{docsIn(f.id).length || ''}</span>
-              </button>
-              <button onClick={() => startRenameFolder(f)} title="Rename folder"
-                className="hidden text-xs text-gray-400 hover:text-cyan-700 group-hover:inline">✎</button>
-              <button onClick={() => confirmDeleteFolder(f)} title="Delete folder"
-                className="hidden text-xs text-gray-400 hover:text-[#B00000] group-hover:inline">🗑</button>
-            </>
-          )}
-        </div>
-        {!isCollapsed && kids.map((k) => <FolderNode key={k.id} f={k} depth={depth + 1} />)}
-      </div>
-    );
-  }
-
-  function TriStateBox({ state, onClick }: { state: GrantState; onClick: () => void }) {
-    const style = state === 'none'
-      ? 'border border-gray-300 bg-white'
-      : state === 'shared'
-      ? 'border border-cyan-600 bg-cyan-600 text-white'
-      : 'border border-amber-600 bg-amber-500 text-white';
-    const title = state === 'none' ? 'Not shared — click to share' : state === 'shared' ? 'Shared — click to also require an NDA' : 'Shared + NDA required — click to unshare';
-    return (
-      <button type="button" onClick={onClick} title={title}
-        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold leading-none ${style}`}>
-        {state === 'shared' ? '✓' : state === 'shared_nda' ? '🔒' : ''}
-      </button>
-    );
-  }
-
-  function GrantTreeNode({ f, depth }: { f: Folder; depth: number }) {
-    const kids = children(f.id);
-    const docs = docsIn(f.id);
-    return (
-      <div>
-        <div className="flex items-center gap-1.5 py-0.5" style={{ paddingLeft: `${depth * 14}px` }}>
-          <TriStateBox state={selection[`folder:${f.id}`] ?? 'none'} onClick={() => toggleFolderSelection(f.id)} />
-          <span className="text-sm text-gray-700">{f.kind === 'data_room' ? '▣' : '▤'} {f.name}</span>
-        </div>
-        {docs.map((d) => (
-          <div key={d.id} className="flex items-center gap-1.5 py-0.5" style={{ paddingLeft: `${(depth + 1) * 14}px` }}>
-            <TriStateBox state={selection[`doc:${d.id}`] ?? 'none'} onClick={() => toggleDocSelection(d.id)} />
-            <span className="text-xs text-gray-600">{d.name}</span>
-          </div>
-        ))}
-        {kids.map((k) => <GrantTreeNode key={k.id} f={k} depth={depth + 1} />)}
-      </div>
-    );
-  }
+  // Prompt 546 — the closure the two trees used to read, now passed
+  // explicitly. Rebuilt every render on purpose: re-rendering was never the
+  // problem, remounting was, and a stale memo here would be a real bug where
+  // an extra render is merely cheap.
+  const grantTreeCtx: GrantTreeCtx = {
+    selection, toggleFolderSelection, toggleDocSelection, childrenOf: children, docsIn,
+  };
+  const folderTreeCtx: FolderTreeCtx = {
+    childrenOf: children, docsIn, collapsed, toggleCollapse,
+    renamingFolderId, folderRenameText, setFolderRenameText, saveRenameFolder,
+    startRenameFolder, confirmDeleteFolder,
+    selFolder, setSelFolder,
+    dragDocId, dragOverFolderId, setDragOverFolderId, handleDropOnFolder,
+  };
 
   const selected = db.folders.find((f) => f.id === selFolder);
 
@@ -1055,7 +996,7 @@ function DocumentsPageInner() {
       <div className="grid gap-4 md:grid-cols-3">
         <div data-tour-id="documents-folders">
         <Card title="Folders">
-          {roots.map((f) => <FolderNode key={f.id} f={f} depth={0} />)}
+          {roots.map((f) => <FolderNode key={f.id} f={f} depth={0} ctx={folderTreeCtx} />)}
           <div className="mt-3 border-t border-gray-100 pt-3 text-xs">
             <div className="font-medium text-gray-500">New folder</div>
             <div className="mt-1 flex flex-col gap-1.5">
@@ -1580,7 +1521,7 @@ function DocumentsPageInner() {
                 <div className="mt-3">
                   <label className="mb-1 block text-[11px] font-medium text-gray-400">3. What do they see?</label>
                   <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50 p-2">
-                    {roots.map((f) => <GrantTreeNode key={f.id} f={f} depth={0} />)}
+                    {roots.map((f) => <GrantTreeNode key={f.id} f={f} depth={0} ctx={grantTreeCtx} />)}
                   </div>
                   <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-400">
                     <span className="flex items-center gap-1"><TriStateBox state="shared" onClick={() => {}} /> shared</span>
@@ -1674,7 +1615,7 @@ function DocumentsPageInner() {
                     <div className="mt-3">
                       <label className="mb-1 block text-[11px] font-medium text-gray-400">What do they see?</label>
                       <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50 p-2">
-                        {roots.map((f) => <GrantTreeNode key={f.id} f={f} depth={0} />)}
+                        {roots.map((f) => <GrantTreeNode key={f.id} f={f} depth={0} ctx={grantTreeCtx} />)}
                       </div>
                       <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-400">
                         <span className="flex items-center gap-1"><TriStateBox state="shared" onClick={() => {}} /> shared</span>
