@@ -23,6 +23,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
 import { useConfirm } from '@/lib/confirm';
+import { Tooltip } from '@/components/ui';
 
 export function VaultKillSwitch() {
   const { db, updateOrg } = useStore();
@@ -54,13 +55,21 @@ export function VaultKillSwitch() {
         document.body,
       )}
 
+      {/* Prompt 543 §B — what this does, on hover, before the confirm modal
+          rather than only inside it: the button's own label says what it
+          closes but not that nothing is deleted, nor how to undo it. No
+          behaviour change; the modal stays exactly as it was. */}
       {frozenAt ? (
-        <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-[#B00000]">🚨 Vault suspended</span>
+        <Tooltip side="top" text="Investors have no access right now. Click Restore access in the red banner to turn it back on.">
+          <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-[#B00000]">🚨 Vault suspended</span>
+        </Tooltip>
       ) : (
-        <button onClick={() => setConfirming(true)}
-          className="rounded-full border border-gray-300 px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50">
-          Close vault for everyone
-        </button>
+        <Tooltip side="top" text={'Instantly hides every document and folder from every investor, org-wide. Nothing is deleted or revoked — grants stay as they are. To undo, click "Restore access" on the red banner that appears at the top.'}>
+          <button onClick={() => setConfirming(true)}
+            className="rounded-full border border-gray-300 px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50">
+            Close vault for everyone
+          </button>
+        </Tooltip>
       )}
 
       {confirming && typeof document !== 'undefined' && createPortal(

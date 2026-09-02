@@ -457,10 +457,21 @@ export default function PairPage() {
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
               <div className="text-4xl">👤</div>
-              <p className="mt-3 text-[15px] font-semibold text-white">Your MatchDeal profile isn&apos;t set up yet</p>
+              {/* Prompt 543 §A.4 — the row now always exists (provision-org
+                  creates it, migration 0299 backfilled the rest), so
+                  landing here can only mean "not published yet". The old
+                  copy said "isn't set up yet — finish it on
+                  sherlockdeal.com", where the About page said "complete it
+                  on the MatchDeal app": each screen sent the founder to the
+                  other, and neither could do anything. Names the actual
+                  place and the actual act instead. */}
+              <p className="mt-3 text-[15px] font-semibold text-white">Your company isn&apos;t published to MatchDeal yet</p>
               <p className="mt-1.5 text-[13px] leading-relaxed text-white/60">
-                Finish it on sherlockdeal.com and this screen will start showing candidates.
+                Publish it from About on sherlockdeal.com and this screen will start showing candidates.
               </p>
+              <a href="/settings" className="mt-3 text-[13px] font-medium text-white underline underline-offset-2 hover:no-underline">
+                Open About on sherlockdeal.com
+              </a>
               {/* Prompt 84 — already refreshed automatically when this tab
                   is foregrounded (see the visibilitychange effect above);
                   this is the explicit fallback for a browser/PWA that
