@@ -199,6 +199,21 @@ function FounderSignupForm() {
           acquisition_source_detail: utmSource ? `utm_source=${utmSource}${utmCampaign ? `&utm_campaign=${utmCampaign}` : ''}` : undefined,
         }),
       });
+      // Prompt 538 — the failure that hid this bug for a month. When
+      // /api/provision-org was not in the middleware's PUBLIC list, an
+      // unauthenticated POST (which is EVERY signup, since email
+      // confirmation means signUp() returns no session) was 307'd to
+      // /login; fetch follows the redirect, res.json() throws on the login
+      // page's HTML, and the catch below reported "check your connection" —
+      // pointing the founder, and us, at the network instead of at the
+      // gate. A response that is a page rather than a result is now its own
+      // named failure, so this class of bug can never read as a connection
+      // problem again.
+      const contentType = res.headers.get('content-type') ?? '';
+      if (res.redirected || !contentType.includes('application/json')) {
+        setMsg('Your account was created, but the server answered with a page instead of a result, so your workspace was not set up. Click Retry — if it keeps happening, contact support.');
+        return false;
+      }
       const body = await res.json();
       if (!res.ok || !body || body.ok === false) {
         setMsg(`Your account was created, but we couldn't finish setting up your workspace${body?.error ? ` (${body.error})` : ''}. Click Retry.`);

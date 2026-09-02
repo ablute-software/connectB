@@ -32,6 +32,20 @@ const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/ap
   // routes (/api/portal/claims*) are already covered by the existing
   // '/api/portal' prefix above.
   '/claim',
+  // Prompt 538 — public because the ROUTE authenticates itself, and because
+  // it is unreachable otherwise: since Supabase email confirmation was
+  // turned on (early August 2026) `signUp()` returns no session, so there
+  // is no cookie for this middleware to accept, and every founder signup's
+  // provisioning POST was 307'd to /login — the client then parsed the
+  // login page's HTML as JSON and showed "we couldn't reach the server".
+  // The route's own gate is the real one and must not be widened or
+  // narrowed to compensate (see the BUG-SEG-1 block in
+  // src/app/api/provision-org/route.ts): with a session, caller.id must
+  // equal user_id or 403; without one, the target account must have been
+  // created less than 10 minutes ago or 403; blocked emails 403; the
+  // @ablute.pt domain grant additionally requires email_confirmed_at.
+  // Exact path only — it has no sub-routes.
+  '/api/provision-org',
   // Prompt 335 §D1/§D3a — both landing pages for My Network's cold-start
   // links work exactly like the pairing-consume/guest links above: the
   // token itself is the entire authorization, and the whole point (for the
