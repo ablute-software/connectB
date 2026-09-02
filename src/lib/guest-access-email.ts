@@ -93,9 +93,31 @@ function templatePath(file: string): string {
   return path.join(process.cwd(), 'src', 'lib', 'email-templates', file);
 }
 
+// Prompt 535 — line endings are normalised on read, not assumed.
+//
+// The blob stored in git uses LF, so on Vercel (Linux) these files arrive
+// with LF and everything downstream works. But git's core.autocrlf rewrites
+// them to CRLF on checkout on Windows, and renderGuestAccessEmail's
+// /^Subject:\s*(.+)$/ then silently stops matching: in JavaScript "." does
+// not match a carriage return (it counts as a line terminator), so (.+)
+// stops one character short and $ can no longer reach the end of the line.
+// The subject falls back to the hardcoded default AND the literal
+// "Subject: ..." line stays at the top of the plain-text body, where the
+// recipient reads it.
+//
+// Production was never affected — measured, not assumed: the stored blob is
+// LF while the Windows working copy is CRLF. But the parsing was one commit
+// away from being wrong for real, and it already made
+// guest-access-email.test.ts fail on every Windows checkout, Nuno's included.
+// Normalising on read fixes it for every consumer at once, rather than
+// hardening one regex and leaving the next reader to rediscover it.
+export function normaliseNewlines(raw: string): string {
+  return raw.replace(/\r\n/g, '\n');
+}
+
 export function loadGuestAccessTemplate(): { html: string; text: string } {
-  if (cachedHtml === null) cachedHtml = readFileSync(templatePath('guest-access-v2.html'), 'utf8');
-  if (cachedText === null) cachedText = readFileSync(templatePath('guest-access-v2.txt'), 'utf8');
+  if (cachedHtml === null) cachedHtml = normaliseNewlines(readFileSync(templatePath('guest-access-v2.html'), 'utf8'));
+  if (cachedText === null) cachedText = normaliseNewlines(readFileSync(templatePath('guest-access-v2.txt'), 'utf8'));
   return { html: cachedHtml, text: cachedText };
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   GUEST_EMAIL_ASSET_BASE, assertNoUnresolvedTokens, buildGuestAccessEmail,
-  greetingName, guestEmailLinks, loadGuestAccessTemplate,
+  greetingName, guestEmailLinks, loadGuestAccessTemplate, normaliseNewlines,
 } from './guest-access-email';
 
 // Prompt 532 — the email half of the release blocker. The single most
@@ -132,5 +132,41 @@ describe('greetingName', () => {
 
   it('never renders an empty name', () => {
     expect(greetingName(undefined, '@nothing.com')).toBe('there');
+  });
+});
+
+// Prompt 535 — this suite failed on every Windows checkout and passed on
+// Linux, because git's core.autocrlf rewrites the template to CRLF and
+// JavaScript's "." does not match a carriage return, so the Subject: line
+// stopped being stripped out of the plain-text body.
+//
+// These assertions are written against synthetic CRLF rather than against
+// the file on disk on purpose: a "no \r in the loaded template" check would
+// pass trivially on Linux, where the file is LF whether or not the
+// normalisation exists, and would therefore never catch its removal in CI.
+describe('CRLF template handling', () => {
+  it('normalises CRLF to LF', () => {
+    expect(normaliseNewlines('Subject: x\r\n\r\nHi Alex,\r\n')).toBe('Subject: x\n\nHi Alex,\n');
+  });
+
+  it('leaves LF input untouched', () => {
+    expect(normaliseNewlines('Subject: x\n\nHi Alex,\n')).toBe('Subject: x\n\nHi Alex,\n');
+  });
+
+  it('lets the Subject: line be stripped from a CRLF body', () => {
+    // The exact failure: without normalisation the match returns null, the
+    // subject falls back to a default, and the body keeps a literal
+    // "Subject: ..." first line that the recipient sees.
+    const crlf = 'Subject: Acme shared documents with you\r\n\r\nHi Alex,\r\n';
+    const [firstLine, ...rest] = normaliseNewlines(crlf).split('\n');
+    const match = firstLine.match(/^Subject:\s*(.+)$/);
+    expect(match?.[1]).toBe('Acme shared documents with you');
+    expect(rest.join('\n').replace(/^\n+/, '').startsWith('Subject:')).toBe(false);
+  });
+
+  it('the template as loaded carries no carriage returns, on any platform', () => {
+    const { html, text } = loadGuestAccessTemplate();
+    expect(text).not.toContain('\r');
+    expect(html).not.toContain('\r');
   });
 });
