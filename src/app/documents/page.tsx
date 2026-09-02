@@ -1798,6 +1798,16 @@ function DocumentsPageInner() {
                     // broken"; they reach the same documents through the
                     // portal they signed into.
                     const pendingInviteEmail = group.pendingInviteEmail;
+                    // Prompt 535 — Part C was written against a per-invite row
+                    // (`pendingInvite.id`); the sherlockdeal branch replaced
+                    // that with rows grouped by relationship, where a group
+                    // holds many grants and exposes only the pending invite's
+                    // EMAIL. Device counts are keyed by grant id, so the grant
+                    // is resolved from the email here rather than dropping the
+                    // feature in the merge.
+                    const pendingInviteGrant = pendingInviteEmail
+                      ? group.grants.find((g) => g.invited_email === pendingInviteEmail)
+                      : undefined;
                     const expiries = group.grants.map((g) => g.expires_at).filter((e): e is string => !!e).sort();
                     const nearestExpiry = expiries[0];
                     const ndaRequired = group.grants.filter((g) => g.nda_required);
@@ -1852,9 +1862,9 @@ function DocumentsPageInner() {
                               normal, so this only appears from the threshold up,
                               says nothing about who, and takes no action: the
                               founder already has Revoke if they want it. */}
-                          {pendingInvite && (deviceCounts.counts[pendingInvite.id] ?? 0) >= deviceCounts.threshold && (
+                          {pendingInviteGrant && (deviceCounts.counts[pendingInviteGrant.id] ?? 0) >= deviceCounts.threshold && (
                             <p className="mt-1 w-full text-[11px] text-amber-700">
-                              Opened from {deviceCounts.counts[pendingInvite.id]} different devices.
+                              Opened from {deviceCounts.counts[pendingInviteGrant.id]} different devices.
                             </p>
                           )}
                         </div>
