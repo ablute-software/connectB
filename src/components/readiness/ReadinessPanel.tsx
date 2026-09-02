@@ -23,12 +23,17 @@ import { SherlockPrepPanel } from './SherlockPrepPanel';
 import { ActionPlanPanel } from './ActionPlanPanel';
 import { TrainPanel } from './TrainPanel';
 import { HistoryPanel } from './HistoryPanel';
+import { RoundBlueprintPanel } from './RoundBlueprintPanel';
 
 const TABS = [
   { key: 'review', label: 'Review' },
   // Prompt 219 bloco 3 — o motor de narrativa. Fica a seguir a Review por
   // ser a leitura que alimenta tudo o resto; o gating por tier é o bloco 6.
   { key: 'blueprint', label: 'Pitch Blueprint' },
+  // Prompt 534 — the founder's mirror of the investor's evaluation tools.
+  // Sits right after Pitch Blueprint: same 'work out what you are actually
+  // saying' half of the tab, one about the story and one about the terms.
+  { key: 'round_blueprint', label: 'Round Blueprint' },
   // Prompt 360 Part A — its own tab, between Blueprint and Action plan.
   { key: 'market_data', label: 'Market data' },
   // Prompt 440 §A — Sherlock Prep, Phase 2. Between Market data and Action
@@ -88,6 +93,7 @@ function ReadinessInner() {
         <div className={locked ? 'pointer-events-none select-none space-y-4 blur-[2px]' : 'space-y-4'} aria-hidden={locked}>
           {activeTab === 'review' && <ReviewPanel />}
           {activeTab === 'blueprint' && <BlueprintPanel />}
+          {activeTab === 'round_blueprint' && <RoundBlueprintPanel />}
           {activeTab === 'market_data' && <MarketDataPanel />}
           {activeTab === 'sherlock_prep' && <SherlockPrepPanel />}
           {activeTab === 'plan' && <ActionPlanPanel />}
