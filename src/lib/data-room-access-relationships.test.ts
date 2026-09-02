@@ -208,3 +208,66 @@ describe('matchesRelationshipQuery', () => {
     expect(matchesRelationshipQuery(north, 'zzz')).toBe(false);
   });
 });
+
+// Prompt 532 §74 — the grouping cases the release-blocker brief names by
+// number, pinned here against the same module the panel reads.
+
+describe('Prompt 532 §74 — recipient grouping regression', () => {
+  it('Test B: 5 grants to one normalized external recipient = 1 card, 5 underlying grants', () => {
+    const grants = ['d1', 'd2', 'd3', 'd4', 'x1'].map((id) =>
+      grant({ invited_email: 'zz-test-recipient@example.com', document_id: id }));
+    const rels = build({ grants });
+    expect(rels).toHaveLength(1);
+    expect(rels[0].grants).toHaveLength(5);
+    expect(rels[0].peopleCount).toBe(1);
+  });
+
+  it('Test B: casing and stray whitespace do not split one recipient in two', () => {
+    const rels = build({
+      grants: [
+        grant({ invited_email: 'zz-test@example.com', document_id: 'd1' }),
+        grant({ invited_email: '  ZZ-Test@Example.COM  ', document_id: 'd2' }),
+      ],
+    });
+    expect(rels).toHaveLength(1);
+    expect(rels[0].grants).toHaveLength(2);
+  });
+
+  it('Test C: two distinct external emails stay two cards — no over-deduplication', () => {
+    const rels = build({
+      grants: [
+        grant({ invited_email: 'zz-test-a@example.com', invited_name: 'Same Name', document_id: 'd1' }),
+        grant({ invited_email: 'zz-test-b@example.com', invited_name: 'Same Name', document_id: 'd2' }),
+      ],
+    });
+    // §34: two different recipients sharing a display name must NOT merge.
+    expect(rels).toHaveLength(2);
+    expect(new Set(rels.map((r) => r.key)).size).toBe(2);
+  });
+
+  it('§33: the Por associar count is recipients, not grants', () => {
+    const grants = Array.from({ length: 60 }, (_, i) =>
+      grant({ invited_email: 'zz-test-recipient@example.com', document_id: `doc-${i}` }));
+    const rels = build({ grants });
+    // This is exactly what the panel renders as "Por associar (N)".
+    expect(rels.filter((r) => r.status === 'por_associar')).toHaveLength(1);
+  });
+
+  it('§44: adding more documents to the same recipient keeps one card and raises the count', () => {
+    const docs = Array.from({ length: 8 }, (_, i) => ({ id: `f${i}`, folder_id: 'legal' }));
+    const five = Array.from({ length: 5 }, (_, i) => grant({ invited_email: 'zz-test@example.com', document_id: `f${i}` }));
+    const before = buildAccessRelationships({
+      entities: [], people: [], affiliations: [], grants: five, folders: FOLDERS, documents: docs, now: NOW,
+    });
+    expect(before).toHaveLength(1);
+    expect(before[0].fileCount).toBe(5);
+
+    const seven = [...five, grant({ invited_email: 'zz-test@example.com', document_id: 'f5' }), grant({ invited_email: 'zz-test@example.com', document_id: 'f6' })];
+    const after = buildAccessRelationships({
+      entities: [], people: [], affiliations: [], grants: seven, folders: FOLDERS, documents: docs, now: NOW,
+    });
+    expect(after).toHaveLength(1);
+    expect(after[0].fileCount).toBe(7);
+    expect(after[0].key).toBe(before[0].key); // same relationship, not a second one
+  });
+});

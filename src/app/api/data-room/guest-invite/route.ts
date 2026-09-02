@@ -19,20 +19,22 @@ import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { ensureGuestToken } from '@/lib/guest-token-server';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
-import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
+import { resendConfigured, sendTransactionalEmail } from '@/lib/resend';
+import { buildGuestAccessEmail } from '@/lib/guest-access-email';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
-import { APP_URL, BRAND_NAME } from '@/lib/brand';
+import { APP_URL } from '@/lib/brand';
 
-// The client-side access_grants insert (store-supabase.tsx's addGrant) is a
-// fire-and-forget browser write, not awaited by its caller — this route can
-// run before that insert has actually landed. A few short retries covers
-// the real-world gap without the caller having to change how addGrant works.
-const RESOLVE_RETRIES = 5;
-const RESOLVE_DELAY_MS = 300;
-
-function formatExpiry(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-}
+// Prompt 532 §11 — the retry loop is gone.
+//
+// It existed for one reason: the ad-hoc invite flow fired the access_grants
+// insert without awaiting it and then called this route immediately, so the
+// route slept and re-queried hoping the row had landed. That sequencing is
+// fixed at the source — /api/data-room/invite-by-email now persists the
+// grants and mints the token in ONE server call, in order — and every other
+// caller of this route (Resend, Copy guest link) acts on a relationship that
+// demonstrably already exists. There is nothing left to wait for, so the
+// route no longer pretends there might be: a missing grant is now an honest,
+// immediate "no pending invite" instead of 1.5 seconds of false hope.
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -68,7 +70,7 @@ export async function POST(req: Request) {
   // (lib/guest-token-server.ts) so the access-change notification reuses
   // this exact token instead of minting a second one for the same
   // relationship. Same behaviour, one owner.
-  const minted = await ensureGuestToken(admin, orgId, email, { retries: RESOLVE_RETRIES, delayMs: RESOLVE_DELAY_MS });
+  const minted = await ensureGuestToken(admin, orgId, email);
   if (!minted.ok || !minted.token || !minted.expiresAt) {
     // 404 = nothing to send to; 409 = there IS a relationship but its access
     // has lapsed (the founder has to extend it first, which People & Access
@@ -94,31 +96,38 @@ export async function POST(req: Request) {
   if (!resendConfigured) {
     emailError = 'Could not send the invite email — copy the link below and send it yourself';
   } else {
-    const [{ data: org }, { data: inviterPerson }] = await Promise.all([
+    // Prompt 532 — the APPROVED v2 guest-access template, the same one
+    // /api/data-room/invite-by-email sends, so a Resend is byte-identical to
+    // the original invitation rather than a second, plainer email. The
+    // recipient's name comes from the invite grant itself.
+    const [{ data: org }, { data: inviteRow }] = await Promise.all([
       admin.from('orgs').select('name').eq('id', orgId).maybeSingle(),
-      // Best-effort personalization — company_people.email is free-text, not
-      // guaranteed to match the inviter's auth email; falls back to that
-      // email itself, then a generic "The team" if even that's missing.
-      user.email ? admin.from('company_people').select('full_name').eq('org_id', orgId).ilike('email', user.email).maybeSingle()
-        : Promise.resolve({ data: null }),
+      admin.from('access_grants').select('invited_name')
+        .eq('org_id', orgId).eq('invited_email', email).is('revoked_at', null)
+        .not('invited_name', 'is', null).limit(1).maybeSingle(),
     ]);
     const orgName = (org?.name as string | undefined) ?? 'A startup';
-    const inviterName = (inviterPerson?.full_name as string | undefined) ?? user.email ?? 'The team';
-    const heading = `${orgName} shared their data room with you`;
-    const result = await sendTransactionalEmail({
-      to: email,
-      subject: heading,
-      html: transactionalTemplate({
-        heading,
-        body: `${inviterName} has given you protected access to specific files and folders in their data room on ${BRAND_NAME}.`
-          + `<br/><br/>This is a secure, limited preview — you'll only see what's been shared with you, nothing else.`,
-        ctaLabel: 'View data room',
-        ctaUrl: `${APP_URL}/guest/${token}`,
-        footer: `This link expires on ${formatExpiry(expiresAt)}.`,
-      }),
-    });
-    emailSent = result.sent;
-    if (!result.sent) emailError = 'Could not send the invite email — copy the link below and send it yourself';
+
+    try {
+      const rendered = buildGuestAccessEmail({
+        recipientEmail: email,
+        invitedName: (inviteRow?.invited_name as string | undefined) ?? null,
+        startupName: orgName,
+        guestUrl: `${APP_URL}/guest/${token}`,
+      });
+      const result = await sendTransactionalEmail({
+        to: email, subject: rendered.subject, html: rendered.html, text: rendered.text,
+      });
+      emailSent = result.sent;
+      if (!result.sent) {
+        console.error('[guest-invite] provider refused the send:', result.providerError ?? result.error);
+        emailError = `Could not send the invite email (${result.error}) — copy the link below and send it yourself`;
+      }
+    } catch (e) {
+      // A template with an unresolved placeholder must never go out.
+      console.error('[guest-invite] email render failed:', (e as Error).message);
+      emailError = 'Could not compose the invite email — copy the link below and send it yourself';
+    }
   }
 
   return NextResponse.json({ ok: true, token, expiresAt, emailSent, emailError });

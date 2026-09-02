@@ -8,7 +8,7 @@ import { BRAND_NAME } from './brand';
 
 export const resendConfigured = !!process.env.RESEND_API_KEY;
 
-export async function sendTransactionalEmail(opts: { to: string; subject: string; html: string; replyTo?: string }) {
+export async function sendTransactionalEmail(opts: { to: string; subject: string; html: string; replyTo?: string; text?: string }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     // Logged, not silent: an unset key used to be indistinguishable from a
@@ -34,11 +34,31 @@ export async function sendTransactionalEmail(opts: { to: string; subject: string
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: opts.to, subject: opts.subject, html: opts.html, ...(replyTo ? { reply_to: replyTo } : {}) }),
+      // Prompt 532 — `text` is optional and additive: when a caller supplies
+      // an approved plain-text part (the guest-access email does), Resend
+      // sends a proper multipart message instead of HTML-only, which is both
+      // an accessibility and a deliverability improvement. Callers that omit
+      // it behave exactly as before. The `from` identity above is untouched.
+      body: JSON.stringify({
+        from, to: opts.to, subject: opts.subject, html: opts.html,
+        ...(opts.text ? { text: opts.text } : {}),
+        ...(replyTo ? { reply_to: replyTo } : {}),
+      }),
     });
     if (!res.ok) {
-      console.error('Transactional email provider error:', (await res.text()).slice(0, 300));
-      return { sent: false, error: 'Email sending failed — try again in a moment.' };
+      // Prompt 532 — the provider's own reason used to be console-only, so a
+      // misconfigured sender domain (a 403 "domain is not verified") was
+      // indistinguishable in the product from a transient blip. The reason is
+      // now returned as `providerError` for the caller to log and surface as
+      // a failure CLASS. It is deliberately separate from `error`, which
+      // stays the founder-facing sentence, and it never carries the API key.
+      const detail = (await res.text()).slice(0, 300);
+      console.error('Transactional email provider error:', res.status, detail);
+      return {
+        sent: false,
+        error: 'Email sending failed — try again in a moment.',
+        providerError: `HTTP ${res.status}: ${detail}`,
+      };
     }
     const data = await res.json();
     return { sent: true, id: data.id as string };

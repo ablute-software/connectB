@@ -1,0 +1,32 @@
+Subject: {{startup_name}} shared documents with you
+
+Hi {{recipient_first_name}},
+
+{{startup_name}} has shared documents with you.
+
+You can securely access the documents they selected for you through SherlockDeal.
+
+Access here: {{guest_access_url}}
+
+THERE'S MORE TO INVESTIGATE.
+
+Find your next unicorn
+Discover startups that fit your investment thesis.
+{{discover_startups_url}}
+
+Ask Watson
+Get a private AI second opinion on any deal, whenever you need it.
+{{watson_url}}
+
+Spot the risks others miss
+Assess team, market, product and technology — with risks and contradictions surfaced automatically.
+{{bars_url}}
+
+About SherlockDeal
+SherlockDeal is an investor relations platform built for startups and investors to connect, evaluate opportunities and collaborate securely.
+{{website_url}}
+
+Investor relations, investigated.
+Privacy: {{privacy_url}}
+Security: {{security_url}}
+Contact: {{contact_url}}

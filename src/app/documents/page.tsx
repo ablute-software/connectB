@@ -83,7 +83,7 @@ function DocumentsPageInner() {
     db, addDocument, deleteDocument, renameDocument, updateDocumentDetails, updateDocumentVisibility,
     moveDocumentToFolder, reorderDocuments, replaceDocumentFile, addDocumentVersion,
     createFolder, renameFolder, deleteFolder, addGrant, revokeGrant, recordNdaUpload,
-    invitePersonForGrant,
+    invitePersonForGrant, refreshFromServer,
   } = useStore();
   const confirm = useConfirm();
   // P78 Bloco 1 — "sit alongside Documents & Data Room", read as a tab
@@ -581,29 +581,84 @@ function DocumentsPageInner() {
     if (invitedEmailToNotify) await sendGuestInviteEmail(invitedEmailToNotify);
   }
 
-  // Prompt 154 gap 4 — same shape as the invite branch inside
-  // submitGrantTree above, minus person_id/entity entirely: a genuinely
-  // unknown contact, not yet anywhere in the CRM. Lands in
-  // PeopleAccessPanel.tsx's existing "orphan grants" basket until someone
-  // signs in and confirms "Is this you?", same as any other invited grant.
+  // Prompt 154 gap 4 / Prompt 532 — a genuinely unknown contact, not yet
+  // anywhere in the CRM.
+  //
+  // This used to loop addGrant() per selected node (React state + a
+  // fire-and-forget persist() whose failure was a console.error), then call
+  // guest-invite and hope. Postgres rejected every one of those inserts
+  // (constraint grant_has_grantee, fixed in migration 0292) and NOTHING
+  // said so: the grants sat on screen until a refresh silently removed
+  // them, and the resulting "No pending invite found" was grey hint text.
+  //
+  // It is now ONE awaited server call that persists the grants, mints the
+  // token and sends the approved email, and reports which of those three
+  // actually happened. The local store is refreshed FROM THE DATABASE on
+  // success rather than optimistically patched, so what the founder sees
+  // after this returns is what Postgres holds — the refresh test in the
+  // brief cannot regress, because there is no optimistic state left to
+  // disagree with.
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteResult, setInviteResult] = useState<{ ok: boolean; message: string; guestUrl?: string | null } | null>(null);
+
   async function submitAdHocEmailGrant() {
     const email = inviteEmail.trim().toLowerCase();
     const nameTrimmed = inviteName.trim();
     if (!email || !nameTrimmed) return;
-    const expires_at = grantExpiry ? `${grantExpiry}T23:59:59Z` : undefined;
     const selectedNodes = Object.entries(selection).filter(([, s]) => s !== 'none');
     if (!selectedNodes.length) return;
 
-    for (const [key, state] of selectedNodes) {
-      const [kind, id] = key.split(':');
-      addGrant({
-        person_id: undefined, document_id: kind === 'doc' ? id : undefined,
-        folder_id: kind === 'folder' ? id : undefined, expires_at, nda_required: state === 'shared_nda',
-        invited_email: email, invited_name: nameTrimmed,
+    setInviteBusy(true);
+    setInviteResult(null);
+    setResendMsg('');
+    try {
+      const nodes = selectedNodes.map(([key, state]) => {
+        const [kind, id] = key.split(':');
+        return { kind: kind as 'doc' | 'folder', id, ndaRequired: state === 'shared_nda' };
       });
+      const res = await fetch('/api/data-room/invite-by-email', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          orgId: db.org.id, email, name: nameTrimmed, nodes,
+          expiresAt: grantExpiry ? `${grantExpiry}T23:59:59Z` : null,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+
+      if (!body.ok) {
+        // Nothing persisted. Say so loudly and leave the form filled in so
+        // the founder can retry without re-selecting everything.
+        setInviteResult({ ok: false, message: body.error ?? 'Could not share these documents. Nothing was granted.' });
+        return;
+      }
+
+      // Truth from the database, not a guess: every surface that reads
+      // db.grants (People & Access, Granted so far, the tri-state tree)
+      // re-derives from the rows that actually exist.
+      await refreshFromServer();
+      resetGrantFlow();
+
+      if (body.emailSent) {
+        setInviteResult({
+          ok: true,
+          message: `${body.grantsCreated} ${body.grantsCreated === 1 ? 'item' : 'items'} shared with ${email} — invitation sent.`,
+          guestUrl: body.guestUrl,
+        });
+      } else {
+        // Access is real; only the notification failed. The distinction is
+        // the whole point: the founder must not be told it was sent, and
+        // must still get the link.
+        setInviteResult({
+          ok: true,
+          message: body.emailError ?? `${body.grantsCreated} items shared with ${email}, but the invitation could not be sent.`,
+          guestUrl: body.guestUrl,
+        });
+      }
+    } catch (e) {
+      setInviteResult({ ok: false, message: (e as Error).message || 'Could not reach the server. Nothing was granted.' });
+    } finally {
+      setInviteBusy(false);
     }
-    resetGrantFlow();
-    await sendGuestInviteEmail(email);
   }
 
   // Item 1 (Lote E) — the route is idempotent (hands back the existing
@@ -1605,6 +1660,33 @@ function DocumentsPageInner() {
                     grant until they sign in and confirm “Is this you?”, same as any other invite.
                   </p>
 
+                  {/* Prompt 532 §14 — the outcome, stated plainly and in the
+                      founder's line of sight. The three states are
+                      deliberately distinguishable: nothing was shared;
+                      shared AND sent; shared but NOT sent (access is real,
+                      the link is right here, use it). The old flow could
+                      only express a grey "…" that meant any of the three. */}
+                  {inviteResult && (
+                    <div className={`rounded-lg border p-2.5 text-xs ${inviteResult.ok ? 'border-green-200 bg-green-50 text-green-900' : 'border-red-200 bg-red-50 text-[#B00000]'}`}>
+                      <p className="font-medium">{inviteResult.ok ? '✓ ' : '✕ '}{inviteResult.message}</p>
+                      {inviteResult.guestUrl && (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <input readOnly value={inviteResult.guestUrl}
+                            onFocus={(e) => e.currentTarget.select()}
+                            className="min-w-0 flex-1 rounded border border-gray-200 bg-white px-1.5 py-1 text-[10px] text-gray-600" />
+                          <button type="button"
+                            onClick={async () => {
+                              const copied = await writeToClipboard(inviteResult.guestUrl as string);
+                              setResendMsg(copied ? 'Guest link copied.' : 'Your browser blocked the clipboard — select the link above and copy it.');
+                            }}
+                            className="rounded border border-gray-300 bg-white px-2 py-1 text-[10px] font-medium text-gray-700 hover:bg-gray-50">
+                            Copy guest link
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {inviteEmail.trim() && inviteName.trim() && (
                     <div className="mt-3">
                       <label className="mb-1 block text-[11px] font-medium text-gray-400">What do they see?</label>
@@ -1619,10 +1701,11 @@ function DocumentsPageInner() {
                       <input type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
                         className="mt-2 rounded border border-gray-300 px-2 py-1.5 text-sm" title="Expiry (optional)" />
                       <div>
-                        <button onClick={() => void submitAdHocEmailGrant()} className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">
-                          Confirm — grant access
+                        <button onClick={() => void submitAdHocEmailGrant()} disabled={inviteBusy}
+                          className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+                          {inviteBusy ? 'Sharing…' : 'Confirm — grant access'}
                         </button>
-                        <button onClick={resetGrantFlow} className="mt-2 ml-2 text-sm text-gray-400 hover:underline">Cancel</button>
+                        <button onClick={resetGrantFlow} disabled={inviteBusy} className="mt-2 ml-2 text-sm text-gray-400 hover:underline disabled:opacity-40">Cancel</button>
                       </div>
                     </div>
                   )}
