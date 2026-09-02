@@ -246,6 +246,15 @@ export interface StoreApi {
   deleteFolder: (id: string, moveContentsToParent: boolean) => void;
   addGrant: (g: Omit<AccessGrant, 'id' | 'granted_at'>) => void;
   revokeGrant: (id: string) => void;
+  // Prompt 530 — extend (or lift) an existing grant's validity in place.
+  // Deliberately an UPDATE of the same row, never a revoke+add: a new row
+  // would be a second grant for the same document, which is precisely how
+  // duplicate relationships and inflated file counts get born. Passing
+  // undefined clears expires_at (access with no end date). Works on an
+  // already-expired grant too — that is what "reactivate" means here, and
+  // the row's own expires_at is what the portal and the guest route check,
+  // so moving it forward is the whole of re-enabling access.
+  extendGrant: (id: string, expiresAt: string | undefined) => void;
   // Grant Access rebuild (prompt 33 part 2 / 47) — "+ Invite someone new".
   // Creates or reconciles (by email) a `people` row at the given entity
   // (data_source='founder_invite', low confidence — it's the founder's own

@@ -13,6 +13,7 @@ import {
   dueDiligenceUnderFolders, normalizeDocumentUrl, reorderByDrag, sanitizeStorageKey, type GrantState,
 } from '@/lib/data-room';
 import { grantStatus } from '@/lib/access-grants';
+import { buildAccessRelationships, type RelationshipGrant } from '@/lib/data-room-access-relationships';
 import { uploadAndVerifyFile } from '@/lib/vault-upload-client';
 import { entityStatusChip, passedNote, everyoneDncWarning } from '@/lib/grantee-warnings';
 import { PeopleAccessPanel } from '@/components/documents/PeopleAccessPanel';
@@ -82,7 +83,7 @@ function DocumentsPageInner() {
     db, addDocument, deleteDocument, renameDocument, updateDocumentDetails, updateDocumentVisibility,
     moveDocumentToFolder, reorderDocuments, replaceDocumentFile, addDocumentVersion,
     createFolder, renameFolder, deleteFolder, addGrant, revokeGrant, recordNdaUpload,
-    invitePersonForGrant,
+    invitePersonForGrant, refreshFromServer,
   } = useStore();
   const confirm = useConfirm();
   // P78 Bloco 1 — "sit alongside Documents & Data Room", read as a tab
@@ -410,7 +411,11 @@ function DocumentsPageInner() {
       const body = await res.json().catch(() => ({}));
       if (!body.ok) { setResendMsg(body.error ?? 'Could not send the invite email — copy the link below and send it yourself'); return; }
       if (body.emailSent === false) { setResendMsg(body.emailError ?? 'Could not send the invite email — copy the link below and send it yourself'); return; }
-      setResendMsg(`Data room invite sent to ${email}.`);
+      // The link the recipient just received — the SAME token, pointing at
+      // the SAME relationship and the SAME documents. Resending never
+      // widens access, creates a recipient, or duplicates a grant: the
+      // route only reads the pending grants and (re)mints their token.
+      setResendMsg(`Data room invite re-sent to ${email}.`);
     } catch (e) {
       setResendMsg((e as Error).message ?? 'Could not send the invite email — copy the link below and send it yourself');
     }
@@ -468,9 +473,23 @@ function DocumentsPageInner() {
 
   // P120 Block B — 100 active grants can belong to as few as 3 distinct
   // people (one row per document/folder selected in the tri-state tree).
-  // Grouping here, purely client-side over the same visibleGrants list, so
-  // the panel shows "3 people" instead of "100 rows" without touching the
-  // fine-grained grant data model (still needed for per-document revoke).
+  // Grouping so the panel shows "3 people" instead of "100 rows" without
+  // touching the fine-grained grant data model (still needed for
+  // per-document revoke).
+  //
+  // Prompt 530 — the grouping is now buildAccessRelationships(), the same
+  // one People & Access reads, for two reasons. (1) The local key
+  // `g.person_id ?? g.invited_email ?? …` split ONE recipient in two
+  // whenever some of their grants carried a person_id and others only the
+  // email — which is exactly what the invite flow produces — so the same
+  // investor appeared twice here, each half with its own "Revoke all".
+  // (2) Two independent groupings of the same rows is how the two panels
+  // drift apart; there is now one.
+  //
+  // It also groups over every NON-REVOKED grant rather than visibleGrants
+  // (which drops expired ones): a relationship whose grants have lapsed must
+  // stay on screen — that is where the founder extends it — instead of
+  // silently vanishing along with its Resend and Revoke controls.
   const [expandedGrantGroups, setExpandedGrantGroups] = useState<Set<string>>(new Set());
   function toggleGrantGroup(key: string) {
     setExpandedGrantGroups((prev) => {
@@ -479,16 +498,20 @@ function DocumentsPageInner() {
       return next;
     });
   }
-  const grantGroups = useMemo(() => {
-    const map = new Map<string, { key: string; personId?: string; invitedName?: string; invitedEmail?: string; granteeEmail?: string; grants: typeof visibleGrants }>();
-    for (const g of visibleGrants) {
-      const key = g.person_id ?? g.invited_email ?? g.grantee_email ?? g.id;
-      if (!map.has(key)) map.set(key, { key, personId: g.person_id ?? undefined, invitedName: g.invited_name ?? undefined, invitedEmail: g.invited_email ?? undefined, granteeEmail: g.grantee_email ?? undefined, grants: [] });
-      map.get(key)!.grants.push(g);
-    }
-    return [...map.values()];
-  }, [visibleGrants]);
+  const grantGroups = useMemo(() => buildAccessRelationships({
+    entities: db.entities.map((e) => ({ id: e.id, name: e.name })),
+    people: db.people.map((p) => ({ id: p.id, entity_id: p.entity_id, full_name: p.full_name, email_verified: p.email_verified, email_guess: p.email_guess })),
+    affiliations: db.personAffiliations.map((a) => ({ person_id: a.person_id, entity_id: a.entity_id, current: a.current })),
+    grants: db.grants as RelationshipGrant[],
+    folders: db.folders.map((f) => ({ id: f.id, parent_id: f.parent_id })),
+    documents: db.documents.map((d) => ({ id: d.id, folder_id: d.folder_id, visibility: d.visibility })),
+    now: new Date(),
+  }), [db.entities, db.people, db.personAffiliations, db.grants, db.folders, db.documents]);
   async function revokeAllInGroup(group: typeof grantGroups[number], label: string) {
+    // "all currently valid document grants belonging to THAT recipient" —
+    // group.grants is already scoped to this one relationship, so no other
+    // recipient, entity or org is touched. revoked_at is written through the
+    // founder's own RLS-scoped client (is_org_member(org_id)).
     if (!(await confirm({ message: `Revoke all ${group.grants.length} grant(s) for ${label}? This cannot be undone.`, destructive: true }))) return;
     for (const g of group.grants) revokeGrant(g.id);
   }
@@ -558,45 +581,153 @@ function DocumentsPageInner() {
     if (invitedEmailToNotify) await sendGuestInviteEmail(invitedEmailToNotify);
   }
 
-  // Prompt 154 gap 4 — same shape as the invite branch inside
-  // submitGrantTree above, minus person_id/entity entirely: a genuinely
-  // unknown contact, not yet anywhere in the CRM. Lands in
-  // PeopleAccessPanel.tsx's existing "orphan grants" basket until someone
-  // signs in and confirms "Is this you?", same as any other invited grant.
+  // Prompt 154 gap 4 / Prompt 532 — a genuinely unknown contact, not yet
+  // anywhere in the CRM.
+  //
+  // This used to loop addGrant() per selected node (React state + a
+  // fire-and-forget persist() whose failure was a console.error), then call
+  // guest-invite and hope. Postgres rejected every one of those inserts
+  // (constraint grant_has_grantee, fixed in migration 0292) and NOTHING
+  // said so: the grants sat on screen until a refresh silently removed
+  // them, and the resulting "No pending invite found" was grey hint text.
+  //
+  // It is now ONE awaited server call that persists the grants, mints the
+  // token and sends the approved email, and reports which of those three
+  // actually happened. The local store is refreshed FROM THE DATABASE on
+  // success rather than optimistically patched, so what the founder sees
+  // after this returns is what Postgres holds — the refresh test in the
+  // brief cannot regress, because there is no optimistic state left to
+  // disagree with.
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteResult, setInviteResult] = useState<{ ok: boolean; message: string; guestUrl?: string | null } | null>(null);
+
   async function submitAdHocEmailGrant() {
     const email = inviteEmail.trim().toLowerCase();
     const nameTrimmed = inviteName.trim();
     if (!email || !nameTrimmed) return;
-    const expires_at = grantExpiry ? `${grantExpiry}T23:59:59Z` : undefined;
     const selectedNodes = Object.entries(selection).filter(([, s]) => s !== 'none');
     if (!selectedNodes.length) return;
 
-    for (const [key, state] of selectedNodes) {
-      const [kind, id] = key.split(':');
-      addGrant({
-        person_id: undefined, document_id: kind === 'doc' ? id : undefined,
-        folder_id: kind === 'folder' ? id : undefined, expires_at, nda_required: state === 'shared_nda',
-        invited_email: email, invited_name: nameTrimmed,
+    setInviteBusy(true);
+    setInviteResult(null);
+    setResendMsg('');
+    try {
+      const nodes = selectedNodes.map(([key, state]) => {
+        const [kind, id] = key.split(':');
+        return { kind: kind as 'doc' | 'folder', id, ndaRequired: state === 'shared_nda' };
       });
+      const res = await fetch('/api/data-room/invite-by-email', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          orgId: db.org.id, email, name: nameTrimmed, nodes,
+          expiresAt: grantExpiry ? `${grantExpiry}T23:59:59Z` : null,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+
+      if (!body.ok) {
+        // Nothing persisted. Say so loudly and leave the form filled in so
+        // the founder can retry without re-selecting everything.
+        setInviteResult({ ok: false, message: body.error ?? 'Could not share these documents. Nothing was granted.' });
+        return;
+      }
+
+      // Truth from the database, not a guess: every surface that reads
+      // db.grants (People & Access, Granted so far, the tri-state tree)
+      // re-derives from the rows that actually exist.
+      await refreshFromServer();
+      resetGrantFlow();
+
+      if (body.emailSent) {
+        setInviteResult({
+          ok: true,
+          message: `${body.grantsCreated} ${body.grantsCreated === 1 ? 'item' : 'items'} shared with ${email} — invitation sent.`,
+          guestUrl: body.guestUrl,
+        });
+      } else {
+        // Access is real; only the notification failed. The distinction is
+        // the whole point: the founder must not be told it was sent, and
+        // must still get the link.
+        setInviteResult({
+          ok: true,
+          message: body.emailError ?? `${body.grantsCreated} items shared with ${email}, but the invitation could not be sent.`,
+          guestUrl: body.guestUrl,
+        });
+      }
+    } catch (e) {
+      setInviteResult({ ok: false, message: (e as Error).message || 'Could not reach the server. Nothing was granted.' });
+    } finally {
+      setInviteBusy(false);
     }
-    resetGrantFlow();
-    await sendGuestInviteEmail(email);
   }
 
   // Item 1 (Lote E) — the route is idempotent (hands back the existing
   // token if it's still live), so this doubles as "mint on demand" for any
   // pending invite that doesn't have one cached in `db.grants` yet (e.g. the
   // eager mint above failed, or the store hasn't refetched since).
+  //
+  // Prompt 530 — two real defects fixed here.
+  // (1) `navigator.clipboard.writeText(...).catch(() => {})` swallowed every
+  //     failure and the button still said "Copied!". navigator.clipboard is
+  //     undefined outside a secure context and writeText rejects when the
+  //     document isn't focused, so the founder pasted whatever was in the
+  //     clipboard before — the single most likely shape of "Copy guest link
+  //     doesn't work". It now falls back to a hidden textarea +
+  //     execCommand('copy'), and only claims success when a copy actually
+  //     happened.
+  // (2) On failure the link was lost entirely. It is now shown in the same
+  //     message line so it can be selected and copied by hand.
   const [copiedGuestLinkFor, setCopiedGuestLinkFor] = useState<string | null>(null);
+  const [guestLinkFallback, setGuestLinkFallback] = useState<string | null>(null);
+
+  async function writeToClipboard(text: string): Promise<boolean> {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch { /* falls through to the execCommand path below */ }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch { return false; }
+  }
+
   async function copyGuestLink(invitedEmail: string) {
-    const res = await fetch('/api/data-room/guest-invite', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ orgId: db.org.id, invitedEmail }),
-    });
-    const body = await res.json().catch(() => ({}));
+    setResendMsg('');
+    setGuestLinkFallback(null);
+    let body: { ok?: boolean; token?: string; error?: string } = {};
+    try {
+      const res = await fetch('/api/data-room/guest-invite', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: db.org.id, invitedEmail }),
+      });
+      body = await res.json().catch(() => ({}));
+    } catch (e) {
+      setResendMsg((e as Error).message ?? 'Could not create a guest link.');
+      return;
+    }
     if (!body.ok || !body.token) { setResendMsg(body.error ?? 'Could not create a guest link.'); return; }
+    // The recipient's own secure guest-access URL — never their email
+    // address, never a bare /portal or workspace link, and never another
+    // recipient's: the token comes back from the grant row that carries
+    // this exact invited_email.
     const link = `${window.location.origin}/guest/${body.token}`;
-    await navigator.clipboard.writeText(link).catch(() => {});
+    const copied = await writeToClipboard(link);
+    if (!copied) {
+      setGuestLinkFallback(link);
+      setResendMsg('Your browser blocked the clipboard — the guest link is below, copy it by hand.');
+      return;
+    }
+    setResendMsg('Guest link copied.');
     setCopiedGuestLinkFor(invitedEmail);
     setTimeout(() => setCopiedGuestLinkFor((cur) => (cur === invitedEmail ? null : cur)), 2000);
   }
@@ -1529,6 +1660,33 @@ function DocumentsPageInner() {
                     grant until they sign in and confirm “Is this you?”, same as any other invite.
                   </p>
 
+                  {/* Prompt 532 §14 — the outcome, stated plainly and in the
+                      founder's line of sight. The three states are
+                      deliberately distinguishable: nothing was shared;
+                      shared AND sent; shared but NOT sent (access is real,
+                      the link is right here, use it). The old flow could
+                      only express a grey "…" that meant any of the three. */}
+                  {inviteResult && (
+                    <div className={`rounded-lg border p-2.5 text-xs ${inviteResult.ok ? 'border-green-200 bg-green-50 text-green-900' : 'border-red-200 bg-red-50 text-[#B00000]'}`}>
+                      <p className="font-medium">{inviteResult.ok ? '✓ ' : '✕ '}{inviteResult.message}</p>
+                      {inviteResult.guestUrl && (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <input readOnly value={inviteResult.guestUrl}
+                            onFocus={(e) => e.currentTarget.select()}
+                            className="min-w-0 flex-1 rounded border border-gray-200 bg-white px-1.5 py-1 text-[10px] text-gray-600" />
+                          <button type="button"
+                            onClick={async () => {
+                              const copied = await writeToClipboard(inviteResult.guestUrl as string);
+                              setResendMsg(copied ? 'Guest link copied.' : 'Your browser blocked the clipboard — select the link above and copy it.');
+                            }}
+                            className="rounded border border-gray-300 bg-white px-2 py-1 text-[10px] font-medium text-gray-700 hover:bg-gray-50">
+                            Copy guest link
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {inviteEmail.trim() && inviteName.trim() && (
                     <div className="mt-3">
                       <label className="mb-1 block text-[11px] font-medium text-gray-400">What do they see?</label>
@@ -1543,10 +1701,11 @@ function DocumentsPageInner() {
                       <input type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
                         className="mt-2 rounded border border-gray-300 px-2 py-1.5 text-sm" title="Expiry (optional)" />
                       <div>
-                        <button onClick={() => void submitAdHocEmailGrant()} className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">
-                          Confirm — grant access
+                        <button onClick={() => void submitAdHocEmailGrant()} disabled={inviteBusy}
+                          className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+                          {inviteBusy ? 'Sharing…' : 'Confirm — grant access'}
                         </button>
-                        <button onClick={resetGrantFlow} className="mt-2 ml-2 text-sm text-gray-400 hover:underline">Cancel</button>
+                        <button onClick={resetGrantFlow} disabled={inviteBusy} className="mt-2 ml-2 text-sm text-gray-400 hover:underline disabled:opacity-40">Cancel</button>
                       </div>
                     </div>
                   )}
@@ -1597,26 +1756,39 @@ function DocumentsPageInner() {
               )}
             </div>
 
-            {/* P120 Block B.2/B.3 — grants grouped by person (3 people, not
-                100 rows). Collapsed by default; expanding a person shows
-                their individual grants with the existing per-grant
+            {/* P120 Block B.2/B.3 — grants grouped by RELATIONSHIP (3
+                people, not 100 rows). Collapsed by default; expanding one
+                shows their individual grants with the existing per-grant
                 Resend/Revoke. Revoke all = the same revokeGrant(g.id) call
-                looped over that person's grants — no new route/RPC. */}
+                looped over that recipient's grants — no new route/RPC.
+                Prompt 530: the grouping is buildAccessRelationships(), so
+                one recipient is one row here exactly as in People & Access,
+                even when some of their grants carry a person_id and others
+                only the email. */}
             <div className="mt-4 border-t border-gray-100 pt-3">
               <div className="mb-2 text-xs font-medium text-gray-500">Granted so far{grantGroups.length > 0 && ` — ${grantGroups.length} ${grantGroups.length === 1 ? 'person' : 'people'}`}</div>
+              {guestLinkFallback && (
+                <p className="mb-2 break-all rounded border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] text-gray-600">{guestLinkFallback}</p>
+              )}
               {grantGroups.length === 0 ? <p className="text-sm text-gray-400">No grants yet. Grant access as conversations advance to diligence.</p> : (
                 <ul className="divide-y divide-gray-100 text-sm">
                   {grantGroups.map((group) => {
-                    const label = group.personId
-                      ? <PersonLink id={group.personId}>{db.people.find((p) => p.id === group.personId)?.full_name ?? group.invitedName}</PersonLink>
-                      : (group.invitedName ?? group.granteeEmail ?? group.invitedEmail);
-                    const labelText = group.personId
-                      ? (db.people.find((p) => p.id === group.personId)?.full_name ?? group.invitedName ?? 'this person')
-                      : (group.invitedName ?? group.granteeEmail ?? group.invitedEmail ?? 'this person');
+                    const soloPersonId = group.personIds.length === 1 ? group.personIds[0] : undefined;
+                    const label = soloPersonId
+                      ? <PersonLink id={soloPersonId}>{group.name}</PersonLink>
+                      : group.name;
+                    const labelText = group.name;
                     const docCount = group.grants.filter((g) => g.document_id).length;
                     const folderCount = group.grants.filter((g) => g.folder_id).length;
                     const anyActive = group.grants.some((g) => grantStatus(g, new Date()) === 'active');
-                    const pendingInvite = group.grants.find((g) => grantStatus(g, new Date()) === 'pending_confirmation' && g.invited_email);
+                    const allExpired = group.grants.length > 0 && group.grants.every((g) => grantStatus(g, new Date()) === 'expired');
+                    // A guest link exists only for an invite nobody has
+                    // confirmed yet — that is the only relationship a guest
+                    // token belongs to. Offering Resend/Copy on a confirmed
+                    // recipient produced the 404 that read as "Resend is
+                    // broken"; they reach the same documents through the
+                    // portal they signed into.
+                    const pendingInviteEmail = group.pendingInviteEmail;
                     const expiries = group.grants.map((g) => g.expires_at).filter((e): e is string => !!e).sort();
                     const nearestExpiry = expiries[0];
                     const ndaRequired = group.grants.filter((g) => g.nda_required);
@@ -1630,15 +1802,20 @@ function DocumentsPageInner() {
                             {expanded ? '▾' : '▸'}
                           </button>
                           <span className="font-medium">{label}</span>
-                          {anyActive ? (
+                          {allExpired ? (
+                            <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-800">expired</span>
+                          ) : anyActive ? (
                             <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-800">active</span>
                           ) : (
                             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">awaiting confirmation</span>
                           )}
                           <span className="text-xs text-gray-500">
-                            {docCount > 0 && `${docCount} document${docCount === 1 ? '' : 's'}`}
+                            {group.fileCount} file{group.fileCount === 1 ? '' : 's'} granted · {group.peopleCount} {group.peopleCount === 1 ? 'person' : 'people'}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {docCount > 0 && `${docCount} document grant${docCount === 1 ? '' : 's'}`}
                             {docCount > 0 && folderCount > 0 && ', '}
-                            {folderCount > 0 && `${folderCount} folder${folderCount === 1 ? '' : 's'}`}
+                            {folderCount > 0 && `${folderCount} folder grant${folderCount === 1 ? '' : 's'}`}
                           </span>
                           {nearestExpiry && <span className="text-xs text-gray-400">until {nearestExpiry.slice(0, 10)}</span>}
                           {ndaRequired.length > 0 && (
@@ -1647,13 +1824,13 @@ function DocumentsPageInner() {
                             </span>
                           )}
                           <div className="ml-auto flex gap-2">
-                            {pendingInvite && (
+                            {pendingInviteEmail && (
                               <>
-                                <button onClick={() => sendGuestInviteEmail(pendingInvite.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
+                                <button onClick={() => sendGuestInviteEmail(pendingInviteEmail)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
                                   Resend
                                 </button>
-                                <button onClick={() => copyGuestLink(pendingInvite.invited_email!)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
-                                  {copiedGuestLinkFor === pendingInvite.invited_email ? 'Copied!' : 'Copy guest link'}
+                                <button onClick={() => copyGuestLink(pendingInviteEmail)} className="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50">
+                                  {copiedGuestLinkFor === pendingInviteEmail ? 'Copied!' : 'Copy guest link'}
                                 </button>
                               </>
                             )}
@@ -1670,6 +1847,8 @@ function DocumentsPageInner() {
                                 <li key={g.id} className="flex flex-wrap items-center gap-2 py-1.5 text-xs">
                                   {status === 'pending_confirmation' ? (
                                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">awaiting confirmation</span>
+                                  ) : status === 'expired' ? (
+                                    <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-800">expired grant</span>
                                   ) : (
                                     <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-800">active</span>
                                   )}

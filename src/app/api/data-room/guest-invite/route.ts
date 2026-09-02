@@ -17,35 +17,24 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { generateRawToken } from '@/lib/matchdeal-pairing';
+import { ensureGuestToken } from '@/lib/guest-token-server';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
-import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
+import { resendConfigured, sendTransactionalEmail } from '@/lib/resend';
+import { buildGuestAccessEmail } from '@/lib/guest-access-email';
 import { isEmailBlocked, BLOCKED_EMAIL_ERROR } from '@/lib/blocked-emails-server';
-import { APP_URL, BRAND_NAME } from '@/lib/brand';
+import { APP_URL } from '@/lib/brand';
 
-// Decision (2026-08-07, per the mini-prompt's own ask to pick and record
-// one): 14 days. Long enough that "I'll look at this later" doesn't expire
-// before the investor gets to it, short enough that a stale, unconfirmed
-// invite doesn't stay guessable-and-valid indefinitely. Prompt 171 §B — this
-// is now only the FALLBACK for when none of the pending grants for this
-// email have their own expires_at at all; when at least one does, the link
-// follows the latest of those instead (see the mint branch below).
-const GUEST_TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
-
-// The client-side access_grants insert (store-supabase.tsx's addGrant) is a
-// fire-and-forget browser write, not awaited by its caller — this route can
-// run before that insert has actually landed. A few short retries covers
-// the real-world gap without the caller having to change how addGrant works.
-const RESOLVE_RETRIES = 5;
-const RESOLVE_DELAY_MS = 300;
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function formatExpiry(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-}
+// Prompt 532 §11 — the retry loop is gone.
+//
+// It existed for one reason: the ad-hoc invite flow fired the access_grants
+// insert without awaiting it and then called this route immediately, so the
+// route slept and re-queried hoping the row had landed. That sequencing is
+// fixed at the source — /api/data-room/invite-by-email now persists the
+// grants and mints the token in ONE server call, in order — and every other
+// caller of this route (Resend, Copy guest link) acts on a relationship that
+// demonstrably already exists. There is nothing left to wait for, so the
+// route no longer pretends there might be: a missing grant is now an honest,
+// immediate "no pending invite" instead of 1.5 seconds of false hope.
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -76,48 +65,22 @@ export async function POST(req: Request) {
   // creation. A grant that already has a live token gets it handed back
   // unchanged rather than silently rotated (a previously-shared link should
   // keep working); an expired one gets a fresh token + expiry.
-  type PendingGrant = { id: string; guest_token: string | null; guest_token_expires_at: string | null };
-  let grant: PendingGrant | null = null;
-  for (let attempt = 0; attempt < RESOLVE_RETRIES; attempt++) {
-    const { data } = await admin.from('access_grants').select('id, guest_token, guest_token_expires_at')
-      .eq('org_id', orgId).eq('invited_email', email).is('confirmed_at', null).is('revoked_at', null)
-      .order('granted_at', { ascending: false }).limit(1).maybeSingle();
-    if (data) { grant = data as PendingGrant; break; }
-    await sleep(RESOLVE_DELAY_MS);
+  //
+  // Prompt 530 — the mint/reuse itself now lives in ensureGuestToken()
+  // (lib/guest-token-server.ts) so the access-change notification reuses
+  // this exact token instead of minting a second one for the same
+  // relationship. Same behaviour, one owner.
+  const minted = await ensureGuestToken(admin, orgId, email);
+  if (!minted.ok || !minted.token || !minted.expiresAt) {
+    // 404 = nothing to send to; 409 = there IS a relationship but its access
+    // has lapsed (the founder has to extend it first, which People & Access
+    // can now do in place); 500 only for a genuine write failure.
+    const status = minted.error === 'No pending invite found for that email yet.' ? 404
+      : minted.error?.startsWith('This recipient') ? 409 : 500;
+    return NextResponse.json({ ok: false, error: minted.error ?? 'Could not create a guest link.' }, { status });
   }
-  if (!grant) return NextResponse.json({ ok: false, error: 'No pending invite found for that email yet.' }, { status: 404 });
-
-  let token: string;
-  let expiresAt: string;
-  const stillLive = grant.guest_token && grant.guest_token_expires_at && new Date(grant.guest_token_expires_at) > new Date();
-  if (stillLive) {
-    // Unchanged from before — "a previously-shared link should keep
-    // working," so a live token is handed back as-is, expiry included, not
-    // recomputed against the pending grants' current state.
-    token = grant.guest_token as string;
-    expiresAt = grant.guest_token_expires_at as string;
-  } else {
-    // Prompt 171 §B — the link's own expiry follows the REAL access it
-    // unlocks, not a flat 14 days: the latest expires_at among every
-    // currently-pending grant for this email (Nuno's decision — the link
-    // stays open as long as at least one grant behind it still is;
-    // individual documents still disappear the moment their OWN grant
-    // expires, enforced separately via grantIsActive/grantStatus in
-    // /api/guest/[token]/route.ts). Only when NONE of the pending grants
-    // have an expires_at at all (fully indefinite access) does this fall
-    // back to the original 14-day default.
-    const { data: pendingGrants } = await admin.from('access_grants').select('expires_at')
-      .eq('org_id', orgId).eq('invited_email', email).is('confirmed_at', null).is('revoked_at', null);
-    const datedExpiries = (pendingGrants ?? []).map((g) => g.expires_at as string | null).filter((e): e is string => !!e);
-    const latestGrantExpiry = datedExpiries.length > 0 ? datedExpiries.reduce((a, b) => (a > b ? a : b)) : null;
-
-    token = generateRawToken();
-    expiresAt = latestGrantExpiry ?? new Date(Date.now() + GUEST_TOKEN_TTL_MS).toISOString();
-    const { error } = await admin.from('access_grants')
-      .update({ guest_token: token, guest_token_expires_at: expiresAt })
-      .eq('id', grant.id);
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  }
+  const token = minted.token;
+  const expiresAt = minted.expiresAt;
 
   // `sendEmail` is opt-in: "Copy guest link" (documents/page.tsx) mints/
   // fetches the SAME token without it — that button's whole point is the
@@ -133,31 +96,38 @@ export async function POST(req: Request) {
   if (!resendConfigured) {
     emailError = 'Could not send the invite email — copy the link below and send it yourself';
   } else {
-    const [{ data: org }, { data: inviterPerson }] = await Promise.all([
+    // Prompt 532 — the APPROVED v2 guest-access template, the same one
+    // /api/data-room/invite-by-email sends, so a Resend is byte-identical to
+    // the original invitation rather than a second, plainer email. The
+    // recipient's name comes from the invite grant itself.
+    const [{ data: org }, { data: inviteRow }] = await Promise.all([
       admin.from('orgs').select('name').eq('id', orgId).maybeSingle(),
-      // Best-effort personalization — company_people.email is free-text, not
-      // guaranteed to match the inviter's auth email; falls back to that
-      // email itself, then a generic "The team" if even that's missing.
-      user.email ? admin.from('company_people').select('full_name').eq('org_id', orgId).ilike('email', user.email).maybeSingle()
-        : Promise.resolve({ data: null }),
+      admin.from('access_grants').select('invited_name')
+        .eq('org_id', orgId).eq('invited_email', email).is('revoked_at', null)
+        .not('invited_name', 'is', null).limit(1).maybeSingle(),
     ]);
     const orgName = (org?.name as string | undefined) ?? 'A startup';
-    const inviterName = (inviterPerson?.full_name as string | undefined) ?? user.email ?? 'The team';
-    const heading = `${orgName} shared their data room with you`;
-    const result = await sendTransactionalEmail({
-      to: email,
-      subject: heading,
-      html: transactionalTemplate({
-        heading,
-        body: `${inviterName} has given you protected access to specific files and folders in their data room on ${BRAND_NAME}.`
-          + `<br/><br/>This is a secure, limited preview — you'll only see what's been shared with you, nothing else.`,
-        ctaLabel: 'View data room',
-        ctaUrl: `${APP_URL}/guest/${token}`,
-        footer: `This link expires on ${formatExpiry(expiresAt)}.`,
-      }),
-    });
-    emailSent = result.sent;
-    if (!result.sent) emailError = 'Could not send the invite email — copy the link below and send it yourself';
+
+    try {
+      const rendered = buildGuestAccessEmail({
+        recipientEmail: email,
+        invitedName: (inviteRow?.invited_name as string | undefined) ?? null,
+        startupName: orgName,
+        guestUrl: `${APP_URL}/guest/${token}`,
+      });
+      const result = await sendTransactionalEmail({
+        to: email, subject: rendered.subject, html: rendered.html, text: rendered.text,
+      });
+      emailSent = result.sent;
+      if (!result.sent) {
+        console.error('[guest-invite] provider refused the send:', result.providerError ?? result.error);
+        emailError = `Could not send the invite email (${result.error}) — copy the link below and send it yourself`;
+      }
+    } catch (e) {
+      // A template with an unresolved placeholder must never go out.
+      console.error('[guest-invite] email render failed:', (e as Error).message);
+      emailError = 'Could not compose the invite email — copy the link below and send it yourself';
+    }
   }
 
   return NextResponse.json({ ok: true, token, expiresAt, emailSent, emailError });

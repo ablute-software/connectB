@@ -2,6 +2,8 @@
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { supportAttachmentScanAvailable } from '@/lib/upload-security-capability';
+import { readModerationCase } from '@/lib/network-moderation-db';
+import { networkModerationAvailable } from '@/lib/network-moderation-capability';
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const auth = await requirePlatformAdmin();
@@ -42,5 +44,19 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     }))
     : [];
 
-  return NextResponse.json({ ok: true, ticket, events: events ?? [], attachments });
+  // Prompt 531 §2 — a My Network report now carries the CONTENT it is
+  // about, not just the complaint. Before this, back-office could read the
+  // reporter's message and nothing else, which made "does this actually
+  // violate the rules?" un-answerable without leaving the screen and
+  // hunting for the post — assuming it still existed. The snapshot (frozen
+  // at report time) and the live post are both returned, so an edit or a
+  // deletion after the report is visible as such rather than as an absence.
+  //
+  // This payload is back-office only (requirePlatformAdmin above) and is
+  // the one place reporter data and reported content legitimately meet.
+  const moderationCase = (await networkModerationAvailable())
+    ? await readModerationCase(admin, { id: ticket.id as string, category: ticket.category as string, context: (ticket.context as string | null) ?? null })
+    : null;
+
+  return NextResponse.json({ ok: true, ticket, events: events ?? [], attachments, moderationCase });
 }

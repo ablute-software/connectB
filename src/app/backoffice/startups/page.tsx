@@ -25,6 +25,7 @@ import type { PlanTier } from '@/lib/types';
 import { markViewerOrigin } from '@/components/DeveloperViewerFrame';
 import { ModerationControls } from '@/components/backoffice/ModerationControls';
 import { ModerationHistoryCard } from '@/components/backoffice/ModerationHistoryCard';
+import { NetworkStrikesTab } from '@/components/backoffice/NetworkStrikesTab';
 import type { ModerationStatus } from '@/lib/account-moderation';
 
 const PERIOD_LABEL: Record<'monthly' | 'annual', string> = { monthly: 'Mensal', annual: 'Anual' };
@@ -276,8 +277,13 @@ function StartupsTable() {
   );
 }
 
+// Prompt 531 §9 — Strikes joins Orgs and History as a third tab here rather
+// than as a new back-office area: My Network moderation is startup
+// moderation, and the request is explicit that it belongs inside Startups.
+type StartupsTab = 'orgs' | 'strikes' | 'history';
+
 export default function BackofficeStartupsPage() {
-  const [tab, setTab] = useState<'orgs' | 'history'>('orgs');
+  const [tab, setTab] = useState<StartupsTab>('orgs');
   const [orgs, setOrgs] = useState<OrgRow[] | null>(null);
 
   useEffect(() => {
@@ -289,8 +295,11 @@ export default function BackofficeStartupsPage() {
   return (
     <div className="space-y-5">
       <h1 className="text-lg font-bold">Startups</h1>
-      <Tabs active={tab} onChange={(v) => setTab(v as 'orgs' | 'history')} items={[{ key: 'orgs', label: 'Orgs' }, { key: 'history', label: 'History' }]} />
-      {tab === 'orgs' ? <StartupsTable /> : <ModerationHistoryCard targetType="org" nameById={nameById} />}
+      <Tabs active={tab} onChange={(v) => setTab(v as StartupsTab)}
+        items={[{ key: 'orgs', label: 'Orgs' }, { key: 'strikes', label: 'Strikes' }, { key: 'history', label: 'History' }]} />
+      {tab === 'orgs' && <StartupsTable />}
+      {tab === 'strikes' && <NetworkStrikesTab />}
+      {tab === 'history' && <ModerationHistoryCard targetType="org" nameById={nameById} />}
     </div>
   );
 }

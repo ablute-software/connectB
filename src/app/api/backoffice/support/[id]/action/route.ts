@@ -11,6 +11,11 @@ import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { logAdminAction } from '@/lib/audit';
 import { sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { BRAND_NAME } from '@/lib/brand';
+import {
+  applyStrike, dismissReport, readModerationCase, removeReportedPost, recomputeActorStrikeState,
+} from '@/lib/network-moderation-db';
+import { notifyStrikeApplied } from '@/lib/network-moderation-notify';
+import { networkModerationAvailable } from '@/lib/network-moderation-capability';
 
 const STATUSES = ['new', 'open', 'waiting_user', 'resolved', 'closed'];
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
@@ -67,32 +72,83 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       });
       if (!result.sent) return NextResponse.json({ ok: false, error: result.error ?? 'Email send failed.' }, { status: 500 });
     }
-  } else if (action === 'strike') {
-    // Prompt 321 Pedido C — manual, human moderation only (no AI decides
-    // alone on something with social consequence, same posture as the
-    // rest of this app). context carries "network_actor:{id}" or
-    // "network_post:{id}" (whose author we then strike) from
-    // /api/network/report — never guessed from free text.
+  } else if (action === 'strike' || action === 'remove_content' || action === 'dismiss_report') {
+    // Prompt 531 — the three moderator decisions on a My Network report.
+    // Applying a strike and removing the content stay SEPARATE actions
+    // (§29) even when a moderator does both in one sitting: each is its own
+    // call, its own audit-log row, and its own line in this ticket's
+    // timeline, so the history can always say which one happened.
     if (ticket.category !== 'network_content_report') return NextResponse.json({ ok: false, error: 'Only valid for network content reports.' }, { status: 400 });
-    let actorId: string | null = null;
-    const actorMatch = (ticket.context as string | null)?.match(/^network_actor:([0-9a-f-]{36})$/);
-    const postMatch = (ticket.context as string | null)?.match(/^network_post:([0-9a-f-]{36})$/);
-    if (actorMatch) actorId = actorMatch[1];
-    else if (postMatch) {
-      const { data: post } = await admin.from('network_posts').select('author_actor_id').eq('id', postMatch[1]).maybeSingle();
-      actorId = (post?.author_actor_id as string | undefined) ?? null;
+    if (!(await networkModerationAvailable())) {
+      return NextResponse.json({ ok: false, error: 'Moderation tools activate once migration 0291 is applied.' }, { status: 200 });
     }
-    if (!actorId) return NextResponse.json({ ok: false, error: 'Could not resolve the reported actor from this ticket.' }, { status: 400 });
+    const ticketRef = { id: ticket.id as string, category: ticket.category as string, context: (ticket.context as string | null) ?? null };
 
-    const { data: actorRow } = await admin.from('network_actors').select('network_strikes_count').eq('id', actorId).maybeSingle();
-    if (!actorRow) return NextResponse.json({ ok: false, error: 'Reported actor not found.' }, { status: 404 });
-    const newCount = (actorRow.network_strikes_count as number) + 1;
-    const actorPatch: Record<string, unknown> = { network_strikes_count: newCount };
-    if (newCount >= 3) actorPatch.network_suspended_at = now;
-    await admin.from('network_actors').update(actorPatch).eq('id', actorId);
+    if (action === 'dismiss_report') {
+      // No violation: close the report, no strike, no ban, no notification
+      // to the reported startup (§5). The report itself stays, under the
+      // existing ticket retention.
+      await dismissReport(admin, { ticketId: ticketRef.id, adminUserId: userId });
+      patch.status = 'resolved';
+      patch.resolved_at = now;
+      if (!ticket.first_response_at) patch.first_response_at = now;
+      eventKind = 'status_change';
+      eventBody = 'Moderation decision: no violation — report dismissed, no strike applied.';
+    } else if (action === 'strike') {
+      const result = await applyStrike(admin, { ticket: ticketRef, adminUserId: userId });
+      if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
 
-    eventKind = 'note';
-    eventBody = `Strike applied to network actor ${actorId} (now ${newCount}/3)${newCount >= 3 ? ' — My Network access suspended' : ''}.`;
+      const moderationCase = await readModerationCase(admin, ticketRef);
+      const alsoRemove = !!(body as { removeContent?: boolean }).removeContent;
+      let removed = false;
+      if (alsoRemove && moderationCase?.postId) {
+        const removal = await removeReportedPost(admin, {
+          postId: moderationCase.postId, adminUserId: userId, ticketId: ticketRef.id, strikeId: result.strikeId,
+        });
+        if (!removal.ok) return NextResponse.json({ ok: false, error: removal.error }, { status: 400 });
+        removed = true;
+      }
+
+      // The affected startup is told what happened, shown the content, and
+      // offered the appeal — from the SNAPSHOT, never from the ticket, so
+      // the reporter's identity and reason cannot travel with it (§§21-23).
+      //
+      // Only when the strike was actually CREATED by this call: a retry or a
+      // double-click returns the existing strike (created=false) and must
+      // not send a second "you received a strike" email for it. Removing the
+      // post is still honoured on that path, since the moderator may have
+      // ticked the box on the second attempt.
+      if (moderationCase?.actorId && result.created) {
+        const state = await recomputeActorStrikeState(admin, moderationCase.actorId);
+        await notifyStrikeApplied(admin, {
+          actorId: moderationCase.actorId, snapshot: moderationCase.snapshot,
+          activeStrikeCount: state.activeStrikeCount, banned: state.banned, contentRemoved: removed || !!moderationCase.strike?.contentRemoved,
+        });
+        eventKind = 'note';
+        eventBody = `Strike applied to ${moderationCase.actorName ?? moderationCase.actorId} `
+          + `(now ${state.activeStrikeCount} active${state.banned ? ', My Network access suspended' : ''})`
+          + `${removed ? '; reported post removed from My Network' : ''}. Startup notified.`;
+      } else if (!result.created) {
+        eventKind = 'note';
+        eventBody = `This report's strike was already applied${removed ? '; reported post removed from My Network' : ''}. No duplicate strike, no second notification.`;
+      } else {
+        eventKind = 'note';
+        eventBody = 'Strike applied.';
+      }
+    } else {
+      // remove_content on its own — a violation worth taking down without a
+      // strike, which the previous single "Apply strike" button could not
+      // express at all.
+      const moderationCase = await readModerationCase(admin, ticketRef);
+      if (!moderationCase?.postId) return NextResponse.json({ ok: false, error: 'This report is not about a specific post.' }, { status: 400 });
+      const removal = await removeReportedPost(admin, {
+        postId: moderationCase.postId, adminUserId: userId, ticketId: ticketRef.id,
+        strikeId: moderationCase.strike?.id,
+      });
+      if (!removal.ok) return NextResponse.json({ ok: false, error: removal.error }, { status: 400 });
+      eventKind = 'note';
+      eventBody = 'Reported post removed from My Network. The moderation record and its content snapshot are retained.';
+    }
   } else {
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   }

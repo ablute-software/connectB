@@ -30,6 +30,7 @@ import { useStore } from '@/lib/store';
 import { Card, Toggle } from '@/components/ui';
 import { FollowOnBadge } from '@/components/FollowOnBadge';
 import { NetworkAvatar } from '@/components/NetworkAvatar';
+import { NetworkModerationNotice } from '@/components/network/NetworkModerationNotice';
 import { InviteByEmailForm } from '@/components/network/InviteByEmailForm';
 import { PENDING_CONNECT_TOKEN_KEY } from '@/lib/network';
 import type { FollowOnPayload } from '@/lib/network';
@@ -667,6 +668,14 @@ ${b.text}` : b.text };
       </aside>
 
       <div className="min-w-0 flex-1 space-y-4">
+        {/* Prompt 531 §§19-24 — a strike against this account, the content
+            that caused it, and "Contest decision". Renders nothing at all
+            when there is no strike, which is the normal case: a permanent
+            moderation panel would add weight to a page whose whole job is to
+            remove it. Never carries who reported the content or why they
+            said they did — see NetworkModerationNotice's own header. */}
+        <NetworkModerationNotice />
+
         {/* Mobile-only: My Network's own 6-section switcher as an in-page
             scrollable tab row — deliberately NOT a second fixed bottom dock,
             which would collide with the app's existing global
