@@ -3942,3 +3942,43 @@ catalog entity + 5 test users covering every acceptance criterion —
 match, freemail, the endsWith attack, subdomain, dispute — asserts, then
 cleans up after itself) for whoever applies 0145 next to run immediately
 after.
+
+## Migration numbering after the 518 / sherlockdeal reconciliation (Prompt 535, 02/09/2026)
+
+Two sessions worked the same Vault/email area on 02/09 without seeing each
+other, and both took migration numbers. `claude/sherlockdeal-git-access-bek6d7`
+applied **0291** (`network_moderation_lifecycle`, 14:15 UTC) and **0292**
+(`access_grants_allow_invited_email`, 15:18 UTC) straight to production, while
+`claude/prompt-518-access-request-lifecycle` already held its own, unapplied
+`0292_guest_link_views.sql`. The sherlockdeal session checked production before
+choosing its numbers but did not check the other branches, which is exactly how
+the collision happened.
+
+Settled, so nobody re-collides:
+
+| Number | Owner | State |
+|---|---|---|
+| 0291 | `network_moderation_lifecycle` (sherlockdeal) | applied + on `main` |
+| 0292 | `access_grants_allow_invited_email` (sherlockdeal) | applied + on `main` |
+| 0293 | `guest_link_views` (518, renamed from 0292) | NOT applied |
+| 0294 | Round Blueprint (`claude/prompt-534-round-blueprint`) | unchanged |
+| 0295 | reserved: renaming `0289_contribute_catalog_person.sql` when `claude/prompt-512-contribute-people` merges | reserved |
+
+**0295 is a reservation, not a spare number.** `0289_contribute_catalog_person.sql`
+only USES `contribution_points`; `0289_founder_person_contributions.sql` CREATES
+it. Supabase applies local files in lexicographic filename order, so the user
+must sort after the creator. Taking 0295 for anything else leaves that merge no
+free number in the right position. Getting it backwards breaks only a fresh
+`db reset` — never production, where the objects already exist — so it would
+pass every check anyone is likely to run and fail much later.
+
+**Process, going forward:** any session about to take a migration number must
+run `git ls-remote --heads origin` and check the other branches' numbers first,
+not just production, and write the number it took into this file in the same
+commit.
+
+Also settled here: exactly ONE guest-access email renderer survives,
+`src/lib/guest-access-email.ts` (the approved v2 package, multipart, assets
+served from `/email/guest-access`). Prompt 526 Part A's parallel renderer under
+`src/lib/email-templates/` and its duplicate `public/email-assets/` copies were
+deleted; `access-grant-email.ts` now renders through the surviving module.
