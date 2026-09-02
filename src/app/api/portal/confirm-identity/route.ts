@@ -87,7 +87,7 @@ export async function POST(req: Request) {
   // also the first point a founder's revoke could plausibly race a guest
   // signup, so it's the correct place to retire the token, not the GET.
   const { error: updateErr } = await admin.from('access_grants')
-    .update({ confirmed_at, self_verified: true, guest_token: null, guest_token_expires_at: null })
+    .update({ confirmed_at, self_verified: true, guest_token: null, guest_token_hash: null, guest_token_expires_at: null })
     .eq('org_id', grant.org_id).eq('invited_email', grant.invited_email).is('confirmed_at', null).is('revoked_at', null);
   if (updateErr) return NextResponse.json({ ok: false, error: updateErr.message }, { status: 500 });
 

@@ -842,6 +842,10 @@ export interface AccessGrant {
   // account. Cleared (not the row itself) once the account is created and
   // the grant confirmed — see /api/portal/confirm-identity.
   guest_token?: string | null;
+  // Prompt 537 §4.1 — sha256 of guest_token. The hash is what the guest
+  // route looks up; guest_token itself survives only until the last
+  // pre-hash link expires (2026-09-30) and is then dropped.
+  guest_token_hash?: string | null;
   guest_token_expires_at?: string | null;
 }
 

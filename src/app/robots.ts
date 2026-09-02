@@ -25,10 +25,27 @@ const AI_CRAWLERS = [
   'AI2Bot', 'Diffbot', 'Omgili', 'Omgilibot', 'Timpibot', 'YouBot', 'ImagesiftBot',
 ];
 
+// Prompt 537 §4.3 — two paths no crawler should ever walk, for ANY user
+// agent, not only the AI ones above.
+//
+// /guest/ is a shared data-room preview: the page carries the invited
+// person's email address and the startup's folder and document names. A
+// crawler that reached one leaked link would make both permanently
+// searchable. /api/ is machine surface with no indexable content at all,
+// and several of its routes are deliberately public (the guest resolver
+// among them) precisely because they carry no session.
+//
+// This is a SIGNAL, like the AI-crawler block above: a bot that ignores
+// robots.txt is not stopped by it. That is why the guest route also sends
+// X-Robots-Tag and its layout declares a noindex meta tag — see both.
+// The rest of the site stays fully indexable, which is the point of
+// disallowing two prefixes rather than tightening the `*` allow.
+export const CRAWLER_DISALLOWED_PATHS = ['/guest/', '/api/'];
+
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
-      { userAgent: '*', allow: '/' },
+      { userAgent: '*', allow: '/', disallow: CRAWLER_DISALLOWED_PATHS },
       ...AI_CRAWLERS.map((userAgent) => ({ userAgent, disallow: '/' })),
     ],
   };

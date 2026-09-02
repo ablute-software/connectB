@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
+import { writeToClipboard } from '@/lib/clipboard';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card, PersonLink } from '@/components/ui';
 import { useConfirm } from '@/lib/confirm';
@@ -680,26 +681,8 @@ function DocumentsPageInner() {
   const [copiedGuestLinkFor, setCopiedGuestLinkFor] = useState<string | null>(null);
   const [guestLinkFallback, setGuestLinkFallback] = useState<string | null>(null);
 
-  async function writeToClipboard(text: string): Promise<boolean> {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        return true;
-      }
-    } catch { /* falls through to the execCommand path below */ }
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly', '');
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      return ok;
-    } catch { return false; }
-  }
+  // Prompt 537 — moved to src/lib/clipboard.ts, shared with the People &
+  // Access panel's own Copy guest link button.
 
   async function copyGuestLink(invitedEmail: string) {
     setResendMsg('');

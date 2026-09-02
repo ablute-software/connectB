@@ -17,11 +17,10 @@
 // here). catalog_deliveries is the real, current record of what was
 // delivered and why — that's what this writes.
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { fitBucketFromScore } from './catalog-fit-bucket';
+import { deliverCatalogMatches } from './catalog-delivery-core';
 import { PLAN_PIPELINE_MONTHLY_ADDITION } from './pipeline-unlock';
 import { normalizePlan } from './plans';
 import { monthlyDeliveryStamp } from './catalog-monthly-delivery';
-import { preferDeclaredList, preferDeclaredValue, resolveClaimedInvestorProfile } from './claimed-investor-profile';
 
 export interface MonthlyDeliveryOrgRow {
   id: string;
@@ -99,102 +98,14 @@ export async function deliverMonthlyForOrg(
   const pLimit = Math.max(0, Math.min(increment, newQuota - (deliveredCount ?? 0)));
   if (pLimit === 0) return { orgId: org.id, ran: true, newQuota, delivered: 0 };
 
-  const { data: matches, error: matchErr } = await admin.rpc('catalog_top_matches', { p_org_id: org.id, p_limit: pLimit });
-  if (matchErr || !matches?.length) return { orgId: org.id, ran: true, newQuota, delivered: 0, reason: matchErr?.message };
-
-  const scored = matches as { catalog_id: string; score: number }[];
-  const catalogIds = scored.map((m) => m.catalog_id);
-  const [{ data: catalogRows }, { data: ownedRows }] = await Promise.all([
-    admin.from('catalog_entities').select('*').in('id', catalogIds),
-    admin.from('entities').select('name').eq('org_id', org.id),
-  ]);
-  const scoreById = new Map(scored.map((m) => [m.catalog_id, m.score]));
-  const ownedNames = new Set((ownedRows ?? []).map((r) => (r.name as string).toLowerCase()));
-
-  const newEntities: Record<string, unknown>[] = [];
-  const deliveredIds: string[] = [];
-  for (const c of (catalogRows ?? []) as Record<string, unknown>[]) {
-    const name = c.name as string;
-    if (ownedNames.has(name.toLowerCase())) continue;
-    // Prompt 285 §3 — a suspended/deleted catalog entity (manual checkbox
-    // or the cross-org threshold, moderation-actions.ts) must not reach a
-    // new org's pipeline. Confirmed by grep before this prompt: this
-    // column was read nowhere in this file.
-    const moderationStatus = c.moderation_status as string | null | undefined;
-    if (moderationStatus && moderationStatus !== 'active') continue;
-    const id = crypto.randomUUID();
-    deliveredIds.push(c.id as string);
-    // Prompt 407 §A/§B.1 — a claimed, complete investor profile's own
-    // declared fields take precedence over researched catalog data, field
-    // by field, at this exact copy-into-entities point (the one place
-    // this data ever gets written into the founder's own CRM — confirmed
-    // by tracing every reader of db.entities before this change).
-    // Excludes stage_min/stage_max on purpose: matchdeal_profiles.stages_invested
-    // is an unordered list over a DIFFERENT stage vocabulary than
-    // entities.stage_min/max's pair (src/lib/types.ts's Stage type has 5
-    // values; the DB `stage` enum has 7, in non-monotonic creation order)
-    // — no established, confident conversion between the two exists
-    // anywhere in this codebase, and guessing one risks showing a founder
-    // an invented stage range instead of the already-correct researched
-    // one. Flagged in the report, not solved here.
-    const claimed = await resolveClaimedInvestorProfile(admin, c.id as string);
-    newEntities.push({
-      id, org_id: org.id, name, type: c.type, hq_city: c.hq_city, hq_country: c.hq_country,
-      invests_in_geographies: preferDeclaredList(claimed?.geographies, c.geographies as string[] | null),
-      website: preferDeclaredValue(claimed?.website ?? null, c.website as string | null), website_verified: true,
-      email_domain_verified: false, stage_min: c.stage_min, stage_max: c.stage_max,
-      check_min_eur: preferDeclaredValue(claimed?.ticketMinEur ?? null, c.check_min_eur as number | null),
-      check_max_eur: preferDeclaredValue(claimed?.ticketMaxEur ?? null, c.check_max_eur as number | null),
-      sectors: preferDeclaredList(claimed?.sectors, c.sectors as string[] | null),
-      thesis: preferDeclaredValue(claimed?.description ?? null, c.thesis as string | null),
-      fit_score: fitBucketFromScore(scoreById.get(c.id as string) ?? 0), wave: 1,
-      submission_channel_type: 'unknown', hard_filter_status: 'not_applicable',
-      status: 'not_contacted', source: 'catalog',
-      // Prompt 407 §B.4 — provenance snapshot for this one delivery event;
-      // migration 0257. See that migration's own comment for why this is
-      // point-in-time rather than a live claim-status flag.
-      claimed_profile_at_delivery: !!claimed,
-    });
-  }
-
-  if (newEntities.length) {
-    const { error: insertErr } = await admin.from('entities').insert(newEntities);
-    if (insertErr) return { orgId: org.id, ran: true, newQuota, delivered: 0, reason: insertErr.message };
-  }
-  if (deliveredIds.length) {
-    // quota_exempt: false é o default da coluna (0171), explícito aqui de
-    // propósito — é o call site que documenta a decisão de que a entrega
-    // mensal consome quota. via_pack fica null porque não veio de pack
-    // nenhum, o que já não tem nada a ver com quota.
-    await admin.from('catalog_deliveries').insert(deliveredIds.map((cid, i) => ({
-      org_id: org.id, catalog_id: cid, entity_id: newEntities[i]?.id, via_pack: null, quota_exempt: false,
-    })));
-    await enqueueEnrichment(admin, org.id, deliveredIds);
-  }
-
-  return { orgId: org.id, ran: true, newQuota, delivered: newEntities.length };
-}
-
-// Same due-check + dedupe-insert as /api/pipeline/enqueue-enrichment, minus
-// the HTTP round trip and the user-session requirement — this already runs
-// with the service-role client, server-to-server, no founder session exists
-// in a cron invocation.
-async function enqueueEnrichment(admin: SupabaseClient, orgId: string, catalogIds: string[]): Promise<void> {
-  const { data: catalogRows } = await admin
-    .from('catalog_entities').select('id, enrichment_status, enrichment_stale_after').in('id', catalogIds);
-  const now = new Date();
-  const due = (catalogRows ?? []).filter((c) => {
-    if (c.enrichment_status === 'pending') return true;
-    return !!c.enrichment_stale_after && new Date(c.enrichment_stale_after as string) < now;
-  });
-  for (const c of due) {
-    const { data: active } = await admin.from('enrichment_jobs').select('id')
-      .eq('target_type', 'entity').eq('target_id', c.id).eq('layer', 1)
-      .in('status', ['queued', 'running']).maybeSingle();
-    if (active) continue;
-    const { error } = await admin.from('enrichment_jobs').insert({
-      target_type: 'entity', target_id: c.id, layer: 1, priority: 150, requested_by_org_id: orgId,
-    });
-    if (error && error.code !== '23505') console.error('[catalog-monthly-delivery] enqueue-enrichment failed', c.id, error.message);
-  }
+  // Prompt 536 §2 — the match/insert/enqueue body that used to live here
+  // now lives in catalog-delivery-core.ts, shared with the founder-triggered
+  // /api/pipeline-unlock/deliver route. Behaviour here is unchanged: the
+  // cron already awaited its inserts in order, which is why the monthly path
+  // never lost a catalog_deliveries row (Estojo 13/13, "New company" 10/10 in
+  // production) while the parallel client-side unlockPack did (Krohnsty 3/0).
+  // Sharing it is what stops that difference from existing at all.
+  const { delivered, error: deliveryErr } = await deliverCatalogMatches(admin, org.id, pLimit, null);
+  if (deliveryErr) return { orgId: org.id, ran: true, newQuota, delivered, reason: deliveryErr };
+  return { orgId: org.id, ran: true, newQuota, delivered };
 }

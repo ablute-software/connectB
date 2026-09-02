@@ -62,6 +62,7 @@ export async function POST(req: Request) {
             body: `An investor whose access to ${org?.name ?? 'your data room'} expired has requested it again.`,
             ctaLabel: 'Review in your workspace', ctaUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/documents`,
           }),
+          context: { orgId: body.orgId, kind: 'access_notify' },
         });
       } catch { /* best-effort, matches every other portal notify route */ }
     }

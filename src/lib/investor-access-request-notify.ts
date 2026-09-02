@@ -21,6 +21,7 @@ export async function notifyInvestorAccessDecision(
             body: `You now have access to the ${BRAND_NAME} data room. Sign in to review the documents shared with you.`,
             ctaLabel: 'Open your workspace', ctaUrl: `${APP_URL}/portal`,
           }),
+          context: { kind: 'access_notify' },
         })
       : await sendTransactionalEmail({
           to: opts.email,
@@ -29,6 +30,7 @@ export async function notifyInvestorAccessDecision(
             heading: 'Your access request was not approved',
             body: `We reviewed your request for investor access to ${BRAND_NAME} and are not able to grant it at this time. Reply to this email if you have questions.`,
           }),
+          context: { kind: 'access_notify' },
         });
     notifyFailed = !r.sent;
   } else {

@@ -1,7 +1,6 @@
 'use client';
 // Pipeline (home) — dense sortable/filterable entity table
-import { useEffect, useMemo, useState } from 'react';
-import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
@@ -203,10 +202,20 @@ function MultiSelectFilter({ label, options, selected, onChange }: {
 // P104 #6 — the copy always described two paths (catalog assignment or
 // manual import), but nothing ever called unlockPack() from any UI —
 // confirmed by exhaustive grep, 0 rows in pack_unlocks for any real org.
-// Self-service, confirmed with Nuno: once profile completeness crosses this
-// threshold, a button appears and the founder triggers unlockPack()
-// themselves — unlockPack() itself is untouched, already correct.
-const SELF_SERVICE_COMPLETENESS_THRESHOLD = 70;
+// Self-service, confirmed with Nuno: a button appears and the founder
+// triggers the delivery themselves.
+//
+// Prompt 536 §1 — SELF_SERVICE_COMPLETENESS_THRESHOLD (70% of
+// calcCompanyCompleteness) is GONE from this decision, and that removal is
+// the fix. Two different definitions of "complete" were live at once: this
+// bar opened the button, while isProfileGateComplete() (nine named fields)
+// governed the quota. Krohnsty crossed the bar at 13:22 and the gate at
+// 13:26 — clicked in between, and the unlock read a quota of 3 instead of
+// the 8 it would read four minutes later. The button now gates on exactly
+// the predicate that governs the quota, served as `gateComplete` by
+// /api/pipeline-unlock, which the page already fetches. Anything less than
+// literally the same predicate reopens the race.
+type UnlockState = { gateComplete: boolean; catalogQuotaTarget: number; deliverable: number; missing: string[] };
 // Matched by name, not id — packs have no stable machine key (no `kind`
 // column like folders do); acceptable here since this only ever unlocks a
 // curated catalog pack, not a security-relevant lookup like Prompt 103's
@@ -220,7 +229,7 @@ const STARTER_PACK_NAME = 'Starter Europe';
 // page when there are zero entities at all; `banner` sits above the table
 // when entities exist but none are wave-classified yet — same copy, same
 // key, different container per the implementation note in §3.
-function EmptyCompanyBlock({ variant }: { variant: 'screen' | 'banner' }) {
+function EmptyCompanyBlock({ variant, unlock, onDelivered }: { variant: 'screen' | 'banner'; unlock: UnlockState | null; onDelivered?: () => void }) {
   const { db, unlockPack } = useStore();
   const [unlocking, setUnlocking] = useState(false);
   const [result, setResult] = useState<'added' | 'none' | null>(null);
@@ -233,17 +242,25 @@ function EmptyCompanyBlock({ variant }: { variant: 'screen' | 'banner' }) {
   // state, no new endpoint, matches this prompt's own "UI only" scope.
   const [confirming, setConfirming] = useState(false);
 
-  const { pct } = calcCompanyCompleteness(db.org, db.companyPeople);
   const starterPack = db.packs.find((p) => p.name === STARTER_PACK_NAME);
-  const eligible = pct >= SELF_SERVICE_COMPLETENESS_THRESHOLD && !!starterPack;
+  // Prompt 536 §1/§3 — one predicate (the profile gate) and one budget
+  // (deliverable = quota minus what has already been delivered), both
+  // straight from /api/pipeline-unlock. `unlock === null` means the route
+  // hasn't answered yet, or auth is off (demo mode): fall back to the old
+  // pack-presence check there rather than hiding the button on a page that
+  // simply hasn't loaded its state — demo mode has no server to ask.
+  const gateComplete = unlock ? unlock.gateComplete : true;
+  const deliverable = unlock ? unlock.deliverable : 1;
+  const eligible = gateComplete && deliverable > 0 && !!starterPack;
 
-  async function unlock() {
+  async function runUnlock() {
     if (!starterPack) return;
     setUnlocking(true);
     const added = await unlockPack(starterPack.id);
     setUnlocking(false);
     setConfirming(false);
     setResult(added > 0 ? 'added' : 'none');
+    onDelivered?.();
   }
 
   return (
@@ -258,7 +275,7 @@ function EmptyCompanyBlock({ variant }: { variant: 'screen' | 'banner' }) {
               If something&apos;s wrong, fix it first: you won&apos;t get a fresh match until your plan&apos;s monthly renewal.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-2">
-              <button disabled={unlocking} onClick={unlock}
+              <button disabled={unlocking} onClick={runUnlock}
                 className="rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b] disabled:opacity-50">
                 {unlocking ? 'Unlocking…' : 'Confirm and unlock my pipeline'}
               </button>
@@ -273,8 +290,16 @@ function EmptyCompanyBlock({ variant }: { variant: 'screen' | 'banner' }) {
             <h2 className="mb-2 text-lg font-semibold text-gray-900">No investors in the pipeline yet</h2>
             <p className="mb-5 text-sm text-gray-500">
               {eligible
-                ? 'Your profile is complete enough to unlock your first batch of catalog investors, or you can import your own contacts.'
-                : `As soon as your profile is at least ${SELF_SERVICE_COMPLETENESS_THRESHOLD}% complete you can unlock investors from the catalog yourself, or you can import your own contacts now.`}
+                ? `Your profile is complete — unlock your first ${deliverable} matched investor${deliverable === 1 ? '' : 's'}, or import your own contacts.`
+                : gateComplete
+                  // Gate passed but nothing left to give: the quota is spent.
+                  // Saying "complete your profile" here would be a lie the
+                  // founder can't act on.
+                  ? 'Your profile is complete. Your next batch of investors arrives with your plan\u2019s monthly renewal — or import your own contacts now.'
+                  // Prompt 536 §1 — name the fields. A percentage from a
+                  // different calculation is what produced "70% complete,
+                  // now unlock" followed by an under-delivered pipeline.
+                  : `To unlock investors from the catalog, complete your company profile${unlock?.missing.length ? ` \u2014 still missing: ${unlock.missing.join(', ')}` : ''}. You can import your own contacts now.`}
             </p>
             {result === 'added' && <p className="mb-3 text-sm font-medium text-emerald-700">Done — check the table below.</p>}
             {result === 'none' && <p className="mb-3 text-sm text-gray-500">No new investors left in this pack for your account.</p>}
@@ -286,12 +311,63 @@ function EmptyCompanyBlock({ variant }: { variant: 'screen' | 'banner' }) {
                 </button>
               )}
               <Link href="/settings" className="inline-block rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                {eligible ? 'Import contacts instead' : 'Complete your profile'}
+                {eligible ? 'Import contacts instead' : gateComplete ? 'Import contacts instead' : 'Complete your profile'}
               </Link>
             </div>
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// Prompt 536 §3 — the affordance that did not exist, and whose absence is
+// why Krohnsty's five earned slots were unreachable.
+//
+// EmptyCompanyBlock renders on an EMPTY pipeline only. Once the first
+// investors land it disappears, and with it the only way a founder had to
+// ask for more. Krohnsty ended up with 3 investors, a quota of 8, and no
+// button anywhere on the page — the remaining 5 were payable and
+// unclaimable until the monthly cron, which is a delivery the founder had
+// already earned being withheld for up to a month.
+//
+// This renders whenever the pipeline is non-empty AND something is owed.
+// `deliverable` is quota minus non-exempt deliveries, computed server-side
+// by the same route that performs the delivery, so the number in the button
+// is the number that arrives. When nothing is owed it renders nothing at
+// all — never a disabled button, never a nag. That is the golden rule's
+// "show what Sherlock already did before asking for anything": the founder
+// is told there are investors waiting, not asked to go fill in a form.
+function PipelineTopUpBanner({ unlock, onDelivered }: { unlock: UnlockState | null; onDelivered: () => void }) {
+  const { db, unlockPack } = useStore();
+  const [unlocking, setUnlocking] = useState(false);
+  const [error, setError] = useState(false);
+  const starterPack = db.packs.find((p) => p.name === STARTER_PACK_NAME);
+  const n = unlock?.deliverable ?? 0;
+  if (!unlock || !unlock.gateComplete || n <= 0 || !starterPack) return null;
+
+  async function run() {
+    if (!starterPack) return;
+    setUnlocking(true);
+    setError(false);
+    const added = await unlockPack(starterPack.id);
+    setUnlocking(false);
+    if (added === 0) setError(true);
+    onDelivered();
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#0E7490]/20 bg-[#0E7490]/5 px-4 py-3">
+      <div className="text-sm text-gray-700">
+        <span className="font-medium text-gray-900">{n} more matched investor{n === 1 ? '' : 's'} ready for you.</span>{' '}
+        {error
+          ? <span className="text-red-700">We couldn&apos;t add them just now — try again in a moment.</span>
+          : 'Your profile earned these — they\u2019re waiting in the catalog.'}
+      </div>
+      <button disabled={unlocking} onClick={run}
+        className="shrink-0 rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b] disabled:opacity-50">
+        {unlocking ? 'Unlocking\u2026' : `Unlock ${n} more investor${n === 1 ? '' : 's'}`}
+      </button>
     </div>
   );
 }
@@ -552,12 +628,25 @@ export default function PipelinePage() {
   // they only ever fed PipelineUnlockBadge's now-removed "N of M unlocked"
   // sentence. gateComplete (the badge) and catalogQuotaTarget (the blocked-
   // panel copy below) are the only fields this page still reads.
-  const [unlock, setUnlock] = useState<{ gateComplete: boolean; catalogQuotaTarget: number } | null>(null);
-  useEffect(() => {
+  // Prompt 536 §1/§3 — `deliverable` and `missing` join the two fields this
+  // page already read. Both come from the same route the delivery itself
+  // uses, so "Unlock N more investors" and the number actually delivered are
+  // the same arithmetic, not two implementations that agreed until they
+  // didn't.
+  const [unlock, setUnlock] = useState<UnlockState | null>(null);
+  const refreshUnlock = useCallback(() => {
     if (!authEnabled) return;
     fetch('/api/pipeline-unlock', { cache: 'no-store' }).then((r) => r.json())
-      .then((b) => { if (b.ok) setUnlock({ gateComplete: b.gateComplete, catalogQuotaTarget: b.catalogQuotaTarget ?? 0 }); })
+      .then((b) => {
+        if (b.ok) setUnlock({
+          gateComplete: b.gateComplete, catalogQuotaTarget: b.catalogQuotaTarget ?? 0,
+          deliverable: b.deliverable ?? 0, missing: b.missing ?? [],
+        });
+      })
       .catch(() => {});
+  }, []);
+  useEffect(() => {
+    refreshUnlock();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [db.entities.length]);
   const { setCondition } = useOnboarding();
@@ -790,7 +879,7 @@ export default function PipelinePage() {
       <div className="space-y-4">
         <MatchDealVisibilityBanner />
         <PipelineUnlockBadge unlock={unlock} />
-        <EmptyCompanyBlock variant="screen" />
+        <EmptyCompanyBlock variant="screen" unlock={unlock} onDelivered={refreshUnlock} />
       </div>
     );
   }
@@ -830,7 +919,8 @@ export default function PipelinePage() {
       <div className="md:shrink-0"><MatchDealVisibilityBanner /></div>
       <PageTour pageKey="guide_pipeline" />
       <div className="md:shrink-0"><PipelineUnlockBadge unlock={unlock} /></div>
-      {noneClassified && <div className="md:shrink-0"><EmptyCompanyBlock variant="banner" /></div>}
+      <div className="md:shrink-0"><PipelineTopUpBanner unlock={unlock} onDelivered={refreshUnlock} /></div>
+      {noneClassified && <div className="md:shrink-0"><EmptyCompanyBlock variant="banner" unlock={unlock} onDelivered={refreshUnlock} /></div>}
       {!statsDismissed && (
       <div className={`relative md:shrink-0 ${statsExiting ? 'pipeline-stats-card-exit' : ''}`}>
         {/* Prompt 261 — half on, half off the rounded-2xl corner, like a

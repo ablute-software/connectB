@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
       ctaUrl: acceptUrl,
       footer: `If you weren't expecting this, you can ignore this email.`,
     }),
+    context: { orgId: (invite.org_id as string | null) ?? null, kind: 'other' },
   });
 
   return NextResponse.json({ ok: true, sent: result.sent, error: result.sent ? undefined : result.error });

@@ -63,6 +63,9 @@ import {
   type AccessRelationship, type RelationshipGrant,
 } from '@/lib/data-room-access-relationships';
 import type { Folder, PortalSection } from '@/lib/types';
+import { EmailDeliveryStatus, useEmailStatuses } from './EmailDeliveryStatus';
+import { authEnabled } from '@/lib/supabase';
+import { writeToClipboard } from '@/lib/clipboard';
 
 type GrantTarget = { kind: 'folder' | 'doc'; id: string; name: string };
 
@@ -115,6 +118,15 @@ export function PeopleAccessPanel() {
   const [extendingGrantId, setExtendingGrantId] = useState<string | null>(null);
   const [extendDate, setExtendDate] = useState('');
   const [notice, setNotice] = useState('');
+  // Prompt 537 §1(a) — the last send outcome per recipient, from
+  // email_send_log through the founder's own session (RLS decides what they
+  // may read; this component adds no second copy of that rule). Demo mode
+  // has no server to ask, so the hook is disabled there and the whole block
+  // simply doesn't render.
+  const { byRecipient: emailStatuses, refresh: refreshEmailStatuses } = useEmailStatuses(authEnabled);
+  const [guestLink, setGuestLink] = useState<{ email: string; url: string } | null>(null);
+  const [guestBusy, setGuestBusy] = useState(false);
+  const [guestMsg, setGuestMsg] = useState('');
   const now = new Date();
 
   function peopleForEntity(entityId: string) {
@@ -186,6 +198,62 @@ export function PeopleAccessPanel() {
   // before resolveDocumentAccess), while expired ones are kept aside so the
   // matrix can still show and extend them instead of hiding them.
   const relGrants = selected?.grants ?? [];
+
+  // Prompt 537 §1(a) — Copy guest link and Resend, beside the outcome they
+  // relate to. /api/data-room/guest-invite is the SAME route the Vault's own
+  // buttons use: sendEmail:false mints-or-reuses the live token and returns
+  // it, sendEmail:true also attempts the send. No second endpoint, and no
+  // second token — ensureGuestToken hands back the link already shared
+  // rather than rotating it (Prompt 530 §B), so a copy here never
+  // invalidates a link the recipient already has.
+  async function copyGuestLinkFor(email: string) {
+    setGuestBusy(true);
+    setGuestMsg('');
+    try {
+      const res = await fetch('/api/data-room/guest-invite', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: db.org.id, invitedEmail: email }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body?.ok || !body.token) {
+        setGuestMsg(body?.error ?? 'Could not produce a guest link for this recipient.');
+        return;
+      }
+      const url = `${window.location.origin}/guest/${body.token}`;
+      setGuestLink({ email, url });
+      setGuestMsg(await writeToClipboard(url) ? 'Guest link copied to your clipboard.' : 'Guest link ready — copy it below.');
+    } catch (e) {
+      setGuestMsg((e as Error).message);
+    } finally {
+      setGuestBusy(false);
+    }
+  }
+
+  async function resendInviteTo(email: string) {
+    setGuestBusy(true);
+    setGuestMsg('');
+    try {
+      const res = await fetch('/api/data-room/guest-invite', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId: db.org.id, invitedEmail: email, sendEmail: true }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body?.ok) {
+        setGuestMsg(body?.error ?? 'Could not resend the invitation.');
+        return;
+      }
+      if (body.token) setGuestLink({ email, url: `${window.location.origin}/guest/${body.token}` });
+      // Whatever the provider said is already on its way into email_send_log;
+      // re-reading it is how the row below updates, rather than trusting this
+      // response's own summary of what happened.
+      setGuestMsg(body.emailSent ? 'Invitation resent.' : (body.emailError ?? 'The invitation was not sent — the guest link below still works.'));
+      refreshEmailStatuses();
+    } catch (e) {
+      setGuestMsg((e as Error).message);
+    } finally {
+      setGuestBusy(false);
+    }
+  }
   const liveGrants = useMemo(
     () => relGrants.filter((g) => grantStatus(g, now) !== 'expired' && !g.revoked_at) as MatrixGrant[],
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -579,6 +647,35 @@ export function PeopleAccessPanel() {
                   <span>No access yet — click any “Can’t view” badge to start sharing with {selectedName}.</span>
                 )}
               </div>
+
+              {/* Prompt 537 §1(a) — the last send outcome for this recipient,
+                  with the provider's verbatim reason, and the two actions
+                  that work whether or not the email did. */}
+              {selected && grantGuestEmails.length > 0 && (
+                <div className="space-y-2">
+                  <EmailDeliveryStatus emails={grantGuestEmails} byRecipient={emailStatuses} />
+                  <div className="flex flex-wrap items-center gap-2">
+                    {grantGuestEmails.map((email) => (
+                      <span key={email} className="flex flex-wrap items-center gap-1.5">
+                        <button type="button" disabled={guestBusy} onClick={() => copyGuestLinkFor(email)}
+                          className="rounded border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                          Copy guest link
+                        </button>
+                        <button type="button" disabled={guestBusy} onClick={() => resendInviteTo(email)}
+                          className="rounded border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                          Resend
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  {guestMsg && <p className="text-[11px] text-gray-600">{guestMsg}</p>}
+                  {guestLink && (
+                    <p className="break-all rounded border border-gray-200 bg-gray-50 px-2 py-1 text-[10px] text-gray-600">
+                      {guestLink.url}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {notice && <p className="text-xs text-gray-500">{notice}</p>}
 

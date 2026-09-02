@@ -10,7 +10,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer, readViewerOrgId } from '@/lib/developer-viewer';
-import { isProfileGateComplete } from '@/lib/pipeline-unlock';
+import { isProfileGateComplete, missingProfileGateFields } from '@/lib/pipeline-unlock';
 import { computeVisiblePipelineSize, raiseCatalogQuotaFloor } from '@/lib/pipeline-unlock-server';
 import { pipelineUnlockAnchorsAvailable } from '@/lib/pipeline-unlock-capability';
 
@@ -34,9 +34,16 @@ export async function GET(req: NextRequest) {
   }
   if (!orgId) return NextResponse.json({ ok: false, error: 'Not a member of any org.' }, { status: 403 });
 
+  // Prompt 536 §1 — read once and keep the row: `missing` (which of the nine
+  // gate fields are still empty) is what the Pipeline shows instead of a
+  // percentage from calcCompanyCompleteness. The founder is told the thing
+  // they can act on, and it is the SAME predicate that decides whether the
+  // unlock may run — the two can no longer say different things.
+  const { data: org } = await admin.from('orgs').select('*').eq('id', orgId).maybeSingle();
+  const missing = org ? missingProfileGateFields(org) : [];
+
   const anchorsAvailable = await pipelineUnlockAnchorsAvailable();
   if (anchorsAvailable) {
-    const { data: org } = await admin.from('orgs').select('*').eq('id', orgId).maybeSingle();
     if (org && isProfileGateComplete(org) && !org.profile_completed_at) {
       const viewerBlock = await assertNotViewer(sb, req);
       if (!viewerBlock) await admin.from('orgs').update({ profile_completed_at: new Date().toISOString() }).eq('id', orgId);
@@ -52,5 +59,27 @@ export async function GET(req: NextRequest) {
   // gateComplete is false (catalogQuotaTarget is 0) or the target isn't
   // higher than what's already stored.
   await raiseCatalogQuotaFloor(admin, orgId, catalogQuotaTarget);
-  return NextResponse.json({ ok: true, gateComplete, visible, eligiblePoolSize, catalogQuotaTarget, anchorsAvailable });
+
+  // Prompt 536 §3 — how many investors the founder could unlock RIGHT NOW,
+  // computed after the floor has been raised so the number reflects what
+  // they have already earned rather than what was stored before this page
+  // load. This is the same arithmetic /api/pipeline-unlock/deliver runs, via
+  // the same RPC on the same session, so the button's "Unlock N more" and
+  // the number actually delivered cannot disagree — the previous design's
+  // whole failure mode was two surfaces computing the same thing differently.
+  // Zero for a Developer Viewer: catalog_effective_quota()'s is_org_member()
+  // is evaluated against the developer, not the viewed org, and this route
+  // is read-only for them anyway.
+  let deliverable = 0;
+  if (gateComplete) {
+    const [{ data: quotaData }, { count: deliveredCount }] = await Promise.all([
+      sb.rpc('catalog_effective_quota', { check_org: orgId }),
+      admin.from('catalog_deliveries').select('catalog_id', { count: 'exact', head: true })
+        .eq('org_id', orgId).eq('quota_exempt', false),
+    ]);
+    const quota = typeof quotaData === 'number' ? quotaData : 0;
+    deliverable = Math.max(0, quota - (deliveredCount ?? 0));
+  }
+
+  return NextResponse.json({ ok: true, gateComplete, visible, eligiblePoolSize, catalogQuotaTarget, deliverable, missing, anchorsAvailable });
 }

@@ -21,7 +21,6 @@ import { findReactivations, reactivationTaskTitle, type PendingReactivation } fr
 import { applyFilterVerdicts, reactivationToFilterCase, verdictsFromWire, type FilterVerdict, type RawFilterVerdict } from './reawakening-ai-filter';
 import type { NeglectOutcome } from './neglect-evaluation';
 import { STAGE_LABEL, getStage } from './relationship';
-import { fitBucketFromScore } from './catalog-fit-bucket';
 import { revisitTasksToClose } from './exit-effects';
 import { matchEntityToCatalog } from './entity-catalog-prefill';
 
@@ -425,19 +424,16 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
   // Prompt 179 §B — extracted to catalog-fit-bucket.ts so the server-side
   // monthly delivery cron job can reuse the exact same bucketing.
 
-  // Prompt 138 D2 — queue-only, never invokes the worker. Fire-and-forget:
-  // enrichment_jobs is admin-only under RLS, so this has to go through a
-  // service-role route rather than a direct insert from here.
-  function triggerEnrichmentEnqueue(catalogIds: string[]) {
-    if (!catalogIds.length) return;
-    fetch('/api/pipeline/enqueue-enrichment', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ catalogIds }),
-    }).catch(() => { /* never blocks the unlock */ });
-  }
+  // Prompt 536 §2 — triggerEnrichmentEnqueue lived here and had exactly one
+  // caller: the client-side unlockPack that is now a thin call to
+  // /api/pipeline-unlock/deliver. Enrichment is enqueued server-side in the
+  // same awaited sequence as the delivery it belongs to
+  // (catalog-delivery-core.ts's enqueueEnrichment), so the client no longer
+  // has anything to fire. /api/pipeline/enqueue-enrichment itself is
+  // untouched and still serves its other callers.
 
-  // Prompt 313 §A — same fire-and-forget shape as triggerEnrichmentEnqueue
-  // above: extract-document/route.ts does the real work server-side (auth,
+  // Prompt 313 §A — fire-and-forget:
+  // extract-document/route.ts does the real work server-side (auth,
   // fail-closed checks, Anthropic call), this just kicks it off without
   // ever blocking the upload/version-add that triggered it. Only worth
   // calling for a file that just came back 'clean' AND looks like a PDF —
@@ -1779,104 +1775,45 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       void refetch();
     },
 
+    // Prompt 536 §2 — a thin call to the server, and nothing else.
+    //
+    // What used to be here: a client-side read of catalog_effective_quota(),
+    // a catalog_top_matches() call, entity construction, and THREE parallel
+    // fire-and-forget persist() inserts whose catalog_deliveries rows
+    // referenced entities that had not committed yet. In production that
+    // foreign key lost the race and the whole deliveries insert vanished
+    // into a console.error (Krohnsty: 3 catalog entities, 0 delivery rows).
+    //
+    // It could never have been correct here, either: the quota this read is
+    // raised by a DIFFERENT request (/api/pipeline-unlock's
+    // raiseCatalogQuotaFloor), so a founder who clicks before that request
+    // has run reads a stale ceiling and silently under-delivers. The raise
+    // and the read have to happen in one server request — see
+    // /api/pipeline-unlock/deliver.
+    //
+    // Return value keeps the StoreApi contract (number delivered) so
+    // store-demo.tsx and every caller stay unchanged.
     async unlockPack(packId: string) {
-      const prev = dbRef.current;
-      const pack = prev.packs.find((p) => p.id === packId);
-      if (!pack || prev.unlocks.some((u) => u.pack_id === packId)) return 0;
-      const o = orgIdRef.current;
-      if (!o) return 0;
-
-      // Prompt 139 D3 — pack_items/pack.catalog_ids no longer decide what's
-      // delivered (kept on disk, inert, for easy rollback); catalog_top_matches
-      // does. p_limit is computed here, not inside the function, from a LIVE
-      // read (never the cached client state) of the org's quota — an
-      // accumulated ceiling that's never lowered (plan-sync.ts), not a
-      // "remaining" counter — minus how many catalog entities this org
-      // already has, so a second call (once multi-wave exists) still
-      // computes correctly instead of assuming today's guard is the only
-      // thing preventing a second unlock.
-      //
-      // Prompt 181 §3 — reads the quota via the catalog_effective_quota()
-      // RPC, not a plain `.from('orgs').select('catalog_quota')`: that RPC
-      // carries the is_ablute_developer() bypass (migration 0166,
-      // effectively unlimited for a confirmed @ablute.pt caller), and a
-      // direct table read would silently keep reading the real, small
-      // stored value regardless of who's calling — the bypass would only
-      // ever affect RLS *visibility* of rows already delivered, never how
-      // many unlockPack is willing to insert in the first place. NOT
-      // plan_catalog_quota() itself — that RPC has no is_org_member check
-      // of its own and had its EXECUTE grant deliberately revoked from
-      // `authenticated` in migration 0134 (a real RLS-bypass data leak,
-      // confirmed exploitable with just the publishable key) —
-      // catalog_effective_quota() is the properly org-scoped, safe-to-call
-      // sibling added alongside it.
-      // Only non-exempt rows count against quota, and this must stay in
-      // lockstep with the DB-side guard: trg_catalog_deliveries_enforce_quota
-      // filters on `not quota_exempt` since migration 0171. Quota is the
-      // budget of investors *introduced to the founder* — unlockPack and the
-      // monthly delivery both spend it; only an investor's own organic
-      // interest (matchdeal_record_interest_notification, which inserts
-      // quota_exempt=true) doesn't, since the founder never chose to spend
-      // there. Counting exempt rows here would show "no quota left" to an org
-      // that has consumed none: ablute_ has 525 rows against quota=40, 524 of
-      // them exempt (a 2026-07-27 bulk seed plus interest notifications).
-      // Do NOT go back to filtering on via_pack — 0170 tried that and 0171
-      // undid it; via_pack means "which pack did this come from", nothing
-      // about quota, and the monthly delivery has no pack.
-      const [{ data: quotaData }, { count: deliveredCount }] = await Promise.all([
-        sb.rpc('catalog_effective_quota', { check_org: o }),
-        sb.from('catalog_deliveries').select('catalog_id', { count: 'exact', head: true }).eq('org_id', o).eq('quota_exempt', false),
-      ]);
-      const quota = typeof quotaData === 'number' ? quotaData : 0;
-      const pLimit = Math.max(0, quota - (deliveredCount ?? 0));
-      if (pLimit === 0) return 0;
-
-      const { data: matches, error: matchErr } = await sb.rpc('catalog_top_matches', { p_org_id: o, p_limit: pLimit });
-      if (matchErr || !matches?.length) return 0;
-
-      const catalogIds = (matches as { catalog_id: string; score: number }[]).map((m) => m.catalog_id);
-      const { data: catalogRows } = await sb.from('catalog_entities').select('*').in('id', catalogIds);
-      const scoreById = new Map((matches as { catalog_id: string; score: number }[]).map((m) => [m.catalog_id, m.score]));
-
-      const ownedNames = new Set(prev.entities.map((e) => e.name.toLowerCase()));
-      const newEntities: Entity[] = [];
-      const deliveredIds: string[] = [];
-      for (const row of (catalogRows ?? []) as Record<string, unknown>[]) {
-        const c = fromRow<CatalogEntity>(row);
-        if (ownedNames.has(c.name.toLowerCase())) continue;
-        // Prompt 285 §3 — same guard as deliverMonthlyForOrg(): a
-        // suspended/deleted catalog entity must not reach a new org via
-        // manual pack unlock either.
-        if (c.moderation_status && c.moderation_status !== 'active') continue;
-        deliveredIds.push(c.id);
-        newEntities.push({
-          id: uuid(), name: c.name, type: c.type, hq_city: c.hq_city, hq_country: c.hq_country,
-          invests_in_geographies: [], website: c.website, website_verified: true,
-          email_domain_verified: false, stage_min: c.stage_min, stage_max: c.stage_max,
-          check_min_eur: c.check_min_eur, check_max_eur: c.check_max_eur,
-          sectors: c.sectors, thesis: c.thesis, fit_score: fitBucketFromScore(scoreById.get(c.id) ?? 0), wave: 1,
-          submission_channel_type: 'unknown', hard_filter_status: 'not_applicable',
-          status: 'not_contacted', source: 'catalog',
+      if (!orgIdRef.current) return 0;
+      try {
+        const res = await fetch('/api/pipeline-unlock/deliver', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ packId }),
         });
+        const body = await res.json().catch(() => ({}));
+        if (!body?.ok) {
+          console.error('[supabase-store] unlockPack failed:', body?.error ?? res.status);
+          return 0;
+        }
+        // Truth from the database rather than a locally-patched copy: the
+        // server just wrote entities, catalog_deliveries and possibly
+        // pack_unlocks, and re-reading is the only way every surface agrees.
+        await refetch();
+        return typeof body.delivered === 'number' ? body.delivered : 0;
+      } catch (e) {
+        console.error('[supabase-store] unlockPack failed:', (e as Error).message);
+        return 0;
       }
-
-      const unlockId = uuid();
-      const unlockedAt = new Date().toISOString();
-      commit({
-        ...prev,
-        entities: [...prev.entities, ...newEntities],
-        unlocks: [...prev.unlocks, { id: unlockId, pack_id: packId, unlocked_at: unlockedAt, delivered_catalog_ids: deliveredIds }],
-      });
-
-      if (newEntities.length) persist(sb.from('entities').insert(newEntities.map((e) => ({ ...e, org_id: o }))), 'unlockPack:entities');
-      persist(sb.from('pack_unlocks').insert({ id: unlockId, org_id: o, pack_id: packId, unlocked_at: unlockedAt }), 'unlockPack:pack_unlocks');
-      if (deliveredIds.length) {
-        persist(sb.from('catalog_deliveries').insert(deliveredIds.map((cid, i) => ({
-          org_id: o, catalog_id: cid, entity_id: newEntities[i]?.id, via_pack: packId,
-        }))), 'unlockPack:catalog_deliveries');
-        triggerEnrichmentEnqueue(deliveredIds);
-      }
-      return newEntities.length;
     },
 
     submitInvestor(payload: InvestorSubmission['payload']) {

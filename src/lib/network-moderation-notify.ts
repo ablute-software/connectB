@@ -97,7 +97,13 @@ export async function notifyStrikeApplied(admin: SupabaseClient, params: {
 
   let sent = 0;
   await Promise.all(emails.map(async (to) => {
-    const r = await sendTransactionalEmail({ to, subject: heading, html });
+    // Prompt 537 §1 — logged WITHOUT an orgId on purpose. email_send_log's
+    // org-read policy only matches rows whose org_id is set, so leaving it
+    // null keeps these rows visible to platform admins alone. A moderation
+    // notice is the one email whose mere existence in a founder-readable
+    // log would leak that a report was acted on — the reporter-privacy rule
+    // from Prompt 531 applies to the delivery record too, not just the body.
+    const r = await sendTransactionalEmail({ to, subject: heading, html, context: { kind: 'other' } });
     if (r.sent) sent += 1;
   }));
   return { sent, attempted: emails.length };
@@ -130,7 +136,13 @@ export async function notifyAppealDecided(admin: SupabaseClient, params: {
 
   let sent = 0;
   await Promise.all(emails.map(async (to) => {
-    const r = await sendTransactionalEmail({ to, subject: heading, html });
+    // Prompt 537 §1 — logged WITHOUT an orgId on purpose. email_send_log's
+    // org-read policy only matches rows whose org_id is set, so leaving it
+    // null keeps these rows visible to platform admins alone. A moderation
+    // notice is the one email whose mere existence in a founder-readable
+    // log would leak that a report was acted on — the reporter-privacy rule
+    // from Prompt 531 applies to the delivery record too, not just the body.
+    const r = await sendTransactionalEmail({ to, subject: heading, html, context: { kind: 'other' } });
     if (r.sent) sent += 1;
   }));
   return { sent, attempted: emails.length };

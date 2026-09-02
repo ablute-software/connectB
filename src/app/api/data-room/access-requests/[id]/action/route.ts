@@ -97,6 +97,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         await sendTransactionalEmail({
           to, subject: heading,
           html: transactionalTemplate({ heading, body: emailBody, ctaLabel: 'Open your workspace', ctaUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/pipeline` }),
+          context: { kind: 'access_grant' },
         });
       } catch { /* best-effort */ }
     }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { visiblePipelineSize, completeMonthsSince, isProfileGateComplete, hasAnyDocumentNamed, PLAN_PIPELINE_BASE, PLAN_PIPELINE_MONTHLY_ADDITION } from './pipeline-unlock';
+import {
+  visiblePipelineSize, completeMonthsSince, isProfileGateComplete, missingProfileGateFields,
+  hasAnyDocumentNamed, hasDocumentForBonus, PLAN_PIPELINE_BASE, PLAN_PIPELINE_MONTHLY_ADDITION,
+  DECK_BONUS_FOLDERS, DECK_BONUS_KEYWORDS, BUSINESS_PLAN_BONUS_FOLDERS, BUSINESS_PLAN_BONUS_KEYWORDS,
+} from './pipeline-unlock';
 
 const baseInput = {
   planTier: 'idea' as const,
@@ -177,5 +181,112 @@ describe('isProfileGateComplete', () => {
     for (const key of Object.keys(complete)) {
       expect(isProfileGateComplete({ ...complete, [key]: key === 'sectors' ? [] : undefined })).toBe(false);
     }
+  });
+});
+
+// Prompt 536 §1 — the two definitions of "complete" that raced. The
+// Pipeline's Unlock button used calcCompanyCompleteness >= 70%; the quota
+// used isProfileGateComplete. Krohnsty crossed the first at 13:22 and the
+// second at 13:26, clicked in between, and was delivered against a quota of
+// 3 instead of the 8 it reached four minutes later.
+describe('Prompt 536 §1 — the profile gate names what is missing', () => {
+  const COMPLETE = {
+    website: 'https://krohnsty.example', sectors: ['healthtech'], stage: 'pre_seed',
+    country: 'Portugal', round_target_eur: 175000, current_phase: 'concept_idea',
+    founded_year: 2026, revenue_eur: 0, primary_contact_person_id: 'p1',
+  };
+
+  it('a complete profile is missing nothing', () => {
+    expect(missingProfileGateFields(COMPLETE)).toEqual([]);
+    expect(isProfileGateComplete(COMPLETE)).toBe(true);
+  });
+
+  it('names every empty field, in the order the founder fills them', () => {
+    expect(missingProfileGateFields({})).toEqual([
+      'website', 'sector', 'investment stage', 'country', 'round target',
+      'current phase', 'founding year', 'revenue', 'primary contact',
+    ]);
+  });
+
+  it('a profile that is nearly complete still blocks, and says which one', () => {
+    // The exact shape of the race: everything a 70%-style bar would count as
+    // "good enough", with one gate field still empty.
+    const nearly = { ...COMPLETE, primary_contact_person_id: null };
+    expect(isProfileGateComplete(nearly)).toBe(false);
+    expect(missingProfileGateFields(nearly)).toEqual(['primary contact']);
+  });
+
+  it('revenue 0 and round target 0 are answers, not blanks', () => {
+    // Krohnsty declared revenue_eur = 0. A truthiness check would have
+    // called that missing and locked a founder out of their own pipeline.
+    expect(isProfileGateComplete({ ...COMPLETE, revenue_eur: 0, round_target_eur: 0 })).toBe(true);
+  });
+
+  it('sectors_other alone satisfies the sector field', () => {
+    expect(isProfileGateComplete({ ...COMPLETE, sectors: [], sectors_other: 'space mining' })).toBe(true);
+  });
+
+  it('isProfileGateComplete and missingProfileGateFields cannot disagree', () => {
+    // They are the same list read two ways — this pins that they stay so.
+    for (const field of Object.keys(COMPLETE)) {
+      const partial = { ...COMPLETE, [field]: null };
+      expect(isProfileGateComplete(partial)).toBe(missingProfileGateFields(partial).length === 0);
+    }
+  });
+});
+
+// Prompt 536 §4 — Krohnsty uploaded 03_Krohnsty_Investment_Deck.pdf into the
+// preset Vault folder named "Investor deck". The filename says
+// "Investment_Deck"; the keyword list said "investor deck". The founder did
+// exactly the right thing and the formula scored it as no deck at all
+// (quota 8 where it should have been 10).
+describe('Prompt 536 §4 — the deck bonus reads the folder, then the filename', () => {
+  const KROHNSTY = [
+    { name: '03_Krohnsty_Investment_Deck.pdf', folderName: 'Investor deck' },
+    { name: '04_Krohnsty_One_Pager.pdf', folderName: 'One-pager' },
+    { name: '01_Krohnsty_Pitch.pdf', folderName: 'Pitch deck' },
+  ];
+
+  it('the real production case: filename misses, folder catches it', () => {
+    expect(hasAnyDocumentNamed(KROHNSTY.map((d) => d.name), DECK_BONUS_KEYWORDS)).toBe(false);
+    expect(hasDocumentForBonus(KROHNSTY, DECK_BONUS_FOLDERS, DECK_BONUS_KEYWORDS)).toBe(true);
+  });
+
+  it('the filename fallback still works for a deck outside the preset folders', () => {
+    const custom = [{ name: 'Our investor deck v4.pdf', folderName: 'Board materials' }];
+    expect(hasDocumentForBonus(custom, DECK_BONUS_FOLDERS, DECK_BONUS_KEYWORDS)).toBe(true);
+  });
+
+  it('a document at the Vault root falls back to its filename', () => {
+    expect(hasDocumentForBonus([{ name: 'pitch deck.pdf', folderName: null }], DECK_BONUS_FOLDERS, DECK_BONUS_KEYWORDS)).toBe(true);
+    expect(hasDocumentForBonus([{ name: 'cap table.xlsx' }], DECK_BONUS_FOLDERS, DECK_BONUS_KEYWORDS)).toBe(false);
+  });
+
+  it('the folder match is the whole name, not a substring', () => {
+    // "Old investor deck drafts" is a judgement the founder has not made.
+    const drafts = [{ name: 'v1.pdf', folderName: 'Old investor deck drafts' }];
+    expect(hasDocumentForBonus(drafts, DECK_BONUS_FOLDERS, DECK_BONUS_KEYWORDS)).toBe(false);
+  });
+
+  it('business plan has no preset folder, so the filename is still its only route', () => {
+    expect(hasDocumentForBonus(
+      [{ name: 'Q3 Business Plan.pdf', folderName: '01 Summary and Investment Dossier' }],
+      BUSINESS_PLAN_BONUS_FOLDERS, BUSINESS_PLAN_BONUS_KEYWORDS,
+    )).toBe(true);
+    expect(hasDocumentForBonus(KROHNSTY, BUSINESS_PLAN_BONUS_FOLDERS, BUSINESS_PLAN_BONUS_KEYWORDS)).toBe(false);
+  });
+
+  it('reproduces the quota Krohnsty should have had: 10, not 8', () => {
+    const input = {
+      planTier: 'idea' as const, profileGateComplete: true,
+      businessPlanUploaded: false, presetFoldersWithFile: 3, presetFolderCount: 13,
+      firstOutboundLogged: false, firstInboundLogged: false, firstManualAddLogged: false,
+      completeMonthsSinceUnlock: 0, eligiblePoolSize: Number.MAX_SAFE_INTEGER,
+    };
+    // What production computed, with the deck uncredited: 5 + 3 folders = 8.
+    expect(visiblePipelineSize({ ...input, investorDeckUploaded: false })).toBe(8);
+    // What the founder had actually earned: 5 + 5 deck + 3 folders = 13,
+    // capped at the idea plan's monthly ceiling of 10.
+    expect(visiblePipelineSize({ ...input, investorDeckUploaded: true })).toBe(10);
   });
 });

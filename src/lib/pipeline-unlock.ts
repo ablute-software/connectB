@@ -138,16 +138,76 @@ export function hasAnyDocumentNamed(documentNames: string[], keywords: string[])
   return keywords.some((kw) => lower.some((n) => n.includes(kw)));
 }
 
+// Prompt 536 §4 — filename matching alone silently lost a bonus the founder
+// had genuinely earned. Krohnsty uploaded `03_Krohnsty_Investment_Deck.pdf`
+// INTO the preset Vault folder literally named "Investor deck", and
+// hasAnyDocumentNamed(['investor deck','pitch deck']) returned false: the
+// filename says "Investment_Deck", not "investor deck". The founder did
+// exactly the right thing — put the deck in the deck folder — and the
+// formula scored it as if no deck existed (measured: quota 8 instead of 10).
+//
+// The folder IS the category. vault-preset-folders.ts ships "Pitch deck" and
+// "Investor deck" as preset folders, so for a deck the category is already
+// recorded structurally and doesn't need to be guessed from a filename the
+// founder chose freely. Filename matching stays as a FALLBACK, never
+// removed: a founder who keeps a deck in some folder of their own (or in a
+// data-room section) still gets the credit they used to get. This can only
+// ever turn a false negative into a true positive.
+//
+// "Business plan" has no preset folder of its own (confirmed against
+// PRESET_FOLDER_NAMES), so it keeps the filename path as its only route
+// today — the folder list below is the hook for the day one exists, not a
+// promise that it does.
+export interface DocumentForBonus {
+  name: string;
+  /** The name of the folder the document sits in, or null/undefined at the Vault root. */
+  folderName?: string | null;
+}
+
+export const DECK_BONUS_FOLDERS = ['investor deck', 'pitch deck'];
+export const DECK_BONUS_KEYWORDS = ['investor deck', 'pitch deck'];
+export const BUSINESS_PLAN_BONUS_FOLDERS = ['business plan'];
+export const BUSINESS_PLAN_BONUS_KEYWORDS = ['business plan'];
+
+// Folder match is on the WHOLE name, not a substring: "Investor deck" is a
+// category, whereas a folder called "Old investor deck drafts" is a
+// judgement call the founder hasn't made. Filename match stays a substring,
+// which is what the existing behaviour was and what the fallback needs.
+export function hasDocumentForBonus(
+  documents: DocumentForBonus[], folderNames: string[], nameKeywords: string[],
+): boolean {
+  const folders = folderNames.map((f) => f.toLowerCase());
+  return documents.some((d) => {
+    const folder = d.folderName?.trim().toLowerCase();
+    if (folder && folders.includes(folder)) return true;
+    const name = d.name.toLowerCase();
+    return nameKeywords.some((kw) => name.includes(kw));
+  });
+}
+
+// Prompt 536 §1 — the nine gate fields, each with the label the founder
+// sees, so the Pipeline can say WHICH one is missing instead of quoting a
+// percentage from a different calculation. isProfileGateComplete is derived
+// from this list rather than repeating the conditions: two copies of "what
+// complete means" is exactly the bug this prompt exists to close, and a
+// second copy inside this very file would be the shortest possible route
+// back to it.
+const PROFILE_GATE_FIELDS: { label: string; present: (org: ProfileGateOrg) => boolean }[] = [
+  { label: 'website', present: (o) => !!o.website?.trim() },
+  { label: 'sector', present: (o) => (o.sectors?.length ?? 0) > 0 || !!o.sectors_other?.trim() },
+  { label: 'investment stage', present: (o) => !!o.stage },
+  { label: 'country', present: (o) => !!o.country?.trim() },
+  { label: 'round target', present: (o) => o.round_target_eur != null },
+  { label: 'current phase', present: (o) => !!o.current_phase },
+  { label: 'founding year', present: (o) => o.founded_year != null },
+  { label: 'revenue', present: (o) => o.revenue_eur != null },
+  { label: 'primary contact', present: (o) => !!o.primary_contact_person_id },
+];
+
+export function missingProfileGateFields(org: ProfileGateOrg): string[] {
+  return PROFILE_GATE_FIELDS.filter((f) => !f.present(org)).map((f) => f.label);
+}
+
 export function isProfileGateComplete(org: ProfileGateOrg): boolean {
-  return !!(
-    org.website?.trim() &&
-    ((org.sectors?.length ?? 0) > 0 || org.sectors_other?.trim()) &&
-    org.stage &&
-    org.country?.trim() &&
-    org.round_target_eur != null &&
-    org.current_phase &&
-    org.founded_year != null &&
-    org.revenue_eur != null &&
-    org.primary_contact_person_id
-  );
+  return missingProfileGateFields(org).length === 0;
 }

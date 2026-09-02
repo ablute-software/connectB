@@ -81,6 +81,7 @@ export async function POST(req: Request) {
           + `${firm_website ? `<br>Website: ${firm_website.trim()}` : ''}${linkedin ? `<br>LinkedIn: ${linkedin.trim()}` : ''}`
           + `<br><br>${message.trim().replace(/\n/g, '<br>')}`,
       }),
+      context: { kind: 'other' },
     });
     if (result.sent) console.log('[plan/private-detective] notification email sent, id:', result.id);
     else console.error('[plan/private-detective] notification email not sent:', result.error);

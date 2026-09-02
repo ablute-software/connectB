@@ -69,6 +69,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         to: ticket.email,
         subject: `Re: ${ticket.subject}`,
         html: transactionalTemplate({ heading: `${BRAND_NAME} support`, body: value.replace(/\n/g, '<br>') }),
+        context: { orgId: (ticket.org_id as string | null) ?? null, kind: 'support' },
       });
       if (!result.sent) return NextResponse.json({ ok: false, error: result.error ?? 'Email send failed.' }, { status: 500 });
     }

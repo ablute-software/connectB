@@ -24,6 +24,7 @@ export async function notifyClaimDecision(
             body: `You now manage ${opts.entityName}'s profile on ${BRAND_NAME}.`,
             ctaLabel: 'Open your workspace', ctaUrl: `${APP_URL}/portal`,
           }),
+          context: { kind: 'other' },
         })
       : await sendTransactionalEmail({
           to: opts.claimantEmail,
@@ -32,6 +33,7 @@ export async function notifyClaimDecision(
             heading: 'Your claim was not approved',
             body: `We reviewed your request to manage ${opts.entityName}'s profile on ${BRAND_NAME} and are not able to approve it at this time. Reply to this email if you have questions.`,
           }),
+          context: { kind: 'other' },
         });
     notifyFailed = !r.sent;
   } else {
@@ -58,6 +60,7 @@ export async function sendClaimApprovalTripwire(
     sendTransactionalEmail({
       to, subject: `${opts.entityName}'s ${BRAND_NAME} profile now has a manager`,
       html: transactionalTemplate({ heading: 'Your profile is now managed', body }),
+      context: { kind: 'other' },
     }).catch(() => {}),
   ));
 }
@@ -79,6 +82,7 @@ export async function sendClaimDisputeNotice(
     sendTransactionalEmail({
       to, subject: `Someone else has requested access to ${opts.entityName}'s profile`,
       html: transactionalTemplate({ heading: 'A second claim was submitted', body }),
+      context: { kind: 'other' },
     }).catch(() => {}),
   ));
 }

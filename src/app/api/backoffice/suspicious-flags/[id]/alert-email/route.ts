@@ -29,6 +29,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
         body: `We detected activity outside the usual pattern on your ${BRAND_NAME} account. `
           + `If you don't recognize this, reply to this email and we'll look into it right away.`,
       }),
+      context: { kind: 'other' },
     });
     if (!result.sent) return NextResponse.json({ ok: false, error: result.error ?? 'Email sending failed.' }, { status: 502 });
     emailId = result.id;

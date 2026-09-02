@@ -128,6 +128,7 @@ export async function POST(req: Request) {
         await sendTransactionalEmail({
           to, subject: heading,
           html: transactionalTemplate({ heading, body: emailBody, ctaLabel: 'Reply in your workspace', ctaUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/messages` }),
+          context: { orgId: body.orgId, kind: 'other' },
         });
       } catch { /* best-effort — the message itself is already recorded */ }
     }
