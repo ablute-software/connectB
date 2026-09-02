@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
+import { normaliseShareEmail, shouldOfferShareByEmail } from '@/lib/share-by-email';
 import { writeToClipboard } from '@/lib/clipboard';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { Card, PersonLink } from '@/components/ui';
@@ -1051,7 +1052,16 @@ function DocumentsPageInner() {
           People & Access
         </button>
       </div>
-      {tab === 'people' ? <PeopleAccessPanel /> : (
+      {tab === 'people' ? (
+        <PeopleAccessPanel onShareByEmail={(email) => {
+          // Prompt 545 — the share panel is on the Documents tab, so this
+          // hands the founder over rather than leaving them to find it.
+          setTab('documents');
+          resetGrantFlow();
+          setAdHocInviteMode(true);
+          setInviteEmail(email);
+        }} />
+      ) : (
       <div className="grid gap-4 md:grid-cols-3">
         <div data-tour-id="documents-folders">
         <Card title="Folders">
@@ -1393,11 +1403,21 @@ function DocumentsPageInner() {
             <div>
               <div className="flex items-center justify-between">
                 <div className="text-xs font-medium text-gray-500">Grant access</div>
-                {/* Prompt 154 gap 4 */}
+                {/* Prompt 154 gap 4 established this path; Prompt 545 stopped
+                    it hiding. It was a grey text link reading "Don't know who
+                    yet? Invite by email →" — copy that disqualifies the
+                    founder who DOES know who, which is the common case and
+                    was the reported one: he typed a real address into the
+                    entity search, got "Unlock on Pipeline" for a catalog firm
+                    he never asked about, and concluded there was no way to
+                    send mail at all. Same weight as the primary action now,
+                    and named for what it does rather than for not knowing. */}
                 <button type="button"
                   onClick={() => { const next = !adHocInviteMode; resetGrantFlow(); setAdHocInviteMode(next); }}
-                  className="text-[11px] font-medium text-[#0E7490] hover:underline">
-                  {adHocInviteMode ? '← Back to entity search' : "Don't know who yet? Invite by email →"}
+                  className={adHocInviteMode
+                    ? 'text-[11px] font-medium text-[#0E7490] hover:underline'
+                    : 'rounded-lg border border-[#0E7490] px-2.5 py-1 text-[11px] font-semibold text-[#0E7490] hover:bg-[#0E7490]/5'}>
+                  {adHocInviteMode ? '← Back to entity search' : 'Share by email'}
                 </button>
               </div>
 
@@ -1455,7 +1475,33 @@ function DocumentsPageInner() {
                           </button>
                         </li>
                       ))}
-                      {visibleGrantEntities.length === 0 && catalogMatches.length === 0 && (
+                      {/* Prompt 545 — FIRST, above the catalog block below.
+                          An address that matches nothing in the founder's own
+                          pipeline is not a failed entity search; it is a
+                          different, supported intention, and this is the only
+                          place that says so. It never replaces the catalog
+                          suggestions (they still render underneath) and never
+                          appears when a pipeline entity matches — sharing with
+                          an investor you already have should go through that
+                          investor's record, not around it. */}
+                      {shouldOfferShareByEmail({
+                        query: grantEntityQuery, pipelineMatchCount: visibleGrantEntities.length,
+                      }) && (
+                        <li>
+                          <button type="button"
+                            onClick={() => {
+                              const address = normaliseShareEmail(grantEntityQuery);
+                              resetGrantFlow();
+                              setAdHocInviteMode(true);
+                              setInviteEmail(address);
+                            }}
+                            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm font-medium text-[#0E7490] hover:bg-white">
+                            Share with {normaliseShareEmail(grantEntityQuery)} by email →
+                          </button>
+                        </li>
+                      )}
+                      {visibleGrantEntities.length === 0 && catalogMatches.length === 0
+                        && !shouldOfferShareByEmail({ query: grantEntityQuery, pipelineMatchCount: visibleGrantEntities.length }) && (
                         <li className="px-2 py-1.5 text-xs text-gray-400">No entity matches &quot;{grantEntityQuery}&quot;.</li>
                       )}
                       {/* Prompt 121 §2.6 — catalog matches are informational only,
@@ -1631,16 +1677,21 @@ function DocumentsPageInner() {
 
               {adHocInviteMode && (
                 <div className="mt-2 space-y-2">
-                  <label className="mb-1 block text-[11px] font-medium text-gray-400">Invite by email — not in your CRM yet</label>
+                  <label className="mb-1 block text-[11px] font-medium text-gray-400">Share with someone by email</label>
                   <div className="flex flex-wrap gap-2">
                     <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Their name"
                       className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
                     <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Their email" type="email"
                       className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
                   </div>
+                  {/* Prompt 545 — one line, and it is the line the founder
+                      needs before typing an address: what the recipient gets,
+                      and what they can see before proving who they are. The
+                      previous note described the CRM's internal bookkeeping
+                      ("an unassociated grant"), which answers a question
+                      nobody sending a document is asking. */}
                   <p className="text-[11px] text-gray-400">
-                    Creates a grant with no entity/person record attached — it lands in People &amp; Access as an unassociated
-                    grant until they sign in and confirm “Is this you?”, same as any other invite.
+                    They get a Sherlock Deal email with a private link — names only until they confirm it&apos;s them.
                   </p>
 
                   {/* Prompt 532 §14 — the outcome, stated plainly and in the
@@ -1686,7 +1737,7 @@ function DocumentsPageInner() {
                       <div>
                         <button onClick={() => void submitAdHocEmailGrant()} disabled={inviteBusy}
                           className="mt-2 rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
-                          {inviteBusy ? 'Sharing…' : 'Confirm — grant access'}
+                          {inviteBusy ? 'Sending…' : 'Send invitation'}
                         </button>
                         <button onClick={resetGrantFlow} disabled={inviteBusy} className="mt-2 ml-2 text-sm text-gray-400 hover:underline disabled:opacity-40">Cancel</button>
                       </div>
