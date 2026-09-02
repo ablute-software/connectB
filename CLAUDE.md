@@ -31,8 +31,9 @@ Three test-data writes reached the same real production entity (`c8ff10dd-…`,
 sherlockdeal.com) across separate incidents — `stage_change` interactions, real
 quota consumption, `deal_messages` — because the safeguard lived in text
 ("disable `.env.local`, remember to restore it") instead of in something that
-enforces itself. This section replaces that with two rules that hold regardless
-of which session or model is reading this file:
+enforces itself. This section replaces that with four rules that hold regardless
+of which session or model is reading this file (it said "two" while carrying
+three; corrected when the fourth was added):
 
 1. **Always start the dev server with `npm run dev:verify`, never plain `npm run
    dev`, for any session that will click through the UI.** `dev:verify` runs
@@ -85,6 +86,16 @@ of which session or model is reading this file:
    unchanged — rule 1 above (`dev:verify`) is what actually closes that
    vector by removing the real connection during verification; this layer
    is the second, independent net for direct-SQL/ad-hoc-script testing.
+4. **Before reporting green: `git status --porcelain` must be empty, and the
+   checks must have run on the SHA that is in `origin` — not on the working
+   tree.** A clean run proves nothing about what you published if an edit was
+   never staged. Confirmed the hard way (Prompt 535, 02/09/2026): a fix was
+   made, `tsc`/`vitest`/`build` were run over it and reported as 2933/2933
+   green, and only `DECISIONS.md` was committed — so the branch as pushed
+   referenced a name that no longer existed and did not compile. The report
+   described the disk, not the branch. Verify what you pushed, by reading it
+   back from the remote (`git show origin/<branch>:<path>`), not what you have
+   open.
 
 ## Architecture — read this before changing anything
 
