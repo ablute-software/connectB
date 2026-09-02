@@ -25,7 +25,7 @@ import { PhotosMediaCard } from '@/components/company/PhotosMediaCard';
 import { MiniPitchCard } from '@/components/company/MiniPitchCard';
 import { CompletenessBar } from '@/components/company/CompletenessBar';
 import { SETTINGS_HEADER_OFFSET_PX } from '@/components/company/settings-layout';
-import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
+import { calcCompanyCompleteness, evidenceFromStore } from '@/lib/companyCompleteness';
 import { APP_URL } from '@/lib/brand';
 import { PageTour } from '@/components/onboarding/PageTour';
 import { VisibilityToggle } from '@/components/VisibilityToggle';
@@ -453,7 +453,9 @@ function SettingsInner() {
   // Prompt 377 §B — CompletenessBar joined the page's own sticky header
   // (see this component's return below); computed once here so CompanyPanel
   // never needs its own independent completeness calc/fetch.
-  const { pct, missing } = calcCompanyCompleteness(db.org, db.companyPeople);
+  // Prompt 542 §2 — the bar now counts Vault documents, the cap table and
+  // traction too, so it needs those rows as well as the org row.
+  const { pct, missing } = calcCompanyCompleteness(db.org, db.companyPeople, evidenceFromStore({ documents: db.documents, folders: db.folders, capTableEntries: db.capTableEntries ?? [], tractionMetrics: db.tractionMetrics ?? [] }));
   const canEditCompany = !authEnabled || can(orgRole, 'manage_org_settings');
   const reviewBadge = needsReviewBadge(db);
 

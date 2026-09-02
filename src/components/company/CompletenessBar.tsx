@@ -37,6 +37,12 @@ export function CompletenessBar({ pct, missing, orgId, onFlash }: {
     if (missing.length === 0) return;
     const field = missing[cycleIndex % missing.length];
     setCycleIndex((i) => i + 1);
+    // Prompt 542 §2 — an evidence field (a deck, a cap table, traction) has
+    // no input on this page to flash; it lives on another one. Sending the
+    // founder there is the honest version of "jump to what's missing" —
+    // flashing nothing, as this would have done, is the dead end Prompt 383
+    // already fixed once for empty Identity fields.
+    if (field.href) { window.location.href = field.href; return; }
     onFlash(field.id);
     document.getElementById(field.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }

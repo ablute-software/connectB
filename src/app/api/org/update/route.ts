@@ -11,7 +11,7 @@ import { type OrgRole } from '@/lib/permissions';
 import { loadOrgMatrix } from '@/lib/org-matrix-server';
 import { canWithMatrix } from '@/lib/org-permissions';
 import { patchTouchesArchiveRelevantFields, regenerateNowSummary } from '@/lib/startup-snapshot';
-import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
+import { calcCompanyCompleteness, type CompletenessEvidence } from '@/lib/companyCompleteness';
 import { logEvent } from '@/lib/analytics-events';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { roundFieldsSourceAvailable } from '@/lib/document-extraction-capability';
@@ -183,7 +183,26 @@ export async function POST(req: Request) {
   const { data: freshOrg } = await admin.from('orgs').select('*').eq('id', member.org_id).single();
   if (freshOrg && !freshOrg.profile_reached_80_at) {
     const { data: people } = await admin.from('company_people').select('*').eq('org_id', member.org_id);
-    const { pct } = calcCompanyCompleteness(freshOrg, people ?? []);
+    // Prompt 542 §2 — the 80% milestone is stamped from the SAME formula
+    // the founder sees, so it has to read the same evidence: a milestone
+    // computed without documents/cap table/traction would fire at a score
+    // no screen ever shows.
+    const [{ data: docs }, { data: folders }, { data: capRows }, { data: tractionRows }] = await Promise.all([
+      admin.from('documents').select('name, folder_id').eq('org_id', member.org_id),
+      admin.from('folders').select('id, name').eq('org_id', member.org_id),
+      admin.from('cap_table_entries').select('id').eq('org_id', member.org_id),
+      admin.from('org_traction_metrics').select('id').eq('org_id', member.org_id),
+    ]);
+    const folderNameById = new Map((folders ?? []).map((f) => [f.id as string, f.name as string]));
+    const evidence: CompletenessEvidence = {
+      documents: (docs ?? []).map((d) => ({
+        name: d.name as string,
+        folderName: d.folder_id ? folderNameById.get(d.folder_id as string) ?? null : null,
+      })),
+      capTableRows: (capRows ?? []).length,
+      tractionRows: (tractionRows ?? []).length,
+    };
+    const { pct } = calcCompanyCompleteness(freshOrg, people ?? [], evidence);
     if (pct >= 80) {
       const reachedAt = new Date().toISOString();
       await admin.from('orgs').update({ profile_reached_80_at: reachedAt }).eq('id', member.org_id);

@@ -8,7 +8,7 @@ import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { planAccountsAvailable } from '@/lib/plan-accounts-capability';
 import { accountModerationAvailable } from '@/lib/account-moderation-capability';
-import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
+import { calcCompanyCompleteness, type CompletenessEvidence } from '@/lib/companyCompleteness';
 import { computeVisiblePipelineSize } from '@/lib/pipeline-unlock-server';
 import type { CompanyPerson, Org } from '@/lib/types';
 
@@ -30,6 +30,7 @@ export async function GET() {
   const [
     { data: orgs, error }, { data: members }, { data: recentInteractions }, planManagement, moderationAvailable,
     { data: allPeople }, { data: allDocuments }, { data: allAiReviews },
+    { data: allFolders }, { data: allCapTable }, { data: allTraction },
   ] = await Promise.all([
     admin.from('orgs').select('*'),
     admin.from('org_members').select('org_id, user_id'),
@@ -37,8 +38,14 @@ export async function GET() {
     planAccountsAvailable(),
     accountModerationAvailable(),
     admin.from('company_people').select('org_id, is_founder'),
-    admin.from('documents').select('org_id'),
+    // Prompt 542 §2 — name + folder_id now, not just org_id: the
+    // completeness bar counts a deck and a business plan, and Prompt 536 §4
+    // recognises those by the folder a file sits in as well as its name.
+    admin.from('documents').select('org_id, name, folder_id'),
     admin.from('ai_reviews').select('org_id').gte('created_at', monthStart),
+    admin.from('folders').select('id, name'),
+    admin.from('cap_table_entries').select('org_id'),
+    admin.from('org_traction_metrics').select('org_id'),
   ]);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
@@ -61,6 +68,22 @@ export async function GET() {
   for (const i of recentInteractions ?? []) interactionCountByOrg.set(i.org_id, (interactionCountByOrg.get(i.org_id) ?? 0) + 1);
   const documentCountByOrg = new Map<string, number>();
   for (const d of allDocuments ?? []) documentCountByOrg.set(d.org_id, (documentCountByOrg.get(d.org_id) ?? 0) + 1);
+  // Prompt 542 §2 — the three evidence dimensions, grouped once for the
+  // whole list rather than queried per org: this route already reads every
+  // org in one pass and must not become N+1 to add a bar input.
+  const folderNameById = new Map((allFolders ?? []).map((f) => [f.id as string, f.name as string]));
+  const evidenceByOrg = new Map<string, CompletenessEvidence>();
+  function evidenceFor(orgId: string): CompletenessEvidence {
+    let e = evidenceByOrg.get(orgId);
+    if (!e) { e = { documents: [], capTableRows: 0, tractionRows: 0 }; evidenceByOrg.set(orgId, e); }
+    return e;
+  }
+  for (const d of (allDocuments ?? []) as { org_id: string; name: string; folder_id: string | null }[]) {
+    evidenceFor(d.org_id).documents.push({ name: d.name, folderName: d.folder_id ? folderNameById.get(d.folder_id) ?? null : null });
+  }
+  for (const c of (allCapTable ?? []) as { org_id: string }[]) evidenceFor(c.org_id).capTableRows++;
+  for (const t of (allTraction ?? []) as { org_id: string }[]) evidenceFor(t.org_id).tractionRows++;
+
   const aiReviewCountByOrg = new Map<string, number>();
   for (const r of allAiReviews ?? []) aiReviewCountByOrg.set(r.org_id, (aiReviewCountByOrg.get(r.org_id) ?? 0) + 1);
   const peopleByOrg = new Map<string, CompanyPerson[]>();
@@ -98,7 +121,7 @@ export async function GET() {
       interactionsThisWeek > 0 && daysSinceLogin < 14 ? 'active' : daysSinceLogin < 30 ? 'quiet' : 'inactive';
 
     const people = peopleByOrg.get(org.id) ?? [];
-    const { pct: completenessPct } = calcCompanyCompleteness(org as unknown as Org, people);
+    const { pct: completenessPct } = calcCompanyCompleteness(org as unknown as Org, people, evidenceFor(org.id));
     const pipeline = pipelineByOrg.get(org.id);
     const matchDealStatus: 'complete' | 'incomplete' | 'not_started' =
       !matchDealCompleteByOrg.has(org.id) ? 'not_started' : matchDealCompleteByOrg.get(org.id) ? 'complete' : 'incomplete';

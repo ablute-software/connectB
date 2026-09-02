@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { useTrackPageView } from '@/lib/use-track-page-view';
-import { calcCompanyCompleteness } from '@/lib/companyCompleteness';
+import { calcCompanyCompleteness, evidenceFromStore } from '@/lib/companyCompleteness';
 import { DossierOverviewSections, type Card as DossierCard, type Dossier } from '@/components/portal/DossierOverviewSections';
 import { projectIntroPitch } from '@/lib/investor-interest-level';
 
@@ -50,7 +50,7 @@ export default function DossierPreviewPage() {
     return () => { cancelled = true; };
   }, [level]);
 
-  const completeness = calcCompanyCompleteness(db.org, db.companyPeople).pct;
+  const completeness = calcCompanyCompleteness(db.org, db.companyPeople, evidenceFromStore({ documents: db.documents, folders: db.folders, capTableEntries: db.capTableEntries ?? [], tractionMetrics: db.tractionMetrics ?? [] })).pct;
 
   // The "compact Pipeline card" tier — Discovery-visible to ANY investor
   // regardless of disclosure level (see /api/portal/startup/[orgId]'s own
