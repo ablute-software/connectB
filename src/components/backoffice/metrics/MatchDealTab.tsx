@@ -47,6 +47,42 @@ function HourlyHistogram({ hours }: { hours: number[] }) {
   );
 }
 
+// Prompt 546 — hoisted out of UsageRankingSection. Declaring a component in
+// another component's body gives it a new identity on every render, which
+// React treats as a different type and remounts rather than re-renders;
+// here that threw away the expanded row's DOM on every unrelated state
+// change. Same fix as the Vault trees, found by the lint rule that prompt
+// turned on.
+function RankTable({ rows, expandedId, setExpandedId }: {
+  rows: RankRow[]; expandedId: string | null; setExpandedId: (id: string | null) => void;
+}) {
+  if (rows.length === 0) return <p className="text-sm text-gray-400">No usage recorded in this window yet.</p>;
+  return (
+    <div className="space-y-1">
+      {rows.map((r) => (
+        <div key={r.profileId} className="rounded-lg border border-gray-50 p-2">
+          <button onClick={() => setExpandedId(expandedId === r.profileId ? null : r.profileId)} className="flex w-full items-center justify-between text-left text-sm">
+            <span className="font-semibold text-gray-900">{r.label}</span>
+            <span className="flex gap-3 text-xs text-gray-500">
+              <span>{r.activeMinutes}min active</span>
+              <span className="text-gray-300">·</span>
+              <span>{r.standbyMinutes}min standby</span>
+              <span className="text-gray-300">·</span>
+              <span>{r.accessesPerDay}/day</span>
+            </span>
+          </button>
+          {expandedId === r.profileId && (
+            <div className="mt-2 border-t border-gray-50 pt-2">
+              <p className="mb-1 text-[10px] uppercase tracking-wide text-gray-400">Usual hours of access (UTC)</p>
+              <HourlyHistogram hours={r.hourlyHistogram} />
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function UsageRankingSection() {
   const [data, setData] = useState<UsageRankingData | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -56,34 +92,6 @@ function UsageRankingSection() {
   }, []);
 
   if (!data) return <p className="text-sm text-gray-400">Loading…</p>;
-
-  function RankTable({ rows }: { rows: RankRow[] }) {
-    if (rows.length === 0) return <p className="text-sm text-gray-400">No usage recorded in this window yet.</p>;
-    return (
-      <div className="space-y-1">
-        {rows.map((r) => (
-          <div key={r.profileId} className="rounded-lg border border-gray-50 p-2">
-            <button onClick={() => setExpandedId(expandedId === r.profileId ? null : r.profileId)} className="flex w-full items-center justify-between text-left text-sm">
-              <span className="font-semibold text-gray-900">{r.label}</span>
-              <span className="flex gap-3 text-xs text-gray-500">
-                <span>{r.activeMinutes}min active</span>
-                <span className="text-gray-300">·</span>
-                <span>{r.standbyMinutes}min standby</span>
-                <span className="text-gray-300">·</span>
-                <span>{r.accessesPerDay}/day</span>
-              </span>
-            </button>
-            {expandedId === r.profileId && (
-              <div className="mt-2 border-t border-gray-50 pt-2">
-                <p className="mb-1 text-[10px] uppercase tracking-wide text-gray-400">Usual hours of access (UTC)</p>
-                <HourlyHistogram hours={r.hourlyHistogram} />
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    );
-  }
 
   return (
     <Card title={`MatchDeal usage ranking — last ${data.windowDays} days`}>
@@ -98,11 +106,11 @@ function UsageRankingSection() {
       <div className="grid gap-4 md:grid-cols-2">
         <div>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Startups</h3>
-          <RankTable rows={data.byKind.startup} />
+          <RankTable rows={data.byKind.startup} expandedId={expandedId} setExpandedId={setExpandedId} />
         </div>
         <div>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Investors</h3>
-          <RankTable rows={data.byKind.investor} />
+          <RankTable rows={data.byKind.investor} expandedId={expandedId} setExpandedId={setExpandedId} />
         </div>
       </div>
     </Card>

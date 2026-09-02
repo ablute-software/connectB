@@ -73,6 +73,45 @@ function toDateInputValue(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Prompt 546 — hoisted out of InvestorAgendaPanel for the same reason as
+// the Vault trees: a component declared inside another component's body is
+// a new type on every render, so React remounts the whole list instead of
+// re-rendering it. Caught by the lint rule Prompt 546 turned on.
+function EntryRow({ e, markFollowupDone, toggleTaskDone, setSelectedTask }: {
+  e: CalendarEntry;
+  markFollowupDone: (id: string) => void;
+  toggleTaskDone: (t: InvestorTaskItem) => void | Promise<void>;
+  setSelectedTask: (t: InvestorTaskItem) => void;
+}) {
+  if (e.source === 'agenda') {
+    return (
+      <li className="flex items-start gap-2 rounded px-1">
+        <span className="mt-0.5 text-sm">{KIND_ICON[e.agendaKind!]}</span>
+        <span className="flex-1 text-sm text-gray-900">
+          {e.title}
+          {e.orgId && <span className="block text-xs"><Link href={`/portal/startup/${e.orgId}`} className="text-[#0E7490] hover:underline">{e.orgName}</Link></span>}
+        </span>
+        {e.agendaKind === 'follow_up' && e.followupId && (
+          <button onClick={() => markFollowupDone(e.followupId!)} className="rounded-lg border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:border-[#0E7490]">Done</button>
+        )}
+        <span className="text-xs text-gray-400">{e.date?.slice(5, 10)}</span>
+      </li>
+    );
+  }
+  const t = e.task!;
+  return (
+    <li className={`flex items-start gap-2 rounded px-1 ${t.done ? 'bg-green-50' : ''}`}>
+      <input type="checkbox" checked={t.done} onChange={() => toggleTaskDone(t)} className="mt-1" onClick={(ev) => ev.stopPropagation()} />
+      <button onClick={() => setSelectedTask(t)} className="flex-1 text-left">
+        <span className={`mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${ACTION_TYPE_COLOR[t.action_type]}`}>{ACTION_TYPE_LABEL[t.action_type]}</span>
+        <span className={t.done ? 'text-green-700 line-through' : ''}>{t.done && '✓ '}{t.title}</span>
+        {t.orgId && <span className="block text-xs"><Link href={`/portal/startup/${t.orgId}`} className="text-[#0E7490] hover:underline">{t.orgName}</Link></span>}
+      </button>
+      <span className="text-xs text-gray-400">{t.due_at?.slice(5, 10)}</span>
+    </li>
+  );
+}
+
 export function InvestorAgendaPanel() {
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   // Prompt 340 Block B — parity gap with the founder side's own type-filter
@@ -165,36 +204,6 @@ export function InvestorAgendaPanel() {
   const week = entries.filter((e) => !e.done && e.date && new Date(e.date) > now && new Date(e.date) < new Date(now.getTime() + 7 * 86400_000));
   const completed = entries.filter((e) => e.source === 'task' && e.done && e.date)
     .sort((a, b) => (b.date! > a.date! ? 1 : -1)).slice(0, 20);
-
-  function EntryRow({ e }: { e: CalendarEntry }) {
-    if (e.source === 'agenda') {
-      return (
-        <li className="flex items-start gap-2 rounded px-1">
-          <span className="mt-0.5 text-sm">{KIND_ICON[e.agendaKind!]}</span>
-          <span className="flex-1 text-sm text-gray-900">
-            {e.title}
-            {e.orgId && <span className="block text-xs"><Link href={`/portal/startup/${e.orgId}`} className="text-[#0E7490] hover:underline">{e.orgName}</Link></span>}
-          </span>
-          {e.agendaKind === 'follow_up' && e.followupId && (
-            <button onClick={() => markFollowupDone(e.followupId!)} className="rounded-lg border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:border-[#0E7490]">Done</button>
-          )}
-          <span className="text-xs text-gray-400">{e.date?.slice(5, 10)}</span>
-        </li>
-      );
-    }
-    const t = e.task!;
-    return (
-      <li className={`flex items-start gap-2 rounded px-1 ${t.done ? 'bg-green-50' : ''}`}>
-        <input type="checkbox" checked={t.done} onChange={() => toggleTaskDone(t)} className="mt-1" onClick={(ev) => ev.stopPropagation()} />
-        <button onClick={() => setSelectedTask(t)} className="flex-1 text-left">
-          <span className={`mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${ACTION_TYPE_COLOR[t.action_type]}`}>{ACTION_TYPE_LABEL[t.action_type]}</span>
-          <span className={t.done ? 'text-green-700 line-through' : ''}>{t.done && '✓ '}{t.title}</span>
-          {t.orgId && <span className="block text-xs"><Link href={`/portal/startup/${t.orgId}`} className="text-[#0E7490] hover:underline">{t.orgName}</Link></span>}
-        </button>
-        <span className="text-xs text-gray-400">{t.due_at?.slice(5, 10)}</span>
-      </li>
-    );
-  }
 
   if (!tasks || !agendaItems || !todayItems) return <p className="text-sm text-gray-400">Loading…</p>;
   if (allEntries.length === 0 && todayItems.length === 0) {
@@ -296,7 +305,7 @@ export function InvestorAgendaPanel() {
                   {hasItems && <span className="text-xs text-gray-400">{isOpen ? '▾' : '▸'}</span>}
                 </button>
               }>
-                {isOpen && hasItems && <ul className="space-y-1.5 text-sm">{g.items.map((e) => <EntryRow key={e.key} e={e} />)}</ul>}
+                {isOpen && hasItems && <ul className="space-y-1.5 text-sm">{g.items.map((e) => <EntryRow key={e.key} e={e} markFollowupDone={markFollowupDone} toggleTaskDone={toggleTaskDone} setSelectedTask={setSelectedTask} />)}</ul>}
               </Card>
             );
           })}
