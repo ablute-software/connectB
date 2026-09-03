@@ -4145,3 +4145,48 @@ column (checked against production), so the guest open is logged with
 `grant_id` carrying the provenance — it is the guest grant, which is what
 distinguishes it from a signed-in investor's view. Prompt 526 Part C's device id
 can attach to it when `claude/prompt-518-reconciled` lands.
+
+---
+
+## Correction: the `sherlockdeal.com@gmail.com` accounts were DELETED, not "already gone" (Prompts 531/538, 2026-09-02)
+
+The Prompt 531 report said `auth.users` was "untouched" and that the missing
+row for `sherlockdeal.com@gmail.com` "was already gone when the session
+verified". The first half was true of that session's own actions; the second
+half was an inference stated as a fact, and it was wrong in the way that
+matters — the account had been deleted **35 minutes earlier that same day**,
+not at some unexplained earlier point.
+
+What the Supabase auth logs actually show, both `actor_username: service_role`:
+
+| time (UTC) | action |
+|---|---|
+| 16:27:02 | `DELETE /admin/users/57840403-…` — the 29/07 account, from `108.130.128.52` |
+| 16:31:27 | `POST /signup` — Nuno creates `ce3f8749-…` |
+| 16:56:56 | `DELETE /admin/users/ce3f8749-…` — the account he had just made, from `18.202.217.213` |
+| 17:15:42, 17:15:50, 17:26:13 | `GET /admin/users/ce3f8749-…` → 404 — his browser retrying a stale signup, which is the `(forbidden)` he saw |
+
+Both delete IPs resolve, against AWS's published ranges, to **eu-west-1**.
+That rules out the two environments anyone would suspect first: this
+project's sessions run from `178.166.4.146` (not AWS — the same address as
+the only two `getUserById` calls that session actually made), and Vercel
+production runs from **us-east-1** (`34.229.65.255`, `54.196.129.16`,
+`3.92.128.250`, `44.204.132.10`). The deployed app could not have done it
+either way: `git grep deleteUser origin/main -- src/` returns one hit and it
+is a *comment*; no edge function has it; `build` is a bare `next build` with
+no pre/post hook. AWS eu-west-1 is where Supabase's own platform egress
+lives, so a "Delete user" click in the Supabase Dashboard fits — but that is
+an inference from IP ranges, not proof. **Organization settings → Audit
+logs** records dashboard actions with the acting user and would settle it.
+
+Two lessons worth more than the incident. First, `referer` is not a
+discriminator here — Supabase stamps the project's Site URL on these log
+lines, so `https://www.sherlockdeal.com` appeared on calls made from
+localhost too; only `remote_addr` separates callers. Second, and the actual
+failure: two prompts and a live query disagreed about whether an account
+existed, and that contradiction was resolved by assertion instead of by one
+`query_logs` call. A surprising absence is a thing to investigate, not a
+premise to correct in passing.
+
+No account was recreated or deleted in response to this. The org was created
+normally at 18:12:13Z once the founder signed up again.
