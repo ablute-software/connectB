@@ -7,9 +7,14 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { onboardingItem } from '@/lib/onboarding/content';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
+import { renderOnboardingCopy } from '@/lib/onboarding/copy';
+import { useStore } from '@/lib/store';
 
 export function WelcomeModal() {
   const { eligibleKey, markSeen, setCondition, holdTours, releaseTours } = useOnboarding();
+  // Prompt 552 — the modal is rendered inside shell.tsx, which already calls
+  // useStore() itself, so the provider is guaranteed to be above this.
+  const { db } = useStore();
   const item = onboardingItem('welcome')!;
   const open = eligibleKey === 'welcome';
   const steps = item.steps ?? [];
@@ -78,8 +83,15 @@ export function WelcomeModal() {
 
   const current = hasSteps ? steps[step] : null;
   const isLastStep = !hasSteps || step === steps.length - 1;
-  const title = current?.title ?? item.title;
-  const body = current?.body ?? item.body;
+  // Prompt 552 — derived on every render, never captured. In Supabase mode
+  // the store's loadAll can resolve a beat AFTER this modal has opened; a
+  // value read once into state would keep showing the fallback. Because
+  // this recomputes, the name simply appears when it arrives — no effect,
+  // and no reason to gate the modal on `loading`. Applied to the legacy
+  // item.title/item.body path too, so a future token in the non-carousel
+  // copy is interpolated rather than shipped as text.
+  const title = renderOnboardingCopy(current?.title ?? item.title, { company: db.org.name });
+  const body = renderOnboardingCopy(current?.body ?? item.body, { company: db.org.name });
 
   return createPortal(
     // Prompt 77 Bloco 0 — this backdrop used to carry onClick={close}, so
