@@ -11,6 +11,7 @@ healthtech startup, €1.3M seed) but designed as a multi-tenant product with th
 - **Next.js 14** (App Router) · TypeScript · Tailwind. Node/Next build.
 - **Supabase** project `wkjcaoqdvhykrfacsylr` — Postgres + Auth (`@supabase/ssr`) + (planned) Storage. RLS on.
 - **Vercel** project `connect-b`, team **info-ablute projects** (Hobby plan). Auto-deploys on push to `main`.
+- **Confirming a deploy is actually live.** Compare Next's `buildId` fetched from `https://www.sherlockdeal.com/` with a cache-busting query, before and after the push (`curl -s "https://www.sherlockdeal.com/?cb=$RANDOM" | grep -o 'buildId[^,]*'`). `/login` and other pages are edge-cached — check the `Age:` header before trusting anything read from them — and an empty response must NEVER count as a change: a transient failed fetch diffing against a previous snapshot is what produced a false "deploy is live" on 2026-09-02 (Prompt 546). Never `.vercel.app`.
 - Live: https://connect-b-delta.vercel.app · Repo: https://github.com/ablute-software/connectB
 - Env vars already set on Vercel (production+preview): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Also documented in `.env.example` (adds Resend, Stripe, `ANTHROPIC_API_KEY` for later).
 - **Hobby-plan constraint:** `vercel.json` crons run **at most once/day**. Current: `/api/automations` at `0 9 * * *`. Do not set sub-daily schedules or deploys will be rejected (`cron_jobs_limits_reached`).
