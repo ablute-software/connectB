@@ -155,10 +155,10 @@ export function VaultPinGate({ orgId, children }: { orgId: string; children: Rea
             <>
               <h2 className="text-sm font-semibold text-gray-900">Set a Vault Data Room code</h2>
               <p className="mt-1 text-xs text-gray-500">A 4-digit code only you know, on top of your account&apos;s own access controls.</p>
-              <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="0000"
+              <input autoComplete="off" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="0000"
                 disabled={skipChecked}
                 className="mt-3 w-full rounded border border-gray-300 px-2 py-1.5 text-center text-lg tracking-widest disabled:bg-gray-50" />
-              <input value={confirmPin} onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="Confirm"
+              <input autoComplete="off" value={confirmPin} onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="Confirm"
                 disabled={skipChecked}
                 className="mt-2 w-full rounded border border-gray-300 px-2 py-1.5 text-center text-lg tracking-widest disabled:bg-gray-50" />
               <label className="mt-3 flex items-start gap-2 text-xs text-gray-500">
@@ -174,7 +174,7 @@ export function VaultPinGate({ orgId, children }: { orgId: string; children: Rea
           ) : (
             <>
               <h2 className="text-sm font-semibold text-gray-900">Enter your Vault Data Room code</h2>
-              <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="0000"
+              <input autoComplete="off" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="0000"
                 onKeyDown={(e) => e.key === 'Enter' && void submitUnlock()}
                 className="mt-3 w-full rounded border border-gray-300 px-2 py-1.5 text-center text-lg tracking-widest" autoFocus />
               {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}

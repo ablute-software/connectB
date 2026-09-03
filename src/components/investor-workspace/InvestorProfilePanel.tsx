@@ -162,9 +162,9 @@ function AddFirmForm({ onLinked, onCancel }: { onLinked: () => void; onCancel: (
       <p className="text-xs text-gray-500">
         We&apos;ll add it to our catalog as pending — you can keep going with your profile right away, and we&apos;ll verify it shortly.
       </p>
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Firm name"
+      <input autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} placeholder="Firm name"
         className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-      <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="Website (optional)"
+      <input autoComplete="url" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="Website (optional)"
         className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
       {err && <p className="mt-1.5 text-xs text-[#B00000]">{err}</p>}
       <div className="mt-2 flex gap-2">
@@ -281,7 +281,7 @@ function LinkEntityFlow({ onLinked }: { onLinked: () => void }) {
       <p className="mt-1 text-xs text-gray-400">
         We verify this against your sign-in email&apos;s domain when we can. If it doesn&apos;t match automatically, you can still continue — we&apos;ll mark it pending and check manually.
       </p>
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by firm name…"
+      <input autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by firm name…"
         className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
       {searching && <p className="mt-2 text-xs text-gray-400">Searching…</p>}
       {results.length > 0 && (
@@ -474,7 +474,7 @@ function CompanyTab({ draft, setDraft, save, saving, saveState, saveError }: {
         <Section title="General Information">
           <label className="flex flex-col gap-1 text-xs text-gray-500">
             Entity HQ
-            <input value={draft.country ?? ''} onChange={(e) => setDraft({ ...draft, country: e.target.value })} placeholder="e.g. Portugal" className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
+            <input autoComplete="off" value={draft.country ?? ''} onChange={(e) => setDraft({ ...draft, country: e.target.value })} placeholder="e.g. Portugal" className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
           </label>
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500">Round role</label>
@@ -492,7 +492,7 @@ function CompanyTab({ draft, setDraft, save, saving, saveState, saveError }: {
         <Section title="Investment Strategy">
           <label className="flex flex-col gap-1 text-xs text-gray-500">
             Thesis notes
-            <textarea value={draft.specific_criteria ?? ''} onChange={(e) => setDraft({ ...draft, specific_criteria: e.target.value })} rows={3} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
+            <textarea autoComplete="off" value={draft.specific_criteria ?? ''} onChange={(e) => setDraft({ ...draft, specific_criteria: e.target.value })} rows={3} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
           </label>
         </Section>
 
@@ -508,14 +508,14 @@ function CompanyTab({ draft, setDraft, save, saving, saveState, saveError }: {
           </div>
           <label className="flex flex-col gap-1 text-xs text-gray-500">
             Yearly investment budget (EUR, optional)
-            <input type="number" value={draft.capital_to_deploy_eur ?? ''} onChange={(e) => setDraft({ ...draft, capital_to_deploy_eur: e.target.value ? Number(e.target.value) : null })} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
+            <input autoComplete="off" type="number" value={draft.capital_to_deploy_eur ?? ''} onChange={(e) => setDraft({ ...draft, capital_to_deploy_eur: e.target.value ? Number(e.target.value) : null })} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
           </label>
         </Section>
 
         <Section title="Geography">
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500">Investment geographies</label>
-            <input value={(draft.geographies ?? []).join(', ')} onChange={(e) => setDraft({ ...draft, geographies: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
+            <input autoComplete="off" value={(draft.geographies ?? []).join(', ')} onChange={(e) => setDraft({ ...draft, geographies: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
               placeholder="e.g. Portugal, Spain, Europe" className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
           </div>
         </Section>
@@ -553,11 +553,11 @@ function CompanyTab({ draft, setDraft, save, saving, saveState, saveError }: {
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1 text-xs text-gray-500">
               Typical decision time (weeks, optional)
-              <input type="number" min={0} value={draft.typical_decision_weeks ?? ''} onChange={(e) => setDraft({ ...draft, typical_decision_weeks: e.target.value ? Number(e.target.value) : null })} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
+              <input autoComplete="off" type="number" min={0} value={draft.typical_decision_weeks ?? ''} onChange={(e) => setDraft({ ...draft, typical_decision_weeks: e.target.value ? Number(e.target.value) : null })} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
             </label>
             <label className="flex flex-col gap-1 text-xs text-gray-500">
               Who decides (optional)
-              <input value={draft.decision_process ?? ''} onChange={(e) => setDraft({ ...draft, decision_process: e.target.value })} placeholder="e.g. Full partnership vote" className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
+              <input autoComplete="off" value={draft.decision_process ?? ''} onChange={(e) => setDraft({ ...draft, decision_process: e.target.value })} placeholder="e.g. Full partnership vote" className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
             </label>
           </div>
           <div>
@@ -584,7 +584,7 @@ function CompanyTab({ draft, setDraft, save, saving, saveState, saveError }: {
           </div>
           <label className="flex flex-col gap-1 text-xs text-gray-500">
             Usual co-investors (optional)
-            <input value={draft.usual_co_investors ?? ''} onChange={(e) => setDraft({ ...draft, usual_co_investors: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
+            <input autoComplete="off" value={draft.usual_co_investors ?? ''} onChange={(e) => setDraft({ ...draft, usual_co_investors: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900" />
           </label>
         </Section>
 
@@ -592,7 +592,7 @@ function CompanyTab({ draft, setDraft, save, saving, saveState, saveError }: {
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-500">Exclusions — we never invest in</label>
             <ExclusionsPicker selected={draft.exclusions_sectors ?? []} onChange={(v) => setDraft({ ...draft, exclusions_sectors: v })} />
-            <input value={draft.exclusions_notes ?? ''} onChange={(e) => setDraft({ ...draft, exclusions_notes: e.target.value })} placeholder="Anything else to exclude (free text)"
+            <input autoComplete="off" value={draft.exclusions_notes ?? ''} onChange={(e) => setDraft({ ...draft, exclusions_notes: e.target.value })} placeholder="Anything else to exclude (free text)"
               className="mt-1.5 w-full rounded border border-gray-300 px-2 py-1 text-sm" />
           </div>
         </Section>

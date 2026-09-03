@@ -91,8 +91,23 @@ export function SectorPicker({ value, onChange, disabled, max = STARTUP_SECTOR_M
   return (
     <div className="space-y-2">
       <div className="relative">
+        {/* Prompt 553 — this box is a FILTER over a fixed taxonomy. It writes
+            nothing and it is not personal data, and until now it said none of
+            that to the browser: no name, no type, no autoComplete, sitting
+            under a label ending in "…that apply to your company" inside a card
+            whose siblings are Website, HQ country, HQ city, Postal code and a
+            phone number. Chrome read that as an address form, classified this
+            field as `organization`, and on a brand-new org filled it with the
+            Organization from the founder's saved address profile — "ablute_",
+            a name he had typed into forms on this domain before. The autofill
+            fired onChange, so the taxonomy filtered down to nothing and the
+            list collapsed to "Other".
+            type="search" also gives the native clear affordance; the explicit
+            × button below stays, since Safari/Firefox do not all render one. */}
         <input value={query} onChange={(e) => onQueryChange(e.target.value)} placeholder="Search sectors..."
           disabled={disabled}
+          type="search" name="sector-search" autoComplete="off" aria-label="Search sectors"
+          data-1p-ignore data-lpignore="true"
           className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
         {query && (
           <button type="button" onClick={clearSearch} title="Clear search"
@@ -156,7 +171,9 @@ export function SectorPicker({ value, onChange, disabled, max = STARTUP_SECTOR_M
           </label>
           {otherOn && (
             <div className="ml-3 mt-1">
+              {/* Free text about the company, never a saved contact field. */}
               <input value={value.other ?? ''} maxLength={SECTOR_OTHER_MAX_CHARS} disabled={disabled}
+                name="sector-other" autoComplete="off" data-1p-ignore data-lpignore="true"
                 onChange={(e) => onChange({ ...value, other: e.target.value.slice(0, SECTOR_OTHER_MAX_CHARS) })}
                 placeholder="Specify sector..." className="w-full rounded border border-gray-300 px-2 py-1 text-xs" />
               <span className="text-[10px] text-gray-400">{(value.other ?? '').length}/{SECTOR_OTHER_MAX_CHARS}</span>

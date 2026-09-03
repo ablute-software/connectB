@@ -157,21 +157,21 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
                     {STAGES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
                   {draft.stage === 'other' && (
-                    <input value={draft.stage_other} onChange={(e) => setDraft({ ...draft, stage_other: e.target.value })} placeholder="Describe the stage"
+                    <input autoComplete="off" value={draft.stage_other} onChange={(e) => setDraft({ ...draft, stage_other: e.target.value })} placeholder="Describe the stage"
                       className="mt-1 rounded border border-gray-300 px-2 py-1 text-sm" />
                   )}
                 </CompletenessField>
                 <CompletenessField id="round.target" label="Amount to raise (EUR)" missing={missingIds.has('round.target')} flashing={flashId === 'round.target'}>
-                  <input type="number" value={draft.target} onChange={(e) => setDraft({ ...draft, target: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
+                  <input autoComplete="off" type="number" value={draft.target} onChange={(e) => setDraft({ ...draft, target: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
                 </CompletenessField>
                 <label className="flex flex-col gap-0.5 text-xs">
                   <span className="text-gray-500">Already secured (EUR)</span>
-                  <input type="number" value={draft.secured} onChange={(e) => setDraft({ ...draft, secured: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
+                  <input autoComplete="off" type="number" value={draft.secured} onChange={(e) => setDraft({ ...draft, secured: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
                 </label>
                 <label className="flex flex-col gap-0.5 text-xs">
                   <span className="text-gray-500">Valuation / cap (EUR, optional)</span>
                   <div className="flex gap-1.5">
-                    <input type="number" value={draft.valuation} onChange={(e) => setDraft({ ...draft, valuation: e.target.value })} className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+                    <input autoComplete="off" type="number" value={draft.valuation} onChange={(e) => setDraft({ ...draft, valuation: e.target.value })} className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
                     <select value={draft.valuation_basis} onChange={(e) => setDraft({ ...draft, valuation_basis: e.target.value as ValuationBasis })}
                       className="shrink-0 rounded border border-gray-300 px-1.5 py-1 text-sm">
                       <option value="pre_money">pre-money</option>
@@ -192,17 +192,17 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
                 </label>
                 <label className="flex flex-col gap-0.5 text-xs">
                   <span className="text-gray-500">Minimum ticket (EUR, optional)</span>
-                  <input type="number" value={draft.min_ticket} onChange={(e) => setDraft({ ...draft, min_ticket: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
+                  <input autoComplete="off" type="number" value={draft.min_ticket} onChange={(e) => setDraft({ ...draft, min_ticket: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
                 </label>
                 <CompletenessField id="round.runway" label="Runway now (months)" missing={missingIds.has('round.runway')} flashing={flashId === 'round.runway'}>
-                  <input type="number" value={draft.runway} onChange={(e) => setDraft({ ...draft, runway: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
+                  <input autoComplete="off" type="number" value={draft.runway} onChange={(e) => setDraft({ ...draft, runway: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
                 </CompletenessField>
                 <label className="flex flex-col gap-0.5 text-xs">
                   <span className="text-gray-500">Runway post-round (months, optional)</span>
-                  <input type="number" value={draft.runway_post} onChange={(e) => setDraft({ ...draft, runway_post: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
+                  <input autoComplete="off" type="number" value={draft.runway_post} onChange={(e) => setDraft({ ...draft, runway_post: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
                 </label>
                 <CompletenessField id="round.target_close_date" label="Target close date" missing={missingIds.has('round.target_close_date')} flashing={flashId === 'round.target_close_date'}>
-                  <input type="date" value={draft.close_date} onChange={(e) => setDraft({ ...draft, close_date: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
+                  <input autoComplete="off" type="date" value={draft.close_date} onChange={(e) => setDraft({ ...draft, close_date: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
                 </CompletenessField>
               </div>
 
@@ -216,7 +216,7 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
                   ))}
                 </div>
                 {draft.instruments.includes('other') && (
-                  <input value={draft.instrument_other} onChange={(e) => setDraft({ ...draft, instrument_other: e.target.value })} placeholder="Describe the instrument"
+                  <input autoComplete="off" value={draft.instrument_other} onChange={(e) => setDraft({ ...draft, instrument_other: e.target.value })} placeholder="Describe the instrument"
                     className="mt-1.5 w-full rounded border border-gray-300 px-2 py-1 text-sm" />
                 )}
               </CompletenessField>
@@ -231,14 +231,14 @@ export function RoundCard({ canEdit, missing, flashId }: { canEdit: boolean; mis
                   <AiSupportButton kind="use_of_funds" onUse={(s) => setDraft({ ...draft, use_of_funds: draft.use_of_funds ? `${draft.use_of_funds}\n${s}` : s })} />
                 </span>
               } missing={missingIds.has('round.use_of_funds')} flashing={flashId === 'round.use_of_funds'}>
-                <textarea value={draft.use_of_funds} onChange={(e) => setDraft({ ...draft, use_of_funds: e.target.value })} rows={2} className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
+                <textarea autoComplete="off" value={draft.use_of_funds} onChange={(e) => setDraft({ ...draft, use_of_funds: e.target.value })} rows={2} className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
               </CompletenessField>
 
               <label className="flex items-center gap-1.5 text-sm text-gray-700">
                 <input type="checkbox" checked={draft.flexible} onChange={(e) => setDraft({ ...draft, flexible: e.target.checked })} /> Flexible
               </label>
               {draft.flexible && (
-                <input value={draft.flexible_note} onChange={(e) => setDraft({ ...draft, flexible_note: e.target.value })} placeholder="In what way?"
+                <input autoComplete="off" value={draft.flexible_note} onChange={(e) => setDraft({ ...draft, flexible_note: e.target.value })} placeholder="In what way?"
                   className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
               )}
             </>

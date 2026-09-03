@@ -4355,3 +4355,52 @@ so Correção 3 §9's four cases are a table test rather than a browser check.
 **Not changed, on purpose:** the notice's recurring schedule (T0, +2, +4, then
 every 4 months — `isVaultPrivacyNoticeDue`), its approved copy, the tour
 content and order, and the z-indexes.
+
+---
+
+## Prompt 553 (03/09/2026) — Every text input declares `autoComplete`: `off` unless it is genuinely personal data
+
+**The rule.** Every `<input>` and `<textarea>` in this app states what it is to
+the browser. `off` is the default and the common case; a real
+`autoComplete` token (`email`, `tel`, `url`, `organization`,
+`organization-title`, `country-name`, `address-level2`, `postal-code`,
+`current-password`, `new-password`) only where the field genuinely holds the
+signed-in user's OWN personal or contact data. Enforced by
+`no-restricted-syntax` in `.eslintrc.json`: `error` on the founder-facing
+form directories, `warn` everywhere else.
+
+**Why.** A field that declares nothing lets Chrome guess from its own
+heuristics. On About → Company the sector SEARCH box had no `name`, no
+`type` and no `autoComplete`, sat under a label ending "…that apply to your
+**company**", and its siblings were Website, HQ country, HQ city, Postal
+code and a phone number. Chrome read the card as an address form, classified
+the search box as `organization`, and on a brand-new org filled it from the
+founder's saved address profile — with "ablute_", a name he had typed into
+forms on this domain before. The `:-webkit-autofill` highlight made it look
+like stored data, the autofill fired `onChange`, and the taxonomy filtered
+down to nothing.
+
+**No data crossed orgs, and this was checked before writing any code.** A
+`jsonb_each_text` sweep over the Krohnsty row found exactly one match for
+"ablute": `sender_email = ablutealex@proton.me`, the founder's own address.
+The sector box is a filter over a fixed local taxonomy — it never reads or
+writes another org's data. It was a browser-autofill defect and a real
+first-run product defect, not a leak.
+
+**The line that decides the token, and it is not "is this field named
+email".** The user's OWN credentials and contact details get a real token
+(login/signup email and password, own phone, own LinkedIn, own company
+website and name, `orgs.sender_email`). **Anything the user types ABOUT
+SOMEONE ELSE gets `off`** — a colleague's row in the team card, an
+investor's invite address, a document's view-only URL, a team member's photo
+link. `email` on a third party's field invites Chrome to offer the founder's
+own address for a colleague, which is the same class of confusion this
+prompt exists to end. Search and filter boxes are always `off`; a scripted
+first pass tagged two of them `email` purely from the word "email" in the
+placeholder, which is exactly the mistake the rule is meant to catch.
+
+**Scope done now:** 110 inputs across `src/components/company/**` (incl.
+Identity and the SectorPicker), `InvestorProfilePanel`, `src/app/signup`,
+`src/app/login`, `src/app/documents/page.tsx` and
+`src/components/documents/**`. **Backlog:** 249 inputs elsewhere still warn;
+they are the next sweep. Do not silence the warning — fix the input.

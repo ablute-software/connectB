@@ -32,15 +32,15 @@ export function OutreachSettingsCard({ canEdit }: { canEdit: boolean }) {
         <div className="grid grid-cols-3 gap-2">
           <label className="flex flex-col gap-0.5 text-xs">
             <span className="text-gray-500">Sender email</span>
-            <input type="email" value={draft.sender_email} onChange={(e) => setDraft({ ...draft, sender_email: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
+            <input autoComplete="email" type="email" value={draft.sender_email} onChange={(e) => setDraft({ ...draft, sender_email: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
           </label>
           <label className="flex flex-col gap-0.5 text-xs">
             <span className="text-gray-500">Daily cap</span>
-            <input type="number" value={draft.daily_cap} onChange={(e) => setDraft({ ...draft, daily_cap: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
+            <input autoComplete="off" type="number" value={draft.daily_cap} onChange={(e) => setDraft({ ...draft, daily_cap: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
           </label>
           <label className="flex flex-col gap-0.5 text-xs">
             <span className="text-gray-500">Weekly cap</span>
-            <input type="number" value={draft.weekly_cap} onChange={(e) => setDraft({ ...draft, weekly_cap: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
+            <input autoComplete="off" type="number" value={draft.weekly_cap} onChange={(e) => setDraft({ ...draft, weekly_cap: e.target.value })} className="rounded border border-gray-300 px-2 py-1 text-sm" />
           </label>
           <div className="col-span-3 flex gap-2">
             <button onClick={save} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-sm font-medium text-white">Save</button>

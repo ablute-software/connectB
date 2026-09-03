@@ -88,11 +88,11 @@ function InvestorSignupPanel() {
               to confirm access — or if a founder has already granted you access, sign in below.
             </p>
             <div className="mt-4 space-y-2.5">
-              <input type="email" placeholder="you@fund.com *" value={email} onChange={(e) => setEmail(e.target.value)}
+              <input autoComplete="email" type="email" placeholder="you@fund.com *" value={email} onChange={(e) => setEmail(e.target.value)}
                 className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" />
-              <input type="text" placeholder="Firm name (optional)" value={firmName} onChange={(e) => setFirmName(e.target.value)}
+              <input autoComplete="off" type="text" placeholder="Firm name (optional)" value={firmName} onChange={(e) => setFirmName(e.target.value)}
                 className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" />
-              <textarea placeholder="Anything that helps us route this — e.g. “I'm a partner at X, looking for deals in Y” (optional)"
+              <textarea autoComplete="off" placeholder="Anything that helps us route this — e.g. “I'm a partner at X, looking for deals in Y” (optional)"
                 value={note} onChange={(e) => setNote(e.target.value)} rows={3}
                 className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" />
               {/* Honeypot — hidden from real visitors via CSS, not `type=hidden`
@@ -303,24 +303,24 @@ function FounderSignupForm() {
         )}
 
         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Startup</div>
-        <input value={org} onChange={(e) => setOrg(e.target.value)} placeholder="Company / startup name *"
+        <input autoComplete="organization" value={org} onChange={(e) => setOrg(e.target.value)} placeholder="Company / startup name *"
           className="mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         <div className="mb-2 grid grid-cols-2 gap-2">
-          <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="Website"
+          <input autoComplete="url" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="Website"
             className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
-          <input value={sector} onChange={(e) => setSector(e.target.value)} placeholder="Sector"
+          <input autoComplete="off" value={sector} onChange={(e) => setSector(e.target.value)} placeholder="Sector"
             className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         </div>
         <div className="mb-2 grid grid-cols-2 gap-2">
           <select value={stage} onChange={(e) => setStage(e.target.value)} className="rounded-xl border border-gray-300 px-3 py-2 text-sm">
             {STAGES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
-          <input value={roundTarget} onChange={(e) => setRoundTarget(e.target.value)} type="number" placeholder="Round target (EUR)"
+          <input autoComplete="off" value={roundTarget} onChange={(e) => setRoundTarget(e.target.value)} type="number" placeholder="Round target (EUR)"
             className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         </div>
-        <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Country"
+        <input autoComplete="off" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Country"
           className="mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
-        <input value={oneLiner} onChange={(e) => setOneLiner(e.target.value)} placeholder="One-liner — what you do in one sentence"
+        <input autoComplete="off" value={oneLiner} onChange={(e) => setOneLiner(e.target.value)} placeholder="One-liner — what you do in one sentence"
           className="mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         {!utmSource && (
           <select value={howHeard} onChange={(e) => setHowHeard(e.target.value)}
@@ -331,22 +331,22 @@ function FounderSignupForm() {
 
         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">You</div>
         <div className="mb-2 grid grid-cols-2 gap-2">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name *"
+          <input autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name *"
             className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Role *"
+          <input autoComplete="organization-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Role *"
             className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         </div>
         <div className="mb-4 grid grid-cols-2 gap-2">
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone"
+          <input autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone"
             className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
-          <input value={linkedin} onChange={(e) => setLinkedin(e.target.value)} placeholder="LinkedIn URL"
+          <input autoComplete="url" value={linkedin} onChange={(e) => setLinkedin(e.target.value)} placeholder="LinkedIn URL"
             className="rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         </div>
 
         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Account</div>
-        <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@company.com *"
+        <input autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@company.com *"
           className="mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
-        <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password *"
+        <input autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password *"
           className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
         <PasswordRequirementsIndicator password={password} />
 

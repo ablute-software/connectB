@@ -148,7 +148,7 @@ function ConvertibleNotePanel({ orgId, documents, label, pct, onFillLabel, onFil
         </div>
       )}
       {value.triggerType === 'event' && (
-        <input value={value.event} onChange={(e) => onChange({ event: e.target.value })}
+        <input autoComplete="off" value={value.event} onChange={(e) => onChange({ event: e.target.value })}
           placeholder="e.g. next priced round, Series A close"
           className="mt-1.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
       )}
@@ -280,9 +280,9 @@ export function CapTableCard() {
           className="rounded border border-gray-300 px-2 py-1.5 text-sm">
           {CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}
         </select>
-        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Founder A, ESOP pool, Seed investors…"
+        <input autoComplete="off" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Founder A, ESOP pool, Seed investors…"
           className="w-48 rounded border border-gray-300 px-2 py-1.5 text-sm" />
-        <input value={pct} onChange={(e) => setPct(e.target.value)} type="number" min="0" max="100" step="0.1" placeholder="%"
+        <input autoComplete="off" value={pct} onChange={(e) => setPct(e.target.value)} type="number" min="0" max="100" step="0.1" placeholder="%"
           className="w-20 rounded border border-gray-300 px-2 py-1.5 text-sm" />
         {category === 'investor' && (
           <label className="flex items-center gap-1.5 text-xs text-gray-600">
@@ -290,7 +290,7 @@ export function CapTableCard() {
             Convertible Note (or other convertible instrument)
           </label>
         )}
-        <input value={asOf} onChange={(e) => setAsOf(e.target.value)} type="date"
+        <input autoComplete="off" value={asOf} onChange={(e) => setAsOf(e.target.value)} type="date"
           className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
       </div>
 

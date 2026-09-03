@@ -173,9 +173,18 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
     }
   }
 
-  const input = (k: string, label: string, id: string, type = 'text') => (
+  // Prompt 553 — every field declares what it is, so the browser fills the
+  // RIGHT thing into the RIGHT box instead of guessing. This card is
+  // address-shaped to Chrome's heuristics (website, country, city, postal
+  // code), and when it guesses it guesses from the founder's saved address
+  // profile — which is how a brand-new org's SECTOR SEARCH ended up
+  // pre-filled with "ablute_". `autoComplete` is required at the call site,
+  // never defaulted: a silent default is how a field goes back to saying
+  // nothing.
+  const input = (k: string, label: string, id: string, autoComplete: string, type = 'text') => (
     <CompletenessField id={id} label={label} missing={missingIds.has(id)} flashing={flashId === id}>
       <input type={type} value={draft[k] ?? ''} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
+        name={k} autoComplete={autoComplete}
         className="rounded border border-gray-300 px-2 py-1 text-sm" />
     </CompletenessField>
   );
@@ -193,6 +202,7 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
       <CompletenessField id={id} label={label} missing={false} flashing={flashId === id || flashId === 'identity.intro_pitch'}>
         <div className="relative">
           <input value={draft[key] ?? ''} maxLength={INTRO_PITCH_MAX}
+            name={key} autoComplete="off"
             onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
             placeholder={suggested ?? examplePlaceholder}
             onKeyDown={(e) => {
@@ -221,14 +231,14 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
       {editing ? (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
-            {input('legal_name', 'Legal name', 'identity.legal_name')}
-            {input('name', 'Commercial name', 'identity.name')}
-            {input('website', 'Website', 'identity.website')}
-            {input('country', 'HQ country', 'identity.country')}
-            {input('hq_city', 'HQ city', 'identity.hq_city')}
-            {input('postal_code', 'Postal code', 'identity.postal_code')}
-            {input('founded_year', 'Year founded', 'identity.founded_year', 'number')}
-            {input('revenue_eur', 'Revenue (EUR)', 'identity.revenue', 'number')}
+            {input('legal_name', 'Legal name', 'identity.legal_name', 'organization')}
+            {input('name', 'Commercial name', 'identity.name', 'organization')}
+            {input('website', 'Website', 'identity.website', 'url')}
+            {input('country', 'HQ country', 'identity.country', 'country-name')}
+            {input('hq_city', 'HQ city', 'identity.hq_city', 'address-level2')}
+            {input('postal_code', 'Postal code', 'identity.postal_code', 'postal-code')}
+            {input('founded_year', 'Year founded', 'identity.founded_year', 'off', 'number')}
+            {input('revenue_eur', 'Revenue (EUR)', 'identity.revenue', 'off', 'number')}
           </div>
           <CompletenessField id="identity.current_phase" label="Current phase" missing={missingIds.has('identity.current_phase')} flashing={flashId === 'identity.current_phase'}>
             <select value={draft.current_phase ?? ''} onChange={(e) => setDraft({ ...draft, current_phase: e.target.value })}
@@ -243,6 +253,7 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
           </CompletenessField>
           <CompletenessField id="identity.one_liner" label="One-liner" missing={missingIds.has('identity.one_liner')} flashing={flashId === 'identity.one_liner'}>
             <input value={draft.one_liner ?? ''} onChange={(e) => setDraft({ ...draft, one_liner: e.target.value })}
+              name="one_liner" autoComplete="off"
               className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
           </CompletenessField>
           {/* Prompt 325 — additional to the one-liner above, never
@@ -265,6 +276,7 @@ export function IdentityCard({ canEdit, missing, flashId }: { canEdit: boolean; 
           </div>
           <CompletenessField id="identity.description" label="Short description (2-3 sentences)" missing={missingIds.has('identity.description')} flashing={flashId === 'identity.description'}>
             <textarea value={draft.description ?? ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} rows={3}
+              name="description" autoComplete="off"
               className="w-full rounded border border-gray-300 px-2 py-1 text-sm" />
           </CompletenessField>
           <div className="flex gap-2">

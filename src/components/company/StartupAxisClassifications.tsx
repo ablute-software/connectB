@@ -62,9 +62,9 @@ export function StartupAxisClassifications() {
               </div>
               {editing && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  <input value={level} onChange={(e) => setLevel(e.target.value)} placeholder="level (number)" inputMode="numeric"
+                  <input autoComplete="off" value={level} onChange={(e) => setLevel(e.target.value)} placeholder="level (number)" inputMode="numeric"
                     className="w-24 rounded border border-gray-300 px-1.5 py-1 text-xs" />
-                  <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="what this level means"
+                  <input autoComplete="off" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="what this level means"
                     className="flex-1 min-w-[160px] rounded border border-gray-300 px-1.5 py-1 text-xs" />
                   <button disabled={!label.trim() || level.trim() === ''} onClick={() => save(axis)}
                     className="rounded bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-300">

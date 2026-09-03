@@ -147,9 +147,9 @@ export function CapTableAiFillPanel({ addCapTableEntry }: {
                   <li key={i} className="rounded-lg border border-gray-200 bg-white p-2">
                     <div className="flex items-center gap-1.5 text-xs">
                       <span className="shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{CATEGORY_LABEL[e.category]}</span>
-                      <input value={e.label} onChange={(ev) => editRow(i, { label: ev.target.value })}
+                      <input autoComplete="off" value={e.label} onChange={(ev) => editRow(i, { label: ev.target.value })}
                         className="min-w-0 flex-1 rounded border border-gray-300 px-1.5 py-0.5" />
-                      <input value={e.pct} onChange={(ev) => editRow(i, { pct: ev.target.value })} type="number" min="0" max="100" step="0.1"
+                      <input autoComplete="off" value={e.pct} onChange={(ev) => editRow(i, { pct: ev.target.value })} type="number" min="0" max="100" step="0.1"
                         className="w-16 shrink-0 rounded border border-gray-300 px-1.5 py-0.5" />
                       <button onClick={() => removeRow(i)} className="shrink-0 text-[11px] text-gray-400 hover:text-[#B00000]">remove</button>
                     </div>
@@ -186,9 +186,9 @@ function GuidedRowAdder({ placeholder, onAdd }: { placeholder: string; onAdd: (l
 
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1.5">
-      <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={placeholder}
+      <input autoComplete="off" value={label} onChange={(e) => setLabel(e.target.value)} placeholder={placeholder}
         className="w-40 rounded border border-gray-300 px-2 py-1 text-xs" />
-      <input value={pct} onChange={(e) => setPct(e.target.value)} type="number" min="0" max="100" step="0.1" placeholder="%"
+      <input autoComplete="off" value={pct} onChange={(e) => setPct(e.target.value)} type="number" min="0" max="100" step="0.1" placeholder="%"
         className="w-16 rounded border border-gray-300 px-2 py-1 text-xs" />
       <button onClick={submit} disabled={!label.trim() || !pct}
         className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-40">

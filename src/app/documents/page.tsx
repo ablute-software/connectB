@@ -1062,7 +1062,7 @@ function DocumentsPageInner() {
           <div className="mt-3 border-t border-gray-100 pt-3 text-xs">
             <div className="font-medium text-gray-500">New folder</div>
             <div className="mt-1 flex flex-col gap-1.5">
-              <input value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} placeholder="Name"
+              <input autoComplete="off" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} placeholder="Name"
                 className="rounded border border-gray-300 px-2 py-1 text-sm" />
               <select value={newFolderParent} onChange={(e) => setNewFolderParent(e.target.value)}
                 className="rounded border border-gray-300 px-2 py-1 text-sm">
@@ -1111,7 +1111,7 @@ function DocumentsPageInner() {
                         )}
                         {renamingDocId === d.id ? (
                           <span className="flex items-center gap-1">
-                            <input value={renameText} onChange={(e) => setRenameText(e.target.value)} autoFocus
+                            <input autoComplete="off" value={renameText} onChange={(e) => setRenameText(e.target.value)} autoFocus
                               className="rounded border border-gray-300 px-1.5 py-0.5 text-sm" />
                             <button onClick={saveRenameDoc} className="text-xs text-cyan-700 hover:underline">save</button>
                           </span>
@@ -1220,7 +1220,7 @@ function DocumentsPageInner() {
                       </div>
                       {detailsOpenId === d.id ? (
                         <div className="mt-2 flex flex-col gap-1">
-                          <textarea value={detailsText} onChange={(e) => setDetailsText(e.target.value)} rows={2}
+                          <textarea autoComplete="off" value={detailsText} onChange={(e) => setDetailsText(e.target.value)} rows={2}
                             placeholder="What this contains, version, who it was prepared for…"
                             className="w-full rounded border border-gray-300 p-2 text-xs" />
                           <button onClick={() => saveDetails(d.id)} className="self-start rounded bg-[#0E7490] px-2 py-1 text-xs font-medium text-white">
@@ -1232,7 +1232,7 @@ function DocumentsPageInner() {
                       ) : null}
                       {linkVersionDocId === d.id && (
                         <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 p-2">
-                          <input value={linkVersionUrl} onChange={(e) => setLinkVersionUrl(e.target.value)}
+                          <input autoComplete="off" value={linkVersionUrl} onChange={(e) => setLinkVersionUrl(e.target.value)}
                             placeholder="Paste a link or Google Drive share URL…" autoFocus
                             className="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-xs" />
                           <button onClick={() => newVersionFromLink(d.id)} disabled={!linkVersionUrl.trim() || replacingDocId === d.id}
@@ -1309,9 +1309,9 @@ function DocumentsPageInner() {
             <div className="mt-3 border-t border-gray-100 pt-3">
               <div className="text-xs font-medium text-gray-500">Add document (link)</div>
               <div className="mt-1 flex flex-wrap gap-2">
-                <input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="Name"
+                <input autoComplete="off" value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="Name"
                   className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
-                <input value={docUrl} onChange={(e) => setDocUrl(e.target.value)} placeholder="View-only URL"
+                <input autoComplete="off" value={docUrl} onChange={(e) => setDocUrl(e.target.value)} placeholder="View-only URL"
                   className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
                 <button disabled={!docName || !docUrl}
                   onClick={() => {
@@ -1429,7 +1429,7 @@ function DocumentsPageInner() {
                 ) : (
                   <>
                     <div className="flex items-center gap-2">
-                      <input value={grantEntityQuery}
+                      <input autoComplete="off" value={grantEntityQuery}
                         onChange={(e) => { setGrantEntityQuery(e.target.value); if (e.target.value) setShowFullGrantList(false); }}
                         placeholder="Search by name or email…"
                         className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
@@ -1592,9 +1592,9 @@ function DocumentsPageInner() {
                       ) : (
                         <div className="rounded-lg border border-gray-100 bg-gray-50 p-2">
                           <div className="flex flex-wrap gap-2">
-                            <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Their name"
+                            <input autoComplete="off" value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Their name"
                               className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
-                            <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Their email" type="email"
+                            <input autoComplete="off" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Their email" type="email"
                               className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
                           </div>
                           {inviteEmail && grantEntity && (() => {
@@ -1626,7 +1626,7 @@ function DocumentsPageInner() {
                     <span className="flex items-center gap-1"><TriStateBox state="shared_nda" onClick={() => {}} /> shared + NDA required</span>
                     <span className="flex items-center gap-1"><TriStateBox state="none" onClick={() => {}} /> not shared</span>
                   </div>
-                  <input type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
+                  <input autoComplete="off" type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
                     className="mt-2 rounded border border-gray-300 px-2 py-1.5 text-sm" title="Expiry (optional)" />
                   {(() => {
                     // Prompt 204(b) — aviso INFORMATIVO, nao bloqueante.
@@ -1672,9 +1672,9 @@ function DocumentsPageInner() {
                 <div className="mt-2 space-y-2">
                   <label className="mb-1 block text-[11px] font-medium text-gray-400">Share with someone by email</label>
                   <div className="flex flex-wrap gap-2">
-                    <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Their name"
+                    <input autoComplete="off" value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Their name"
                       className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
-                    <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Their email" type="email"
+                    <input autoComplete="off" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Their email" type="email"
                       className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
                   </div>
                   {/* Prompt 545 — one line, and it is the line the founder
@@ -1698,7 +1698,7 @@ function DocumentsPageInner() {
                       <p className="font-medium">{inviteResult.ok ? '✓ ' : '✕ '}{inviteResult.message}</p>
                       {inviteResult.guestUrl && (
                         <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                          <input readOnly value={inviteResult.guestUrl}
+                          <input autoComplete="off" readOnly value={inviteResult.guestUrl}
                             onFocus={(e) => e.currentTarget.select()}
                             className="min-w-0 flex-1 rounded border border-gray-200 bg-white px-1.5 py-1 text-[10px] text-gray-600" />
                           <button type="button"
@@ -1725,7 +1725,7 @@ function DocumentsPageInner() {
                         <span className="flex items-center gap-1"><TriStateBox state="shared_nda" onClick={() => {}} /> shared + NDA required</span>
                         <span className="flex items-center gap-1"><TriStateBox state="none" onClick={() => {}} /> not shared</span>
                       </div>
-                      <input type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
+                      <input autoComplete="off" type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
                         className="mt-2 rounded border border-gray-300 px-2 py-1.5 text-sm" title="Expiry (optional)" />
                       <div>
                         <button onClick={() => void submitAdHocEmailGrant()} disabled={inviteBusy}

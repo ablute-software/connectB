@@ -545,14 +545,14 @@ function CreatePopover({ draft, categories, onCancel, onSave }: {
 
   return (
     <div className="mt-3 space-y-2 rounded-2xl border border-[#0041c8]/15 bg-[#eaedff]/50 p-3">
-      <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)}
+      <input autoComplete="off" autoFocus value={title} onChange={(e) => setTitle(e.target.value)}
         placeholder="What happened (or will happen)?"
         onKeyDown={(e) => { if (e.key === 'Enter' && title.trim()) void submit(); }}
         className="w-full rounded-lg border border-[#c3c5d9] px-2 py-1.5 text-sm" />
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <label className="flex items-center gap-1">Date <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" /></label>
+        <label className="flex items-center gap-1">Date <input autoComplete="off" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" /></label>
         <label className="flex items-center gap-1">
-          End (optional) <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
+          End (optional) <input autoComplete="off" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
         </label>
         <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1">
           <option value="">{GENERAL_LABEL}</option>

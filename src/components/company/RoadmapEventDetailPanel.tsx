@@ -128,16 +128,16 @@ function EditForm({ event, categories, documents, onCancel, onSave, onRemove }: 
 
   return (
     <div className="space-y-2.5">
-      <input value={title} onChange={(e) => setTitle(e.target.value)}
+      <input autoComplete="off" value={title} onChange={(e) => setTitle(e.target.value)}
         className="w-full rounded-lg border border-[#c3c5d9] px-2.5 py-1.5 text-base font-medium text-[#131b2e]" />
-      <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Description (optional)"
+      <textarea autoComplete="off" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Description (optional)"
         className="w-full rounded-lg border border-[#c3c5d9] px-2.5 py-1.5 text-sm" />
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <label className="flex items-center gap-1">Date
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
+          <input autoComplete="off" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
         </label>
         <label className="flex items-center gap-1">End (optional)
-          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
+          <input autoComplete="off" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
         </label>
         <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1">
           <option value="">{GENERAL_LABEL}</option>

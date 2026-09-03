@@ -190,9 +190,9 @@ export function MiniPitchCard({ canEdit }: { canEdit: boolean }) {
           {editingSlide && (
             <div className="rounded-lg border border-[#0E7490] bg-[#E8F4F8]/40 p-3">
               <p className="text-xs font-semibold text-gray-800">Editing: {MINI_PITCH_SLIDE_LABEL[editingSlide.kind]}</p>
-              <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+              <input autoComplete="off" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })}
                 placeholder="Title (optional)" className="mt-1.5 w-full rounded border border-gray-300 px-2 py-1 text-sm" />
-              <textarea value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} rows={3}
+              <textarea autoComplete="off" value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} rows={3}
                 className="mt-1.5 w-full rounded border border-gray-300 px-2 py-1 text-sm" />
 
               <p className="mt-2 text-[11px] font-medium text-gray-500">Image (optional) — from your Photos &amp; media</p>

@@ -205,7 +205,7 @@ export function TeamAiFillPanel({ orgId, org, people, updateCompanyPerson, updat
                     <span className="font-medium text-gray-600">Current: </span>{currentBio}
                   </div>
                 )}
-                <textarea value={m.bio} onChange={(e) => editBio(m.personId, e.target.value)} rows={2}
+                <textarea autoComplete="off" value={m.bio} onChange={(e) => editBio(m.personId, e.target.value)} rows={2}
                   className="mt-1.5 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
                 <p className="mt-0.5 text-[10px] text-gray-400">↑ AI draft — edit freely before choosing an action.</p>
 
@@ -281,7 +281,7 @@ export function TeamAiFillPanel({ orgId, org, people, updateCompanyPerson, updat
 
           <div>
             <p className="text-xs font-semibold text-gray-900">Team synergy</p>
-            <textarea value={synergy} onChange={(e) => setSynergy(e.target.value)} rows={2}
+            <textarea autoComplete="off" value={synergy} onChange={(e) => setSynergy(e.target.value)} rows={2}
               className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-xs" />
             <p className="mt-0.5 text-[10px] text-gray-400">Saved as your team summary, shown to investors.</p>
             {savedSynergy ? (
