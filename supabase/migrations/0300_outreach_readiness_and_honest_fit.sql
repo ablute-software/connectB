@@ -275,7 +275,20 @@ as $function$
      and coalesce(c.is_test, false) = false
      and not exists (select 1 from public.catalog_deliveries d
                       where d.org_id = p_org_id and d.catalog_id = c.id)
-     and exists (select 1 from public.catalog_person_affiliations pa where pa.entity_id = c.id)
+     -- Prompt 552 — corrected in place. As first written this asked only
+     -- whether an affiliation ROW existed, which let SFC Capital (18 names)
+     -- and Seedcamp (16) through with no LinkedIn and no hook between them:
+     -- the same "nobody to write to" the floor exists to stop. The file is
+     -- kept in step with 0301 deliberately — leaving the old predicate here
+     -- would mean a future `db push` reapplying 0300 silently REGRESSED the
+     -- floor, because 0301 already counts as applied and would not re-run.
+     and exists (
+       select 1 from public.catalog_person_affiliations pa
+         join public.catalog_people p on p.id = pa.person_id
+         left join public.catalog_people_research r on r.person_id = p.id
+        where pa.entity_id = c.id
+          and (p.linkedin_url is not null or coalesce(r.hook, '') <> '')
+     )
      and public.catalog_match_score(p_org_id, c.id) >= 55
    order by public.catalog_match_score(p_org_id, c.id) desc, c.outreach_readiness desc, c.name
    limit greatest(coalesce(p_limit, 10), 0);
