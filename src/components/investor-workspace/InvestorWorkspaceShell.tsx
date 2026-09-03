@@ -42,6 +42,7 @@ import { BRAND_NAME } from '@/lib/brand';
 import { SupportTicketsPanel, useSupportUnreadCount } from '@/components/SupportTicketsPanel';
 import { InvestorActionsPanel, useInvestorActions } from '@/components/investor-workspace/InvestorActionsPanel';
 import { InvestorReminderPopup } from '@/components/portal/InvestorReminderPopup';
+import { INVESTOR_NAV } from '@/lib/investor-nav';
 
 // Prompt 337 — 'archive' is no longer its own tab: ArchivePanel's content
 // moved into PipelinePanel as an "Archived" filter (same content, same
@@ -190,25 +191,11 @@ export function InvestorWorkspaceShell({
   // PipelinePanel's own "Archived" filter.
   const messagesUnread = useInvestorMessagesUnreadCount();
 
-  const NAV: { key: Tab; label: string; icon: string; group: number }[] = [
-    { key: 'about', label: aboutLabel, icon: '⋯', group: 1 },
-    // Prompt 337/338 — renamed from "Access granted": grows into the full
-    // read-only mirror of the founder's own Vault Data Room in Prompt 338.
-    { key: 'access', label: 'Data room', icon: '⚿', group: 2 },
-    { key: 'pipeline', label: 'Pipeline', icon: '▤', group: 2 },
-    // Prompt 340 Block A — own-data-only funnel/agenda/follow-on summary.
-    { key: 'dashboard', label: 'Dashboard', icon: '▥', group: 3 },
-    // P131-B — Ownership calculator (promoted from a per-card button to a
-    // real page) + Equity simulator, structured to grow with more tools.
-    { key: 'evaluation', label: 'Evaluation tools', icon: '⚖', group: 3 },
-    { key: 'actions', label: 'Actions required', icon: '⚑', group: 4 },
-    { key: 'agenda', label: 'Agenda', icon: '◔', group: 4 },
-    // Prompt 340 Block C/D.
-    { key: 'network', label: 'My Network', icon: '⇄', group: 5 },
-    { key: 'messages', label: 'Messages', icon: '✉', group: 5 },
-    { key: 'plans', label: 'Plans & billing', icon: '◈', group: 6 },
-    { key: 'support', label: 'Support', icon: '☎', group: 6 },
-  ];
+  // Prompt 548 Part 1 — built from src/lib/investor-nav.ts, the single list
+  // the guest sidebar also renders. Only `about`'s label is dynamic here;
+  // badges and onSelect stay in this component, as before.
+  const NAV: { key: Tab; label: string; icon: string; group: number }[] =
+    INVESTOR_NAV.map((n) => (n.key === 'about' ? { ...n, label: aboutLabel } : { ...n }));
 
   const tourKey = TOUR_KEY_BY_TAB[tab];
   // Same item list drives both the desktop sidebar and the mobile bottom

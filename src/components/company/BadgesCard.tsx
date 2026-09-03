@@ -178,11 +178,11 @@ export function BadgesCard({ canEdit, orgId }: { canEdit: boolean; orgId: string
             </div>
           ) : (
             <div className="mt-2 space-y-2">
-              <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+              <input autoComplete="off" value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
                 placeholder="Name (e.g. YCombinator W23)" className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
-              <textarea value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
+              <textarea autoComplete="off" value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
                 rows={2} placeholder="Short description (optional)" className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
-              <input value={draft.year} onChange={(e) => setDraft((d) => ({ ...d, year: e.target.value.replace(/\D/g, '') }))}
+              <input autoComplete="off" value={draft.year} onChange={(e) => setDraft((d) => ({ ...d, year: e.target.value.replace(/\D/g, '') }))}
                 placeholder="Year (optional)" className="w-24 rounded-lg border border-gray-300 p-2 text-sm" />
               <div>
                 <label className="text-[11px] text-gray-500">Logo (optional, max 2MB)</label>

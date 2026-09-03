@@ -55,15 +55,15 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
 
   const personFields = (v: typeof BLANK, set: (v: typeof BLANK) => void) => (
     <div className="grid grid-cols-2 gap-2">
-      <input value={v.full_name} onChange={(e) => set({ ...v, full_name: e.target.value })} placeholder="Full name *" className="rounded border border-gray-300 px-2 py-1 text-sm" />
-      <input value={v.title} onChange={(e) => set({ ...v, title: e.target.value })} placeholder="Title / role" className="rounded border border-gray-300 px-2 py-1 text-sm" />
-      <input value={v.linkedin_url} onChange={(e) => set({ ...v, linkedin_url: e.target.value })} placeholder="LinkedIn URL" className="rounded border border-gray-300 px-2 py-1 text-sm" />
-      <input value={v.email} onChange={(e) => set({ ...v, email: e.target.value })} type="email" placeholder="Email (optional)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
-      <input value={v.photo_url} onChange={(e) => set({ ...v, photo_url: e.target.value })} placeholder="Photo URL (optional — shown on MatchDeal)" className="col-span-2 rounded border border-gray-300 px-2 py-1 text-sm" />
+      <input autoComplete="off" value={v.full_name} onChange={(e) => set({ ...v, full_name: e.target.value })} placeholder="Full name *" className="rounded border border-gray-300 px-2 py-1 text-sm" />
+      <input autoComplete="off" value={v.title} onChange={(e) => set({ ...v, title: e.target.value })} placeholder="Title / role" className="rounded border border-gray-300 px-2 py-1 text-sm" />
+      <input autoComplete="off" value={v.linkedin_url} onChange={(e) => set({ ...v, linkedin_url: e.target.value })} placeholder="LinkedIn URL" className="rounded border border-gray-300 px-2 py-1 text-sm" />
+      <input autoComplete="off" value={v.email} onChange={(e) => set({ ...v, email: e.target.value })} type="email" placeholder="Email (optional)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
+      <input autoComplete="off" value={v.photo_url} onChange={(e) => set({ ...v, photo_url: e.target.value })} placeholder="Photo URL (optional — shown on MatchDeal)" className="col-span-2 rounded border border-gray-300 px-2 py-1 text-sm" />
       <label className="col-span-2 flex items-center gap-1.5 text-xs text-gray-600">
         <input type="checkbox" checked={v.is_founder} onChange={(e) => set({ ...v, is_founder: e.target.checked })} /> Founder
       </label>
-      <input value={v.bio} onChange={(e) => set({ ...v, bio: e.target.value })} placeholder="Mini-bio (optional, 1-2 lines)" className="col-span-2 rounded border border-gray-300 px-2 py-1 text-sm" />
+      <input autoComplete="off" value={v.bio} onChange={(e) => set({ ...v, bio: e.target.value })} placeholder="Mini-bio (optional, 1-2 lines)" className="col-span-2 rounded border border-gray-300 px-2 py-1 text-sm" />
     </div>
   );
 
@@ -126,7 +126,7 @@ export function StartupTeamCard({ canEdit, missing, flashId }: { canEdit: boolea
       <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-gray-100 pt-3">
         <CompletenessField id="team.employee_count" label="Total employees" missing={missingIds.has('team.employee_count')} flashing={flashId === 'team.employee_count'}>
           {canEdit ? (
-            <input type="number" value={countDraft ?? (org.employee_count != null ? String(org.employee_count) : '')}
+            <input autoComplete="off" type="number" value={countDraft ?? (org.employee_count != null ? String(org.employee_count) : '')}
               onChange={(e) => setCountDraft(e.target.value)}
               onBlur={() => { if (countDraft !== null) { updateOrg({ employee_count: countDraft ? Number(countDraft) : undefined }); setCountDraft(null); } }}
               className="w-24 rounded border border-gray-300 px-2 py-1 text-sm" />

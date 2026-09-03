@@ -440,7 +440,7 @@ export function PeopleAccessPanel({ onShareByEmail }: {
     }
     return (
       <span className="flex shrink-0 flex-wrap items-center gap-1">
-        <input type="date" value={extendDate} onChange={(e) => setExtendDate(e.target.value)}
+        <input autoComplete="off" type="date" value={extendDate} onChange={(e) => setExtendDate(e.target.value)}
           className="rounded border border-gray-300 px-1 py-0.5 text-[10px]" />
         <button type="button" disabled={!extendDate}
           onClick={() => applyExtension(grants.map((g) => g.id), `${extendDate}T23:59:59Z`)}
@@ -595,7 +595,7 @@ export function PeopleAccessPanel({ onShareByEmail }: {
     <div className="grid gap-4 md:grid-cols-3">
       <div data-tour-id="people-entities">
       <Card title="Entities">
-        <input value={query} onChange={(e) => setQuery(e.target.value)}
+        <input autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)}
           placeholder="Search entity, person or email…" aria-label="Search entities"
           className="mb-3 w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
 
@@ -714,7 +714,7 @@ export function PeopleAccessPanel({ onShareByEmail }: {
                     </label>
                     <label className="flex items-center gap-1.5 text-xs text-gray-600">
                       Expires
-                      <input type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)} className="rounded border border-gray-300 px-1.5 py-0.5 text-xs" />
+                      <input autoComplete="off" type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)} className="rounded border border-gray-300 px-1.5 py-0.5 text-xs" />
                     </label>
                     <button onClick={confirmGrant} className="rounded-lg bg-[#0E7490] px-3 py-1 text-xs font-medium text-white">
                       Grant access

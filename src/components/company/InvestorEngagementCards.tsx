@@ -69,7 +69,7 @@ export function InvestorQACard() {
                 <p className="mt-1.5 text-xs text-gray-600">{q.answer}</p>
               ) : (
                 <div className="mt-1.5 flex gap-2">
-                  <input value={drafts[q.id] ?? ''} onChange={(e) => setDrafts({ ...drafts, [q.id]: e.target.value })}
+                  <input autoComplete="off" value={drafts[q.id] ?? ''} onChange={(e) => setDrafts({ ...drafts, [q.id]: e.target.value })}
                     placeholder="Write an answer…" className="flex-1 rounded-lg border border-gray-300 px-2 py-1 text-xs" />
                   <button onClick={() => answer(q.id)} disabled={busyId === q.id}
                     className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">Reply</button>
@@ -117,9 +117,9 @@ export function RoundUpdatesCard() {
   return (
     <Card title="Round updates">
       <div className="space-y-2">
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Update title"
+        <input autoComplete="off" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Update title"
           className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm" />
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="What's new since last time…"
+        <textarea autoComplete="off" value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="What's new since last time…"
           className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm" />
         <button onClick={publish} disabled={saving || !title.trim() || !body.trim()}
           className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
@@ -222,7 +222,7 @@ export function InterestLevelRequestsCard() {
             </div>
             <p className="mt-0.5 text-[11px] text-gray-400">Requested {new Date(r.requestedAt).toLocaleDateString()}</p>
             <p className="mt-1.5 text-xs text-gray-600">Wants to message a named contact at your company and ask about data-room access.</p>
-            <textarea value={noteDraft[r.id] ?? ''} onChange={(e) => setNoteDraft({ ...noteDraft, [r.id]: e.target.value })}
+            <textarea autoComplete="off" value={noteDraft[r.id] ?? ''} onChange={(e) => setNoteDraft({ ...noteDraft, [r.id]: e.target.value })}
               rows={1} placeholder="Note (optional)" className="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs" />
             <label className="mt-1.5 flex items-center gap-1.5 text-[11px] text-gray-500">
               <input type="checkbox" checked={!!shareEmailDraft[r.id]} onChange={(e) => setShareEmailDraft({ ...shareEmailDraft, [r.id]: e.target.checked })} />
@@ -397,7 +397,7 @@ export function WatchUpdatesCard() {
         My Network. Progress is usually described in percentages, not exact amounts, unless you&apos;ve turned on exact
         round progress in Settings.
       </p>
-      <textarea value={body} onChange={(e) => setBody(e.target.value.slice(0, 2000))} rows={3}
+      <textarea autoComplete="off" value={body} onChange={(e) => setBody(e.target.value.slice(0, 2000))} rows={3}
         placeholder="What's new since they last checked in?" className="w-full rounded-lg border border-gray-300 p-2 text-sm" />
       {sentAt && Date.now() - sentAt < 3000 && <p className="mt-1.5 text-xs font-medium text-emerald-700">Sent ✓</p>}
       <button onClick={send} disabled={busy || !body.trim()}

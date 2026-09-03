@@ -27,6 +27,7 @@
 // whenever the shared selection changes, not only while that tool happens
 // to be open — cheap (one row per org), documented at each fetch site.
 import { useEffect, useState } from 'react';
+import { EVALUATION_TOOLS } from '@/lib/evaluation-tools';
 import { computeDilution, type ValuationBasis } from '@/lib/dilution';
 import { ScenariosReturnsTool } from './ScenariosReturnsTool';
 import { ComparisonView } from './ComparisonView';
@@ -1184,21 +1185,7 @@ function EvaluationToolsIntro({ onClose, onMute }: { onClose: () => void; onMute
 }
 
 // Prompt 427 §B — order only; keys/labels/subtitles unchanged.
-const TOOLS: { key: 'calculator' | 'simulator' | 'scorecard' | 'berkus' | 'return' | 'compare'; label: string; subtitle: string }[] = [
-  { key: 'scorecard', label: 'Scorecard criteria', subtitle: 'Your private scoring criteria' },
-  { key: 'berkus', label: 'Berkus Method', subtitle: 'Pre-revenue valuation estimate' },
-  { key: 'calculator', label: 'Ownership calculator', subtitle: 'Real round data from your Pipeline' },
-  { key: 'simulator', label: 'Equity simulator', subtitle: 'Your own hypothetical numbers' },
-  // Prompt 169 §C — MOIC over the same real ownership math as the
-  // calculator above. Prompt 408 §A.3 — evolved from a single assumed
-  // exit into up to 5 weighted scenarios (Failure→Outlier) plus the VC
-  // Method's required-exit inversion.
-  { key: 'return', label: 'Scenarios & returns', subtitle: 'Failure→outlier scenarios, weighted MOIC & IRR' },
-  // Prompt 345 Block E — moved here from the Pipeline (checkbox-per-row +
-  // banner removed there); this tool IS the comparator now, not a shortcut
-  // back to another tab.
-  { key: 'compare', label: 'Compare startups', subtitle: 'Side-by-side, up to 3 from your Pipeline' },
-];
+const TOOLS = EVALUATION_TOOLS;
 
 export function EvaluationToolsPanel({ initialOrgId }: {
   initialOrgId?: string | null;

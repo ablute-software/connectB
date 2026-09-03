@@ -32,7 +32,7 @@
 // leads (someone arriving with no invite at all) — just no longer what
 // this specific, already-invited CTA uses.
 import { useEffect, useState } from 'react';
-import { BRAND_NAME } from '@/lib/brand';
+import { GuestPreviewShell } from '@/components/guest/GuestPreviewShell';
 import { browserClient, authEnabled } from '@/lib/supabase';
 import { groupGuestDocuments, type GuestShelf } from '@/lib/guest-shelf';
 
@@ -63,33 +63,6 @@ type GuestResponse = GuestPreview | GuestError;
 // state. Labels mirror InvestorWorkspaceShell.tsx's own NAV array (this
 // guest is on a path to becoming an investor, not a founder), minus
 // "About your firm" (meaningless before any firm is linked).
-const FROSTED_NAV = [
-  { icon: '▤', label: 'Pipeline' }, { icon: '⋯', label: 'About your firm' }, { icon: '⚿', label: 'Access granted' },
-  { icon: '⚖', label: 'Evaluation tools' }, { icon: '◔', label: 'Agenda' }, { icon: '▣', label: 'Archive' },
-  { icon: '☎', label: 'Support' }, { icon: '◈', label: 'Plans & billing' },
-];
-
-function FrostedSidebar() {
-  return (
-    <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-gray-100 bg-white md:flex" aria-hidden="true">
-      <div className="px-6 pb-3 pt-6">
-        <div className="text-[26px] font-bold leading-none tracking-tight text-[#0E7490]" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
-          {BRAND_NAME}
-        </div>
-        <div className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-gray-300">Investor Workspace</div>
-      </div>
-      <nav className="pointer-events-none mt-1 flex-1 select-none space-y-0.5 px-3 pb-4 opacity-50 blur-[1.5px]">
-        {FROSTED_NAV.map((n) => (
-          <div key={n.label} className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] text-gray-600">
-            <span className="w-4 text-center text-gray-400">{n.icon}</span>
-            <span>{n.label}</span>
-          </div>
-        ))}
-      </nav>
-    </aside>
-  );
-}
-
 export default function GuestPreviewPage({ params }: { params: { token: string } }) {
   const { token } = params;
   const [data, setData] = useState<GuestResponse | null>(null);
@@ -116,14 +89,17 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
     } finally { setSending(false); }
   }
 
+  // Prompt 548 — the same shell every preview uses, with the Data room
+  // entry active. The sidebar it renders is INVESTOR_NAV, so it can no
+  // longer drift from the real workspace the way the hand-typed
+  // FrostedSidebar did (it still said "Access granted" two prompts after
+  // that entry became "Data room", and had lost four entries entirely).
+  // The document card below is untouched.
   return (
-    <div className="min-h-screen bg-[#F7F9FA]">
-      <FrostedSidebar />
-      <div className="flex min-h-screen items-center justify-center px-4 py-10 md:pl-60">
+    <GuestPreviewShell active="access" token={token}
+      title="Data room" subtitle="Shared with you — view only">
+      <div className="flex justify-center">
         <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-7 shadow-sm">
-          <div className="mb-5 text-xl font-bold tracking-tight text-[#0E7490] md:hidden" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>
-            {BRAND_NAME}
-          </div>
 
           {!authEnabled || loadErr ? (
             <p className="text-sm text-gray-500">This preview isn&apos;t available right now.</p>
@@ -206,6 +182,16 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
                               </li>
                             ))}
                           </ul>
+                          {/* Prompt 548 Part 5 — found in the 547 real-DB
+                              run: the pending-NDA count was only ever shown
+                              when the list was EMPTY, so a guest with two
+                              open documents and a third behind an NDA was
+                              told nothing about the third. */}
+                          {data.pendingNdaCount > 0 && data.documentCount > 0 && (
+                            <p className="mt-2 text-xs text-gray-400">
+                              +{data.pendingNdaCount} document{data.pendingNdaCount === 1 ? '' : 's'} available after NDA
+                            </p>
+                          )}
                           {sent ? (
                             <div className="mt-2 rounded-xl border border-cyan-100 bg-[#E8F4F8] px-3 py-3 text-sm text-gray-700">
                               Check your email — we sent a one-time code to {data.invitedEmail}.
@@ -235,6 +221,6 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
           )}
         </div>
       </div>
-    </div>
+    </GuestPreviewShell>
   );
 }

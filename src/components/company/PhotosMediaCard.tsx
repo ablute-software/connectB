@@ -130,13 +130,13 @@ export function PhotosMediaCard({ canEdit }: { canEdit: boolean }) {
               </button>
             ))}
           </div>
-          <input value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Caption — what is this? (required)"
+          <input autoComplete="off" value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Caption — what is this? (required)"
             className="mt-2 w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs" />
           {mode === 'file' ? (
             <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
               className="mt-2 block w-full text-xs" />
           ) : (
-            <input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="YouTube or Vimeo link"
+            <input autoComplete="off" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="YouTube or Vimeo link"
               className="mt-2 w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs" />
           )}
           {error && <p className="mt-1.5 text-[11px] text-[#B00000]">{error}</p>}

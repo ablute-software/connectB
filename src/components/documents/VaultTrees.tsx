@@ -101,7 +101,7 @@ export function FolderNode({ f, depth, ctx }: { f: Folder; depth: number; ctx: F
       <div className="group flex items-center gap-1" style={{ paddingLeft: `${8 + depth * 14}px` }}>
         {ctx.renamingFolderId === f.id ? (
           <>
-            <input value={ctx.folderRenameText} onChange={(e) => ctx.setFolderRenameText(e.target.value)} autoFocus
+            <input autoComplete="off" value={ctx.folderRenameText} onChange={(e) => ctx.setFolderRenameText(e.target.value)} autoFocus
               className="flex-1 rounded border border-gray-300 px-1.5 py-0.5 text-sm" />
             <button onClick={ctx.saveRenameFolder} className="text-xs text-cyan-700 hover:underline">save</button>
           </>

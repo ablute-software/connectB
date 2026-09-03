@@ -16,7 +16,12 @@ function Check() {
   );
 }
 
-export function InvestorPricingSection() {
+// Prompt 548 Part 4 — two optional props so the guest Plans preview can
+// reuse this block verbatim. Both default to exactly what the landing page
+// rendered before, so that page is untouched.
+export function InvestorPricingSection({ signupHref = '/signup?as=investor', ctaLabel = 'Claim your profile' }: {
+  signupHref?: string; ctaLabel?: string;
+} = {}) {
   const [annual, setAnnual] = useState(false);
 
   return (
@@ -81,7 +86,7 @@ export function InvestorPricingSection() {
                     PricingSection.tsx does exactly the same (href="/signup",
                     verified before changing this) — a public pricing page
                     sells the plan, the workspace sells the checkout. */}
-                <a className={`${s.btn} ${popular ? s.btnTeal : s.btnGhostLight}`} href="/signup?as=investor">Claim your profile</a>
+                <a className={`${s.btn} ${popular ? s.btnTeal : s.btnGhostLight}`} href={signupHref}>{ctaLabel}</a>
               </div>
             );
           })}

@@ -20,6 +20,7 @@
 import { normalizeDomain, normalizeName } from './catalog-dedupe';
 import { domainMatchesEntity } from './investor-domain-match';
 import type { CatalogEntity, Entity, Stage } from './types';
+import { firmStageRange, type MatchDealFirm } from './matchdeal-firm';
 
 export function matchEntityToCatalog(
   entity: { name: string; website?: string | null },
@@ -64,6 +65,40 @@ export interface EntitySummaryPrefill {
 // at least one of them — a half-founder/half-platform HQ or stage range
 // would need per-field badges to stay honest, which is more UI than the
 // value is worth.
+// Prompt 555 — the SECOND shape. A MatchDeal investor's real data lives in
+// matchdeal_profiles, not in the catalog stub this function was written
+// against, so the entity page now passes a MatchDealFirm for
+// source === 'match_deal' entities. Same output type, same
+// "only when the founder left the field empty" rule, so
+// MatchDealProfileBadge already marks every value it produces.
+export function computeFirmSummaryPrefill(entity: Entity, firm: MatchDealFirm | null): EntitySummaryPrefill {
+  if (!firm) return {};
+  const out: EntitySummaryPrefill = {};
+
+  if (!entity.website && firm.website) out.website = firm.website;
+  if (!entity.hq_city && !entity.hq_country && firm.country) out.hqCountry = firm.country;
+  if (entity.sectors.length === 0 && (firm.sectors?.length ?? 0) > 0) out.sectors = firm.sectors;
+
+  if (!entity.stage_min && !entity.stage_max) {
+    const { min, max } = firmStageRange(firm);
+    if (min || max) { out.stageMin = min; out.stageMax = max; }
+  }
+
+  if (entity.check_min_eur == null && entity.check_max_eur == null
+    && (firm.ticket_min != null || firm.ticket_max != null)) {
+    out.checkMinEur = firm.ticket_min;
+    out.checkMaxEur = firm.ticket_max;
+  }
+
+  // The investor's own description first, their stated criteria second —
+  // the same order matchdeal_apply_firm_to_entity uses when it writes.
+  if (!entity.thesis && (firm.description || firm.specific_criteria)) {
+    out.thesis = firm.description || firm.specific_criteria;
+  }
+
+  return out;
+}
+
 export function computeEntitySummaryPrefill(entity: Entity, catalogMatch: CatalogEntity | null): EntitySummaryPrefill {
   if (!catalogMatch) return {};
   const out: EntitySummaryPrefill = {};

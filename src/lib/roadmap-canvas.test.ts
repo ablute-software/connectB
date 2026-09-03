@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   xFromDate, dateFromX, snapToMonth, densityLevel, densityLevelForLane, clusterByProximity,
-  zoomWindow, matchesTimeToggle, matchesCategoryVisibility, migrateMilestoneToEvents,
+  zoomWindow, matchesTimeToggle, matchesCategoryVisibility, migrateMilestoneToEvents, visibleLanes,
   derivedEventState, quarterLabel, quartersInRange,
   semesterLabel, semestersInRange, yearLabel, yearsInRange, headerGranularity,
 } from './roadmap-canvas';
@@ -309,5 +309,53 @@ describe('migrateMilestoneToEvents — the pure half of migration 0237, nothing 
   it('blank items are dropped, never migrated as "(untitled)" ghosts', () => {
     const events = migrateMilestoneToEvents({ period_kind: 'year', period_year: 2026, items: ['  ', 'Real item'] });
     expect(events.map((e) => e.title)).toEqual(['Real item']);
+  });
+});
+
+// Prompt 540 RC1 §4 — lanes follow the founder's CATEGORIES, not their events.
+//
+// The bug: lanesUsed derived lanes from the events, so a category with no
+// events had no lane. A founder who had just been given the five default
+// lanes opened the Roadmap and saw none of them — nothing to click on, and no
+// way to distinguish "your lanes are ready" from "seeding failed".
+describe('visibleLanes (Prompt 540 §4)', () => {
+  const CATS = [
+    { id: 'c1', label: 'Technology & Product', color: 'blue', shape: 'rounded' },
+    { id: 'c2', label: 'Market & Commercial', color: 'green', shape: 'rounded' },
+    { id: 'c3', label: 'Funding', color: 'amber', shape: 'rounded', visible: false },
+  ];
+
+  it('gives every visible category a lane even with NO events at all', () => {
+    const { fromCategories, needsGeneral } = visibleLanes(CATS, []);
+    expect(fromCategories.map((c) => c.id)).toEqual(['c1', 'c2']);
+    expect(needsGeneral).toBe(false);
+  });
+
+  it('keeps the founder’s own order', () => {
+    const { fromCategories } = visibleLanes(CATS, [{ category_id: 'c2' }, { category_id: 'c1' }]);
+    expect(fromCategories.map((c) => c.id)).toEqual(['c1', 'c2']);
+  });
+
+  it('an invisible category has no lane — Prompt 382’s toggle still wins', () => {
+    const { fromCategories } = visibleLanes(CATS, [{ category_id: 'c3' }]);
+    expect(fromCategories.map((c) => c.id)).not.toContain('c3');
+  });
+
+  it('adds General only when something actually lands in it', () => {
+    expect(visibleLanes(CATS, [{ category_id: 'c1' }]).needsGeneral).toBe(false);
+    expect(visibleLanes(CATS, [{ category_id: null }]).needsGeneral).toBe(true);
+    expect(visibleLanes(CATS, [{}]).needsGeneral).toBe(true);
+  });
+
+  it('an event whose category was DELETED falls into General', () => {
+    // The lookup-miss contract removeRoadmapCategory relies on: deleting a
+    // category never has to touch the events that pointed at it.
+    expect(visibleLanes(CATS, [{ category_id: 'gone' }]).needsGeneral).toBe(true);
+  });
+
+  it('an org with zero categories still gets zero lanes — the empty state stays', () => {
+    const { fromCategories, needsGeneral } = visibleLanes([], []);
+    expect(fromCategories).toEqual([]);
+    expect(needsGeneral).toBe(false);
   });
 });

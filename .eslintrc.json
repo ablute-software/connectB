@@ -6,18 +6,49 @@
       {
         "allowAsProps": true
       }
+    ],
+    "no-restricted-syntax": [
+      "warn",
+      {
+        "selector": "JSXOpeningElement[name.name=\"input\"]:not(:has(JSXAttribute[name.name=\"autoComplete\"])):not(:has(JSXAttribute[name.name=\"type\"] > Literal[value=/^(checkbox|radio|file|hidden|range|submit|button|color)$/]))",
+        "message": "Prompt 553: every text input must declare autoComplete \u2014 \"off\" unless it is genuinely the user's own personal or contact data. A field that says nothing lets the browser guess, and Chrome guessed \"organization\" for the sector SEARCH box on a brand-new org and filled it with another company's name."
+      }
     ]
   },
   "overrides": [
     {
-      "files": ["src/lib/**/*.ts", "src/app/api/**/*.ts"],
+      "files": [
+        "src/lib/**/*.ts",
+        "src/app/api/**/*.ts"
+      ],
       "parser": "@typescript-eslint/parser",
       "parserOptions": {
         "project": "./tsconfig.json"
       },
-      "plugins": ["@typescript-eslint"],
+      "plugins": [
+        "@typescript-eslint"
+      ],
       "rules": {
         "@typescript-eslint/no-floating-promises": "error"
+      }
+    },
+    {
+      "files": [
+        "src/components/company/**/*.tsx",
+        "src/components/investor-workspace/InvestorProfilePanel.tsx",
+        "src/app/signup/**/*.tsx",
+        "src/app/login/**/*.tsx",
+        "src/app/documents/page.tsx",
+        "src/components/documents/**/*.tsx"
+      ],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "JSXOpeningElement[name.name=\"input\"]:not(:has(JSXAttribute[name.name=\"autoComplete\"])):not(:has(JSXAttribute[name.name=\"type\"] > Literal[value=/^(checkbox|radio|file|hidden|range|submit|button|color)$/]))",
+            "message": "Prompt 553: every text input must declare autoComplete \u2014 \"off\" unless it is genuinely the user's own personal or contact data. A field that says nothing lets the browser guess, and Chrome guessed \"organization\" for the sector SEARCH box on a brand-new org and filled it with another company's name."
+          }
+        ]
       }
     }
   ]

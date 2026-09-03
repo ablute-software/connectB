@@ -4,6 +4,7 @@
 // same context, so useStore() and every consuming page are agnostic to which
 // backend is mounted.
 import { createContext, useContext } from 'react';
+import type { SeedLane } from './roadmap-seed';
 import type {
   AccessGrant, ActionType, Automation, CapTableEntry, Channel, Classification, CompanyFact, CompanyPerson, Db,
   Direction, DocumentItem, DocVisibility, Entity, FitScore, FolderKind, Interaction, InvestorSubmission, Nda, Org, OverrideRule,
@@ -306,6 +307,10 @@ export interface StoreApi {
   // keep working unchanged.
   addRoadmapCategory: (c: Omit<RoadmapCategory, 'id' | 'org_id' | 'created_at' | 'visible'> & { visible?: boolean }) => Promise<{ error?: string }>;
   removeRoadmapCategory: (id: string) => Promise<{ error?: string }>;
+  // Prompt 540 RC1 §2 — the five default lanes as ONE insert and ONE commit.
+  // The old path was five concurrent addRoadmapCategory calls, which is five
+  // chances to lose a row for a list that is fixed and known in advance.
+  seedRoadmapCategories: (lanes: SeedLane[]) => Promise<{ error?: string; inserted?: number }>;
   // Prompt 382 §B — partial patch, same discipline as updateRoadmapEvent:
   // lets the founder fix label/color/shape without delete-and-recreate
   // (a useful side effect, not the ask) and flip `visible`.

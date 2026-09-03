@@ -462,7 +462,7 @@ function MilestoneForm({ draft, setDraft, onSave, onCancel, saving, err, categor
           <option value="quarter">Quarter</option>
           <option value="year">Year</option>
         </select>
-        <input type="number" value={draft.period_year} onChange={(e) => setDraft({ ...draft, period_year: e.target.value })}
+        <input autoComplete="off" type="number" value={draft.period_year} onChange={(e) => setDraft({ ...draft, period_year: e.target.value })}
           placeholder="Year (e.g. 2026)" className="w-32 rounded border border-gray-300 px-2 py-1 text-sm" />
         {draft.period_kind === 'quarter' && (
           <select value={draft.period_quarter} onChange={(e) => setDraft({ ...draft, period_quarter: e.target.value })}
@@ -471,7 +471,7 @@ function MilestoneForm({ draft, setDraft, onSave, onCancel, saving, err, categor
           </select>
         )}
       </div>
-      <textarea value={draft.itemsText} onChange={(e) => setDraft({ ...draft, itemsText: e.target.value })} rows={3}
+      <textarea autoComplete="off" value={draft.itemsText} onChange={(e) => setDraft({ ...draft, itemsText: e.target.value })} rows={3}
         placeholder={'One milestone per line, e.g.\nScale to 50 customers\nOpen UK market'}
         className="w-full rounded border border-gray-300 p-2 text-sm" />
       {/* Prompt 213 §D — categoria por linha. Só aparece quando há
@@ -725,7 +725,7 @@ export function CategoryManager() {
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[#c3c5d9]/30 pt-3">
-        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Add new category"
+        <input autoComplete="off" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Add new category"
           className="min-w-0 flex-1 rounded-lg border border-[#c3c5d9] px-2 py-1 text-xs" />
         <select value={color} onChange={(e) => setColor(e.target.value as CategoryColor)}
           className="rounded-lg border border-[#c3c5d9] px-1.5 py-1 text-xs">

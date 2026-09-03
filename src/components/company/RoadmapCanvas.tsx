@@ -14,12 +14,13 @@
 // -> symbol -> cluster) is what shrinks, never the layout wrapping.
 import { useMemo, useRef, useState, useEffect } from 'react';
 import {
-  xFromDate, dateFromX, snapToMonth, clusterByProximity, zoomWindow,
+  xFromDate, dateFromX, snapToMonth, clusterByProximity, zoomWindow, visibleLanes,
   matchesTimeToggle, matchesCategoryVisibility, quarterLabel, quartersInRange,
   semesterLabel, semestersInRange, yearLabel, yearsInRange, headerGranularity,
   type ZoomLevel, type TimeToggle, type Cluster,
 } from '@/lib/roadmap-canvas';
 import { SHAPE_STYLES, GENERAL_LABEL, type CategoryColor, type CategoryShape } from '@/lib/roadmap-categories';
+import { isDerivedEvent } from '@/lib/roadmap-derived';
 import { CATEGORY_BAR, GLASS_PILL, LABEL_CAPS } from './roadmap-visual';
 import type { RoadmapEventStatus } from '@/lib/types';
 
@@ -77,6 +78,11 @@ export interface CanvasEvent {
   status: RoadmapEventStatus;
   category_id?: string | null;
   document_id?: string | null;
+  // Prompt 540 RC2 — a projection of org.founded_year, computed at render
+  // time and backed by no row. It renders exactly like any other mark in
+  // its lane (no new style, per §6) but cannot be dragged, deleted or
+  // recategorised, because there is nothing to write.
+  derived?: boolean;
 }
 
 interface RoadmapCanvasProps {
@@ -189,12 +195,17 @@ export function RoadmapCanvas({
   // in this comment: `domain` was never actually derived from `filtered`.
   const filtered = events.filter((e) => matchesTimeToggle(e.status, timeToggle) && matchesCategoryVisibility(e.category_id, categories));
 
+  // Prompt 540 RC1 §4 — every VISIBLE category gets a lane, in founder
+  // order, whether or not it holds an event yet; General only when something
+  // lands in it. Before this, lanes were derived from the events, so a
+  // founder whose five default lanes had just been created saw no lanes at
+  // all and had nothing to click on. Prompt 382's toggle still removes a
+  // lane when a category is switched off, and an org with zero categories
+  // still falls through to the empty state below.
   const lanesUsed = useMemo(() => {
-    const byId = new Map<string, Lane>();
-    for (const e of filtered) { const l = laneFor(categories, e.category_id); byId.set(l.id, l); }
-    // Founder-defined order, General last — same convention as legendLabels.
-    const ordered = categories.filter((c) => byId.has(c.id)).map((c) => laneFor(categories, c.id));
-    if (byId.has(GENERAL_LANE.id)) ordered.push(GENERAL_LANE);
+    const { fromCategories, needsGeneral } = visibleLanes(categories, filtered);
+    const ordered = fromCategories.map((c) => laneFor(categories, c.id));
+    if (needsGeneral) ordered.push(GENERAL_LANE);
     return ordered;
   }, [filtered, categories]);
 
@@ -257,6 +268,10 @@ export function RoadmapCanvas({
   const didMoveRef = useRef(false);
 
   function startDragEvent(ev: CanvasEvent, edge: 'start' | 'end' | undefined, clientX: number) {
+    // Prompt 540 RC2 §3 — a derived mark has no row to update: moving it
+    // would fire onUpdate against an id that does not exist. The founding
+    // date moves by editing Year founded in About.
+    if (isDerivedEvent(ev)) return;
     if (!editable || !DRAG_TO_MOVE_ENABLED) return;
     setDragging({ id: ev.id, edge });
     const rect = containerRef.current?.getBoundingClientRect();
@@ -530,14 +545,14 @@ function CreatePopover({ draft, categories, onCancel, onSave }: {
 
   return (
     <div className="mt-3 space-y-2 rounded-2xl border border-[#0041c8]/15 bg-[#eaedff]/50 p-3">
-      <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)}
+      <input autoComplete="off" autoFocus value={title} onChange={(e) => setTitle(e.target.value)}
         placeholder="What happened (or will happen)?"
         onKeyDown={(e) => { if (e.key === 'Enter' && title.trim()) void submit(); }}
         className="w-full rounded-lg border border-[#c3c5d9] px-2 py-1.5 text-sm" />
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <label className="flex items-center gap-1">Date <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" /></label>
+        <label className="flex items-center gap-1">Date <input autoComplete="off" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" /></label>
         <label className="flex items-center gap-1">
-          End (optional) <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
+          End (optional) <input autoComplete="off" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1" />
         </label>
         <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="rounded-lg border border-[#c3c5d9] px-1.5 py-1">
           <option value="">{GENERAL_LABEL}</option>

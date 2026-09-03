@@ -22,6 +22,10 @@ import { PeopleAccessPanel } from '@/components/documents/PeopleAccessPanel';
 import { WhoHasAccessPanel } from '@/components/documents/WhoHasAccessPanel';
 import { VaultKillSwitch } from '@/components/documents/VaultKillSwitch';
 import { PageTour } from '@/components/onboarding/PageTour';
+import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
+
+// Prompt 549 — the key this page claims in the provider's hold registry.
+const VAULT_NOTICE_HOLD = 'vault-privacy-notice';
 import { vaultAccessAdvice } from '@/lib/vault-access-advice';
 import { VaultPinGate } from '@/components/documents/VaultPinGate';
 import { VaultPrivacyNoticeModal } from '@/components/documents/VaultPrivacyNoticeModal';
@@ -149,32 +153,71 @@ function DocumentsPageInner() {
   // already dismissed it). Runs once on mount; T0 (first_shown_at) is
   // captured on this same read the first time it's null, per 403 §A.2's
   // own "simplifies the client" option.
-  const [vaultNoticeOpen, setVaultNoticeOpen] = useState(false);
+  // Prompt 549 — three states, not a boolean, because the DECISION IS ASYNC.
+  //
+  // The old `vaultNoticeOpen: boolean` started false and only became true
+  // after a Supabase read (or a localStorage read in demo mode) resolved.
+  // PageTour, meanwhile, opened as soon as OnboardingProvider's `loaded`
+  // flipped — which on a first visit happens before that read finishes. So
+  // the tour always won the race and the notice appeared underneath its
+  // full-screen z-[60] backdrop, unreachable.
+  //
+  // 'pending' is the state that did not exist and had to: it says "I do not
+  // yet know whether a blocking overlay is due", and it holds tours while
+  // that is true. A hold registered only once the answer arrives would be
+  // too late on every single first visit.
+  const [vaultNotice, setVaultNotice] = useState<'pending' | 'open' | 'done'>('pending');
   const [vaultNoticeUserId, setVaultNoticeUserId] = useState<string | null>(null);
   const [vaultNoticeFirstShownAt, setVaultNoticeFirstShownAt] = useState<Date | null>(null);
+
+  // The hold itself. Registered from mount (state starts 'pending') and
+  // released the moment the notice is resolved and dealt with. Cleanup
+  // releases on unmount so navigating away mid-notice cannot strand a hold.
+  const { holdTours, releaseTours } = useOnboarding();
+  // Depends on the BOOLEAN, not on the three-state: 'pending' and 'open'
+  // are the same thing to the tour, so the pending -> open transition must
+  // not re-run this effect and release/re-hold on the way through. (React
+  // batches the two setState calls, so no render would actually observe the
+  // gap — but an effect that does not churn is one that cannot grow one.)
+  const vaultNoticeBlocksTours = vaultNotice !== 'done';
+  useEffect(() => {
+    if (!vaultNoticeBlocksTours) { releaseTours(VAULT_NOTICE_HOLD); return; }
+    holdTours(VAULT_NOTICE_HOLD);
+    return () => releaseTours(VAULT_NOTICE_HOLD);
+  }, [vaultNoticeBlocksTours, holdTours, releaseTours]);
 
   useEffect(() => {
     let cancelled = false;
     async function run() {
       const now = new Date();
+      // Prompt 549 — EVERY exit path below settles vaultNotice, including
+      // the not-due returns and the catch. A path that returned without
+      // settling would leave the hold registered forever and the tour would
+      // never open — the opposite failure, and just as bad.
       if (!authEnabled) {
         const state = readDemoVaultPrivacyNotice();
-        if (!isVaultPrivacyNoticeDue(state.firstShownAt, state.lastShownAt, now)) return;
+        if (!isVaultPrivacyNoticeDue(state.firstShownAt, state.lastShownAt, now)) {
+          if (!cancelled) setVaultNotice('done');
+          return;
+        }
         const firstShownAt = state.firstShownAt ?? now;
         writeDemoVaultPrivacyNotice({ firstShownAt, lastShownAt: state.lastShownAt });
-        if (!cancelled) { setVaultNoticeFirstShownAt(firstShownAt); setVaultNoticeOpen(true); }
+        if (!cancelled) { setVaultNoticeFirstShownAt(firstShownAt); setVaultNotice('open'); }
         return;
       }
       try {
         const sb = browserClient();
         const { data: userData } = await sb.auth.getUser();
         const userId = userData?.user?.id;
-        if (!userId) return;
+        if (!userId) { if (!cancelled) setVaultNotice('done'); return; }
         const { data } = await sb.from('vault_privacy_notice_state')
           .select('first_shown_at, last_shown_at').eq('user_id', userId).maybeSingle();
         const firstShownAt = data?.first_shown_at ? new Date(data.first_shown_at) : null;
         const lastShownAt = data?.last_shown_at ? new Date(data.last_shown_at) : null;
-        if (!isVaultPrivacyNoticeDue(firstShownAt, lastShownAt, now)) return;
+        if (!isVaultPrivacyNoticeDue(firstShownAt, lastShownAt, now)) {
+          if (!cancelled) setVaultNotice('done');
+          return;
+        }
         const resolvedFirstShownAt = firstShownAt ?? now;
         if (!firstShownAt) {
           await sb.from('vault_privacy_notice_state')
@@ -183,16 +226,25 @@ function DocumentsPageInner() {
         if (!cancelled) {
           setVaultNoticeUserId(userId);
           setVaultNoticeFirstShownAt(resolvedFirstShownAt);
-          setVaultNoticeOpen(true);
+          setVaultNotice('open');
         }
-      } catch { /* best-effort — never blocks the page */ }
+      } catch {
+        // Best-effort must never hold the tour hostage: a failed fetch
+        // resolves to "no notice", not to "wait forever".
+        if (!cancelled) setVaultNotice('done');
+      }
     }
     run();
     return () => { cancelled = true; };
   }, []);
 
   async function acknowledgeVaultNotice() {
-    setVaultNoticeOpen(false);
+    // The state flip IS the close: VaultPrivacyNoticeModal returns null the
+    // moment `open` is false, so there is no exit animation to wait for and
+    // no onCloseComplete to thread. Releasing the hold here is what makes
+    // the tour start on "Got it" with no second click. Persistence below is
+    // unchanged.
+    setVaultNotice('done');
     const now = new Date();
     const firstShownAt = vaultNoticeFirstShownAt ?? now;
     if (!authEnabled) {
@@ -976,7 +1028,7 @@ function DocumentsPageInner() {
 
   return (
     <div className="space-y-4">
-      <VaultPrivacyNoticeModal open={vaultNoticeOpen} onGotIt={acknowledgeVaultNotice} />
+      <VaultPrivacyNoticeModal open={vaultNotice === 'open'} onGotIt={acknowledgeVaultNotice} />
       {tab === 'documents' && <PageTour pageKey="guide_documents" />}
       {tab === 'people' && <PageTour pageKey="guide_people_access" />}
       <div className="flex items-center justify-between gap-1.5">
@@ -1010,7 +1062,7 @@ function DocumentsPageInner() {
           <div className="mt-3 border-t border-gray-100 pt-3 text-xs">
             <div className="font-medium text-gray-500">New folder</div>
             <div className="mt-1 flex flex-col gap-1.5">
-              <input value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} placeholder="Name"
+              <input autoComplete="off" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} placeholder="Name"
                 className="rounded border border-gray-300 px-2 py-1 text-sm" />
               <select value={newFolderParent} onChange={(e) => setNewFolderParent(e.target.value)}
                 className="rounded border border-gray-300 px-2 py-1 text-sm">
@@ -1059,7 +1111,7 @@ function DocumentsPageInner() {
                         )}
                         {renamingDocId === d.id ? (
                           <span className="flex items-center gap-1">
-                            <input value={renameText} onChange={(e) => setRenameText(e.target.value)} autoFocus
+                            <input autoComplete="off" value={renameText} onChange={(e) => setRenameText(e.target.value)} autoFocus
                               className="rounded border border-gray-300 px-1.5 py-0.5 text-sm" />
                             <button onClick={saveRenameDoc} className="text-xs text-cyan-700 hover:underline">save</button>
                           </span>
@@ -1168,7 +1220,7 @@ function DocumentsPageInner() {
                       </div>
                       {detailsOpenId === d.id ? (
                         <div className="mt-2 flex flex-col gap-1">
-                          <textarea value={detailsText} onChange={(e) => setDetailsText(e.target.value)} rows={2}
+                          <textarea autoComplete="off" value={detailsText} onChange={(e) => setDetailsText(e.target.value)} rows={2}
                             placeholder="What this contains, version, who it was prepared for…"
                             className="w-full rounded border border-gray-300 p-2 text-xs" />
                           <button onClick={() => saveDetails(d.id)} className="self-start rounded bg-[#0E7490] px-2 py-1 text-xs font-medium text-white">
@@ -1180,7 +1232,7 @@ function DocumentsPageInner() {
                       ) : null}
                       {linkVersionDocId === d.id && (
                         <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 p-2">
-                          <input value={linkVersionUrl} onChange={(e) => setLinkVersionUrl(e.target.value)}
+                          <input autoComplete="off" value={linkVersionUrl} onChange={(e) => setLinkVersionUrl(e.target.value)}
                             placeholder="Paste a link or Google Drive share URL…" autoFocus
                             className="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-xs" />
                           <button onClick={() => newVersionFromLink(d.id)} disabled={!linkVersionUrl.trim() || replacingDocId === d.id}
@@ -1257,9 +1309,9 @@ function DocumentsPageInner() {
             <div className="mt-3 border-t border-gray-100 pt-3">
               <div className="text-xs font-medium text-gray-500">Add document (link)</div>
               <div className="mt-1 flex flex-wrap gap-2">
-                <input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="Name"
+                <input autoComplete="off" value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="Name"
                   className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
-                <input value={docUrl} onChange={(e) => setDocUrl(e.target.value)} placeholder="View-only URL"
+                <input autoComplete="off" value={docUrl} onChange={(e) => setDocUrl(e.target.value)} placeholder="View-only URL"
                   className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
                 <button disabled={!docName || !docUrl}
                   onClick={() => {
@@ -1377,7 +1429,7 @@ function DocumentsPageInner() {
                 ) : (
                   <>
                     <div className="flex items-center gap-2">
-                      <input value={grantEntityQuery}
+                      <input autoComplete="off" value={grantEntityQuery}
                         onChange={(e) => { setGrantEntityQuery(e.target.value); if (e.target.value) setShowFullGrantList(false); }}
                         placeholder="Search by name or email…"
                         className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
@@ -1540,9 +1592,9 @@ function DocumentsPageInner() {
                       ) : (
                         <div className="rounded-lg border border-gray-100 bg-gray-50 p-2">
                           <div className="flex flex-wrap gap-2">
-                            <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Their name"
+                            <input autoComplete="off" value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Their name"
                               className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
-                            <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Their email" type="email"
+                            <input autoComplete="off" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Their email" type="email"
                               className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
                           </div>
                           {inviteEmail && grantEntity && (() => {
@@ -1574,7 +1626,7 @@ function DocumentsPageInner() {
                     <span className="flex items-center gap-1"><TriStateBox state="shared_nda" onClick={() => {}} /> shared + NDA required</span>
                     <span className="flex items-center gap-1"><TriStateBox state="none" onClick={() => {}} /> not shared</span>
                   </div>
-                  <input type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
+                  <input autoComplete="off" type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
                     className="mt-2 rounded border border-gray-300 px-2 py-1.5 text-sm" title="Expiry (optional)" />
                   {(() => {
                     // Prompt 204(b) — aviso INFORMATIVO, nao bloqueante.
@@ -1620,9 +1672,9 @@ function DocumentsPageInner() {
                 <div className="mt-2 space-y-2">
                   <label className="mb-1 block text-[11px] font-medium text-gray-400">Share with someone by email</label>
                   <div className="flex flex-wrap gap-2">
-                    <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Their name"
+                    <input autoComplete="off" value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Their name"
                       className="rounded border border-gray-300 px-2 py-1.5 text-sm" />
-                    <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Their email" type="email"
+                    <input autoComplete="off" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Their email" type="email"
                       className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm" />
                   </div>
                   {/* Prompt 545 — one line, and it is the line the founder
@@ -1646,7 +1698,7 @@ function DocumentsPageInner() {
                       <p className="font-medium">{inviteResult.ok ? '✓ ' : '✕ '}{inviteResult.message}</p>
                       {inviteResult.guestUrl && (
                         <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                          <input readOnly value={inviteResult.guestUrl}
+                          <input autoComplete="off" readOnly value={inviteResult.guestUrl}
                             onFocus={(e) => e.currentTarget.select()}
                             className="min-w-0 flex-1 rounded border border-gray-200 bg-white px-1.5 py-1 text-[10px] text-gray-600" />
                           <button type="button"
@@ -1673,7 +1725,7 @@ function DocumentsPageInner() {
                         <span className="flex items-center gap-1"><TriStateBox state="shared_nda" onClick={() => {}} /> shared + NDA required</span>
                         <span className="flex items-center gap-1"><TriStateBox state="none" onClick={() => {}} /> not shared</span>
                       </div>
-                      <input type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
+                      <input autoComplete="off" type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
                         className="mt-2 rounded border border-gray-300 px-2 py-1.5 text-sm" title="Expiry (optional)" />
                       <div>
                         <button onClick={() => void submitAdHocEmailGrant()} disabled={inviteBusy}

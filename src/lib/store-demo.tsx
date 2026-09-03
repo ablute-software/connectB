@@ -399,6 +399,22 @@ export function DemoStoreProvider({ children }: { children: React.ReactNode }) {
       }));
       return {};
     },
+    // Prompt 540 RC1 §2 — demo mode has no server, so this is the same
+    // one-shot semantics done locally: seed only when nothing is there, in a
+    // single functional setDb so a double mount cannot double-seed.
+    async seedRoadmapCategories(lanes) {
+      let inserted = 0;
+      setDb((prev) => {
+        if (prev.roadmapCategories.length > 0) return prev;
+        const now = new Date().toISOString();
+        const rows = lanes.map((lane) => ({
+          visible: true, ...lane, id: uid('rc'), org_id: prev.org.id, created_at: now,
+        })) as RoadmapCategory[];
+        inserted = rows.length;
+        return { ...prev, roadmapCategories: [...prev.roadmapCategories, ...rows] };
+      });
+      return { inserted };
+    },
     async removeRoadmapCategory(id) {
       setDb((prev) => ({ ...prev, roadmapCategories: prev.roadmapCategories.filter((c) => c.id !== id) }));
       return {};

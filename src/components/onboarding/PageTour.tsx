@@ -16,6 +16,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import { TOUR_CONTENT, type TourStep } from '@/lib/onboarding/tourContent';
+import { tourMayOpen } from '@/lib/onboarding/tour-gate';
 
 interface ResolvedStep extends TourStep { rect: DOMRect }
 
@@ -35,7 +36,7 @@ function usePrefersReducedMotion() {
 }
 
 export function PageTour({ pageKey }: { pageKey: string }) {
-  const { seen, loaded, markSeen, guideNonce } = useOnboarding();
+  const { seen, loaded, markSeen, guideNonce, toursHeld } = useOnboarding();
   const steps = TOUR_CONTENT[pageKey] ?? [];
   const alreadySeen = !!seen[pageKey];
   const nonce = guideNonce[pageKey] ?? 0;
@@ -44,12 +45,20 @@ export function PageTour({ pageKey }: { pageKey: string }) {
   const reducedMotion = usePrefersReducedMotion();
   const balloonRef = useRef<HTMLDivElement>(null);
 
-  // The tour is eligible once loaded and not yet seen for this key. `nonce`
-  // is the "?" button's own re-open signal — it bumps on every click,
-  // independent of the seen/unseen edge, so a click still does something
-  // even when the key had never been seen in the first place (a
-  // !seen[key]-only dependency misses that case: nothing "changes").
-  const wantsOpen = loaded && !alreadySeen && steps.length > 0;
+  // The tour is eligible once loaded, not held by a blocking overlay, and
+  // not yet seen for this key. `nonce` is the "?" button's own re-open
+  // signal — it bumps on every click, independent of the seen/unseen edge,
+  // so a click still does something even when the key had never been seen
+  // in the first place (a !seen[key]-only dependency misses that case:
+  // nothing "changes").
+  //
+  // Prompt 549 — `toursHeld` is the new term, and the effect below already
+  // depends on wantsOpen, so this needs nothing else: a hold appearing
+  // while a tour is open closes it (setResolved(null)), and the hold
+  // clearing re-runs anchor resolution from step 1. That IS "Got it -> the
+  // tour starts", with no extra click, no refresh and no timer. A "?" click
+  // while a hold is active correctly does nothing until the hold clears.
+  const wantsOpen = tourMayOpen({ loaded, held: toursHeld, seen: alreadySeen, stepCount: steps.length });
 
   useEffect(() => {
     if (!wantsOpen) { setResolved(null); return; }

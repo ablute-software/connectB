@@ -45,7 +45,7 @@ export const ONBOARDING_CONTENT: OnboardingItem[] = [
     steps: [
       {
         title: 'Start with your company',
-        body: 'About [Company] is where you build your company’s profile — the more complete it is, the better we can match you with the right investors. In the Vault Data Room you can securely add documents: only you have access, and you control exactly which investors can see what.',
+        body: 'About {company} is where you build your company’s profile — the more complete it is, the better we can match you with the right investors. In the Vault Data Room you can securely add documents: only you have access, and you control exactly which investors can see what.',
       },
       {
         title: 'Investors start appearing in your Pipeline',

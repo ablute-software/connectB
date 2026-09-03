@@ -93,8 +93,8 @@ export function TractionCard({ canEdit }: { canEdit: boolean }) {
               {editingId === m.id ? (
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-2">
-                    <input value={editDraft.label} onChange={(e) => setEditDraft({ ...editDraft, label: e.target.value })} placeholder="Label (e.g. MRR)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
-                    <input value={editDraft.value} onChange={(e) => setEditDraft({ ...editDraft, value: e.target.value })} placeholder="Value (e.g. €12k)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
+                    <input autoComplete="off" value={editDraft.label} onChange={(e) => setEditDraft({ ...editDraft, label: e.target.value })} placeholder="Label (e.g. MRR)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
+                    <input autoComplete="off" value={editDraft.value} onChange={(e) => setEditDraft({ ...editDraft, value: e.target.value })} placeholder="Value (e.g. €12k)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
                   </div>
                   <DealDiggerFields draft={editDraft} setDraft={setEditDraft} />
                   {editErr && <p className="text-xs text-[#B00000]">{editErr}</p>}
@@ -132,8 +132,8 @@ export function TractionCard({ canEdit }: { canEdit: boolean }) {
       {adding && (
         <div className="mt-3 space-y-2 rounded-lg border border-cyan-100 bg-cyan-50/40 p-2.5">
           <div className="grid grid-cols-2 gap-2">
-            <input value={draft.label} onChange={(e) => setDraft({ ...draft, label: e.target.value })} placeholder="Label (e.g. MRR)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
-            <input value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} placeholder="Value (e.g. €12k)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
+            <input autoComplete="off" value={draft.label} onChange={(e) => setDraft({ ...draft, label: e.target.value })} placeholder="Label (e.g. MRR)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
+            <input autoComplete="off" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} placeholder="Value (e.g. €12k)" className="rounded border border-gray-300 px-2 py-1 text-sm" />
           </div>
           <DealDiggerFields draft={draft} setDraft={setDraft} />
           {addErr && <p className="text-xs text-[#B00000]">{addErr}</p>}

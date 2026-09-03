@@ -4190,3 +4190,321 @@ premise to correct in passing.
 
 No account was recreated or deleted in response to this. The org was created
 normally at 18:12:13Z once the founder signed up again.
+
+---
+
+## Guest sidebar mirrors `INVESTOR_NAV` — one list, two shells (Prompt 548, 2026-09-03)
+
+Closes Prompt 547 Part B, which had been parked waiting for
+`claude/prompt-518-reconciled`. That wait turned out to be unnecessary:
+`f38a82a` (526 Part B) is five NEW files and nothing else, so it
+cherry-picks onto `main` with no conflict, and Part B shipped from `main`
+instead.
+
+**The decision.** The guest sidebar was Prompt 154's decoration: hand-typed,
+blurred and `pointer-events-none`. Being a copy, it rotted — it still read
+"Access granted" two full prompts after the workspace renamed that entry to
+"Data room" (337/338), and it had never gained Dashboard, Actions required,
+My Network or Messages. A guest could click nothing, and what they could not
+click was not even the product as it exists.
+
+So the nav is now data: `src/lib/investor-nav.ts` holds `INVESTOR_NAV`, and
+both shells build from it — `InvestorWorkspaceShell` (only `about`'s label is
+dynamic; badges and `onSelect` stay in the component) and the guest
+`GuestPreviewShell`. Two compile-time assignments in that file prove the list
+and the `Tab` union are the same set in both directions, so a new tab cannot
+be added to the workspace without appearing in the guest sidebar. The
+`Tab` import is `import type`, which TypeScript erases, so vitest can load the
+module without pulling React.
+
+The same rule applied twice more, for the same reason: `EVALUATION_TOOLS`
+moved to `src/lib/evaluation-tools.ts` so the guest preview shows the REAL
+sub-tab names without importing the store-backed panel, and `PREVIEW_COPY`
+covers every entry in one table. Nothing user-visible in the guest previews
+is retyped from the product.
+
+**What a token buys, and what it does not.** `/guest/<token>/preview/<key>`
+does not validate the token and fetches nothing; it serves the same generic
+tool preview the token-less `/guest/preview/<key>` has always served to
+anyone. The token buys exactly two things: the "Data room" entry that leads
+back to the share, and `guest=<token>` on the signup link so the grant can be
+resolved to the new account later. The token stays in the PATH — never a
+query string (any link that rebuilds the URL drops it) and never
+sessionStorage (a new tab would lose it, and a guest opening one is
+ordinary).
+
+**Plans & billing is real, not frosted.** Everything else shows a screen's
+shape behind glass because there is nothing a guest is entitled to see.
+Pricing is the opposite: it is public, it is what someone deciding about an
+account needs, and blurring it would be theatre. It reuses
+`InvestorPricingSection` (the landing page's own block: `INVESTOR_PLANS`,
+the Monthly/Annual toggle, `PrivateDetectiveCard`, no session, no fetch —
+checked before choosing it). `InvestorPlansPanel` is deliberately NOT used:
+it calls `/api/portal/investor-profile` and would 401. No Stripe call is ever
+made from a guest.
+
+**A bug this introduced and the browser caught.** Making the preview route
+dynamic over `INVESTOR_NAV` keys alone 404'd `/guest/preview/watson` and
+`/guest/preview/bars` — two of the three CTAs in the approved investor
+email, whose URLs are already in people's inboxes. `watson` and `bars` are
+tools INSIDE Evaluation tools, so they are correctly absent from the sidebar,
+but their routes must still resolve. `isPreviewableKey` now accepts nav keys
+plus `EMAIL_CTA_KEYS`, `activeNavKeyFor` lights up Evaluation tools for them,
+and a test names all three URLs. Worth generalising: a route table derived
+from a nav list silently drops every URL that is not a nav entry, and
+inbound links from email are exactly the ones nothing in the codebase points
+at.
+
+**For the `claude/prompt-518-reconciled` session.** When that branch rebases
+onto `main`, `f38a82a` is skipped by patch-id if these files are unchanged.
+Where this prompt changed them — `GuestPreviewShell.tsx` and
+`FrostedOverlay.tsx` were both rewritten, and the three
+`src/app/guest/preview/{pipeline,watson,bars}/page.tsx` files were replaced
+by one dynamic route — resolve add/add by taking `main`'s version.
+
+---
+
+## Prompt 540 — Roadmap first-load categories, and the founding date
+
+**Two things to carry forward, both requested by the prompt:**
+
+**1. New orgs should get the five default lanes at PROVISIONING time.** Fold
+`DEFAULT_LANES` (RoadmapPanel.tsx) into Prompt 539's `provision_founder_org`
+when that lands. Until then the client-side seeding path is the fallback, and
+it is now a single `seedRoadmapCategories()` action — one insert, one commit,
+with a `select … limit 1` immediately before the write so a second mount (React
+18's double-invoke, or a second browser tab) is a cheap no-op instead of ten
+categories. Seeding server-side at provisioning removes the race entirely
+rather than narrowing it.
+
+**2. Prompt 519 §4(b) is SUPERSEDED — drop that hunk when 519 is cherry-picked.**
+519 adds a "FOUNDED" vertical rule to the canvas (`RoadmapCanvas.tsx:332` on
+`claude/new-session-cndm41`). The founding is now a derived EVENT in its own
+lane (`roadmap-derived.ts`), rendered as an ordinary mark. Keeping both would
+draw the founding twice, in two different visual languages.
+
+**Why the founding date is derived and not stored.** It was an AI suggestion:
+`/api/roadmap/suggest-events` read `orgs.founded_year`, fed "Company founded in
+YYYY" to the model, and the founder accepted the result into a real
+`roadmap_events` row. That made it (a) invisible until a refresh — `updateOrg`
+POSTs `/api/org/update` fire-and-forget while `SuggestedEventsPanel` fetches on
+mount, so the GET read the database before the save landed and the knowledge
+signature carried no `founded:` part — and (b) duplicable: changing 2020 → 2021
+produced a second suggestion that `isDuplicateRoadmapEvent` could not recognise
+as the same fact, because it gates on the year. It is now computed at render
+time from the same field. `founded_year` was removed from the knowledge items
+AND from the signature (leaving the signature part would still trigger a full
+AI pass on every year change, for a fact nothing consumes), and
+`isFoundingCandidate` filters the founding back out of whatever the model
+proposes anyway. Existing accepted "Company founded" rows are the founder's
+data and are untouched — the derived marker steps aside when one exists.
+
+**The lost update, for the next person who writes an async store action.**
+Nine actions in `store-supabase.tsx` captured `const prev = dbRef.current`
+before their `await` and built the commit from it afterwards, so two
+overlapping calls lost a row. Confirmed in production: ablute_, Caramel Biscuit,
+Krohnsty and Sherlock Deal each have exactly five `roadmap_categories` with five
+distinct labels created within one second — the database took all five while
+memory kept one. **In an async action, build the commit from a fresh
+`dbRef.current` read AFTER the await, never from a snapshot taken before it.**
+`src/lib/store-lost-update.test.ts` pins this against the source for all nine;
+it fails on `main` for 9 of 9.
+
+---
+
+## Prompt 549 (03/09/2026) — Tours yield to blocking overlays via the provider hold, never via z-index
+
+**The rule.** A modal that must be dealt with before a page tour registers a
+hold with `OnboardingProvider` (`holdTours(key)` / `releaseTours(key)`), and
+`PageTour` refuses to open while `toursHeld` is true. Two consumers today: the
+Vault privacy notice (`documents/page.tsx`, key `vault-privacy-notice`) and
+`WelcomeModal` (key `welcome-modal`). A hold is a live claim for this moment
+only — not persisted, not budgeted, unrelated to `seen`.
+
+**Why not z-index.** The reported symptom was the Vault privacy notice
+appearing *underneath* the tour's full-screen `z-[60]` backdrop, with "Got it"
+unreachable. Raising the notice above the tour would have fixed that screen and
+left the actual defect in place: two overlays with independent triggers,
+neither aware of the other, competing for the same moment. The next pair would
+collide the same way — as `WelcomeModal` (z-50, shell) and any page tour
+already could on first login. With the hold, the two are never mounted together
+at all, so the stacking order stops mattering. **Z-indexes were deliberately
+not touched.**
+
+**Why the hold starts before the answer is known.** The notice decision is
+asynchronous (a `vault_privacy_notice_state` read, or `localStorage` in demo
+mode). `vaultNoticeOpen: boolean` started `false` and only became `true` after
+that read resolved, while `PageTour` opened the instant
+`OnboardingProvider.loaded` flipped — earlier, on every first visit. So the
+state is now `'pending' | 'open' | 'done'`: **`'pending'` is the state that had
+to exist**, meaning "I do not yet know whether a blocking overlay is due", and
+it holds. A hold registered only once the answer arrived would be too late
+every time. Every exit path of the resolve effect settles the state — the
+not-due returns, the missing-user path and the `catch` all set `'done'`, because
+a best-effort fetch failing must never hold a tour hostage forever.
+
+**Holds are keyed, not counted.** Two overlays can hold at once and one
+release does not free the other; holding the same key twice and releasing once
+still releases, so a component that re-registers on re-render never needs
+matching releases. The transitions live in `src/lib/onboarding/tour-gate.ts`
+(`addHold`/`removeHold`/`toursHeld`) as pure functions returning the *same* Set
+instance on a no-op — identity is the contract React state depends on, and it
+is what stops a repeated hold from looping renders. `tourMayOpen` is there too,
+so Correção 3 §9's four cases are a table test rather than a browser check.
+
+**Not changed, on purpose:** the notice's recurring schedule (T0, +2, +4, then
+every 4 months — `isVaultPrivacyNoticeDue`), its approved copy, the tour
+content and order, and the z-indexes.
+
+---
+
+## Prompt 553 (03/09/2026) — Every text input declares `autoComplete`: `off` unless it is genuinely personal data
+
+**The rule.** Every `<input>` and `<textarea>` in this app states what it is to
+the browser. `off` is the default and the common case; a real
+`autoComplete` token (`email`, `tel`, `url`, `organization`,
+`organization-title`, `country-name`, `address-level2`, `postal-code`,
+`current-password`, `new-password`) only where the field genuinely holds the
+signed-in user's OWN personal or contact data. Enforced by
+`no-restricted-syntax` in `.eslintrc.json`: `error` on the founder-facing
+form directories, `warn` everywhere else.
+
+**Why.** A field that declares nothing lets Chrome guess from its own
+heuristics. On About → Company the sector SEARCH box had no `name`, no
+`type` and no `autoComplete`, sat under a label ending "…that apply to your
+**company**", and its siblings were Website, HQ country, HQ city, Postal
+code and a phone number. Chrome read the card as an address form, classified
+the search box as `organization`, and on a brand-new org filled it from the
+founder's saved address profile — with "ablute_", a name he had typed into
+forms on this domain before. The `:-webkit-autofill` highlight made it look
+like stored data, the autofill fired `onChange`, and the taxonomy filtered
+down to nothing.
+
+**No data crossed orgs, and this was checked before writing any code.** A
+`jsonb_each_text` sweep over the Krohnsty row found exactly one match for
+"ablute": `sender_email = ablutealex@proton.me`, the founder's own address.
+The sector box is a filter over a fixed local taxonomy — it never reads or
+writes another org's data. It was a browser-autofill defect and a real
+first-run product defect, not a leak.
+
+**The line that decides the token, and it is not "is this field named
+email".** The user's OWN credentials and contact details get a real token
+(login/signup email and password, own phone, own LinkedIn, own company
+website and name, `orgs.sender_email`). **Anything the user types ABOUT
+SOMEONE ELSE gets `off`** — a colleague's row in the team card, an
+investor's invite address, a document's view-only URL, a team member's photo
+link. `email` on a third party's field invites Chrome to offer the founder's
+own address for a colleague, which is the same class of confusion this
+prompt exists to end. Search and filter boxes are always `off`; a scripted
+first pass tagged two of them `email` purely from the word "email" in the
+placeholder, which is exactly the mistake the rule is meant to catch.
+
+**Scope done now:** 110 inputs across `src/components/company/**` (incl.
+Identity and the SectorPicker), `InvestorProfilePanel`, `src/app/signup`,
+`src/app/login`, `src/app/documents/page.tsx` and
+`src/components/documents/**`. **Backlog:** 249 inputs elsewhere still warn;
+they are the next sweep. Do not silence the warning — fix the input.
+
+---
+
+## Prompt 554 (03/09/2026) — A locked block's explanation is sticky to the viewport, never centred in the block
+
+**The rule.** Any frosted/locked block goes through
+`src/components/workspace-shell/FrostedGate.tsx`. The overlay covers the
+block but does **not** flex-centre; the message box inside it is
+`sticky top-[calc(50vh-48px)]`, so it rides with the viewport while the
+block scrolls past and leaves with the block. `pt-[min(20vh,160px)]` on the
+overlay means a block shorter than the viewport looks exactly as it did
+before — sticky simply never engages, so there is no regression on short
+gates.
+
+**Why not the obvious alternatives.** `position: fixed` would escape the
+block and float the message over the header and sidebar once the founder
+scrolled past the gate. An IntersectionObserver or a scroll listener would
+reimplement in JavaScript, per frame, what the compositor already does.
+Sticky inside an `absolute` box is legal and is exactly the wanted
+behaviour: the scrollport is the page, but the containing block is the
+overlay, so the message can never leave the frosted area.
+
+**The precondition that fails silently.** `sticky` resolves against the
+nearest scrollport. If any ancestor between a gate and the page gains
+`overflow: hidden` or `overflow-y-auto`, that ancestor becomes the
+scrollport and the message quietly stops sticking — no error, no warning,
+just the original bug back. Verified today (`grep -rn
+"overflow-hidden\|overflow-y-auto"` over `shell.tsx` and
+`InvestorWorkspaceShell.tsx` returns nothing) and **pinned by
+`FrostedGate.test.ts`**, so a future layout change trips a test instead of
+re-hiding the message.
+
+**Blur strength is a prop, not something the caller appends.** Two Tailwind
+blur utilities on one element resolve by stylesheet order, not attribute
+order, so `blur-[2px] blur-[3px]` is a coin flip. The guest previews
+genuinely use 3px and pass `blur="blur-[3px]"`.
+
+**Four call sites converted:** `ReadinessPanel` (the reported case — seven
+tabs, two to three screens tall), `MarketDataPanel` ("A few basics first"),
+`PipelinePanel` (the wave lock), `guest/FrostedOverlay` (548's previews).
+Copy, pill markup, lock glyph, CTAs and everything behind the frost are
+passed through unchanged.
+
+---
+
+## Prompt 555 (03/09/2026) — A MatchDeal investor in a founder's pipeline is described by `matchdeal_investor_firm_view`, never by its catalog stub
+
+**The rule.** For any `entities` row with `source = 'match_deal'`, the
+descriptive data and the people come from the investor's own
+`matchdeal_profiles` rows, projected by `matchdeal_investor_firm_view`
+(migration 0302). The catalog row is a stub created only to hang the
+membership off, and for a self-registered investor it is empty by
+construction. Never describe such an entity from `catalog_entities` again.
+
+**Migration 0302**, chosen after sweeping every remote branch with
+`git ls-remote --heads origin`: 0298 is taken by
+`claude/prompt-534-round-blueprint`, 0300/0301 by
+`claude/prompt-544-outreach-ready`, 0295–0297/0299 are on main. Reading main
+alone would have collided — exactly as Prompt 536's backfill did.
+
+**One projection, one write step, one backfill.**
+`matchdeal_apply_firm_to_entity` is called by both write paths AND by the
+backfill, so there is no second code path that could disagree. It is
+coalesce-only: a value the founder typed is never overwritten, and its
+`people` insert is idempotent on `(entity_id, lower(full_name))`, which is
+what makes re-running it safe.
+
+**Two design corrections found by running the projection against the real
+two-profile firm rather than trusting it.** (1) A ticket range must come from
+ONE profile: filling min and max independently produced €10,000–€1,350,000 —
+the min from the complete profile, the max from the more recently updated
+one — a range neither investor ever stated. (2) An empty array is not an
+answer: `jsonb_strip_nulls` keeps `[]`, so the projection was publishing
+`sectors: []` and friends, which a "only the fields present" read path
+renders as empty rows implying the investor declined to answer.
+
+**Privacy line.** `auth.users.email` is never read. The only address that can
+reach a founder is the profile's own `contact`, which the investor typed
+knowing founders would read it — and it is only copied into `entities.email`
+when it actually parses as an email address, so a phone number or a LinkedIn
+handle never lands in a column the outreach rules treat as a mailbox.
+`hidden_fields` is honoured per source profile with the 0155 vocabulary, and
+a hidden field is ABSENT rather than present-and-null: a null with a hint
+still discloses that the field exists and was withheld. Never projected:
+`plan_tier*`, billing, suspension columns, `photo_*_scan`,
+`self_declared_*`, `hidden_fields` itself, anything of the startup kind.
+
+**Nothing here is newly exposed.** `MatchDealDeck` already shows founders
+these exact fields on the investor's card, honouring `hidden_fields`. This
+was the same information failing to follow the investor into the pipeline.
+
+### Unrelated production defect found while doing this — NOT fixed here
+
+**No row can currently be inserted into `catalog_entities`.** The trigger
+function `catalog_readiness_refresh()` is shared by four tables and its
+`case tg_table_name ... when 'catalog_person_affiliations' then new.entity_id`
+branch is type-checked by plpgsql against the actual record type, so on
+`catalog_entities` (which has no `entity_id`) it raises
+`42703: record "new" has no field "entity_id"` before any branch is chosen.
+Reproduced directly. This blocks back-office catalog promotion, approved
+investor submissions and manual catalog adds. Left alone deliberately —
+Prompt 555 says do not change `catalog_entities` — and it is why the
+`zz-test-` fixture for this prompt had to be built on an existing `is_test`
+catalog entity instead of a fresh one. **Worth its own prompt.**

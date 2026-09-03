@@ -14,6 +14,7 @@ import type {
   Nda, Org, Pack, PackUnlock, PassReasonCategory, Person, PersonAffiliation, ReawakeningProposal, RelationshipStage,
   RelationshipState, RuleOverride, TaskItem, AiReview, TractionMetric, RoadmapMilestone, FundingRound, RoadmapCategory, RoadmapEvent,
   RejectionCode, InteractionEdit, InteractionDocument, OrgAxisClassification, SherlockNextSnooze } from './types';
+import { seedRoadmapCategoriesOn, type SeedClientLike } from './roadmap-seed';
 import { LOCK_DAYS, outboundsAwaitingFollowUp, fillTemplate } from './rules';
 import { isEditableLink, normalizeDocumentUrl } from './data-room';
 import { buildReawakenApproval, priorPassInfo } from './reawakening';
@@ -836,6 +837,23 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       persist(sb.from('company_people').delete().eq('id', id), 'removeCompanyPerson');
     },
 
+    // Prompt 540 RC1 — `cur`, not `prev`.
+    //
+    // THE LOST UPDATE: `prev` was captured BEFORE the await and the commit
+    // was built from it AFTER. Two overlapping calls both read the same
+    // snapshot, and the second commit overwrote the first one's row.
+    // RoadmapPanel seeded five default lanes with five concurrent
+    // addRoadmapCategory calls, all against the same empty `prev` — the
+    // database got all five (production: ablute_, Caramel Biscuit,
+    // Krohnsty, 5 each, one timestamp, no duplicates), while
+    // db.roadmapCategories kept only whichever insert resolved last. A
+    // refresh ran loadAll and showed five. That is the entire "categories
+    // appear only after a refresh" symptom.
+    //
+    // The row itself is still built from `prev` on purpose: id, org_id and
+    // sort_order are decided before the write and must not shift under it.
+    // Only the COMMIT's base is re-read, which is the one thing another
+    // in-flight call can have changed.
     async addTractionMetric(m) {
       const prev = dbRef.current;
       const sortOrder = prev.tractionMetrics.length
@@ -850,7 +868,8 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         const { error } = await sb.from('org_traction_metrics').insert({ ...row, org_id: o });
         if (error) return { error: friendlyTractionError(error.message) };
       }
-      commit({ ...prev, tractionMetrics: [...prev.tractionMetrics, row] });
+      const cur = dbRef.current;
+      commit({ ...cur, tractionMetrics: [...cur.tractionMetrics, row] });
       return {};
     },
     async updateTractionMetric(id, patch) {
@@ -893,8 +912,22 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
           if (error) return { error: error.message };
         } catch (e) { return { error: (e as Error).message || 'Could not reach the server — check your connection and try again.' }; }
       }
-      commit({ ...prev, roadmapCategories: [...prev.roadmapCategories, row] });
+      const cur = dbRef.current;
+      commit({ ...cur, roadmapCategories: [...cur.roadmapCategories, row] });
       return {};
+    },
+    // Prompt 540 RC1 §2 — one insert, one commit; the real logic lives in
+    // roadmap-seed.ts so it is testable without a DOM. Deliberately NOT five
+    // calls to addRoadmapCategory: even with the lost update fixed, five
+    // concurrent round trips for a fixed list is five chances to interleave
+    // for no benefit.
+    async seedRoadmapCategories(lanes) {
+      const o = orgIdRef.current;
+      if (!o) return { inserted: 0 };
+      return seedRoadmapCategoriesOn(
+        sb as unknown as SeedClientLike, o, lanes,
+        () => dbRef.current, commit, uuid,
+      );
     },
     async removeRoadmapCategory(id) {
       const prev = dbRef.current;
@@ -907,7 +940,8 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
       // Os itens que apontavam para ela NAO se tocam: o leitor resolve o
       // lookup-miss como General (roadmap-categories.ts) — o contrato que
       // faz apagar ser seguro sem triggers.
-      commit({ ...prev, roadmapCategories: prev.roadmapCategories.filter((c) => c.id !== id) });
+      const cur = dbRef.current;
+      commit({ ...cur, roadmapCategories: cur.roadmapCategories.filter((c) => c.id !== id) });
       return {};
     },
     async updateRoadmapCategory(id, patch) {
@@ -927,7 +961,8 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         const { error } = await sb.from('funding_rounds').insert({ ...row, org_id: o });
         if (error) return { error: error.message };
       }
-      commit({ ...prev, fundingRounds: [...prev.fundingRounds, row] });
+      const cur = dbRef.current;
+      commit({ ...cur, fundingRounds: [...cur.fundingRounds, row] });
       return {};
     },
     async removeFundingRound(id) {
@@ -936,7 +971,8 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         const { error } = await sb.from('funding_rounds').delete().eq('id', id);
         if (error) return { error: error.message };
       }
-      commit({ ...prev, fundingRounds: prev.fundingRounds.filter((f) => f.id !== id) });
+      const cur = dbRef.current;
+      commit({ ...cur, fundingRounds: cur.fundingRounds.filter((f) => f.id !== id) });
       return {};
     },
     async addCapTableEntry(e) {
@@ -947,7 +983,8 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         const { error } = await sb.from('cap_table_entries').insert({ ...row, org_id: o });
         if (error) return { error: error.message };
       }
-      commit({ ...prev, capTableEntries: [...prev.capTableEntries, row] });
+      const cur = dbRef.current;
+      commit({ ...cur, capTableEntries: [...cur.capTableEntries, row] });
       return {};
     },
     async removeCapTableEntry(id) {
@@ -956,7 +993,8 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         const { error } = await sb.from('cap_table_entries').delete().eq('id', id);
         if (error) return { error: error.message };
       }
-      commit({ ...prev, capTableEntries: prev.capTableEntries.filter((c) => c.id !== id) });
+      const cur = dbRef.current;
+      commit({ ...cur, capTableEntries: cur.capTableEntries.filter((c) => c.id !== id) });
       return {};
     },
     async addRoadmapMilestone(m) {
@@ -970,7 +1008,8 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         const { error } = await sb.from('company_roadmap_milestones').insert({ ...row, org_id: o });
         if (error) return { error: error.message };
       }
-      commit({ ...prev, roadmapMilestones: [...prev.roadmapMilestones, row] });
+      const cur = dbRef.current;
+      commit({ ...cur, roadmapMilestones: [...cur.roadmapMilestones, row] });
       return {};
     },
     async updateRoadmapMilestone(id, patch) {
@@ -1003,7 +1042,8 @@ export function SupabaseStoreProvider({ children }: { children: React.ReactNode 
         const { error } = await sb.from('roadmap_events').insert({ ...row, org_id: o });
         if (error) return { error: error.message };
       }
-      commit({ ...prev, roadmapEvents: [...prev.roadmapEvents, row] });
+      const cur = dbRef.current;
+      commit({ ...cur, roadmapEvents: [...cur.roadmapEvents, row] });
       return { id: row.id };
     },
     async updateRoadmapEvent(id, patch) {

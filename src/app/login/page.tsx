@@ -70,10 +70,10 @@ function LoginInner() {
         ) : (
           <>
             <label className="mb-1 block text-xs font-medium text-gray-500">Email</label>
-            <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@company.com"
+            <input autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@company.com"
               className="mb-3 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
             <label className="mb-1 block text-xs font-medium text-gray-500">Password</label>
-            <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="••••••••"
+            <input autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="••••••••"
               onKeyDown={(e) => e.key === 'Enter' && passwordLogin()}
               className="mb-4 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm" />
             <button disabled={busy || !email || !password} onClick={passwordLogin}
