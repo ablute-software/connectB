@@ -4103,3 +4103,45 @@ write). Healing on read is what stops the raw column gaining new dependents,
 so the later migration that drops it waits on a shrinking set rather than a
 moving target. Drop `access_grants.guest_token` once the last pre-hash token
 has expired (all current ones expire 2026-09-30).
+
+## The Materials shelf opens from a guest link; the Data Room shelf does not (Prompt 547, 02/09/2026)
+
+Nuno's decision, and it deliberately **supersedes Prompt 526's blanket "names
+only, confirmation for everything"** for exactly one shelf.
+
+- **`folders.kind = 'materials'`** (Pitch deck, Investor deck, One-pager,
+  Financials) shared with a guest **opens from the link — no account, no code**,
+  through a signed URL valid for 120 seconds. These are the documents a founder
+  attaches to an email anyway; the link IS the send, and forwarding it exposes
+  exactly what forwarding the PDF would. That is the status quo it replaces,
+  not a new exposure.
+- **`folders.kind = 'data_room'`** (00–08, diligence) stays behind **"Confirm
+  it's you"** — a one-time code to the invited address, then the existing
+  `/portal` path. This is where 526's non-transferability guarantee still
+  belongs: it now protects the shelf that needs it rather than the shelf that
+  does not.
+- **NDA-marked documents never open from the link, on either shelf.** A founder
+  who marked something NDA-required said it is not for open sending, and the
+  shelf it happens to sit on does not override that.
+- The words "Create your free account" are gone from the guest page. The code
+  path is not a signup and the copy must not say it is — that wording is what
+  told Nuno the feature was not for him.
+
+The rule lives in `src/lib/guest-shelf.ts`, as one predicate used by BOTH the
+listing route and the open route, so the page can never offer a link the route
+would refuse. `shelfFromFolderKind` defaults to `data_room` for any unrecognised
+value: if a third folder kind is ever added, the failure lands on "asks for a
+code", never on "opens to anyone holding the link".
+
+Every other refusal is unchanged and still enforced on every call, with no
+caching, so a founder's revoke or "Close vault for everyone" takes effect on the
+next click: token invalid/expired, `vault_access_frozen_at`, the 537 §4.2 rate
+limit, a flagged malware scan, and the document not being reachable through this
+recipient's own grants (decided by `resolveDocumentAccess`, never by the id in
+the URL).
+
+Not done here, recorded so it is not lost: `document_views` has no `source`
+column (checked against production), so the guest open is logged with
+`grant_id` carrying the provenance — it is the guest grant, which is what
+distinguishes it from a signed-in investor's view. Prompt 526 Part C's device id
+can attach to it when `claude/prompt-518-reconciled` lands.

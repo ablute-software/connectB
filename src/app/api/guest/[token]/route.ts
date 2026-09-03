@@ -16,6 +16,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { descendantFolderIds, resolveDocumentAccess } from '@/lib/data-room';
+import { shelfFromFolderKind, type GuestShelf } from '@/lib/guest-shelf';
 import { guestGrantTokenAvailable } from '@/lib/access-requests-capability';
 import { grantStatus } from '@/lib/access-grants';
 import { vaultFrozenForOrg } from '@/lib/data-room-server';
@@ -146,14 +147,34 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   // and structure cross this boundary.
   const treeFolderIds = [...new Set(visibleDocs.map((d) => d.folder_id).filter(Boolean))] as string[];
   const { data: folderRows } = treeFolderIds.length
-    ? await admin.from('folders').select('id, name').in('id', treeFolderIds)
+    ? await admin.from('folders').select('id, name, kind').in('id', treeFolderIds)
     : { data: [] };
   const folderNameById = new Map((folderRows ?? []).map((f) => [f.id as string, f.name as string]));
-  const docsByFolder = new Map<string, { id: string; name: string }[]>();
+  // Prompt 547 — additive only. Still names and structure, never a URL: the
+  // hard rule in this file's own header is unchanged. What is new is WHICH
+  // SHELF each name sits on and whether its grant requires an NDA, so the
+  // page can render "opens now" separately from "confirm it's you", and so
+  // the open route and the page decide from the same two facts.
+  const shelfByFolderId = new Map(
+    (folderRows ?? []).map((f) => [f.id as string, shelfFromFolderKind(f.kind as string | null)]),
+  );
+  // A document is NDA-gated when ANY grant reaching it says so — the
+  // conservative direction, and it matches what the founder marked.
+  const ndaFolderIds = new Set(
+    descendantFolderIds(folderTree, grants.filter((g) => g.nda_required && g.folder_id).map((g) => g.folder_id as string)),
+  );
+  const ndaDocIds = new Set(grants.filter((g) => g.nda_required && g.document_id).map((g) => g.document_id as string));
+  const isNdaRequired = (d: { id: string; folder_id?: string }) =>
+    ndaDocIds.has(d.id) || (!!d.folder_id && ndaFolderIds.has(d.folder_id));
+  const docsByFolder = new Map<string, { id: string; name: string; shelf: GuestShelf; ndaRequired: boolean }[]>();
   for (const d of visibleDocs) {
     const key = d.folder_id ?? '';
     const list = docsByFolder.get(key) ?? [];
-    list.push({ id: d.id, name: d.name });
+    list.push({
+      id: d.id, name: d.name,
+      shelf: shelfByFolderId.get(key) ?? 'data_room',
+      ndaRequired: isNdaRequired(d),
+    });
     docsByFolder.set(key, list);
   }
   const folders = [...docsByFolder.entries()]
