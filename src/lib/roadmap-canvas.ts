@@ -3,6 +3,40 @@
 // width and calls these; unit-tested independently, same discipline as
 // roadmap.ts/roadmap-fit.ts before it.
 
+
+// Prompt 540 RC1 §4 — lanes follow the founder's CATEGORIES, not their events.
+//
+// The bug: lanes were derived from the events themselves, so a category with
+// no events had no lane. A founder who had just been given the five default
+// lanes opened the Roadmap and saw none of them — nothing to click on, and
+// no way to tell "your lanes are configured" from "seeding failed". §2 of
+// the spec asks for the configured categories, and this is the one
+// deliberate behaviour change in this fix.
+//
+// The rules, in order:
+//  - every VISIBLE category gets a lane, in the founder's own order, whether
+//    or not it currently holds an event (Prompt 382's per-category toggle
+//    still removes a lane when it is off — that is a founder decision, an
+//    empty lane is not);
+//  - General is appended only when something actually lands in it, because
+//    it is not a category the founder created and an always-present empty
+//    "General" lane is noise;
+//  - an org with zero categories still gets zero lanes, so the canvas's own
+//    empty state is unchanged.
+export interface LaneCategory { id: string; label: string; color: string; shape: string; visible?: boolean }
+export interface LaneEventRef { category_id?: string | null }
+
+export function visibleLanes<C extends LaneCategory>(
+  categories: C[], filteredEvents: LaneEventRef[],
+): { fromCategories: C[]; needsGeneral: boolean } {
+  const known = new Set(categories.map((c) => c.id));
+  // An event whose category was deleted resolves to General — the same
+  // lookup-miss contract removeRoadmapCategory relies on to make deleting a
+  // category safe without touching its events.
+  const needsGeneral = filteredEvents.some((e) => !e.category_id || !known.has(e.category_id));
+  return { fromCategories: categories.filter((c) => c.visible !== false), needsGeneral };
+}
+
 // ---------------------------------------------------------------------------
 // Date <-> X position. A linear scale over [domainStart, domainEnd] mapped
 // to [0, width]. Both directions share the same span math on purpose — a

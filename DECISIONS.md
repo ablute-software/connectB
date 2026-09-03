@@ -4261,3 +4261,51 @@ Where this prompt changed them — `GuestPreviewShell.tsx` and
 `FrostedOverlay.tsx` were both rewritten, and the three
 `src/app/guest/preview/{pipeline,watson,bars}/page.tsx` files were replaced
 by one dynamic route — resolve add/add by taking `main`'s version.
+
+---
+
+## Prompt 540 — Roadmap first-load categories, and the founding date
+
+**Two things to carry forward, both requested by the prompt:**
+
+**1. New orgs should get the five default lanes at PROVISIONING time.** Fold
+`DEFAULT_LANES` (RoadmapPanel.tsx) into Prompt 539's `provision_founder_org`
+when that lands. Until then the client-side seeding path is the fallback, and
+it is now a single `seedRoadmapCategories()` action — one insert, one commit,
+with a `select … limit 1` immediately before the write so a second mount (React
+18's double-invoke, or a second browser tab) is a cheap no-op instead of ten
+categories. Seeding server-side at provisioning removes the race entirely
+rather than narrowing it.
+
+**2. Prompt 519 §4(b) is SUPERSEDED — drop that hunk when 519 is cherry-picked.**
+519 adds a "FOUNDED" vertical rule to the canvas (`RoadmapCanvas.tsx:332` on
+`claude/new-session-cndm41`). The founding is now a derived EVENT in its own
+lane (`roadmap-derived.ts`), rendered as an ordinary mark. Keeping both would
+draw the founding twice, in two different visual languages.
+
+**Why the founding date is derived and not stored.** It was an AI suggestion:
+`/api/roadmap/suggest-events` read `orgs.founded_year`, fed "Company founded in
+YYYY" to the model, and the founder accepted the result into a real
+`roadmap_events` row. That made it (a) invisible until a refresh — `updateOrg`
+POSTs `/api/org/update` fire-and-forget while `SuggestedEventsPanel` fetches on
+mount, so the GET read the database before the save landed and the knowledge
+signature carried no `founded:` part — and (b) duplicable: changing 2020 → 2021
+produced a second suggestion that `isDuplicateRoadmapEvent` could not recognise
+as the same fact, because it gates on the year. It is now computed at render
+time from the same field. `founded_year` was removed from the knowledge items
+AND from the signature (leaving the signature part would still trigger a full
+AI pass on every year change, for a fact nothing consumes), and
+`isFoundingCandidate` filters the founding back out of whatever the model
+proposes anyway. Existing accepted "Company founded" rows are the founder's
+data and are untouched — the derived marker steps aside when one exists.
+
+**The lost update, for the next person who writes an async store action.**
+Nine actions in `store-supabase.tsx` captured `const prev = dbRef.current`
+before their `await` and built the commit from it afterwards, so two
+overlapping calls lost a row. Confirmed in production: ablute_, Caramel Biscuit,
+Krohnsty and Sherlock Deal each have exactly five `roadmap_categories` with five
+distinct labels created within one second — the database took all five while
+memory kept one. **In an async action, build the commit from a fresh
+`dbRef.current` read AFTER the await, never from a snapshot taken before it.**
+`src/lib/store-lost-update.test.ts` pins this against the source for all nine;
+it fails on `main` for 9 of 9.

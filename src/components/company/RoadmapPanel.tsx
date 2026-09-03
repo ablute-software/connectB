@@ -18,7 +18,7 @@
 // comment (now removed from RoadmapCanvas.tsx) documented: after a delete,
 // the id simply stops resolving and the panel falls back to its own empty
 // state, with nothing to remember to clear.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { authEnabled } from '@/lib/supabase';
 import { useConfirm } from '@/lib/confirm';
@@ -29,6 +29,7 @@ import { RoadmapEventDetailPanel } from './RoadmapEventDetailPanel';
 import { CategoryManager } from './RoadmapCard';
 import { SuggestedEventsPanel } from './SuggestedEventsPanel';
 import { GLASS_CARD, GLASS_PILL } from './roadmap-visual';
+import { derivedFoundedEvent } from '@/lib/roadmap-derived';
 import type { RoadmapEventStatus } from '@/lib/types';
 
 // Prompt 359 §A.3 — the default lanes an investor actually reads a company
@@ -56,7 +57,7 @@ const DEFAULT_LANES: { label: string; color: 'blue' | 'green' | 'amber' | 'purpl
 const DEMO_STORAGE_KEY = 'ablute-crm-demo-v3';
 
 export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
-  const { db, updateOrg, addRoadmapCategory, addRoadmapEvent, updateRoadmapEvent, removeRoadmapEvent } = useStore();
+  const { db, loading, updateOrg, seedRoadmapCategories, addRoadmapEvent, updateRoadmapEvent, removeRoadmapEvent } = useStore();
   const confirm = useConfirm();
   // Prompt 359 §A.3 — seeding the defaults races the demo store's OWN
   // localStorage hydration: DemoStoreProvider starts `db` at the bare seed
@@ -82,24 +83,53 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
     } catch { /* fall through to the in-memory check above */ }
     if (alreadyHasCategories) return;
     seededRef.current = true;
-    for (const lane of DEFAULT_LANES) void addRoadmapCategory(lane);
+    void seedRoadmapCategories(DEFAULT_LANES);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canEdit, db.roadmapCategories.length]);
 
-  // Prompt 359 §A.3 — real Supabase mode: store-supabase.tsx's own initial
-  // fetch already resolves before this component ever renders with data
-  // (no localStorage hydration race to guard against), so the plain
-  // in-memory check is enough there.
+  // Prompt 540 RC1 — real Supabase mode, and the two changes here are the fix.
+  //
+  // 1. `!loading`. The old comment claimed "the initial fetch already
+  //    resolves before this component ever renders with data". It does not:
+  //    store-supabase.tsx sets orgIdRef BEFORE awaiting loadAll, and
+  //    settings/page.tsx mounts this panel with no loading gate, so opening
+  //    /settings?tab=roadmap directly ran this effect against EMPTY_DB while
+  //    the load was still in flight. finishInitialLoad then overwrote
+  //    whatever it had committed, and a later mount — with a fresh
+  //    seededRef — could seed all over again. No duplicates reached
+  //    production, but the window is real and this closes it.
+  // 2. ONE call instead of a five-iteration loop. Each iteration was a
+  //    separate insert against the same captured snapshot; four of the five
+  //    commits were thrown away. See roadmap-seed.ts.
   useEffect(() => {
-    if (!canEdit || !authEnabled || seededRef.current || db.roadmapCategories.length > 0) return;
+    if (!canEdit || !authEnabled || loading || seededRef.current || db.roadmapCategories.length > 0) return;
     seededRef.current = true;
-    for (const lane of DEFAULT_LANES) void addRoadmapCategory(lane);
+    void seedRoadmapCategories(DEFAULT_LANES);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canEdit, db.roadmapCategories.length]);
+  }, [canEdit, loading, db.roadmapCategories.length]);
 
   const [error, setError] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Prompt 540 RC2 — the founding marker is DERIVED from db.org.founded_year
+  // on every render, not read from a row. Reactive by construction: change
+  // the year in About and this memo recomputes, so the mark moves with no
+  // save, no refetch and no refresh. Because nothing is written, navigating
+  // away and back cannot produce a second one — which is precisely how the
+  // old AI-suggestion path ended up with two.
+  const derivedFounded = useMemo(
+    () => derivedFoundedEvent(db.org, db.roadmapEvents, db.roadmapCategories),
+    [db.org, db.roadmapEvents, db.roadmapCategories],
+  );
+  const canvasEvents = useMemo(
+    () => (derivedFounded ? [...db.roadmapEvents, derivedFounded] : db.roadmapEvents),
+    [db.roadmapEvents, derivedFounded],
+  );
+
   const selectedEvent = selectedId ? db.roadmapEvents.find((e) => e.id === selectedId) ?? null : null;
+  // A derived mark is selectable — it just resolves to its own read-only
+  // panel rather than a row-backed one.
+  const selectedDerived = derivedFounded && selectedId === derivedFounded.id ? derivedFounded : null;
   // Prompt 387 §D.3 — "Add as event" on a question card sets this; the
   // canvas opens its own create popover pre-filled the moment it sees it,
   // then reports back so it's cleared and never re-opens on its own.
@@ -124,7 +154,9 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
     setError('');
   }
 
-  const hasEvents = db.roadmapEvents.length > 0;
+  // Prompt 540 RC2 — a roadmap whose only mark is the derived founding one
+  // still needs the detail panel, or clicking that mark would do nothing.
+  const hasEvents = canvasEvents.length > 0;
 
   return (
     <div className={`${roadmapFont.className} max-w-6xl space-y-6`}>
@@ -153,12 +185,30 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
 
       {error && <p className="text-xs text-[#ba1a1a]">{error}</p>}
 
+      {/* Prompt 540 RC1 §3 — the canvas waits for the store, instead of
+          rendering an empty timeline over data that is still arriving. The
+          old behaviour drew "no categories yet" for the duration of the
+          initial load, which is what made the founder reach for a refresh
+          in the first place. Same glass card, no timers, no reload. */}
+      {loading ? (
+        <div className={`${GLASS_CARD} min-h-[160px] animate-pulse p-5`} aria-busy="true" aria-label="Loading your roadmap">
+          <div className="mb-4 h-3 w-72 rounded bg-black/5" />
+          <div className="space-y-3">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="h-3 w-36 rounded bg-black/5" />
+                <div className="h-6 flex-1 rounded-lg bg-black/[0.04]" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
       <div className={`${GLASS_CARD} min-h-[160px] p-5`}>
         <p className="mb-3 text-xs text-[#434656]/70">
           Click anywhere on a lane to add an event; drag to create a period; click a bar to see its details.
         </p>
         <RoadmapCanvas
-          events={db.roadmapEvents}
+          events={canvasEvents}
           categories={db.roadmapCategories}
           foundedYear={db.org.founded_year ?? null}
           editable={canEdit}
@@ -170,6 +220,7 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
           onPrefillConsumed={() => setPrefillTitle(null)}
         />
       </div>
+      )}
 
       {hasEvents && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
@@ -177,14 +228,33 @@ export function RoadmapPanel({ canEdit }: { canEdit: boolean }) {
             <CategoryManager />
           </div>
           <div className="lg:col-span-3">
-            <RoadmapEventDetailPanel
-              event={selectedEvent}
-              categories={db.roadmapCategories}
-              editable={canEdit}
-              documents={db.documents.map((d) => ({ id: d.id, name: d.name }))}
-              onUpdate={handleUpdate}
-              onRemove={handleRemove}
-            />
+            {/* Prompt 540 RC2 §3 — a derived mark gets its own read-only
+                panel: there is no row to edit, delete or recategorise, and
+                offering those controls would produce writes against an id
+                that does not exist. It says where the date actually comes
+                from and links to the field that owns it. */}
+            {selectedDerived ? (
+              <div className={`${GLASS_CARD} min-h-[140px] p-6`}>
+                <p className="text-lg font-semibold text-[#131b2e]">{selectedDerived.title}</p>
+                <p className="mt-1 text-sm text-[#434656]">{selectedDerived.date.slice(0, 4)}</p>
+                <p className="mt-3 text-xs text-[#434656]/80">
+                  From your company profile — edit <span className="font-medium">Year founded</span> in About.
+                </p>
+                <a href="/settings?tab=about#identity.founded_year"
+                  className="mt-3 inline-block text-xs font-medium text-[#0041c8] hover:underline">
+                  Open About →
+                </a>
+              </div>
+            ) : (
+              <RoadmapEventDetailPanel
+                event={selectedEvent}
+                categories={db.roadmapCategories}
+                editable={canEdit}
+                documents={db.documents.map((d) => ({ id: d.id, name: d.name }))}
+                onUpdate={handleUpdate}
+                onRemove={handleRemove}
+              />
+            )}
           </div>
         </div>
       )}

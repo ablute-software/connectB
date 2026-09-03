@@ -18,6 +18,7 @@ import { DOCUMENT_CONTENT_INSTRUCTION, wrapDocumentContent } from '@/lib/prompt-
 import { logAiCall, computeCostEur } from '@/lib/ai-cost-log';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
 import { isDuplicateRoadmapEvent } from '@/lib/roadmap-duplicate';
+import { isFoundingCandidate } from '@/lib/roadmap-derived';
 
 async function resolveOrg(sb: Awaited<ReturnType<typeof serverClient>>, userId: string) {
   const { data } = await sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle();
@@ -29,7 +30,7 @@ interface ExistingRoadmapItem { title: string; date: string }
 
 async function buildKnowledge(
   admin: SupabaseClient, orgId: string,
-): Promise<{ items: KnowledgeItem[]; existingRoadmap: ExistingRoadmapItem[]; signature: string }> {
+): Promise<{ items: KnowledgeItem[]; existingRoadmap: ExistingRoadmapItem[]; signature: string; foundedYear: number | null }> {
   const [{ data: org }, { data: badges }, { data: rounds }, extractionsAvail, { data: roadmapRows }] = await Promise.all([
     admin.from('orgs').select('founded_year, one_liner, round_target_eur, round_target_close_date').eq('id', orgId).maybeSingle(),
     admin.from('company_badges').select('id, name, year, evidence_document_id, verification_status').eq('org_id', orgId),
@@ -49,7 +50,25 @@ async function buildKnowledge(
   const sigParts: string[] = [];
 
   const orgRow = org as { founded_year: number | null; one_liner: string | null; round_target_eur: number | null; round_target_close_date: string | null } | null;
-  if (orgRow?.founded_year) { items.push({ kind: 'profile', text: `Company founded in ${orgRow.founded_year}.` }); sigParts.push(`founded:${orgRow.founded_year}`); }
+  // Prompt 540 RC2 §4 — founded_year is NO LONGER knowledge for the model.
+  //
+  // It used to be: this line fed "Company founded in YYYY" to Watson, whose
+  // instructions say a year alone is fine and to use January 1st, and the
+  // resulting suggestion was accepted into a real roadmap_events row. That
+  // made the founding date a stored AI artefact, with two consequences —
+  // it only appeared after a refresh (this GET read the database before
+  // updateOrg's fire-and-forget POST had landed, so the signature carried
+  // no `founded:` part and nothing was proposed), and changing the year
+  // produced a SECOND suggestion that isDuplicateRoadmapEvent could not
+  // recognise as the same fact, because it gates on the year.
+  //
+  // The founding marker is now derived at render time from the same field
+  // (roadmap-derived.ts). Removing it from the knowledge AND from the
+  // signature is deliberate: leaving the signature part would still trigger
+  // a whole AI pass on every year change, for a fact nothing consumes.
+  // The value is still read below, only to filter it back out of whatever
+  // the model proposes anyway.
+  const foundedYear = orgRow?.founded_year ?? null;
   if (orgRow?.round_target_close_date) { items.push({ kind: 'profile', text: `Target round close date: ${orgRow.round_target_close_date}.` }); sigParts.push(`close:${orgRow.round_target_close_date}`); }
 
   for (const b of (badges ?? []) as { id: string; name: string; year: number | null; evidence_document_id: string | null; verification_status: string }[]) {
@@ -88,7 +107,7 @@ async function buildKnowledge(
     });
 
   const signature = createHash('sha256').update(sigParts.sort().join('|')).digest('hex');
-  return { items, existingRoadmap, signature };
+  return { items, existingRoadmap, signature, foundedYear };
 }
 
 export async function GET() {
@@ -107,7 +126,7 @@ export async function GET() {
   if (!orgId) return NextResponse.json(empty);
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { items, existingRoadmap, signature } = await buildKnowledge(admin, orgId);
+  const { items, existingRoadmap, signature, foundedYear } = await buildKnowledge(admin, orgId);
 
   // Has ANY row been generated under this exact knowledge signature yet?
   // If so, skip the AI call entirely and just return whatever's still
@@ -120,7 +139,7 @@ export async function GET() {
 
   if (!alreadyRanForThisSignature && apiKey && items.length > 0) {
     try {
-      await runSuggestionPass(admin, apiKey, orgId, items, existingRoadmap, signature);
+      await runSuggestionPass(admin, apiKey, orgId, items, existingRoadmap, signature, foundedYear);
     } catch (e) {
       console.error('[roadmap/suggest-events] AI pass failed', (e as Error).message);
     }
@@ -138,7 +157,7 @@ export async function GET() {
 
 async function runSuggestionPass(
   admin: SupabaseClient, apiKey: string, orgId: string, items: KnowledgeItem[],
-  existingRoadmap: ExistingRoadmapItem[], signature: string,
+  existingRoadmap: ExistingRoadmapItem[], signature: string, foundedYear: number | null,
 ): Promise<void> {
   const model = process.env.AI_REVIEW_MODEL ?? 'claude-sonnet-4-5';
   const knowledgeText = items.map((i) => `- [${i.kind}] ${i.text}`).join('\n');
@@ -250,6 +269,13 @@ async function runSuggestionPass(
     // overlap on the title — see roadmap-duplicate.ts) never gets inserted,
     // regardless of what the model returned.
     if (isDuplicateRoadmapEvent({ title, date }, existingRoadmap)) continue;
+    // Prompt 540 RC2 §4 — and never the founding again. The model can still
+    // infer it from a document or a badge even with the profile item gone,
+    // so this is the mechanical guarantee rather than a hope: a candidate
+    // about the founding, in the founding year, is what the canvas now
+    // derives. A founding in a DIFFERENT year ("Founded the Berlin office
+    // in 2023") is a real, separate event and passes.
+    if (isFoundingCandidate({ title, date }, foundedYear)) continue;
     // Signature per candidate = the shared knowledge signature this pass
     // ran under, plus the candidate's own identity — so a re-run under an
     // UNCHANGED knowledge signature never touches rows the founder already
