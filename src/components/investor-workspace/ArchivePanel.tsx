@@ -10,6 +10,11 @@ interface SnapshotView {
 interface ArchiveEntry {
   id: string; orgId: string; orgName: string; source: string; reasonDetail: string | null; archivedAt: string;
   restricted?: boolean;
+  // Prompt 556 §C — the org itself was closed (its last member deleted).
+  // Arrives alongside restricted: true, and takes precedence over it in the
+  // copy below: the investor's own decision is not why there is nothing to
+  // show here.
+  unavailable?: boolean;
   firstContact: SnapshotView | null; lastContact: SnapshotView | null;
   now: { text: string; generatedAt: string } | null;
   badges: { raisedSinceYouPassed: boolean; newRoundOpen: boolean; nowMatchesThesis: boolean; trending: boolean } | null;
@@ -92,7 +97,7 @@ export function ArchivePanel() {
                   {' · '}{new Date(e.archivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </div>
               </div>
-              {!e.restricted && (
+              {!e.restricted && !e.unavailable && (
                 <button onClick={() => reopen(e.id)} disabled={busyId === e.id}
                   className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:border-[#0E7490] disabled:opacity-40">
                   {busyId === e.id ? 'Reopening…' : 'Reopen'}
@@ -100,7 +105,13 @@ export function ArchivePanel() {
               )}
             </div>
 
-            {e.restricted ? (
+            {e.unavailable ? (
+              // Prompt 556 §C — one line, the same sentence the Pipeline
+              // row uses. Checked before `restricted` on purpose: both are
+              // true for a closed org that was also passed on, and "the
+              // startup is gone" is the accurate reason, not "you decided".
+              <p className="mt-2 text-xs text-gray-400">This startup is no longer available</p>
+            ) : e.restricted ? (
               // AP-10 — a final Pass decision restricts the investor's own
               // view back down to name/reason/tag; the diligence history
               // (then/now, badges) is no longer shown here.

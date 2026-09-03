@@ -43,6 +43,7 @@ import { logEvent } from '@/lib/analytics-events';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { recordInvestorDecisionFact } from '@/lib/ecosystem-facts';
 import { assertNotViewer } from '@/lib/developer-viewer';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { investorInterestNotifyAvailable } from '@/lib/investor-interest-notify-capability';
 
 // AP-08 — free text, not the old fixed category list. Max 1000 chars,
@@ -121,6 +122,11 @@ export async function POST(req: Request) {
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
   const orgIds = await pipelineEligibleOrgIds(admin, user.id, email, person?.id ?? null);
   if (!orgIds.includes(orgId)) return NextResponse.json({ ok: false, error: 'This startup is not on the matching graph yet.' }, { status: 403 });
+  // Prompt 556 §C — a closed org can still be in the union above through an
+  // EXISTING decision (history never disappears), so it has to be refused
+  // here explicitly: there is nobody left to be interested in, or to pass on.
+  const closedBlock = await closedOrgGuard(admin, orgId);
+  if (closedBlock) return closedBlock;
 
   // Prompt 196 A — this used to be a hard requirement (409 if absent), which
   // desynced from the eligibility check just above: pipelineEligibleOrgIds

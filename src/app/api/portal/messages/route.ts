@@ -8,6 +8,8 @@
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { isUnavailableCard } from '@/lib/closed-org-card';
+import { closedOrgGuard, STARTUP_UNAVAILABLE_MESSAGE, STARTUP_UNAVAILABLE_REASON } from '@/lib/org-closed';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
 import { dealMessagesAvailable } from '@/lib/deal-messages-capability';
@@ -43,7 +45,22 @@ export async function GET(req: Request) {
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { card, investorCatalogEntityId } = await resolveCardAndInvestorId(admin, sb, user.id, email, orgId);
   if (!card) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
-  if (!investorCatalogEntityId || !canInvestorMessage(card)) {
+  // Prompt 556 §C — a closed startup is the one case that is NOT a 410 on
+  // GET. The conversation already happened and belongs to both sides; what
+  // ends is the ability to add to it. So the history comes back unchanged,
+  // `canMessage` is false, and `unavailable` tells the client to show the
+  // note in the thread header instead of the composer. POST below is the
+  // 410 — nothing new can be written.
+  const closed = isUnavailableCard(card);
+  if (closed && investorCatalogEntityId) {
+    const closedThread = await findThread(admin, orgId, investorCatalogEntityId);
+    const closedMessages = closedThread ? await getThreadMessages(admin, closedThread.id as string) : [];
+    return NextResponse.json({
+      messages: closedMessages, canMessage: false,
+      unavailable: true, unavailableReason: STARTUP_UNAVAILABLE_REASON, unavailableMessage: STARTUP_UNAVAILABLE_MESSAGE,
+    });
+  }
+  if (closed || !investorCatalogEntityId || !canInvestorMessage(card)) {
     return NextResponse.json({ messages: [], canMessage: false });
   }
 
@@ -80,7 +97,9 @@ export async function POST(req: Request) {
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { card, investorCatalogEntityId } = await resolveCardAndInvestorId(admin, sb, user.id, email, body.orgId);
   if (!card) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
-  if (!investorCatalogEntityId || !canInvestorMessage(card)) {
+  const closedBlock = await closedOrgGuard(admin, body.orgId);
+  if (closedBlock) return closedBlock;
+  if (isUnavailableCard(card) || !investorCatalogEntityId || !canInvestorMessage(card)) {
     return NextResponse.json({ ok: false, error: 'No relationship with this startup yet.' }, { status: 403 });
   }
 

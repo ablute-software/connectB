@@ -2,6 +2,7 @@
 // startup. Same pattern as criteria/route.ts.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { assertNotViewer } from '@/lib/developer-viewer';
@@ -19,6 +20,9 @@ export async function GET(req: Request) {
   if (!orgId) return NextResponse.json({ error: 'orgId is required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, orgId);
+  if (closedBlock) return closedBlock;
   const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ items: [] });
 
@@ -55,6 +59,9 @@ export async function POST(req: Request) {
   }
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, body.orgId);
+  if (closedBlock) return closedBlock;
   const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ ok: false, error: 'No investor firm linked to this session.' }, { status: 403 });
 

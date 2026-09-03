@@ -26,6 +26,7 @@
 // else, no fallback, no `qaAccess` flag.
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { descendantFolderIds, resolveDocumentAccess, unlockedGrants } from '@/lib/data-room';
 import { grantIsActive, grantStatus } from '@/lib/access-grants';
@@ -161,6 +162,9 @@ export async function GET(req: Request) {
   const userId = user.id;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, requestedOrgId);
+  if (closedBlock) return closedBlock;
 
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
 

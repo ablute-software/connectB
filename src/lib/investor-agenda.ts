@@ -4,6 +4,7 @@
 // investor-pipeline.ts's CSV export reusing getPipelineWaves.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { eligibleOrgIds, resolveInvestorProfile } from './portal-access';
+import { closedOrgIds } from './org-closed';
 
 export interface AgendaItem {
   kind: 'meeting' | 'round_close' | 'follow_up';
@@ -50,7 +51,15 @@ export async function getAgendaItems(
 
   const { data: followups } = await admin.from('investor_followups').select('id, org_id, note, remind_at')
     .eq('investor_email', email).eq('done', false).order('remind_at', { ascending: true });
+  // Prompt 556 §C — Agenda hides events of a closed org. round_close and
+  // meeting items already drop out on their own (both are built from
+  // orgById, and eligibleOrgIds no longer returns a closed org), but
+  // follow-ups are read straight off investor_followups by email and are
+  // not filtered by orgIds — without this they'd keep firing reminders to
+  // chase a startup that no longer exists, under the name "Unknown".
+  const closedFollowupOrgIds = await closedOrgIds(admin, [...new Set((followups ?? []).map((f) => f.org_id as string))]);
   for (const f of followups ?? []) {
+    if (closedFollowupOrgIds.has(f.org_id as string)) continue;
     const org = orgById.get(f.org_id as string);
     items.push({
       kind: 'follow_up', date: f.remind_at as string, followupId: f.id as string,

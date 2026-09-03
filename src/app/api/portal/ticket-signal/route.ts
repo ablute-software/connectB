@@ -7,6 +7,7 @@
 // the request body.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
@@ -30,6 +31,9 @@ export async function POST(req: Request) {
   if (!org_id || !range_label) return NextResponse.json({ ok: false, error: 'org_id and range_label are required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, org_id);
+  if (closedBlock) return closedBlock;
 
   // Confirm this session actually has active access to this org before
   // writing anything — an investor can only signal a ticket for a startup

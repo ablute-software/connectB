@@ -4,6 +4,8 @@
 // "what's in my Pipeline" would drift.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from './investor-match-score';
+import { closedOrgIds } from './org-closed';
+import { projectUnavailableCard } from './closed-org-card';
 import { activeGrantOrgIds, eligiblePipelineOrgIds, resolveInvestorCatalogEntityId, resolveInvestorPlanTierForProfile, resolveInvestorProfile, resolveViewerIsTest } from './portal-access';
 import { pipelineTestFlagAvailable } from './pipeline-test-flag-capability';
 import { roundValuationBasisAvailable } from './round-valuation-basis-capability';
@@ -471,5 +473,19 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     waves.push({ index: waves.length, items, unlocked: i === 0 || priorTreated });
   }
 
-  return { linked: true as const, waves, usualCoInvestors };
+  // Prompt 556 §C — a closed org (orgs.closed_at, migration 0303) is
+  // projected down to name + status here, at the LAST possible point, after
+  // every enrichment step above has run. Doing it earlier would mean each
+  // new enrichment has to remember to skip closed cards; doing it here means
+  // none of them can leak, because nothing they wrote survives the
+  // projection. A closed org can only still be in this list through HISTORY
+  // (a recorded decision, an accepted referral) — discovery and grants both
+  // exclude it upstream now.
+  const closedIds = await closedOrgIds(admin, orgIds);
+  const projectedWaves = closedIds.size === 0 ? waves : waves.map((w) => ({
+    ...w,
+    items: w.items.map((c) => (closedIds.has(c.orgId as string) ? projectUnavailableCard(c) : c)),
+  }));
+
+  return { linked: true as const, waves: projectedWaves, usualCoInvestors };
 }

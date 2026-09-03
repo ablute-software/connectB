@@ -27,6 +27,7 @@
 // period_kind/period_year/period_quarter/items (migration 0161).
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId, resolveInvestorPlanTier } from '@/lib/portal-access';
@@ -50,6 +51,14 @@ export async function GET(req: Request, { params }: { params: { orgId: string } 
   const result = await getPipelineWaves(sb, admin, user.id, email);
   const card = result.linked ? result.waves.flatMap((w) => w.items).find((c) => c.orgId === params.orgId) : null;
   if (!card) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  // Deliberately AFTER the card lookup, unlike every other route's copy of
+  // this guard: this route's own contract (see its header) is that an org
+  // this investor has no relationship with is indistinguishable from an org
+  // that doesn't exist. Answering 410 before checking the relationship would
+  // turn that flat 404 into an oracle for "this org id exists and is closed".
+  const closedBlock = await closedOrgGuard(admin, params.orgId);
+  if (closedBlock) return closedBlock;
 
   // Prompt 401 §1 — Pioneer removed from this route entirely: it's a
   // founder-ACCOUNT state (plan/promo), not a signal about the deal, and

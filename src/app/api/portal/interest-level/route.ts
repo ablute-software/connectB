@@ -6,6 +6,7 @@
 // founder to decide.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { pipelineEligibleOrgIds } from '@/lib/investor-pipeline';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
@@ -30,6 +31,9 @@ export async function GET(req: Request) {
   if (!(await interestLevelAvailable())) return NextResponse.json({ level: 0, rows: [] });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, orgId);
+  if (closedBlock) return closedBlock;
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
   const eligibleOrgIds = await pipelineEligibleOrgIds(admin, user.id, email, person?.id ?? null);
   if (!eligibleOrgIds.includes(orgId)) return NextResponse.json({ error: 'Not eligible for this startup.' }, { status: 403 });
@@ -68,6 +72,9 @@ export async function POST(req: Request) {
   if (body.level !== 2 && body.level !== 3) return NextResponse.json({ ok: false, error: 'level must be 2 or 3.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, body.orgId);
+  if (closedBlock) return closedBlock;
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
   const eligibleOrgIds = await pipelineEligibleOrgIds(admin, user.id, email, person?.id ?? null);
   if (!eligibleOrgIds.includes(body.orgId)) return NextResponse.json({ ok: false, error: 'Not eligible for this startup.' }, { status: 403 });

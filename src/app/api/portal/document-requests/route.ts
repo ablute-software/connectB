@@ -9,6 +9,7 @@
 // 'access'-kind rows (e.g. "Request again" on an expired grant).
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { accessRequestItemsAvailable, documentRequestFieldsAvailable, documentRequestItemTypeAvailable } from '@/lib/document-request-capability';
@@ -48,6 +49,9 @@ export async function GET(req: Request) {
   if (!user || !email) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, orgId);
+  if (closedBlock) return closedBlock;
   if (!(await accessRequestItemsAvailable())) return NextResponse.json({ requests: [] });
   const itemTypeAvailable = await documentRequestItemTypeAvailable();
 
@@ -134,6 +138,9 @@ export async function POST(req: Request) {
   if (items.length === 0) return NextResponse.json({ ok: false, error: 'Pick at least one document, or describe what you need.' }, { status: 400 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, body.orgId);
+  if (closedBlock) return closedBlock;
   if (!(await accessRequestItemsAvailable()) || !(await documentRequestFieldsAvailable())) {
     return NextResponse.json({ ok: false, error: 'not configured' });
   }

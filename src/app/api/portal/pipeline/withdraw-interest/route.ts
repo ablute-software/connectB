@@ -16,6 +16,7 @@
 // boundary.
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveInvestorCatalogEntityId, resolveInvestorProfile } from '@/lib/portal-access';
 import { canWithdrawInterest, resolveWithdrawWindowSignals } from '@/lib/investor-interest-withdrawal';
@@ -66,6 +67,9 @@ export async function POST(req: Request) {
   const orgId = body.orgId;
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, orgId);
+  if (closedBlock) return closedBlock;
   const investorProfile = await resolveInvestorProfile(admin, user.id);
   if (!investorProfile) return NextResponse.json({ ok: false, error: 'No linked investor entity yet.' }, { status: 403 });
 

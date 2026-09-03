@@ -6,6 +6,7 @@
 // still filters explicitly, which is the real boundary.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveActiveInvestorMember } from '@/lib/investor-membership';
 import { assertNotViewer } from '@/lib/developer-viewer';
@@ -31,6 +32,9 @@ export async function GET(req: Request) {
   }
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, orgId);
+  if (closedBlock) return closedBlock;
   const member = await resolveActiveInvestorMember(admin, user.id);
   if (!member) return NextResponse.json({ items: [] });
 
@@ -92,6 +96,10 @@ export async function POST(req: Request) {
   if (typeof body.score !== 'number' || body.score < 0 || body.score > 10) {
     return NextResponse.json({ ok: false, error: 'score must be between 0 and 10.' }, { status: 400 });
   }
+
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, body.orgId);
+  if (closedBlock) return closedBlock;
 
   // Ownership check via the criterion, same boundary the RLS policy itself
   // encodes (migration 0251) — belt and suspenders under service role.

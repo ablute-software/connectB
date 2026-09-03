@@ -3,6 +3,7 @@
 // declines via /api/founder/watches.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
 import { pipelineEligibleOrgIds } from '@/lib/investor-pipeline';
@@ -28,6 +29,9 @@ export async function GET(req: Request) {
   if (!orgId) return NextResponse.json({ error: 'orgId is required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, orgId);
+  if (closedBlock) return closedBlock;
   const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
   if (!investorCatalogEntityId) return NextResponse.json({ status: 'none' });
 
@@ -67,6 +71,9 @@ export async function POST(req: Request) {
   if (!body.orgId) return NextResponse.json({ ok: false, error: 'orgId is required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, body.orgId);
+  if (closedBlock) return closedBlock;
   const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
   if (!investorCatalogEntityId) return NextResponse.json({ ok: false, error: 'No linked investor organization.' }, { status: 403 });
 
@@ -97,6 +104,9 @@ export async function PATCH(req: Request) {
   if (!body.orgId) return NextResponse.json({ ok: false, error: 'orgId is required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, body.orgId);
+  if (closedBlock) return closedBlock;
   const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
   if (!investorCatalogEntityId) return NextResponse.json({ ok: false, error: 'No linked investor organization.' }, { status: 403 });
 
@@ -131,6 +141,9 @@ export async function DELETE(req: Request) {
   if (!body.orgId) return NextResponse.json({ ok: false, error: 'orgId is required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, body.orgId);
+  if (closedBlock) return closedBlock;
   const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
   if (!investorCatalogEntityId) return NextResponse.json({ ok: false, error: 'No linked investor organization.' }, { status: 403 });
 

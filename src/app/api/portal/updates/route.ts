@@ -3,6 +3,7 @@
 // as /api/portal/questions.
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 
 async function hasActiveGrant(admin: SupabaseClient, orgId: string, email: string, personId: string | null) {
@@ -28,6 +29,9 @@ export async function GET(req: Request) {
   if (!orgId) return NextResponse.json({ error: 'org_id is required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, orgId);
+  if (closedBlock) return closedBlock;
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
   if (!(await hasActiveGrant(admin, orgId, email, person?.id ?? null))) {
     return NextResponse.json({ error: 'No active access to this org.' }, { status: 403 });

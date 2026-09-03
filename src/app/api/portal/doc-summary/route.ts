@@ -5,6 +5,7 @@
 // access check for the same document.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { visibleDocumentsForFirm } from '@/lib/data-room-server';
 import { ensureDocumentSummary } from '@/lib/document-extraction-pipeline';
@@ -32,6 +33,9 @@ export async function GET(req: Request) {
   if (!orgId || documentIds.length === 0) return NextResponse.json({ summaries: {} });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, orgId);
+  if (closedBlock) return closedBlock;
   const visibleDocs = await visibleDocumentsForFirm(admin, orgId, email);
   const visibleIds = new Set(visibleDocs.map((d) => d.id));
   const requestedVisibleIds = documentIds.filter((id) => visibleIds.has(id));
@@ -61,6 +65,9 @@ export async function POST(req: Request) {
   if (!body.orgId || !body.documentId) return NextResponse.json({ ok: false, error: 'orgId and documentId are required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, body.orgId);
+  if (closedBlock) return closedBlock;
 
   const visibleDocs = await visibleDocumentsForFirm(admin, body.orgId, email);
   if (!visibleDocs.some((d) => d.id === body.documentId)) {

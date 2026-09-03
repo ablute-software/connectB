@@ -6,6 +6,8 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
+import { isUnavailableCard } from '@/lib/closed-org-card';
+import { closedOrgGuard, STARTUP_UNAVAILABLE_MESSAGE } from '@/lib/org-closed';
 import { getArchiveEntries } from '@/lib/investor-archive';
 import { toCsv } from '@/lib/csv';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
@@ -35,6 +37,9 @@ export async function GET(req: Request) {
   if (type === 'interaction-log') {
     const orgId = new URL(req.url).searchParams.get('orgId');
     if (!orgId) return NextResponse.json({ error: 'orgId is required for interaction-log.' }, { status: 400 });
+    // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+    const closedBlock = await closedOrgGuard(admin, orgId);
+    if (closedBlock) return closedBlock;
     const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
     const entries = investorCatalogEntityId ? await getInteractionTimeline(admin, { investorCatalogEntityId, email, orgId }) : [];
     const rows = entries.map((e) => ({
@@ -46,10 +51,22 @@ export async function GET(req: Request) {
     filename = 'interaction-log.csv';
   } else if (type === 'pipeline') {
     const result = await getPipelineWaves(sb, admin, user.id, email);
-    const rows = (result.linked && result.waves ? result.waves : []).flatMap((w) => w.items.map((c) => ({
-      name: c.name, stage: c.stage ? (STAGE_LABELS[c.stage] ?? c.stage) : '', sectors: c.sectors.join('; '),
-      match_score: c.matchScore, wave: w.index + 1, status: c.status, round_target_eur: c.roundTargetEur ?? '',
-    })));
+    // Prompt 556 §C — a closed startup exports as its name, its wave and
+    // the investor's own decision, and nothing else. It is deliberately NOT
+    // dropped from the CSV: the investor's history with it is theirs, and a
+    // row silently vanishing from an export is worse than a row that says
+    // what happened.
+    const rows = (result.linked && result.waves ? result.waves : []).flatMap((w) => w.items.map((c) => (
+      isUnavailableCard(c)
+        ? {
+            name: c.name, stage: '', sectors: '', match_score: '',
+            wave: w.index + 1, status: STARTUP_UNAVAILABLE_MESSAGE, round_target_eur: '',
+          }
+        : {
+            name: c.name, stage: c.stage ? (STAGE_LABELS[c.stage] ?? c.stage) : '', sectors: c.sectors.join('; '),
+            match_score: c.matchScore, wave: w.index + 1, status: c.status, round_target_eur: c.roundTargetEur ?? '',
+          }
+    )));
     csv = toCsv(rows, ['name', 'stage', 'sectors', 'match_score', 'wave', 'status', 'round_target_eur']);
     filename = 'pipeline.csv';
   } else {

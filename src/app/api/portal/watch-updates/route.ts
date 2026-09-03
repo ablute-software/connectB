@@ -3,6 +3,7 @@
 // watcher, or target='selected' naming their catalog entity id).
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveInvestorCatalogEntityId } from '@/lib/portal-access';
 import { findWatch } from '@/lib/investor-watching-db';
@@ -20,6 +21,9 @@ export async function GET(req: Request) {
   if (!orgId) return NextResponse.json({ error: 'orgId is required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, orgId);
+  if (closedBlock) return closedBlock;
   const investorCatalogEntityId = await resolveInvestorCatalogEntityId(admin, user.id);
   if (!investorCatalogEntityId) return NextResponse.json({ updates: [] });
   const watch = await findWatch(admin, orgId, investorCatalogEntityId);

@@ -6,6 +6,7 @@
 // new thing (migration 0060).
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { eligibleOrgIds } from '@/lib/portal-access';
 import { getAgendaItems } from '@/lib/investor-agenda';
@@ -43,6 +44,9 @@ export async function POST(req: Request) {
   if (!body.orgId || !body.remindAt) return NextResponse.json({ ok: false, error: 'orgId and remindAt are required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, body.orgId);
+  if (closedBlock) return closedBlock;
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
   const orgIds = await eligibleOrgIds(sb, admin, user.id, email, person?.id ?? null);
   if (!orgIds.includes(body.orgId)) return NextResponse.json({ ok: false, error: 'No active access to this org.' }, { status: 403 });

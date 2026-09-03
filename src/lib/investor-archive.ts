@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { captureSnapshot } from './startup-snapshot';
 import { computeMatchScore, type InvestorThesis, type StartupRound } from './investor-match-score';
 import { resolveInvestorCatalogEntityId, resolveInvestorProfile } from './portal-access';
+import { closedOrgIds } from './org-closed';
 
 export async function createArchiveEntry(
   admin: SupabaseClient, orgId: string, investorEmail: string,
@@ -122,14 +123,28 @@ export async function getArchiveEntries(admin: SupabaseClient, userId: string, e
     : { data: [] as { org_id: string }[] };
   const passedOrgIds = new Set((decisions ?? []).map((d) => d.org_id as string));
 
+  // Prompt 556 §C — an archived startup whose org was closed shows the note
+  // instead of the details. Same restricted shape the AP-10 pass-collapse
+  // already uses (so no consumer sees a new field combination), plus
+  // `unavailable` so the panel can say WHY there is nothing to show: this
+  // one is not a consequence of the investor's own decision.
+  const closedArchiveOrgIds = await closedOrgIds(admin, orgIds);
+
   return Promise.all(entries.map(async (e) => {
     const orgId = e.org_id as string;
+    if (closedArchiveOrgIds.has(orgId)) {
+      return {
+        id: e.id as string, orgId, orgName: orgNameById.get(orgId) ?? 'Unknown',
+        source: e.source as string, reasonDetail: e.reason_detail as string | null, archivedAt: e.archived_at as string,
+        restricted: true as const, unavailable: true as const, firstContact: null, lastContact: null, now: null, badges: null,
+      };
+    }
     const restricted = passedOrgIds.has(orgId);
     if (restricted) {
       return {
         id: e.id as string, orgId, orgName: orgNameById.get(orgId) ?? 'Unknown',
         source: e.source as string, reasonDetail: e.reason_detail as string | null, archivedAt: e.archived_at as string,
-        restricted: true as const, firstContact: null, lastContact: null, now: null, badges: null,
+        restricted: true as const, unavailable: false as const, firstContact: null, lastContact: null, now: null, badges: null,
       };
     }
     const firstContact = snapshotById.get(e.first_contact_snapshot_id as string);
@@ -139,7 +154,7 @@ export async function getArchiveEntries(admin: SupabaseClient, userId: string, e
     return {
       id: e.id as string, orgId, orgName: orgNameById.get(orgId) ?? 'Unknown',
       source: e.source as string, reasonDetail: e.reason_detail as string | null, archivedAt: e.archived_at as string,
-      restricted: false as const,
+      restricted: false as const, unavailable: false as const,
       firstContact: firstContact ? { data: firstContact.data, capturedAt: firstContact.captured_at } : null,
       lastContact: lastContact ? { data: lastContact.data, capturedAt: lastContact.captured_at } : null,
       now: now ? { text: now.summary_text as string, generatedAt: now.generated_at as string } : null,

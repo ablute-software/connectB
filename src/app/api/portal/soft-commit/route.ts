@@ -5,6 +5,7 @@
 // PATCH and buildSnapshot's securedShown in /api/portal/access).
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 import { assertNotViewer } from '@/lib/developer-viewer';
@@ -27,6 +28,9 @@ export async function POST(req: Request) {
   if (!org_id || !amount_eur || amount_eur <= 0) return NextResponse.json({ ok: false, error: 'org_id and a positive amount_eur are required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, org_id);
+  if (closedBlock) return closedBlock;
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
   const orParts = [`grantee_email.eq.${email}`, `invited_email.eq.${email}`];
   if (person) orParts.push(`person_id.eq.${person.id}`);

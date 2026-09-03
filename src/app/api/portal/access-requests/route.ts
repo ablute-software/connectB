@@ -7,6 +7,7 @@
 // only step left once the founder applies the migration.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { grantStatus } from '@/lib/access-grants';
 import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
@@ -29,6 +30,9 @@ export async function POST(req: Request) {
   if (!body.orgId) return NextResponse.json({ ok: false, error: 'orgId is required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, body.orgId);
+  if (closedBlock) return closedBlock;
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
 
   // Re-derive which folders/documents this investor's now-expired grants for

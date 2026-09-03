@@ -68,10 +68,24 @@ interface Card {
   // line: at least one deal_messages row exists in the thread, either side.
   hasConversation?: boolean;
 }
+// Prompt 556 §C — a startup whose org was closed (its last member deleted)
+// arrives as THIS instead of a Card: the four fields the investor's own
+// history needs, and nothing about the startup. The server builds it
+// (closed-org-card.ts, projectUnavailableCard) — this is not a client-side
+// filter of a full card, and there is no full card to fall back to.
+interface UnavailableCard {
+  orgId: string; name: string; status: 'open' | 'passed' | 'interested';
+  decidedAt?: string | null; unavailable: true;
+}
+type AnyCard = Card | UnavailableCard;
+function isUnavailable(c: AnyCard): c is UnavailableCard {
+  return (c as UnavailableCard).unavailable === true;
+}
+
 // Item 14 — a locked wave's `items` now arrives empty from the server
 // (/api/portal/pipeline strips real card data for any wave with
 // unlocked=false); hiddenCount is the only signal of what's behind it.
-interface Wave { index: number; items: Card[]; unlocked: boolean; hiddenCount?: number }
+interface Wave { index: number; items: AnyCard[]; unlocked: boolean; hiddenCount?: number }
 interface PipelineResponse { linked: boolean; waves?: Wave[]; usualCoInvestors?: string | null }
 
 const REASON_MAX_LEN = 1000;
@@ -117,6 +131,24 @@ function interestResponseLabel(c: Card): string {
 // containing block for any fixed descendant, which is exactly what broke
 // the MatchDeal pairing modal (see CLAUDE.md's note on that bug); the
 // "Review" button here just scrolls, it never opens a modal.
+// Prompt 556 §C — the whole card for a startup that no longer exists: the
+// name in muted text and one line. No status pill, no match score, no
+// Interested/Pass/Archive/Message/Data room, no expand, and no <Link> — the
+// dossier route answers 410 for a closed org, so a click-through would only
+// be a dead end. There is nothing to disable here because nothing is
+// rendered; that is deliberate, and it is why this is its own component
+// rather than a set of conditionals inside the real card.
+function UnavailableRow({ card }: { card: UnavailableCard }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50">
+      <div className="px-3 py-2.5">
+        <div className="text-sm font-semibold text-gray-400">{card.name}</div>
+        <div className="mt-0.5 text-xs text-gray-400">This startup is no longer available</div>
+      </div>
+    </div>
+  );
+}
+
 function LockedWave({ hiddenCount, onReview }: { hiddenCount: number; onReview: () => void }) {
   // Prompt 554 — this block is always locked (it IS the lock), and seven
   // 56px placeholder rows plus gaps can exceed a short viewport, so the
@@ -376,7 +408,13 @@ export function PipelinePanel({ onOpenStartup }: {
     );
   }
 
-  const allCards = waves.flatMap((w) => w.items);
+  const allAnyCards = waves.flatMap((w) => w.items);
+  // Prompt 556 §C — everything below reads startup ATTRIBUTES (sectors,
+  // country, stage, data-room state). A closed org has none of them, by
+  // construction, so it is excluded here rather than each reader having to
+  // guard: a closed startup is not a filter option and is not a funnel
+  // number. It still renders as a row, from allAnyCards.
+  const allCards = allAnyCards.filter((c): c is Card => !isUnavailable(c));
   // Prompt 121 §2.3 — option lists built from whatever's actually in the
   // Pipeline right now (not a fixed taxonomy import), so a filter sourced
   // from a canonical list could never show an option nothing actually
@@ -395,7 +433,15 @@ export function PipelinePanel({ onOpenStartup }: {
   // own terms: an archived card no longer necessarily has status 'passed'
   // (archiving stopped writing a pass swipe), so this can't be left to
   // fall out of the status check above by accident anymore.
-  function passesFilter(c: Card) {
+  function passesFilter(c: AnyCard) {
+    // Prompt 556 §C — a closed startup answers the status filter (the
+    // investor's own decision is still theirs) and nothing else. It has no
+    // sector, country or stage, so any of those filters legitimately hides
+    // it rather than the code inventing a value to compare.
+    if (isUnavailable(c)) {
+      if (statusFilter === 'all' ? c.status === 'passed' : c.status !== statusFilter) return false;
+      return sectorFilter === 'all' && countryFilter === 'all' && stageFilter === 'all';
+    }
     if (statusFilter === 'all' ? (c.status === 'passed' || c.isArchived) : c.status !== statusFilter) return false;
     if (sectorFilter !== 'all' && !c.sectors.includes(sectorFilter)) return false;
     if (countryFilter !== 'all' && c.country !== countryFilter) return false;
@@ -538,6 +584,7 @@ export function PipelinePanel({ onOpenStartup }: {
                 both places. AP-13's "Passed" filter is the one exception
                 that brings them back into view. */}
             {wave.items.filter(passesFilter).map((c) => {
+              if (isUnavailable(c)) return <UnavailableRow key={c.orgId} card={c} />;
               const expanded = expandedIds.has(c.orgId);
               return (
               <div key={c.orgId} className="rounded-lg border border-gray-200 bg-white">
@@ -847,7 +894,7 @@ export function PipelinePanel({ onOpenStartup }: {
       )}
       {interactionLogOrgId && (
         <InteractionLogDrawer orgId={interactionLogOrgId}
-          orgName={allCards.find((c) => c.orgId === interactionLogOrgId)?.name ?? 'Startup'}
+          orgName={allAnyCards.find((c) => c.orgId === interactionLogOrgId)?.name ?? 'Startup'}
           onClose={() => setInteractionLogOrgId(null)} />
       )}
     </div>

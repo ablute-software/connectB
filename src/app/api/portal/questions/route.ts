@@ -6,6 +6,7 @@
 // write route.
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 
@@ -32,6 +33,9 @@ export async function GET(req: Request) {
   if (!orgId) return NextResponse.json({ error: 'org_id is required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, orgId);
+  if (closedBlock) return closedBlock;
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
   if (!(await hasActiveGrant(admin, orgId, email, person?.id ?? null))) {
     return NextResponse.json({ error: 'No active access to this org.' }, { status: 403 });
@@ -64,6 +68,9 @@ export async function POST(req: Request) {
   if (!org_id || !question?.trim()) return NextResponse.json({ ok: false, error: 'org_id and question are required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, org_id);
+  if (closedBlock) return closedBlock;
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
   if (!(await hasActiveGrant(admin, org_id, email, person?.id ?? null))) {
     return NextResponse.json({ ok: false, error: 'No active access to this org.' }, { status: 403 });

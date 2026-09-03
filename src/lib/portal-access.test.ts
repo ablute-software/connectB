@@ -2,22 +2,21 @@ import { describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { eligiblePipelineOrgIds, eligibleOrgIds } from './portal-access';
 
-// Prompt 184 — REPLACES the Prompt 120/121 regression test this file used
-// to encode: eligibility used to be pinned to matchdeal_profiles.is_visible
-// (a published MatchDeal profile), which turned out to be the wrong axis
-// entirely — Nuno's decision is that MatchDeal is an extra tool, never a
-// requirement to appear in an investor's Pipeline. The bug that decision
-// closes, confirmed live with "Caramel Biscuit": a CRM-complete org with
-// ZERO matchdeal_profiles rows (never opened MatchDeal) was permanently
-// excluded. These tests pin the NEW rule instead: isProfileGateComplete()
-// alone, suspension checked from both orgs (new) and matchdeal_profiles
-// (old, kept in sync by the toggle's dual-write) so nothing already
-// suspended can silently reappear.
+// Prompt 556 — REPLACES the rule Prompt 184's version of this file pinned
+// (isProfileGateComplete alone, MatchDeal ignored entirely). Discovery is
+// once again the founder's explicit publication act — a startup
+// matchdeal_profiles row with is_visible = true — with closed and suspended
+// orgs excluded. The full reasoning, including why Caramel Biscuit's
+// original symptom is now the intended answer rather than a bug, is in
+// pipeline-eligibility.ts's header; the rules themselves are unit-tested
+// against the pure core in pipeline-eligibility.test.ts.
 //
-// A minimal fake client is used rather than a real Supabase connection —
-// eligiblePipelineOrgIds issues exactly two calls: `.from('orgs').select(...)`
-// (no filter — filtering happens in JS via isProfileGateComplete) and
-// `.from('matchdeal_profiles').select(...).eq('kind', ...).in('membership_id', ...)`.
+// What THIS file still pins is the wiring, which the pure core can't: that
+// eligiblePipelineOrgIds issues exactly two reads — `.from('orgs')
+// .select('*')` (unfiltered; every rule is applied in JS, so a column a
+// migration hasn't added yet can never make the query fail) and
+// `.from('matchdeal_profiles').select(...).eq('kind','startup')
+// .in('membership_id', ...)` — and that it feeds both to the pure core.
 type FakeOrg = {
   id: string;
   website?: string | null; sectors?: string[] | null; sectors_other?: string | null;
@@ -25,8 +24,9 @@ type FakeOrg = {
   current_phase?: string | null; founded_year?: number | null; revenue_eur?: number | null;
   primary_contact_person_id?: string | null;
   owner_suspended_at?: string | null; platform_suspended_at?: string | null;
+  closed_at?: string | null; is_test?: boolean;
 };
-type FakeMatchDealProfile = { membership_id: string; owner_suspended_at?: string | null; platform_suspended_at?: string | null };
+type FakeMatchDealProfile = { membership_id: string; is_visible?: boolean; owner_suspended_at?: string | null; platform_suspended_at?: string | null };
 
 function fakeAdmin(orgs: FakeOrg[], matchDealProfiles: FakeMatchDealProfile[] = []) {
   return {
@@ -54,7 +54,9 @@ function fakeAdmin(orgs: FakeOrg[], matchDealProfiles: FakeMatchDealProfile[] = 
   } as unknown as SupabaseClient;
 }
 
-// A fully complete CRM profile gate, per isProfileGateComplete's own field list.
+// The CRM profile-gate fields are kept on the fixture on purpose: after
+// Prompt 556 they must make NO difference to this function, and a fixture
+// that still carries them is what proves it.
 function completeOrg(id: string, extra: Partial<FakeOrg> = {}): FakeOrg {
   return {
     id, website: 'https://caramelbiscuit.co', sectors: ['fintech'], stage: 'seed', country: 'Portugal',
@@ -63,48 +65,79 @@ function completeOrg(id: string, extra: Partial<FakeOrg> = {}): FakeOrg {
   };
 }
 
+function publishedProfile(id: string, extra: Partial<FakeMatchDealProfile> = {}): FakeMatchDealProfile {
+  return { membership_id: id, is_visible: true, ...extra };
+}
+
 describe('eligiblePipelineOrgIds', () => {
-  it('includes a CRM-complete org that has NEVER touched MatchDeal — zero matchdeal_profiles rows', async () => {
-    const admin = fakeAdmin([completeOrg('org-caramel-biscuit')], []);
-    expect(await eligiblePipelineOrgIds(admin, false)).toEqual(['org-caramel-biscuit']);
+  it('includes an org whose founder published to MatchDeal', async () => {
+    const admin = fakeAdmin([completeOrg('org-ablute')], [publishedProfile('org-ablute')]);
+    expect(await eligiblePipelineOrgIds(admin, false)).toEqual(['org-ablute']);
   });
 
-  it('excludes an org whose CRM profile gate is not complete, regardless of MatchDeal state', async () => {
-    const admin = fakeAdmin([completeOrg('org-incomplete', { website: null })]);
+  // The reversal of Prompt 184, stated as a test: a CRM-complete org that
+  // never published is NOT discoverable, and its About tab says exactly
+  // that. This is the case Nuno hit on 03/09 from the other side — four
+  // orgs shown "Investors can't find you yet" while investors could.
+  it('excludes a CRM-complete org that has never published, and a CRM-complete org with no MatchDeal row at all', async () => {
+    const notPublished = fakeAdmin([completeOrg('org-estojo')], [publishedProfile('org-estojo', { is_visible: false })]);
+    expect(await eligiblePipelineOrgIds(notPublished, false)).toEqual([]);
+
+    const noProfileRow = fakeAdmin([completeOrg('org-caramel-biscuit')], []);
+    expect(await eligiblePipelineOrgIds(noProfileRow, false)).toEqual([]);
+  });
+
+  // Krohnsty 54f1bf67 — deleted account, all nine gate fields still filled
+  // in, still being served to every investor. The whole reason for §A.
+  it('excludes a closed org (orgs.closed_at) even when its profile still reads published', async () => {
+    const admin = fakeAdmin([completeOrg('org-krohnsty', { closed_at: '2026-09-03T17:25:38Z' })], [publishedProfile('org-krohnsty')]);
     expect(await eligiblePipelineOrgIds(admin, false)).toEqual([]);
   });
 
-  it('never depends on access_grants — a complete org with zero grants is still eligible', async () => {
-    const admin = fakeAdmin([completeOrg('org-ablute'), completeOrg('org-caramel-biscuit')]);
-    expect(await eligiblePipelineOrgIds(admin, false)).toEqual(expect.arrayContaining(['org-ablute', 'org-caramel-biscuit']));
+  it('never depends on access_grants — a published org with zero grants is still eligible', async () => {
+    const admin = fakeAdmin(
+      [completeOrg('org-ablute'), completeOrg('org-second')],
+      [publishedProfile('org-ablute'), publishedProfile('org-second')],
+    );
+    expect(await eligiblePipelineOrgIds(admin, false)).toEqual(expect.arrayContaining(['org-ablute', 'org-second']));
   });
 
-  it('excludes an org suspended via orgs.owner_suspended_at (the new, post-migration path)', async () => {
-    const admin = fakeAdmin([completeOrg('org-suspended', { owner_suspended_at: '2026-08-01T00:00:00Z' })]);
+  it('excludes an org suspended via orgs.owner_suspended_at (the post-migration-0168 path)', async () => {
+    const admin = fakeAdmin([completeOrg('org-suspended', { owner_suspended_at: '2026-08-01T00:00:00Z' })], [publishedProfile('org-suspended')]);
     expect(await eligiblePipelineOrgIds(admin, false)).toEqual([]);
   });
 
   it('excludes an org suspended via orgs.platform_suspended_at', async () => {
-    const admin = fakeAdmin([completeOrg('org-platform-suspended', { platform_suspended_at: '2026-08-01T00:00:00Z' })]);
+    const admin = fakeAdmin([completeOrg('org-platform-suspended', { platform_suspended_at: '2026-08-01T00:00:00Z' })], [publishedProfile('org-platform-suspended')]);
     expect(await eligiblePipelineOrgIds(admin, false)).toEqual([]);
   });
 
   it('excludes an org suspended only via the OLD matchdeal_profiles path (pre-migration data, defense in depth)', async () => {
     const admin = fakeAdmin(
       [completeOrg('org-legacy-suspended')],
-      [{ membership_id: 'org-legacy-suspended', owner_suspended_at: '2026-07-01T00:00:00Z' }],
+      [publishedProfile('org-legacy-suspended', { owner_suspended_at: '2026-07-01T00:00:00Z' })],
     );
     expect(await eligiblePipelineOrgIds(admin, false)).toEqual([]);
   });
 
-  it('includes a suspended-and-then-unsuspended org (both suspension timestamps null again)', async () => {
-    const admin = fakeAdmin([completeOrg('org-back', { owner_suspended_at: null, platform_suspended_at: null })]);
+  it('includes a suspended-and-then-unsuspended published org (both timestamps null again)', async () => {
+    const admin = fakeAdmin([completeOrg('org-back', { owner_suspended_at: null, platform_suspended_at: null })], [publishedProfile('org-back')]);
     expect(await eligiblePipelineOrgIds(admin, false)).toEqual(['org-back']);
   });
 
-  it('accepts sectors_other in place of a taxonomy pick, same as isProfileGateComplete itself', async () => {
-    const admin = fakeAdmin([completeOrg('org-other-sector', { sectors: [], sectors_other: 'Something niche' })]);
-    expect(await eligiblePipelineOrgIds(admin, false)).toEqual(['org-other-sector']);
+  // The CRM gate is gone from this decision entirely, in BOTH directions:
+  // an incomplete-but-published org is now eligible, which it was not
+  // before. That is the point — the gate is the founder's own Pipeline
+  // unlock (pipeline-unlock.ts), never a statement about investors.
+  it('ignores the CRM profile gate completely — an incomplete but published org is eligible', async () => {
+    const admin = fakeAdmin([completeOrg('org-incomplete', { website: null, primary_contact_person_id: null })], [publishedProfile('org-incomplete')]);
+    expect(await eligiblePipelineOrgIds(admin, false)).toEqual(['org-incomplete']);
+  });
+
+  it('hides a test org from a real viewer and shows it to a test viewer', async () => {
+    const admin = fakeAdmin([completeOrg('org-test', { is_test: true })], [publishedProfile('org-test')]);
+    expect(await eligiblePipelineOrgIds(admin, false)).toEqual([]);
+    expect(await eligiblePipelineOrgIds(admin, true)).toEqual(['org-test']);
   });
 });
 

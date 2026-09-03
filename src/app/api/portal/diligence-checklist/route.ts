@@ -3,6 +3,7 @@
 // other portal write route.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { PORTAL_SECTIONS } from '@/lib/dataroom-sections';
 import { assertNotViewer } from '@/lib/developer-viewer';
@@ -22,6 +23,9 @@ export async function GET(req: Request) {
   if (!orgId) return NextResponse.json({ error: 'orgId is required.' }, { status: 400 });
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, orgId);
+  if (closedBlock) return closedBlock;
   // BUG-SEG-2 — this route used to filter only by investor_email + the
   // caller-supplied orgId, with no check that this investor actually has an
   // active access_grants row for that org: any authenticated investor could
@@ -67,6 +71,9 @@ export async function POST(req: Request) {
   }
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, body.orgId);
+  if (closedBlock) return closedBlock;
   // BUG-SEG-2 — same missing-grant-check as GET, for the write side: an
   // authenticated investor could otherwise mark checklist sections
   // reviewed/unreviewed against an org they have no access to.

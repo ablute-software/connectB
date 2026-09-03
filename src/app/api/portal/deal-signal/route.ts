@@ -5,6 +5,7 @@
 // active-grant check before any write.
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { assertNotViewer } from '@/lib/developer-viewer';
 import { isValidConsidering, sanitizeInstruments } from '@/lib/investor-deal-signal';
@@ -31,6 +32,9 @@ export async function POST(req: Request) {
   const cleanInstruments = sanitizeInstruments(instruments);
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, org_id);
+  if (closedBlock) return closedBlock;
 
   const { data: person } = await admin.from('people').select('id').eq('email_verified', email).maybeSingle();
   const orParts = [`grantee_email.eq.${email}`, `invited_email.eq.${email}`];

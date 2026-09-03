@@ -49,7 +49,17 @@ export async function resolveRole(
     sb.from('org_members').select('org_id').eq('user_id', userId).maybeSingle(),
   ]);
   if (admin) return 'developer';
-  if (member) return 'founder';
+  // Prompt 556 §D — a member of a CLOSED org is not a founder. An org is
+  // closed when its last member was deleted (orgs.closed_at, migration
+  // 0303), so this can only be reached if a member row was created against
+  // an already-closed org — which is exactly the case worth refusing:
+  // re-creating a user with the same email must not silently reattach them
+  // to the account that ended. They fall through to the investor/none
+  // branches below, and provisioning gives them a fresh org.
+  if (member) {
+    const { data: org } = await sb.from('orgs').select('closed_at').eq('id', member.org_id).maybeSingle();
+    if (!org?.closed_at) return 'founder';
+  }
   // An explicit access_grants row (a deliberate act — a founder sharing
   // their data room, or a back-office admin approving an investor access
   // request) outranks the blanket @ablute.pt-domain fallback below. Without

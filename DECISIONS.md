@@ -4508,3 +4508,91 @@ investor submissions and manual catalog adds. Left alone deliberately —
 Prompt 555 says do not change `catalog_entities` — and it is why the
 `zz-test-` fixture for this prompt had to be built on an existing `is_test`
 catalog entity instead of a fresh one. **Worth its own prompt.**
+
+## An org with no members is closed (`orgs.closed_at`); investor discovery requires `is_visible`; history with a closed org shows only "This startup is no longer available" — 03/09/2026 (Prompt 556)
+
+Nuno deleted a startup account and it kept showing in his investor Pipeline,
+with all its data. Two independent causes, both confirmed in production:
+
+**1. The platform had no notion of an account ending.** Deleting the auth
+user cascades `org_members` (`org_members_user_id_fkey ON DELETE CASCADE`) and
+stops there. The `orgs` row, its `matchdeal_profiles` row, its entities and
+documents all survive, owned by nobody. Krohnsty `54f1bf67` had been in that
+state since 02/09 — zero members, all nine profile-gate fields still filled in.
+There was no `closed_at`, no trigger, no route: nothing anywhere in the schema
+or the app said an account could end.
+
+**2. Investor discovery read the founder's own unlock, not the founder's
+publication act.** `eligiblePipelineOrgIds` took every org whose CRM profile
+gate was complete (`isProfileGateComplete` — the nine fields that unlock the
+FOUNDER's pipeline), minus suspended and test orgs. It never read
+`matchdeal_profiles.is_visible`, never checked the org still had a member. So
+an orphan with a complete CRM was served to every investor, and so were four
+live orgs (`70a354f2` Krohnsty, Sherlock Deal, Estojo, Caramel Biscuit) that
+were simultaneously being shown "Investors can't find you yet" (Prompt 543) on
+their own About tab. Prompt 120's header comment said "published MatchDeal
+startup profiles only"; the code under it had said "profile gate complete"
+since Prompt 184.
+
+**Decisions**
+
+- **An org with zero members is closed.** `orgs.closed_at` (migration 0303) +
+  `close_org()` + an `after delete on org_members` trigger, so deleting the
+  auth user — the only "delete account" path that exists today — closes the org
+  in the same transaction. `close_org()` only hides and revokes: `closed_at`,
+  `platform_suspended_at` on the org and on its startup `matchdeal_profiles`
+  row, `revoked_at` on every active `access_grants` row. **Nothing is ever hard
+  deleted.** The founder's own data stays for a retention policy to decide.
+  `is_visible` is deliberately not written: `trg_matchdeal_profile_completeness`
+  derives it as `is_complete and owner_suspended_at is null and
+  platform_suspended_at is null`, so setting the suspension flag IS how it
+  becomes false, and writing it directly would just be overwritten in the same
+  statement. `deal_threads` was left alone — the prompt asked to close open
+  threads "if that table has a status", and it has none.
+- **Setting `orgs.platform_suspended_at` inside `close_org()` is on purpose**,
+  beyond what the brief listed. It is the flag the CURRENTLY DEPLOYED
+  `eligiblePipelineOrgIds` already reads, so applying the migration removed the
+  orphan from every investor's discovery immediately, without waiting for the
+  deploy that adds the `closed_at` filter.
+- **Discovery is once again the founder's explicit act — `is_visible = true`.**
+  This REVERSES Prompt 184, knowingly. 184 dropped `is_visible` because Caramel
+  Biscuit was permanently invisible for never having opened MatchDeal; that
+  fixed one symptom and created a worse one, since the CRM gate is a founder
+  unlock, not a publication. **Caramel Biscuit's original symptom is therefore
+  back BY DESIGN** — an org that never publishes is not discoverable, its About
+  tab says exactly that, and Publish is what changes it. Anyone hitting that
+  symptom again should read this entry before "fixing" it a third time. The
+  rules live in one pure, unit-tested function, `filterEligibleOrgs`
+  (`src/lib/pipeline-eligibility.ts`): open, not suspended (both sources), not
+  test for a non-test viewer, and published. The old `excludeTestOrgIds()`
+  round-trip folded into it — same rule, one fewer query and probe.
+- **History with a closed org shows that it existed and nothing else.**
+  `projectUnavailableCard` BUILDS `{orgId, name, status, decidedAt,
+  unavailable: true}` rather than deleting keys off the full card — same
+  discipline as the investor-facing SWOT projection, so a field added to the
+  card next month cannot leak through a stale blacklist. The projection runs at
+  the very end of `getPipelineWaves`, after every enrichment step, so no
+  enrichment has to remember to skip closed orgs. `isUnavailableCard` is a real
+  type predicate, which is what turned "remember to handle this" into a compile
+  error at each consumer.
+- **A closed org can only still appear through HISTORY.** Discovery excludes it
+  and `activeGrantOrgIds` excludes it (belt over `close_org`'s own revoke), so
+  the Access-granted row disappears — which is right. A recorded decision or an
+  accepted referral is what keeps the card, as the note.
+- **410 Gone, not 404**, on 34 portal route files / 53 handlers, through one
+  shared `closedOrgGuard`. The investor is not being told a startup they may
+  not see doesn't exist — they are being told one they had a real relationship
+  with has ended. The one exception is `/api/portal/startup/[orgId]`, where the
+  guard runs AFTER the card lookup: that route's contract is a flat 404 for any
+  org outside the relationship, and answering 410 first would make it an oracle
+  for "this org id exists and is closed". `GET /api/portal/messages` is the
+  other exception — the conversation already happened and belongs to both
+  sides, so the history is returned with `canMessage: false` and the note; the
+  POST is the 410.
+- **`resolveRole` returns `none` for a member of a closed org**, so re-creating
+  a user with the same email cannot be silently reattached to the account that
+  ended.
+
+Backfill: one org, reported before running and verified after — Krohnsty
+`54f1bf67-66a3-4c60-8e1b-9ec39ea2c0dd`. The five other member-less orgs are the
+`e1000000-…` demo seeds and are excluded twice (name suffix AND id prefix).

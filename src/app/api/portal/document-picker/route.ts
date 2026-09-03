@@ -8,6 +8,7 @@
 // "nunca conteúdo, tamanho ou visualizações").
 import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { closedOrgGuard } from '@/lib/org-closed';
 import { serverClient } from '@/lib/supabase-server';
 import { resolveDocumentAccess, type DocMeta, type TreeFolder } from '@/lib/data-room';
 
@@ -31,6 +32,9 @@ export async function GET(req: Request) {
   if (!user || !email) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
+  // Prompt 556 §C — a startup whose org is closed is gone, not hidden.
+  const closedBlock = await closedOrgGuard(admin, orgId);
+  if (closedBlock) return closedBlock;
   const person = await resolvePerson(admin, email);
 
   const [{ data: docs }, { data: folders }] = await Promise.all([
