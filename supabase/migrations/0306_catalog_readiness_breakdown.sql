@@ -14,6 +14,12 @@
 -- reorder is inert. Had there been one, both files would have had to move to
 -- keep their relative order.
 --
+-- NUMBERING: written as 0302, renumbered to 0305 by another session to dodge
+-- 0302_matchdeal_investor_firm_view, and to 0306 here because 0305 was ALSO
+-- taken (0305_orgs_closed_at_and_close_org, on the sherlockdeal branch). Both
+-- collisions were found by sweeping every remote branch, not just main — the
+-- process note from Prompt 535 earning its keep twice in one file.
+--
 -- Prompt 544 Part D — the numbers behind the readiness score, for the
 -- Pipeline row's strip.
 --
