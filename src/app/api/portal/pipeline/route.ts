@@ -232,6 +232,12 @@ export async function POST(req: Request) {
     // the decision itself, already recorded above) — just no longer mute.
     const { error: notifyError } = await admin.rpc('matchdeal_record_interest_notification', {
       p_org_id: orgId, p_catalog_id: investorCatalogEntityId, p_reason_detail: reason ?? null,
+      // Prompt 555 — WHICH member acted. Their profile wins field by field in
+      // matchdeal_investor_firm_view; the firm's other active members only
+      // fill the gaps. Without it the projection falls back to
+      // most-recently-updated, which for a two-member firm can hand the
+      // founder a half-filled profile over a complete one.
+      p_investor_profile_id: investorProfile.id,
     });
     if (notifyError) console.error('matchdeal_record_interest_notification failed', notifyError);
   }

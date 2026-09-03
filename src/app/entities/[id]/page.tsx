@@ -3,8 +3,23 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store';
+import { authEnabled } from '@/lib/supabase';
 import { Card, HardFilterBanner, MatchDealProfileBadge, PersonLink, TermHint, VerBadge, fitLabel, fmtEur } from '@/components/ui';
-import { computeEntitySummaryPrefill, matchEntityToCatalog } from '@/lib/entity-catalog-prefill';
+import { computeEntitySummaryPrefill, computeFirmSummaryPrefill, matchEntityToCatalog } from '@/lib/entity-catalog-prefill';
+import { firmHasProfileDetail, type MatchDealFirm } from '@/lib/matchdeal-firm';
+
+// Prompt 555 — one <dt>/<dd> pair, or nothing at all. "Only the fields
+// present" is the rule: an empty row is worse than an absent one, because it
+// implies the investor was asked and declined to answer.
+function firmRow(label: string, value: string | undefined) {
+  if (!value || !value.trim()) return null;
+  return (
+    <div key={label}>
+      <dt className="text-xs text-gray-500">{label}</dt>
+      <dd className="text-gray-800">{value}</dd>
+    </div>
+  );
+}
 import { preflight, preflightSummary } from '@/lib/rules';
 import { RelationshipSummaryCard } from '@/components/RelationshipSummaryCard';
 import { RecentInteractions } from '@/components/RecentInteractions';
@@ -249,6 +264,31 @@ export default function EntityPage({ params }: { params: { id: string } }) {
     [messaging.messages],
   );
 
+  // Prompt 555 — for a MatchDeal investor the catalog row is a STUB. Their
+  // real profile lives in matchdeal_profiles, one row per firm member, and
+  // this page had no way to reach it: computeEntitySummaryPrefill matched
+  // against catalog_entities again, so an investor with a filled-in profile
+  // rendered an empty dossier. /api/entities/[id]/matchdeal-firm is that
+  // read, live on every mount so an investor who completes their profile
+  // tomorrow appears with no sync step. Catalog-born investors 404 and keep
+  // exactly today's path.
+  //
+  // Declared HERE, above the `if (!entity)` early return below: a hook after
+  // a conditional return runs in a different order on the renders that take
+  // it, which is why it keys off `id` (from the route, always defined)
+  // rather than the resolved entity.
+  const [firm, setFirm] = useState<MatchDealFirm | null>(null);
+  const entitySource = entity?.source;
+  useEffect(() => {
+    if (!authEnabled || entitySource !== 'match_deal') { setFirm(null); return; }
+    let cancelled = false;
+    fetch(`/api/entities/${id}/matchdeal-firm`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((b) => { if (!cancelled && b?.ok) setFirm(b.firm as MatchDealFirm); })
+      .catch(() => { /* the page works without it — this only enriches */ });
+    return () => { cancelled = true; };
+  }, [id, entitySource]);
+
   if (!entity) {
     if (loading || refetching || !attemptedRefetch) return <div className="text-gray-500">Loading…</div>;
     return (
@@ -287,9 +327,28 @@ export default function EntityPage({ params }: { params: { id: string } }) {
   // (one pass over the already-loaded db.catalog), matching the cost class
   // of the plain filters already on this page.
   const catalogMatch = matchEntityToCatalog(entity, db.catalog);
-  const summaryPrefill = computeEntitySummaryPrefill(entity, catalogMatch);
 
-  const people = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
+  // Prompt 555 — for a MatchDeal investor the catalog row is a STUB. Their
+  // real profile lives in matchdeal_profiles, one row per firm member, and
+  // this page had no way to reach it: computeEntitySummaryPrefill matched
+  // against catalog_entities again, so an investor with a filled-in profile
+  // rendered an empty dossier. /api/entities/[id]/matchdeal-firm is that
+  // read, live on every mount so an investor who completes their profile
+  // tomorrow appears without any sync step. Catalog-born investors 404 and
+  // keep exactly today's path.
+
+
+  const summaryPrefill = entity.source === 'match_deal'
+    ? computeFirmSummaryPrefill(entity, firm)
+    : computeEntitySummaryPrefill(entity, catalogMatch);
+
+  const ownPeople = db.people.filter((p) => p.entity_id === entity.id).sort((a, b) => a.seniority_rank - b.seniority_rank);
+  // The Prompt 275 key-people fallback, extended: when the founder's own
+  // people rows are empty, show the firm's representative and members rather
+  // than an empty tab. These are not written here — the write path already
+  // inserted them; this covers an entity whose rows have not landed yet.
+  const people = ownPeople;
+  const firmPeople = ownPeople.length === 0 ? (firm?.people ?? []) : [];
   const personCandidate = isPersonCandidate(db, entity);
   // §11d — only computed/shown once there's real canon to compare against;
   // stays invisible tonight (db.companyFacts is empty pre-migration/pre-population).
@@ -645,6 +704,40 @@ export default function EntityPage({ params }: { params: { id: string } }) {
       </Card>
       )}
 
+      {/* Prompt 555 §C — read-only, and only the fields the investor actually
+          filled in. These are the same fields MatchDealDeck already shows a
+          founder on the investor's card (honouring hidden_fields), which is
+          why none of this is a new disclosure — it is the information
+          finally following the investor into the pipeline. */}
+      {activeSection === 'summary' && firmHasProfileDetail(firm) && (
+        <Card title="From their MatchDeal profile">
+          <p className="mb-3 text-xs text-gray-500">
+            Filled in by the investor themselves. Read-only here — they own it.
+          </p>
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+            {firmRow('Geographies', firm?.geographies?.join(', '))}
+            {firmRow('Focus', firm?.focus_keywords?.join(', '))}
+            {firmRow('Company types', firm?.company_types?.join(', '))}
+            {firmRow('Phases accepted', firm?.phases_accepted?.join(', '))}
+            {firmRow('Instruments', firm?.instruments?.join(', '))}
+            {firmRow('Lead or co-lead', firm?.lead_or_colead)}
+            {firmRow('Follow-on', firm?.does_follow_on === undefined ? undefined : firm.does_follow_on ? 'Yes' : 'No')}
+            {firmRow('Board seat', firm?.takes_board_seat)}
+            {firmRow('Typical decision', firm?.typical_decision_weeks ? `${firm.typical_decision_weeks} weeks` : undefined)}
+            {firmRow('Decision process', firm?.decision_process)}
+            {firmRow('Active fund', firm?.active_fund)}
+            {firmRow('Capital to deploy', firm?.capital_to_deploy_eur != null ? fmtEur(firm.capital_to_deploy_eur) : undefined)}
+            {firmRow('Investments per year', firm?.investments_per_year?.toString())}
+            {firmRow('Portfolio', firm?.portfolio_companies)}
+            {firmRow('Recent investments', firm?.recent_investments)}
+            {firmRow('Usual co-investors', firm?.usual_co_investors)}
+            {firmRow('Excludes', [firm?.exclusions_sectors?.join(', '), firm?.exclusions_notes].filter(Boolean).join(' · ') || undefined)}
+            {firmRow('Cold contact', firm?.accepts_cold_contact === undefined ? undefined : firm.accepts_cold_contact ? 'Accepted' : 'Not accepted')}
+            {firmRow('Preferred channel', firm?.preferred_contact_channel)}
+          </dl>
+        </Card>
+      )}
+
       {activeSection === 'people' && (
         <div className="space-y-4">
           <EntityPeoplePanel entityId={entity.id} onShowsKeyPeopleFallback={setKeyPeopleShownInTeam} onPersonAdded={setJustAddedPersonId} />
@@ -659,6 +752,27 @@ export default function EntityPage({ params }: { params: { id: string } }) {
               Approach one person per firm at a time, starting with the most senior. Parallel approaches to the
               same fund read as spraying.
             </p>
+            {/* Prompt 555 §C — the 275 key-people fallback, extended to the
+                firm projection: when the founder has no people rows of their
+                own yet, the investor's representative and members are shown
+                rather than an empty list. Read-only, and clearly attributed. */}
+            {firmPeople.length > 0 && (
+              <ul className="mb-3 divide-y divide-gray-100 rounded-lg border border-gray-100 bg-gray-50/60">
+                {firmPeople.map((fp) => (
+                  <li key={fp.full_name} className="flex items-center gap-3 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium text-gray-800">{fp.full_name}</span>
+                      {fp.title && <span className="ml-2 text-xs text-gray-500">{fp.title}</span>}
+                      <MatchDealProfileBadge />
+                    </div>
+                    {fp.linkedin_url && (
+                      <a href={fp.linkedin_url} target="_blank" rel="noreferrer"
+                        className="shrink-0 text-xs text-[#0E7490] hover:underline">LinkedIn</a>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
             <ul className="divide-y divide-gray-100">
               {people.map((p) => {
                 const s = preflightSummary(preflight(db, p, null));

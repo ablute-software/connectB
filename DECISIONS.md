@@ -4446,3 +4446,65 @@ tabs, two to three screens tall), `MarketDataPanel` ("A few basics first"),
 `PipelinePanel` (the wave lock), `guest/FrostedOverlay` (548's previews).
 Copy, pill markup, lock glyph, CTAs and everything behind the frost are
 passed through unchanged.
+
+---
+
+## Prompt 555 (03/09/2026) — A MatchDeal investor in a founder's pipeline is described by `matchdeal_investor_firm_view`, never by its catalog stub
+
+**The rule.** For any `entities` row with `source = 'match_deal'`, the
+descriptive data and the people come from the investor's own
+`matchdeal_profiles` rows, projected by `matchdeal_investor_firm_view`
+(migration 0302). The catalog row is a stub created only to hang the
+membership off, and for a self-registered investor it is empty by
+construction. Never describe such an entity from `catalog_entities` again.
+
+**Migration 0302**, chosen after sweeping every remote branch with
+`git ls-remote --heads origin`: 0298 is taken by
+`claude/prompt-534-round-blueprint`, 0300/0301 by
+`claude/prompt-544-outreach-ready`, 0295–0297/0299 are on main. Reading main
+alone would have collided — exactly as Prompt 536's backfill did.
+
+**One projection, one write step, one backfill.**
+`matchdeal_apply_firm_to_entity` is called by both write paths AND by the
+backfill, so there is no second code path that could disagree. It is
+coalesce-only: a value the founder typed is never overwritten, and its
+`people` insert is idempotent on `(entity_id, lower(full_name))`, which is
+what makes re-running it safe.
+
+**Two design corrections found by running the projection against the real
+two-profile firm rather than trusting it.** (1) A ticket range must come from
+ONE profile: filling min and max independently produced €10,000–€1,350,000 —
+the min from the complete profile, the max from the more recently updated
+one — a range neither investor ever stated. (2) An empty array is not an
+answer: `jsonb_strip_nulls` keeps `[]`, so the projection was publishing
+`sectors: []` and friends, which a "only the fields present" read path
+renders as empty rows implying the investor declined to answer.
+
+**Privacy line.** `auth.users.email` is never read. The only address that can
+reach a founder is the profile's own `contact`, which the investor typed
+knowing founders would read it — and it is only copied into `entities.email`
+when it actually parses as an email address, so a phone number or a LinkedIn
+handle never lands in a column the outreach rules treat as a mailbox.
+`hidden_fields` is honoured per source profile with the 0155 vocabulary, and
+a hidden field is ABSENT rather than present-and-null: a null with a hint
+still discloses that the field exists and was withheld. Never projected:
+`plan_tier*`, billing, suspension columns, `photo_*_scan`,
+`self_declared_*`, `hidden_fields` itself, anything of the startup kind.
+
+**Nothing here is newly exposed.** `MatchDealDeck` already shows founders
+these exact fields on the investor's card, honouring `hidden_fields`. This
+was the same information failing to follow the investor into the pipeline.
+
+### Unrelated production defect found while doing this — NOT fixed here
+
+**No row can currently be inserted into `catalog_entities`.** The trigger
+function `catalog_readiness_refresh()` is shared by four tables and its
+`case tg_table_name ... when 'catalog_person_affiliations' then new.entity_id`
+branch is type-checked by plpgsql against the actual record type, so on
+`catalog_entities` (which has no `entity_id`) it raises
+`42703: record "new" has no field "entity_id"` before any branch is chosen.
+Reproduced directly. This blocks back-office catalog promotion, approved
+investor submissions and manual catalog adds. Left alone deliberately —
+Prompt 555 says do not change `catalog_entities` — and it is why the
+`zz-test-` fixture for this prompt had to be built on an existing `is_test`
+catalog entity instead of a fresh one. **Worth its own prompt.**
