@@ -54,6 +54,7 @@
 // RLS-scoped client, so the org boundary is enforced by Postgres, not here.
 import { useMemo, useState } from 'react';
 import { useStore } from '@/lib/store';
+import { normaliseShareEmail, shouldOfferShareByEmail } from '@/lib/share-by-email';
 import { useConfirm } from '@/lib/confirm';
 import { Card } from '@/components/ui';
 import { computeCellEffect, findEffectiveGrantAmong, type CellEffect, type MatrixGrant } from '@/lib/people-access-matrix';
@@ -103,7 +104,13 @@ function isoDateIn(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function PeopleAccessPanel() {
+export function PeopleAccessPanel({ onShareByEmail }: {
+  // Prompt 545 — the ad-hoc share panel lives on the sibling Documents tab,
+  // so this panel cannot open it directly. The page passes a callback that
+  // switches tab and pre-fills the address; without it the offer simply does
+  // not render, so nothing here breaks for any other caller.
+  onShareByEmail?: (email: string) => void;
+} = {}) {
   const { db, addGrant, revokeGrant, extendGrant } = useStore();
   const confirm = useConfirm();
   // Prompt 204 §A — a arvore que findEffectiveGrant precisa para saber que um
@@ -615,9 +622,22 @@ export function PeopleAccessPanel() {
           ))}
 
           {visibleRelationships.length === 0 && pipelineOnlyRows.length === 0 && (
-            <p className="text-xs text-gray-400">
-              {query_ ? 'No matching entities found.' : 'No entity has any access yet — search to pick one from your pipeline.'}
-            </p>
+            /* Prompt 545 — "No matching entities found." was a dead end for a
+               founder who had typed a real address: it is the exact message
+               Nuno hit before concluding there was no way to send mail at
+               all. An address that matches nothing is a different, supported
+               intention, and it now says so instead of just reporting the
+               absence. */
+            shouldOfferShareByEmail({ query: query_, pipelineMatchCount: 0 }) && onShareByEmail ? (
+              <button type="button" onClick={() => onShareByEmail(normaliseShareEmail(query_))}
+                className="text-left text-xs font-medium text-[#0E7490] hover:underline">
+                Share with {normaliseShareEmail(query_)} by email →
+              </button>
+            ) : (
+              <p className="text-xs text-gray-400">
+                {query_ ? 'No matching entities found.' : 'No entity has any access yet — search to pick one from your pipeline.'}
+              </p>
+            )
           )}
         </ul>
       </Card>
