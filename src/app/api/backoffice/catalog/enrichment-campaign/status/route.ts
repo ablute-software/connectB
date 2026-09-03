@@ -180,6 +180,31 @@ export async function GET() {
   // outranks a delivered low-fit row on some other, unrelated basis.
   // Everything else in the existing chain becomes the tiebreak WITHIN the
   // same fit tier, exactly as asked ("nunca acima dele").
+  // Prompt 544 Part E — the rows a real founder is stuck on, first.
+  //
+  // Everything below this line is a platform-wide judgement: sector fit,
+  // delivery count, completeness. None of it asks "is a founder sitting in
+  // front of this row right now, unable to contact anyone?" — which is the
+  // whole reason the campaign exists. catalog_outreach_supply answers that
+  // per active founder org, and a row in someone's top-20 with readiness
+  // below 40 is the one whose enrichment turns an unusable pipeline row into
+  // a usable one today.
+  //
+  // Deliberately ABOVE fit: fit decides whether a row is worth showing at
+  // all, and these rows are already BEING shown. Enriching them is not a bet
+  // on future relevance, it is finishing something already delivered.
+  //
+  // Never fatal — if the RPC fails the queue keeps its previous order rather
+  // than the page failing.
+  const stuckCatalogIds = new Set<string>();
+  try {
+    const { data: supply } = await admin.rpc('catalog_outreach_supply', { p_top: 20 });
+    for (const r of (supply ?? []) as Record<string, unknown>[]) {
+      if (((r.readiness as number) ?? 0) < 40) stuckCatalogIds.add(r.catalog_id as string);
+    }
+  } catch { /* ordering falls back to the pre-544 chain */ }
+  const stuckRank = (id: string) => (stuckCatalogIds.has(id) ? 1 : 0);
+
   const fitRank = (f: SectorFitResult) => (f === 'fit' ? 1 : 0);
   const candidates = pending
     .filter((e) => !chronicFailures.has(e.id))
@@ -187,9 +212,12 @@ export async function GET() {
       id: e.id, name: e.name, verified: e.verification_status === 'verified',
       deliveredCount: deliveredCount.get(e.id) ?? 0, existingFields: existingFieldCount(e),
       fit: catalogEntitySectorFit(e.sectors, e.thesis, deliveredOrgsSectorsFor(e.id)),
+      // Prompt 544 Part E — "a founder is stuck on this row today".
+      blockingFounder: stuckCatalogIds.has(e.id),
     }))
     .sort((a, b) =>
-      fitRank(b.fit) - fitRank(a.fit)
+      stuckRank(b.id) - stuckRank(a.id)
+      || fitRank(b.fit) - fitRank(a.fit)
       || (b.deliveredCount > 0 ? 1 : 0) - (a.deliveredCount > 0 ? 1 : 0)
       || (b.verified ? 1 : 0) - (a.verified ? 1 : 0)
       || b.deliveredCount - a.deliveredCount

@@ -28,6 +28,8 @@
 // place that writes these two tables together.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fitBucketFromScore } from './catalog-fit-bucket';
+import { catalogContactFields, waveForRank } from './catalog-delivery-mapping';
+import { firstStepTaskTitle } from './first-message-target';
 import { preferDeclaredList, preferDeclaredValue, resolveClaimedInvestorProfile } from './claimed-investor-profile';
 
 export interface CatalogDeliveryResult {
@@ -82,9 +84,20 @@ export async function deliverCatalogMatches(
       check_max_eur: preferDeclaredValue(claimed?.ticketMaxEur ?? null, c.check_max_eur as number | null),
       sectors: preferDeclaredList(claimed?.sectors, c.sectors as string[] | null),
       thesis: preferDeclaredValue(claimed?.description ?? null, c.thesis as string | null),
-      fit_score: fitBucketFromScore(scoreById.get(c.id as string) ?? 0), wave: 1,
-      submission_channel_type: 'unknown', hard_filter_status: 'not_applicable',
+      fit_score: fitBucketFromScore(scoreById.get(c.id as string) ?? 0),
+      // Prompt 544 Part C — wave by RANK, not 1 for everything. catalogRows
+      // arrives in catalog_top_matches' order (fit desc, readiness desc), so
+      // position here is "best match, most contactable first" and the
+      // Pipeline's wave filter finally separates now / next / later.
+      wave: waveForRank(newEntities.length),
+      hard_filter_status: 'not_applicable',
       status: 'not_contacted', source: 'catalog',
+      // Prompt 544 Part C — everything the catalog already knew and the
+      // delivery was throwing away: the general inbox, the submission form
+      // (and the derived channel TYPE, previously hard-coded 'unknown'), the
+      // named people, and the fund facts. Nine of the ten firms delivered to
+      // Sherlock Deal had an email the founder never saw on the row.
+      ...catalogContactFields(c),
       // Prompt 407 §B.4 — provenance snapshot for this one delivery event.
       claimed_profile_at_delivery: !!claimed,
     });
@@ -97,6 +110,27 @@ export async function deliverCatalogMatches(
   // reference was attempted before the referent existed.
   const { error: entityErr } = await admin.from('entities').insert(newEntities);
   if (entityErr) return { delivered: 0, deliveredIds: [], error: entityErr.message };
+
+  // Prompt 544 Part D — one task per WAVE-1 row, due in 3 days, worded the
+  // same as the Next Clue would word it. Every delivered row used to arrive
+  // with an empty "Next action" column, so a brand-new pipeline read as a
+  // list of names with nothing asked of the founder. Only W1: giving all ten
+  // a task on day one would recreate the wall of work waves exist to avoid.
+  //
+  // Never fatal — the pipeline is delivered either way, and a missing task is
+  // a smaller failure than a delivery that half-succeeded.
+  const dueAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+  const firstStepTasks = newEntities
+    .filter((e) => e.wave === 1)
+    .map((e) => ({
+      org_id: orgId, entity_id: e.id as string,
+      title: firstStepTaskTitle(e.name as string, false),
+      due_at: dueAt, kind: 'research' as const, action_type: 'research_hook' as const,
+      source: 'suggested' as const,
+    }));
+  if (firstStepTasks.length) {
+    await admin.from('tasks').insert(firstStepTasks).then(() => {}, () => {});
+  }
 
   // Step 2 of 2. quota_exempt: false is the column default (0171), explicit
   // here because this call site is where the decision that a delivery
