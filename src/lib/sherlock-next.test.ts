@@ -315,16 +315,36 @@ describe('sherlockNext — priority ladder', () => {
   });
 
   it('9: onboarding — first message, an entity exists but nothing has ever been sent', () => {
-    const bestFit = makeEntity({ id: 'ent-best', name: 'Best Fit', wave: 1, fit_score: 'high' });
-    const lowerPriority = makeEntity({ id: 'ent-other', name: 'Lower Priority', wave: 3, fit_score: 'low' });
-    // Insertion order deliberately doesn't match priority order — the
-    // wave-then-fit sort has to be doing the actual work, not array order.
+    // Prompt 544 Part D — both entities now carry a channel. Before that
+    // rule a bare entity qualified, which is exactly how the founder got
+    // "send your first message to Hoxton Ventures" for a firm with nobody to
+    // write to. The test's original point is untouched: insertion order
+    // deliberately doesn't match priority order, so the sort has to be doing
+    // the work.
+    const bestFit = makeEntity({ id: 'ent-best', name: 'Best Fit', wave: 1, fit_score: 'high', email: 'hello@best.example' });
+    const lowerPriority = makeEntity({ id: 'ent-other', name: 'Lower Priority', wave: 3, fit_score: 'low', email: 'hello@other.example' });
     const db = makeDb({ entities: [lowerPriority, bestFit] });
 
     const step = sherlockNext(db, NOW);
     expect(step.kind).toBe('onboarding_first_message');
     expect(step.entityId).toBe('ent-best');
-    expect(step.target).toBe('/entities/ent-best?rail=log');
+  });
+
+  it('9: never names an entity with nobody to contact and no channel', () => {
+    // The Hoxton case, exactly: wave 1, best fit, zero people, no form, no
+    // inbox. It must not be chosen, and with nothing else actionable the
+    // step must not be invented at all.
+    const empty = makeEntity({ id: 'ent-empty', name: 'Hoxton Ventures', wave: 1, fit_score: 'high' });
+    const step = sherlockNext(makeDb({ entities: [empty] }), NOW);
+    expect(step.kind).not.toBe('onboarding_first_message');
+  });
+
+  it('9: prefers a reachable entity over a better-fitting empty one', () => {
+    const empty = makeEntity({ id: 'ent-empty', name: 'Hoxton Ventures', wave: 1, fit_score: 'high' });
+    const reachable = makeEntity({ id: 'ent-reach', name: 'DOMiNO Ventures', wave: 1, fit_score: 'medium', email: 'hello@domino.example' });
+    const step = sherlockNext(makeDb({ entities: [empty, reachable] }), NOW);
+    expect(step.kind).toBe('onboarding_first_message');
+    expect(step.entityId).toBe('ent-reach');
   });
 
   it('10: ready to contact — pre-flight green, once nothing more urgent (including onboarding) applies', () => {

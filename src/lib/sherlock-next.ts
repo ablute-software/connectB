@@ -19,6 +19,7 @@ import { readyToContact } from './ready-to-contact';
 import { isProfileGateComplete } from './pipeline-unlock';
 import { passReasonAlert } from './rules';
 import { vaultStrength } from './vault-strength';
+import { chooseFirstMessageTarget, type FirstMessageCandidate } from './first-message-target';
 
 export type SherlockNextKind =
   | 'interest_request' | 'cap_table_request' | 'unclassified_reply' | 'follow_up_overdue' | 'task_due_today'
@@ -246,12 +247,41 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
   // wave-then-fit tie-break as step 4's own "best first" (FIT_ORDER, above).
   const everSentOutbound = db.interactions.some((i) => i.direction === 'out');
   if (!everSentOutbound) {
-    const firstEntity = [...db.entities].sort((a, b) =>
-      (a.wave ?? 9) - (b.wave ?? 9) || FIT_ORDER[a.fit_score ?? 'low'] - FIT_ORDER[b.fit_score ?? 'low'])[0];
-    return {
-      kind: 'onboarding_first_message', label: `Next: send your first message to ${firstEntity.name}`,
-      entityId: firstEntity.id, target: `/entities/${firstEntity.id}?rail=log`,
-    };
+    // Prompt 544 Part D — this used to take the wave/fit winner and say
+    // "send your first message to X" regardless of whether X had anyone to
+    // write to. For Sherlock Deal that named Hoxton Ventures: zero people,
+    // and preflight() refuses the draft without a researched hook. The one
+    // line meant to say what to do next was sending the founder nowhere.
+    //
+    // Now: entities with nothing to act on are excluded outright, the order
+    // is wave -> readiness -> fit, and the sentence describes the step that
+    // is actually available. readiness comes off the delivered row's own
+    // contact data (Part C copies it) rather than a live catalog read, so
+    // this stays a pure function over the store.
+    const candidates: FirstMessageCandidate[] = db.entities.map((e) => {
+      const people = db.people.filter((p) => p.entity_id === e.id);
+      return {
+        id: e.id, name: e.name, wave: e.wave,
+        fitRank: FIT_ORDER[e.fit_score ?? 'low'],
+        readiness: (people.length ? 25 : 0)
+          + (people.some((p) => !!p.hook) ? 40 : 0)
+          + (e.submission_channel ? 15 : 0)
+          + (e.email ? 10 : 0)
+          + (e.key_people ? 5 : 0),
+        peopleCount: people.length,
+        hasHook: people.some((p) => !!p.hook),
+        hasChannel: !!e.submission_channel || !!e.email,
+      };
+    });
+    const picked = chooseFirstMessageTarget(candidates);
+    // No actionable entity at all: fall through to the next rule rather than
+    // naming one the founder cannot act on.
+    if (picked) {
+      return {
+        kind: 'onboarding_first_message', label: picked.label,
+        entityId: picked.entity.id, target: picked.target,
+      };
+    }
   }
 
   // 10 — ready to contact (pre-flight green, wave/seniority order), only
