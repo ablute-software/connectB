@@ -4309,3 +4309,34 @@ memory kept one. **In an async action, build the commit from a fresh
 `dbRef.current` read AFTER the await, never from a snapshot taken before it.**
 `src/lib/store-lost-update.test.ts` pins this against the source for all nine;
 it fails on `main` for 9 of 9.
+
+## Landing sections never render inside a workspace shell (Prompt 550, 03/09/2026)
+
+`/guest/<token>/preview/plans` showed the header, the Monthly/Annual toggle,
+and then nothing. No plan cards, no prices — a toggle that toggled nothing
+visible.
+
+The cause: `GuestPlansPreview` rendered `InvestorPricingSection`, the LANDING
+page's pricing block. Its cards carry `landing.module.css`'s `.rv`, which is
+`opacity: 0; transform: translateY(26px)` until something sets
+`[data-in='true']`. The only thing that ever sets it is `LandingEffects`, an
+IntersectionObserver mounted by `/app/page.tsx` and `/app/investors/page.tsx`
+and by nothing else. Inside the workspace shell there is no `LandingEffects`,
+so the cards stayed invisible permanently. The header and toggle showed because
+they carry `data-reveal` WITHOUT `.rv` — which is why the page read as
+half-built rather than blank.
+
+**The rule: a component from `src/components/landing/` must not be rendered
+inside a workspace or guest shell.** Its visibility depends on a page-level
+effect that only the landing routes mount. Share the presentational piece
+instead — `InvestorPlanGrid` is the worked example: one grid, rendered by both
+`InvestorPlansPanel` (signed-in, real CTAs) and `GuestPlansPreview` (guest,
+signup links), with no `landing.module.css`, no `data-reveal` and no observer.
+
+**And the verification lesson, which is the more general one.** Prompt 548
+verified this screen by reading prices out of the DOM and found "€130→€100".
+The DOM had them. The screen did not. A text assertion cannot see `opacity`,
+`visibility`, `height: 0`, or a parent that clips. When a prompt is about
+whether something is VISIBLE, the check has to be `getComputedStyle().opacity`
+plus `getBoundingClientRect().height` plus a screenshot someone looks at —
+never `textContent`.
