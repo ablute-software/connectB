@@ -85,15 +85,17 @@ export async function GET(
   // Cross-org is indistinguishable from "not shared with you", on purpose.
   if (!doc || doc.org_id !== orgId) return refuse('invalid', 403);
 
-  // The document must be reachable through THIS recipient's grants, decided
-  // by the same resolver the portal uses — never by "the id was in the URL".
-  const { visibleIds } = resolveDocumentAccess(
-    grants,
-    [{ id: doc.id as string, folder_id: doc.folder_id as string | undefined, visibility: doc.visibility as string | undefined }],
-    folderTree,
-  );
-  if (!visibleIds.includes(doc.id as string)) return refuse('confirmation_required', 403);
-
+  // NDA is decided BEFORE visibility, and the order is load-bearing.
+  //
+  // resolveDocumentAccess deliberately HIDES a document whose grant requires
+  // an NDA that has not been accepted — it counts it as pending rather than
+  // visible. So a visibility check placed first swallows every NDA case and
+  // reports it as 'confirmation_required', which is the wrong reason for the
+  // wrong next step: the recipient is told to prove who they are when what
+  // they actually need is a signed NDA. Caught only by running this against
+  // real data; the unit tests could not see it, because they exercise
+  // decideGuestOpen directly and it already checks NDA first. This makes the
+  // route agree with the predicate instead of reaching it too late.
   const ndaFolderIds = new Set(
     descendantFolderIds(folderTree, grants.filter((g) => g.nda_required && g.folder_id).map((g) => g.folder_id as string)),
   );
@@ -106,6 +108,17 @@ export async function GET(
     ndaRequired,
   });
   if (!decision.allowed) return refuse(decision.reason, 403);
+
+  // The document must be reachable through THIS recipient's grants, decided
+  // by the same resolver the portal uses — never by "the id was in the URL".
+  // Reached only for documents the rule above already allows, so it can no
+  // longer mask an NDA refusal.
+  const { visibleIds } = resolveDocumentAccess(
+    grants,
+    [{ id: doc.id as string, folder_id: doc.folder_id as string | undefined, visibility: doc.visibility as string | undefined }],
+    folderTree,
+  );
+  if (!visibleIds.includes(doc.id as string)) return refuse('confirmation_required', 403);
 
   // Same refusal /api/portal/access-granted applies: a flagged upload is not
   // served to anyone but the uploading org.
