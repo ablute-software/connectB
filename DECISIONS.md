@@ -4190,3 +4190,74 @@ premise to correct in passing.
 
 No account was recreated or deleted in response to this. The org was created
 normally at 18:12:13Z once the founder signed up again.
+
+---
+
+## Guest sidebar mirrors `INVESTOR_NAV` — one list, two shells (Prompt 548, 2026-09-03)
+
+Closes Prompt 547 Part B, which had been parked waiting for
+`claude/prompt-518-reconciled`. That wait turned out to be unnecessary:
+`f38a82a` (526 Part B) is five NEW files and nothing else, so it
+cherry-picks onto `main` with no conflict, and Part B shipped from `main`
+instead.
+
+**The decision.** The guest sidebar was Prompt 154's decoration: hand-typed,
+blurred and `pointer-events-none`. Being a copy, it rotted — it still read
+"Access granted" two full prompts after the workspace renamed that entry to
+"Data room" (337/338), and it had never gained Dashboard, Actions required,
+My Network or Messages. A guest could click nothing, and what they could not
+click was not even the product as it exists.
+
+So the nav is now data: `src/lib/investor-nav.ts` holds `INVESTOR_NAV`, and
+both shells build from it — `InvestorWorkspaceShell` (only `about`'s label is
+dynamic; badges and `onSelect` stay in the component) and the guest
+`GuestPreviewShell`. Two compile-time assignments in that file prove the list
+and the `Tab` union are the same set in both directions, so a new tab cannot
+be added to the workspace without appearing in the guest sidebar. The
+`Tab` import is `import type`, which TypeScript erases, so vitest can load the
+module without pulling React.
+
+The same rule applied twice more, for the same reason: `EVALUATION_TOOLS`
+moved to `src/lib/evaluation-tools.ts` so the guest preview shows the REAL
+sub-tab names without importing the store-backed panel, and `PREVIEW_COPY`
+covers every entry in one table. Nothing user-visible in the guest previews
+is retyped from the product.
+
+**What a token buys, and what it does not.** `/guest/<token>/preview/<key>`
+does not validate the token and fetches nothing; it serves the same generic
+tool preview the token-less `/guest/preview/<key>` has always served to
+anyone. The token buys exactly two things: the "Data room" entry that leads
+back to the share, and `guest=<token>` on the signup link so the grant can be
+resolved to the new account later. The token stays in the PATH — never a
+query string (any link that rebuilds the URL drops it) and never
+sessionStorage (a new tab would lose it, and a guest opening one is
+ordinary).
+
+**Plans & billing is real, not frosted.** Everything else shows a screen's
+shape behind glass because there is nothing a guest is entitled to see.
+Pricing is the opposite: it is public, it is what someone deciding about an
+account needs, and blurring it would be theatre. It reuses
+`InvestorPricingSection` (the landing page's own block: `INVESTOR_PLANS`,
+the Monthly/Annual toggle, `PrivateDetectiveCard`, no session, no fetch —
+checked before choosing it). `InvestorPlansPanel` is deliberately NOT used:
+it calls `/api/portal/investor-profile` and would 401. No Stripe call is ever
+made from a guest.
+
+**A bug this introduced and the browser caught.** Making the preview route
+dynamic over `INVESTOR_NAV` keys alone 404'd `/guest/preview/watson` and
+`/guest/preview/bars` — two of the three CTAs in the approved investor
+email, whose URLs are already in people's inboxes. `watson` and `bars` are
+tools INSIDE Evaluation tools, so they are correctly absent from the sidebar,
+but their routes must still resolve. `isPreviewableKey` now accepts nav keys
+plus `EMAIL_CTA_KEYS`, `activeNavKeyFor` lights up Evaluation tools for them,
+and a test names all three URLs. Worth generalising: a route table derived
+from a nav list silently drops every URL that is not a nav entry, and
+inbound links from email are exactly the ones nothing in the codebase points
+at.
+
+**For the `claude/prompt-518-reconciled` session.** When that branch rebases
+onto `main`, `f38a82a` is skipped by patch-id if these files are unchanged.
+Where this prompt changed them — `GuestPreviewShell.tsx` and
+`FrostedOverlay.tsx` were both rewritten, and the three
+`src/app/guest/preview/{pipeline,watson,bars}/page.tsx` files were replaced
+by one dynamic route — resolve add/add by taking `main`'s version.

@@ -14,12 +14,14 @@
 // can half-click.
 import Link from 'next/link';
 
-export function FrostedOverlay({ message, ctaLabel = 'Create your free investor account', source, children }: {
+export function FrostedOverlay({ message, ctaLabel = 'Create your free investor account', signupHref, children }: {
   /** The one contextual sentence explaining what signing up unlocks here. */
   message: string;
   ctaLabel?: string;
-  /** Where this visitor came from, preserved through signup. */
-  source: string;
+  // Prompt 548 — the whole href, built by previewSignupHref, rather than a
+  // bare `source` this component then had to assemble. It now also carries
+  // the guest token when there is one, and that belongs in one place.
+  signupHref: string;
   children: React.ReactNode;
 }) {
   return (
@@ -38,7 +40,7 @@ export function FrostedOverlay({ message, ctaLabel = 'Create your free investor 
               signup can return the investor to the tool they clicked instead of
               a generic dashboard; nothing here depends on that working yet, the
               point is not to throw the information away. */}
-          <Link href={`/signup?as=investor&source=${encodeURIComponent(source)}`}
+          <Link href={signupHref}
             className="mt-4 inline-block rounded-lg bg-[#0E7490] px-4 py-2 text-sm font-medium text-white hover:bg-[#0c637b]">
             {ctaLabel}
           </Link>
