@@ -1,3 +1,19 @@
+-- RENUMBERED 0302 -> 0305 (Prompt 557 follow-up, 2026-09-03, authorised by Nuno).
+-- 0302 was taken on `main` by 0302_matchdeal_investor_firm_view.sql (Prompt
+-- 555, merged as b17b66a) — two different files with the same number on the
+-- two branches about to be merged. Both statements are ALREADY APPLIED in
+-- production (catalog_readiness_breakdown 18:16, the firm-view block
+-- 16:29-16:51), so nothing about the database changes here: this is a rename
+-- only, for the benefit of a fresh `db reset`, exactly the precedent Prompt
+-- 537 set for 0295.
+--
+-- WHY 0305 AND NOT A NUMBER BELOW 0303. Renaming to 0305 sorts this AFTER
+-- 0303_catalog_outreach_supply, reversing the order the two were written in.
+-- Checked before choosing it: 0303 contains zero references to
+-- catalog_readiness_breakdown, so there is no dependency to preserve and the
+-- reorder is inert. Had there been one, both files would have had to move to
+-- keep their relative order.
+--
 -- Prompt 544 Part D — the numbers behind the readiness score, for the
 -- Pipeline row's strip.
 --
