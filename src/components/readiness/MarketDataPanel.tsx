@@ -34,6 +34,7 @@
 // same component with the exact same props, just re-homed and, for
 // Research, shown one section at a time instead of all at once.
 import { useEffect, useMemo, useState } from 'react';
+import { FrostedGate } from '@/components/workspace-shell/FrostedGate';
 import { ReconciliationBusyNotice } from './ReconciliationBusyNotice';
 import Link from 'next/link';
 import { Card } from '@/components/ui';
@@ -420,23 +421,29 @@ export function MarketDataPanel() {
         </div>
       )}
 
-      <div className="relative">
-        {!gate.eligible && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl bg-white/70 px-4 text-center backdrop-blur-[3px]">
-            <span className="rounded-full border border-cyan-200 bg-white/95 px-4 py-1.5 text-sm font-semibold text-[#0E7490] shadow-sm">
-              A few basics first
-            </span>
-            <ul className="max-w-xs space-y-1 text-xs text-gray-600">
-              {gate.missing.map((m) => (
-                <li key={m.key}>
-                  <Link href={m.href} className="text-[#0E7490] underline">{m.label} →</Link>
-                </li>
-              ))}
-            </ul>
-          </div>
+      {/* Prompt 554 — same gate shape, same copy, message now sticky to the
+          viewport instead of centred in a block that can be several screens
+          tall. bg-white/70 preserved via overlayClassName. */}
+      <FrostedGate
+        locked={!gate.eligible}
+        blurClassName="space-y-4"
+        overlayClassName="bg-white/70"
+        message={(
+          <span className="rounded-full border border-cyan-200 bg-white/95 px-4 py-1.5 text-sm font-semibold text-[#0E7490] shadow-sm">
+            A few basics first
+          </span>
         )}
-
-        <div className={!gate.eligible ? 'pointer-events-none select-none space-y-4 blur-[2px]' : 'space-y-4'} aria-hidden={!gate.eligible}>
+        note={(
+          <ul className="max-w-xs space-y-1 text-xs text-gray-600">
+            {gate.missing.map((m) => (
+              <li key={m.key}>
+                <Link href={m.href} className="text-[#0E7490] underline">{m.label} →</Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      >
+        <div className="space-y-4">
           {view === 'analysis' ? (
             <MarketAnalysisView
               added={added} setAdded={setAdded} savingAdded={savingAdded} saveAdded={saveAdded}
@@ -458,7 +465,7 @@ export function MarketDataPanel() {
             />
           )}
         </div>
-      </div>
+      </FrostedGate>
     </div>
   );
 }

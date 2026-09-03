@@ -4,6 +4,7 @@
 // only the current wave is actionable, the rest stay locked until it's
 // fully treated (every card passed or expressed interest on).
 import { Fragment, useEffect, useState } from 'react';
+import { FrostedGate } from '@/components/workspace-shell/FrostedGate';
 import Link from 'next/link';
 import { InteractionLogDrawer } from './InteractionLogDrawer';
 import { ArchivePanel } from './ArchivePanel';
@@ -117,23 +118,32 @@ function interestResponseLabel(c: Card): string {
 // the MatchDeal pairing modal (see CLAUDE.md's note on that bug); the
 // "Review" button here just scrolls, it never opens a modal.
 function LockedWave({ hiddenCount, onReview }: { hiddenCount: number; onReview: () => void }) {
+  // Prompt 554 — this block is always locked (it IS the lock), and seven
+  // 56px placeholder rows plus gaps can exceed a short viewport, so the
+  // explanation and its button now stick to the viewport instead of the
+  // block's middle. rounded-lg (not the gate's default 2xl) preserved.
   return (
-    <div className="relative">
-      <div aria-hidden className="space-y-3">
+    <FrostedGate
+      locked
+      overlayClassName="rounded-lg backdrop-blur-sm"
+      message={<span className="text-2xl">🔒</span>}
+      note={(
+        <p className="text-sm font-semibold text-gray-700">
+          {hiddenCount} more startup{hiddenCount === 1 ? '' : 's'} unlock{hiddenCount === 1 ? 's' : ''} when you&apos;ve treated this wave
+        </p>
+      )}
+      cta={(
+        <button onClick={onReview} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0c637b]">
+          Review the wave above
+        </button>
+      )}
+    >
+      <div className="space-y-3">
         {Array.from({ length: 7 }).map((_, i) => (
           <div key={i} className="h-[56px] rounded-lg border border-gray-100 bg-gray-100" />
         ))}
       </div>
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-white/55 px-4 text-center backdrop-blur-sm">
-        <span className="text-2xl">🔒</span>
-        <p className="text-sm font-semibold text-gray-700">
-          {hiddenCount} more startup{hiddenCount === 1 ? '' : 's'} unlock{hiddenCount === 1 ? 's' : ''} when you&apos;ve treated this wave
-        </p>
-        <button onClick={onReview} className="rounded-lg bg-[#0E7490] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0c637b]">
-          Review the wave above
-        </button>
-      </div>
-    </div>
+    </FrostedGate>
   );
 }
 

@@ -4404,3 +4404,45 @@ Identity and the SectorPicker), `InvestorProfilePanel`, `src/app/signup`,
 `src/app/login`, `src/app/documents/page.tsx` and
 `src/components/documents/**`. **Backlog:** 249 inputs elsewhere still warn;
 they are the next sweep. Do not silence the warning — fix the input.
+
+---
+
+## Prompt 554 (03/09/2026) — A locked block's explanation is sticky to the viewport, never centred in the block
+
+**The rule.** Any frosted/locked block goes through
+`src/components/workspace-shell/FrostedGate.tsx`. The overlay covers the
+block but does **not** flex-centre; the message box inside it is
+`sticky top-[calc(50vh-48px)]`, so it rides with the viewport while the
+block scrolls past and leaves with the block. `pt-[min(20vh,160px)]` on the
+overlay means a block shorter than the viewport looks exactly as it did
+before — sticky simply never engages, so there is no regression on short
+gates.
+
+**Why not the obvious alternatives.** `position: fixed` would escape the
+block and float the message over the header and sidebar once the founder
+scrolled past the gate. An IntersectionObserver or a scroll listener would
+reimplement in JavaScript, per frame, what the compositor already does.
+Sticky inside an `absolute` box is legal and is exactly the wanted
+behaviour: the scrollport is the page, but the containing block is the
+overlay, so the message can never leave the frosted area.
+
+**The precondition that fails silently.** `sticky` resolves against the
+nearest scrollport. If any ancestor between a gate and the page gains
+`overflow: hidden` or `overflow-y-auto`, that ancestor becomes the
+scrollport and the message quietly stops sticking — no error, no warning,
+just the original bug back. Verified today (`grep -rn
+"overflow-hidden\|overflow-y-auto"` over `shell.tsx` and
+`InvestorWorkspaceShell.tsx` returns nothing) and **pinned by
+`FrostedGate.test.ts`**, so a future layout change trips a test instead of
+re-hiding the message.
+
+**Blur strength is a prop, not something the caller appends.** Two Tailwind
+blur utilities on one element resolve by stylesheet order, not attribute
+order, so `blur-[2px] blur-[3px]` is a coin flip. The guest previews
+genuinely use 3px and pass `blur="blur-[3px]"`.
+
+**Four call sites converted:** `ReadinessPanel` (the reported case — seven
+tabs, two to three screens tall), `MarketDataPanel` ("A few basics first"),
+`PipelinePanel` (the wave lock), `guest/FrostedOverlay` (548's previews).
+Copy, pill markup, lock glyph, CTAs and everything behind the frost are
+passed through unchanged.

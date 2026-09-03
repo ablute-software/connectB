@@ -13,6 +13,7 @@
 // founder can see the tab exists and what it promises before it's unlocked
 // for their plan.
 import { Suspense, useEffect, useState } from 'react';
+import { FrostedGate } from '@/components/workspace-shell/FrostedGate';
 import { Tabs } from '@/components/ui';
 import { useTabParam } from '@/lib/use-tab';
 import { REVIEW_OPTIMIZATION_PREVIEW_COPY } from '@/lib/plans';
@@ -74,18 +75,25 @@ function ReadinessInner() {
           shown to every customer today; the built tool underneath stays
           intact for when the entitlement lifts per plan. The overlay
           captures pointer events, so no action underneath can fire. */}
-      <div className="relative">
-        {locked && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl bg-white/55 px-4 text-center backdrop-blur-[3px]">
-            <span className="rounded-full border border-cyan-200 bg-white/90 px-4 py-1.5 text-sm font-semibold text-[#0E7490] shadow-sm">
-              {REVIEW_OPTIMIZATION_PREVIEW_COPY}
-            </span>
-            <span className="max-w-xs text-[11px] text-gray-500">
-              Your investability reading and AI reviews will live here.
-            </span>
-          </div>
+      {/* Prompt 554 — the block is two or three screens tall, so centring the
+          message in it put the only explanation of the frost a screen and a
+          half below the fold. FrostedGate makes it stick to the viewport.
+          The pill and note markup are passed through unchanged. */}
+      <FrostedGate
+        locked={locked}
+        blurClassName="space-y-4"
+        message={(
+          <span className="rounded-full border border-cyan-200 bg-white/90 px-4 py-1.5 text-sm font-semibold text-[#0E7490] shadow-sm">
+            {REVIEW_OPTIMIZATION_PREVIEW_COPY}
+          </span>
         )}
-        <div className={locked ? 'pointer-events-none select-none space-y-4 blur-[2px]' : 'space-y-4'} aria-hidden={locked}>
+        note={(
+          <span className="max-w-xs text-[11px] text-gray-500">
+            Your investability reading and AI reviews will live here.
+          </span>
+        )}
+      >
+        <div className="space-y-4">
           {activeTab === 'review' && <ReviewPanel />}
           {activeTab === 'blueprint' && <BlueprintPanel />}
           {activeTab === 'market_data' && <MarketDataPanel />}
@@ -94,7 +102,7 @@ function ReadinessInner() {
           {activeTab === 'train' && <TrainPanel />}
           {activeTab === 'history' && <HistoryPanel />}
         </div>
-      </div>
+      </FrostedGate>
     </div>
   );
 }

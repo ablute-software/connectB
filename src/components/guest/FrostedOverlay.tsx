@@ -13,6 +13,7 @@
 // blurred layer stops the preview from feeling like a broken app the visitor
 // can half-click.
 import Link from 'next/link';
+import { FrostedGate } from '@/components/workspace-shell/FrostedGate';
 
 export function FrostedOverlay({ message, ctaLabel = 'Create your free investor account', signupHref, children }: {
   /** The one contextual sentence explaining what signing up unlocks here. */
@@ -24,15 +25,19 @@ export function FrostedOverlay({ message, ctaLabel = 'Create your free investor 
   signupHref: string;
   children: React.ReactNode;
 }) {
+  // Prompt 554 — the gate itself: above the blurred preview, the only part
+  // of this area that accepts a click, and always offering a way forward.
+  // Now via FrostedGate, so on a guest preview taller than the viewport the
+  // card follows the reader instead of hiding in the block's middle. The
+  // card's own styling (border, shadow, /90 tint) is unchanged; the overlay
+  // is transparent here because the CARD carries the frosting.
   return (
-    <div className="relative">
-      <div aria-hidden="true" className="pointer-events-none select-none blur-[3px] opacity-60">
-        {children}
-      </div>
-
-      {/* The gate itself. Sits above the blurred preview, is the only part of
-          this area that accepts a click, and always offers a way forward. */}
-      <div className="absolute inset-0 flex items-center justify-center p-4">
+    <FrostedGate
+      locked
+      blur="blur-[3px]"
+      blurClassName="opacity-60"
+      overlayClassName="bg-transparent backdrop-blur-none p-4"
+      message={(
         <div className="max-w-sm rounded-2xl border border-gray-200 bg-white/90 p-6 text-center shadow-xl backdrop-blur-sm">
           <p className="text-sm text-gray-700">{message}</p>
           {/* Prompt 526 §B — the EXISTING signup flow, unchanged (today a
@@ -45,7 +50,9 @@ export function FrostedOverlay({ message, ctaLabel = 'Create your free investor 
             {ctaLabel}
           </Link>
         </div>
-      </div>
-    </div>
+      )}
+    >
+      {children}
+    </FrostedGate>
   );
 }
