@@ -48,7 +48,7 @@ describe('filterEligibleOrgs', () => {
     expect(run([testOrg], [testProfile], true)).toEqual(['org-test']);
   });
 
-  // A pre-0303/pre-0139 environment sends neither column at all. Absent must
+  // A pre-0305/pre-0139 environment sends neither column at all. Absent must
   // read as "not closed" and "not test", never as a crash or an exclusion.
   it('treats absent closed_at / is_test as not closed and not test', () => {
     const bare: EligibilityOrg = { id: 'org-bare' };

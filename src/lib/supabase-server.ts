@@ -51,7 +51,7 @@ export async function resolveRole(
   if (admin) return 'developer';
   // Prompt 556 §D — a member of a CLOSED org is not a founder. An org is
   // closed when its last member was deleted (orgs.closed_at, migration
-  // 0303), so this can only be reached if a member row was created against
+  // 0305), so this can only be reached if a member row was created against
   // an already-closed org — which is exactly the case worth refusing:
   // re-creating a user with the same email must not silently reattach them
   // to the account that ended. They fall through to the investor/none

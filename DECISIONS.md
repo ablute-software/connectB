@@ -4536,7 +4536,7 @@ since Prompt 184.
 
 **Decisions**
 
-- **An org with zero members is closed.** `orgs.closed_at` (migration 0303) +
+- **An org with zero members is closed.** `orgs.closed_at` (migration 0305) +
   `close_org()` + an `after delete on org_members` trigger, so deleting the
   auth user — the only "delete account" path that exists today — closes the org
   in the same transaction. `close_org()` only hides and revokes: `closed_at`,
@@ -4596,3 +4596,23 @@ since Prompt 184.
 Backfill: one org, reported before running and verified after — Krohnsty
 `54f1bf67-66a3-4c60-8e1b-9ec39ea2c0dd`. The five other member-less orgs are the
 `e1000000-…` demo seeds and are excluded twice (name suffix AND id prefix).
+
+**Migration numbering, and a second collision of the same kind as 0293.** This
+file was written and applied as 0303 after sweeping every remote branch (0302
+was then the highest taken). Two other workstreams landed numbers between that
+sweep and the push: `claude/prompt-544-outreach-ready` committed its own 0302
+and 0303 (18:17 and 18:51 UTC, before this file's 19:11), and
+`claude/prompt-556-matchdeal-is-test` took 0304. This file moved to **0305**
+rather than asking them to move — 544's 0302 has to be renamed regardless
+(0302 is already on `main`), so vacating 0303 leaves that branch one rename
+instead of two. The lesson from 0293 holds and needs sharpening: sweeping the
+branches is necessary but not sufficient, because branches appear *after* the
+sweep. Re-sweep immediately before pushing, and treat `main` as the tiebreaker.
+
+**Two different briefs are both called "Prompt 556."** This one is the
+deleted-startup / closed-org brief. `claude/prompt-556-matchdeal-is-test` is a
+separate brief with the same number — a test investor never reaching a real
+organisation, guarding `matchdeal_record_interest_notification` and
+`matchdeal_reconcile_pipeline_entry` on `is_test`. They are unrelated, they do
+not conflict, and both are applied in production. Read the section header, not
+the number.

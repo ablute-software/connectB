@@ -43,7 +43,7 @@
 export type EligibilityOrg = {
   id: string;
   // Prompt 556 §A. Absent (not just null) on an environment where migration
-  // 0303 hasn't been applied — `undefined` reads as "not closed", which is
+  // 0305 hasn't been applied — `undefined` reads as "not closed", which is
   // the correct degrade: closing is a new state, nothing was closed before.
   closed_at?: string | null;
   // Migration 0139. Same absent-means-false degrade.

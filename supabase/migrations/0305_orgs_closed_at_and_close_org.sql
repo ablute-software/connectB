@@ -1,5 +1,22 @@
 -- Prompt 556 §A — an org can be CLOSED.
 --
+-- Numbered 0305, not 0303. This file WAS 0303 when it was written and
+-- applied: a sweep of every remote branch at the time showed 0302 as the
+-- highest number taken. Two other workstreams then landed numbers of their
+-- own between that sweep and this push — `claude/prompt-544-outreach-ready`
+-- committed its own 0302 and 0303 (18:17 and 18:51 UTC, before this file's
+-- 19:11), and `claude/prompt-556-matchdeal-is-test` took 0304. Renumbering
+-- THIS file rather than theirs leaves them exactly one rename to do (their
+-- 0302, which collides with the 0302 already merged to main) instead of two.
+-- The rename is safe on its own terms: the SQL is already applied to
+-- production under the Supabase migration name `orgs_closed_at_and_close_org`
+-- (version 20260903172538), and the repo file is the record, not the trigger.
+--
+-- Note on the name collision too: the OTHER branch's "Prompt 556" is a
+-- different brief with the same number (a test investor never reaching a real
+-- organisation). This one is the deleted-startup/closed-org brief. Same
+-- number, two unrelated changes — read the section headers, not the number.
+--
 -- Two facts, both confirmed in production on 03/09/2026:
 --
 --   1. `orgs` had no notion of an account ending. Deleting the auth user
@@ -8,7 +25,7 @@
 --      entities, its documents all survive, owned by nobody. Krohnsty
 --      54f1bf67 has been in exactly that state since 02/09 — zero members,
 --      all nine profile-gate fields still filled in.
---   2. Because investor discovery keyed off that gate (see 0303's companion
+--   2. Because investor discovery keyed off that gate (see this migration's companion
 --      change in src/lib/portal-access.ts), the orphan was still being
 --      served to every investor as a discovery card. Nuno saw it in his own
 --      investor Pipeline, with all its data, after deleting the account.

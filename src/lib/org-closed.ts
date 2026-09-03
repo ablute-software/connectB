@@ -1,8 +1,8 @@
-// Prompt 556 — server-side reads for orgs.closed_at (migration 0303).
+// Prompt 556 — server-side reads for orgs.closed_at (migration 0305).
 //
 // "Closed" is what an org becomes when its last member is deleted: the rows
 // all stay, the account is over. Two consequences live here — the capability
-// probe (so an environment without 0303 degrades to "nothing is closed"
+// probe (so an environment without 0305 degrades to "nothing is closed"
 // rather than erroring on an unknown column) and the one shared 410 that
 // every startup-detail portal route returns for a closed org.
 //

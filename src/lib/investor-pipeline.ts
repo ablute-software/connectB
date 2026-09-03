@@ -473,7 +473,7 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     waves.push({ index: waves.length, items, unlocked: i === 0 || priorTreated });
   }
 
-  // Prompt 556 §C — a closed org (orgs.closed_at, migration 0303) is
+  // Prompt 556 §C — a closed org (orgs.closed_at, migration 0305) is
   // projected down to name + status here, at the LAST possible point, after
   // every enrichment step above has run. Doing it earlier would mean each
   // new enrichment has to remember to skip closed cards; doing it here means

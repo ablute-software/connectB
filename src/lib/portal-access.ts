@@ -67,7 +67,7 @@ export async function resolveInvestorCatalogEntityId(admin: SupabaseClient, user
 // that now lives, applied to discovery only.
 //
 // Prompt 556 — one exclusion is added, and it is not the is_test one: a
-// CLOSED org (orgs.closed_at, migration 0303) drops out. close_org() already
+// CLOSED org (orgs.closed_at, migration 0305) drops out. close_org() already
 // revokes every active grant, so this is a belt over a brace — but a grant
 // row written by any other path after the org closed would otherwise put a
 // dead startup back into a live data room. Deliberate consequence, and the
@@ -124,7 +124,7 @@ export async function resolveViewerIsTest(admin: SupabaseClient, catalogEntityId
 // isProfileGateComplete, the FOUNDER's own CRM unlock. Eligibility is once
 // again the founder's explicit act of publishing — a startup
 // matchdeal_profiles row with is_visible = true — plus three exclusions: a
-// closed org (orgs.closed_at, migration 0303), a suspended one (both
+// closed org (orgs.closed_at, migration 0305), a suspended one (both
 // sources), and a test org for a non-test viewer. filterEligibleOrgs holds
 // every one of those rules, pure and unit-tested; the full reasoning for
 // the reversal, including why Caramel Biscuit's old symptom is now the
