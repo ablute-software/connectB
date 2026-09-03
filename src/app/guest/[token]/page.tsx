@@ -34,8 +34,19 @@
 import { useEffect, useState } from 'react';
 import { BRAND_NAME } from '@/lib/brand';
 import { browserClient, authEnabled } from '@/lib/supabase';
+import { groupGuestDocuments, type GuestShelf } from '@/lib/guest-shelf';
 
-type GuestFolder = { id: string; name: string; documents: { id: string; name: string }[] };
+// Prompt 547 — the address is shown masked in the "we'll email a code" line:
+// enough for the recipient to recognise their own inbox, not enough to hand a
+// forwarded link's holder a full address they did not already have.
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!domain || local.length <= 2) return email;
+  return `${local[0]}…${local[local.length - 1]}@${domain}`;
+}
+
+type GuestDoc = { id: string; name: string; shelf: GuestShelf; ndaRequired: boolean };
+type GuestFolder = { id: string; name: string; documents: GuestDoc[] };
 type GuestPreview = {
   ok: true; orgName: string; orgDescription: string | null; orgLogoUrl: string | null;
   invitedEmail: string; folders: GuestFolder[]; documentNames: string[]; documentCount: number;
@@ -144,20 +155,6 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
               </div>
               <p className="mb-4 text-xs text-gray-400">This preview was shared with {data.invitedEmail}.</p>
 
-              {sent ? (
-                <div className="mb-5 rounded-xl border border-cyan-100 bg-[#E8F4F8] px-3 py-3 text-sm text-gray-700">
-                  Check your email — click the link we just sent to {data.invitedEmail} to open the data room.
-                </div>
-              ) : (
-                <div className="mb-5 rounded-xl border border-cyan-100 bg-[#E8F4F8]/70 px-4 py-3.5 text-center">
-                  <p className="mb-2 text-sm font-medium text-gray-800">Create your free account to open these documents</p>
-                  <button disabled={sending} onClick={() => void createAccount()}
-                    className="w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
-                    {sending ? 'Sending…' : 'Create your free account'}
-                  </button>
-                  {sendErr && <p className="mt-2 text-xs text-[#B00000]">{sendErr}</p>}
-                </div>
-              )}
 
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
                 {data.documentCount} document{data.documentCount === 1 ? '' : 's'} shared with you
@@ -171,20 +168,68 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
                   <p className="text-sm text-gray-400">No documents shared yet — check back later.</p>
                 )
               ) : (
-                <div className="space-y-3">
-                  {data.folders.map((f) => (
-                    <div key={f.id}>
-                      <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-gray-600">▣ {f.name}</p>
-                      <ul className="space-y-1">
-                        {f.documents.map((d) => (
-                          <li key={d.id} className="flex items-center gap-2 rounded-lg border border-gray-100 px-3 py-2 pl-6 text-sm text-gray-700">
-                            📄 <span className="truncate">{d.name}</span>
-                          </li>
-                        ))}
-                      </ul>
+                (() => {
+                  // Prompt 547 — grouped by what the recipient can DO, not by
+                  // folder. The old flat list treated both shelves the same and
+                  // opened neither, which is what made a shared deck look
+                  // broken. Grouping uses the same predicate the open route
+                  // enforces (guest-shelf.ts), so a link is never offered that
+                  // the route would refuse.
+                  const all = data.folders.flatMap((f) => f.documents);
+                  const { openNow, confirmRequired } = groupGuestDocuments(all);
+                  return (
+                    <div className="space-y-5">
+                      {openNow.length > 0 && (
+                        <div>
+                          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">Open now</p>
+                          <ul className="space-y-1">
+                            {openNow.map((d) => (
+                              <li key={d.id}>
+                                <a href={`/api/guest/${token}/open/${d.id}`} target="_blank" rel="noopener noreferrer"
+                                  className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-[#0E7490] hover:bg-gray-50">
+                                  📄 <span className="truncate font-medium">{d.name}</span>
+                                  <span className="ml-auto shrink-0 text-[10px] text-gray-400">view only</span>
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {confirmRequired.length > 0 && (
+                        <div>
+                          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">Confirm it&apos;s you to open</p>
+                          <ul className="space-y-1">
+                            {confirmRequired.map((d) => (
+                              <li key={d.id} className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2 text-sm text-gray-600">
+                                {d.ndaRequired ? '🔒' : '📄'} <span className="truncate">{d.name}</span>
+                              </li>
+                            ))}
+                          </ul>
+                          {sent ? (
+                            <div className="mt-2 rounded-xl border border-cyan-100 bg-[#E8F4F8] px-3 py-3 text-sm text-gray-700">
+                              Check your email — we sent a one-time code to {data.invitedEmail}.
+                            </div>
+                          ) : (
+                            <div className="mt-2">
+                              <button disabled={sending} onClick={() => void createAccount()}
+                                className="w-full rounded-lg bg-[#0E7490] px-3 py-2 text-sm font-semibold text-white hover:bg-[#0c637b] disabled:opacity-40">
+                                {sending ? 'Sending…' : 'Send me a code'}
+                              </button>
+                              {/* The code path is not a signup, so the copy no
+                                  longer says it is — that wording is what told
+                                  Nuno the link was not for him. */}
+                              <p className="mt-1.5 text-center text-[11px] text-gray-400">
+                                We&apos;ll email a one-time code to {maskEmail(data.invitedEmail)}. No password, no form.
+                              </p>
+                              {sendErr && <p className="mt-2 text-xs text-[#B00000]">{sendErr}</p>}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
+                  );
+                })()
               )}
             </>
           )}
