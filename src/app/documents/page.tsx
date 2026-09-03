@@ -22,6 +22,10 @@ import { PeopleAccessPanel } from '@/components/documents/PeopleAccessPanel';
 import { WhoHasAccessPanel } from '@/components/documents/WhoHasAccessPanel';
 import { VaultKillSwitch } from '@/components/documents/VaultKillSwitch';
 import { PageTour } from '@/components/onboarding/PageTour';
+import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
+
+// Prompt 549 — the key this page claims in the provider's hold registry.
+const VAULT_NOTICE_HOLD = 'vault-privacy-notice';
 import { vaultAccessAdvice } from '@/lib/vault-access-advice';
 import { VaultPinGate } from '@/components/documents/VaultPinGate';
 import { VaultPrivacyNoticeModal } from '@/components/documents/VaultPrivacyNoticeModal';
@@ -149,32 +153,71 @@ function DocumentsPageInner() {
   // already dismissed it). Runs once on mount; T0 (first_shown_at) is
   // captured on this same read the first time it's null, per 403 §A.2's
   // own "simplifies the client" option.
-  const [vaultNoticeOpen, setVaultNoticeOpen] = useState(false);
+  // Prompt 549 — three states, not a boolean, because the DECISION IS ASYNC.
+  //
+  // The old `vaultNoticeOpen: boolean` started false and only became true
+  // after a Supabase read (or a localStorage read in demo mode) resolved.
+  // PageTour, meanwhile, opened as soon as OnboardingProvider's `loaded`
+  // flipped — which on a first visit happens before that read finishes. So
+  // the tour always won the race and the notice appeared underneath its
+  // full-screen z-[60] backdrop, unreachable.
+  //
+  // 'pending' is the state that did not exist and had to: it says "I do not
+  // yet know whether a blocking overlay is due", and it holds tours while
+  // that is true. A hold registered only once the answer arrives would be
+  // too late on every single first visit.
+  const [vaultNotice, setVaultNotice] = useState<'pending' | 'open' | 'done'>('pending');
   const [vaultNoticeUserId, setVaultNoticeUserId] = useState<string | null>(null);
   const [vaultNoticeFirstShownAt, setVaultNoticeFirstShownAt] = useState<Date | null>(null);
+
+  // The hold itself. Registered from mount (state starts 'pending') and
+  // released the moment the notice is resolved and dealt with. Cleanup
+  // releases on unmount so navigating away mid-notice cannot strand a hold.
+  const { holdTours, releaseTours } = useOnboarding();
+  // Depends on the BOOLEAN, not on the three-state: 'pending' and 'open'
+  // are the same thing to the tour, so the pending -> open transition must
+  // not re-run this effect and release/re-hold on the way through. (React
+  // batches the two setState calls, so no render would actually observe the
+  // gap — but an effect that does not churn is one that cannot grow one.)
+  const vaultNoticeBlocksTours = vaultNotice !== 'done';
+  useEffect(() => {
+    if (!vaultNoticeBlocksTours) { releaseTours(VAULT_NOTICE_HOLD); return; }
+    holdTours(VAULT_NOTICE_HOLD);
+    return () => releaseTours(VAULT_NOTICE_HOLD);
+  }, [vaultNoticeBlocksTours, holdTours, releaseTours]);
 
   useEffect(() => {
     let cancelled = false;
     async function run() {
       const now = new Date();
+      // Prompt 549 — EVERY exit path below settles vaultNotice, including
+      // the not-due returns and the catch. A path that returned without
+      // settling would leave the hold registered forever and the tour would
+      // never open — the opposite failure, and just as bad.
       if (!authEnabled) {
         const state = readDemoVaultPrivacyNotice();
-        if (!isVaultPrivacyNoticeDue(state.firstShownAt, state.lastShownAt, now)) return;
+        if (!isVaultPrivacyNoticeDue(state.firstShownAt, state.lastShownAt, now)) {
+          if (!cancelled) setVaultNotice('done');
+          return;
+        }
         const firstShownAt = state.firstShownAt ?? now;
         writeDemoVaultPrivacyNotice({ firstShownAt, lastShownAt: state.lastShownAt });
-        if (!cancelled) { setVaultNoticeFirstShownAt(firstShownAt); setVaultNoticeOpen(true); }
+        if (!cancelled) { setVaultNoticeFirstShownAt(firstShownAt); setVaultNotice('open'); }
         return;
       }
       try {
         const sb = browserClient();
         const { data: userData } = await sb.auth.getUser();
         const userId = userData?.user?.id;
-        if (!userId) return;
+        if (!userId) { if (!cancelled) setVaultNotice('done'); return; }
         const { data } = await sb.from('vault_privacy_notice_state')
           .select('first_shown_at, last_shown_at').eq('user_id', userId).maybeSingle();
         const firstShownAt = data?.first_shown_at ? new Date(data.first_shown_at) : null;
         const lastShownAt = data?.last_shown_at ? new Date(data.last_shown_at) : null;
-        if (!isVaultPrivacyNoticeDue(firstShownAt, lastShownAt, now)) return;
+        if (!isVaultPrivacyNoticeDue(firstShownAt, lastShownAt, now)) {
+          if (!cancelled) setVaultNotice('done');
+          return;
+        }
         const resolvedFirstShownAt = firstShownAt ?? now;
         if (!firstShownAt) {
           await sb.from('vault_privacy_notice_state')
@@ -183,16 +226,25 @@ function DocumentsPageInner() {
         if (!cancelled) {
           setVaultNoticeUserId(userId);
           setVaultNoticeFirstShownAt(resolvedFirstShownAt);
-          setVaultNoticeOpen(true);
+          setVaultNotice('open');
         }
-      } catch { /* best-effort — never blocks the page */ }
+      } catch {
+        // Best-effort must never hold the tour hostage: a failed fetch
+        // resolves to "no notice", not to "wait forever".
+        if (!cancelled) setVaultNotice('done');
+      }
     }
     run();
     return () => { cancelled = true; };
   }, []);
 
   async function acknowledgeVaultNotice() {
-    setVaultNoticeOpen(false);
+    // The state flip IS the close: VaultPrivacyNoticeModal returns null the
+    // moment `open` is false, so there is no exit animation to wait for and
+    // no onCloseComplete to thread. Releasing the hold here is what makes
+    // the tour start on "Got it" with no second click. Persistence below is
+    // unchanged.
+    setVaultNotice('done');
     const now = new Date();
     const firstShownAt = vaultNoticeFirstShownAt ?? now;
     if (!authEnabled) {
@@ -976,7 +1028,7 @@ function DocumentsPageInner() {
 
   return (
     <div className="space-y-4">
-      <VaultPrivacyNoticeModal open={vaultNoticeOpen} onGotIt={acknowledgeVaultNotice} />
+      <VaultPrivacyNoticeModal open={vaultNotice === 'open'} onGotIt={acknowledgeVaultNotice} />
       {tab === 'documents' && <PageTour pageKey="guide_documents" />}
       {tab === 'people' && <PageTour pageKey="guide_people_access" />}
       <div className="flex items-center justify-between gap-1.5">

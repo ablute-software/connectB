@@ -9,7 +9,7 @@ import { onboardingItem } from '@/lib/onboarding/content';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 
 export function WelcomeModal() {
-  const { eligibleKey, markSeen, setCondition } = useOnboarding();
+  const { eligibleKey, markSeen, setCondition, holdTours, releaseTours } = useOnboarding();
   const item = onboardingItem('welcome')!;
   const open = eligibleKey === 'welcome';
   const steps = item.steps ?? [];
@@ -24,6 +24,17 @@ export function WelcomeModal() {
 
   // Prompt 333 — always start a freshly-opened modal on step 1.
   useEffect(() => { if (open) setStep(0); }, [open]);
+
+  // Prompt 549 — the same collision the Vault notice had, on first login:
+  // this modal is z-50 (shell) and a page tour's backdrop is z-[60], so
+  // whichever page the user lands on could bury the welcome modal under a
+  // tour it has no idea exists. One effect, nothing else about this
+  // component changes: hold while open, release on close or unmount.
+  useEffect(() => {
+    if (!open) return;
+    holdTours('welcome-modal');
+    return () => releaseTours('welcome-modal');
+  }, [open, holdTours, releaseTours]);
 
   useEffect(() => {
     if (!open) return;

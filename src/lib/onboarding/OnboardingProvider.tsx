@@ -8,6 +8,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { ONBOARDING_CONTENT } from './content';
 import { pickEligible, type OnboardingCtx } from './engine';
+import { addHold, removeHold, toursHeld } from './tour-gate';
 
 interface OnboardingRow {
   seen: Record<string, string>; opted_out: boolean; last_shown_at: string | null;
@@ -48,6 +49,16 @@ interface OnboardingContextValue {
    *  Destructive across every tracked key — only for a genuine "reset all onboarding" action, never
    *  wired to a single item's replay (that bug wiped `waves` from a real account, see Prompt 86 report). */
   resetSeen: () => void;
+  /** Prompt 549 — a blocking overlay claims priority over page tours while it is up.
+   *  NOT persisted, NOT budgeted, unrelated to `seen`: it is a live claim for this
+   *  moment only. A tour that is already open closes when a hold appears and reopens
+   *  from step 1 when the last hold clears, which is exactly "Got it -> tour starts"
+   *  with no extra click and no timer. Keyed so two overlays can hold at once and
+   *  neither release cancels the other's claim. */
+  holdTours: (key: string) => void;
+  releaseTours: (key: string) => void;
+  /** True while ANY overlay holds. PageTour reads this; nothing else should need to. */
+  toursHeld: boolean;
   /** Prompt 420 §B.3 — the Evaluation Tools intro pamphlet's durable opt-out. */
   evaluationToolsIntroMuted: boolean;
   /** Two-way (not just a one-time mute) so Prompt 421's About Investor -> Automations
@@ -65,6 +76,11 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const [sessionModalsShown, setSessionModalsShown] = useState(0);
   const [sessionCoachmarksShown, setSessionCoachmarksShown] = useState(0);
   const [guideNonce, setGuideNonce] = useState<Record<string, number>>({});
+  // Prompt 549 — the hold registry. A Set in state (replaced, never mutated)
+  // so a change actually re-renders; keyed so the Vault privacy notice and
+  // the WelcomeModal can hold simultaneously without one's release
+  // cancelling the other's claim.
+  const [tourHolds, setTourHolds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     if (!authEnabled) {
@@ -92,6 +108,20 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       setLoaded(true);
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // Both return the same Set instance when nothing changed, so a repeated
+  // hold or a duplicate release costs no render — see tour-gate.ts.
+  const holdTours = useCallback((key: string) => {
+    setTourHolds((prev) => addHold(prev, key) as Set<string>);
+  }, []);
+
+  // Idempotent on purpose: an effect cleanup can run after the key is
+  // already gone (a re-render that changes the hold's own identity, or an
+  // unmount racing a state flip), and a release that is not there must be a
+  // no-op rather than a stale-state write.
+  const releaseTours = useCallback((key: string) => {
+    setTourHolds((prev) => removeHold(prev, key) as Set<string>);
   }, []);
 
   const setCondition = useCallback((key: string, value: boolean) => {
@@ -190,6 +220,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   return (
     <OnboardingContext.Provider value={{
       eligibleKey, seen: row.seen, setCondition, markSeen, rearmKey, guideNonce, resetSeen, loaded,
+      holdTours, releaseTours, toursHeld: toursHeld(tourHolds),
       evaluationToolsIntroMuted: row.evaluation_tools_intro_muted, setEvaluationToolsIntroMuted,
     }}>
       {children}

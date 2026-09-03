@@ -4309,3 +4309,49 @@ memory kept one. **In an async action, build the commit from a fresh
 `dbRef.current` read AFTER the await, never from a snapshot taken before it.**
 `src/lib/store-lost-update.test.ts` pins this against the source for all nine;
 it fails on `main` for 9 of 9.
+
+---
+
+## Prompt 549 (03/09/2026) — Tours yield to blocking overlays via the provider hold, never via z-index
+
+**The rule.** A modal that must be dealt with before a page tour registers a
+hold with `OnboardingProvider` (`holdTours(key)` / `releaseTours(key)`), and
+`PageTour` refuses to open while `toursHeld` is true. Two consumers today: the
+Vault privacy notice (`documents/page.tsx`, key `vault-privacy-notice`) and
+`WelcomeModal` (key `welcome-modal`). A hold is a live claim for this moment
+only — not persisted, not budgeted, unrelated to `seen`.
+
+**Why not z-index.** The reported symptom was the Vault privacy notice
+appearing *underneath* the tour's full-screen `z-[60]` backdrop, with "Got it"
+unreachable. Raising the notice above the tour would have fixed that screen and
+left the actual defect in place: two overlays with independent triggers,
+neither aware of the other, competing for the same moment. The next pair would
+collide the same way — as `WelcomeModal` (z-50, shell) and any page tour
+already could on first login. With the hold, the two are never mounted together
+at all, so the stacking order stops mattering. **Z-indexes were deliberately
+not touched.**
+
+**Why the hold starts before the answer is known.** The notice decision is
+asynchronous (a `vault_privacy_notice_state` read, or `localStorage` in demo
+mode). `vaultNoticeOpen: boolean` started `false` and only became `true` after
+that read resolved, while `PageTour` opened the instant
+`OnboardingProvider.loaded` flipped — earlier, on every first visit. So the
+state is now `'pending' | 'open' | 'done'`: **`'pending'` is the state that had
+to exist**, meaning "I do not yet know whether a blocking overlay is due", and
+it holds. A hold registered only once the answer arrived would be too late
+every time. Every exit path of the resolve effect settles the state — the
+not-due returns, the missing-user path and the `catch` all set `'done'`, because
+a best-effort fetch failing must never hold a tour hostage forever.
+
+**Holds are keyed, not counted.** Two overlays can hold at once and one
+release does not free the other; holding the same key twice and releasing once
+still releases, so a component that re-registers on re-render never needs
+matching releases. The transitions live in `src/lib/onboarding/tour-gate.ts`
+(`addHold`/`removeHold`/`toursHeld`) as pure functions returning the *same* Set
+instance on a no-op — identity is the contract React state depends on, and it
+is what stops a repeated hold from looping renders. `tourMayOpen` is there too,
+so Correção 3 §9's four cases are a table test rather than a browser check.
+
+**Not changed, on purpose:** the notice's recurring schedule (T0, +2, +4, then
+every 4 months — `isVaultPrivacyNoticeDue`), its approved copy, the tour
+content and order, and the z-indexes.
