@@ -14,7 +14,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { readViewerOrgId } from '@/lib/developer-viewer';
+import { readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -33,7 +33,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const { data: entity } = await admin.from('entities').select('id, org_id, source').eq('id', params.id).maybeSingle();
   if (!entity) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
 
-  const viewerOrgId = readViewerOrgId(req);
+  // Prompt 559 §A — verified, not parsed: an unsigned cookie must never be
+  // what decides the membership check is skippable.
+  const viewerOrgId = await readVerifiedViewerOrgId(sb, req);
   if (viewerOrgId !== entity.org_id) {
     const { data: member } = await sb.from('org_members')
       .select('org_id').eq('user_id', user.id).eq('org_id', entity.org_id).maybeSingle();

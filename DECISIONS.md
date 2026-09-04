@@ -4608,6 +4608,10 @@ rather than asking them to move — 544's 0302 has to be renamed regardless
 instead of two. The lesson from 0293 holds and needs sharpening: sweeping the
 branches is necessary but not sufficient, because branches appear *after* the
 sweep. Re-sweep immediately before pushing, and treat `main` as the tiebreaker.
+Outcome, confirmed once `main` moved on: 544's `0303_catalog_outreach_supply`
+kept its number and its `0302` became `0306_catalog_readiness_breakdown`, so
+0305 stayed free and this file slots into `main`'s own numbering with nothing
+left to rename on either side.
 
 **Two different briefs are both called "Prompt 556."** This one is the
 deleted-startup / closed-org brief. `claude/prompt-556-matchdeal-is-test` is a
@@ -4616,3 +4620,60 @@ organisation, guarding `matchdeal_record_interest_notification` and
 `matchdeal_reconcile_pipeline_entry` on `is_test`. They are unrelated, they do
 not conflict, and both are applied in production. Read the section header, not
 the number.
+## Prompt 559 §A — an unsigned cookie is never an authorization credential (04/09/2026)
+
+`developer-viewer.ts` had documented the rule in its own header since Prompt
+123 — *"it is NEVER treated as an authorization credential by itself"* — and
+four routes broke it anyway, because the rule lived in a comment while the
+function that broke it (`readViewerOrgId`) was exported and looked safe to
+call. `sd_viewer_org_id` is `<orgId>:<iso>`, unsigned, writable by anyone.
+
+Two shapes, both fixed by routing every read through
+`readVerifiedViewerOrgId(sb, req)`, which re-checks `is_ablute_developer()`
+on the request's real session before returning anything:
+
+- **Check-skip** — `matchdeal-firm`: `if (viewerOrgId !== entity.org_id)`
+  wrapped the org-membership check, so a forged cookie carrying the entity's
+  own `org_id` skipped it and the route served the firm dossier via the
+  service role.
+- **Priority inversion** — `pipeline-unlock`, `events/page-view`,
+  `usage/heartbeat`: `let orgId = readViewerOrgId(req); if (!orgId) {
+  ...members... }` let the cookie outrank the membership lookup. In
+  `pipeline-unlock` that pointed `orgs.select('*')` — the whole row, founder-
+  private fields included — and the `profile_completed_at` write at any org
+  id the caller could name. `/portal/startup/[orgId]` puts real org ids in
+  investors' URLs, so naming one took no guessing.
+
+`assertNotViewer` did not stop the write: it returns `null` (proceed)
+precisely when the cookie's sender is *not* a developer, which is the
+attacker. It is a read-only guard for genuine viewer sessions, never an
+authorization check — that reading is now written next to it.
+
+**The generalisable part:** `readViewerOrgId` is no longer exported. A rule
+that only a comment enforces is a rule the next caller doesn't know about;
+the gate now travels with the read, and a test asserts the raw read stays
+unexported so a fifth caller can't reintroduce the class.
+
+## Prompt 558 §2 — a trigger shared across tables branches with IF, never CASE (04/09/2026)
+
+In PL/pgSQL a `case tg_table_name when ... end` assignment is **one** SQL
+expression, and `NEW`/`OLD` field references in it are resolved when the
+expression is *prepared* — for every branch, not only the branch that will
+run. A trigger function attached to several tables that names a different
+field per branch therefore fails on every table that lacks any one of them,
+before a branch is ever chosen. That is what took the catalog read-only for
+hours on 03/09 (`record "new" has no field "entity_id"`): four tables, none
+holding all of `id`, `entity_id`, `person_id`. **Branch with `IF`** — separate
+statements, each prepared only when reached.
+
+**The part that is not about PL/pgSQL:** the fix was applied straight to
+production and landed in the migration ledger
+(`20260903190915 hotfix_catalog_readiness_refresh_per_table_branches`), but
+no file was ever committed. So the ledger said "fixed", production *was*
+fixed, and the repository still built the broken version on a clean replay —
+three sources of truth, two of them right, and nothing to make the third
+disagree out loud. A hotfix is not finished when production recovers; it is
+finished when a fresh replay of the repository produces what production has.
+0308 now carries the applied body verbatim (verified identical to
+`pg_get_functiondef` in production) and 0300 is corrected in place, so the
+replay never builds the broken version at all.

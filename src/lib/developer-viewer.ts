@@ -40,8 +40,37 @@ export function readViewerSession(req: NextRequest | Request): ViewerSession | n
   return raw ? parseViewerCookieValue(raw) : null;
 }
 
-export function readViewerOrgId(req: NextRequest | Request): string | null {
+// Deliberately NOT exported — see readVerifiedViewerOrgId below. The cookie
+// is unsigned: "<orgId>:<iso>" written by anyone with a terminal. A raw read
+// of it is only ever safe inside a caller that has ALREADY established the
+// session is a developer (/api/me gates on role === 'developer'; the exit
+// route on requirePlatformAdmin()). Prompt 559 §A: four routes read it
+// without that gate, so the gate now travels with the read.
+function readViewerOrgId(req: NextRequest | Request): string | null {
   return readViewerSession(req)?.orgId ?? null;
+}
+
+// Prompt 559 §A — the only way a route may turn the viewer cookie into an
+// org id. Returns the viewed org ONLY when this request's real session also
+// currently resolves as a developer; null otherwise, which every caller must
+// treat as "no viewer session" and fall back to its own membership check.
+//
+// The bug this closes had two shapes, and the second is the reason this is a
+// function rather than a comment. In matchdeal-firm the cookie SKIPPED the
+// membership check (`if (viewerOrgId !== entity.org_id)`); in pipeline-unlock,
+// page-view and heartbeat it took PRIORITY over the membership lookup
+// (`let orgId = readViewerOrgId(req); if (!orgId) { ...members... }`), so a
+// forged cookie silently redirected a service-role read (and, in
+// pipeline-unlock, a write) at any org whose id the caller could name — and
+// /portal/startup/[orgId] hands investors real org ids in the URL.
+export async function readVerifiedViewerOrgId(
+  sb: SupabaseClient,
+  req: NextRequest | Request,
+): Promise<string | null> {
+  const orgId = readViewerOrgId(req);
+  if (!orgId) return null;
+  const { data: isDeveloper } = await sb.rpc('is_ablute_developer');
+  return isDeveloper ? orgId : null;
 }
 
 // Called at the top of every service-role mutating route (.insert/.update/

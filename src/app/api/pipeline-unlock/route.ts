@@ -9,7 +9,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer, readViewerOrgId } from '@/lib/developer-viewer';
+import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { isProfileGateComplete, missingProfileGateFields } from '@/lib/pipeline-unlock';
 import { computeVisiblePipelineSize, raiseCatalogQuotaFloor } from '@/lib/pipeline-unlock-server';
 import { pipelineUnlockAnchorsAvailable } from '@/lib/pipeline-unlock-capability';
@@ -27,7 +27,11 @@ export async function GET(req: NextRequest) {
 
   // Developer Viewer reads the viewed org, same override store-supabase.tsx
   // already applies for the rest of the workspace.
-  let orgId = readViewerOrgId(req);
+  // Prompt 559 §A — this read takes priority over the membership lookup
+  // below, so it has to be the verified one: an unverified cookie here
+  // pointed `select('*')` on orgs, and the profile_completed_at write, at
+  // any org id the caller could name.
+  let orgId = await readVerifiedViewerOrgId(sb, req);
   if (!orgId) {
     const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
     orgId = member?.org_id ?? null;

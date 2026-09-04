@@ -5,7 +5,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
-import { assertNotViewer, readViewerOrgId } from '@/lib/developer-viewer';
+import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { appEventsAvailable } from '@/lib/app-events-capability';
 
 export async function POST(req: NextRequest) {
@@ -26,7 +26,9 @@ export async function POST(req: NextRequest) {
   const { route } = await req.json().catch(() => ({})) as { route?: string };
   if (!route) return NextResponse.json({ ok: false, error: 'route is required.' }, { status: 400 });
 
-  let orgId = readViewerOrgId(req);
+  // Prompt 559 §A — verified, so a forged cookie cannot attribute this
+  // event to another org.
+  let orgId = await readVerifiedViewerOrgId(sb, req);
   if (!orgId) {
     const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
     orgId = member?.org_id ?? null;

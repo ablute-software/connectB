@@ -12,6 +12,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Card } from '@/components/ui';
 import { EnrichmentCampaignPanel } from '@/components/backoffice/EnrichmentCampaignPanel';
+import { OutreachSupplyCard } from '@/components/backoffice/OutreachSupplyCard';
 
 type ContactRow = {
   id: string; fullName: string; linkedinUrl: string | null; hookStatus: string;
@@ -495,6 +496,10 @@ export default function BackofficeCatalogPage() {
       </div>
       {err && <p className="text-sm text-[#B00000]">{err}</p>}
       <MergeDuplicatesTool onMerged={refresh} />
+      {/* Prompt 544 Part E — above the campaign panel on purpose: it says
+          WHO the next run should serve, which is the decision the panel below
+          then executes. */}
+      <OutreachSupplyCard />
       <EnrichmentCampaignPanel onEntityEnriched={refresh} />
       {catalog && <CatalogTable catalog={catalog} refresh={refresh} />}
     </div>

@@ -9,6 +9,7 @@ import pipelineMobile from './pipeline-mobile.module.css';
 import { LoadingState } from '@/components/workspace-shell/LoadingState';
 import { MatchDealVisibilityBanner } from '@/components/dashboard/MatchDealVisibilityBanner';
 import { RelationshipCompactLine } from '@/components/RelationshipSummaryCard';
+import { hasAnythingToShow, readinessChips, type ReadinessBreakdown } from '@/lib/readiness-strip';
 import { ReawakeningQueue } from '@/components/ReawakeningQueue';
 import { AddInvestorModal } from '@/components/AddInvestorModal';
 import { followUpTaskDisplayTitle, isPersonCandidate, isUnverifiedStub, relationshipSummary } from '@/lib/relationship';
@@ -619,6 +620,11 @@ export default function PipelinePage() {
   // does), so there is nothing to filter here — this is purely "how many
   // more are there" for the frosted-glass message below.
   const [blockedCount, setBlockedCount] = useState(0);
+  // Prompt 544 Part D — who and how, per row, in ONE call for the whole org.
+  // Counts only: catalog_readiness_breakdown never returns a name, an email
+  // or a LinkedIn URL (0147 removed public read on catalog_people after a
+  // real PII leak, and this must not reopen it).
+  const [readinessByEntity, setReadinessByEntity] = useState<Record<string, ReadinessBreakdown>>({});
   // Prompt 123 Block B.2 — the pipeline-unlock engine's live number (base
   // by plan + profile/upload/milestone bonuses + monthly growth). Re-checked
   // whenever entities change so it visibly moves right after a founder
@@ -659,6 +665,19 @@ export default function PipelinePage() {
 
   useEffect(() => {
     if (!authEnabled || !db.org.id) return;
+    browserClient().rpc('catalog_readiness_breakdown', { p_org_id: db.org.id })
+      .then(({ data }) => {
+        const map: Record<string, ReadinessBreakdown> = {};
+        for (const r of (data ?? []) as Record<string, unknown>[]) {
+          map[r.entity_id as string] = {
+            peopleCount: (r.people_count as number) ?? 0,
+            linkedinCount: (r.linkedin_count as number) ?? 0,
+            hookCount: (r.hook_count as number) ?? 0,
+            hasForm: !!r.has_form, hasEmail: !!r.has_email,
+          };
+        }
+        setReadinessByEntity(map);
+      }, () => { /* the strip is extra context, never a reason to fail the page */ });
     browserClient().rpc('catalog_blocked_count', { check_org: db.org.id })
       .then(({ data, error }) => setBlockedCount(!error && typeof data === 'number' ? data : 0));
     // Re-checked whenever the entity count changes (unlock, manual add,
@@ -1232,6 +1251,24 @@ export default function PipelinePage() {
                         💰 Portfolio signal
                       </span>
                     )}
+                    {/* Prompt 544 Part D — the readiness strip: who is
+                        listed, how many can be approached, which channels
+                        exist, and whether a hook has been written yet.
+                        Zeros show greyed rather than hidden — "0 hooks" is
+                        exactly why preflight will refuse the draft. */}
+                    {(() => {
+                      const b = readinessByEntity[e.id];
+                      if (!b || !hasAnythingToShow(b)) return null;
+                      return (
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px]">
+                          {readinessChips(b).map((chip, i) => (
+                            <span key={chip.label} className={chip.muted ? 'text-gray-300' : 'text-gray-500'}>
+                              {i > 0 && <span className="mr-1.5 text-gray-200">·</span>}{chip.label}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     <RelationshipCompactLine entityId={e.id} neutral={frozenView !== 'none'} />
                     {/* E2 — a previously-passed/dormant investor that carries a
                         reopen trigger has resurfaced via the reopen doctrine;
