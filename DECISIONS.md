@@ -4871,3 +4871,63 @@ identity evidence and `source` will drift. The `zz-test-` run proved that is
 not theoretical: the first attempt omitted `unverified_stub_at` and hit
 `entities_has_identity_evidence` (migration 0049) — a line the mapper gets
 right and a hand-written copy forgot within minutes.
+
+## Evaluation tools picker is one list in two sections, Active / Not yet contacted; 419 §B's discovery mode is removed — 04/09/2026 (Prompt 562)
+
+**The cause, in one paragraph.** Prompt 419 §B built a "discovery mode" on an
+assumption that was never true: that the startup picker showed the
+investor's *active* startups and needed a way to grow that list. It never
+did — `EvaluationToolsPanel` flattens every unlocked wave from
+`/api/portal/pipeline` into one array, discovery cards and relationship
+cards alike. `uncontactedCandidates` then filtered that same array, so the
+mode presented a **subset of the list already on screen** as though it were
+a second, different list, and "← Back to your list" returned you to the
+superset you had never left. The note above it promised a rule — "express
+first interest, or request access to a first document — that's what adds
+them to your active list" — implemented nowhere: there is no active list,
+only the flags the filter reads. 419's own header stated the reason the CTA
+could not work ("reusing `cards` rather than widening what's eligible").
+Nuno called it purposeless; that is the accurate word.
+
+**The fix is subtraction plus naming.** The two states were always in the
+data (`viaGrant`, `viaDecision`, `viaReferral`, `hasConversation`,
+`hasManualInteractionLog`, `status`, `isArchived`) — the UI simply never
+showed them. `partitionEvaluationCards` replaces `uncontactedCandidates`,
+and the picker renders one scroll with two headed groups: **Active** (n),
+each row carrying one state line, then **Not yet contacted** (n), highest
+fit first with the match chip. `discoveryMode`, the note, the link and
+"← Back to your list" are gone. There is nothing to navigate into, so
+nothing to come back from.
+
+Decisions worth keeping:
+
+- **One label per card, with a decided precedence.** A live relationship
+  normally carries several flags at once (grant AND decision AND
+  conversation), so `evaluationCardState` ranks by strength of relationship
+  — grant → conversation → decision → referral → archived → logged — rather
+  than by whichever branch happens to be tested first. The investor is
+  choosing what to evaluate, not auditing the relationship, so a stack of
+  chips would be noise.
+- **A passed startup stays visible, selectable and labelled.** These tools
+  exist to reconsider; hiding the case you most want to re-examine would be
+  the opposite of useful. Same reasoning for archived.
+- **Every row is selectable, in both groups.** Evaluating *before* deciding
+  is the point — an untouched startup is precisely the one worth running the
+  tools on. The old mode allowed this too, but only after a detour.
+- **Search runs before the partition**, so a query filters across both groups
+  and each header's count matches what is on screen. Partitioning first would
+  give identical rows with counts that contradict the list.
+- **No CTA replaces the note.** Interest is expressed on Pipeline, one
+  sidebar click away; a button here would be a second route to the same act,
+  and the empty-group lines say what fills each group instead ("No
+  relationships yet — decisions and document requests land here." / "Every
+  startup in your pipeline has been touched.").
+- 419 §C's once-ever fit sweep survives with the same `pipeline_fit_sweep`
+  seen-key and animation, now firing on the first Not-yet-contacted row the
+  first time the panel renders with that group non-empty.
+
+**Correction to the brief.** It asked to strip mode-describing sentences from
+`tourContent.ts`'s `guide_evaluation` "or whichever key covers this panel".
+There is no such key and no tour for this panel: grepping `uncontacted`,
+`active list`, `discovery mode` and the note's own wording across `src/`
+returns nothing outside the two files rewritten here. Nothing to change.

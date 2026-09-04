@@ -34,7 +34,7 @@ import { ComparisonView } from './ComparisonView';
 import { ScorecardWeightsEditor } from './ScorecardWeightsEditor';
 import { useOnboarding } from '@/lib/onboarding/OnboardingProvider';
 import {
-  filterCardsByName, highestFitCandidate, uncontactedCandidates,
+  EVALUATION_STATE_LABEL, evaluationCardState, filterCardsByName, highestFitCandidate, partitionEvaluationCards,
   type EvaluationPipelineCard as PipelineCard,
 } from '@/lib/evaluation-startup-discovery';
 import { EVALUATION_TOOLS_INTRO_CONTENT, shouldShowEvaluationToolsIntro, type EvaluationToolsIntroEntry } from '@/lib/evaluation-tools-intro';
@@ -82,112 +82,153 @@ function fmtPct(n: number) {
 // (the prompt's own reasoning) in a way a native dropdown's closed state
 // can't. Sticky so it stays in view while the right column scrolls.
 //
-// Prompt 419 — three additions, all scoped to this component: §A a
-// client-side name search (cards are already loaded, no new request);
-// §B a "grow this list" CTA into a discovery MODE (not a new page) that
-// swaps this same list for the eligible-but-uncontacted set — reusing
-// `cards` (already wave-gating-respected, see /api/portal/pipeline's own
-// locked-wave stripping) rather than widening what's eligible; §C a
-// once-ever sweep on that mode's highest-fit card.
+// Prompt 419 §A — a client-side name search (cards are already loaded, no
+// new request).
+//
+// Prompt 562 REPLACES 419 §B's discovery mode. That mode swapped this
+// column for a filtered SUBSET of itself, behind a note promising an
+// "active list" the picker never had and a CTA for a rule ("express
+// interest or request a document → added to your active list") implemented
+// nowhere. It could not deliver more startups, because 419 itself chose to
+// reuse `cards` rather than widen eligibility — the two lists were always
+// the same list. Nuno's word for it was "purposeless", and he was right.
+//
+// Now: one list, two headed sections — Active (with the one state line the
+// data always knew) and Not yet contacted (highest fit first, with the
+// match chip). Nothing to navigate into, nothing to come back from. 419
+// §C's once-ever fit sweep survives, moved onto the first Not-yet-contacted
+// row, same seen-key and same animation.
 function EvaluationStartupPicker({ cards, selectedOrgId, onSelectOrg, showsUnusedNote }: {
   cards: PipelineCard[]; selectedOrgId: string; onSelectOrg: (orgId: string) => void; showsUnusedNote: boolean;
 }) {
   const selected = cards.find((c) => c.orgId === selectedOrgId) ?? null;
   const [search, setSearch] = useState('');
-  const [discoveryMode, setDiscoveryMode] = useState(false);
   const { seen, markSeen } = useOnboarding();
 
+  // Prompt 562 — search first, THEN partition, so a query filters across
+  // both groups and each header's count reflects what is actually on screen.
+  // Partitioning first and searching inside each would give the same rows in
+  // the same order but counts that contradict the list.
   const filteredCards = filterCardsByName(cards, search);
-  const uncontacted = uncontactedCandidates(cards);
+  const { active, untouched } = partitionEvaluationCards(filteredCards);
 
-  // Prompt 419 §C.3 — "once in the investor's lifetime", not per session/
-  // mount: captured into state the moment discovery mode opens (rather
-  // than recomputed every render from `seen`) so the sweep keeps playing
-  // for its full duration even after markSeen flips seen.pipeline_fit_sweep
-  // to true a moment later — recomputing live would yank the class off
-  // before the animation finishes. Deliberately depends only on
-  // discoveryMode (not seen/cards/markSeen) — this is meant to fire once
-  // per "open", not react to its own markSeen call re-running it.
+  // Prompt 419 §C.3, kept — "once in the investor's lifetime", not per
+  // session/mount. What changed is only WHEN it can fire: there is no
+  // discovery mode to open any more, so it runs the first time the panel
+  // renders with a non-empty untouched group. Same `pipeline_fit_sweep`
+  // seen-key and same animation class, so an investor who already saw it
+  // does not see it again.
+  //
+  // Still captured into state rather than recomputed each render: markSeen
+  // flips seen.pipeline_fit_sweep a moment later, and recomputing live would
+  // yank the class off before the animation finished.
   const [sweepTargetOrgId, setSweepTargetOrgId] = useState<string | null>(null);
+  const untouchedTopOrgId = highestFitCandidate(untouched)?.orgId ?? null;
   useEffect(() => {
-    if (!discoveryMode || seen.pipeline_fit_sweep) return;
-    const top = highestFitCandidate(uncontactedCandidates(cards));
-    if (!top) return;
-    setSweepTargetOrgId(top.orgId);
+    if (!untouchedTopOrgId || seen.pipeline_fit_sweep) return;
+    setSweepTargetOrgId(untouchedTopOrgId);
     markSeen('pipeline_fit_sweep');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [discoveryMode]);
+  }, [untouchedTopOrgId]);
+
+  function row(c: PipelineCard, opts: { state?: string | null; showScore?: boolean } = {}) {
+    const isSelected = selectedOrgId === c.orgId;
+    return (
+      <li key={c.orgId} className={c.orgId === sweepTargetOrgId ? 'pipeline-fit-sweep-card rounded-lg' : undefined}>
+        {/* Every row is selectable, in both groups: evaluating before
+            deciding is the entire point of these tools, so a startup you
+            have not contacted is exactly the one you most want to run them
+            on. */}
+        <button onClick={() => onSelectOrg(c.orgId)}
+          className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition ${
+            isSelected ? 'bg-[#0E7490] text-white' : 'text-gray-700 hover:bg-gray-50'}`}>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate">{c.name}</span>
+            {opts.state && (
+              <span className={`block truncate text-[11px] ${isSelected ? 'text-white/75' : 'text-gray-400'}`}>{opts.state}</span>
+            )}
+          </span>
+          {opts.showScore && (
+            <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+              isSelected ? 'bg-white/20 text-white' : 'bg-[#E8F4F8] text-[#0E7490]'}`}>{c.matchScore}%</span>
+          )}
+        </button>
+      </li>
+    );
+  }
+
+  const selectedState = selected ? evaluationCardState(selected) : null;
 
   return (
     <div className="space-y-3 md:sticky md:top-4 md:self-start">
       <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Startup</div>
 
-      {discoveryMode ? (
-        <>
-          <button onClick={() => setDiscoveryMode(false)} className="text-xs font-medium text-[#0E7490] hover:underline">
-            ← Back to your list
-          </button>
-          <p className="text-[11px] text-gray-500">Already eligible, not yet contacted — highest fit first.</p>
-          {uncontacted.length === 0 ? (
-            <p className="text-sm text-gray-400">Nothing uncontacted left — you&apos;re all caught up.</p>
-          ) : (
-            <ul className="max-h-[420px] space-y-1 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1.5">
-              {uncontacted.map((c) => (
-                <li key={c.orgId} className={c.orgId === sweepTargetOrgId ? 'pipeline-fit-sweep-card rounded-lg' : undefined}>
-                  <button onClick={() => onSelectOrg(c.orgId)}
-                    className={`w-full rounded-lg px-2.5 py-2 text-left text-sm transition ${
-                      selectedOrgId === c.orgId ? 'bg-[#0E7490] text-white' : 'text-gray-700 hover:bg-gray-50'}`}>
-                    {c.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </>
-      ) : (
-        <>
-          {cards.length > 0 && (
-            <div className="relative">
-              <svg aria-hidden viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"
-                className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400">
-                <circle cx="8.3" cy="8.3" r="5.3" />
-                <path d="m16.3 16.3-3.4-3.4" strokeLinecap="round" />
-              </svg>
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name…"
-                className="w-full rounded-lg border border-gray-300 py-1.5 pl-7 pr-2 text-sm" />
-            </div>
-          )}
-          {cards.length === 0 ? (
-            <p className="text-sm text-gray-400">Nothing in your Pipeline yet.</p>
-          ) : filteredCards.length === 0 ? (
-            <p className="text-sm text-gray-400">No startups match &quot;{search}&quot;.</p>
-          ) : (
-            <ul className="max-h-[420px] space-y-1 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1.5">
-              {filteredCards.map((c) => (
-                <li key={c.orgId}>
-                  <button onClick={() => onSelectOrg(c.orgId)}
-                    className={`w-full rounded-lg px-2.5 py-2 text-left text-sm transition ${
-                      selectedOrgId === c.orgId ? 'bg-[#0E7490] text-white' : 'text-gray-700 hover:bg-gray-50'}`}>
-                    {c.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {uncontacted.length > 0 && (
-            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3 text-xs text-gray-500">
-              <p>Want more startups here? Express first interest, or request access to a first document — that&apos;s what adds them to your active list.</p>
-              <button onClick={() => setDiscoveryMode(true)} className="mt-2 font-medium text-[#0E7490] hover:underline">
-                See uncontacted pipeline →
-              </button>
-            </div>
-          )}
-        </>
+      {cards.length > 0 && (
+        <div className="relative">
+          <svg aria-hidden viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"
+            className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400">
+            <circle cx="8.3" cy="8.3" r="5.3" />
+            <path d="m16.3 16.3-3.4-3.4" strokeLinecap="round" />
+          </svg>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name…"
+            autoComplete="off" aria-label="Search startups by name"
+            className="w-full rounded-lg border border-gray-300 py-1.5 pl-7 pr-2 text-sm" />
+        </div>
       )}
 
-      {selected && !discoveryMode && (
+      {cards.length === 0 ? (
+        <p className="text-sm text-gray-400">Nothing in your Pipeline yet.</p>
+      ) : filteredCards.length === 0 ? (
+        <p className="text-sm text-gray-400">No startups match &quot;{search}&quot;.</p>
+      ) : (
+        /* Prompt 562 — ONE list, two headed sections, one scroll. The
+           previous "discovery mode" swapped this column for a filtered
+           subset of itself, behind a note promising an "active list" that
+           did not exist and a CTA for a rule ("express interest → added to
+           your active list") implemented nowhere. Both states were always in
+           the data; showing them is the whole fix, and it leaves nothing to
+           navigate into or back out of. */
+        <div className="max-h-[420px] space-y-3 overflow-y-auto rounded-lg border border-gray-200 bg-white p-1.5">
+          <div>
+            <div className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+              Active {active.length > 0 && <span className="font-normal normal-case tracking-normal">({active.length})</span>}
+            </div>
+            {active.length === 0 ? (
+              <p className="px-1 pb-1 text-[11px] text-gray-400">No relationships yet — decisions and document requests land here.</p>
+            ) : (
+              <ul className="space-y-1">
+                {active.map((c) => {
+                  const state = evaluationCardState(c);
+                  return row(c, { state: state ? EVALUATION_STATE_LABEL[state] : null });
+                })}
+              </ul>
+            )}
+          </div>
+
+          <div>
+            <div className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+              Not yet contacted {untouched.length > 0 && <span className="font-normal normal-case tracking-normal">({untouched.length})</span>}
+            </div>
+            {untouched.length === 0 ? (
+              <p className="px-1 pb-1 text-[11px] text-gray-400">Every startup in your pipeline has been touched.</p>
+            ) : (
+              <ul className="space-y-1">
+                {untouched.map((c) => row(c, { showScore: true }))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
+      {selected && (
         <div className="space-y-1 rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-600">
           <div className="text-sm font-semibold text-gray-900">{selected.name}</div>
+          {/* Prompt 562 §4 — the same state line as the list row, so the
+              investor never wonders whether the tools apply to a startup
+              they have not contacted. They always do. */}
+          <div className="text-[11px] text-gray-400">
+            {selectedState ? EVALUATION_STATE_LABEL[selectedState] : 'Not yet contacted'}
+          </div>
           {selected.stage && <div>{selected.stage}</div>}
           {selected.sectors.length > 0 && <div className="text-gray-500">{selected.sectors.join(', ')}</div>}
           {selected.roundTargetEur != null && <div>Round target: <span className="font-medium text-gray-800">{fmtEur(selected.roundTargetEur)}</span></div>}
