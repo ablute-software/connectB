@@ -196,14 +196,26 @@ export async function GET() {
   //
   // Never fatal — if the RPC fails the queue keeps its previous order rather
   // than the page failing.
-  const stuckCatalogIds = new Set<string>();
+  //
+  // Prompt 560 §A — two tiers, not one. catalog_outreach_supply used to see
+  // only UNDELIVERED candidates, because it was built on catalog_top_matches,
+  // which excludes anything already delivered. So the row a founder is
+  // actually staring at today — delivered, in their pipeline, and unusable —
+  // could not appear here at all, and the queue prioritised rows nobody has
+  // been shown yet over finishing what was already promised. Delivered-and-
+  // stuck now ranks above undelivered-and-stuck, which still ranks above
+  // everything else.
+  const stuckDelivered = new Set<string>();
+  const stuckCandidates = new Set<string>();
   try {
     const { data: supply } = await admin.rpc('catalog_outreach_supply', { p_top: 20 });
     for (const r of (supply ?? []) as Record<string, unknown>[]) {
-      if (((r.readiness as number) ?? 0) < 40) stuckCatalogIds.add(r.catalog_id as string);
+      if (((r.readiness as number) ?? 0) >= 40) continue;
+      (r.delivered ? stuckDelivered : stuckCandidates).add(r.catalog_id as string);
     }
   } catch { /* ordering falls back to the pre-544 chain */ }
-  const stuckRank = (id: string) => (stuckCatalogIds.has(id) ? 1 : 0);
+  const stuckCatalogIds = new Set<string>([...stuckDelivered, ...stuckCandidates]);
+  const stuckRank = (id: string) => (stuckDelivered.has(id) ? 2 : stuckCandidates.has(id) ? 1 : 0);
 
   const fitRank = (f: SectorFitResult) => (f === 'fit' ? 1 : 0);
   const candidates = pending
