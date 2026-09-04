@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { COMPLETENESS_FIELDS } from './companyCompleteness';
 import {
   visiblePipelineSize, completeMonthsSince, isProfileGateComplete, missingProfileGateFields,
+  missingProfileGateFieldLinks,
   hasAnyDocumentNamed, hasDocumentForBonus, PLAN_PIPELINE_BASE, PLAN_PIPELINE_MONTHLY_ADDITION,
   DECK_BONUS_FOLDERS, DECK_BONUS_KEYWORDS, BUSINESS_PLAN_BONUS_FOLDERS, BUSINESS_PLAN_BONUS_KEYWORDS,
 } from './pipeline-unlock';
@@ -288,5 +290,24 @@ describe('Prompt 536 §4 — the deck bonus reads the folder, then the filename'
     // What the founder had actually earned: 5 + 5 deck + 3 folders = 13,
     // capped at the idea plan's monthly ceiling of 10.
     expect(visiblePipelineSize({ ...input, investorDeckUploaded: true })).toBe(10);
+  });
+});
+
+// Prompt 850 §B — each gate field carries an About-card anchor so
+// "Investors can't find you yet" can link to the actual input. An id that
+// does not exist in COMPLETENESS_FIELDS produces a link that flashes
+// nothing, silently — exactly the class of dead-end this whole line of
+// prompts has been closing.
+describe('missingProfileGateFieldLinks', () => {
+  it('gives every gate field a real completeness-bar anchor', () => {
+    const ids = new Set(COMPLETENESS_FIELDS.map((f) => f.id));
+    const links = missingProfileGateFieldLinks({});
+    expect(links).toHaveLength(9);
+    for (const l of links) expect(ids.has(l.fieldId)).toBe(true);
+  });
+
+  it('agrees exactly with missingProfileGateFields', () => {
+    const org = { website: 'https://x.pt', stage: 'seed', country: 'PT' };
+    expect(missingProfileGateFieldLinks(org).map((l) => l.label)).toEqual(missingProfileGateFields(org));
   });
 });

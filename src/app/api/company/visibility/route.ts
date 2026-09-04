@@ -17,6 +17,8 @@
 // startup side.
 import { NextResponse } from 'next/server';
 import { matchdealStartupState, orgMatchdealMissing } from '@/lib/matchdeal-publish';
+import { isProfileGateComplete, missingProfileGateFieldLinks, type ProfileGateOrg } from '@/lib/pipeline-unlock';
+import { investorVisibilityState } from '@/lib/investor-visibility-state';
 import type { Org } from '@/lib/types';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
@@ -79,6 +81,41 @@ export async function GET(req: Request) {
       platformSuspended: !!platformSuspendedAt,
       orgMissing,
     });
+
+    // Prompt 850 §B — the SECOND, now-primary question this route answers:
+    // can investors find this startup at all? After §A that is decided by
+    // the founder's own nine-field profile gate (pipeline-unlock.ts) plus
+    // the suspension pair — never by MatchDeal publication. `state` above
+    // still describes the MatchDeal card, which is a different thing with
+    // its own button; the two are deliberately reported side by side rather
+    // than collapsed, because they are genuinely two states now.
+    const gateOrg = (org ?? {}) as ProfileGateOrg;
+    const gateMissing = org ? missingProfileGateFieldLinks(gateOrg) : [];
+    const investorVisibility = investorVisibilityState({
+      gateComplete: !!org && isProfileGateComplete(gateOrg),
+      ownerSuspended: !!ownerSuspendedAt,
+      platformSuspended: !!platformSuspendedAt,
+    });
+    // "…the count of investor firms that currently have you in their
+    // pipeline if it is cheap to compute". It is: two indexed lookups on
+    // org_id, no join, no per-firm work. Only computed when the answer can
+    // be non-zero — a hidden or incomplete startup is in nobody's pipeline
+    // by definition, and asking would be two pointless queries per load.
+    // Both sources count because both put a card on an investor's board: a
+    // discovery admission (permanent, migration 0157) and a recorded
+    // decision. Real or absent, never estimated.
+    let pipelineFirmCount: number | null = null;
+    if (investorVisibility === 'visible') {
+      const [{ data: admissions }, { data: decisions }] = await Promise.all([
+        admin.from('investor_pipeline_admissions').select('investor_catalog_entity_id').eq('org_id', member.org_id),
+        admin.from('investor_relationship_decisions').select('investor_catalog_entity_id').eq('org_id', member.org_id),
+      ]);
+      pipelineFirmCount = new Set([
+        ...(admissions ?? []).map((r) => r.investor_catalog_entity_id as string),
+        ...(decisions ?? []).map((r) => r.investor_catalog_entity_id as string),
+      ]).size;
+    }
+
     return NextResponse.json({
       ok: true, isOwner: member.role === 'owner',
       suspended: !!ownerSuspendedAt, platformSuspended: !!platformSuspendedAt,
@@ -90,6 +127,10 @@ export async function GET(req: Request) {
       state,
       missingFields: orgMissing.map((m) => m.label),
       missingFieldLinks: orgMissing,
+      // Prompt 850 §B.
+      investorVisibility,
+      gateMissingFieldLinks: gateMissing,
+      pipelineFirmCount,
     });
   }
 

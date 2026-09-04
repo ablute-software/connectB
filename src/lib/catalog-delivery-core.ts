@@ -65,6 +65,15 @@ export async function deliverCatalogMatches(
     // Prompt 285 §3 — a suspended/deleted catalog entity (manual checkbox
     // or the cross-org threshold, moderation-actions.ts) must not reach a
     // new org's pipeline.
+    //
+    // Prompt 850 §A had proposed routing this through isVisibleToOthers, so a
+    // TIME-BOXED suspension would expire on its own here. Deliberately NOT
+    // taken when 850 landed (07/09): Nuno chose the strict form for the
+    // startup side (pipeline-eligibility.ts), and applying the lenient one
+    // here would recreate exactly the drift that decision rejected, only
+    // mirrored — a suspended STARTUP out until a developer undoes it, a
+    // suspended FIRM back on the clock. Both sides stay strict, and both
+    // change together if that is ever revisited.
     const moderationStatus = c.moderation_status as string | null | undefined;
     if (moderationStatus && moderationStatus !== 'active') continue;
     const id = crypto.randomUUID();

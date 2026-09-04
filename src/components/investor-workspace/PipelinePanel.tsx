@@ -11,6 +11,8 @@ import { ArchivePanel } from './ArchivePanel';
 import { WatchingPanel } from './WatchingPanel';
 import { FollowOnBadge } from '../FollowOnBadge';
 import type { FollowOnPayload } from '@/lib/network';
+import { waveCardBadge, waveGroupLabel, type PipelineWaveKind } from '@/lib/pipeline-waves';
+import { pipelineQuotaLine, type PipelineQuota } from '@/lib/pipeline-quota-line';
 
 // Prompt 189 — measured in the actual render (a scratch element built from
 // this file's own collapsed-card markup, at the panel's own max-w-2xl
@@ -85,8 +87,20 @@ function isUnavailable(c: AnyCard): c is UnavailableCard {
 // Item 14 — a locked wave's `items` now arrives empty from the server
 // (/api/portal/pipeline strips real card data for any wave with
 // unlocked=false); hiddenCount is the only signal of what's behind it.
-interface Wave { index: number; items: AnyCard[]; unlocked: boolean; hiddenCount?: number }
-interface PipelineResponse { linked: boolean; waves?: Wave[]; usualCoInvestors?: string | null }
+//
+// Prompt 850 §C — `index` is the DOM id and the "Review the wave above"
+// scroll target, nothing else. Every label comes from kind/discoveryIndex:
+// the relationship group is not a wave and is never numbered, and discovery
+// numbers from 1 regardless of whether a relationship group sits above it.
+interface Wave {
+  index: number;
+  kind?: PipelineWaveKind;
+  discoveryIndex?: number | null;
+  items: AnyCard[];
+  unlocked: boolean;
+  hiddenCount?: number;
+}
+interface PipelineResponse { linked: boolean; waves?: Wave[]; usualCoInvestors?: string | null; quota?: PipelineQuota | null }
 
 const REASON_MAX_LEN = 1000;
 const STAGE_LABELS: Record<string, string> = { pre_seed: 'Pre-seed', seed: 'Seed', series_a: 'Series A', series_b_plus: 'Series B+', growth: 'Growth' };
@@ -389,6 +403,7 @@ export function PipelinePanel({ onOpenStartup }: {
 
   if (!data) return <p className="text-sm text-gray-400">Loading…</p>;
   const waves = data.waves ?? [];
+  const quotaLine = pipelineQuotaLine(data.quota, new Date().toISOString());
   const firstUnlocked = waves.find((w) => w.unlocked);
 
   // Prompt 337 — an investor with zero active waves can still have real
@@ -485,6 +500,10 @@ export function PipelinePanel({ onOpenStartup }: {
         <h1 className="text-lg font-bold text-gray-900">Pipeline</h1>
         <a href="/api/portal/export?type=pipeline" className="text-xs text-gray-400 hover:underline">Export CSV</a>
       </div>
+      {/* Prompt 850 §D — what the monthly plan cap is actually doing, from
+          the server's own admission numbers. Absent (null) rather than a
+          placeholder when there is no linked investor firm to have a cap. */}
+      {quotaLine && <p className="-mt-2 text-xs text-gray-500">{quotaLine}</p>}
       <div data-tour-id="investor-pipeline-overview" className="rounded-lg border border-gray-200 bg-white p-3">
         <div className="grid items-center gap-x-2 gap-y-1.5 text-sm" style={{ gridTemplateColumns: '7rem 1fr 2.5rem' }}>
           {overviewStats.map((s) => {
@@ -566,9 +585,14 @@ export function PipelinePanel({ onOpenStartup }: {
       <div data-tour-id="investor-pipeline-list" className="space-y-4 overflow-y-auto" style={{ maxHeight: PIPELINE_CARD_LIST_MAX_HEIGHT_PX }}>
       {waves.map((wave) => (
         <div key={wave.index} id={`wave-${wave.index}`}>
-          {waves.length > 1 && (
+          {/* Prompt 850 §C — the relationship group always shows its own
+              header (it is the one that used to be mislabelled "WAVE 1"),
+              even when it is the only group; wave numbering only appears
+              once there is more than one discovery wave to distinguish. */}
+          {(waves.length > 1 || wave.kind === 'relationships') && (
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
-              Wave {wave.index + 1}{!wave.unlocked && ' — locked until the wave above is treated'}
+              {waveGroupLabel({ kind: wave.kind ?? 'discovery', discoveryIndex: wave.discoveryIndex ?? wave.index })}
+              {!wave.unlocked && ' — locked until the wave above is treated'}
             </p>
           )}
           {!wave.unlocked ? (
@@ -639,8 +663,8 @@ export function PipelinePanel({ onOpenStartup }: {
                           Invited
                         </span>
                       ) : (
-                        <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500" title={`Wave ${wave.index + 1}`}>
-                          W{wave.index + 1}
+                        <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500" title={waveGroupLabel({ kind: wave.kind ?? 'discovery', discoveryIndex: wave.discoveryIndex ?? wave.index })}>
+                          {waveCardBadge({ kind: wave.kind ?? 'discovery', discoveryIndex: wave.discoveryIndex ?? wave.index })}
                         </span>
                       )}
                       <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-semibold text-[#0E7490]" title={c.matchReasons.join(', ')}>
@@ -688,7 +712,7 @@ export function PipelinePanel({ onOpenStartup }: {
                       ) : c.viaGrant || c.viaDecision ? (
                         <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-medium text-[#0E7490]">Invited</span>
                       ) : (
-                        <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500">W{wave.index + 1}</span>
+                        <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-500">{waveCardBadge({ kind: wave.kind ?? 'discovery', discoveryIndex: wave.discoveryIndex ?? wave.index })}</span>
                       )}
                       <span className="rounded-full bg-[#E8F4F8] px-2 py-1 text-[11px] font-semibold text-[#0E7490]">{c.matchScore}% match</span>
                       {scorecardAvgs[c.orgId] != null && (

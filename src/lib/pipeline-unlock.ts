@@ -192,20 +192,30 @@ export function hasDocumentForBonus(
 // complete means" is exactly the bug this prompt exists to close, and a
 // second copy inside this very file would be the shortest possible route
 // back to it.
-const PROFILE_GATE_FIELDS: { label: string; present: (org: ProfileGateOrg) => boolean }[] = [
-  { label: 'website', present: (o) => !!o.website?.trim() },
-  { label: 'sector', present: (o) => (o.sectors?.length ?? 0) > 0 || !!o.sectors_other?.trim() },
-  { label: 'investment stage', present: (o) => !!o.stage },
-  { label: 'country', present: (o) => !!o.country?.trim() },
-  { label: 'round target', present: (o) => o.round_target_eur != null },
-  { label: 'current phase', present: (o) => !!o.current_phase },
-  { label: 'founding year', present: (o) => o.founded_year != null },
-  { label: 'revenue', present: (o) => o.revenue_eur != null },
-  { label: 'primary contact', present: (o) => !!o.primary_contact_person_id },
+// Prompt 850 §B — each field also carries the About-card anchor
+// (COMPLETENESS_FIELDS' own id, same vocabulary matchdeal-publish.ts uses)
+// so "Investors can't find you yet — {n} fields missing" can send the
+// founder to the actual input instead of naming a field and leaving them to
+// hunt for it. The gate itself is unchanged: same nine fields, same tests.
+const PROFILE_GATE_FIELDS: { label: string; fieldId: string; present: (org: ProfileGateOrg) => boolean }[] = [
+  { label: 'website', fieldId: 'identity.website', present: (o) => !!o.website?.trim() },
+  { label: 'sector', fieldId: 'identity.sectors', present: (o) => (o.sectors?.length ?? 0) > 0 || !!o.sectors_other?.trim() },
+  { label: 'investment stage', fieldId: 'round.stage', present: (o) => !!o.stage },
+  { label: 'country', fieldId: 'identity.country', present: (o) => !!o.country?.trim() },
+  { label: 'round target', fieldId: 'round.target', present: (o) => o.round_target_eur != null },
+  { label: 'current phase', fieldId: 'identity.current_phase', present: (o) => !!o.current_phase },
+  { label: 'founding year', fieldId: 'identity.founded_year', present: (o) => o.founded_year != null },
+  { label: 'revenue', fieldId: 'identity.revenue', present: (o) => o.revenue_eur != null },
+  { label: 'primary contact', fieldId: 'team.primary_contact', present: (o) => !!o.primary_contact_person_id },
 ];
 
 export function missingProfileGateFields(org: ProfileGateOrg): string[] {
   return PROFILE_GATE_FIELDS.filter((f) => !f.present(org)).map((f) => f.label);
+}
+
+/** Prompt 850 §B — the same list, with the anchor to jump to each field. */
+export function missingProfileGateFieldLinks(org: ProfileGateOrg): { label: string; fieldId: string }[] {
+  return PROFILE_GATE_FIELDS.filter((f) => !f.present(org)).map((f) => ({ label: f.label, fieldId: f.fieldId }));
 }
 
 export function isProfileGateComplete(org: ProfileGateOrg): boolean {

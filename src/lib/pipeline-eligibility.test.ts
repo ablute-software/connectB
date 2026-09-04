@@ -1,115 +1,172 @@
 import { describe, expect, it } from 'vitest';
 import { filterEligibleOrgs, type EligibilityOrg, type EligibilityStartupProfile } from './pipeline-eligibility';
 
-// Prompt 556 §B. These REPLACE the rule Prompt 184's tests pinned
-// (isProfileGateComplete alone) — see pipeline-eligibility.ts's header for
-// why the reversal is deliberate and why Caramel Biscuit's original symptom
-// is now the intended answer rather than the bug.
-const open: EligibilityOrg = { id: 'org-open', closed_at: null, is_test: false };
-const published: EligibilityStartupProfile = { membership_id: 'org-open', is_visible: true };
-
+// Prompt 850 §A. These REPLACE the rule Prompt 556 §B's tests pinned
+// (matchdeal_profiles.is_visible) — see pipeline-eligibility.ts's header for
+// why that reversal is itself reversed, and why the founder's opt-out now
+// lives in §B's always-available switch rather than in an act (Publish on
+// MatchDeal) most founders never perform.
+//
+// The nine gate fields are spelled out once here, as a real complete org,
+// rather than mocked: isProfileGateComplete is reused, not reimplemented, so
+// a test that faked it would pin nothing.
+const complete: EligibilityOrg = {
+  id: 'org-open',
+  closed_at: null,
+  is_test: false,
+  website: 'https://example.com',
+  sectors: ['healthtech'],
+  stage: 'seed',
+  country: 'PT',
+  round_target_eur: 1_300_000,
+  current_phase: 'raising',
+  founded_year: 2024,
+  revenue_eur: 0,
+  primary_contact_person_id: 'person-1',
+};
 function run(orgs: EligibilityOrg[], profiles: EligibilityStartupProfile[], viewerIsTest = false) {
   return filterEligibleOrgs(orgs, profiles, viewerIsTest);
 }
 
 describe('filterEligibleOrgs', () => {
-  it('includes a published, open, non-test org', () => {
-    expect(run([open], [published])).toEqual(['org-open']);
+  // The heart of Prompt 850: a complete account is a candidate whether or
+  // not it ever opened MatchDeal. Both shapes the production data actually
+  // has — an unpublished profile row (Sherlock Deal, Krohnsty 70a354f2) and
+  // no profile row at all.
+  it('includes a complete, open, non-test org with an unpublished profile row', () => {
+    expect(run([complete], [{ membership_id: 'org-open' }])).toEqual(['org-open']);
   });
 
-  // The exact case Nuno saw on his own About tab: "Investors can't find you
-  // yet" while investors could. A complete CRM profile gate is no longer any
-  // part of this decision — this function never even receives those fields.
-  it('excludes an org whose startup profile is not published', () => {
-    expect(run([open], [{ membership_id: 'org-open', is_visible: false }])).toEqual([]);
+  it('includes a complete org with no matchdeal_profiles row at all', () => {
+    expect(run([complete], [])).toEqual(['org-open']);
   });
 
-  it('excludes an org with no startup MatchDeal profile at all — absent is not an implicit yes', () => {
-    expect(run([open], [])).toEqual([]);
+  // The gate is the one thing that replaces is_visible, so every one of the
+  // nine fields must be able to keep an org out on its own.
+  it('excludes an org whose founder profile gate is incomplete', () => {
+    expect(run([{ ...complete, website: null }], [])).toEqual([]);
+    expect(run([{ ...complete, primary_contact_person_id: null }], [])).toEqual([]);
+    expect(run([{ ...complete, sectors: [], sectors_other: null }], [])).toEqual([]);
+    // "New company (please rename in Settings)" in production: an org row
+    // exists, nothing has been filled in, and it must never be discovered.
+    expect(run([{ id: 'org-empty' }], [])).toEqual([]);
   });
 
-  // Krohnsty 54f1bf67: published or not, a closed org never reaches discovery.
-  it('excludes a closed org even when its profile still says published', () => {
-    expect(run([{ ...open, closed_at: '2026-09-03T17:25:38Z' }], [published])).toEqual([]);
+  // Krohnsty 54f1bf67: complete or not, a closed org never reaches discovery.
+  // Prompt 556 §A, untouched by this prompt.
+  it('excludes a closed org even when the gate is complete', () => {
+    expect(run([{ ...complete, closed_at: '2026-09-03T17:25:38Z' }], [])).toEqual([]);
   });
 
   it('excludes a suspended org from either source', () => {
-    expect(run([{ ...open, owner_suspended_at: '2026-09-01T00:00:00Z' }], [published])).toEqual([]);
-    expect(run([{ ...open, platform_suspended_at: '2026-09-01T00:00:00Z' }], [published])).toEqual([]);
-    expect(run([open], [{ ...published, owner_suspended_at: '2026-09-01T00:00:00Z' }])).toEqual([]);
-    expect(run([open], [{ ...published, platform_suspended_at: '2026-09-01T00:00:00Z' }])).toEqual([]);
+    expect(run([{ ...complete, owner_suspended_at: '2026-09-01T00:00:00Z' }], [])).toEqual([]);
+    expect(run([{ ...complete, platform_suspended_at: '2026-09-01T00:00:00Z' }], [])).toEqual([]);
+    expect(run([complete], [{ membership_id: 'org-open', owner_suspended_at: '2026-09-01T00:00:00Z' }])).toEqual([]);
+    expect(run([complete], [{ membership_id: 'org-open', platform_suspended_at: '2026-09-01T00:00:00Z' }])).toEqual([]);
+  });
+
+  // The hole 850 §A was written to close, closed by Prompt 571's check —
+  // which landed on `main` from a parallel session while 850 was in flight.
+  // Estojo, live: back-office suspended on 02/09 10:27 UTC, still admitted to
+  // a new investor's pipeline on 04/09 09:03 because nothing in production
+  // read orgs.moderation_status.
+  describe('back-office moderation', () => {
+    it('excludes a suspended org', () => {
+      expect(run([{ ...complete, moderation_status: 'suspended' }], [])).toEqual([]);
+    });
+
+    it('never lets a deleted org back', () => {
+      expect(run([{ ...complete, moderation_status: 'deleted' }], [])).toEqual([]);
+    });
+
+    // Nuno's decision, 07/09: 571's strict `!== 'active'` is kept over 850's
+    // isVisibleToOthers, so a suspension lifts here ONLY on an explicit undo
+    // — never on a time-box expiring, even though isLoginBlocked would have
+    // let the same founder back in. This test is the record of that choice:
+    // if it ever flips, this is the assertion that has to change.
+    it('does NOT expire a time-boxed suspension on its own — only an undo lifts it', () => {
+      const lapsed = { ...complete, moderation_status: 'suspended' } as EligibilityOrg;
+      expect(run([lapsed], [])).toEqual([]);
+      expect(run([{ ...complete, moderation_status: 'active' }], [])).toEqual(['org-open']);
+    });
+
+    it('treats an absent moderation_status as active — a pre-0121 environment has no state to honour', () => {
+      expect(run([{ ...complete, moderation_status: undefined }], [])).toEqual(['org-open']);
+      expect(run([{ ...complete, moderation_status: null }], [])).toEqual(['org-open']);
+    });
   });
 
   // Prompt 07/08 visibilidade simétrica, folded in from excludeTestOrgIds.
   it('hides a test org from a real viewer and shows it to a test viewer', () => {
-    const testOrg: EligibilityOrg = { id: 'org-test', is_test: true };
-    const testProfile: EligibilityStartupProfile = { membership_id: 'org-test', is_visible: true };
-    expect(run([testOrg], [testProfile], false)).toEqual([]);
-    expect(run([testOrg], [testProfile], true)).toEqual(['org-test']);
+    const testOrg: EligibilityOrg = { ...complete, id: 'org-test', is_test: true };
+    expect(run([testOrg], [], false)).toEqual([]);
+    expect(run([testOrg], [], true)).toEqual(['org-test']);
   });
 
   // A pre-0305/pre-0139 environment sends neither column at all. Absent must
   // read as "not closed" and "not test", never as a crash or an exclusion.
   it('treats absent closed_at / is_test as not closed and not test', () => {
-    const bare: EligibilityOrg = { id: 'org-bare' };
-    expect(run([bare], [{ membership_id: 'org-bare', is_visible: true }])).toEqual(['org-bare']);
+    const bare: EligibilityOrg = { ...complete, id: 'org-bare', closed_at: undefined, is_test: undefined };
+    expect(run([bare], [])).toEqual(['org-bare']);
+  });
+
+  // is_visible is no longer read at all. This is the regression test for the
+  // whole prompt: the exact production shape (five complete orgs, one
+  // published) must now yield five, not one.
+  it('ignores is_visible entirely — an unpublished but complete account is a candidate', () => {
+    const orgs: EligibilityOrg[] = [
+      { ...complete, id: 'ablute' },
+      { ...complete, id: 'sherlock-deal' },
+      { ...complete, id: 'krohnsty-70a354f2' },
+      { ...complete, id: 'estojo', moderation_status: 'suspended' },
+      { ...complete, id: 'krohnsty-54f1bf67', closed_at: '2026-09-03T17:25:38Z' },
+      { id: 'new-company-please-rename' },
+    ];
+    expect(run(orgs, [{ membership_id: 'ablute' }])).toEqual(['ablute', 'sherlock-deal', 'krohnsty-70a354f2']);
   });
 
   it('keeps only the eligible ids out of a mixed set, in order', () => {
     const orgs: EligibilityOrg[] = [
-      { id: 'a' }, { id: 'b', closed_at: '2026-09-03T00:00:00Z' }, { id: 'c' }, { id: 'd', is_test: true },
+      { ...complete, id: 'a' },
+      { ...complete, id: 'b', closed_at: '2026-09-03T00:00:00Z' },
+      { ...complete, id: 'c', country: null },
+      { ...complete, id: 'd', is_test: true },
+      { ...complete, id: 'e' },
     ];
-    const profiles: EligibilityStartupProfile[] = [
-      { membership_id: 'a', is_visible: true }, { membership_id: 'b', is_visible: true },
-      { membership_id: 'c', is_visible: false }, { membership_id: 'd', is_visible: true },
-    ];
-    expect(run(orgs, profiles)).toEqual(['a']);
+    expect(run(orgs, [])).toEqual(['a', 'e']);
+  });
+  // Prompt 563 (merged from `main` while 850 was in flight) — the platform
+  // inside its own marketplace. Unlike is_test, this exclusion has no viewer
+  // that escapes it, and unlike the gate it is not something the founder can
+  // finish their way out of.
+  describe('discovery_excluded_reason (Prompt 563)', () => {
+    it('excludes an excluded org for a real viewer AND a test viewer', () => {
+      const platform: EligibilityOrg = { ...complete, id: 'org-platform', discovery_excluded_reason: 'is the platform itself' };
+      expect(run([platform], [], false)).toEqual([]);
+      expect(run([platform], [], true)).toEqual([]);
+    });
+
+    it('excludes it even when everything else about the account is healthy', () => {
+      const platform: EligibilityOrg = {
+        ...complete, id: 'org-platform', closed_at: null, is_test: false,
+        owner_suspended_at: null, platform_suspended_at: null,
+        moderation_status: 'active', discovery_excluded_reason: 'is the platform itself',
+      };
+      expect(run([platform], [{ membership_id: 'org-platform' }])).toEqual([]);
+    });
+
+    it('an empty string is not an exclusion — only a real reason excludes', () => {
+      expect(run([{ ...complete, id: 'org-a', discovery_excluded_reason: '' }], [])).toEqual(['org-a']);
+    });
+
+    it('absent discovery_excluded_reason leaves a complete org listable', () => {
+      expect(run([{ ...complete, id: 'org-a' }], [])).toEqual(['org-a']);
+    });
   });
 
-  // Prompt 563 — the platform inside its own marketplace.
-  it('excludes an org with a discovery_excluded_reason, even for a test viewer', () => {
-    const platform: EligibilityOrg = { id: 'org-platform', discovery_excluded_reason: 'is the platform itself' };
-    const profiles = [{ membership_id: 'org-platform', is_visible: true }];
-    // Both cohorts: unlike is_test, this exclusion has no viewer that escapes it.
-    expect(filterEligibleOrgs([platform], profiles, false)).toEqual([]);
-    expect(filterEligibleOrgs([platform], profiles, true)).toEqual([]);
-  });
-
-  it('excludes it even when the profile is published and everything else is healthy', () => {
-    const platform: EligibilityOrg = {
-      id: 'org-platform', closed_at: null, is_test: false,
-      owner_suspended_at: null, platform_suspended_at: null,
-      discovery_excluded_reason: 'is the platform itself',
-    };
-    expect(filterEligibleOrgs([platform], [{ membership_id: 'org-platform', is_visible: true }], false)).toEqual([]);
-  });
-
-  it('an empty string is not an exclusion — only a real reason excludes', () => {
-    const org: EligibilityOrg = { id: 'org-a', discovery_excluded_reason: '' };
-    expect(filterEligibleOrgs([org], [{ membership_id: 'org-a', is_visible: true }], false)).toEqual(['org-a']);
-  });
-
-  it('absent discovery_excluded_reason leaves a normal org listable', () => {
-    const org: EligibilityOrg = { id: 'org-a' };
-    expect(filterEligibleOrgs([org], [{ membership_id: 'org-a', is_visible: true }], false)).toEqual(['org-a']);
-  });
-
-  // Prompt 571 — moderation reaches the pipeline.
-  it('excludes a suspended org, and a deleted one', () => {
-    const profiles = [{ membership_id: 'org-a', is_visible: true }];
-    for (const status of ['suspended', 'deleted']) {
-      const org: EligibilityOrg = { id: 'org-a', moderation_status: status };
-      expect(filterEligibleOrgs([org], profiles, false)).toEqual([]);
-    }
-  });
-
+  // Prompt 571's own case, kept verbatim: undo needs no second step.
   it('undo needs no second step — back to active is back in the pipeline', () => {
-    const org: EligibilityOrg = { id: 'org-a', moderation_status: 'active' };
-    expect(filterEligibleOrgs([org], [{ membership_id: 'org-a', is_visible: true }], false)).toEqual(['org-a']);
-  });
-
-  it('absent moderation_status reads as active, like every other field here', () => {
-    const org: EligibilityOrg = { id: 'org-a' };
-    expect(filterEligibleOrgs([org], [{ membership_id: 'org-a', is_visible: true }], false)).toEqual(['org-a']);
+    expect(run([{ ...complete, id: 'org-a', moderation_status: 'suspended' }], [])).toEqual([]);
+    expect(run([{ ...complete, id: 'org-a', moderation_status: 'active' }], [])).toEqual(['org-a']);
   });
 });

@@ -73,7 +73,12 @@ export async function GET() {
   // keep the full result), so the strip happens here, not in the shared
   // lib function — a locked wave now leaves the server as a count only.
   if (result.linked) {
-    const waves = result.waves.map((w) => (w.unlocked ? w : { index: w.index, unlocked: w.unlocked, items: [], hiddenCount: w.items.length }));
+    // Prompt 850 §C — kind/discoveryIndex must survive the strip: they are
+    // what the panel labels a locked wave with ("Wave 2 — locked until the
+    // wave above is treated"). Only the card data goes.
+    const waves = result.waves.map((w) => (w.unlocked
+      ? w
+      : { index: w.index, kind: w.kind, discoveryIndex: w.discoveryIndex, unlocked: w.unlocked, items: [], hiddenCount: w.items.length }));
     return NextResponse.json({ ...result, waves });
   }
   return NextResponse.json(result);

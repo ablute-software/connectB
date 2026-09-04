@@ -5330,3 +5330,103 @@ header goes stale the moment production changes underneath it. The fix isn't
 a smarter matcher; it's a documented exception for every case the matcher
 structurally cannot see, each one earned by checking production rather than
 inferring from the file's own claims about itself.
+**What wrote the three "Pick the right partner…" tasks on 03/09 21:13 UTC.**
+Not the committed code path: `catalog-delivery-core.ts` called
+`firstStepTaskTitle(name, false)`, which can only produce "Submit to X through
+their form". The string "Pick the right partner at X and write your hook"
+exists in exactly one place in the repo (`first-message-target.ts:118`) and is
+reachable only with `hasPeople: true`. No migration and no committed script
+inserts those rows. The 544 branch's own commit (`560d9a2`) landed at 18:17
+UTC, three hours earlier. So they were written by an **ad-hoc, uncommitted
+backfill run against production by that session** — which is why two
+vocabularies now coexist in `tasks`. This prompt does not rewrite existing
+rows; reconciling those three titles is worth a follow-up, and is cheap now
+that the delivery path emits the same three sentences the clue does.
+
+## 04/09/2026 — Prompt 850: every startup account is a candidate for an investor's pipeline, and the wave labels stop lying
+
+Every startup account whose founder profile gate is complete, and that is not
+closed, moderation-suspended or self-hidden, is a candidate for investor
+pipelines; `is_visible` governs MatchDeal only; the founder's opt-out is the
+always-available visibility switch; the relationship group is not a wave and
+discovery waves number from 1. **Supersedes Prompt 556 §B.**
+
+**Why.** 556 §B made discovery require `matchdeal_profiles.is_visible` — the
+MatchDeal publish act. Measured in production this morning: of the six real
+startup orgs, five pass the founder profile gate and exactly one (ablute_) had
+ever published, so every real investor's discovery list was one card. The plan
+sells "up to 10 qualified opportunities a month" while the platform hid
+startups that exist, are complete, and are raising. 556 §A (a closed account
+never comes back) is untouched.
+
+**§A — eligibility is the account.** `filterEligibleOrgs` now asks
+`isProfileGateComplete(org)` (the nine fields the founder already filled to
+unlock their own Pipeline) instead of `is_visible`, and a missing
+`matchdeal_profiles` row no longer disqualifies. Closed, owner/platform
+suspended (both tables) and the `is_test` cohort rule are unchanged. Measured
+before/after for a real viewer: **1 org → 3** (ablute_, plus Sherlock Deal and
+Krohnsty `70a354f2`), with Estojo staying out while suspended.
+
+**§A's moderation half, and whose check won — decided by Nuno on 07/09.**
+The `is_visible` requirement could not simply be deleted, because
+`filterEligibleOrgs` did not read `orgs.moderation_status` at all: Estojo was
+suspended from the back-office on 02/09 at 10:27 UTC and was still admitted
+into a brand-new investor's discovery pipeline on 04/09 at 09:03. Two answers
+were written for that hole, independently and at the same time. 850 §A asked
+for `isVisibleToOthers(moderation_status, moderation_suspended_until)` —
+which also lets a TIME-BOXED suspension expire on its own, exactly as
+`isLoginBlocked` already does for the same account. Prompt 571, from a
+parallel session, landed a strict `moderation_status !== 'active'` on `main`
+first. **Nuno chose 571's strict form** when the two were landed together. The
+consequence, stated so nobody has to rediscover it: a suspension lifts in
+discovery only on an explicit developer undo, never on the clock — so the two
+halves of "suspended" disagree, and a founder whose 24h Suspicious-Accounts
+suspension has lapsed can log in again while staying out of every investor's
+pipeline. That is a deliberate, conservative asymmetry, not an oversight. It
+is a one-line change to revisit (`isVisibleToOthers` in
+`account-moderation.ts`, plus `moderation_suspended_until` back on
+`EligibilityOrg`), and the test named "does NOT expire a time-boxed
+suspension on its own" is the assertion that would have to flip. No org in
+production currently carries a `moderation_suspended_until`, so the choice is
+a no-op on today's data either way.
+
+Prompt 563's `discovery_excluded_reason` check (migration 0311, the platform's
+own account inside its own marketplace) is on `main` and untouched by this.
+
+**§B — the founder gets an opt-out that exists.** The visibility control was
+offered only once the state was neither `incomplete` nor `unpublished`, so a
+founder who had never published on MatchDeal — after §A, most of them — could
+not opt out at all while being discoverable. It is now always available to the
+owner, writing the same dual-written `owner_suspended_at`; no migration. The
+About badge and the Dashboard banner share one copy source
+(`investor-visibility-state.ts`) with three states — incomplete (with the
+**gate's** missing fields, not `orgMatchdealMissing`'s), visible (with the real
+count of investor firms holding the card), hidden by you. "Publish to
+MatchDeal" is now "Publish your card on MatchDeal" and is described as the
+extra surface it is.
+
+**§C — the relationship group is not a wave.** It was pushed as `waves[0]`, so
+one "Invited" card read "WAVE 1" and the first real discovery wave read "WAVE
+2" with a `W2` badge — a wave 1 of discovery that had never existed. The
+payload now carries `kind: 'relationships' | 'discovery'` with a separate
+`discoveryIndex`; the group renders "Already in touch with you" with no number
+and discovery numbers from 1, in the panel and in the CSV export, which
+carried the same lie. `index` stays as the DOM id and scroll target. Wave size
+stays 8.
+
+**§D — the monthly quota, stated honestly.** Confirmed and pinned with tests:
+admissions are permanent, so the pipeline accumulates (10 → 20 → 30 for Pro
+Scout against 30 candidates) and is never re-shuffled. One correction: only
+admissions whose org is **still eligible** count against the month's budget —
+an org admitted and then closed or suspended stops spending the investor's
+quota (live: the "Test investor" firm's 3 of 10 becomes 2, because Estojo is
+suspended). A line under the pipeline header states it in three states, and
+never says how many startups exist and are being withheld — the
+"is anything behind the cap" signal is a boolean for exactly that reason.
+
+**Not changed, deliberately:** the plan caps (10/22/46), the wave size (8),
+`computeMatchScore`, the cohort rule, `close_org`/`closed_at`. No migration —
+every column this needed (`moderation_status`, `moderation_suspended_until`,
+`owner_suspended_at`) already existed. No `matchdeal_profiles` row was created
+or backfilled to work around §A; the point is that the pipeline no longer needs
+them.

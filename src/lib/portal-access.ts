@@ -118,29 +118,36 @@ export async function resolveViewerIsTest(admin: SupabaseClient, catalogEntityId
 // Discovery must not be gated behind a grant the founder hasn't decided to
 // give yet — that inverted the funnel (the root cause the prompt names).
 //
-// Prompt 556 — this comment now says what the code does, which for two
-// prompts it did not: Prompt 120's header claimed "published MatchDeal
-// startup profiles only" while the code under it (Prompt 184) asked
-// isProfileGateComplete, the FOUNDER's own CRM unlock. Eligibility is once
-// again the founder's explicit act of publishing — a startup
-// matchdeal_profiles row with is_visible = true — plus three exclusions: a
-// closed org (orgs.closed_at, migration 0305), a suspended one (both
-// sources), and a test org for a non-test viewer. filterEligibleOrgs holds
-// every one of those rules, pure and unit-tested; the full reasoning for
-// the reversal, including why Caramel Biscuit's old symptom is now the
-// intended behaviour, is in pipeline-eligibility.ts's own header.
+// Prompt 850 §A — eligibility is THE ACCOUNT, not the MatchDeal profile:
+// the founder's own nine-field profile gate (isProfileGateComplete), minus
+// four exclusions — a closed org (orgs.closed_at, migration 0305), a
+// suspended one (owner/platform, both sources), a back-office
+// suspended/deleted one (orgs.moderation_status, via isVisibleToOthers),
+// and a test org for a non-test viewer. matchdeal_profiles.is_visible is no
+// longer part of this decision at all: it governs the MatchDeal app surface
+// (deck, swipes) and nothing else. filterEligibleOrgs holds every one of
+// those rules, pure and unit-tested; the full reasoning — including why
+// Prompt 556 §B's "publishing is the explicit act" argument is answered by
+// 850 §B's always-available visibility switch instead — is in
+// pipeline-eligibility.ts's own header.
+//
+// The matchdeal_profiles read stays, for one reason only: the suspension
+// pair the visibility route dual-writes there, so a founder who hid
+// themselves before migration 0168 backfilled orgs stays hidden. A missing
+// row is no longer a disqualification.
 //
 // No capability probe on the read side: `select('*')` simply omits
-// closed_at/is_test/owner_suspended_at on a pre-migration environment, and
-// filterEligibleOrgs treats every one of them as absent-means-no. It never
-// errors on a column that doesn't exist yet.
+// closed_at/is_test/owner_suspended_at/moderation_status on a pre-migration
+// environment, and filterEligibleOrgs degrades each of them explicitly
+// (absent closed_at = not closed, absent moderation_status = active). It
+// never errors on a column that doesn't exist yet.
 export async function eligiblePipelineOrgIds(admin: SupabaseClient, viewerIsTest: boolean) {
   const { data: orgs } = await admin.from('orgs').select('*');
   const orgRows = (orgs ?? []) as EligibilityOrg[];
   if (orgRows.length === 0) return [];
 
   const { data: mdProfiles } = await admin.from('matchdeal_profiles')
-    .select('membership_id, is_visible, owner_suspended_at, platform_suspended_at')
+    .select('membership_id, owner_suspended_at, platform_suspended_at')
     .eq('kind', 'startup').in('membership_id', orgRows.map((o) => o.id));
 
   return filterEligibleOrgs(orgRows, (mdProfiles ?? []) as EligibilityStartupProfile[], viewerIsTest);
