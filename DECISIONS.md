@@ -4931,3 +4931,35 @@ Decisions worth keeping:
 There is no such key and no tour for this panel: grepping `uncontacted`,
 `active list`, `discovery mode` and the note's own wording across `src/`
 returns nothing outside the two files rewritten here. Nothing to change.
+
+## Prompt 562b — measure with the instrument the code uses (04/09/2026)
+
+`extractLinkedinCandidates` now queries `a, area` rather than `a`. DN Capital
+publishes each partner's LinkedIn through an image map
+(`<area shape="rect" coords="…" href="…/in/raoul-oscar-fiano/">`) with zero
+`<a href>` LinkedIn links; `querySelectorAll('a')` never matches an `<area>`,
+so the candidate list was empty and every person came out with
+`linkedin_url` null. Confirmed on three of their pages: 0 in `<a>`, 1 in
+`<area>`, each.
+
+**This corrects Prompt 562's own diagnosis**, and the way it was wrong is the
+part worth keeping. 562 concluded the code "had the URL in hand and discarded
+it because the model did not echo it back", and shipped two changes on that
+basis: escalate to the individual page when `linkedin_url` is missing, and
+accept a sole DOM candidate without the model's echo. The second could never
+fire here — it receives an empty array. The first fired and bought nothing,
+spending web calls hunting for links the extractor cannot see.
+
+The false evidence was a `grep` for `linkedin.com/in/` over the raw HTML. That
+finds the string anywhere — inside an `<area>`, a `<script>`, a JSON blob —
+while the code only ever saw `<a>` elements. **A real href in the page and an
+empty candidate list looked identical under that measurement.** The rule this
+leaves behind: when checking whether extraction code can see something, query
+the DOM the way the code queries it; a text search over the source is a
+different question wearing the same clothes. The run's own output
+(`catalog_people.linkedin_url`) is the only honest before/after.
+
+What survives from 562 unchanged: the Bosch Ventures class is real — that site
+has no LinkedIn links in any element — so "the source genuinely lacks them"
+and "the extractor cannot see them" are two distinct causes, and only the
+second is a defect.

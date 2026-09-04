@@ -362,7 +362,32 @@ function extractLinkedinCandidates(html: string): string[] {
   if (!doc) return [];
   const out = new Set<string>();
   const pattern = /linkedin\.com\/in\/([a-zA-Z0-9\-_%]+)/i;
-  for (const a of [...doc.querySelectorAll('a')] as any[]) {
+  // Prompt 562b — `area` as well as `a`. An <area> is an image-map region and
+  // carries href exactly like an anchor; DOM-wise it is simply not an <a>, so
+  // querySelectorAll('a') never returned one.
+  //
+  // Found by re-running DN Capital after 562 and getting zero change on all
+  // 37 people. Their site publishes each partner's LinkedIn through an image
+  // map — `<area shape="rect" coords="5,4,44,48" href="…/in/raoul-oscar-fiano/">`
+  // — with zero <a href> LinkedIn links on the page. Confirmed on raoul,
+  // ianmarsh and johnhorton: 0 in <a>, 1 in <area>, each.
+  //
+  // This corrects 562's own diagnosis, which is worth stating because the
+  // mistake is easy to repeat: that prompt concluded the code "had the URL in
+  // hand and discarded it because the model did not echo it back". It did
+  // not. The candidate list was empty. The measurement that produced the
+  // wrong conclusion was a grep for `linkedin.com/in/` over the raw HTML,
+  // which finds the string anywhere — including inside an <area>, a script
+  // tag or a JSON blob — while this function only ever saw <a> elements.
+  // Measuring with a different instrument than the code uses is how a real
+  // href in the page and an empty candidate list looked like the same thing.
+  //
+  // Only this extractor is widened. There are three other
+  // querySelectorAll('a') calls in this file (team-page discovery, internal
+  // profile links, email candidates); an <area> is a plausible carrier for
+  // some of them too, but each has its own matching rules and deserves its
+  // own look rather than a blanket sweep.
+  for (const a of [...doc.querySelectorAll('a, area')] as any[]) {
     const href = a.getAttribute('href');
     if (!href) continue;
     const m = href.match(pattern);
