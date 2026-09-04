@@ -439,6 +439,28 @@ function pickMatchingLinkedinCandidate(modelValue: string | null, candidates: st
   return candidates.find((c) => normalizeLinkedinForLookup(c) === target) ?? null;
 }
 
+// Prompt 562 — o unico caso em que nao e preciso o modelo escolher: UMA
+// pagina individual, de UMA pessoa, com EXACTAMENTE um link de LinkedIn.
+// Nao ha ambiguidade sobre a quem pertence, e o valor continua a vir do DOM
+// da pagina, nunca do modelo — a disciplina D1 do incidente Faber esta
+// intacta (o que ela proibe e o modelo INVENTAR um valor a partir do nome,
+// nao o codigo ler um href real).
+//
+// Porque e que isto faltava: pickMatchingLinkedinCandidate devolve null
+// quando o modelo devolve null, e a chamada da pagina individual
+// (extract_person_bio) e focada na biografia — na pratica devolvia null no
+// linkedin_url mesmo com um unico candidato listado no prompt. O codigo
+// tinha o URL verdadeiro na mao, extraido por DOM, e deitava-o fora. Medido
+// na DN Capital: 10 paginas lidas (o tecto por entidade), 10 candidatos
+// reais, 0 gravados.
+//
+// Deliberadamente NAO se aplica a pagina de equipa: la ha dezenas de links e
+// atribuir um deles a uma pessoa exigiria adivinhar. So o caso de um-para-um
+// e seguro.
+function soleLinkedinCandidateOnPersonPage(candidates: string[]): string | null {
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 function pickMatchingUrlCandidate(modelValue: string | null, candidates: string[]): string | null {
   if (!modelValue) return null;
   const norm = (u: string) => u.replace(/\/+$/, '');
@@ -807,9 +829,20 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
     let bioRaw = sliceByAnchors(teamText, p.bio_start_anchor, p.bio_end_anchor);
     let bioSourceUrl = teamUrl;
 
-    // D1-b: escala so quando a bio da pagina de equipa fica curta, e so para
-    // ESSA pessoa, e so uma chamada, e so contra o texto DAQUELA pagina.
-    if ((!bioRaw || bioRaw.length < BIO_LENGTH_THRESHOLD) && individualProfileUrl && peopleProcessed < MAX_PROFILE_PAGES_PER_ENTITY) {
+    // D1-b: escala so para ESSA pessoa, so uma chamada, e so contra o texto
+    // DAQUELA pagina.
+    //
+    // Prompt 562 — a condicao era so a bio, e a pagina individual e tambem o
+    // unico sitio onde um linkedin_url em falta pode aparecer. Caso real (DN
+    // Capital, 04/09): 37 pessoas, 0 com linkedin na base de dados, e
+    // dncapital.com/<pessoa> tem 1 link de LinkedIn cada. Quem tinha bio
+    // longa na pagina de equipa nunca via a sua pagina individual lida, por
+    // isso o link ficava por apanhar — nao por a fonte nao o ter, mas por
+    // ninguem ir la. Falta de linkedin passa a ser motivo de escalada tal
+    // como bio curta; o tecto MAX_PROFILE_PAGES_PER_ENTITY continua a ser o
+    // travao de custo, inalterado.
+    const needsBio = !bioRaw || bioRaw.length < BIO_LENGTH_THRESHOLD;
+    if ((needsBio || !linkedinUrl) && individualProfileUrl && peopleProcessed < MAX_PROFILE_PAGES_PER_ENTITY) {
       if (await isAllowedByRobots(individualProfileUrl)) {
         const profilePage = await fetchPage(individualProfileUrl);
         if (profilePage.ok) {
@@ -839,7 +872,12 @@ async function processEntityJob(job: any, dryRun: boolean, telemetry: Telemetry,
               bioSourceUrl = individualProfileUrl;
             }
             if (!linkedinUrl) {
-              linkedinUrl = pickMatchingLinkedinCandidate(profileParsed?.linkedin_url ?? null, profileLinkedinCandidates);
+              // Prompt 562 — a escolha do modelo primeiro (continua a ser a
+              // via normal); o candidato unico da propria pagina como rede
+              // de seguranca quando o modelo devolve null, que era o caso em
+              // praticamente todas as paginas individuais.
+              linkedinUrl = pickMatchingLinkedinCandidate(profileParsed?.linkedin_url ?? null, profileLinkedinCandidates)
+                ?? soleLinkedinCandidateOnPersonPage(profileLinkedinCandidates);
             }
             // Prompt 284 §2 — the team page wins if it already had one; the
             // individual page only fills a gap, same "keep the better one"
