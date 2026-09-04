@@ -95,11 +95,25 @@ export async function GET() {
     orgIdsByCatalog.set(d.catalog_id, set);
   }
   const deliveredOrgIds = [...new Set((deliveries ?? []).map((d) => d.org_id as string))];
-  // Deliberately NOT filtered by orgs.is_test: ablute_'s own org row has
-  // is_test=true despite being the one org with real production deliveries
-  // (a known trap in this codebase — see catalog-sector-fit.ts's header and
-  // scripts/_pilot_run.mjs's own comment on the same org id). Filtering
-  // is_test here would silently drop the only org whose sectors matter today.
+  // Deliberately NOT filtered by orgs.is_test — but not for the reason this
+  // comment used to give.
+  //
+  // It claimed ablute_'s org row is is_test = true and that filtering would
+  // drop the only org whose sectors matter. Prompt 568: ablute_ is
+  // is_test = FALSE, deliberately and correctly. The team's own account is
+  // meant to behave as a real org so the full flow can be validated before
+  // launch, and every gate that reads is_test (monthly delivery, automation
+  // rules, catalog_outreach_supply, pipeline tracking) is supposed to be live
+  // for it. The old comment also cited catalog-sector-fit.ts and
+  // scripts/_pilot_run.mjs as corroboration; neither says it — the first does
+  // not contain the string is_test at all.
+  //
+  // The conclusion survives on its own merits: this is a back-office lookup of
+  // org sectors for rows that have ALREADY been delivered, not a business
+  // metric. Excluding a test org here would leave its delivered catalog rows
+  // with no sector to judge fit against, which is worse than including it.
+  // (Business metrics are a different matter — backoffice-metrics.ts's
+  // realOrgs() does filter is_test, since Prompt 569.)
   const { data: deliveredOrgs } = deliveredOrgIds.length
     ? await admin.from('orgs').select('id, sectors').in('id', deliveredOrgIds)
     : { data: [] as { id: string; sectors: string[] | null }[] };

@@ -5113,3 +5113,42 @@ assumed.
 but its file exists only on `bek6d7`, so `main` cannot replay it. Same class as
 0300 and `email_send_log_provider_events`. Not brought here because the prompt
 scoped this to code.
+
+## Prompt 568 — `ablute_.is_test = false` is the decision, and internal investors leave the deck (04/09/2026)
+
+**Closing the thread 563 opened.** `ablute_` is `is_test = false` deliberately.
+The team's own account is meant to behave as a real org so the entire flow can
+be validated before launch — which means every gate reading `is_test` (monthly
+delivery, automation rules, `catalog_outreach_supply`, pipeline tracking) is
+supposed to stay live for it. The 07/08 entry in this file that records marking
+it `true` describes a state that was later, correctly, reversed.
+
+Two code comments asserted the opposite and reasoned from it
+(`enrichment-campaign/status`, `domain-mismatch/status`). Checked: **neither was
+deciding wrongly.** Both conclude "do not filter by is_test", and that
+conclusion still holds — one is a sector lookup for already-delivered rows, the
+other a review queue where a test org's entity is still an entity someone typed
+a domain into. Only the reasons were rewritten. Worth noting how the false
+premise gained authority: the first comment cited two files as corroboration
+and neither says it — `catalog-sector-fit.ts` does not contain the string
+`is_test` at all.
+
+**Internal investor accounts (0314).** All seven investor profiles in
+production belong to the team, and two were `is_visible = true` — a new
+startup's deck could already show them. `matchdeal_investor_members.
+discovery_excluded_reason` now hides all six real ones. They keep full
+investor access: they swipe, match, and open Data Rooms exactly as before.
+
+Placed on the membership rather than on `matchdeal_profiles`, for 563's own
+reason: a profile is the thing that gets recreated, so a flag living there is
+forgotten the first time it is. **And the orphan decided the rest.** Profile
+`5b070ff4-…` points at a membership that does not exist; option (b) alone
+cannot mark a row that isn't there. So the function also excludes any investor
+profile whose membership fails to resolve — an investor with no owning member
+is nobody a startup can be introduced to. That covers the orphan by rule
+instead of by the accident of its `is_visible` being false, and covers any
+future row that loses its member.
+
+`matchdeal_eligible_deck` needed no change: 563 already calls
+`matchdeal_profile_discovery_excluded(p.membership_id, p.kind)` unconditionally
+in both branches. One function, both kinds, never duplicated.
