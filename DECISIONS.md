@@ -5043,3 +5043,35 @@ closed-org checks (raising if not), appends the new condition beside each, and
 `execute`s the result — the database rewrites itself from its own text. Proof
 afterwards: strip the two new lines from the live definition and the digest of
 everything else equals the pre-migration digest (`9ba3dee3…`) exactly.
+
+## Prompt 565 — the delivery copied nothing, and the ladder was telling the truth (04/09/2026)
+
+50 catalog-delivered rows across 4 orgs reached founders with
+`submission_channel`, `email` and `key_people` all empty, while
+`catalog_entities` held all three for the same firms the entire time. Cause:
+the delivery path never copied them. `catalogContactFields` entered
+`catalog-delivery-core.ts` only on 03/09 19:17 (Prompt 544 Part C, `560d9a2`),
+so every delivery before that came out blank. Backfilled by migration 0312;
+forward path pinned by three tests in `catalog-delivery-core.test.ts` that fail
+if the spread is removed.
+
+**A correction to the report's own reasoning, kept because the method matters
+more than the conclusion.** It inferred from the data that deliveries stopped
+coming out empty somewhere between 02/09 13:22 and 20:10, and asked which
+commit did it. No commit matches that window, and the inference was wrong: the
+three later batches that look complete (Sherlock Deal 02/09 20:10 and 03/09
+21:10, Krohnsty 03/09 11:34) all carry the same `entities.updated_at` of
+2026-09-03 21:11:24 — twenty-five hours after the earliest was delivered. They
+were retro-filled by a separate backfill, not born complete. **"These rows have
+data" and "these rows were delivered with data" are different claims, and only
+a timestamp separates them.**
+
+**The Next Clue does not light up from this alone, and saying otherwise would
+be the same mistake.** Two gates remain shut for Caramel Biscuit:
+`readyToContact` reads the `people` table, and all four orgs have zero rows
+there — `entities.key_people` is free text, not people; and 564's
+`next_approach` step, which would rank on the entity-level channels this
+backfill restored, exists only on the unmerged `sherlockdeal-git-access-bek6d7`
+branch. Production has 564's DB half (`sherlock_next_snoozes_kind_check`
+already accepts `next_approach`) without its code half. The migration landing
+before the code is what made the fix look complete from the database.

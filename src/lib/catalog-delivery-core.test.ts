@@ -201,3 +201,80 @@ describe('Prompt 536 §3 — the top-up delivers exactly the difference', () => 
     expect(writes).toHaveLength(before);
   });
 });
+
+// Prompt 565 — the delivered row carries the catalog's contacts.
+//
+// 50 rows across 4 orgs reached founders with submission_channel, email and
+// key_people all empty while catalog_entities held all three for the same
+// firms (Atomico's email and 12 investment-team people; Index Ventures' email
+// and 9 partners). The delivery simply never copied them: catalogContactFields
+// only entered this path on 03/09 (Prompt 544 Part C). A founder whose whole
+// pipeline has no channel on any row fails readyToContact and next_approach
+// alike, so Sherlock's Next Clue goes quiet — telling the truth about data
+// that should never have looked like that.
+//
+// catalog-delivery-mapping.test.ts already covers the mapping function. What
+// was missing, and what actually broke, is proof that THIS path calls it: the
+// mapper can be perfect and the caller can still drop it on the floor.
+describe('Prompt 565 — contact fields reach the delivered entity', () => {
+  const enriched = {
+    id: 'cat-1', name: 'Atomico', type: 'vc',
+    email: 'hello@atomico.com',
+    submission_channel: 'https://atomico.com/apply',
+    key_people: 'Niklas Zennstrom (Partner); Hiro Tamura (Partner)',
+    general_partner_emails: 'gp@atomico.com',
+    aum: '4B', current_funds: 'Atomico VI', latest_fund: 'Atomico VI',
+    last_investment_found: '2026-07-01',
+  };
+
+  it('copies every contact field from catalog_entities onto the new row', async () => {
+    const { admin, writes } = makeFakeAdmin({
+      matches: [{ catalog_id: 'cat-1', score: 90 }],
+      catalogRows: [enriched],
+    });
+    const res = await deliverCatalogMatches(admin, 'org-1', 5, null);
+    expect(res.delivered).toBe(1);
+
+    const insert = writes.find((w) => w.table === 'entities');
+    const row = (insert!.payload as Record<string, unknown>[])[0];
+
+    expect(row.email).toBe('hello@atomico.com');
+    expect(row.submission_channel).toBe('https://atomico.com/apply');
+    expect(row.key_people).toBe('Niklas Zennstrom (Partner); Hiro Tamura (Partner)');
+    // Derived, not copied — and previously hard-coded 'unknown', which is the
+    // 564 §A half of the same defect.
+    expect(row.submission_channel_type).toBe('form');
+    // The fund facts travel on the same call; dropping them is the same bug.
+    expect(row.general_partner_emails).toBe('gp@atomico.com');
+    expect(row.aum).toBe('4B');
+  });
+
+  it('a founder never receives a row with no channel at all when the catalog has one', async () => {
+    // The exact production symptom, stated as an invariant rather than as a
+    // list of fields: whatever the catalog knows about how to reach a firm,
+    // the delivered row knows too.
+    const { admin, writes } = makeFakeAdmin({
+      matches: [{ catalog_id: 'cat-1', score: 90 }],
+      catalogRows: [enriched],
+    });
+    await deliverCatalogMatches(admin, 'org-1', 5, null);
+    const row = (writes.find((w) => w.table === 'entities')!.payload as Record<string, unknown>[])[0];
+    const reachable = !!row.email || !!row.submission_channel || !!row.key_people;
+    expect(reachable).toBe(true);
+  });
+
+  it('leaves the fields null when the catalog row genuinely has none', async () => {
+    // Fail-closed the other way: no invented contacts, which is the other
+    // half of the instruction. An empty catalog row stays empty.
+    const { admin, writes } = makeFakeAdmin({
+      matches: [{ catalog_id: 'cat-2', score: 50 }],
+      catalogRows: [{ id: 'cat-2', name: 'Empty Ventures', type: 'vc' }],
+    });
+    await deliverCatalogMatches(admin, 'org-1', 5, null);
+    const row = (writes.find((w) => w.table === 'entities')!.payload as Record<string, unknown>[])[0];
+    expect(row.email).toBeNull();
+    expect(row.submission_channel).toBeNull();
+    expect(row.key_people).toBeNull();
+    expect(row.submission_channel_type).toBe('unknown');
+  });
+});
