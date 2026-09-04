@@ -8,7 +8,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient, authEnabled } from '@/lib/supabase-server';
-import { assertNotViewer, readViewerOrgId } from '@/lib/developer-viewer';
+import { assertNotViewer, readVerifiedViewerOrgId } from '@/lib/developer-viewer';
 import { usageSessionsAvailable } from '@/lib/usage-sessions-capability';
 import { resolveOwnMatchdealProfileId } from '@/lib/matchdeal-pairing';
 
@@ -41,7 +41,9 @@ export async function POST(req: NextRequest) {
   let orgId: string | null = null;
   let matchdealProfileId: string | null = null;
   if (context === 'crm' || context === 'backoffice') {
-    orgId = readViewerOrgId(req);
+    // Prompt 559 §A — verified, so a forged cookie cannot attribute this
+    // session to another org.
+    orgId = await readVerifiedViewerOrgId(sb, req);
     if (!orgId) {
       const { data: member } = await sb.from('org_members').select('org_id').eq('user_id', user.id).maybeSingle();
       orgId = (member?.org_id as string | undefined) ?? null;

@@ -4508,3 +4508,37 @@ investor submissions and manual catalog adds. Left alone deliberately —
 Prompt 555 says do not change `catalog_entities` — and it is why the
 `zz-test-` fixture for this prompt had to be built on an existing `is_test`
 catalog entity instead of a fresh one. **Worth its own prompt.**
+
+## Prompt 559 §A — an unsigned cookie is never an authorization credential (04/09/2026)
+
+`developer-viewer.ts` had documented the rule in its own header since Prompt
+123 — *"it is NEVER treated as an authorization credential by itself"* — and
+four routes broke it anyway, because the rule lived in a comment while the
+function that broke it (`readViewerOrgId`) was exported and looked safe to
+call. `sd_viewer_org_id` is `<orgId>:<iso>`, unsigned, writable by anyone.
+
+Two shapes, both fixed by routing every read through
+`readVerifiedViewerOrgId(sb, req)`, which re-checks `is_ablute_developer()`
+on the request's real session before returning anything:
+
+- **Check-skip** — `matchdeal-firm`: `if (viewerOrgId !== entity.org_id)`
+  wrapped the org-membership check, so a forged cookie carrying the entity's
+  own `org_id` skipped it and the route served the firm dossier via the
+  service role.
+- **Priority inversion** — `pipeline-unlock`, `events/page-view`,
+  `usage/heartbeat`: `let orgId = readViewerOrgId(req); if (!orgId) {
+  ...members... }` let the cookie outrank the membership lookup. In
+  `pipeline-unlock` that pointed `orgs.select('*')` — the whole row, founder-
+  private fields included — and the `profile_completed_at` write at any org
+  id the caller could name. `/portal/startup/[orgId]` puts real org ids in
+  investors' URLs, so naming one took no guessing.
+
+`assertNotViewer` did not stop the write: it returns `null` (proceed)
+precisely when the cookie's sender is *not* a developer, which is the
+attacker. It is a read-only guard for genuine viewer sessions, never an
+authorization check — that reading is now written next to it.
+
+**The generalisable part:** `readViewerOrgId` is no longer exported. A rule
+that only a comment enforces is a rule the next caller doesn't know about;
+the gate now travels with the read, and a test asserts the raw read stays
+unexported so a fifth caller can't reintroduce the class.
