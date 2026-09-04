@@ -16,8 +16,10 @@ import { shapeFollowOnPayload, type FollowOnPayload } from './network';
 import { projectIntroPitch } from './investor-interest-level';
 import { canWithdrawInterest, resolveWithdrawWindowSignals } from './investor-interest-withdrawal';
 import { interactionLogAvailable } from './investor-interaction-log-capability';
+import { buildPipelineWaves } from './pipeline-waves';
+import type { PipelineQuota } from './pipeline-quota-line';
+import { computeAdmissions } from './pipeline-admissions';
 
-const WAVE_SIZE = 8;
 const TRACKING_WINDOW_DAYS = 30;
 
 // Prompt 62.3 — map of stage -> set of distinct investor profile ids who
@@ -144,15 +146,11 @@ export async function pipelineEligibleOrgIds(admin: SupabaseClient, userId: stri
   return [...new Set([...published, ...granted, ...(decisions ?? []).map((d) => d.org_id as string), ...referredOrgIds])];
 }
 
-// Prompt 345 §A.3 — pure, unit-tested on its own: whether a still-`open`
-// card should nonetheless count as "treated" for wave-dosage purposes.
-// Archiving no longer writes a pass swipe (see /api/portal/archive), so a
-// card can be simultaneously isArchived AND status 'open' — without this,
-// that card would sit forever as untreated and block every wave behind it.
-// Tidying up IS treating it (Nuno's own call, documented in the prompt).
-export function isTreatedForWaveDosage(card: { status: string; isArchived?: boolean }): boolean {
-  return card.status !== 'open' || !!card.isArchived;
-}
+// Prompt 850 §C moved isTreatedForWaveDosage (and WAVE_SIZE) to
+// pipeline-waves.ts, where the rest of the wave mechanics now live.
+// Re-exported here because that is where every existing caller imports it
+// from — the function itself is unchanged.
+export { isTreatedForWaveDosage } from './pipeline-waves';
 
 export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient, userId: string, email: string) {
   const investorProfile = await resolveInvestorProfile(admin, userId);
@@ -195,7 +193,7 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   const referredOrgIdsViaReferralSet = new Set(referredOrgIdsViaReferral);
   const orgIds = [...new Set([...publishedOrgIds, ...grantedOrgIdList, ...decidedOrgIds, ...referredOrgIdsViaReferral])];
   const usualCoInvestors = (investorProfile as { usual_co_investors: string | null }).usual_co_investors;
-  if (orgIds.length === 0) return { linked: true as const, waves: [], usualCoInvestors };
+  if (orgIds.length === 0) return { linked: true as const, waves: [], usualCoInvestors, quota: null as PipelineQuota | null };
 
   // Item 8 — archiving used to leave a card looking completely unchanged on
   // the Pipeline (the entry itself landed fine in investor_archive_entries,
@@ -423,13 +421,11 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
   // function recomputes discoveryCards from scratch on every call, with no
   // other record of when a candidate first became visible.
   let admittedDiscoveryCards = discoveryCards;
+  let quota: PipelineQuota | null = null;
   if (investorCatalogEntityId) {
     const { data: admissionRows } = await admin.from('investor_pipeline_admissions')
       .select('org_id, admitted_at').eq('investor_catalog_entity_id', investorCatalogEntityId);
     const admittedAtByOrg = new Map((admissionRows ?? []).map((a) => [a.org_id as string, a.admitted_at as string]));
-
-    const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
-    const admittedThisMonthCount = [...admittedAtByOrg.values()].filter((t) => t >= monthStart).length;
 
     // Prompt 402 — resolver centralized in portal-access.ts (same mapping,
     // same 'tier_a' fallback) so this and the startup dossier's Hype badge
@@ -437,15 +433,24 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     const planTier = await resolveInvestorPlanTierForProfile(admin, investorProfile.id as string);
     const monthlyCap = investorPlanRow(planTier).monthlyCap;
 
-    let admissionBudget = Math.max(0, monthlyCap - admittedThisMonthCount);
-    const newlyAdmitted: { investor_catalog_entity_id: string; org_id: string }[] = [];
-    admittedDiscoveryCards = discoveryCards.filter((c) => {
-      if (admittedAtByOrg.has(c.orgId)) return true;
-      if (admissionBudget <= 0) return false;
-      admissionBudget -= 1;
-      newlyAdmitted.push({ investor_catalog_entity_id: investorCatalogEntityId, org_id: c.orgId });
-      return true;
+    // Prompt 850 §D — the cap arithmetic itself lives in
+    // pipeline-admissions.ts, pure and unit-tested (permanence, the month
+    // boundary, and §D's one correction: an admitted org that is no longer
+    // eligible stops consuming the budget). eligibleNowOrgIds is exactly
+    // eligiblePipelineOrgIds' answer for THIS request, so "still eligible"
+    // cannot drift from "would be admitted today".
+    const admission = computeAdmissions({
+      discoveryCards,
+      admittedAtByOrg,
+      eligibleNowOrgIds: new Set(publishedOrgIds),
+      monthlyCap,
+      nowIso: new Date().toISOString(),
     });
+    admittedDiscoveryCards = admission.admitted;
+    quota = admission.quota;
+    const newlyAdmitted = admission.newlyAdmittedOrgIds.map((org_id) => ({
+      investor_catalog_entity_id: investorCatalogEntityId, org_id,
+    }));
     // Prompt 336 — this used to skip persisting admission for
     // is_ablute_developer() sessions (measured in production: the
     // "ablute_ — Internal QA" firm had eaten 4/10 of its tier's monthly
@@ -463,15 +468,10 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     }
   }
 
-  const waves = [];
-  if (relationshipCards.length > 0) {
-    waves.push({ index: waves.length, items: relationshipCards, unlocked: true });
-  }
-  for (let i = 0; i < admittedDiscoveryCards.length; i += WAVE_SIZE) {
-    const items = admittedDiscoveryCards.slice(i, i + WAVE_SIZE);
-    const priorTreated = admittedDiscoveryCards.slice(0, i).every(isTreatedForWaveDosage);
-    waves.push({ index: waves.length, items, unlocked: i === 0 || priorTreated });
-  }
+  // Prompt 850 §C — the relationship group is no longer numbered as a wave;
+  // buildPipelineWaves tags each group with its kind and, for discovery,
+  // its own 0-based discoveryIndex so the panel's labels start at "Wave 1".
+  const waves = buildPipelineWaves(relationshipCards, admittedDiscoveryCards);
 
   // Prompt 556 §C — a closed org (orgs.closed_at, migration 0305) is
   // projected down to name + status here, at the LAST possible point, after
@@ -487,5 +487,5 @@ export async function getPipelineWaves(sb: SupabaseClient, admin: SupabaseClient
     items: w.items.map((c) => (closedIds.has(c.orgId as string) ? projectUnavailableCard(c) : c)),
   }));
 
-  return { linked: true as const, waves: projectedWaves, usualCoInvestors };
+  return { linked: true as const, waves: projectedWaves, usualCoInvestors, quota };
 }

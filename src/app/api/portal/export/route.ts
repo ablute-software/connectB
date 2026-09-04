@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
+import { waveGroupLabel } from '@/lib/pipeline-waves';
 import { getPipelineWaves } from '@/lib/investor-pipeline';
 import { isUnavailableCard } from '@/lib/closed-org-card';
 import { closedOrgGuard, STARTUP_UNAVAILABLE_MESSAGE } from '@/lib/org-closed';
@@ -56,15 +57,20 @@ export async function GET(req: Request) {
     // dropped from the CSV: the investor's history with it is theirs, and a
     // row silently vanishing from an export is worse than a row that says
     // what happened.
+    // Prompt 850 §C — the `wave` column carried the same lie the panel did:
+    // `w.index + 1` numbered the relationship group as WAVE 1 and pushed
+    // real discovery to WAVE 2. It now names the group the same way the
+    // screen does — "Already in touch with you" for the relationship group,
+    // "Wave 1", "Wave 2"… for discovery, numbered from the discovery index.
     const rows = (result.linked && result.waves ? result.waves : []).flatMap((w) => w.items.map((c) => (
       isUnavailableCard(c)
         ? {
             name: c.name, stage: '', sectors: '', match_score: '',
-            wave: w.index + 1, status: STARTUP_UNAVAILABLE_MESSAGE, round_target_eur: '',
+            wave: waveGroupLabel(w), status: STARTUP_UNAVAILABLE_MESSAGE, round_target_eur: '',
           }
         : {
             name: c.name, stage: c.stage ? (STAGE_LABELS[c.stage] ?? c.stage) : '', sectors: c.sectors.join('; '),
-            match_score: c.matchScore, wave: w.index + 1, status: c.status, round_target_eur: c.roundTargetEur ?? '',
+            match_score: c.matchScore, wave: waveGroupLabel(w), status: c.status, round_target_eur: c.roundTargetEur ?? '',
           }
     )));
     csv = toCsv(rows, ['name', 'stage', 'sectors', 'match_score', 'wave', 'status', 'round_target_eur']);

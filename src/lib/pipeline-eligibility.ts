@@ -1,46 +1,69 @@
-// Prompt 556 §B — the pure core of "which startups may an investor discover".
+// Prompt 850 §A — the pure core of "which startups may an investor discover".
 //
-// This REVERSES Prompt 184, deliberately and with Nuno's own reason. 184
-// dropped matchdeal_profiles.is_visible from this decision and put the
-// FOUNDER's CRM profile gate (isProfileGateComplete — the nine fields that
-// unlock the founder's own Pipeline) in its place, because Caramel Biscuit
-// was permanently invisible to investors purely for never having opened the
-// MatchDeal app. That fixed one symptom and created a worse one: the gate is
-// a founder-side unlock, not a publication act, so a startup appeared in
-// every investor's Pipeline the moment it filled in its own CRM — with no
-// one ever choosing to be seen. Two things that made it undeniable, both
-// live on 03/09/2026:
+// SUPERSEDES Prompt 556 §B. 556 made discovery require
+// matchdeal_profiles.is_visible (the MatchDeal publish act). Measured in
+// production on 04/09/2026, that collapsed every real investor's discovery
+// list to a single card: of the six real startup orgs, five pass the
+// founder profile gate and exactly one (ablute_) had ever clicked Publish.
+// The plan sells "up to 10 qualified opportunities a month" and the
+// platform was hiding four startups that exist, are complete, and are
+// looking for money. Nuno's decision (04/09), verbatim: "Se a nossa base de
+// dados de startups só tem X startups, todas essas X deveriam ser
+// consideradas quando se calcula a pipeline da conta do investidor, sendo
+// apresentadas as com maior match."
 //
-//   * Krohnsty 54f1bf67 — the account was DELETED. Deleting the auth user
-//     cascaded org_members and nothing else, so the org kept all nine gate
-//     fields and kept being served to investors as a discovery card, with
-//     all its data, after it stopped existing.
-//   * Krohnsty 70a354f2, Sherlock Deal, Estojo, Caramel Biscuit — all with
-//     is_visible = false, all being shown "Investors can't find you yet"
-//     (Prompt 543) on their own About tab while investors could, in fact,
-//     find them. The product was telling the founder the opposite of what
-//     it was doing.
+// So the unit of eligibility is THE ACCOUNT, not the MatchDeal profile:
 //
-// So eligibility goes back to what Prompt 120's own header comment always
-// claimed it was and what Prompt 125 decided it should be — visibility to
-// investors is an explicit founder act. is_visible is that act: the
-// trg_matchdeal_profile_completeness trigger derives it as `is_complete and
-// owner_suspended_at is null and platform_suspended_at is null`, so it is
-// true exactly when a founder has filled in their MatchDeal profile and has
-// not hidden themselves. The CRM profile gate stays where it belongs — the
-// founder's own pipeline unlock (pipeline-unlock.ts), which this file no
-// longer reads at all.
+//   * isProfileGateComplete(org) — the nine fields (pipeline-unlock.ts) the
+//     founder already filled to unlock their own Pipeline. A startup that
+//     has done that work is a real, complete, fundraising account.
+//   * NOT closed (orgs.closed_at, migration 0305) — 556 §A stays exactly as
+//     it was: a deleted/closed account never appears again.
+//   * NOT suspended by its owner or the platform, on BOTH orgs and the
+//     matchdeal_profiles copy — this is the founder's real opt-out, and
+//     Prompt 850 §B is what finally makes that switch reachable to a
+//     founder who never published on MatchDeal.
+//   * isVisibleToOthers(moderation_status, moderation_suspended_until) —
+//     the back-office suspend/delete state. See the block below.
+//   * the is_test cohort rule, unchanged.
 //
-// Caramel Biscuit's original symptom is therefore back BY DESIGN: an org
-// that never opens MatchDeal is not discoverable. That is now the intended
-// answer, not a bug to re-fix — its About tab says exactly that, and
-// clicking Publish is what changes it.
+// What 556's own header argued — "visibility must be an explicit act" — is
+// answered by §B, not by is_visible: the founder gets an always-available
+// "Visible to investors" switch instead of an accidental one buried behind
+// a MatchDeal publication they may never make. is_visible from here on
+// governs the MatchDeal app surface (deck, swipes) and NOTHING else; this
+// file no longer reads it.
+//
+// A missing matchdeal_profiles row no longer disqualifies either. The
+// pipeline card is built from `orgs` (name, one_liner, sectors, stage,
+// country, round_target_eur, …); the only profile-sourced field is the
+// expanded `description` (investor-pipeline.ts), which already falls back
+// to one_liner. An absent row is still fail-closed for the fields it
+// carries — it simply no longer decides eligibility.
+//
+// THE HOLE THIS PROMPT CLOSES, and it is the reason the is_visible
+// requirement could not simply be deleted: filterEligibleOrgs never read
+// orgs.moderation_status, and isVisibleToOthers (account-moderation.ts,
+// written for exactly this) was called by NOTHING in production. Live
+// proof: Estojo was suspended from the back-office on 02/09 10:27 UTC
+// (quarantine to 02/10, moderation_status = 'suspended', its founder cannot
+// even log in) and was still admitted into a brand-new investor's discovery
+// pipeline on 04/09 at 09:03. Dropping is_visible without adding this would
+// have handed suspended accounts back to investors — the same class of bug
+// 556 §A was written to close. 'active' passes; 'suspended' passes only
+// once its optional time-box has expired (a 24h suspension from the
+// Suspicious Accounts queue restores itself, exactly as isLoginBlocked
+// already does); 'deleted' never passes. That pure predicate is reused
+// as-is — a second copy of "what suspended means" is how these two states
+// drift apart.
 //
 // Pure on purpose: no Supabase client, no capability probe, no `import
 // 'server-only'` — the caller does the two reads, this decides. Every rule
 // below is unit-tested in pipeline-eligibility.test.ts.
+import { isProfileGateComplete, type ProfileGateOrg } from './pipeline-unlock';
+import { isVisibleToOthers, type ModerationStatus } from './account-moderation';
 
-export type EligibilityOrg = {
+export type EligibilityOrg = ProfileGateOrg & {
   id: string;
   // Prompt 556 §A. Absent (not just null) on an environment where migration
   // 0305 hasn't been applied — `undefined` reads as "not closed", which is
@@ -51,11 +74,15 @@ export type EligibilityOrg = {
   // Migration 0168, dual-written by /api/company/visibility.
   owner_suspended_at?: string | null;
   platform_suspended_at?: string | null;
+  // Migration 0121 (status) + 0180 (the time-boxed clock). Same
+  // absent-means-active degrade as every other optional column here: an
+  // environment without them has no moderation state to honour.
+  moderation_status?: ModerationStatus | null;
+  moderation_suspended_until?: string | null;
 };
 
 export type EligibilityStartupProfile = {
   membership_id: string;
-  is_visible?: boolean | null;
   owner_suspended_at?: string | null;
   platform_suspended_at?: string | null;
 };
@@ -64,6 +91,7 @@ export function filterEligibleOrgs(
   orgs: EligibilityOrg[],
   startupProfiles: EligibilityStartupProfile[],
   viewerIsTest: boolean,
+  nowIso: string = new Date().toISOString(),
 ): string[] {
   const profileByOrg = new Map(startupProfiles.map((p) => [p.membership_id, p]));
   return orgs
@@ -72,20 +100,22 @@ export function filterEligibleOrgs(
       // Suspension is checked from BOTH sources, unchanged from Prompt 184
       // §2: orgs (the source this function reads going forward) AND the
       // matchdeal_profiles copy the toggle route still dual-writes, so
-      // nothing suspended before 0168 landed can silently reappear.
+      // nothing suspended before 0168 landed can silently reappear. §B's
+      // always-available switch writes the same pair.
       if (org.owner_suspended_at || org.platform_suspended_at) return false;
+      const profile = profileByOrg.get(org.id);
+      if (profile && (profile.owner_suspended_at || profile.platform_suspended_at)) return false;
+      // Prompt 850 §A — the back-office state, previously unread here.
+      if (!isVisibleToOthers(org.moderation_status ?? 'active', org.moderation_suspended_until ?? null, nowIso)) return false;
       // Prompt 07/08 visibilidade simétrica — is_test is a COHORT, not
       // censorship: a test viewer sees test + real, a real viewer sees real
       // only. Folded in here from the old excludeTestOrgIds() round-trip:
       // the caller already selects the whole org row, so this needed neither
       // a second query nor its own capability probe.
       if (!viewerIsTest && org.is_test === true) return false;
-      const profile = profileByOrg.get(org.id);
-      // No startup MatchDeal profile at all = never published. Fail closed:
-      // an absent row is not an implicit yes.
-      if (!profile) return false;
-      if (profile.owner_suspended_at || profile.platform_suspended_at) return false;
-      return profile.is_visible === true;
+      // The founder's own nine-field gate — the same one that unlocks their
+      // Pipeline — reused, never reimplemented.
+      return isProfileGateComplete(org);
     })
     .map((org) => org.id);
 }

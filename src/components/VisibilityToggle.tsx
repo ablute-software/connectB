@@ -4,9 +4,20 @@
 // "About" pages. Non-owners see the current state, disabled — never
 // hidden, so a teammate who suddenly sees nothing in MatchDeal/pipelines
 // has an actual explanation on screen instead of what reads as a bug.
+//
+// Prompt 850 §B — for kind='startup' the control is now ALWAYS available to
+// the owner, whatever the MatchDeal state. Before this it was offered only
+// when the state was neither 'incomplete' nor 'unpublished', so a founder
+// who had never published on MatchDeal — which after §A is most of them —
+// could not opt out of investor pipelines at all, while being discoverable
+// in them. It writes the same owner_suspended_at pair /api/company/
+// visibility already dual-writes; no migration. Publishing on MatchDeal
+// keeps its own button and its own sentence, and stops being the thing
+// that decides discovery.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { MatchdealMissingField, MatchdealStartupState } from '@/lib/matchdeal-publish';
+import { investorVisibilityCopy, type InvestorVisibilityState } from '@/lib/investor-visibility-state';
 
 const AWAY_REMINDER_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -23,6 +34,12 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
     // field, so "Incomplete" can send the founder to the actual input.
     isComplete?: boolean; hasProfile?: boolean; missingFields?: string[];
     state?: MatchdealStartupState; missingFieldLinks?: MatchdealMissingField[];
+    // Prompt 850 §B — the investor-visibility answer, independent of
+    // MatchDeal. gateMissingFieldLinks is the NINE-field profile gate's own
+    // missing list (pipeline-unlock.ts), not orgMatchdealMissing's seven.
+    investorVisibility?: InvestorVisibilityState;
+    gateMissingFieldLinks?: MatchdealMissingField[];
+    pipelineFirmCount?: number | null;
   } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -95,9 +112,19 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
   // into one screen that said neither, and whose missing list was always
   // empty because it was read off a profile row that did not exist.
   const state: MatchdealStartupState | null = kind === 'startup' ? (status.state ?? null) : null;
-  const missingLinks = status.missingFieldLinks ?? [];
   const badgeLabel = state === 'incomplete' ? 'Incomplete' : state === 'unpublished' ? 'Not published yet' : 'Visible';
   const amber = state === 'incomplete' || state === 'unpublished';
+
+  // Prompt 850 §B — for a startup, the badge and sentence describe INVESTOR
+  // visibility (the gate + the founder's own switch), not MatchDeal
+  // publication. The investor side keeps the old two-way badge: it has no
+  // profile gate and no discovery pipeline of its own to be found in.
+  const gateMissing = status.gateMissingFieldLinks ?? [];
+  const investorCopy = kind === 'startup' && status.investorVisibility
+    ? investorVisibilityCopy(status.investorVisibility, {
+        missingCount: gateMissing.length, pipelineFirmCount: status.pipelineFirmCount ?? null,
+      })
+    : null;
 
   return (
     <div id="visibility-toggle" className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
@@ -108,39 +135,79 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
         </>
       ) : confirming ? (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-gray-700">Suspending removes you from MatchDeal and discovery pipelines. Existing relationships and access stay untouched.</span>
-          <button disabled={busy} onClick={() => setSuspended(true)} className="rounded-lg bg-[#B00000] px-3 py-1 text-xs font-medium text-white disabled:opacity-40">Confirm suspend</button>
+          <span className="text-xs text-gray-700">
+            {kind === 'startup'
+              ? 'Hiding removes you from every investor discovery pipeline, and from MatchDeal. Existing relationships and access stay untouched.'
+              : 'Suspending removes you from MatchDeal and discovery pipelines. Existing relationships and access stay untouched.'}
+          </span>
+          <button disabled={busy} onClick={() => setSuspended(true)} className="rounded-lg bg-[#B00000] px-3 py-1 text-xs font-medium text-white disabled:opacity-40">
+            {kind === 'startup' ? 'Confirm hide' : 'Confirm suspend'}
+          </button>
           <button disabled={busy} onClick={() => setConfirming(false)} className="rounded-lg border border-gray-300 px-3 py-1 text-xs">Cancel</button>
         </div>
       ) : (
         <>
           <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-            status.suspended || amber ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}>
-            {status.suspended ? 'Suspended' : badgeLabel}
+            investorCopy
+              ? (investorCopy.tone === 'ok' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800')
+              : (status.suspended || amber ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800')}`}>
+            {investorCopy ? investorCopy.badge : (status.suspended ? 'Suspended' : badgeLabel)}
           </span>
-          {/* Prompt 543 §A.3 — the button the founder never had. Only in
-              the 'unpublished' state: with fields still missing there is
-              nothing to publish, and once published Suspend is the right
-              control. */}
-          {state === 'unpublished' && status.isOwner ? (
-            <button disabled={busy} onClick={() => void publish()}
-              className="rounded-lg bg-[#0E7490] px-3 py-1 text-xs font-medium text-white disabled:opacity-40">
-              Publish to MatchDeal
-            </button>
-          ) : status.isOwner && state !== 'incomplete' ? (
+          {/* Prompt 850 §B — the switch is ALWAYS here for the owner of a
+              startup, whatever the MatchDeal state, because after §A this
+              is the only thing that takes them out of investor pipelines.
+              An incomplete profile keeps it too: nothing stops a founder
+              from deciding up front that they do not want to be found. */}
+          {status.isOwner && (kind === 'startup' || state !== 'incomplete') ? (
             <button disabled={busy}
               onClick={() => status.suspended ? void setSuspended(false) : setConfirming(true)}
               className="rounded-lg border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
-              {status.suspended ? 'Make visible again' : 'Suspend'}
+              {kind === 'startup'
+                ? (status.suspended ? 'Make me visible to investors' : 'Hide me from investors')
+                : (status.suspended ? 'Make visible again' : 'Suspend')}
             </button>
-          ) : (
+          ) : !status.isOwner ? (
             <span className="text-xs text-gray-400">Only the owner can change this.</span>
+          ) : null}
+          {/* Prompt 543 §A.2 — publishing the MatchDeal card is now its own
+              act with its own name (Prompt 850 §B), separate from and no
+              longer deciding investor discovery. Still only offered in the
+              'unpublished' state: with MatchDeal fields missing there is
+              nothing to publish. */}
+          {state === 'unpublished' && status.isOwner && (
+            <button disabled={busy} onClick={() => void publish()}
+              className="rounded-lg bg-[#0E7490] px-3 py-1 text-xs font-medium text-white disabled:opacity-40">
+              Publish your card on MatchDeal
+            </button>
           )}
         </>
       )}
       {err && <span className="text-xs text-[#B00000]">{err}</span>}
 
-      {status.suspended && !status.platformSuspended && (
+      {/* Prompt 850 §B — one sentence, from the shared copy, for whichever
+          of the three states this startup is in. It replaces the two
+          MatchDeal-shaped blocks below for kind='startup'; the investor
+          side keeps its own suspended note. */}
+      {investorCopy && !status.platformSuspended && (
+        <div className={`mt-1 w-full rounded-lg px-3 py-2 text-xs ${
+          investorCopy.tone === 'ok' ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-800'}`}>
+          {investorCopy.detail}
+          {status.investorVisibility === 'incomplete' && gateMissing.length > 0 && (
+            <>
+              {' '}Still needed:{' '}
+              {gateMissing.map((m, i) => (
+                <span key={m.fieldId}>
+                  {i > 0 && ', '}
+                  <Link href={`/settings?flash=${m.fieldId}`} className="font-medium underline hover:no-underline">{m.label}</Link>
+                </span>
+              ))}
+              .
+            </>
+          )}
+        </div>
+      )}
+
+      {!investorCopy && status.suspended && !status.platformSuspended && (
         <div className="mt-1 w-full rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Suspended — invisible in MatchDeal and discovery pipelines. Existing relationships and access are unaffected.
         </div>
@@ -148,22 +215,12 @@ export function VisibilityToggle({ kind }: { kind: 'startup' | 'investor' }) {
 
       {/* Prompt 543 §A.3 — the "…" is gone, and so is the link to /pair:
           the MatchDeal app cannot complete anything, and pointing there was
-          half of the loop founders were stuck in. */}
-      {state === 'unpublished' && (
-        <div className="mt-1 w-full rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Investors will see your company card in MatchDeal from now on. You can suspend at any time.
-        </div>
-      )}
-      {state === 'incomplete' && (
-        <div className="mt-1 w-full rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Investors can&apos;t find you yet — your company profile still needs:{' '}
-          {missingLinks.map((m, i) => (
-            <span key={m.fieldId}>
-              {i > 0 && ', '}
-              <Link href={`/settings?flash=${m.fieldId}`} className="font-medium underline hover:no-underline">{m.label}</Link>
-            </span>
-          ))}
-          .
+          half of the loop founders were stuck in. Prompt 850 §B — this is
+          now purely about the MatchDeal card, and says so: it no longer
+          claims to be what makes investors able to find you. */}
+      {state === 'unpublished' && !status.suspended && (
+        <div className="mt-1 w-full rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+          Your card isn&apos;t on MatchDeal yet. That&apos;s the swipe app — separate from the investor pipelines above, and optional.
         </div>
       )}
 

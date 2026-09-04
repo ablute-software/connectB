@@ -31,6 +31,7 @@ import { fitBucketFromScore } from './catalog-fit-bucket';
 import { catalogContactFields, waveForRank } from './catalog-delivery-mapping';
 import { firstStepTaskTitle } from './first-message-target';
 import { preferDeclaredList, preferDeclaredValue, resolveClaimedInvestorProfile } from './claimed-investor-profile';
+import { isVisibleToOthers, type ModerationStatus } from './account-moderation';
 
 export interface CatalogDeliveryResult {
   delivered: number;
@@ -65,8 +66,17 @@ export async function deliverCatalogMatches(
     // Prompt 285 §3 — a suspended/deleted catalog entity (manual checkbox
     // or the cross-org threshold, moderation-actions.ts) must not reach a
     // new org's pipeline.
-    const moderationStatus = c.moderation_status as string | null | undefined;
-    if (moderationStatus && moderationStatus !== 'active') continue;
+    // Prompt 850 §A — through isVisibleToOthers rather than a bare
+    // `!== 'active'`, which was a second, subtly different copy of "what
+    // suspended means": it never expired a TIME-BOXED suspension
+    // (moderation_suspended_until, migration 0180), so a firm suspended for
+    // 24h by the Suspicious Accounts queue would have stayed out of every
+    // founder's supply forever. Same predicate the startup side now uses
+    // (pipeline-eligibility.ts), so the two sides cannot drift. No-op on
+    // today's data — all 763 catalog_entities rows are 'active' with no
+    // time-box — this is the rule, not a backfill.
+    const moderationStatus = (c.moderation_status as ModerationStatus | null | undefined) ?? 'active';
+    if (!isVisibleToOthers(moderationStatus, (c.moderation_suspended_until as string | null | undefined) ?? null, new Date().toISOString())) continue;
     const id = crypto.randomUUID();
     deliveredIds.push(c.id as string);
     // Prompt 407 §A/§B.1 — a claimed, complete investor profile's own
