@@ -67,12 +67,28 @@ begin
 
   return query
   with active_orgs as (
-    -- Unchanged from 0303: a founder org someone actually uses. Ordering
-    -- supply by an abandoned org's needs would starve the founders waiting.
+    -- From 0303: a founder org someone actually uses. Ordering supply by an
+    -- abandoned org's needs would starve the founders waiting.
+    --
+    -- `closed_at is null` is new here, and it is deliberately on active_orgs
+    -- rather than on the delivered half alone, because BOTH halves need it:
+    -- catalog_top_matches does not filter closed orgs either (checked, not
+    -- assumed), so the candidate half carried the same latent gap.
+    --
+    -- Stated precisely, because the case that raised this does NOT reproduce:
+    -- the orphaned second "Krohnsty" (54f1bf67…, closed 03/09, 2 delivered
+    -- rows below the floor) is already excluded by the org_members test — it
+    -- has zero members. Today no closed org has any members, so this line
+    -- changes no current row. It is here because close_org can close an org
+    -- that still HAS members, and at that moment the membership test stops
+    -- covering for the missing one and the queue starts prioritising
+    -- enrichment work for nobody. A protection that holds only by
+    -- coincidence is not a protection.
     select o.id, o.name
       from public.orgs o
      where coalesce(o.is_test, false) = false
        and o.name not ilike 'zz-test-%'
+       and o.closed_at is null
        and exists (select 1 from public.org_members m where m.org_id = o.id)
   ), delivered_stuck as (
     -- The new half: already in the founder's pipeline, already visible, and
