@@ -4742,7 +4742,9 @@ Nobody received any. That is not a contradiction — `sent` has only ever meant
 "the provider's API returned 200", which is the last thing the app learns
 synchronously.
 
-Migration 0309 extends the status check with `delivered`/`bounced`/
+Migration 0310 (written and applied as 0309; renumbered when `main` merged
+its own 0309 from another workstream — main is the tiebreaker, same rule as
+the 0293 and 0303 collisions) extends the status check with `delivered`/`bounced`/
 `complained`/`delayed` and adds `provider_event_at`; `/api/resend/webhook`
 writes them. Three decisions inside that are worth keeping:
 

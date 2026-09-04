@@ -1,5 +1,16 @@
 -- Prompt 557 §3 — "sent" stops meaning "delivered".
 --
+-- Numbered 0310, not 0309. It was written and applied as 0309 after a sweep
+-- that showed 0308 as the highest taken; `main` then merged
+-- 0309_outreach_supply_includes_delivered_and_close_leak from another
+-- workstream. Mine renumbers because theirs is already ON main and this one
+-- is still on a branch — main is the tiebreaker, as DECISIONS.md records
+-- after the 0293 and 0303 collisions. The rename is safe on its own terms:
+-- the SQL is already applied to production under the Supabase migration name
+-- `email_send_log_provider_events`, and the repo file is the record, not the
+-- trigger. This is the third such collision; re-sweeping immediately before
+-- a push is necessary but still cannot see a branch that merges after it.
+--
 -- Six guest_invite sends to the same @hotmail.com address today are all
 -- `status = 'sent'` with a provider id: Resend accepted every one of them.
 -- Nobody received any of them. That is not a contradiction — `sent` in this
