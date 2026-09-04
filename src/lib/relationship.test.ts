@@ -77,12 +77,59 @@ describe('relationshipSummary — Prompt 197 C.1 (deal_messages merge)', () => {
 });
 
 describe('suggestNextAction', () => {
-  it('suggests a 14-day wait-then-follow-up for an outbound web form submission', () => {
-    const s = suggestNextAction('out', 'web_form', undefined, OCCURRED);
+  // Prompt 564 §B — this test used to assert 'follow up via the same form',
+  // which describes an act nobody can perform: a form has no reply thread,
+  // and re-submitting the same pitch is a duplicate submission. The window
+  // and the wait are unchanged; only the verb, and the action type when
+  // there is nobody yet to follow up with.
+  it('tells the founder to follow up with the PERSON after a form submission', () => {
+    const s = suggestNextAction('out', 'web_form', undefined, OCCURRED, {
+      entityName: 'COREangels Porto', followUpPersonName: 'David Alves',
+    });
     expect(s).not.toBeNull();
     expect(s!.actionType).toBe('follow_up_no_reply');
-    expect(s!.dueAt.slice(0, 10)).toBe('2026-08-13'); // +14 days
-    expect(s!.title).toContain('follow up via the same form');
+    expect(s!.dueAt.slice(0, 10)).toBe('2026-08-13'); // +14 days, unchanged
+    expect(s!.title).toContain('follow up with David Alves');
+    expect(s!.title).toContain('a form has no reply thread');
+    expect(s!.title).not.toContain('via the same form');
+  });
+
+  // Krohnsty's real shape: six entities, zero people on every one of them.
+  // The next step is finding someone, and saying so beats a verb that
+  // cannot be carried out.
+  it('tells the founder to pick a partner when the entity has no contact yet', () => {
+    const s = suggestNextAction('out', 'web_form', undefined, OCCURRED, {
+      entityName: 'COREangels Porto', followUpPersonName: null,
+    });
+    expect(s!.actionType).toBe('research_hook');
+    expect(s!.dueAt.slice(0, 10)).toBe('2026-08-13');
+    expect(s!.title).toContain('pick a partner at COREangels Porto to follow up with');
+    expect(s!.title).toContain('a form has no reply thread');
+  });
+
+  it('degrades to a generic phrase rather than "undefined" when no context is passed', () => {
+    const s = suggestNextAction('out', 'web_form', undefined, OCCURRED);
+    expect(s!.actionType).toBe('research_hook');
+    expect(s!.title).toContain('pick a partner at this firm');
+    expect(s!.title).not.toContain('undefined');
+  });
+
+  // The context is only ever read by web_form; every other channel is
+  // untouched, with or without it.
+  it('leaves every other outbound channel exactly as it was', () => {
+    for (const [channel, verb] of [
+      ['email', 'follow up by email'], ['linkedin_dm', 'follow up on LinkedIn'],
+      ['linkedin_note', 'follow up on LinkedIn'], ['intro', 'follow up on the introduction'],
+      ['call', 'follow up after the call'], ['meeting', 'follow up after the meeting'],
+      ['event', 'follow up after the event'],
+    ] as const) {
+      const bare = suggestNextAction('out', channel, undefined, OCCURRED);
+      const withCtx = suggestNextAction('out', channel, undefined, OCCURRED, {
+        entityName: 'X', followUpPersonName: 'Someone',
+      });
+      expect(bare!.title).toContain(verb);
+      expect(withCtx).toEqual(bare);
+    }
   });
 
   it('suggests a shorter window for a meeting, tagged follow_up_thread', () => {

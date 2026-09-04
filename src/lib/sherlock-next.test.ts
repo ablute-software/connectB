@@ -782,3 +782,169 @@ describe('sherlockNextClueCopy / sherlockNextSnoozeKey — Prompt 415 §2', () =
     expect(sherlockNextSnoozeKey(step)).toBeNull();
   });
 });
+
+// Prompt 564 — local copies of 415's snooze helpers: they live inside that
+// describe block's scope, and hoisting them would touch a passing test file
+// for no reason.
+function snooze564(overrides: Partial<Db['sherlockNextSnoozes'][number]> & { kind: string; snoozed_until: string }): Db['sherlockNextSnoozes'][number] {
+  return { id: `snooze-${Math.random()}`, ...overrides };
+}
+const FUTURE_564 = '2026-09-01T00:00:00Z'; // after NOW — still active
+
+// Prompt 564 — the Krohnsty shape, and the two rungs it exposed.
+//
+// Live on 04/09, org 70a354f2: 6 entities, ZERO people on every one of them,
+// 1 outbound (COREangels Porto, locked to 18/09), 5 firms never approached —
+// two of them in wave 1. The product said "All clear".
+describe('sherlockNext — next_approach (Prompt 564 §C)', () => {
+  const LOCKED_OUTBOUND: Interaction = {
+    id: 'i-core', entity_id: 'ent-core', occurred_at: '2026-08-27T09:00:00Z',
+    direction: 'out', channel: 'web_form', content: 'submitted',
+  };
+
+  /** A delivered catalog row: a channel, and no people at all. */
+  function delivered(id: string, name: string, wave: number, extra: Partial<Entity> = {}): Entity {
+    return makeEntity({ id, name, wave, email: `contact@${id}.example`, submission_channel_type: 'email', ...extra });
+  }
+
+  function krohnstyDb(overrides: Partial<Db> = {}): Db {
+    return makeDb({
+      entities: [
+        delivered('ent-core', 'COREangels Porto', 1, { contact_lock_until: '2026-09-18T00:00:00Z', status: 'contacted' }),
+        delivered('ent-newfund', 'Newfund', 1),
+        delivered('ent-superangel', 'Superangel', 1),
+        delivered('ent-mercia', 'Mercia Ventures', 2),
+        delivered('ent-pv', 'Portugal Ventures', 2),
+        delivered('ent-shilling', 'Shilling VC', 2),
+      ],
+      people: [],
+      interactions: [LOCKED_OUTBOUND],
+      ...overrides,
+    });
+  }
+
+  // The bug, stated as a test: before 564 this returned 'all_clear'.
+  it('names a wave-1 firm nobody has approached, instead of going silent', () => {
+    const step = sherlockNext(krohnstyDb(), NOW);
+    expect(step.kind).toBe('next_approach');
+    expect(['ent-newfund', 'ent-superangel']).toContain(step.entityId);
+    expect(step.label).toMatch(/Newfund|Superangel/);
+    expect(step.kind).not.toBe('all_clear');
+  });
+
+  it('prefers wave 1 over wave 2', () => {
+    const step = sherlockNext(krohnstyDb(), NOW);
+    expect(['ent-mercia', 'ent-pv', 'ent-shilling']).not.toContain(step.entityId);
+  });
+
+  // A firm already written to belongs to step 4's follow-up path.
+  it('never names a firm that already has an outbound', () => {
+    for (let i = 0; i < 6; i++) {
+      const step = sherlockNext(krohnstyDb(), NOW);
+      expect(step.entityId).not.toBe('ent-core');
+    }
+  });
+
+  it('falls through to the wave-2 rows once wave 1 is approached', () => {
+    const db = krohnstyDb({
+      interactions: [
+        LOCKED_OUTBOUND,
+        { id: 'i-nf', entity_id: 'ent-newfund', occurred_at: '2026-08-27T09:00:00Z', direction: 'out', channel: 'email', content: 'x' },
+        { id: 'i-sa', entity_id: 'ent-superangel', occurred_at: '2026-08-27T09:00:00Z', direction: 'out', channel: 'email', content: 'x' },
+      ],
+    });
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('next_approach');
+    expect(['ent-mercia', 'ent-pv', 'ent-shilling']).toContain(step.entityId);
+  });
+
+  // Honest silence: every firm approached, nothing left to name.
+  it('returns all_clear once every firm has been approached', () => {
+    const db = krohnstyDb({
+      interactions: ['ent-core', 'ent-newfund', 'ent-superangel', 'ent-mercia', 'ent-pv', 'ent-shilling']
+        .map((id, i): Interaction => ({
+          id: `i-${i}`, entity_id: id, occurred_at: '2026-08-27T09:00:00Z',
+          direction: 'out', channel: 'email', content: 'x',
+        })),
+    });
+    expect(sherlockNext(db, NOW).kind).toBe('all_clear');
+  });
+
+  it('skips a contact-locked firm', () => {
+    const db = krohnstyDb({
+      entities: [
+        delivered('ent-core', 'COREangels Porto', 1, { contact_lock_until: '2026-09-18T00:00:00Z', status: 'contacted' }),
+        delivered('ent-newfund', 'Newfund', 1, { contact_lock_until: '2026-09-30T00:00:00Z' }),
+        delivered('ent-superangel', 'Superangel', 1),
+      ],
+    });
+    expect(sherlockNext(db, NOW).entityId).toBe('ent-superangel');
+  });
+
+  it('skips a snoozed firm, and the snooze is keyed on the entity', () => {
+    const db = krohnstyDb({
+      sherlockNextSnoozes: [snooze564({ kind: 'next_approach', entity_id: 'ent-newfund', snoozed_until: FUTURE_564 })],
+    });
+    const step = sherlockNext(db, NOW);
+    expect(step.entityId).toBe('ent-superangel');
+    expect(sherlockNextSnoozeKey({ ...step, kind: 'next_approach' })).toEqual({ entity_id: 'ent-superangel' });
+  });
+
+  // A row with neither a person nor a channel is an unfinished research job
+  // of OURS; naming it would blame the founder for it.
+  it('never names a firm with neither a person nor a channel', () => {
+    const db = krohnstyDb({
+      entities: [makeEntity({ id: 'ent-bare', name: 'Bare Co', wave: 1 })],
+      interactions: [BYPASS_OUTBOUND],
+    });
+    expect(sherlockNext(db, NOW).kind).toBe('all_clear');
+  });
+});
+
+// Prompt 564 §D — an overdue task is still the next thing to do.
+describe('sherlockNext — task_due_today covers overdue (Prompt 564 §D)', () => {
+  function taskDue(due: string, id = 't-1'): TaskItem {
+    return { id, title: 'Pick the right partner at Superangel and write your hook', due_at: due, kind: 'research', action_type: 'research_hook', done: false };
+  }
+
+  it('surfaces a task due today', () => {
+    const db = makeDb({ tasks: [taskDue('2026-08-27T09:00:00Z')], entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND] });
+    expect(sherlockNext(db, NOW).kind).toBe('task_due_today');
+  });
+
+  // The bug: before 564 a task due yesterday vanished from the clue forever,
+  // and no other rung covers overdue tasks.
+  it('surfaces a task that was due yesterday', () => {
+    const db = makeDb({ tasks: [taskDue('2026-08-26T09:00:00Z')], entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND] });
+    expect(sherlockNext(db, NOW).kind).toBe('task_due_today');
+  });
+
+  it('still ignores a task due tomorrow', () => {
+    const db = makeDb({ tasks: [taskDue('2026-08-28T09:00:00Z')], entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND] });
+    expect(sherlockNext(db, NOW).kind).not.toBe('task_due_today');
+  });
+
+  it('takes the oldest overdue task first', () => {
+    const db = makeDb({
+      tasks: [taskDue('2026-08-26T09:00:00Z', 't-yesterday'), taskDue('2026-08-20T09:00:00Z', 't-week-ago')],
+      entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND],
+    });
+    expect(sherlockNext(db, NOW).taskId).toBe('t-week-ago');
+  });
+
+  // Regression guard for the hole widening the window opened: an
+  // interest-request task is overdue the moment it is created, so without
+  // the ownership check, snoozing step 1 would hand the same task to step 5
+  // under a different kind and a different snooze key.
+  it('never re-surfaces a task an earlier rung owns, even when overdue', () => {
+    const interestTask: TaskItem = {
+      id: 't-interest', title: 'Approve the interest request', due_at: '2026-08-20T09:00:00Z',
+      kind: 'admin', action_type: 'other', done: false, source: 'interest_level_request',
+    };
+    const db = makeDb({
+      tasks: [interestTask], entities: [BYPASS_ENTITY], interactions: [BYPASS_OUTBOUND],
+      sherlockNextSnoozes: [snooze564({ kind: 'interest_request', task_id: 't-interest', snoozed_until: FUTURE_564 })],
+    });
+    expect(sherlockNext(db, NOW).kind).toBe('all_clear');
+  });
+});

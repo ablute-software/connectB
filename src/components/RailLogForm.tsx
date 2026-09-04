@@ -414,7 +414,14 @@ export function RailLogForm({
     // §B.1.4 — same gate as /log: only offered when the founder didn't
     // already handle "what's next" some other way (a pass, for instance,
     // naturally yields no suggestion — suggestNextAction returns null).
-    const suggestion = suggestNextAction(direction, channel, direction === 'in' ? (classification as Classification) : undefined, interaction.occurred_at);
+    // Prompt 564 §B — the context the suggestion needs, resolved here rather
+    // than inside suggestNextAction so that function stays pure. Only
+    // `web_form` reads it today; passing it unconditionally means a future
+    // channel that needs a person does not have to re-wire this call site.
+    const suggestion = suggestNextAction(
+      direction, channel, direction === 'in' ? (classification as Classification) : undefined, interaction.occurred_at,
+      { entityName: entity?.name, followUpPersonName: entity ? (nextContactPerson(db, entity.id)?.full_name ?? null) : null },
+    );
     if (suggestion) {
       setPendingSuggestion(suggestion);
       setSuggestionTitle(suggestion.title);

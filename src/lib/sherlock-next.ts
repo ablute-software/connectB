@@ -8,7 +8,7 @@
 // computation for the exact same "don't duplicate" reason.
 import type { Db, FitScore } from './types';
 type SnoozeField = 'task_id' | 'entity_id' | 'interaction_id' | 'person_id';
-import { followUpTaskDisplayTitle, nextBestAction, nextBestActionButton, relationshipSummary } from './relationship';
+import { effectiveMode, followUpTaskDisplayTitle, nextBestAction, nextBestActionButton, relationshipSummary } from './relationship';
 import { readyToContact } from './ready-to-contact';
 // Prompt 417 §A/§B — each reused as-is, none reimplemented: isProfileGateComplete
 // already gates Pipeline visibility (the SAME "is this profile functional yet"
@@ -24,7 +24,13 @@ import { chooseFirstMessageTarget, type FirstMessageCandidate } from './first-me
 export type SherlockNextKind =
   | 'interest_request' | 'cap_table_request' | 'unclassified_reply' | 'follow_up_overdue' | 'task_due_today'
   | 'onboarding_profile' | 'onboarding_dataroom' | 'onboarding_pipeline' | 'onboarding_first_message'
-  | 'ready_to_contact' | 'pitch_review' | 'readiness_nudge' | 'all_clear';
+  | 'ready_to_contact'
+  // Prompt 564 §C — the recurring "who do I approach next" rung. Step 9
+  // (onboarding_first_message) answers that question exactly once, for the
+  // founder who has never sent anything; this one answers it for as long as
+  // an unapproached firm exists.
+  | 'next_approach'
+  | 'pitch_review' | 'readiness_nudge' | 'all_clear';
 
 export interface SherlockNextStep {
   kind: SherlockNextKind;
@@ -73,6 +79,31 @@ function activeSnoozedIds(snoozes: Db['sherlockNextSnoozes'], now: Date, kind: S
   return new Set(
     snoozes.filter((s) => s.kind === kind && new Date(s.snoozed_until) > now && s[field]).map((s) => s[field] as string),
   );
+}
+
+// Prompt 544 Part D's candidate shape, extracted by Prompt 564 §C so steps 9
+// and 10b build it identically. One ranking, one vocabulary, never a second
+// copy — the two rungs answer the same question ("who do I approach next")
+// at different moments, and a founder who saw one sentence on day one and a
+// differently-worded one on day two would rightly not trust either.
+//
+// `readiness` is computed off the DELIVERED ROW's own contact data (Part C
+// copies it at delivery) rather than a live catalog read, which is what keeps
+// sherlockNext a pure function over the store.
+function firstMessageCandidate(db: Db, e: Db['entities'][number]): FirstMessageCandidate {
+  const people = db.people.filter((p) => p.entity_id === e.id);
+  return {
+    id: e.id, name: e.name, wave: e.wave,
+    fitRank: FIT_ORDER[e.fit_score ?? 'low'],
+    readiness: (people.length ? 25 : 0)
+      + (people.some((p) => !!p.hook) ? 40 : 0)
+      + (e.submission_channel ? 15 : 0)
+      + (e.email ? 10 : 0)
+      + (e.key_people ? 5 : 0),
+    peopleCount: people.length,
+    hasHook: people.some((p) => !!p.hook),
+    hasChannel: !!e.submission_channel || !!e.email,
+  };
 }
 
 export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
@@ -193,13 +224,37 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     };
   }
 
-  // 5 — task due today (earliest first). Same "today" window Today's own
-  // Overdue/This week cards imply (calendar day, not a rolling 24h).
+  // 5 — task DUE, OR PAST DUE (earliest first).
+  //
+  // Prompt 564 §D — the window used to be `due_at >= startOfDay && due_at <
+  // endOfDay`: a task due yesterday never appeared in the clue again, and no
+  // other rung covers overdue tasks (step 4's `follow_up_overdue` is about an
+  // entity's reply state, not a task). So a task the founder didn't get to
+  // simply stopped being the next thing to do, which is the opposite of what
+  // an overdue task means. Krohnsty's three first-step tasks were due 06/09:
+  // they explain today's silence, and on 07/09 they would have vanished from
+  // the clue while still undone.
+  //
+  // The kind stays `task_due_today`: it is the stored snooze kind and a value
+  // in migration 0261's CHECK constraint, and renaming it would need a
+  // migration for no gain. Read it as "due, or past due".
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const endOfDay = new Date(startOfDay.getTime() + 24 * 3600 * 1000);
   const snoozedTaskDueTodayIds = activeSnoozedIds(db.sherlockNextSnoozes, now, 'task_due_today', 'task_id');
+  // Tasks that steps 1 and 2 OWN are excluded here, and this became load-
+  // bearing the moment the window widened to include overdue: an
+  // interest-request or cap-table task is created with `due_at` set to
+  // request time, so it is overdue almost immediately. Without this, snoozing
+  // the step-1 clue would hand the identical task straight to step 5 under a
+  // different kind and a different snooze key — the founder snoozes it and it
+  // comes back tomorrow, which is worse than the silence this prompt fixes.
+  // Caught by the existing snooze tests, not by inspection.
+  const ownedByEarlierStep = (t: Db['tasks'][number]) =>
+    t.source === 'interest_level_request' || t.source === 'investor_interest'
+    || (t.source === 'document_request' && !!t.notes?.includes('item_type:cap_table'));
   const dueToday = db.tasks
-    .filter((t) => !t.done && t.due_at && new Date(t.due_at) >= startOfDay && new Date(t.due_at) < endOfDay && !snoozedTaskDueTodayIds.has(t.id))
+    .filter((t) => !t.done && t.due_at && new Date(t.due_at) < endOfDay
+      && !snoozedTaskDueTodayIds.has(t.id) && !ownedByEarlierStep(t))
     .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
   if (dueToday.length > 0) {
     const t = dueToday[0];
@@ -258,22 +313,7 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
     // is actually available. readiness comes off the delivered row's own
     // contact data (Part C copies it) rather than a live catalog read, so
     // this stays a pure function over the store.
-    const candidates: FirstMessageCandidate[] = db.entities.map((e) => {
-      const people = db.people.filter((p) => p.entity_id === e.id);
-      return {
-        id: e.id, name: e.name, wave: e.wave,
-        fitRank: FIT_ORDER[e.fit_score ?? 'low'],
-        readiness: (people.length ? 25 : 0)
-          + (people.some((p) => !!p.hook) ? 40 : 0)
-          + (e.submission_channel ? 15 : 0)
-          + (e.email ? 10 : 0)
-          + (e.key_people ? 5 : 0),
-        peopleCount: people.length,
-        hasHook: people.some((p) => !!p.hook),
-        hasChannel: !!e.submission_channel || !!e.email,
-      };
-    });
-    const picked = chooseFirstMessageTarget(candidates);
+    const picked = chooseFirstMessageTarget(db.entities.map((e) => firstMessageCandidate(db, e)));
     // No actionable entity at all: fall through to the next rule rather than
     // naming one the founder cannot act on.
     if (picked) {
@@ -296,6 +336,62 @@ export function sherlockNext(db: Db, now: Date = new Date()): SherlockNextStep {
       return {
         kind: 'ready_to_contact', label: `Next: reach out to ${person.full_name}`,
         entityId: entity.id, personId: person.id, target: `/entities/${entity.id}?rail=log&person=${person.id}`,
+      };
+    }
+  }
+
+  // 10b — next approach. THE recurring "who do I approach next" rung.
+  //
+  // Prompt 564 §C — the ladder had exactly one rung that named a firm to
+  // approach, and it was a one-shot. Step 9 is guarded by
+  // `!everSentOutbound`, so it switches off forever the moment the first
+  // outbound is logged; step 10 (`ready_to_contact`) iterates `db.people`,
+  // and a delivered catalog row arrives with ZERO people (they are the
+  // founder's own rows, created later by "Add as contact"). Steps 11 and 12
+  // are unrelated global signals. So the clue fell through to `all_clear`.
+  //
+  // Krohnsty, live: 6 entities, 0 people on every one, 1 outbound, and five
+  // firms never approached — two of them in wave 1. The product said "All
+  // clear".
+  //
+  // Deliberately AFTER `ready_to_contact`: a person who passes preflight is
+  // a better next step than a firm with only a channel, and this rung should
+  // never outrank one. Deliberately BEFORE `pitch_review`/`readiness_nudge`:
+  // those are advice, and a firm waiting to be approached beats advice.
+  const snoozedNextApproachIds = activeSnoozedIds(db.sherlockNextSnoozes, now, 'next_approach', 'entity_id');
+  // Entities rung 10 already speaks for. `ready` is the PRE-snooze list on
+  // purpose: if a person there was snoozed, step 10 stayed silent by the
+  // founder's own choice, and naming their firm here would hand the same
+  // action back one rung down under a different snooze key — the founder
+  // snoozes Marta Zanchi and gets "pick the right partner at Nina Capital"
+  // tomorrow. Caught by 415's own snooze test, which is exactly what that
+  // test is for. What is left for this rung is what rung 10 structurally
+  // cannot serve: firms with no `people` rows at all — which is every
+  // delivered catalog row, and the whole reason Prompt 564 exists.
+  const entityIdsOwnedByReadyToContact = new Set(ready.map((p) => p.entity_id));
+  if (!capReached) {
+    const nextCandidates = db.entities
+      .filter((e) => {
+        if (entityIdsOwnedByReadyToContact.has(e.id)) return false;
+        // A firm already approached belongs to step 4's follow-up path, not
+        // here — this rung is only ever about the ones nobody has written to.
+        if (db.interactions.some((i) => i.entity_id === e.id && i.direction === 'out')) return false;
+        if (snoozedNextApproachIds.has(e.id)) return false;
+        // The contact lock is a rule, not a preference: a locked entity is
+        // not a next approach, it is a wait.
+        if (e.contact_lock_until && new Date(e.contact_lock_until) > now) return false;
+        if (effectiveMode(db, e.id) !== 'active') return false;
+        return true;
+      })
+      .map((e) => firstMessageCandidate(db, e));
+    // isActionable is applied inside chooseFirstMessageTarget: a row with
+    // neither a person nor a channel is an unfinished research job of ours,
+    // and naming it here would blame the founder for it.
+    const nextPicked = chooseFirstMessageTarget(nextCandidates);
+    if (nextPicked) {
+      return {
+        kind: 'next_approach', label: nextPicked.label,
+        entityId: nextPicked.entity.id, target: nextPicked.target,
       };
     }
   }
@@ -367,6 +463,10 @@ export function sherlockNextSnoozeKey(step: SherlockNextStep): { task_id?: strin
     case 'cap_table_request':
       return step.taskId ? { task_id: step.taskId } : null;
     case 'follow_up_overdue':
+    // Prompt 564 §C — keyed on the entity, like follow_up_overdue: the clue
+    // is about a FIRM to approach, and the founder who snoozes it means
+    // "not this firm this week", not "not this person".
+    case 'next_approach':
       return step.entityId ? { entity_id: step.entityId } : null;
     case 'unclassified_reply':
       return step.interactionId ? { interaction_id: step.interactionId } : null;

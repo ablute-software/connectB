@@ -487,8 +487,19 @@ export function followUpTaskDisplayTitle(task: Pick<TaskItem, 'title' | 'due_at'
 //     pass, awaiting, bounce, unclear -> no suggestion (a pass closes the
 //       relationship rather than opening a next step; the other three are
 //       either not yet actionable or need a human read first).
+//
+// Prompt 564 §B — `web_form` is no longer in this table.
+//
+// It used to be `{ verb: 'follow up via the same form' }`, and that sentence
+// describes an act nobody can perform: a form has no reply thread, and
+// re-submitting the same pitch is a duplicate submission — the exact
+// behaviour this product's discipline rules exist to prevent. Nuno logged a
+// submission to COREangels and was told to do precisely that.
+//
+// A form's follow-up is a PERSON, so the sentence depends on whether there is
+// one — something a table keyed only on channel cannot express. See
+// webFormSuggestion below.
 const OUTBOUND_CHANNEL_SUGGESTION: Partial<Record<Channel, { verb: string; dueInDays: number; actionType: ActionType }>> = {
-  web_form: { verb: 'follow up via the same form', dueInDays: LOCK_DAYS, actionType: 'follow_up_no_reply' },
   email: { verb: 'follow up by email', dueInDays: LOCK_DAYS, actionType: 'follow_up_no_reply' },
   linkedin_dm: { verb: 'follow up on LinkedIn', dueInDays: LOCK_DAYS, actionType: 'follow_up_no_reply' },
   linkedin_note: { verb: 'follow up on LinkedIn', dueInDays: LOCK_DAYS, actionType: 'follow_up_no_reply' },
@@ -505,11 +516,46 @@ const INBOUND_CLASSIFICATION_SUGGESTION: Partial<Record<Classification, { title:
   out_of_office: { title: "Follow up once they're back", dueInDays: 10, actionType: 'follow_up_no_reply' },
 };
 
+/**
+ * Prompt 564 §B — what to do after submitting through a form.
+ *
+ * With a person at the firm, the follow-up is them. Without one, the next
+ * step is finding one — and saying so is more useful than a verb that
+ * cannot be carried out. Both sentences name the reason ("a form has no
+ * reply thread") because the founder's instinct is to re-submit, and the
+ * point is to say why not.
+ *
+ * The action types differ on purpose: with a person it is a real
+ * follow-up; without one it is research, which is what
+ * `chooseFirstMessageTarget` already calls this state.
+ */
+export interface NextActionContext {
+  entityName?: string;
+  /** The entity's next contact person, or null when the founder has none. */
+  followUpPersonName?: string | null;
+}
+
+function webFormSuggestion(ctx: NextActionContext | undefined): { verb: string; dueInDays: number; actionType: ActionType } {
+  const person = ctx?.followUpPersonName?.trim();
+  if (person) {
+    return { verb: `follow up with ${person} — a form has no reply thread`, dueInDays: LOCK_DAYS, actionType: 'follow_up_no_reply' };
+  }
+  const where = ctx?.entityName?.trim();
+  return {
+    verb: `pick a partner at ${where || 'this firm'} to follow up with — a form has no reply thread`,
+    dueInDays: LOCK_DAYS, actionType: 'research_hook',
+  };
+}
+
 export function suggestNextAction(
   direction: Direction, channel: Channel, classification: Classification | undefined, occurredAt: string,
+  // Precomputed by the caller so this stays pure and testable: the function
+  // has no store to look a person up in, and giving it one would make every
+  // test build a database.
+  ctx?: NextActionContext,
 ): NextActionSuggestion | null {
   if (direction === 'out') {
-    const rule = OUTBOUND_CHANNEL_SUGGESTION[channel];
+    const rule = channel === 'web_form' ? webFormSuggestion(ctx) : OUTBOUND_CHANNEL_SUGGESTION[channel];
     if (!rule) return null;
     const dueAt = new Date(new Date(occurredAt).getTime() + rule.dueInDays * 86_400_000).toISOString();
     return { title: `Wait for a reply until ${dueAt.slice(0, 10)} — then ${rule.verb}`, dueAt, actionType: rule.actionType };

@@ -109,12 +109,30 @@ export function chooseFirstMessageTarget(
  * same sentence the clue would: a task that contradicts the clue is worse
  * than no task.
  *
- * At delivery there are never contact people yet (they are the founder's own
- * rows, created later), so 'has_hook' cannot occur here — hence only the two
- * reachable states.
+ * Prompt 564 §D — it also has to say the RIGHT sentence. The single call site
+ * passed a hardcoded `false`, so every wave-1 row was told "Submit to X
+ * through their form" whether or not X had a form: Newfund and Mercia are
+ * email-only, and were still sent to a form that does not exist. Now the
+ * channel decides, using the §A-corrected type, and the three sentences match
+ * the three the clue itself uses (`chooseFirstMessageTarget` above) — an
+ * email firm says "Email X", a form firm says "submit through their form",
+ * and a firm with people to choose between says "pick the right partner".
+ *
+ * At delivery there are usually no contact people yet (they are the founder's
+ * own rows, created later by "Add as contact"), but `hasPeople` is still a
+ * real parameter rather than an assumption: a re-delivery onto an entity the
+ * founder has since worked on must not tell them to start over.
  */
-export function firstStepTaskTitle(name: string, hasPeople: boolean): string {
-  return hasPeople
-    ? `Pick the right partner at ${name} and write your hook`
-    : `Submit to ${name} through their form`;
+export function firstStepTaskTitle(
+  name: string,
+  hasPeople: boolean,
+  channelType?: 'form' | 'email' | 'unknown' | null,
+): string {
+  if (hasPeople) return `Pick the right partner at ${name} and write your hook`;
+  if (channelType === 'email') return `Email ${name}`;
+  if (channelType === 'form') return `Submit to ${name} through their form`;
+  // No people and no known channel: the honest next step is finding someone,
+  // and it is the same sentence the clue's `has_people`/`channel_only` states
+  // fall back to rather than inventing a fourth vocabulary.
+  return `Pick the right partner at ${name} and write your hook`;
 }

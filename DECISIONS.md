@@ -4994,3 +4994,106 @@ The DOM had them. The screen did not. A text assertion cannot see `opacity`,
 whether something is VISIBLE, the check has to be `getComputedStyle().opacity`
 plus `getBoundingClientRect().height` plus a screenshot someone looks at —
 never `textContent`.
+
+## The Next Clue names the next firm to approach for as long as one exists (`next_approach`), an overdue task stays a clue, and a submission channel is only called a form when it is one — 04/09/2026 (Prompt 564)
+
+Nuno submitted to an investor through their form, logged it, and the product
+went quiet. Four causes underneath that, all confirmed live on Krohnsty
+(`70a354f2`: 6 entities, **0 people on every one**, 1 outbound, 5 firms never
+approached — two in wave 1, and the clue said "All clear").
+
+**1. The only rung that names a firm to approach was a one-shot.** Step 9
+(`onboarding_first_message`) is guarded by `!everSentOutbound`, so it switches
+off forever the moment the first outbound is logged. The rung below it,
+`ready_to_contact`, iterates `db.people` — and a delivered catalog row arrives
+with zero people, because people are the founder's own rows, created later by
+"Add as contact". Steps 11 and 12 are unrelated global signals. So the ladder
+fell straight through to `all_clear` while five firms sat unapproached.
+
+New step **10b `next_approach`**, built on the same
+`chooseFirstMessageTarget`/`rankCandidates` pair step 9 uses — one ranking,
+one vocabulary, never a second copy. Its position is deliberate on both
+sides: **after** `ready_to_contact`, because a person who passes preflight is
+a better next step than a firm with only a channel; **before**
+`pitch_review`/`readiness_nudge`, because a firm waiting to be approached
+beats advice.
+
+Two exclusions found by the existing tests rather than by inspection, and
+both worth keeping:
+- **Entities `ready_to_contact` already speaks for are skipped**, using its
+  PRE-snooze list. If a person there was snoozed, step 10 stayed silent by the
+  founder's own choice; naming their firm one rung down would hand back the
+  same action under a different snooze key. Snooze Marta Zanchi, get "pick the
+  right partner at Nina Capital" tomorrow.
+- What is left for this rung is precisely what rung 10 structurally cannot
+  serve: firms with no `people` rows at all — every delivered catalog row, and
+  the whole reason this prompt exists.
+
+**2. `web_form` had a follow-up verb describing an impossible act.** "Follow
+up via the same form": a form has no reply thread, and re-submitting the same
+pitch is a duplicate submission — the exact behaviour this product's
+discipline rules exist to prevent. `suggestNextAction` took only
+`(direction, channel, classification, occurredAt)`, so it could not know
+whether there was anyone to follow up *with*. It now takes an optional
+precomputed `ctx` (so it stays pure): with a person, "follow up with {name} —
+a form has no reply thread"; without one, "pick a partner at {entity} to
+follow up with", typed `research_hook` rather than `follow_up_no_reply`,
+because that is what it is. Both sentences name the reason, since the
+founder's instinct is to re-submit.
+
+**3. `submission_channel_type` called 81 of 86 firms a "form".**
+`deriveSubmissionChannelType` returned `'form'` for any non-empty
+`submission_channel`, whatever it contained. Measured 04/09 across
+`catalog_entities`: 5 http(s) URLs, 1 `mailto:`, 67 bare addresses, 6 other
+values containing an `@`, 7 free-text form names. The rule now: an address
+anywhere in the value makes it an inbox (that is the thing you can send to
+twice); only a URL, or free text with no address, is a form; "a form outranks
+an inbox" survives for a row that genuinely has both. `submissionFormUrl` is
+derived, never stored — seven catalog rows name a form with no URL to open,
+which is a real enrichment gap and now a countable one.
+
+**Migration 0313** backfilled `entities.submission_channel_type`: **326 rows
+changed** (317 `unknown`→`email`, 9 `form`→`email`), totals 827 before and
+after, no other column touched. Two things the prompt did not anticipate:
+- **The enum has four values, not the three the TypeScript type declares** —
+  `email, form, none, unknown`. The single `none` row is Redalpine on
+  ablute_, entered by hand with the note "NO pitch form; they explicitly
+  prefer warm intros". That is a founder's decision about a firm, not a stale
+  derivation, and the backfill excludes it. Derivation only ever corrects
+  rows that were derived.
+- **The `sherlock_next_snoozes` CHECK in migration 0261 is already out of
+  date** — `cap_table_request` was added later. Rewriting the constraint from
+  0261's text would have silently dropped that value. The replacement starts
+  from the live constraint read back with `pg_get_constraintdef`, plus
+  `next_approach`.
+
+**4. A task due today was a clue; a task overdue was nothing.** Step 5 matched
+`due_at >= startOfDay && < endOfDay`, so a task due yesterday never appeared
+again, and no other rung covers overdue tasks. It now matches "due, or past
+due", earliest first. The kind stays `task_due_today` — it is the stored
+snooze kind and a CHECK value, and renaming it would need a migration for no
+gain.
+
+Widening that window opened a hole the existing snooze tests caught
+immediately: an interest-request or cap-table task is created with `due_at` at
+request time, so it is overdue almost at once, and step 5 would have
+re-surfaced it under a different kind and a different snooze key — snoozing
+step 1 would stop working. Step 5 now excludes tasks the earlier rungs own.
+
+`firstStepTaskTitle` also stops taking a hardcoded `false`: it takes the row's
+real channel, so a wave-1 task says "Email X" for an email-only firm instead
+of sending the founder to a form that does not exist (Newfund and Mercia, in
+Krohnsty's own wave 1).
+
+**What wrote the three "Pick the right partner…" tasks on 03/09 21:13 UTC.**
+Not the committed code path: `catalog-delivery-core.ts` called
+`firstStepTaskTitle(name, false)`, which can only produce "Submit to X through
+their form". The string "Pick the right partner at X and write your hook"
+exists in exactly one place in the repo (`first-message-target.ts:118`) and is
+reachable only with `hasPeople: true`. No migration and no committed script
+inserts those rows. The 544 branch's own commit (`560d9a2`) landed at 18:17
+UTC, three hours earlier. So they were written by an **ad-hoc, uncommitted
+backfill run against production by that session** — which is why two
+vocabularies now coexist in `tasks`. This prompt does not rewrite existing
+rows; reconciling those three titles is worth a follow-up, and is cheap now
+that the delivery path emits the same three sentences the clue does.

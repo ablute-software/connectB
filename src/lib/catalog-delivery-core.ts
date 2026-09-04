@@ -124,7 +124,16 @@ export async function deliverCatalogMatches(
     .filter((e) => e.wave === 1)
     .map((e) => ({
       org_id: orgId, entity_id: e.id as string,
-      title: firstStepTaskTitle(e.name as string, false),
+      // Prompt 564 §D — the row's real state, not a hardcoded `false`. A
+      // delivered row genuinely has no `people` yet (they are the founder's
+      // own rows), but it DOES know its channel, and saying "submit through
+      // their form" to an email-only firm — Newfund and Mercia, in Krohnsty's
+      // own wave 1 — sends the founder somewhere that does not exist.
+      title: firstStepTaskTitle(
+        e.name as string,
+        false,
+        (e.submission_channel_type as 'form' | 'email' | 'unknown' | null | undefined) ?? null,
+      ),
       due_at: dueAt, kind: 'research' as const, action_type: 'research_hook' as const,
       source: 'suggested' as const,
     }));
