@@ -782,3 +782,147 @@ describe('sherlockNextClueCopy / sherlockNextSnoozeKey — Prompt 415 §2', () =
     expect(sherlockNextSnoozeKey(step)).toBeNull();
   });
 });
+
+// Prompt 564 — local copies of 415's snooze helpers: they live inside that
+// describe block's scope, and hoisting them would touch a passing test file
+// for no reason.
+function snooze564(overrides: Partial<Db['sherlockNextSnoozes'][number]> & { kind: string; snoozed_until: string }): Db['sherlockNextSnoozes'][number] {
+  return { id: `snooze-${Math.random()}`, ...overrides };
+}
+const FUTURE_564 = '2026-09-01T00:00:00Z'; // after NOW — still active
+
+// Prompt 564 — the Krohnsty shape, and the two rungs it exposed.
+//
+// Live on 04/09, org 70a354f2: 6 entities, ZERO people on every one of them,
+// 1 outbound (COREangels Porto, locked to 18/09), 5 firms never approached —
+// two of them in wave 1. The product said "All clear".
+describe('sherlockNext — next_approach (Prompt 564 §C)', () => {
+  const LOCKED_OUTBOUND: Interaction = {
+    id: 'i-core', entity_id: 'ent-core', occurred_at: '2026-08-27T09:00:00Z',
+    direction: 'out', channel: 'web_form', content: 'submitted',
+  };
+
+  /** A delivered catalog row: a channel, and no people at all. */
+  function delivered(id: string, name: string, wave: number, extra: Partial<Entity> = {}): Entity {
+    return makeEntity({ id, name, wave, email: `contact@${id}.example`, submission_channel_type: 'email', ...extra });
+  }
+
+  function krohnstyDb(overrides: Partial<Db> = {}): Db {
+    return makeDb({
+      entities: [
+        delivered('ent-core', 'COREangels Porto', 1, { contact_lock_until: '2026-09-18T00:00:00Z', status: 'contacted' }),
+        delivered('ent-newfund', 'Newfund', 1),
+        delivered('ent-superangel', 'Superangel', 1),
+        delivered('ent-mercia', 'Mercia Ventures', 2),
+        delivered('ent-pv', 'Portugal Ventures', 2),
+        delivered('ent-shilling', 'Shilling VC', 2),
+      ],
+      people: [],
+      interactions: [LOCKED_OUTBOUND],
+      ...overrides,
+    });
+  }
+
+  // The bug, stated as a test: before 564 this returned 'all_clear'.
+  it('names a wave-1 firm nobody has approached, instead of going silent', () => {
+    const step = sherlockNext(krohnstyDb(), NOW);
+    expect(step.kind).toBe('next_approach');
+    expect(['ent-newfund', 'ent-superangel']).toContain(step.entityId);
+    expect(step.label).toMatch(/Newfund|Superangel/);
+    expect(step.kind).not.toBe('all_clear');
+  });
+
+  // Prompt 566 — the shape this was published for, which cannot be checked
+  // live: Caramel Biscuit's own data is in production, and dev:verify runs on
+  // the demo seed. 24 delivered catalog rows, zero rows in `people` (measured
+  // in production), and contacts restored by 565's backfill. Before §C this
+  // account showed 'All clear' with 24 firms waiting.
+  it('names one of 24 delivered firms when the org has no people at all', () => {
+    // The one outbound matters and is measured, not invented: Caramel Biscuit
+    // has exactly one (2026-08-06) and 23 rows still not_contacted. That single
+    // send is what silences step 9 — it is guarded by !everSentOutbound — and
+    // with no `people` rows the rung below it had nothing to iterate. One
+    // message, and the product went quiet about 23 waiting firms.
+    const many = Array.from({ length: 24 }, (_, i) =>
+      delivered(`ent-cb-${i}`, `Firm ${i}`, i < 3 ? 1 : i < 6 ? 2 : 3,
+        i === 0 ? { status: 'contacted' } : {}));
+    const sent: Interaction = {
+      id: 'i-cb', entity_id: 'ent-cb-0', occurred_at: '2026-08-06T00:00:00Z',
+      direction: 'out', channel: 'web_form', content: 'submitted',
+    };
+    const step = sherlockNext(makeDb({ entities: many, people: [], interactions: [sent] }), NOW);
+    expect(step.kind).toBe('next_approach');
+    expect(step.kind).not.toBe('all_clear');
+    // A real firm from the pipeline, named — not a generic nudge.
+    expect(many.slice(1).map((e) => e.id)).toContain(step.entityId);
+    expect(step.label).toMatch(/Firm \d+/);
+  });
+
+  it('prefers wave 1 over wave 2', () => {
+    const step = sherlockNext(krohnstyDb(), NOW);
+    expect(['ent-mercia', 'ent-pv', 'ent-shilling']).not.toContain(step.entityId);
+  });
+
+  // A firm already written to belongs to step 4's follow-up path.
+  it('never names a firm that already has an outbound', () => {
+    for (let i = 0; i < 6; i++) {
+      const step = sherlockNext(krohnstyDb(), NOW);
+      expect(step.entityId).not.toBe('ent-core');
+    }
+  });
+
+  it('falls through to the wave-2 rows once wave 1 is approached', () => {
+    const db = krohnstyDb({
+      interactions: [
+        LOCKED_OUTBOUND,
+        { id: 'i-nf', entity_id: 'ent-newfund', occurred_at: '2026-08-27T09:00:00Z', direction: 'out', channel: 'email', content: 'x' },
+        { id: 'i-sa', entity_id: 'ent-superangel', occurred_at: '2026-08-27T09:00:00Z', direction: 'out', channel: 'email', content: 'x' },
+      ],
+    });
+    const step = sherlockNext(db, NOW);
+    expect(step.kind).toBe('next_approach');
+    expect(['ent-mercia', 'ent-pv', 'ent-shilling']).toContain(step.entityId);
+  });
+
+  // Honest silence: every firm approached, nothing left to name.
+  it('returns all_clear once every firm has been approached', () => {
+    const db = krohnstyDb({
+      interactions: ['ent-core', 'ent-newfund', 'ent-superangel', 'ent-mercia', 'ent-pv', 'ent-shilling']
+        .map((id, i): Interaction => ({
+          id: `i-${i}`, entity_id: id, occurred_at: '2026-08-27T09:00:00Z',
+          direction: 'out', channel: 'email', content: 'x',
+        })),
+    });
+    expect(sherlockNext(db, NOW).kind).toBe('all_clear');
+  });
+
+  it('skips a contact-locked firm', () => {
+    const db = krohnstyDb({
+      entities: [
+        delivered('ent-core', 'COREangels Porto', 1, { contact_lock_until: '2026-09-18T00:00:00Z', status: 'contacted' }),
+        delivered('ent-newfund', 'Newfund', 1, { contact_lock_until: '2026-09-30T00:00:00Z' }),
+        delivered('ent-superangel', 'Superangel', 1),
+      ],
+    });
+    expect(sherlockNext(db, NOW).entityId).toBe('ent-superangel');
+  });
+
+  it('skips a snoozed firm, and the snooze is keyed on the entity', () => {
+    const db = krohnstyDb({
+      sherlockNextSnoozes: [snooze564({ kind: 'next_approach', entity_id: 'ent-newfund', snoozed_until: FUTURE_564 })],
+    });
+    const step = sherlockNext(db, NOW);
+    expect(step.entityId).toBe('ent-superangel');
+    expect(sherlockNextSnoozeKey({ ...step, kind: 'next_approach' })).toEqual({ entity_id: 'ent-superangel' });
+  });
+
+  // A row with neither a person nor a channel is an unfinished research job
+  // of OURS; naming it would blame the founder for it.
+  it('never names a firm with neither a person nor a channel', () => {
+    const db = krohnstyDb({
+      entities: [makeEntity({ id: 'ent-bare', name: 'Bare Co', wave: 1 })],
+      interactions: [BYPASS_OUTBOUND],
+    });
+    expect(sherlockNext(db, NOW).kind).toBe('all_clear');
+  });
+});

@@ -5075,3 +5075,41 @@ backfill restored, exists only on the unmerged `sherlockdeal-git-access-bek6d7`
 branch. Production has 564's DB half (`sherlock_next_snoozes_kind_check`
 already accepts `next_approach`) without its code half. The migration landing
 before the code is what made the fix look complete from the database.
+
+## Prompt 566 — 564 §C and §A code, extracted from bek6d7 without the branch (04/09/2026)
+
+`next_approach` (564 §C) and the `deriveSubmissionChannelType` fix (564 §A's
+code half) are now in `main`. §B and §D are not, deliberately.
+
+**Separability, since the prompt asked to stop rather than guess.** All four
+parts live in one commit (`9f1a86f`), but they separate cleanly in the source:
+
+- §C touches `sherlock-next.ts` (new rung, snooze key, local
+  `firstMessageCandidate` helper), `sherlock-next.test.ts` and
+  `SherlockNextButton.tsx`. Its only cross-file dependency is `effectiveMode`,
+  which already exists in `main` — so §C does NOT depend on §B's
+  `relationship.ts` changes, and `chooseFirstMessageTarget` itself is
+  untouched by the commit.
+- §A is entirely inside `deriveSubmissionChannelType`.
+- §D is the one real entanglement: its step-5 rewrite sits in the same file as
+  §C. Reverted hunk-by-hunk back to `main`'s version, its tests dropped with
+  it. §B (`relationship.ts`, `RailLogForm.tsx`) and §D's
+  `firstStepTaskTitle`/`catalog-delivery-core.ts` changes were never brought.
+
+**What the live check can and cannot show.** On the demo seed the clue lands on
+`follow_up_overdue` — a higher rung that legitimately wins there — so §C's rung
+is not reachable in `dev:verify`, and Caramel Biscuit's own data only exists in
+production, which verification may not touch. The account's shape was measured
+by SQL instead (1 outbound on 2026-08-06, 23 rows still `not_contacted`, 0 rows
+in `people`) and written as a unit test. **That one outbound is the whole bug:**
+step 9 is guarded by `!everSentOutbound`, so a single message silenced it, and
+the rung below iterated `db.people`, which a delivered catalog row has none of.
+The first draft of that test used zero interactions and failed — correctly, on
+`onboarding_first_message` — which is how the measurement got made instead of
+assumed.
+
+**Still outstanding, and reported rather than absorbed:** migration
+`0313_entities_submission_channel_type_backfill.sql` is applied in production
+but its file exists only on `bek6d7`, so `main` cannot replay it. Same class as
+0300 and `email_send_log_provider_events`. Not brought here because the prompt
+scoped this to code.

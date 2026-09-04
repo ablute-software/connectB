@@ -50,6 +50,10 @@ const KIND_TOOLTIP: Record<string, string> = {
   onboarding_pipeline: 'Opens Pipeline — add your first investor.',
   onboarding_first_message: "Opens this investor's dossier, ready to log your first message.",
   ready_to_contact: "Opens this investor's dossier ready to log the first outreach.",
+  // Prompt 564 §C — same register as ready_to_contact above: what the click
+  // does, in one sentence. The clue's own label already names the firm and
+  // the step, so this must not repeat it.
+  next_approach: "Opens this investor's dossier — the next firm on your list nobody has approached yet.",
   pitch_review: 'Opens the Dashboard — several investors passed for the same reason.',
   readiness_nudge: "Opens Readiness & Train's action plan to strengthen your Vault.",
   all_clear: 'Nothing urgent right now — see the full picture on Today.',
