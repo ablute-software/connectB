@@ -4542,3 +4542,27 @@ authorization check — that reading is now written next to it.
 that only a comment enforces is a rule the next caller doesn't know about;
 the gate now travels with the read, and a test asserts the raw read stays
 unexported so a fifth caller can't reintroduce the class.
+
+## Prompt 558 §2 — a trigger shared across tables branches with IF, never CASE (04/09/2026)
+
+In PL/pgSQL a `case tg_table_name when ... end` assignment is **one** SQL
+expression, and `NEW`/`OLD` field references in it are resolved when the
+expression is *prepared* — for every branch, not only the branch that will
+run. A trigger function attached to several tables that names a different
+field per branch therefore fails on every table that lacks any one of them,
+before a branch is ever chosen. That is what took the catalog read-only for
+hours on 03/09 (`record "new" has no field "entity_id"`): four tables, none
+holding all of `id`, `entity_id`, `person_id`. **Branch with `IF`** — separate
+statements, each prepared only when reached.
+
+**The part that is not about PL/pgSQL:** the fix was applied straight to
+production and landed in the migration ledger
+(`20260903190915 hotfix_catalog_readiness_refresh_per_table_branches`), but
+no file was ever committed. So the ledger said "fixed", production *was*
+fixed, and the repository still built the broken version on a clean replay —
+three sources of truth, two of them right, and nothing to make the third
+disagree out loud. A hotfix is not finished when production recovers; it is
+finished when a fresh replay of the repository produces what production has.
+0308 now carries the applied body verbatim (verified identical to
+`pg_get_functiondef` in production) and 0300 is corrected in place, so the
+replay never builds the broken version at all.

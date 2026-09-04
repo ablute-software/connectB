@@ -77,18 +77,29 @@ as $function$
 declare
   v_ids uuid[];
 begin
-  v_ids := case tg_table_name
-    when 'catalog_entities' then array[coalesce(new.id, old.id)]
-    when 'catalog_person_affiliations' then array[coalesce(new.entity_id, old.entity_id)]
-    when 'catalog_people' then array[coalesce(new.entity_id, old.entity_id)]
+  -- Prompt 558 — this WAS a single `case tg_table_name when ... end`
+  -- expression, and it broke every write to all four tables it is attached
+  -- to: `record "new" has no field "entity_id"`. In PL/pgSQL a CASE is ONE
+  -- SQL expression, and NEW/OLD field references are resolved when the
+  -- expression is PREPARED — for every branch, not just the one that will
+  -- run. No one of these tables has all of `id`, `entity_id` and
+  -- `person_id`, so the statement failed before choosing a branch. IF
+  -- branches are separate statements, prepared only when reached; that is
+  -- the only reason this is written the long way. Do not "simplify" it back
+  -- into a CASE. (Fixed in production on 03/09 as migration 0308; corrected
+  -- here so a fresh replay never builds the broken version at all.)
+  if tg_table_name = 'catalog_entities' then
+    v_ids := array[coalesce(new.id, old.id)];
+  elsif tg_table_name in ('catalog_person_affiliations', 'catalog_people') then
+    v_ids := array[coalesce(new.entity_id, old.entity_id)];
+  elsif tg_table_name = 'catalog_people_research' then
     -- research has no entity of its own; reach it through the affiliation.
-    when 'catalog_people_research' then (
-      select coalesce(array_agg(distinct pa.entity_id), '{}')
-        from public.catalog_person_affiliations pa
-       where pa.person_id = coalesce(new.person_id, old.person_id)
-    )
-    else '{}'
-  end;
+    select coalesce(array_agg(distinct pa.entity_id), '{}') into v_ids
+      from public.catalog_person_affiliations pa
+     where pa.person_id = coalesce(new.person_id, old.person_id);
+  else
+    v_ids := '{}';
+  end if;
 
   update public.catalog_entities c
      set outreach_readiness = public.catalog_outreach_readiness(c.id)
