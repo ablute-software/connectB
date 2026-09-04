@@ -51,6 +51,9 @@ export type EligibilityOrg = {
   // Migration 0168, dual-written by /api/company/visibility.
   owner_suspended_at?: string | null;
   platform_suspended_at?: string | null;
+  // Prompt 563, migration 0311. Non-null = never listed to investors, whatever
+  // the profile says. Same absent-means-allowed degrade as the fields above.
+  discovery_excluded_reason?: string | null;
 };
 
 export type EligibilityStartupProfile = {
@@ -80,6 +83,14 @@ export function filterEligibleOrgs(
       // the caller already selects the whole org row, so this needed neither
       // a second query nor its own capability probe.
       if (!viewerIsTest && org.is_test === true) return false;
+      // Prompt 563 — unconditional, unlike is_test above. A test viewer sees
+      // test orgs; nobody sees an org excluded from discovery, because the
+      // reason this exists is that the org must not be a listing at all. The
+      // case it was built for: Sherlock Deal, the platform, carrying a startup
+      // profile inside its own marketplace. Mirrors
+      // matchdeal_profile_discovery_excluded() in SQL — the deck RPC and this
+      // filter must never disagree about who is listable.
+      if (org.discovery_excluded_reason) return false;
       const profile = profileByOrg.get(org.id);
       // No startup MatchDeal profile at all = never published. Fail closed:
       // an absent row is not an implicit yes.

@@ -65,4 +65,32 @@ describe('filterEligibleOrgs', () => {
     ];
     expect(run(orgs, profiles)).toEqual(['a']);
   });
+
+  // Prompt 563 — the platform inside its own marketplace.
+  it('excludes an org with a discovery_excluded_reason, even for a test viewer', () => {
+    const platform: EligibilityOrg = { id: 'org-platform', discovery_excluded_reason: 'is the platform itself' };
+    const profiles = [{ membership_id: 'org-platform', is_visible: true }];
+    // Both cohorts: unlike is_test, this exclusion has no viewer that escapes it.
+    expect(filterEligibleOrgs([platform], profiles, false)).toEqual([]);
+    expect(filterEligibleOrgs([platform], profiles, true)).toEqual([]);
+  });
+
+  it('excludes it even when the profile is published and everything else is healthy', () => {
+    const platform: EligibilityOrg = {
+      id: 'org-platform', closed_at: null, is_test: false,
+      owner_suspended_at: null, platform_suspended_at: null,
+      discovery_excluded_reason: 'is the platform itself',
+    };
+    expect(filterEligibleOrgs([platform], [{ membership_id: 'org-platform', is_visible: true }], false)).toEqual([]);
+  });
+
+  it('an empty string is not an exclusion — only a real reason excludes', () => {
+    const org: EligibilityOrg = { id: 'org-a', discovery_excluded_reason: '' };
+    expect(filterEligibleOrgs([org], [{ membership_id: 'org-a', is_visible: true }], false)).toEqual(['org-a']);
+  });
+
+  it('absent discovery_excluded_reason leaves a normal org listable', () => {
+    const org: EligibilityOrg = { id: 'org-a' };
+    expect(filterEligibleOrgs([org], [{ membership_id: 'org-a', is_visible: true }], false)).toEqual(['org-a']);
+  });
 });

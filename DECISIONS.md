@@ -4994,3 +4994,52 @@ The DOM had them. The screen did not. A text assertion cannot see `opacity`,
 whether something is VISIBLE, the check has to be `getComputedStyle().opacity`
 plus `getBoundingClientRect().height` plus a screenshot someone looks at —
 never `textContent`.
+
+## Prompt 563 — the platform is not a listing in its own marketplace (04/09/2026)
+
+`orgs.discovery_excluded_reason` (migration 0311): non-null means the org is
+never listed in investor-facing discovery, whatever its matchdeal profile
+says. Set for Sherlock Deal, which carried a startup profile inside the
+product it *is*.
+
+**Why a new column instead of `orgs.is_test`,** which was the obvious first
+answer and was measured before being rejected. `is_test` is a *cohort* flag,
+not a discovery switch, and everything it does beyond discovery is
+founder-facing: the monthly investor delivery stops entirely (`/api/automations`
+filters `!is_test`, and `deliverMonthlyForOrg` carries the authoritative guard
+with a test pinning it), automation rules stop running, the org drops out of
+`catalog_outreach_supply` and loses enrichment priority, and it stops
+contributing to pipeline tracking counts. `is_test` says "this account is not
+real". Sherlock Deal is real. Marking it would have switched off paid features
+to solve a listing problem — **two different statements need two different
+columns.**
+
+Also rejected: leaving it at `is_visible = false`. That is the founder's own
+publish switch; one click undoes it. Invisible-by-accident was the thing to
+replace.
+
+The column is on `orgs`, not on the profile, because what may never be listed
+is the organisation — whatever profile it has now, and whatever profile row is
+created for it later. It stores text rather than a boolean so the row explains
+itself without anyone going to find this file.
+
+**Two mirrors, kept honest by construction.** SQL:
+`matchdeal_profile_discovery_excluded(membership_id, kind)`, deliberately the
+same shape and call sites as the existing `matchdeal_profile_org_is_closed`.
+TypeScript: `filterEligibleOrgs` in `pipeline-eligibility.ts`. Both use
+non-empty rather than non-null — caught while writing them: SQL `is not null`
+and JS truthiness disagree for exactly one value, `''`, and that divergence
+would have lived silently between the deck and the pipeline filter.
+
+Unlike `is_test`, the exclusion is **unconditional**: `is_test` is a cohort, so
+a test viewer sees test orgs, but nobody sees an excluded one. The reason it
+exists is that the org must not be a listing at all.
+
+**How the deck was edited, which is the reusable part.** `matchdeal_eligible_deck`
+is 118 lines, and retyping it into a migration to add two conditions is exactly
+the shape of change that corrupts something silently. Instead the migration
+reads the function's own `pg_get_functiondef`, asserts it finds exactly two
+closed-org checks (raising if not), appends the new condition beside each, and
+`execute`s the result — the database rewrites itself from its own text. Proof
+afterwards: strip the two new lines from the live definition and the digest of
+everything else equals the pre-migration digest (`9ba3dee3…`) exactly.
