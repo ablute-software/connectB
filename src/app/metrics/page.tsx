@@ -182,7 +182,7 @@ interface OverviewData {
     activationRate7d: number | null; retention30d: number | null;
   };
   revenue: {
-    mrr: number; mrrPotential: number; discountsValue: number; netNewMrr: number;
+    mrr: number; mrrPotential: number; mrrBilled: number; discountsValue: number; netNewMrr: number;
     freeToPaidConversion: { rate: number | null; normal: number; promo: number }; monthlyRevenueChurnPct: number | null;
   };
   valueProof: { qualifiedConversations: number; medianDaysToFirstResponse: number | null };
@@ -308,13 +308,14 @@ function OverviewTab() {
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Revenue</h2>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Stat
-                label="MRR — real · potencial"
-                value={`${fmtEurReal(data.revenue.mrr)} real · ${fmtEurReal(data.revenue.mrrPotential)} tabela`}
+                label="MRR — billed · at plan · list"
+                value={`${fmtEurReal(data.revenue.mrrBilled)} billed · ${fmtEurReal(data.revenue.mrr)} at plan`}
                 onClick={() => setDrillDown({
-                  title: 'MRR — real vs. potencial',
+                  title: 'MRR — billed vs. at plan vs. list price',
                   series: [
-                    { path: 'revenue.mrr', label: 'Real (efetivo)', color: '#0E7490', formatValue: fmtEurReal },
-                    { path: 'revenue.mrrPotential', label: 'Potencial (preço de tabela)', color: '#CBD5E1', formatValue: fmtEurReal },
+                    { path: 'revenue.mrrBilled', label: 'Billed (active Stripe subscription)', color: '#0E7490', formatValue: fmtEurReal },
+                    { path: 'revenue.mrr', label: 'Charged at plan (post-discount)', color: '#64748B', formatValue: fmtEurReal },
+                    { path: 'revenue.mrrPotential', label: 'List price', color: '#CBD5E1', formatValue: fmtEurReal },
                   ],
                 })}
               />

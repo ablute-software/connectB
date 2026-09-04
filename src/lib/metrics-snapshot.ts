@@ -63,6 +63,7 @@ export async function computeOverviewPayload(admin: SupabaseClient) {
     revenue: {
       mrr: mrrNow.total,
       mrrPotential: mrrNow.totalPotential,
+      mrrBilled: mrrNow.billed,
       discountsValue: mrrNow.discountsValue,
       netNewMrr: netNew,
       freeToPaidConversion: freeToPaid,

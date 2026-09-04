@@ -55,8 +55,11 @@ export async function GET(req: Request) {
     },
     revenue: {
       mrr: mrrNow.total,
-      // Prompt 296 §3 — always shown alongside the real number, never alone.
+      // Prompt 296 §3 — always shown alongside the other, never alone.
       mrrPotential: mrrNow.totalPotential,
+      // Prompt 569 — the only one backed by a charge. mrr/mrrPotential both
+      // come from orgs.plan, which the back-office flips by hand.
+      mrrBilled: mrrNow.billed,
       discountsValue: mrrNow.discountsValue,
       netNewMrr: netNew,
       freeToPaidConversion: freeToPaid,

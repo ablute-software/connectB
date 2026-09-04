@@ -56,11 +56,19 @@ interface OrgRow {
 // every indicator below sees the same real-org set. Fetched fresh per call
 // rather than cached: this is an admin dashboard, not a hot path, and a
 // stale exclusion list is worse than one extra query per request.
+// Prompt 569 §1 — `is_test` as well as the name prefix. The name check alone
+// let both paid orgs through: Caramel Biscuit and "Sherlock Deal_ test" are
+// flagged is_test = true in production and neither matches the prefix, so a
+// screen that exists to report the business counted two QA accounts as
+// customers. The flag is the deliberate marker; the name was always a
+// heuristic standing in for it.
 async function realOrgs(admin: SupabaseClient): Promise<OrgRow[]> {
   const { data } = await admin.from('orgs').select(
-    'id, name, plan, created_at, country, sector, round_raising, profile_reached_80_at, stripe_subscription_id, stripe_billing_period',
+    'id, name, plan, created_at, country, sector, round_raising, profile_reached_80_at, stripe_subscription_id, stripe_billing_period, is_test',
   );
-  return (data ?? []).filter((o) => !isExcludedOrgName(o.name));
+  return (data ?? [])
+    .filter((o) => !isExcludedOrgName(o.name))
+    .filter((o) => !(o as { is_test?: boolean | null }).is_test);
 }
 
 async function realInvestorEntities(admin: SupabaseClient) {
@@ -230,7 +238,19 @@ export async function retention30d(admin: SupabaseClient): Promise<number | null
 // mrr() already does — never a second, separately-filtered pass (that
 // second pass is exactly what revenueBreakdown() used to do below, and it
 // had drifted onto a different "paying" definition; see the comment there).
-export async function mrr(admin: SupabaseClient): Promise<{ total: number; totalPotential: number; discountsValue: number; startups: number; investors: number }> {
+// Prompt 569 §1/§5 — `billed` is new, and it is the only number here that
+// means money. `total` and `totalPotential` both derive from orgs.plan, which
+// the back-office set-plan route flips by hand with no payment behind it, so
+// calling either of them "real" was wrong at the label: they are list price,
+// before and after promo discounts. `billed` counts only orgs with a live
+// Stripe subscription, which is the one thing that says a charge exists.
+//
+// Today that is €0, and it should be: Stripe checkout/portal/webhook routes
+// exist (src/app/api/stripe/*) and orgs carries stripe_customer_id /
+// stripe_subscription_id / stripe_billing_period, but no org in production has
+// a subscription id. So the wiring is built and nobody has ever paid through
+// it. €0 is the honest reading, not a missing integration.
+export async function mrr(admin: SupabaseClient): Promise<{ total: number; totalPotential: number; billed: number; discountsValue: number; startups: number; investors: number }> {
   const orgs = await realOrgs(admin);
   const payingOrgs = orgs.filter((o) => (o.plan as PlanTier) !== 'idea');
   const { data: redemptions } = payingOrgs.length
@@ -246,19 +266,24 @@ export async function mrr(admin: SupabaseClient): Promise<{ total: number; total
 
   let startups = 0;
   let startupsPotential = 0;
+  let billed = 0;
   for (const o of payingOrgs) {
     const row = PLANS.find((p) => p.tier === (o.plan as PlanTier));
     if (!row) continue;
     const listPrice = o.stripe_billing_period === 'annual' ? (row.annualPerMonthEur ?? row.monthlyEur) : row.monthlyEur;
     const discount = activeDiscountByOrg.get(o.id) ?? 0;
+    const charged = discount > 0 ? discountedPriceEur(listPrice, discount) : listPrice;
     startupsPotential += listPrice;
-    startups += discount > 0 ? discountedPriceEur(listPrice, discount) : listPrice;
+    startups += charged;
+    // The one gate that means a payment mechanism exists for this org.
+    if (o.stripe_subscription_id) billed += charged;
   }
   // Investor-side plans have no live Stripe wiring yet (Prompt 74's own
   // finding: "Investor plans have no DB column or gate yet" beyond the
   // request-only path) — 0 until that exists, not a fabricated estimate.
   return {
     total: Math.round(startups), totalPotential: Math.round(startupsPotential),
+    billed: Math.round(billed),
     discountsValue: Math.round(startupsPotential - startups),
     startups: Math.round(startups), investors: 0,
   };
@@ -463,10 +488,15 @@ export async function plansAndSubscriptions(admin: SupabaseClient, range: DateRa
 export interface RevenueBreakdown {
   mrr: number; mrrPotential: number; arr: number; arrPotential: number; netNewMrr: number;
   startupRevenue: number; investorRevenue: number; arpa: number; discountsValue: number;
+  // Prompt 569 — the only field here backed by a payment mechanism. Every
+  // other number on this interface is list price derived from orgs.plan, a
+  // field the back-office flips by hand. Naming them apart is the fix: the
+  // screen used to call the list-price figure "real".
+  mrrBilled: number; arrBilled: number;
 }
 
 export async function revenueBreakdown(admin: SupabaseClient, range: DateRange): Promise<RevenueBreakdown> {
-  const { total, totalPotential, discountsValue, startups, investors } = await mrr(admin);
+  const { total, totalPotential, billed, discountsValue, startups, investors } = await mrr(admin);
   const netNew = await netNewMrr(admin, range);
   const orgs = await realOrgs(admin);
   // ARPA must count the SAME "paying" org set mrr() itself summed over
@@ -484,6 +514,7 @@ export async function revenueBreakdown(admin: SupabaseClient, range: DateRange):
 
   return {
     mrr: total, mrrPotential: totalPotential, arr: total * 12, arrPotential: totalPotential * 12,
+    mrrBilled: billed, arrBilled: billed * 12,
     netNewMrr: netNew, startupRevenue: startups, investorRevenue: investors, arpa, discountsValue,
   };
 }

@@ -9,7 +9,7 @@ interface GrowthData {
   acquisition: { completedRegistrations: number; bySource: Record<string, number> };
   plans: { free: number; paid: number; byPlan: Record<string, number>; upgrades: number; downgrades: number; cancellations: number };
   revenue: {
-    mrr: number; mrrPotential: number; arr: number; arrPotential: number; netNewMrr: number;
+    mrr: number; mrrPotential: number; mrrBilled: number; arr: number; arrPotential: number; arrBilled: number; netNewMrr: number;
     startupRevenue: number; investorRevenue: number; arpa: number; discountsValue: number;
   };
   promo: { totalRedemptions: number; byPartner: Record<string, number>; activationRatePct: number | null };
@@ -94,39 +94,49 @@ export function GrowthRevenueTab() {
           </Card>
 
           <Card title="Revenue">
-            {/* Prompt 296 §3 — real (effective, post-discount) always primary
-                and prominent; potential (list price) always secondary and
-                discreet, right next to it — never a single ambiguous number. */}
+            {/* Prompt 296 §3 — one number is never enough here; the effective
+                and the list price always sit together.
+
+                Prompt 569 §1/§5 — but neither of them was ever "real". Both
+                derive from orgs.plan, which the back-office set-plan route
+                flips by hand with no payment behind it, so this card read
+                "€298 real" while nobody had paid anything. Billed is now the
+                primary figure and the only one backed by a charge (an active
+                Stripe subscription); charged-at-plan and list price stand
+                behind it, labelled for what they are. The Portuguese labels
+                went with it — this is an English UI. */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div className="rounded-xl border border-gray-100 bg-white p-3 cursor-pointer transition hover:border-[#0E7490] hover:shadow-sm"
                 onClick={() => setDrillDown({
-                  title: 'MRR — real vs. potencial',
+                  title: 'MRR — billed vs. plan vs. list price',
                   series: [
-                    { path: 'revenue.mrr', label: 'Real (efetivo)', color: '#0E7490', formatValue: fmtEur },
-                    { path: 'revenue.mrrPotential', label: 'Potencial (preço de tabela)', color: '#CBD5E1', formatValue: fmtEur },
+                    { path: 'revenue.mrrBilled', label: 'Billed (active Stripe subscription)', color: '#0E7490', formatValue: fmtEur },
+                    { path: 'revenue.mrr', label: 'Charged at plan (post-discount)', color: '#64748B', formatValue: fmtEur },
+                    { path: 'revenue.mrrPotential', label: 'List price', color: '#CBD5E1', formatValue: fmtEur },
                   ],
                 })}>
-                <div className="text-lg font-bold text-[#0E7490]">{fmtEur(data.revenue.mrr)}</div>
-                <div className="text-[11px] text-gray-400">real · {fmtEur(data.revenue.mrrPotential)} ao preço de tabela</div>
+                <div className="text-lg font-bold text-[#0E7490]">{fmtEur(data.revenue.mrrBilled)}</div>
+                <div className="text-[11px] text-gray-400">billed · {fmtEur(data.revenue.mrr)} at plan · {fmtEur(data.revenue.mrrPotential)} list</div>
                 <div className="mt-0.5 text-[11px] text-gray-500">MRR</div>
               </div>
               <div className="rounded-xl border border-gray-100 bg-white p-3 cursor-pointer transition hover:border-[#0E7490] hover:shadow-sm"
                 onClick={() => setDrillDown({
-                  title: 'ARR — real vs. potencial (MRR × 12)',
+                  title: 'ARR — billed vs. plan vs. list price (MRR × 12)',
                   series: [
-                    { path: 'revenue.mrr', label: 'Real (efetivo) — MRR', color: '#0E7490', formatValue: (v) => fmtEur(v * 12) },
-                    { path: 'revenue.mrrPotential', label: 'Potencial (preço de tabela) — MRR', color: '#CBD5E1', formatValue: (v) => fmtEur(v * 12) },
+                    { path: 'revenue.mrrBilled', label: 'Billed — MRR', color: '#0E7490', formatValue: (v) => fmtEur(v * 12) },
+                    { path: 'revenue.mrr', label: 'Charged at plan — MRR', color: '#64748B', formatValue: (v) => fmtEur(v * 12) },
+                    { path: 'revenue.mrrPotential', label: 'List price — MRR', color: '#CBD5E1', formatValue: (v) => fmtEur(v * 12) },
                   ],
                 })}>
-                <div className="text-lg font-bold text-[#0E7490]">{fmtEur(data.revenue.arr)}</div>
-                <div className="text-[11px] text-gray-400">real · {fmtEur(data.revenue.arrPotential)} ao preço de tabela</div>
+                <div className="text-lg font-bold text-[#0E7490]">{fmtEur(data.revenue.arrBilled)}</div>
+                <div className="text-[11px] text-gray-400">billed · {fmtEur(data.revenue.arr)} at plan · {fmtEur(data.revenue.arrPotential)} list</div>
                 <div className="mt-0.5 text-[11px] text-gray-500">ARR</div>
               </div>
               <MiniStat label="Net New MRR" value={`€${data.revenue.netNewMrr.toLocaleString()}`}
                 onClick={() => setDrillDown({ title: 'Net New MRR', series: [{ path: 'revenue.netNewMrr', label: 'Net New MRR', color: '#16a34a', formatValue: fmtEur }] })} />
-              <MiniStat label="ARPA" value={`€${data.revenue.arpa.toLocaleString()}`} />
-              <MiniStat label="Startup revenue" value={`€${data.revenue.startupRevenue.toLocaleString()}`} />
-              <MiniStat label="Investor revenue" value={`€${data.revenue.investorRevenue.toLocaleString()}`} />
+              <MiniStat label="ARPA (at plan)" value={`€${data.revenue.arpa.toLocaleString()}`} />
+              <MiniStat label="Startup revenue (at plan)" value={`€${data.revenue.startupRevenue.toLocaleString()}`} />
+              <MiniStat label="Investor revenue (at plan)" value={`€${data.revenue.investorRevenue.toLocaleString()}`} />
               <MiniStat label="Active discounts value" value={`€${data.revenue.discountsValue.toLocaleString()}/mo`} />
             </div>
             {data.revenue.investorRevenue === 0 && (
