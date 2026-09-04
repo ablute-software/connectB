@@ -26,6 +26,23 @@ type Redemption = {
 
 const ELIGIBLE_PLAN_ROWS = PLANS.filter((p) => PROMO_ELIGIBLE_PLANS.includes(p.tier));
 
+// Prompt 567 — the list printed applicable_plans straight, so a row read
+// "garage, motherfunding" beside properly formatted labels like "Free trial"
+// and "Redemption window closed". Those are the internal slugs of orgs.plan;
+// the founder-facing names are "List of Suspects" and "It's the butler!", and
+// PLANS already holds them — the creation form above this list has been
+// showing them all along, which is what made the mismatch visible.
+//
+// Deliberately not planName(): planRow() resolves an unknown slug to PLANS[0],
+// so a plan that is ever removed or renamed would silently be labelled
+// "Elementary, my dear" — the free tier — instead of showing that something
+// is off. Looking the row up here and falling back to the raw slug keeps the
+// display honest, and still reads the single source of truth rather than
+// introducing a second slug-to-name table.
+function planLabelForSlug(slug: string): string {
+  return PLANS.find((p) => p.tier === slug)?.name ?? slug;
+}
+
 function fmtDate(iso: string | null) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -220,7 +237,7 @@ function PromoRow({ promo, onChanged }: { promo: Promo; onChanged: () => void })
           {promo.kind === 'free_trial' ? 'Free trial' : `${promo.discount_pct}% off`}
         </span>
         {promo.is_pioneer && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">🏅 Pioneer</span>}
-        <span className="text-[11px] text-gray-400">{promo.applicable_plans.join(', ')}</span>
+        <span className="text-[11px] text-gray-400">{promo.applicable_plans.map(planLabelForSlug).join(', ')}</span>
         {promo.benefit_duration_months && <span className="text-[11px] text-gray-400">for {promo.benefit_duration_months}mo</span>}
         {!promo.active && <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[11px] font-semibold text-gray-600">Inactive</span>}
         {isExpired && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Redemption window closed</span>}
