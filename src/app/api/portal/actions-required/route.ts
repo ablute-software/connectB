@@ -51,7 +51,9 @@ export async function GET() {
   const grantOrgIds = [...new Set((grantOrgRows ?? []).map((g) => g.org_id as string))];
 
   const ndaPending: { orgId: string; count: number }[] = [];
-  const newDocs: { orgId: string; count: number }[] = [];
+  // Prompt 560 §C — the id of the first document this investor has not
+  // opened, so the action can point at the row instead of the tab.
+  const newDocs: { orgId: string; count: number; firstUnseenDocId: string | null }[] = [];
   for (const orgId of grantOrgIds) {
     const grants = await activeGrantsForFirm(admin, orgId, email);
     if (grants.length === 0) continue;
@@ -63,8 +65,8 @@ export async function GET() {
       const { data: views } = await admin.from('document_views')
         .select('document_id').eq('org_id', orgId).eq('viewer_email', email);
       const viewed = new Set((views ?? []).map((v) => v.document_id as string));
-      const unseen = visible.filter((d) => !viewed.has(d.id)).length;
-      if (unseen > 0) newDocs.push({ orgId, count: unseen });
+      const unseen = visible.filter((d) => !viewed.has(d.id));
+      if (unseen.length > 0) newDocs.push({ orgId, count: unseen.length, firstUnseenDocId: unseen[0].id ?? null });
     }
   }
 

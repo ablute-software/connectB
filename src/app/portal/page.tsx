@@ -18,7 +18,8 @@
 // a signed NDA. There's no self-click "I accept" anymore — a real signed
 // NDA the founder uploads (and AI cross-checks) is what unlocks access now,
 // so there's nothing for the investor to click through here.
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import { authEnabled, browserClient } from '@/lib/supabase';
@@ -343,7 +344,16 @@ function SnapshotCard({ s, orgId }: { s: PortalSnapshot; orgId?: string }) {
   );
 }
 
+// Prompt 560 §C — the Suspense boundary useSearchParams requires.
 export default function PortalPage() {
+  return (
+    <Suspense fallback={<p className="p-6 text-sm text-gray-400">Loading…</p>}>
+      <PortalPageInner />
+    </Suspense>
+  );
+}
+
+function PortalPageInner() {
   const { db, recordDocumentView } = useStore();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -402,17 +412,25 @@ export default function PortalPage() {
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('linkFailed') === '1');
 
   // P134-B — the dossier's "Equity calculator" header shortcut deep-links to
-  // /portal?tab=evaluation&orgId=…; read once via the same lazy-initializer
-  // + plain URLSearchParams technique linkFailed already uses above, rather
-  // than next/navigation's useSearchParams (which would force this
-  // statically-rendered page behind a Suspense boundary for one query read).
-  const [initialTab] = useState<Tab>(() => {
-    if (typeof window === 'undefined') return 'pipeline';
-    const t = new URLSearchParams(window.location.search).get('tab');
-    return (t === 'evaluation' ? 'evaluation' : 'pipeline') as Tab;
-  });
-  const [initialEvaluationOrgId] = useState<string | null>(() =>
-    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('orgId') : null);
+  // /portal?tab=evaluation&orgId=….
+  //
+  // Prompt 560 §C — read from the ROUTER, not from window.location at mount.
+  // P134-B's own comment named the trade it was making ("rather than
+  // useSearchParams, which would force this statically-rendered page behind
+  // a Suspense boundary for one query read"), and the trade does not hold:
+  // under App Router client navigation the page renders before the router
+  // commits the URL, so a lazy initializer reads the PREVIOUS page's query
+  // string and this deep link lands on the default tab. It only ever worked
+  // on a hard reload. The Suspense boundary is around the default export
+  // below — one wrapper, and the link works from inside the app.
+  //
+  // `linkFailed` above deliberately KEEPS its lazy initializer: it is read
+  // once at mount for a value the magic-link redirect puts in a FULL page
+  // load, and its own comment explains why re-reading it live breaks Strict
+  // Mode. Different problem, different answer.
+  const searchParams = useSearchParams();
+  const initialTab: Tab = (searchParams.get('tab') === 'evaluation' ? 'evaluation' : 'pipeline') as Tab;
+  const initialEvaluationOrgId = searchParams.get('orgId');
 
   useEffect(() => {
     if (!authEnabled) return;

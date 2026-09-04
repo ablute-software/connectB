@@ -52,13 +52,14 @@
 // documents to the same relationship — always through the store's own
 // addGrant/revokeGrant/extendGrant, which write through the founder's
 // RLS-scoped client, so the org boundary is enforced by Postgres, not here.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { normaliseShareEmail, shouldOfferShareByEmail } from '@/lib/share-by-email';
 import { useConfirm } from '@/lib/confirm';
 import { Card } from '@/components/ui';
 import { computeCellEffect, findEffectiveGrantAmong, type CellEffect, type MatrixGrant } from '@/lib/people-access-matrix';
 import { grantStatus } from '@/lib/access-grants';
+import type { RegisteredIdentity } from '@/lib/data-room-access-relationships';
 import {
   buildAccessRelationships, matchesRelationshipQuery,
   type AccessRelationship, type RelationshipGrant,
@@ -111,7 +112,7 @@ export function PeopleAccessPanel({ onShareByEmail }: {
   // not render, so nothing here breaks for any other caller.
   onShareByEmail?: (email: string) => void;
 } = {}) {
-  const { db, addGrant, revokeGrant, extendGrant } = useStore();
+  const { db, addGrant, revokeGrant, extendGrant, refreshFromServer, invitePersonForGrant } = useStore();
   const confirm = useConfirm();
   // Prompt 204 §A — a arvore que findEffectiveGrant precisa para saber que um
   // grant numa pasta-mae cobre as subpastas.
@@ -144,6 +145,35 @@ export function PeopleAccessPanel({ onShareByEmail }: {
   // One row per relationship — the whole point of Prompt 530. Recomputes
   // from db.grants, so every access change below (add / revoke / extend)
   // re-derives both columns in the same render; nothing here caches a count.
+  // Prompt 560 §A — bumped after "Add to pipeline" so the row re-resolves
+  // (the new entity has to come back as `pipelineEntityId` before rule 3b
+  // can move the relationship into it).
+  const [refreshIdentitiesTick, setRefreshIdentitiesTick] = useState(0);
+  const [addingToPipeline, setAddingToPipeline] = useState<string | null>(null);
+  // Prompt 560 §A — the manual "Associate to…" picker.
+  const [associateEntityId, setAssociateEntityId] = useState('');
+  const [associating, setAssociating] = useState(false);
+
+  // Prompt 560 §A — which shared addresses belong to a registered Sherlock
+  // investor. Fetched once; the panel works exactly as before while it is
+  // still null, because buildAccessRelationships treats an absent map as
+  // "nothing is known", never as "nobody is registered".
+  const [registeredByEmail, setRegisteredByEmail] = useState<Record<string, RegisteredIdentity> | undefined>(undefined);
+  useEffect(() => {
+    if (!authEnabled) return;
+    let cancelled = false;
+    fetch('/api/data-room/recipient-identities')
+      .then((r) => r.json())
+      .then((d: { ok?: boolean; identities?: (RegisteredIdentity & { email: string })[] }) => {
+        if (cancelled || !d?.ok) return;
+        const map: Record<string, RegisteredIdentity> = {};
+        for (const row of d.identities ?? []) map[row.email] = row;
+        setRegisteredByEmail(map);
+      })
+      .catch(() => { /* the panel is fully usable without it */ });
+    return () => { cancelled = true; };
+  }, [refreshIdentitiesTick]);
+
   const relationships = useMemo(() => buildAccessRelationships({
     entities: db.entities.map((e) => ({ id: e.id, name: e.name })),
     people: db.people.map((p) => ({ id: p.id, entity_id: p.entity_id, full_name: p.full_name, email_verified: p.email_verified, email_guess: p.email_guess })),
@@ -152,8 +182,9 @@ export function PeopleAccessPanel({ onShareByEmail }: {
     folders: folderTree,
     documents: db.documents.map((d) => ({ id: d.id, folder_id: d.folder_id, visibility: d.visibility })),
     now,
+    registeredByEmail,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [db.entities, db.people, db.personAffiliations, db.grants, db.documents, folderTree]);
+  }), [db.entities, db.people, db.personAffiliations, db.grants, db.documents, folderTree, registeredByEmail]);
 
   const query_ = query.trim().toLowerCase();
 
@@ -565,10 +596,50 @@ export function PeopleAccessPanel({ onShareByEmail }: {
   }
 
   const porAssociarCount = relationships.filter((r) => r.status === 'por_associar').length;
+  const registeredCount = relationships.filter((r) => r.status === 'registered').length;
+
+  // Prompt 560 §A — the founder's own act. Nothing lands in a pipeline
+  // because somebody registered; it lands because this button was clicked.
+  async function addToPipeline(email: string) {
+    setAddingToPipeline(email);
+    try {
+      const res = await fetch('/api/data-room/add-to-pipeline', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }),
+      });
+      const body = await res.json();
+      if (!body.ok) throw new Error(body.error ?? 'Could not add to your pipeline.');
+      // Two refreshes, both needed and in this order: the store, so the new
+      // entity exists for the resolver to name (rule 3b only moves a row
+      // into an entity the panel actually knows about), then the identities,
+      // so the row learns its pipelineEntityId.
+      await refreshFromServer();
+      setRefreshIdentitiesTick((n) => n + 1);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setAddingToPipeline(null);
+    }
+  }
+
+  async function associateSelected(email: string) {
+    if (!associateEntityId || !email) return;
+    setAssociating(true);
+    try {
+      // The store already de-duplicates by email, so associating an address
+      // a person row already carries is a no-op rather than a duplicate.
+      await invitePersonForGrant(associateEntityId, email, selected?.name ?? email);
+      setAssociateEntityId('');
+    } catch (e) {
+      alert(`Could not associate: ${(e as Error).message}`);
+    } finally {
+      setAssociating(false);
+    }
+  }
 
   function relationshipRow(rel: AccessRelationship) {
     const selectedRow = selectedKey === rel.key;
     const amber = rel.status === 'por_associar';
+    const registered = rel.status === 'registered';
     return (
       <li key={rel.key}>
         <button onClick={() => selectRelationship(rel.key)}
@@ -584,9 +655,25 @@ export function PeopleAccessPanel({ onShareByEmail }: {
               {rel.fileCount} {rel.fileCount === 1 ? 'file' : 'files'} granted · {rel.peopleCount} {rel.peopleCount === 1 ? 'person' : 'people'}
             </span>
             {amber && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-800">Por associar</span>}
+            {/* Prompt 560 §A — a third state, not a shade of the other two:
+                we know exactly who this is, their firm just isn't in this
+                pipeline yet. One click away, and the click is the founder's. */}
+            {registered && <span className="rounded-full bg-[#E8F4F8] px-1.5 py-0.5 text-[9px] font-bold text-[#0E7490]">Registered investor</span>}
             {rel.hasExpiredGrant && <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[9px] font-bold text-orange-800">Expired grant</span>}
           </span>
         </button>
+        {/* Outside the row button, deliberately: this is a write, and
+            nesting a <button> inside a <button> is invalid HTML that browsers
+            "fix" by hoisting it out, which would break the row's own click. */}
+        {registered && rel.registeredCatalogEntityId && (
+          <div className="px-2 pb-1.5">
+            <button type="button" disabled={addingToPipeline === (rel.guestEmails[0] ?? '')}
+              onClick={() => addToPipeline(rel.guestEmails[0] ?? '')}
+              className="rounded border border-[#0E7490] px-2 py-0.5 text-[10px] font-medium text-[#0E7490] hover:bg-[#E8F4F8] disabled:opacity-40">
+              {addingToPipeline === (rel.guestEmails[0] ?? '') ? 'Adding…' : 'Add to pipeline'}
+            </button>
+          </div>
+        )}
       </li>
     );
   }
@@ -599,10 +686,22 @@ export function PeopleAccessPanel({ onShareByEmail }: {
           placeholder="Search entity, person or email…" aria-label="Search entities"
           className="mb-3 w-full rounded border border-gray-300 px-2 py-1.5 text-sm" />
 
+        {/* Prompt 560 §A — the old copy promised "when they sign up with the
+            same address, their access follows them". It did not: rule 3 only
+            knew the founder's own `people` rows, so a recipient who
+            registered stayed amber forever. The promise is true now, so it
+            takes fewer words — and the registered case gets its own line,
+            because it is a different situation with a different next step. */}
         {porAssociarCount > 0 && (
           <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
-            <span className="font-semibold">Por associar ({porAssociarCount})</span> — shared by email, not yet matched to an
-            investor in your pipeline. They stay one relationship: when they sign up with the same address, their access follows them.
+            <span className="font-semibold">Por associar ({porAssociarCount})</span> — shared by email, not matched to anyone yet.
+            Sign-ups with the same address link themselves; use <span className="font-medium">Associate to…</span> for the rest.
+          </p>
+        )}
+        {registeredCount > 0 && (
+          <p className="mb-2 rounded-lg border border-cyan-200 bg-[#E8F4F8] px-2.5 py-1.5 text-[11px] text-[#0E7490]">
+            <span className="font-semibold">Registered investors ({registeredCount})</span> — they have a Sherlock account.
+            Add their firm to your pipeline and their access joins that relationship.
           </p>
         )}
 
@@ -662,11 +761,49 @@ export function PeopleAccessPanel({ onShareByEmail }: {
                     {selected.status === 'por_associar' && (
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">Por associar</span>
                     )}
+                    {selected.status === 'registered' && (
+                      <span className="rounded-full bg-[#E8F4F8] px-2 py-0.5 text-[10px] font-bold text-[#0E7490]">
+                        Registered investor{selected.registeredFirmName ? ` · ${selected.registeredFirmName}` : ''}
+                      </span>
+                    )}
                   </>
                 ) : (
                   <span>No access yet — click any “Can’t view” badge to start sharing with {selectedName}.</span>
                 )}
               </div>
+
+              {/* Prompt 560 §A — "Associate to…": the manual path, for every
+                  recipient rule 3b cannot resolve (no Sherlock account, or a
+                  personal address that is not the one they registered with).
+                  It creates a `people` row against a pipeline entity via the
+                  store's existing invitePersonForGrant, which de-duplicates
+                  by email — after which rule 3 (the older, stronger rule)
+                  resolves the relationship on the next render, with no new
+                  mechanism. Deliberately NOT offered on a `registered` row:
+                  that one has "Add to pipeline", which is more accurate and
+                  needs no typing. */}
+              {selected && selected.status === 'por_associar' && grantGuestEmails.length > 0 && (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-2">
+                  <label className="block text-[11px] font-medium text-gray-600" htmlFor="associate-entity">Associate to…</label>
+                  <p className="mb-1 text-[10px] text-gray-400">
+                    Links {grantGuestEmails[0]} to an investor in your pipeline. Their existing access moves to that relationship.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <select id="associate-entity" value={associateEntityId} onChange={(e) => setAssociateEntityId(e.target.value)}
+                      className="min-w-0 flex-1 rounded border border-gray-300 px-2 py-1 text-xs">
+                      <option value="">Pick an investor…</option>
+                      {db.entities.slice().sort((a, b) => a.name.localeCompare(b.name)).map((e) => (
+                        <option key={e.id} value={e.id}>{e.name}</option>
+                      ))}
+                    </select>
+                    <button type="button" disabled={!associateEntityId || associating}
+                      onClick={() => void associateSelected(grantGuestEmails[0])}
+                      className="rounded bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40">
+                      {associating ? 'Linking…' : 'Associate'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Prompt 537 §1(a) — the last send outcome for this recipient,
                   with the provider's verbatim reason, and the two actions

@@ -19,6 +19,9 @@
 //   1. the entity a granted person belongs to  → `entity:<id>`
 //   2. a granted person with no entity at all  → `person:<id>`
 //   3. an email that matches a known person    → resolved to 1 or 2
+//  3b. an email registered as a Sherlock investor (Prompt 560):
+//        → with a pipeline entity for their firm → `entity:<id>`, associated
+//        → without one                           → stays by email, status `registered`
 //   4. an email that matches nothing yet       → `guest:<email>`  (Por associar)
 //
 // Rule 3 is the guest → registered-investor continuity requirement in its
@@ -28,6 +31,28 @@
 // North Ventures relationship instead of standing beside it as a duplicate.
 // /api/portal/confirm-identity keeps invited_email on the row precisely so
 // this stays possible after confirmation.
+//
+// Prompt 560 — rule 3 knew only ONE source of identities, and it was the
+// wrong one. `people` rows belong to the FOUNDER's org: an investor creating
+// a Sherlock account creates nothing there, so a recipient who registered
+// with the very address she was invited at stayed "Por associar" forever.
+// The header above promised "the guest → registered-investor continuity
+// requirement"; the code delivered continuity only for investors the founder
+// had already typed into their own CRM, which is the case that needed it
+// least. Nuno hit exactly this: he shared, she signed up with the same
+// address, and the row never moved.
+//
+// Rule 3b adds the other source — `matchdeal_investor_members`, where
+// investors actually register — resolved server-side by
+// /api/data-room/recipient-identities and passed in as `registeredByEmail`.
+// It sits AFTER rule 3 deliberately: a `people` row is the founder's own
+// statement about who this is, and it keeps winning.
+//
+// What 3b does NOT do: create a `people` row. Association is either through
+// the pipeline entity (automatic, because the firm is already in this
+// founder's pipeline and so is already theirs to see) or through the
+// founder's explicit "Associate to…". An investor registering must never
+// silently write into a founder's CRM.
 import { grantStatus } from './access-grants';
 import { computeCellEffect, findEffectiveGrantAmong, type MatrixGrant } from './people-access-matrix';
 import type { TreeFolder } from './data-room';
@@ -67,8 +92,27 @@ export interface RelationshipDocument {
 
 /** `associated` = resolved to a real entity/person; `por_associar` = an
  *  external email nobody has been matched to yet (the amber state the panel
- *  has always used, kept by name). */
-export type RelationshipStatus = 'associated' | 'por_associar';
+ *  has always used, kept by name); `registered` (Prompt 560) = the recipient
+ *  has a Sherlock investor account but their firm is not in this founder's
+ *  pipeline yet, so there is nothing to attach them TO. A third state, not a
+ *  shade of the other two: "we know who this is, one click away from linked"
+ *  is a different situation from "nobody has any idea who this is", and it
+ *  has a different button. */
+export type RelationshipStatus = 'associated' | 'por_associar' | 'registered';
+
+/** What /api/data-room/recipient-identities knows about one shared email.
+ *  `firmName` is deliberately optional and often absent — see that route for
+ *  the exposure rule (a name is only ever revealed for an investor who
+ *  confirmed to THIS org, or whose firm is already in its pipeline). */
+export interface RegisteredIdentity {
+  registered: true;
+  firmName?: string | null;
+  catalogEntityId?: string | null;
+  /** The entity in THIS founder's pipeline that represents the firm, when
+   *  one already exists. Its presence is what turns 3b into a real
+   *  association rather than a label. */
+  pipelineEntityId?: string | null;
+}
 
 export interface AccessRelationship {
   /** Stable selection key — also the React key. Survives adding/revoking
@@ -101,6 +145,11 @@ export interface AccessRelationship {
   /** Pending guest invite: unconfirmed, unrevoked, invited by email. Drives
    *  "Copy guest link" / the guest-preview resend. */
   pendingInviteEmail?: string;
+  /** Prompt 560 — set only on a `registered` row: the catalog entity behind
+   *  the investor's firm, which "Add to pipeline" turns into a pipeline
+   *  entity. Absent on every other row. */
+  registeredCatalogEntityId?: string;
+  registeredFirmName?: string;
   /** Lower-cased haystack for the type-ahead filter. */
   searchText: string;
 }
@@ -123,6 +172,11 @@ export interface BuildRelationshipsInput {
   folders: TreeFolder[];
   documents: RelationshipDocument[];
   now: Date;
+  /** Prompt 560 rule 3b. Keys are lower-cased emails. Absent entirely on a
+   *  surface that has not fetched them (or before the route exists), which
+   *  degrades to exactly the pre-560 behaviour — no row changes state
+   *  because nothing is known about it. */
+  registeredByEmail?: Record<string, RegisteredIdentity>;
 }
 
 /**
@@ -161,7 +215,7 @@ export function countGrantedDocuments(
  * exactly as before, and show "no access yet" rather than a fake count).
  */
 export function buildAccessRelationships(input: BuildRelationshipsInput): AccessRelationship[] {
-  const { entities, people, affiliations, grants, folders, documents, now } = input;
+  const { entities, people, affiliations, grants, folders, documents, now, registeredByEmail } = input;
 
   const entityName = new Map(entities.map((e) => [e.id, e.name]));
   const personById = new Map(people.map((p) => [p.id, p]));
@@ -190,6 +244,10 @@ export function buildAccessRelationships(input: BuildRelationshipsInput): Access
     personIds: Set<string>; guestEmails: Set<string>; emails: Set<string>;
     invitedNames: Set<string>; grants: RelationshipGrant[];
     pendingInviteEmail?: string;
+    /** Prompt 560 — the registered identity behind this bucket, when the
+     *  bucket exists only because of an email that turned out to belong to a
+     *  Sherlock investor. Never set on a bucket resolved by rule 1/2/3. */
+    registered?: RegisteredIdentity;
   }
   const buckets = new Map<string, Bucket>();
 
@@ -223,8 +281,25 @@ export function buildAccessRelationships(input: BuildRelationshipsInput): Access
       bucket = bucketFor(`person:${g.person_id}`, 'person');
       bucket.personIds.add(g.person_id);
     } else if (email) {
-      bucket = bucketFor(`guest:${email}`, 'guest');
-      bucket.guestEmails.add(email);
+      // Rule 3b (Prompt 560) — reached only when no `people` row claimed the
+      // email, so the founder's own CRM still wins whenever it has an answer.
+      const identity = registeredByEmail?.[email];
+      const pipelineEntityId = identity?.pipelineEntityId;
+      if (pipelineEntityId && entityName.has(pipelineEntityId)) {
+        // Their firm is already in this founder's pipeline: this is a real
+        // association, and the grants join that entity's row rather than
+        // standing beside it — the same "resolution, never a second row"
+        // principle rule 3 states, applied to the source rule 3 didn't know.
+        bucket = bucketFor(`entity:${pipelineEntityId}`, 'entity', pipelineEntityId);
+        bucket.guestEmails.add(email);
+      } else {
+        bucket = bucketFor(`guest:${email}`, 'guest');
+        bucket.guestEmails.add(email);
+        // Registered, but there is nothing in this pipeline to attach them
+        // to yet. The row says so and offers "Add to pipeline"; it is not
+        // "Por associar", because we do know who this is.
+        if (identity) bucket.registered = identity;
+      }
     } else {
       // No person, no email: nothing identifies a recipient. Keyed by the
       // grant so it stays visible and fixable rather than silently dropped.
@@ -248,7 +323,15 @@ export function buildAccessRelationships(input: BuildRelationshipsInput): Access
     const name = b.entityId
       ? (entityName.get(b.entityId) as string)
       : personNames[0] ?? [...b.invitedNames][0] ?? guestEmails[0] ?? emails[0] ?? 'Unknown recipient';
-    const secondary = emails.find((e) => e !== name.toLowerCase());
+    // Prompt 560 — a registered investor's firm name, when the route was
+    // allowed to reveal it, replaces the bare email as the row's subtitle.
+    // Without a name the row still says "Registered investor", which is the
+    // honest amount to say: we know they have an account, we are not
+    // entitled to tell this founder where they work.
+    const registeredSuffix = b.registered
+      ? (b.registered.firmName ? `Registered investor · ${b.registered.firmName}` : 'Registered investor')
+      : undefined;
+    const secondary = registeredSuffix ?? emails.find((e) => e !== name.toLowerCase());
 
     // Recipients, never grants (acceptance §6): the people who hold grants,
     // plus each unmatched email, which is exactly one person each.
@@ -260,7 +343,11 @@ export function buildAccessRelationships(input: BuildRelationshipsInput): Access
       entityId: b.entityId,
       name,
       secondary,
-      status: b.kind === 'guest' ? 'por_associar' : 'associated',
+      status: b.kind !== 'guest' ? 'associated' : b.registered ? 'registered' : 'por_associar',
+      // Prompt 560 — what "Add to pipeline" needs, and the only reason the
+      // catalog id crosses into the client at all.
+      registeredCatalogEntityId: b.registered?.catalogEntityId ?? undefined,
+      registeredFirmName: b.registered?.firmName ?? undefined,
       personIds: [...b.personIds],
       personNames,
       guestEmails,

@@ -7,8 +7,8 @@
 // route uses (/api/portal/startup/[orgId] itself enforces it) — a startup
 // that isn't in this investor's Pipeline gets a flat 404, same as if the
 // org didn't exist at all.
-import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { usePathname, useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { authEnabled, browserClient } from '@/lib/supabase';
 import { InteractionLogTimeline } from '@/components/investor-workspace/InteractionLogTimeline';
@@ -80,7 +80,22 @@ function fmtDecidedAt(iso: string | null | undefined, decidedByMe: boolean | nul
   return ` on ${date}${who}`;
 }
 
+// Prompt 560 §C — the Suspense boundary useSearchParams requires. Next
+// asks for it because a page reading the query string cannot be prerendered
+// as static HTML; this is the whole cost Prompt 216 §C was avoiding, and it
+// is one wrapper against every deep link into this page silently landing on
+// the wrong tab.
 export default function StartupDossierPage() {
+  return (
+    <Suspense fallback={<p className="p-6 text-sm text-gray-400">Loading…</p>}>
+      <StartupDossierPageInner />
+    </Suspense>
+  );
+}
+
+function StartupDossierPageInner() {
+  const router = useRouter();
+  const pathname = usePathname();
   const params = useParams<{ orgId: string }>();
   const orgId = params.orgId;
 
@@ -92,15 +107,47 @@ export default function StartupDossierPage() {
     // the founder actually published it.
     market?: MarketDossierData;
   } | null | 'not-found'>(null);
-  // Prompt 216 §C — os itens do "Actions required" apontam para
-  // /portal/startup/{orgId}?tab=messages|documents; o inicializador lê o
-  // query param diretamente (window, client-only) em vez de useSearchParams
-  // para não obrigar a página inteira a um boundary de Suspense.
-  const [tab, setTab] = useState<'overview' | 'documents' | 'messages' | 'activity' | 'market'>(() => {
-    if (typeof window === 'undefined') return 'overview';
-    const t = new URLSearchParams(window.location.search).get('tab');
-    return t === 'documents' || t === 'messages' || t === 'activity' || t === 'market' ? t : 'overview';
-  });
+  // Prompt 560 §C — the tab comes from the ROUTER, never from
+  // window.location at mount.
+  //
+  // Prompt 216 §C read it with a `useState` initializer over
+  // `window.location.search`, to avoid putting the page behind a Suspense
+  // boundary for one query read. That trade was wrong, and it silently broke
+  // every deep link into this page: under App Router client navigation
+  // (a <Link> from Actions required) the new page renders BEFORE the router
+  // commits the URL, so during that first render `window.location` still
+  // holds the PREVIOUS url — `/portal?tab=actions`. The initializer saw no
+  // valid tab and fell back to 'overview'. A hard reload of the same URL
+  // works perfectly, which is exactly why this passed verification and why
+  // Nuno hit it: he clicked, and landed on Overview.
+  //
+  // `useSearchParams` is subscribed to the router's own state, so it has the
+  // committed value on that first render. The Suspense boundary it requires
+  // is around the default export, at the bottom of this file.
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const tab: 'overview' | 'documents' | 'messages' | 'activity' | 'market' =
+    tabParam === 'documents' || tabParam === 'messages' || tabParam === 'activity' || tabParam === 'market'
+      ? tabParam : 'overview';
+  // Prompt 560 §C — writing the tab goes through the router too, so the URL
+  // and the rendered tab can never disagree (they were two sources of truth
+  // before: `setTab` moved the UI and left the URL behind, so a refresh or a
+  // shared link took the reader somewhere else).
+  const setTab = useCallback((next: 'overview' | 'documents' | 'messages' | 'activity' | 'market') => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === 'overview') params.delete('tab');
+    else params.set('tab', next);
+    // Changing tab is not a new place to go back to; `replace` keeps the
+    // browser Back button meaning "the screen I came from".
+    router.replace(params.toString() ? `${pathname}?${params}` : pathname, { scroll: false });
+  }, [router, pathname, searchParams]);
+
+  // Prompt 560 §C — the specific document an action points at
+  // (?doc=<id>), so "1 document to open" lands on the row rather than on a
+  // list the investor still has to search.
+  const focusDocId = searchParams.get('doc');
+  // ?section=nda — the NDA-pending group, for the "NDA to sign" action.
+  const focusSection = searchParams.get('section');
   const [levelBusy, setLevelBusy] = useState(false);
   const [levelError, setLevelError] = useState<string | null>(null);
   const [docs, setDocs] = useState<{ sections: DocSection[]; pendingNdaCount: number } | null>(null);
@@ -288,11 +335,17 @@ export default function StartupDossierPage() {
   // /api/portal/access via resolveDocumentAccess; o POST /view regista a
   // visualização como sempre). Um id que não esteja na lista com gate não
   // abre nada — nunca se constrói um URL fora dela.
-  async function openDocById(documentId: string) {
+  //
+  // Prompt 560 §B — one open path. Was: POST /api/portal/view to log, then
+  // window.open on a signed URL the LIST had already minted. Now:
+  // /api/portal/open/<id>, which re-checks the grants, mints the URL at
+  // click time and logs the view in the same request. The gate is unchanged
+  // and still checked here first — an id not in the gated list opens
+  // nothing, and a URL is never constructed outside it.
+  function openDocById(documentId: string) {
     const doc = docs?.sections.flatMap((s) => s.documents).find((d) => d.id === documentId);
     if (!doc) return;
-    await fetch('/api/portal/view', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentId }) });
-    window.open(doc.url ?? '#', '_blank');
+    window.open(`/api/portal/open/${encodeURIComponent(documentId)}`, '_blank');
   }
 
   async function archiveManually() {
@@ -780,6 +833,7 @@ export default function StartupDossierPage() {
         )}
         {tab === 'documents' && (
           <DocumentsTab orgId={orgId} hasAccess={card.hasDataRoomAccess} docs={docs} sharedInMessages={messagesInfo?.messages ?? []}
+            focusDocId={focusDocId} focusSection={focusSection}
             trackEvaluate={trackEvaluate} docScores={docScores} focusedDocId={focusedDoc?.id ?? null}
             onFocusDoc={(id, name) => setFocusedDoc({ id, name })} />
         )}
@@ -843,14 +897,38 @@ function ScoreBadge({ documentId, documentName, trackEvaluate, docScores, focuse
   );
 }
 
-function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate, docScores, focusedDocId, onFocusDoc }: {
+function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate, docScores, focusedDocId, onFocusDoc, focusDocId, focusSection }: {
   orgId: string;
   hasAccess: boolean; docs: { sections: DocSection[]; pendingNdaCount: number } | null; sharedInMessages: DealMessage[];
   // Prompt 347 §B — off (all four undefined/false) means zero change from
   // before this prompt: no score badges, no "Rate" affordance.
   trackEvaluate?: boolean; docScores?: Record<string, DocScoreEntry>; focusedDocId?: string | null;
   onFocusDoc?: (id: string, name: string) => void;
+  // Prompt 560 §C — the deep link's own targets, distinct from
+  // `focusedDocId` (which is Track & Evaluate's scoring focus, a different
+  // idea that happens to share a word). `focusDocId` scrolls to and
+  // highlights one row; `focusSection === 'nda'` scrolls to the NDA notice.
+  focusDocId?: string | null; focusSection?: string | null;
 }) {
+  // Prompt 560 §C — scroll the deep link's target into view and mark it,
+  // once the documents have actually arrived.
+  //
+  // Declared BEFORE the two early returns below, not next to the render that
+  // uses it: hooks must run in the same order on every render, and this
+  // component returns early for "no access" and for "still loading". Putting
+  // the effect after those returns is a rules-of-hooks violation that only
+  // shows up once one of them fires.
+  const highlightedRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!docs || (!focusDocId && focusSection !== 'nda')) return;
+    // A frame after paint: the row this scrolls to has only just been
+    // rendered from the fetch that resolved `docs`.
+    const id = requestAnimationFrame(() => {
+      highlightedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [docs, focusDocId, focusSection]);
+
   if (!hasAccess) {
     return (
       <div className="mx-auto mt-8 max-w-sm space-y-3 text-center">
@@ -863,9 +941,10 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
   }
   if (!docs) return <p className="text-sm text-gray-400">Loading…</p>;
 
-  async function openDoc(doc: PortalDoc) {
-    await fetch('/api/portal/view', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ documentId: doc.id }) });
-    window.open(doc.url ?? '#', '_blank');
+  // Prompt 560 §B — /api/portal/open/<id> logs and redirects in one request,
+  // so a view is recorded from here and from the Data room tab identically.
+  function openDoc(doc: PortalDoc) {
+    window.open(`/api/portal/open/${encodeURIComponent(doc.id)}`, '_blank');
     // Prompt 347 §B — opening a document while in Track & Evaluate mode
     // brings it into focus for the right-column scoring panel; off mode
     // never calls this (onFocusDoc is undefined then).
@@ -894,7 +973,9 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
   return (
     <div className="space-y-4">
       {docs.pendingNdaCount > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        <div ref={focusSection === 'nda' ? highlightedRef : undefined}
+          className={`rounded-lg border p-3 text-sm text-amber-800 ${
+            focusSection === 'nda' ? 'border-amber-400 bg-amber-100 ring-2 ring-amber-300' : 'border-amber-200 bg-amber-50'}`}>
           Awaiting NDA — {docs.pendingNdaCount} more item{docs.pendingNdaCount === 1 ? '' : 's'} will appear here once your signed NDA is on file.
         </div>
       )}
@@ -906,7 +987,13 @@ function DocumentsTab({ orgId, hasAccess, docs, sharedInMessages, trackEvaluate,
           ) : (
             <div className="mt-2 space-y-2">
               {s.documents.map((d) => (
-                <div key={d.id} className="flex items-center gap-3 rounded-lg border border-gray-100 p-3">
+                /* Prompt 560 §C — the row an action pointed at is marked, not
+                   just scrolled to: an investor who arrives from "3 documents
+                   you haven't opened yet" needs to see WHICH one, and a page
+                   that merely jumped would leave them guessing. */
+                <div key={d.id} ref={d.id === focusDocId ? highlightedRef : undefined}
+                  className={`flex items-center gap-3 rounded-lg border p-3 ${
+                    d.id === focusDocId ? 'border-[#0E7490] bg-[#E8F4F8]' : 'border-gray-100'}`}>
                   {/* Prompt 394 §3 — was the Unicode glyph ▤ (U+25A4), which
                       renders with a chromatic fringe on some systems (confirmed
                       by pixel inspection of a screenshot); no other emoji-as-icon

@@ -9,6 +9,7 @@ import 'server-only';
 // "an investor appears in a founder's pipeline organically, without the
 // founder spending a pack unlock".
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { admitCatalogEntityIntoPipeline } from './catalog-entity-admit';
 import type { NetworkReferral, NetworkReferralState } from './types';
 import { canCreateReferral, isDuplicateReferral, canSendReferral, MAX_REFERRALS_PER_MONTH, referralsVisibleToTarget } from './network';
 import { readActiveConnectionActorIds, readInvestedActorIdsForOwnerInvestor, resolveActorDisplays, isNetworkActorSuspended, NETWORK_SUSPENDED_ERROR } from './network-db';
@@ -219,16 +220,11 @@ export async function respondAsTarget(admin: SupabaseClient, referralId: string,
   return { ok: true };
 }
 
-// Mirrors matchdeal_record_interest_notification's entity-creation shape
-// (migration 0171) field-for-field — this codebase's only existing
-// precedent for "an investor appears in a founder's Vault pipeline without
-// the founder spending a catalog_quota unlock". quota_exempt: true is what
-// actually does the exemption (catalog_deliveries_enforce_quota's own
-// trigger, same migration, skips the count entirely for an exempt row).
-// source: 'investor_invite' — a value the entities_source_check constraint
-// has allowed since migration 0122 but no code path had adopted yet; it
-// fits a referral acceptance better than 'match_deal' (no MatchDeal
-// involvement here) or 'manual' (the founder never chose this).
+// Prompt 560 — the entity-creation body moved to catalog-entity-admit.ts,
+// unchanged, because "Add to pipeline" on a registered recipient's row is a
+// third caller and three hand-copied mappers drift. What stays here is the
+// part that is actually about referrals: resolving a network actor to their
+// catalog firm.
 async function admitInvestorIntoReferredOrgPipeline(admin: SupabaseClient, referredOrgId: string, targetActorId: string): Promise<void> {
   const { data: targetActor } = await admin.from('network_actors').select('matchdeal_profile_id').eq('id', targetActorId).maybeSingle();
   if (!targetActor?.matchdeal_profile_id) return;
@@ -238,35 +234,9 @@ async function admitInvestorIntoReferredOrgPipeline(admin: SupabaseClient, refer
   const catalogEntityId = member?.catalog_entity_id as string | undefined;
   if (!catalogEntityId) return;
 
-  const { data: existingDelivery } = await admin.from('catalog_deliveries')
-    .select('id').eq('org_id', referredOrgId).eq('catalog_id', catalogEntityId).maybeSingle();
-  if (existingDelivery) return; // already in B's pipeline (however that happened) — never re-deliver.
-
-  const { data: catalogEntity } = await admin.from('catalog_entities').select('*').eq('id', catalogEntityId).maybeSingle();
-  if (!catalogEntity) return;
-
-  const emailDomain = catalogEntity.email ? (String(catalogEntity.email).split('@')[1]?.toLowerCase() ?? null) : null;
-  const hasEvidence = !!(catalogEntity.website || emailDomain || catalogEntity.phone || catalogEntity.address);
-
-  const { data: newEntity, error: entityError } = await admin.from('entities').insert({
-    org_id: referredOrgId, name: catalogEntity.name, type: catalogEntity.type,
-    hq_city: catalogEntity.hq_city, hq_country: catalogEntity.hq_country,
-    website: catalogEntity.website, website_verified: !!catalogEntity.website,
-    email: catalogEntity.email, email_domain: emailDomain, phone: catalogEntity.phone, address: catalogEntity.address,
-    unverified_stub_at: hasEvidence ? null : new Date().toISOString(),
-    stage_min: catalogEntity.stage_min, stage_max: catalogEntity.stage_max,
-    check_min_eur: catalogEntity.check_min_eur, check_max_eur: catalogEntity.check_max_eur,
-    sectors: catalogEntity.sectors, thesis: catalogEntity.thesis, fit_score: 'high', wave: 1,
-    submission_channel_type: 'unknown', hard_filter_status: 'not_applicable', status: 'not_contacted',
-    source: 'investor_invite',
-  }).select('id').single();
-  if (entityError || !newEntity) {
-    console.error('[network-referrals-db] admitInvestorIntoReferredOrgPipeline: could not create entity', entityError?.message);
-    return;
+  const result = await admitCatalogEntityIntoPipeline(admin, referredOrgId, catalogEntityId);
+  if (!result.ok) {
+    console.error('[network-referrals-db] admitInvestorIntoReferredOrgPipeline:', result.reason, result.error ?? '');
   }
-
-  const { error: deliveryError } = await admin.from('catalog_deliveries').insert({
-    org_id: referredOrgId, catalog_id: catalogEntityId, entity_id: newEntity.id, via_pack: null, quota_exempt: true,
-  });
-  if (deliveryError) console.error('[network-referrals-db] admitInvestorIntoReferredOrgPipeline: could not record delivery', deliveryError.message);
 }
+

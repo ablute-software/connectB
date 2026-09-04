@@ -4771,3 +4771,101 @@ instead of three weeks of guessing. The diagnosis line is deliberately
 conservative: while the webhook is unconfigured every row sits at `sent`
 forever, and calling that a delivery failure would be exactly the false alarm
 this replaces.
+
+## A registered investor resolves a shared email to their pipeline entity; every investor document open goes through `/api/portal/open` and is logged; tabs come from the router, never from `window.location` at mount — 04/09/2026 (Prompt 560)
+
+Three unrelated bugs that compounded into one experience: the recipient
+stayed unidentified, reading her documents left no trace, and the action
+telling the investor to read them landed on the wrong screen.
+
+**1. "Associated" was decided by the founder's own `people` rows and nothing
+else.** `buildAccessRelationships` rule 3 matched a granted email against
+`people` — rows that live in the FOUNDER's org. An investor creating a
+Sherlock account writes nothing there, so a recipient who registered with the
+very address she was invited at stayed "Por associar" forever. The file's own
+header promised "the guest → registered-investor continuity requirement";
+what it delivered was continuity only for investors the founder had already
+typed into their CRM, which is the case that needed it least.
+
+Rule **3b** adds the source where investors actually register
+(`matchdeal_investor_members`), resolved by a new
+`/api/data-room/recipient-identities` and passed in as `registeredByEmail`.
+It sits after rule 3 on purpose: a `people` row is the founder's own
+statement about who someone is, and it keeps winning. Registered **with** the
+firm already in this pipeline → the grants join that entity's row, the same
+"resolution, never a second record" rule 3 states. Registered **without** →
+a third status, `registered`, and an **"Add to pipeline"** button. Not a
+shade of amber: "we know exactly who this is, one click from linked" is a
+different situation from "nobody has any idea", and it has a different next
+step. Everyone else keeps the manual **"Associate to…"**, which writes a
+`people` row through the store's existing de-duplicating
+`invitePersonForGrant` and then resolves by rule 3 with no new mechanism.
+
+**Privacy is the design of the identities route**, so it is stated there and
+here. Only emails on THIS org's own non-revoked grants are ever looked up —
+the input is the org's grants, never a caller-supplied list, so it cannot be
+used to test whether a stranger has an account. Existence is reported for an
+address the founder already shared with. A **name** needs a reason: the firm
+is named only when the investor confirmed "it's me" to this org, or when the
+firm is already in this pipeline (where the founder can read it anyway).
+Otherwise `registered: true` with no name. Nothing else crosses. And no
+`people` row is ever created automatically: a firm landing in someone's
+fundraising pipeline is a decision, not a side effect of somebody else's
+registration.
+
+**2. Two open paths, one logged.** The Documents tab POSTed
+`/api/portal/view` and recorded a `document_views` row; the Data room tab
+rendered `<a href={d.url}>` on a signed URL the LIST endpoint had minted up
+front for every document. Clicking it made no request, so nothing learned the
+document had been read — Nuno's "1 document to open" survived reading it. The
+pre-minting was independently wrong: a live signed URL for every document sat
+in the DOM from page load and outlived a revoke for its full TTL.
+
+`GET /api/portal/open/[documentId]` is now the only path, mirroring the 547
+guest open route: re-read the grants every time (so a revoke bites on the
+next click, not at the end of a TTL), the id in the URL never decides
+anything, NDA and flagged-upload refusals, mint at click time, log, 302. The
+listing carries names and state only. Consequence worth stating: `grant_id`
+is resolved with the same specificity rule `/api/portal/view` uses, so rows
+from the two paths are indistinguishable downstream — Actions required, the
+founder's opens count and the back-office join all read `document_views` and
+none of them should know which tab was clicked.
+
+**3. The tab was read from `window.location` during a soft navigation.** Both
+portal pages initialised `?tab=` in a `useState` initializer. Under App Router
+client navigation the new page renders BEFORE the router commits the URL, so
+that first render still sees the PREVIOUS page's query string, finds no valid
+tab, and falls back to the default. Every deep link from Actions required
+landed on Overview. A hard reload of the identical URL works perfectly, which
+is exactly why it passed verification — the only way to see it is to click.
+
+Both pages now read `useSearchParams` inside a Suspense boundary. Both
+initializers carried a comment justifying the trade ("rather than
+useSearchParams, which would force this statically-rendered page behind a
+Suspense boundary for one query read"); the trade was one wrapper against
+every deep link in the product, and it was not worth it.
+
+**The sweep, and its criterion.** Eleven `window.location.search` reads exist.
+Only **three** were broken, and the rule is sharper than "it is a query read":
+the bug bites only a **render-time** read (a `useState` initializer or the
+render body) of a value that arrives by an **in-app `<Link>`**. Five of the
+remaining eight are inside `useEffect`, which runs after the commit, when
+`window.location` is already correct. The other three (`claim`'s and
+`/portal`'s `linkFailed`, `pair`'s token) only ever receive their value on a
+FULL page load from an auth or QR redirect. The criterion is written at
+`claim/page.tsx` so the next reader does not redo this analysis, and
+`portal-tab-source.test.ts` pins the two fixed pages against regression.
+
+Deep links also got specific, because "an action must land where it is
+completed": `newDocs` → `?tab=documents&doc=<first unseen id>`, and the
+Documents tab scrolls to that row and marks it; `ndaPending` →
+`&section=nda`. A page that merely jumped would still leave the investor
+guessing which document was meant.
+
+**Also extracted:** `admitCatalogEntityIntoPipeline` (catalog-entity-admit.ts),
+lifted verbatim out of Prompt 318's referral path because "Add to pipeline"
+is a third caller and three hand-copied mappers that decide quota exemption,
+identity evidence and `source` will drift. The `zz-test-` run proved that is
+not theoretical: the first attempt omitted `unverified_stub_at` and hit
+`entities_has_identity_evidence` (migration 0049) — a line the mapper gets
+right and a hand-written copy forgot within minutes.

@@ -22,7 +22,7 @@
 // identity already) is read BEFORE computing isNew, then stamped to now()
 // at the end of this same request — simple, no separate "mark seen" call.
 import { NextResponse } from 'next/server';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 import { serverClient } from '@/lib/supabase-server';
 import { grantStatus, grantIsActive, type GrantStatusInput } from '@/lib/access-grants';
 import { descendantFolderIds, resolveDocumentAccess } from '@/lib/data-room';
@@ -37,18 +37,20 @@ interface RawGrant extends GrantStatusInput, DataRoomGrantLike {
   id: string; org_id: string; folder_id?: string; document_id?: string;
 }
 
-// Prompt 301 §3 — a flagged document is refused to any viewer other than
-// the uploading org itself; every other status (including 'pending' and
-// 'not_scanned') still serves normally — hard-blocking anything short of a
-// confirmed 'clean' would make every pre-existing document, and every
-// upload while VIRUSTOTAL_API_KEY isn't configured, invisible to investors.
-async function signedUrlFor(admin: SupabaseClient, d: Record<string, unknown>) {
-  if (d.external_url) return d.external_url as string;
-  if (!d.storage_path) return null;
-  if (d.malware_scan_status === 'flagged') return null;
-  const { data } = await admin.storage.from('data-room').createSignedUrl(d.storage_path as string, 300);
-  return data?.signedUrl ?? null;
-}
+// Prompt 560 §B — this listing no longer mints URLs.
+//
+// It used to call createSignedUrl for EVERY document up front, so opening the
+// Data room tab shipped a live, 300-second signed URL per document into the
+// DOM whether or not the investor clicked any of them — and those URLs
+// outlived a founder's revoke for the rest of their TTL. Worse for the bug
+// this prompt is about: an <a href> on a pre-minted URL makes no request when
+// clicked, so nothing recorded that the document had been read, and the
+// investor's "documents you haven't opened yet" action survived reading them.
+//
+// /api/portal/open/<id> now does both jobs at click time: it re-checks the
+// grants, refuses a flagged upload (the rule that used to live in the helper
+// deleted here), mints the URL, logs the view, and redirects. The list carries
+// names, shelf, folder, size and lock state only.
 
 export async function GET() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -99,7 +101,7 @@ export async function GET() {
     }));
   }
 
-  interface DocRow { id: string; name: string; url: string | null; expiresAt: string | null; sharedAt: string; locked: boolean; isNew: boolean; folderName: string }
+  interface DocRow { id: string; name: string; expiresAt: string | null; sharedAt: string; locked: boolean; isNew: boolean; folderName: string }
   const granted: {
     orgId: string; orgName: string; logoUrl: string | null; level: InterestLevel | null; grantedAt: string | null;
     pendingNdaCount: number; folders: { folderName: string; documents: DocRow[] }[];
@@ -174,7 +176,8 @@ export async function GET() {
     const folderNameById = new Map((folderRows ?? []).map((f) => [f.id as string, f.name as string]));
 
     let pendingNdaCount = 0;
-    const flatDocs: DocRow[] = await Promise.all(inScopeDocs.map(async (d) => {
+    // No longer async: nothing here reaches Storage any more.
+    const flatDocs: DocRow[] = inScopeDocs.map((d) => {
       const doc = { id: d.id as string, folder_id: (d.folder_id as string | null) ?? null };
       const effectiveGrant = effectiveGrantForDoc(doc, activeGrants);
       const locked = isDocLocked(effectiveGrant);
@@ -182,12 +185,11 @@ export async function GET() {
       const sharedAt = effectiveGrant?.granted_at ?? (activeGrants[0]?.granted_at as string);
       return {
         id: d.id as string, name: d.name as string,
-        url: locked ? null : await signedUrlFor(admin, d),
         expiresAt: (effectiveGrant?.expires_at as string | null | undefined) ?? null,
         sharedAt, locked, isNew: isDocNew(sharedAt, lastSeenAt),
         folderName: folderNameById.get(d.folder_id as string) ?? 'Documents',
       };
-    }));
+    });
 
     const folders = [...groupByFolder(flatDocs).entries()].map(([folderName, documents]) => ({ folderName, documents }));
     const grantedAt = activeGrants.map((g) => g.granted_at).sort()[0] ?? null;

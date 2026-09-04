@@ -95,7 +95,9 @@ describe('investorActionsRequired', () => {
     expect(count).toBe(5);
     for (const item of items) expect(item.href).toMatch(/^\/portal\/startup\//);
     expect(items.find((i) => i.kind === 'unread_message')?.href).toBe('/portal/startup/o1?tab=messages');
-    expect(items.find((i) => i.kind === 'nda_pending')?.href).toBe('/portal/startup/o1?tab=documents');
+    // Prompt 560 §C — the NDA action lands on the NDA group, not the top of
+    // the Documents tab: "an action must land where it is completed".
+    expect(items.find((i) => i.kind === 'nda_pending')?.href).toBe('/portal/startup/o1?tab=documents&section=nda');
     expect(items.find((i) => i.kind === 'pending_decision')?.href).toBe('/portal/startup/o2');
   });
 
@@ -105,5 +107,43 @@ describe('investorActionsRequired', () => {
       newDocs: [{ orgId: 'o1', orgName: 'ablute_', count: 0 }],
     }));
     expect(count).toBe(0);
+  });
+});
+
+// Prompt 560 §C — the deep links get specific. Nuno clicked "1 document to
+// open" and landed on the startup's Overview tab; the href was already right
+// (the page ignored it, fixed separately), but "right" only meant the tab.
+// An action has to land on the thing it is about.
+describe('investorActionsRequired — Prompt 560 deep links', () => {
+  const base = {
+    unreadThreads: [], ndaPending: [], respondedAccessRequests: [], pendingDecisions: [],
+  };
+
+  it('points the new-documents action at the first unseen document, highlighted', () => {
+    const { items } = investorActionsRequired({
+      ...base,
+      newDocs: [{ orgId: 'o1', orgName: 'Krohnsty', count: 3, firstUnseenDocId: 'doc-42' }],
+    });
+    expect(items.find((i) => i.kind === 'new_documents')?.href)
+      .toBe('/portal/startup/o1?tab=documents&doc=doc-42');
+  });
+
+  it('falls back to the plain Documents tab when no document id is known', () => {
+    for (const newDocs of [
+      [{ orgId: 'o1', orgName: 'Krohnsty', count: 2 }],
+      [{ orgId: 'o1', orgName: 'Krohnsty', count: 2, firstUnseenDocId: null }],
+    ]) {
+      const { items } = investorActionsRequired({ ...base, newDocs });
+      expect(items.find((i) => i.kind === 'new_documents')?.href).toBe('/portal/startup/o1?tab=documents');
+    }
+  });
+
+  it('encodes a document id that would otherwise break the query string', () => {
+    const { items } = investorActionsRequired({
+      ...base, newDocs: [{ orgId: 'o1', orgName: 'K', count: 1, firstUnseenDocId: 'a&b=c d' }],
+    });
+    const href = items.find((i) => i.kind === 'new_documents')!.href;
+    expect(href).toBe('/portal/startup/o1?tab=documents&doc=a%26b%3Dc%20d');
+    expect(new URLSearchParams(href.split('?')[1]).get('doc')).toBe('a&b=c d');
   });
 });

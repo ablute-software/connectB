@@ -108,7 +108,10 @@ export interface InvestorActionsInput {
   unreadThreads: { orgId: string; orgName: string; lastMessageAt: string }[];
   ndaPending: { orgId: string; orgName: string; count: number }[];
   respondedAccessRequests: { id: string; orgId: string; orgName: string; status: 'granted' | 'declined'; respondedAt: string }[];
-  newDocs: { orgId: string; orgName: string; count: number }[];
+  // Prompt 560 §C — `firstUnseenDocId` so the action can land on the ROW,
+  // not on a list the investor still has to search. Optional: an action
+  // without it degrades to the plain Documents tab, exactly as before.
+  newDocs: { orgId: string; orgName: string; count: number; firstUnseenDocId?: string | null }[];
   pendingDecisions: { orgId: string; orgName: string }[];
 }
 
@@ -126,7 +129,8 @@ export function investorActionsRequired(input: InvestorActionsInput): { items: I
     items.push({
       key: `nda:${n.orgId}`, kind: 'nda_pending',
       label: `NDA to sign for ${n.orgName} (${n.count} grant${n.count === 1 ? '' : 's'} waiting)`,
-      href: `/portal/startup/${n.orgId}?tab=documents`,
+      // Prompt 560 §C — the NDA group specifically, not the top of the tab.
+      href: `/portal/startup/${n.orgId}?tab=documents&section=nda`,
     });
   }
   for (const r of input.respondedAccessRequests) {
@@ -140,7 +144,12 @@ export function investorActionsRequired(input: InvestorActionsInput): { items: I
     items.push({
       key: `new-docs:${d.orgId}`, kind: 'new_documents',
       label: `${d.count} document${d.count === 1 ? '' : 's'} you haven't opened yet — ${d.orgName}`,
-      href: `/portal/startup/${d.orgId}?tab=documents`,
+      // Prompt 560 §C — "an action must land where it is completed, with the
+      // fewest clicks". With a known first unseen document the link goes to
+      // that row and highlights it; without one it still opens the tab.
+      href: d.firstUnseenDocId
+        ? `/portal/startup/${d.orgId}?tab=documents&doc=${encodeURIComponent(d.firstUnseenDocId)}`
+        : `/portal/startup/${d.orgId}?tab=documents`,
     });
   }
   for (const p of input.pendingDecisions) {

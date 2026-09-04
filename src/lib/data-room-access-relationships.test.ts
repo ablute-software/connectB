@@ -320,3 +320,103 @@ describe('Prompt 531 — Por associar counts recipients, not grants', () => {
     expect(rels.reduce((n, r) => n + r.peopleCount, 0)).toBe(4);
   });
 });
+
+// Prompt 560 §A rule 3b — identity resolution learns the source where
+// investors actually register. Before this, "associated" was decided by the
+// founder's own `people` rows and nothing else, so a recipient who created a
+// Sherlock account with the very address she was invited at stayed
+// "Por associar" forever. That is what Nuno saw.
+describe('buildAccessRelationships — registered investors (Prompt 560 rule 3b)', () => {
+  const FOLDERS = [{ id: 'f1' }];
+  const DOCS = [{ id: 'd1', folder_id: 'f1' }];
+  const now = new Date('2026-09-04T00:00:00Z');
+
+  function build(extra: Partial<Parameters<typeof buildAccessRelationships>[0]> = {}) {
+    return buildAccessRelationships({
+      entities: [{ id: 'e-north', name: 'North Ventures' }],
+      people: [], affiliations: [],
+      grants: [{ id: 'g1', folder_id: 'f1', invited_email: 'she@example.com', nda_required: false }],
+      folders: FOLDERS, documents: DOCS, now,
+      ...extra,
+    });
+  }
+
+  it('is Por associar when nothing is known about the email — unchanged', () => {
+    const [rel] = build();
+    expect(rel.status).toBe('por_associar');
+    expect(rel.key).toBe('guest:she@example.com');
+  });
+
+  it('resolves to the pipeline entity when the registered firm is already in the pipeline', () => {
+    const [rel] = build({
+      registeredByEmail: {
+        'she@example.com': { registered: true, firmName: 'North Ventures', catalogEntityId: 'c1', pipelineEntityId: 'e-north' },
+      },
+    });
+    expect(rel.status).toBe('associated');
+    expect(rel.key).toBe('entity:e-north');
+    expect(rel.entityId).toBe('e-north');
+    expect(rel.name).toBe('North Ventures');
+    // The grant travels with her, rather than standing beside the entity as
+    // a duplicate row — the same "resolution, never a second record" the
+    // file's header states for rule 3.
+    expect(rel.grants.map((g) => g.id)).toEqual(['g1']);
+  });
+
+  it('is `registered`, not associated, when the firm is not in the pipeline yet', () => {
+    const [rel] = build({
+      registeredByEmail: {
+        'she@example.com': { registered: true, firmName: 'Fjord Capital', catalogEntityId: 'c2', pipelineEntityId: null },
+      },
+    });
+    expect(rel.status).toBe('registered');
+    expect(rel.key).toBe('guest:she@example.com');
+    expect(rel.registeredCatalogEntityId).toBe('c2');
+    expect(rel.secondary).toBe('Registered investor · Fjord Capital');
+  });
+
+  // Exposure rule from /api/data-room/recipient-identities: a name needs a
+  // reason. Without one the row still says what it honestly knows.
+  it('says "Registered investor" with no firm when the route withheld the name', () => {
+    const [rel] = build({
+      registeredByEmail: { 'she@example.com': { registered: true, firmName: null, catalogEntityId: 'c2', pipelineEntityId: null } },
+    });
+    expect(rel.status).toBe('registered');
+    expect(rel.secondary).toBe('Registered investor');
+    expect(rel.registeredFirmName).toBeUndefined();
+  });
+
+  // Rule 3 is the founder's own statement about who this is; 3b must not
+  // override it.
+  it('a matching people row still wins over the registered identity', () => {
+    const [rel] = build({
+      people: [{ id: 'p1', entity_id: 'e-north', full_name: 'She Smith', email_verified: 'she@example.com' }],
+      registeredByEmail: {
+        'she@example.com': { registered: true, firmName: 'Fjord Capital', catalogEntityId: 'c2', pipelineEntityId: null },
+      },
+    });
+    expect(rel.status).toBe('associated');
+    expect(rel.key).toBe('entity:e-north');
+    expect(rel.personIds).toEqual(['p1']);
+  });
+
+  // A pipelineEntityId the panel has never heard of must not create a ghost
+  // row named "undefined" — fail back to the honest state instead.
+  it('ignores a pipeline entity id that is not in the entity list', () => {
+    const [rel] = build({
+      registeredByEmail: {
+        'she@example.com': { registered: true, firmName: 'Ghost', catalogEntityId: 'c3', pipelineEntityId: 'e-missing' },
+      },
+    });
+    expect(rel.status).toBe('registered');
+    expect(rel.key).toBe('guest:she@example.com');
+  });
+
+  // The whole map being absent is the pre-560 world: every row behaves
+  // exactly as it did, which is what makes this safe to ship before the
+  // route is reachable.
+  it('degrades to pre-560 behaviour when no identities were fetched', () => {
+    expect(build({ registeredByEmail: undefined })[0].status).toBe('por_associar');
+    expect(build({ registeredByEmail: {} })[0].status).toBe('por_associar');
+  });
+});

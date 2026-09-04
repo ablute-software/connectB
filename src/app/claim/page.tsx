@@ -20,6 +20,14 @@ interface OwnClaim { id: string; catalog_entity_id: string; entityName: string; 
 export default function ClaimPage() {
   const [sessionEmail, setSessionEmail] = useState<string | null | undefined>(undefined);
   const [emailConfirmed, setEmailConfirmed] = useState(true);
+  // Prompt 560 §C swept every window.location.search read in the codebase.
+  // This one stays a render-time initializer on purpose, and the criterion
+  // is worth writing down because it is what distinguishes it from the two
+  // portal reads that were broken: the bug only bites a value that arrives
+  // via an in-app <Link> (client navigation renders the new page before the
+  // router commits the URL, so window.location still holds the old one).
+  // `linkFailed` is only ever set by the auth redirect, which is a FULL page
+  // load — window.location is authoritative by then.
   const [linkFailed] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('linkFailed') === '1');
 
   const [q, setQ] = useState('');

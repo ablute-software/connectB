@@ -9,7 +9,10 @@ import { useEffect, useState } from 'react';
 
 type SubTab = 'granted' | 'requested' | 'expired';
 
-interface GrantedDoc { id: string; name: string; url: string | null; expiresAt: string | null; sharedAt: string; locked: boolean; isNew: boolean; folderName: string }
+// Prompt 560 §B — `url` is gone. The list carries names and state; the URL
+// is minted by /api/portal/open at click time, which is also what records
+// the view.
+interface GrantedDoc { id: string; name: string; expiresAt: string | null; sharedAt: string; locked: boolean; isNew: boolean; folderName: string }
 interface GrantedCard {
   orgId: string; orgName: string; logoUrl: string | null; level: 0 | 1 | 2 | 3 | null;
   grantedAt: string | null; pendingNdaCount: number; folders: { folderName: string; documents: GrantedDoc[] }[];
@@ -202,14 +205,27 @@ export function AccessGrantedPanel() {
                                     <div className="flex items-center gap-2">
                                       <span className="text-[11px] text-gray-400">shared {fmtDate(d.sharedAt)}</span>
                                       {d.expiresAt && <span className="text-[11px] text-gray-400">· until {fmtDate(d.expiresAt)}</span>}
+                                      {/* Prompt 560 §B — this used to be an
+                                          <a href={d.url}> on a signed URL the
+                                          LIST endpoint minted up front for
+                                          every document. Two consequences,
+                                          both real: clicking it made no
+                                          request, so nothing recorded the
+                                          open (Nuno's "1 document to open"
+                                          action survived reading the
+                                          document); and a live signed URL for
+                                          every document sat in the DOM from
+                                          page load, outliving a revoke for
+                                          its whole TTL. /api/portal/open
+                                          re-checks the grants, mints the URL
+                                          at click time and logs the view. */}
                                       {d.locked ? (
                                         <span className="text-xs text-gray-300">Pending NDA</span>
-                                      ) : d.url ? (
-                                        <a href={d.url} target="_blank" rel="noreferrer" className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
+                                      ) : (
+                                        <a href={`/api/portal/open/${encodeURIComponent(d.id)}`} target="_blank" rel="noreferrer"
+                                          className="rounded-lg bg-[#0E7490] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#0c637b]">
                                           Open
                                         </a>
-                                      ) : (
-                                        <span className="text-xs text-gray-300">Unavailable</span>
                                       )}
                                     </div>
                                   </li>
