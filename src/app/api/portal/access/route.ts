@@ -213,7 +213,7 @@ export async function GET(req: Request) {
   // means exactly what it means for anyone else — nothing has been shared
   // with them yet.
   if (activeGrants.length === 0) {
-    return NextResponse.json({ orgName: null, pendingNdaCount: 0, folders: [], documents: [], pendingConfirmation });
+    return NextResponse.json({ orgName: null, pendingNdaCount: 0, ndaPending: [], folders: [], documents: [], pendingConfirmation });
   }
 
   // Prompt 121 §2.3 — one org's grants at a time, but now CHOSEN (by
@@ -240,7 +240,7 @@ export async function GET(req: Request) {
     const currentTicketSignal = await latestTicketSignal(admin, orgId, email);
     return NextResponse.json({
       orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
-      pendingNdaCount: 0, folders: [], documents: [], sections: groupDocumentsBySection([], []),
+      pendingNdaCount: 0, ndaPending: [], folders: [], documents: [], sections: groupDocumentsBySection([], []),
       pendingConfirmation, snapshot, orgId, currentTicketSignal,
       currentDealSignal: await latestDealSignal(admin, orgId, email),
       dealSignalDefaults: await investorProfileDefaults(admin, userId),
@@ -272,7 +272,7 @@ export async function GET(req: Request) {
   for (const d of [...(docsInFolders ?? []), ...(directDocs ?? [])]) docMap.set(d.id as string, d);
   const candidateDocs = [...docMap.values()];
 
-  const { visibleIds, pendingCount: docPendingCount } = resolveDocumentAccess(
+  const { visibleIds, pendingIds, pendingCount: docPendingCount } = resolveDocumentAccess(
     orgGrants,
     candidateDocs.map((d) => ({
       id: d.id as string, folder_id: (d.folder_id as string | undefined) ?? undefined,
@@ -293,6 +293,25 @@ export async function GET(req: Request) {
 
   const visibleDocs = candidateDocs.filter((d) => visibleIds.includes(d.id as string));
   const documents = await Promise.all(visibleDocs.map((d) => toPortalDoc(admin, d)));
+
+  // Prompt 557 — the same "name it, don't just count it" fix the guest page
+  // gets, for the confirmed investor. NOT toPortalDoc: that resolves a
+  // signed URL, and these documents are precisely the ones this investor may
+  // not open yet. Name and folder only, built here from rows already in
+  // memory — no extra query, and nothing openable can leak through a field
+  // this projection does not carry.
+  const ndaPendingDocs = candidateDocs.filter((d) => pendingIds.includes(d.id as string));
+  const ndaFolderIds = [...new Set(ndaPendingDocs.map((d) => d.folder_id as string | undefined).filter(Boolean))] as string[];
+  const { data: ndaFolderRows } = ndaFolderIds.length
+    ? await admin.from('folders').select('id, name').in('id', ndaFolderIds)
+    : { data: [] as { id: string; name: string }[] };
+  const ndaFolderNameById = new Map((ndaFolderRows ?? []).map((f) => [f.id as string, f.name as string]));
+  const ndaPending = ndaPendingDocs
+    .map((d) => ({
+      id: d.id as string, name: d.name as string,
+      folder: ndaFolderNameById.get(d.folder_id as string) ?? null,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const snapshot = await buildSnapshot(admin, orgId);
   const currentTicketSignal = await latestTicketSignal(admin, orgId, email);
   // Prompt 350 §A — sectioned from ALL of the org's folders (orgFolders,
@@ -306,7 +325,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     orgName: org?.name ?? null, senderEmail: org?.sender_email ?? null,
-    pendingNdaCount: folderPendingCount + docPendingCount, folders: folders ?? [], documents, sections,
+    pendingNdaCount: folderPendingCount + docPendingCount, ndaPending, folders: folders ?? [], documents, sections,
     pendingConfirmation, snapshot, orgId, currentTicketSignal,
     currentDealSignal: await latestDealSignal(admin, orgId, email),
     dealSignalDefaults: await investorProfileDefaults(admin, userId),

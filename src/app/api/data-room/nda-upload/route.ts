@@ -14,6 +14,7 @@ import { logAiCall } from '@/lib/ai-cost-log';
 import { detectAllowedKind, scanWithVirusTotal, sha256Hex } from '@/lib/upload-security';
 import { ndaScanAvailable } from '@/lib/upload-security-capability';
 import { providerErrorMessage } from '@/lib/ai-provider-error';
+import { resendConfigured, sendTransactionalEmail, transactionalTemplate } from '@/lib/resend';
 
 export const maxDuration = 30;
 
@@ -174,9 +175,25 @@ export async function POST(req: NextRequest) {
   // NDA is scoped to one document, only that document's grant unlocks;
   // otherwise (the pre-existing entity/person-wide NDA case) every
   // nda_required grant for this grantee unlocks, unchanged.
+  //
+  // Prompt 557 — `invited_email` is matched too, and this is a real bug fix,
+  // not a widening for its own sake. An external share writes the recipient
+  // into `invited_email` and deliberately leaves `grantee_email` NULL
+  // (invite-by-email/route.ts says why: grantee_email means a CONFIRMED
+  // grantee, and forging it would promote an unconfirmed invitee). This
+  // query only ever matched `grantee_email`. So for exactly the case Prompt
+  // 557 is about — a document shared with an NDA to an outside address —
+  // the founder could upload the signed NDA, get `ok: true`, and unlock
+  // NOTHING: zero rows matched, `unlockedGrantIds` came back empty, and no
+  // error was raised anywhere. The prompt assumed this path already worked
+  // ("it already accepts granteeEmail as the subject, so an email-only guest
+  // CAN be unlocked"); it did not.
   const orParts: string[] = [];
   if (personId) orParts.push(`person_id.eq.${personId}`);
-  if (granteeEmail) orParts.push(`grantee_email.eq.${granteeEmail}`);
+  if (granteeEmail) {
+    orParts.push(`grantee_email.eq.${granteeEmail}`);
+    orParts.push(`invited_email.eq.${granteeEmail}`);
+  }
   let unlockedGrantIds: string[] = [];
   if (orParts.length) {
     let query = admin.from('access_grants')
@@ -184,8 +201,35 @@ export async function POST(req: NextRequest) {
       .eq('org_id', orgId).eq('nda_required', true).is('nda_accepted_at', null).is('revoked_at', null)
       .or(orParts.join(','));
     if (documentId) query = query.eq('document_id', documentId);
-    const { data: unlocked } = await query.select('id');
+    const { data: unlocked } = await query.select('id, document_id, folder_id, invited_email, grantee_email');
     unlockedGrantIds = (unlocked ?? []).map((g) => g.id as string);
+
+    // Prompt 557 — tell the recipient. The guest page promises "you'll get
+    // an email" when the signed copy lands; this is that email. Best-effort,
+    // same posture as every other notification in this codebase: a send
+    // failure never un-does the unlock that already committed above.
+    const notifyTo = granteeEmail
+      ?? (unlocked ?? []).map((g) => (g.grantee_email ?? g.invited_email) as string | null).find((e): e is string => !!e)
+      ?? null;
+    if (notifyTo && unlockedGrantIds.length > 0 && resendConfigured) {
+      const { data: orgRow } = await admin.from('orgs').select('name').eq('id', orgId).maybeSingle();
+      const startupName = (orgRow?.name as string | undefined) ?? 'A startup';
+      const n = unlockedGrantIds.length;
+      const heading = `${startupName} unlocked ${n} more document${n === 1 ? '' : 's'}`;
+      try {
+        await sendTransactionalEmail({
+          to: notifyTo, subject: heading,
+          html: transactionalTemplate({
+            heading,
+            body: `Your signed NDA is on file. The document${n === 1 ? '' : 's'} that ${startupName} shared with you `
+              + `behind it ${n === 1 ? 'is' : 'are'} now open on the same link they sent you.`,
+          }),
+          context: { orgId, kind: 'other' },
+        });
+      } catch (e) {
+        console.error('[nda-upload] unlock notification failed:', (e as Error).message);
+      }
+    }
   }
 
   return NextResponse.json({ ok: true, nda: row, unlockedGrantIds });

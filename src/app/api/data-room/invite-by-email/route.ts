@@ -167,7 +167,7 @@ export async function POST(req: Request) {
 
   let rendered;
   try {
-    rendered = buildGuestAccessEmail({ recipientEmail: email, invitedName: name, startupName, guestUrl });
+    rendered = buildGuestAccessEmail({ recipientEmail: email, invitedName: name, startupName, guestUrl, guestToken: minted.token });
   } catch (e) {
     // A template that still has a {{placeholder}} in it must not go out.
     // Prompt 537 §1 — recorded, not only console.error'd: this is the one

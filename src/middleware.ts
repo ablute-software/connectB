@@ -22,6 +22,12 @@ const PUBLIC = ['/', '/investors', '/login', '/signup', '/auth', '/portal', '/ap
   // route (self, disconnect, generate, status) still requires a real
   // session and must NOT be added here.
   '/api/matchdeal/pairing/consume',
+  // Prompt 557 §3 — Resend's delivery webhook. Public for the same reason
+  // as the Stripe webhook above it: the provider has no session and never
+  // will. The route authenticates the REQUEST instead, by verifying the
+  // Svix signature over the raw body before it reads anything, and rejects
+  // everything when RESEND_WEBHOOK_SECRET is unset.
+  '/api/resend/webhook',
   // Item 1 (Lote E) — same reasoning as the pairing token above: a guest
   // link's whole point is working with no session. /api/guest never returns
   // signed URLs or document content, only names/counts (see that route).

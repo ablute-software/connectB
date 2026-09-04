@@ -795,8 +795,26 @@ function DocumentsPageInner() {
     // through to nda-upload, which then only unlocks that one grant); a
     // mix of documents/folders falls back to the pre-existing org-wide
     // unlock, unchanged.
-    const map = new Map<string, { personId?: string; email?: string; label: string; count: number; documentIds: Set<string> }>();
-    for (const g of confirmedActiveGrants) {
+    //
+    // Prompt 557 — built from visibleGrants, not confirmedActiveGrants.
+    //
+    // The "NDA pending" chip on the recipient's row in People & Access
+    // already existed and already showed for an email-only guest. The
+    // UPLOAD did not: this card was the only place the founder can put a
+    // signed NDA on file, and it only listed grants whose status is
+    // 'active' — which an invited-but-not-yet-confirmed guest's grant never
+    // is (grantStatus resolves it to 'pending_confirmation' by
+    // construction). So a founder who shared a document with an NDA to an
+    // external address saw "NDA pending" on the row, had nothing anywhere
+    // to act on it, and the guest saw a bare count with no name. Both ends
+    // of the loop were invisible at once.
+    //
+    // visibleGrants is already revoked-and-expired-free, so widening to it
+    // adds exactly the pending-confirmation guests and nothing else. The
+    // nda-upload route has accepted `granteeEmail` as a subject since F5,
+    // so the unlock itself needed no change — only the offer of it.
+    const map = new Map<string, { personId?: string; email?: string; label: string; count: number; documentIds: Set<string>; guestOnly: boolean }>();
+    for (const g of visibleGrants) {
       if (!g.nda_required || g.nda_accepted_at) continue;
       const key = g.person_id ?? g.grantee_email ?? '';
       if (!key) continue;
@@ -804,14 +822,19 @@ function DocumentsPageInner() {
       const existing = map.get(key);
       const documentIds = existing?.documentIds ?? new Set<string>();
       if (g.document_id) documentIds.add(g.document_id);
-      map.set(key, { personId: g.person_id, email: g.grantee_email, label, count: (existing?.count ?? 0) + 1, documentIds });
+      map.set(key, {
+        personId: g.person_id, email: g.grantee_email, label,
+        count: (existing?.count ?? 0) + 1, documentIds,
+        guestOnly: (existing?.guestOnly ?? true) && grantStatus(g, new Date()) !== 'active',
+      });
     }
     return [...map.values()].map((v) => ({
-      personId: v.personId, email: v.email, label: v.label, count: v.count,
+      personId: v.personId, email: v.email, label: v.label, count: v.count, guestOnly: v.guestOnly,
       documentId: v.documentIds.size === 1 ? [...v.documentIds][0] : undefined,
       documentName: v.documentIds.size === 1 ? db.documents.find((d) => d.id === [...v.documentIds][0])?.name : undefined,
     }));
-  }, [confirmedActiveGrants, db.people, db.documents]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleGrants, db.people, db.documents]);
 
   // File size isn't a DB column — Supabase Storage already tracks it, so a
   // single listing of the org's prefix is cheaper than a schema change.
@@ -1725,6 +1748,14 @@ function DocumentsPageInner() {
                         <span className="flex items-center gap-1"><TriStateBox state="shared_nda" onClick={() => {}} /> shared + NDA required</span>
                         <span className="flex items-center gap-1"><TriStateBox state="none" onClick={() => {}} /> not shared</span>
                       </div>
+                      {/* Prompt 557 — what "shared + NDA" actually does to an
+                          EXTERNAL recipient, said before the founder picks it.
+                          Without this the choice looked like it simply hid the
+                          document: the guest saw a count with no name, and
+                          nothing said the founder had to do anything next. */}
+                      <p className="mt-1 text-[11px] text-gray-400">
+                        Shared + NDA: they see the name now, the file after you upload their signed NDA.
+                      </p>
                       <input autoComplete="off" type="date" value={grantExpiry} onChange={(e) => setGrantExpiry(e.target.value)}
                         className="mt-2 rounded border border-gray-300 px-2 py-1.5 text-sm" title="Expiry (optional)" />
                       <div>
@@ -1921,6 +1952,13 @@ function DocumentsPageInner() {
                     <span className="text-xs text-gray-400">
                       {inv.documentName ? `"${inv.documentName}" locked` : `${inv.count} item${inv.count === 1 ? '' : 's'} locked`} until the signed NDA is on file
                     </span>
+                    {/* Prompt 557 — an external guest has no account here, so
+                        the founder is the only one who can close this loop:
+                        send the NDA out of band, upload the signed copy. The
+                        guest's own page says the same thing from their side. */}
+                    {inv.guestOnly && (
+                      <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">guest — send them the NDA</span>
+                    )}
                     <label className="ml-auto cursor-pointer rounded-lg border border-cyan-200 px-2.5 py-1 text-xs text-cyan-800 hover:bg-cyan-50">
                       Upload signed NDA
                       <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadNda(f, { personId: inv.personId, email: inv.email, documentId: inv.documentId }); }} />

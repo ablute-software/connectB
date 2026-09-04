@@ -150,5 +150,22 @@ export function guestNavHref(key: string, token?: string): string | null {
   // page rather than a preview of it — a visitor with no share has a real
   // page to read.
   if (key === 'plans' && !token) return '/investors#pricing';
+  return previewHref(key, token);
+}
+
+// Prompt 557 — the URL shape for ANY previewable key, which is a wider set
+// than the sidebar's. guestNavHref answers "where does this SIDEBAR ENTRY
+// go" and correctly returns null for a key that is not an entry; the
+// approved email's own CTAs include two keys that are not entries —
+// 'watson' and 'bars' are tools inside Evaluation tools — so asking
+// guestNavHref for them yields null, and interpolating that null into a URL
+// produced `https://…appnull?from=guest-email`. Caught by the route
+// existence test rather than in an inbox, but only just.
+//
+// So: one function owns the shape (`/guest/<token>/preview/<key>` with a
+// token, `/guest/preview/<key>` without), guestNavHref delegates to it after
+// applying its own sidebar rules, and the email uses it directly. The two
+// can no longer disagree about what a preview URL looks like.
+export function previewHref(key: string, token?: string): string {
   return token ? `/guest/${token}/preview/${key}` : `/guest/preview/${key}`;
 }

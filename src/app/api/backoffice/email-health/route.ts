@@ -16,6 +16,8 @@
 // The key's value never leaves the server, is never logged, and is never
 // part of a response — only whether one is set.
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { domainHealthDiagnosis, summariseByDomain } from '@/lib/email-domain-health';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
 import { resolvedFromAddress, resolvedReplyTo, domainOfSender, isSandboxSender } from '@/lib/email-sender-identity';
 
@@ -90,9 +92,44 @@ export async function GET() {
           ? `The sender domain ${fromDomain} exists at the provider but its status is "${match.status}", not "verified" — third-party recipients will be refused until the DNS records are in place.`
           : `The sender domain ${fromDomain ?? '(unparseable)'} is not registered at the provider at all — every send will be refused. Add it under Domains and verify it.`;
 
+  // Prompt 557 §3 — the RECEIVING side, next to the sending side. Everything
+  // above answers "can we send at all"; this answers "who is actually
+  // getting it", which is a different question with a different answer: on
+  // 03/09 the sender domain was verified and healthy AND six invites to one
+  // @hotmail.com address were accepted and never arrived. Grouped by
+  // receiving domain that pattern is one glance; in a flat list it is
+  // invisible.
+  const deliveryByDomain = await readDeliveryByDomain();
+
   return NextResponse.json({
     ok: true, ...base,
     domains: domains.map((d) => ({ name: d.name ?? null, status: d.status ?? null, region: d.region ?? null })),
     fromDomainVerified, isSandbox, domainsError, diagnosis,
+    ...deliveryByDomain,
   });
+}
+
+const DELIVERY_WINDOW_DAYS = 7;
+
+async function readDeliveryByDomain() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const webhookConfigured = !!process.env.RESEND_WEBHOOK_SECRET;
+  if (!url || !service) {
+    return { deliveryWindowDays: DELIVERY_WINDOW_DAYS, webhookConfigured, byDomain: [], deliveryDiagnosis: 'No database configured in this environment.' };
+  }
+  const admin = createClient(url, service, { auth: { persistSession: false } });
+  const since = new Date(Date.now() - DELIVERY_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await admin.from('email_send_log')
+    .select('recipient, status').gte('created_at', since).limit(5000);
+  if (error) {
+    return { deliveryWindowDays: DELIVERY_WINDOW_DAYS, webhookConfigured, byDomain: [], deliveryDiagnosis: `Could not read the send log: ${error.message}` };
+  }
+  const byDomain = summariseByDomain((data ?? []) as { recipient: string | null; status: string }[]);
+  return {
+    deliveryWindowDays: DELIVERY_WINDOW_DAYS,
+    webhookConfigured,
+    byDomain,
+    deliveryDiagnosis: domainHealthDiagnosis(byDomain, webhookConfigured),
+  };
 }

@@ -79,6 +79,10 @@ interface PortalSnapshot {
 }
 interface PortalData {
   orgName: string | null; senderEmail?: string | null; pendingNdaCount: number;
+  // Prompt 557 — the same names the guest page now shows, for the confirmed
+  // investor. Name and folder only: these are precisely the documents this
+  // investor may not open yet, so the API never resolves a URL for them.
+  ndaPending?: { id: string; name: string; folder: string | null }[];
   folders: { id: string; name: string }[]; documents: PortalDoc[];
   // Prompt 55 — the 6 fixed diligence-journey sections, each always
   // present (possibly with an empty documents array) so the client can
@@ -542,6 +546,21 @@ export default function PortalPage() {
         {pendingNdaCount > 0 && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             Awaiting NDA — {pendingNdaCount} more item{pendingNdaCount === 1 ? '' : 's'} will appear here once your signed NDA is on file.
+            {/* Prompt 557 — by name, not just a count. Same reasoning as the
+                guest page: "N more items" tells an investor something exists
+                without saying what, so there is nothing to chase and nothing
+                to weigh. No link and no button — the founder uploads the
+                signed copy (the F5 model), and that is what opens these. */}
+            {(real?.ndaPending?.length ?? 0) > 0 && (
+              <ul className="mt-2 space-y-1">
+                {real!.ndaPending!.map((d) => (
+                  <li key={d.id} className="flex items-center gap-2 text-xs text-amber-900">
+                    🔒 <span className="truncate">{d.name}</span>
+                    {d.folder && <span className="ml-auto shrink-0 text-[10px] text-amber-700/70">{d.folder}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
         {authEnabled && real?.sections ? (

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readdirSync } from 'node:fs';
+import path from 'node:path';
 import {
   GUEST_EMAIL_ASSET_BASE, assertNoUnresolvedTokens, buildGuestAccessEmail,
   greetingName, guestEmailLinks, loadGuestAccessTemplate, normaliseNewlines,
@@ -99,12 +101,95 @@ describe('variables are wired to real values', () => {
     expect(html).not.toContain('localhost');
   });
 
-  it('product links land on the real guest-mode workspace surfaces, not a signup wall', () => {
+  it('product links land on the real guest-mode preview surfaces, not a signup wall', () => {
     const links = guestEmailLinks();
-    expect(links.discover_startups_url).toContain('/portal/pipeline');
-    expect(links.watson_url).toContain('/portal/watson');
-    expect(links.bars_url).toContain('/portal/bars');
+    expect(links.discover_startups_url).toContain('/guest/preview/pipeline');
+    expect(links.watson_url).toContain('/guest/preview/watson');
+    expect(links.bars_url).toContain('/guest/preview/bars');
     for (const url of Object.values(links)) expect(url).toMatch(/^https:\/\//);
+  });
+
+  it('carries the share token into the three CTAs when the caller has one', () => {
+    const links = guestEmailLinks('abc123');
+    expect(links.discover_startups_url).toContain('/guest/abc123/preview/pipeline');
+    expect(links.watson_url).toContain('/guest/abc123/preview/watson');
+    expect(links.bars_url).toContain('/guest/abc123/preview/bars');
+    // The footer is about the product, not the share — no token in it.
+    expect(links.privacy_url).not.toContain('abc123');
+    expect(links.contact_url).not.toContain('abc123');
+  });
+
+  it('keeps ?from=guest-email on the three CTAs, with or without a token', () => {
+    for (const links of [guestEmailLinks(), guestEmailLinks('abc123')]) {
+      expect(links.discover_startups_url).toContain('?from=guest-email');
+      expect(links.watson_url).toContain('?from=guest-email');
+      expect(links.bars_url).toContain('?from=guest-email');
+    }
+  });
+
+  // Prompt 557's core regression test. Every URL the email carries used to
+  // 404 or bounce to /login; nothing in the codebase noticed, because
+  // nothing checked that these strings correspond to routes. This walks
+  // src/app for real and fails if any of them stops resolving — including
+  // if someone deletes or renames a preview route later.
+  describe('every URL in the email resolves to a route that exists and needs no account', () => {
+    const APP_DIR = path.join(process.cwd(), 'src', 'app');
+
+    /** Route paths Next will serve, derived from the filesystem: a directory
+     *  holding page.tsx is a route; (groups) collapse; [dynamic] segments
+     *  match anything. Returns matcher regexes, not literal strings, so a
+     *  dynamic segment is compared the way Next resolves it. */
+    function routeMatchers(dir: string, prefix = ''): RegExp[] {
+      const out: RegExp[] = [];
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'api') continue;
+        if (entry.isFile() && /^page\.(tsx|ts|jsx|js)$/.test(entry.name)) {
+          const pattern = (prefix === '' ? '/' : prefix)
+            .replace(/\[\.\.\.[^\]]+\]/g, '.+')
+            .replace(/\[[^\]]+\]/g, '[^/]+');
+          out.push(new RegExp(`^${pattern}$`));
+        }
+        if (entry.isDirectory()) {
+          // (group) segments are organisational and do not appear in the URL.
+          const segment = /^\(.+\)$/.test(entry.name) ? '' : `/${entry.name}`;
+          out.push(...routeMatchers(path.join(dir, entry.name), prefix + segment));
+        }
+      }
+      return out;
+    }
+
+    const matchers = routeMatchers(APP_DIR);
+
+    // Mirrors src/middleware.ts's own prefix test. A guest clicking these
+    // has no session by definition, so a link that is merely a real route
+    // but not public is still broken — it 307s to /login?next=…, which is
+    // exactly what /privacy, /security and /support were doing.
+    const PUBLIC_PREFIXES = ['/', '/terms', '/contact', '/guest', '/investors', '/privacy-request', '/login', '/signup'];
+    const isPublic = (p: string) => PUBLIC_PREFIXES.some((q) => p === q || p.startsWith(q === '/' ? '/' : q + '/')) && (p === '/' || PUBLIC_PREFIXES.some((q) => q !== '/' && (p === q || p.startsWith(q + '/'))));
+
+    it('finds the preview routes at all (guards the walker itself)', () => {
+      expect(matchers.some((m) => m.test('/guest/preview/pipeline'))).toBe(true);
+      expect(matchers.some((m) => m.test('/guest/abc123/preview/pipeline'))).toBe(true);
+      // The routes the email used to point at genuinely do not exist —
+      // if this ever starts failing, /portal grew subroutes and the comment
+      // in guestEmailLinks needs revisiting, not this assertion deleting.
+      expect(matchers.some((m) => m.test('/portal/pipeline'))).toBe(false);
+      expect(matchers.some((m) => m.test('/privacy'))).toBe(false);
+      expect(matchers.some((m) => m.test('/security'))).toBe(false);
+      expect(matchers.some((m) => m.test('/support'))).toBe(false);
+    });
+
+    for (const withToken of [undefined, 'abc123']) {
+      const label = withToken ? 'with a share token' : 'without a share token';
+      it(`${label}`, () => {
+        const links = guestEmailLinks(withToken);
+        for (const [name, url] of Object.entries(links)) {
+          const pathname = new URL(url).pathname;
+          expect(matchers.some((m) => m.test(pathname)), `${name} -> ${pathname} matches no route in src/app`).toBe(true);
+          expect(isPublic(pathname), `${name} -> ${pathname} is not reachable without an account`).toBe(true);
+        }
+      });
+    }
   });
 
   it('escapes the startup name so a quote in it cannot break the markup', () => {

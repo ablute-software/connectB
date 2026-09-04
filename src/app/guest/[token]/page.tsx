@@ -55,6 +55,11 @@ type GuestPreview = {
   // nda-upload; a guest is never prompted for NDA action here). Lets the
   // empty state read as "still in progress" rather than "nothing shared."
   pendingNdaCount: number;
+  // Prompt 557 — the NDA-pending documents by name. Names only, same as
+  // every other document on this page; there is no href because there is
+  // nothing this guest can open or sign here (the F5 model: the NDA is
+  // signed outside the app and the FOUNDER uploads the signed copy).
+  ndaPending: { id: string; name: string; folder: string | null }[];
 };
 type GuestError = { ok: false; reason: 'expired' | 'invalid' };
 type GuestResponse = GuestPreview | GuestError;
@@ -132,17 +137,16 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
               <p className="mb-4 text-xs text-gray-400">This preview was shared with {data.invitedEmail}.</p>
 
 
+              {/* Prompt 557 — the count includes the NDA-pending documents.
+                  They WERE shared; they are locked, which is not the same as
+                  absent. Before this, a founder who shared one document with
+                  an NDA left the guest reading "0 documents shared with you",
+                  which is what made a working share look broken. */}
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
-                {data.documentCount} document{data.documentCount === 1 ? '' : 's'} shared with you
+                {data.documentCount + data.ndaPending.length} document{data.documentCount + data.ndaPending.length === 1 ? '' : 's'} shared with you
               </p>
-              {data.documentCount === 0 ? (
-                data.pendingNdaCount > 0 ? (
-                  <p className="text-sm text-gray-400">
-                    {data.pendingNdaCount} document{data.pendingNdaCount === 1 ? '' : 's'} pending NDA signature.
-                  </p>
-                ) : (
-                  <p className="text-sm text-gray-400">No documents shared yet — check back later.</p>
-                )
+              {data.documentCount === 0 && data.ndaPending.length === 0 ? (
+                <p className="text-sm text-gray-400">No documents shared yet — check back later.</p>
               ) : (
                 (() => {
                   // Prompt 547 — grouped by what the recipient can DO, not by
@@ -182,16 +186,6 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
                               </li>
                             ))}
                           </ul>
-                          {/* Prompt 548 Part 5 — found in the 547 real-DB
-                              run: the pending-NDA count was only ever shown
-                              when the list was EMPTY, so a guest with two
-                              open documents and a third behind an NDA was
-                              told nothing about the third. */}
-                          {data.pendingNdaCount > 0 && data.documentCount > 0 && (
-                            <p className="mt-2 text-xs text-gray-400">
-                              +{data.pendingNdaCount} document{data.pendingNdaCount === 1 ? '' : 's'} available after NDA
-                            </p>
-                          )}
                           {sent ? (
                             <div className="mt-2 rounded-xl border border-cyan-100 bg-[#E8F4F8] px-3 py-3 text-sm text-gray-700">
                               Check your email — we sent a one-time code to {data.invitedEmail}.
@@ -211,6 +205,39 @@ export default function GuestPreviewPage({ params }: { params: { token: string }
                               {sendErr && <p className="mt-2 text-xs text-[#B00000]">{sendErr}</p>}
                             </div>
                           )}
+                        </div>
+                      )}
+
+                      {/* Prompt 557 — "After NDA". Replaces Prompt 548 Part
+                          5's bare count ("+N documents available after NDA"),
+                          which told the guest something existed without ever
+                          naming it or saying what happens next. Nuno shared a
+                          document with an NDA and, from the recipient's side,
+                          nothing appeared at all.
+
+                          Names, a lock, and one sentence naming who acts and
+                          what the guest will receive. Deliberately NO button:
+                          the guest cannot act on the NDA in-app — it is
+                          signed outside and unlocked by the founder uploading
+                          the signed copy (the F5 model, unchanged here). A
+                          control that did nothing would be worse than the
+                          count it replaces. The founder's own side of this
+                          loop is the "NDA pending" chip in People & Access. */}
+                      {data.ndaPending.length > 0 && (
+                        <div>
+                          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">After NDA</p>
+                          <ul className="space-y-1">
+                            {data.ndaPending.map((d) => (
+                              <li key={d.id} className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2 text-sm text-gray-600">
+                                🔒 <span className="truncate">{d.name}</span>
+                                {d.folder && <span className="ml-auto shrink-0 text-[10px] text-gray-400">{d.folder}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="mt-2 text-xs text-gray-400">
+                            {data.orgName} will send you a short NDA to sign. Once they upload the signed copy,
+                            {data.ndaPending.length === 1 ? ' this opens' : ' these open'} here — you&apos;ll get an email.
+                          </p>
                         </div>
                       )}
                     </div>

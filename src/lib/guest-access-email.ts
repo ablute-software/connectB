@@ -21,6 +21,7 @@ import 'server-only';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { APP_URL } from './brand';
+import { EMAIL_CTA_KEYS, previewHref } from './guest-previews';
 
 /** Every variable the package declares (variables.json), all required. A
  *  missing one is a bug, not a blank — see assertNoUnresolvedTokens. */
@@ -54,18 +55,51 @@ export const GUEST_EMAIL_ASSET_BASE = `${APP_URL}/email/guest-access`;
  * Workspace in guest mode, on the relevant surface — not on a generic
  * signup wall (§28). `?from=guest-email` lets those pages keep the return
  * target through a later signup, which is what variables.json asks for.
+ *
+ * Prompt 557 — every URL this returned was a 404. Seven of them.
+ *
+ * The three CTAs pointed at `/portal/pipeline|watson|bars`. No such routes
+ * exist and none ever did: `/portal` is ONE page that switches on `?tab=`.
+ * The pages these cards promise were built (Prompt 526 Part B, made dynamic
+ * by 548) and live at `/guest/preview/<key>` — 548 even kept `watson` and
+ * `bars` in EMAIL_CTA_KEYS explicitly "because they are in people's
+ * inboxes". The email simply never pointed at them. Nuno clicked all three
+ * on a real Krohnsty share and got "404 — This page could not be found."
+ *
+ * The footer was wrong the same way: `/privacy`, `/security` and `/support`
+ * are not routes either. They are not even 404s — the middleware bounces
+ * them to `/login?next=…` (307), so an invited guest with no account was
+ * being asked to sign in to read a privacy policy.
+ *
+ * With a token the CTAs go to `/guest/<token>/preview/<key>`, so the guest
+ * keeps their share while browsing and the sidebar can return them to it;
+ * without one (the back-office test send) they go to the token-less
+ * `/guest/preview/<key>`. Both shapes come from guestNavHref, so this can
+ * never drift from what the preview routes actually serve.
+ *
+ * The footer now points at pages that exist and are in the middleware's
+ * PUBLIC list: `/terms` carries the data-protection text (it is the
+ * pre-contractual page DL 7/2004 requires to be readable without an
+ * account) and `/contact` is the real contact page. `/privacy-request` is
+ * deliberately NOT used for `privacy_url` — it is the GDPR *request form*,
+ * not a policy to read.
+ *
+ * guest-access-email.test.ts walks src/app and fails if any URL returned
+ * here does not resolve to a real route, so this class of bug cannot come
+ * back silently.
  */
-export function guestEmailLinks(): Pick<GuestAccessEmailVars,
+export function guestEmailLinks(token?: string): Pick<GuestAccessEmailVars,
   'discover_startups_url' | 'watson_url' | 'bars_url' | 'website_url' | 'privacy_url' | 'security_url' | 'contact_url'> {
   const from = 'from=guest-email';
+  const cta = (key: (typeof EMAIL_CTA_KEYS)[number]) => `${APP_URL}${previewHref(key, token)}?${from}`;
   return {
-    discover_startups_url: `${APP_URL}/portal/pipeline?${from}`,
-    watson_url: `${APP_URL}/portal/watson?${from}`,
-    bars_url: `${APP_URL}/portal/bars?${from}`,
+    discover_startups_url: cta('pipeline'),
+    watson_url: cta('watson'),
+    bars_url: cta('bars'),
     website_url: APP_URL,
-    privacy_url: `${APP_URL}/privacy`,
-    security_url: `${APP_URL}/security`,
-    contact_url: `${APP_URL}/support`,
+    privacy_url: `${APP_URL}/terms`,
+    security_url: `${APP_URL}/terms`,
+    contact_url: `${APP_URL}/contact`,
   };
 }
 
@@ -189,12 +223,17 @@ export function renderGuestAccessEmail(vars: GuestAccessEmailVars): RenderedGues
  *  actually vary per send. */
 export function buildGuestAccessEmail(params: {
   recipientEmail: string; invitedName?: string | null; startupName: string; guestUrl: string;
+  /** Prompt 557 — the share's own token, when the caller has one (both invite
+   *  routes do). It makes the three CTAs keep the guest inside their share
+   *  instead of dropping them on the anonymous preview. Optional because the
+   *  back-office test send has no real share to carry. */
+  guestToken?: string | null;
 }): RenderedGuestEmail {
   return renderGuestAccessEmail({
     recipient_first_name: greetingName(params.invitedName, params.recipientEmail),
     startup_name: params.startupName,
     guest_access_url: params.guestUrl,
     asset_base_url: GUEST_EMAIL_ASSET_BASE,
-    ...guestEmailLinks(),
+    ...guestEmailLinks(params.guestToken ?? undefined),
   });
 }

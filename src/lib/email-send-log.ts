@@ -12,7 +12,13 @@ import 'server-only';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 export type EmailKind = 'guest_invite' | 'access_notify' | 'access_grant' | 'support' | 'other';
-export type EmailSendStatus = 'sent' | 'failed' | 'not_configured' | 'render_failed';
+// Prompt 557 §3 — the four asynchronous statuses. They are written by
+// /api/resend/webhook, never by logEmailSend: nothing on the synchronous
+// send path can know whether mail arrived, and a type that let it claim so
+// is how 'sent' came to be read as 'delivered' in the first place.
+export type EmailSendStatus =
+  | 'sent' | 'failed' | 'not_configured' | 'render_failed'
+  | 'delivered' | 'bounced' | 'complained' | 'delayed';
 
 /**
  * Where an email came from, supplied by the caller. `kind` is required so a

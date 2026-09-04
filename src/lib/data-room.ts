@@ -62,7 +62,13 @@ export function unlockedGrants<T extends GrantLike>(grants: T[]): T[] {
 // comentario do gate: ausente significa "sem restricao", que e o
 // comportamento anterior.
 export interface DocMeta { id: string; folder_id?: string; visibility?: string }
-export interface ResolvedDocumentAccess { visibleIds: string[]; pendingCount: number }
+// Prompt 557 — `pendingIds` alongside `pendingCount`. The count alone was
+// all the guest page could ever show ("+2 documents available after NDA"),
+// which told an invited guest that something exists, not what it is or what
+// happens next. Both are returned rather than deriving the count at each
+// call site: six callers read pendingCount today and none of them should
+// have to change to keep working.
+export interface ResolvedDocumentAccess { visibleIds: string[]; pendingIds: string[]; pendingCount: number }
 
 // F4's per-doc override only means anything if it actually takes priority
 // over the folder the document lives in — access_grants can't express "grant
@@ -150,7 +156,7 @@ export function resolveDocumentAccess<T extends GrantLike>(
   }
 
   const visibleIds: string[] = [];
-  let pendingCount = 0;
+  const pendingIds: string[] = [];
   for (const doc of documents) {
     // Prompt 204(a) — 'due_diligence' so abre com grant ao PROPRIO documento.
     //
@@ -171,9 +177,9 @@ export function resolveDocumentAccess<T extends GrantLike>(
       : docGrant ?? nearestFolderGrant(doc.folder_id);
     if (!effective) continue;
     if (!effective.nda_required || effective.nda_accepted_at) visibleIds.push(doc.id);
-    else pendingCount++;
+    else pendingIds.push(doc.id);
   }
-  return { visibleIds, pendingCount };
+  return { visibleIds, pendingIds, pendingCount: pendingIds.length };
 }
 
 // E5 — drag-to-reorder within a folder. Given the folder's current document

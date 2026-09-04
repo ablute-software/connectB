@@ -99,7 +99,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
       ok: true, orgName: org.name as string,
       orgDescription: (org.one_liner as string | null) ?? (profile?.description as string | null) ?? null,
       orgLogoUrl: (profile?.photo_url as string | null) ?? null,
-      invitedEmail, folders: [], documentNames: [], documentCount: 0, pendingNdaCount: 0,
+      invitedEmail, folders: [], documentNames: [], documentCount: 0, pendingNdaCount: 0, ndaPending: [],
     }, { headers: NOINDEX_HEADERS });
   }
 
@@ -136,8 +136,22 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   // accepted) rides along so the client can tell "nothing shared" apart
   // from "shared, but all pending NDA" (§ Nota — partilha com NDA) instead
   // of rendering an unexplained empty folder either way.
-  const { visibleIds, pendingCount } = resolveDocumentAccess(grants, candidateDocs, folderTree);
+  const { visibleIds, pendingIds, pendingCount } = resolveDocumentAccess(grants, candidateDocs, folderTree);
   const visibleDocs = candidateDocs.filter((d) => visibleIds.includes(d.id));
+  // Prompt 557 — the NDA-pending documents by NAME, not just a count.
+  // Nuno shared a document with NDA and it did not appear on the guest page
+  // at all: the recipient saw "+1 document available after NDA" with no name,
+  // no NDA to sign, and nothing saying who would send it or when. The
+  // machinery to unlock it already existed (the founder uploads the signed
+  // copy, /api/data-room/nda-upload, which already accepts granteeEmail) —
+  // what was missing was any way for either side to know it was owed.
+  //
+  // A name is the same class of information this route already returns for
+  // every other document, and the same hard rule still holds: names and
+  // structure only, never a URL, never content. A document behind an
+  // unaccepted NDA is not openable here by construction — /api/guest/open
+  // re-derives access from the grants, not from this payload.
+  const ndaPendingDocs = candidateDocs.filter((d) => pendingIds.includes(d.id));
 
   // Prompt 154 gap 2 — the real folder/document tree, not just a flat
   // sorted name list: every visible document already carries its real
@@ -186,6 +200,19 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     .sort((a, b) => a.name.localeCompare(b.name));
   const documentNames = visibleDocs.map((d) => d.name).sort();
 
+  // Folder names for the pending set too — they can sit in folders that hold
+  // no visible document at all, so folderNameById (built from visibleDocs)
+  // does not necessarily know them.
+  const ndaFolderNameIds = [...new Set(ndaPendingDocs.map((d) => d.folder_id).filter(Boolean))] as string[];
+  const missingNdaFolderIds = ndaFolderNameIds.filter((id) => !folderNameById.has(id));
+  if (missingNdaFolderIds.length) {
+    const { data: extraFolders } = await admin.from('folders').select('id, name').in('id', missingNdaFolderIds);
+    for (const f of extraFolders ?? []) folderNameById.set(f.id as string, f.name as string);
+  }
+  const ndaPending = ndaPendingDocs
+    .map((d) => ({ id: d.id, name: d.name, folder: (d.folder_id && folderNameById.get(d.folder_id)) || null }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   return NextResponse.json({
     ok: true,
     orgName: org.name as string,
@@ -196,5 +223,6 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     documentNames,
     documentCount: documentNames.length,
     pendingNdaCount: pendingCount,
+    ndaPending,
   }, { headers: NOINDEX_HEADERS });
 }

@@ -103,7 +103,7 @@ describe('resolveDocumentAccess (F4 per-doc override vs its folder grant)', () =
   it('a document with only a folder-level grant is visible when that grant is unlocked', () => {
     const grants = [{ folder_id: 'f1', nda_required: false }];
     const docs = [{ id: 'd1', folder_id: 'f1' }];
-    expect(resolveDocumentAccess(grants, docs, [{ id: 'f1' }])).toEqual({ visibleIds: ['d1'], pendingCount: 0 });
+    expect(resolveDocumentAccess(grants, docs, [{ id: 'f1' }])).toEqual({ visibleIds: ['d1'], pendingIds: [], pendingCount: 0 });
   });
 
   it('a document-level override to require an NDA wins even though its folder is shared without one', () => {
@@ -131,13 +131,13 @@ describe('resolveDocumentAccess (F4 per-doc override vs its folder grant)', () =
   it('a document with no applicable grant at all is neither visible nor pending', () => {
     const grants: { folder_id?: string; document_id?: string; nda_required: boolean }[] = [];
     const docs = [{ id: 'd1', folder_id: 'f1' }];
-    expect(resolveDocumentAccess(grants, docs, [{ id: 'f1' }])).toEqual({ visibleIds: [], pendingCount: 0 });
+    expect(resolveDocumentAccess(grants, docs, [{ id: 'f1' }])).toEqual({ visibleIds: [], pendingIds: [], pendingCount: 0 });
   });
 
   it('an accepted document-level NDA makes it visible', () => {
     const grants = [{ document_id: 'd1', nda_required: true, nda_accepted_at: '2026-01-01T00:00:00Z' }];
     const docs = [{ id: 'd1', folder_id: 'f1' }];
-    expect(resolveDocumentAccess(grants, docs, [{ id: 'f1' }])).toEqual({ visibleIds: ['d1'], pendingCount: 0 });
+    expect(resolveDocumentAccess(grants, docs, [{ id: 'f1' }])).toEqual({ visibleIds: ['d1'], pendingIds: [], pendingCount: 0 });
   });
 });
 
@@ -153,7 +153,7 @@ describe('resolveDocumentAccess (204 §A: grant de pasta cobre a subarvore)', ()
     const docs = [{ id: 'd-sum', folder_id: 'sum' }, { id: 'd-corp', folder_id: 'corp' }];
 
     expect(resolveDocumentAccess(grants, docs, ARVORE))
-      .toEqual({ visibleIds: ['d-sum', 'd-corp'], pendingCount: 0 });
+      .toEqual({ visibleIds: ['d-sum', 'd-corp'], pendingIds: [], pendingCount: 0 });
   });
 
   it('desce mais do que um nivel', () => {
@@ -203,7 +203,7 @@ describe('resolveDocumentAccess (204 §A: grant de pasta cobre a subarvore)', ()
     const grants = [{ folder_id: 'raiz', nda_required: true }];
     const docs = [{ id: 'd-sum', folder_id: 'sum' }];
 
-    expect(resolveDocumentAccess(grants, docs, ARVORE)).toEqual({ visibleIds: [], pendingCount: 1 });
+    expect(resolveDocumentAccess(grants, docs, ARVORE)).toEqual({ visibleIds: [], pendingIds: ['d-sum'], pendingCount: 1 });
   });
 
   it('NDA aceite na pasta ancestral torna a subarvore visivel', () => {
@@ -400,7 +400,7 @@ describe('resolveDocumentAccess (204a: due_diligence so com grant ao proprio doc
   it('bloqueado NAO conta como pendente de NDA -- sao coisas diferentes', () => {
     const grants = [{ folder_id: 'raiz', nda_required: false }];
     const docs = [{ id: 'prr', folder_id: 'grants', visibility: 'due_diligence' }];
-    expect(resolveDocumentAccess(grants, docs, ARVORE)).toEqual({ visibleIds: [], pendingCount: 0 });
+    expect(resolveDocumentAccess(grants, docs, ARVORE)).toEqual({ visibleIds: [], pendingIds: [], pendingCount: 0 });
   });
 
   it('as outras visibilidades nao mudam nada', () => {

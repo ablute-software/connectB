@@ -115,6 +115,7 @@ export async function POST(req: Request) {
         invitedName: (inviteRow?.invited_name as string | undefined) ?? null,
         startupName: orgName,
         guestUrl: `${APP_URL}/guest/${token}`,
+        guestToken: token,
       });
       const result = await sendTransactionalEmail({
         to: email, subject: rendered.subject, html: rendered.html, text: rendered.text,

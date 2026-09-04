@@ -4677,3 +4677,97 @@ finished when a fresh replay of the repository produces what production has.
 0308 now carries the applied body verbatim (verified identical to
 `pg_get_functiondef` in production) and 0300 is corrected in place, so the
 replay never builds the broken version at all.
+
+## External shares may require an NDA; the guest sees the name and the next step, the founder uploads the signed NDA; email status is provider truth via webhook — 03/09/2026 (Prompt 557)
+
+Three failures in one real share from Krohnsty, and they are not related to
+each other except that all three end with "the share looks broken and nobody
+can tell why".
+
+**1. Every link in the approved email was dead.** Seven of them. The three
+cards ("Find your next unicorn", "Ask Watson", "Spot the risks") pointed at
+`/portal/pipeline|watson|bars`. No such routes exist and none ever did —
+`/portal` is ONE page that switches on `?tab=`. The pages those cards promise
+were built (Prompt 526 Part B, made dynamic by 548) and live at
+`/guest/preview/<key>`; 548 even kept `watson` and `bars` in `EMAIL_CTA_KEYS`
+explicitly "because they are in people's inboxes". The email simply never
+pointed there. The footer was wrong the same way, and worse: `/privacy`,
+`/security` and `/support` are not routes either, so the middleware bounced
+them to `/login?next=…` — an invited guest with no account was being asked to
+sign in to read a privacy policy.
+
+Fixed by building all three CTAs from `previewHref` — a new function that
+owns the URL shape, which `guestNavHref` now delegates to. The distinction
+matters and cost a bug on the way in: `guestNavHref` answers "where does this
+SIDEBAR ENTRY go" and correctly returns `null` for `watson`/`bars`, which are
+tools inside Evaluation tools rather than nav entries. Using it for the email
+produced `https://…appnull?from=guest-email`. The route-existence test caught
+it before the commit, which is exactly what that test is for: it walks
+`src/app`, resolves every URL `guestEmailLinks` returns against the real route
+tree, and asserts each one is reachable without an account. Footer now points
+at `/terms` (the pre-contractual page DL 7/2004 requires to be public) and
+`/contact`. `/privacy-request` is deliberately not used — it is the GDPR
+request FORM, not a policy to read.
+
+**2. An NDA-gated document was invisible to both sides at once.** The guest
+saw "+1 document available after NDA" — a count with no name, no NDA, and
+nothing saying who would send one. The founder saw an "NDA pending" chip on
+the recipient's row and had nowhere to act on it: the only upload control
+lives in the "Awaiting NDA" card, and that card was built from
+`confirmedActiveGrants` — a status an email-only guest's grant never has, by
+construction (`grantStatus` resolves it to `pending_confirmation`).
+
+Decision, as the prompt recommends: **keep NDA on external shares.** Removing
+it would force a founder to pick "shared" for a document they wanted
+protected. Instead the loop is made visible from both ends — the guest page
+and the confirmed portal list the documents by name under a lock with one
+sentence naming who acts next, and the founder's Awaiting NDA card now
+includes unconfirmed guests, flagged "guest — send them the NDA".
+
+**And the unlock did not work.** Not in the prompt, found while wiring it:
+`/api/data-room/nda-upload` matched `grantee_email` only, but an external
+share writes the recipient into `invited_email` and deliberately leaves
+`grantee_email` NULL (forging it would promote an unconfirmed invitee into a
+confirmed one). So the founder could upload the signed NDA, receive
+`ok: true`, and unlock nothing — zero rows matched, `unlockedGrantIds` came
+back empty, no error anywhere. Proven against the real database in a
+rolled-back transaction: the old matcher unlocks 0, the new one unlocks 1.
+The prompt assumed this path already worked; it did not, and every other part
+of §2 would have shipped as a dead end without this.
+
+**3. `sent` never meant delivered, and the one screen built to answer "did it
+arrive?" could not.** Six `guest_invite` sends to one `@hotmail.com` address
+were all `status = 'sent'` with a provider id: Resend accepted every one.
+Nobody received any. That is not a contradiction — `sent` has only ever meant
+"the provider's API returned 200", which is the last thing the app learns
+synchronously.
+
+Migration 0309 extends the status check with `delivered`/`bounced`/
+`complained`/`delayed` and adds `provider_event_at`; `/api/resend/webhook`
+writes them. Three decisions inside that are worth keeping:
+
+- **The signature is what makes a public endpoint safe, so there is no
+  development bypass.** No `RESEND_WEBHOOK_SECRET` means every request is
+  rejected and the endpoint is inert rather than forgeable. Without this,
+  anyone who learned the URL could POST `email.delivered` and paint the
+  founder's screen with deliveries that never happened — the precise inverse
+  of what this prompt is for.
+- **The route reads the raw body, never `req.json()`.** The signature covers
+  the exact bytes; parsing and re-serialising changes them (key order,
+  whitespace, unicode escapes) and every valid signature would fail.
+- **A row only ever moves forward** (`shouldApplyStatus`). Resend reorders and
+  redelivers, so a late `delivered` must not flip a real `bounced` back to
+  success, and a send that never reached the provider (`failed`,
+  `render_failed`, `not_configured`) can never be "delivered" by a stray event
+  for a recycled id.
+
+The back-office email-health card gains a per-receiving-domain table
+(Gmail / Hotmail-Outlook / Proton / other, accepted vs delivered vs bounced,
+7 days). The Microsoft failure is a DNS problem, not an app one — two SPF TXT
+records on `send.sherlockdeal.com` is a PermError under RFC 7208 §4.6.4, and
+deleting the leftover GoDaddy `_spfm` record is Nuno's job at the registrar.
+What the app can own is that the NEXT time this happens the answer is a row
+instead of three weeks of guessing. The diagnosis line is deliberately
+conservative: while the webhook is unconfigured every row sits at `sent`
+forever, and calling that a delivery failure would be exactly the false alarm
+this replaces.

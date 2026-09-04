@@ -26,6 +26,16 @@ interface Health {
   isSandbox?: boolean;
   domainsError?: string | null;
   diagnosis: string;
+  // Prompt 557 §3 — the receiving side. Everything above is about whether we
+  // CAN send; this is about who actually gets it.
+  deliveryWindowDays?: number;
+  webhookConfigured?: boolean;
+  byDomain?: {
+    key: string; label: string;
+    sent: number; delivered: number; bounced: number; complained: number; delayed: number;
+    failed: number; awaitingProviderEvent: number;
+  }[];
+  deliveryDiagnosis?: string;
 }
 
 interface LogRow {
@@ -150,6 +160,61 @@ export default function EmailDeliveryPage() {
               </ul>
             )}
           </div>
+
+          {/* Prompt 557 §3 — delivery by receiving domain. The Hotmail
+              incident is the reason this exists: the sender domain was
+              verified and healthy, every send was accepted, and one receiver
+              was dropping everything. Sent vs delivered, side by side, per
+              receiver, makes that shape visible in one look instead of three
+              weeks of guessing. */}
+          {health.byDomain && health.byDomain.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-medium text-gray-600">
+                Delivery by recipient domain — last {health.deliveryWindowDays ?? 7} days
+              </p>
+              {health.deliveryDiagnosis && (
+                <p className="mt-1 text-[11px] text-gray-700">{health.deliveryDiagnosis}</p>
+              )}
+              <div className="mt-1 overflow-x-auto">
+                <table className="min-w-full text-[11px]">
+                  <thead>
+                    <tr className="text-left text-gray-500">
+                      <th className="pr-3 font-medium">Domain</th>
+                      <th className="pr-3 font-medium">Accepted</th>
+                      <th className="pr-3 font-medium">Delivered</th>
+                      <th className="pr-3 font-medium">Bounced</th>
+                      <th className="pr-3 font-medium">Complained</th>
+                      <th className="pr-3 font-medium">No news</th>
+                      <th className="pr-3 font-medium">Never sent</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {health.byDomain.map((b) => (
+                      <tr key={b.key} className="border-t border-gray-100">
+                        <td className="py-1 pr-3 text-gray-800">{b.label}</td>
+                        <td className="py-1 pr-3 text-gray-800">{b.sent}</td>
+                        <td className={`py-1 pr-3 ${b.delivered > 0 ? 'text-emerald-700' : 'text-gray-400'}`}>{b.delivered}</td>
+                        <td className={`py-1 pr-3 ${b.bounced > 0 ? 'text-[#B00000]' : 'text-gray-400'}`}>{b.bounced}</td>
+                        <td className={`py-1 pr-3 ${b.complained > 0 ? 'text-[#B00000]' : 'text-gray-400'}`}>{b.complained}</td>
+                        {/* Accepted by the provider, no delivery event yet.
+                            Not a failure on its own — but a domain where
+                            NOTHING ever leaves this column is the signature
+                            of a receiver dropping mail silently. */}
+                        <td className={`py-1 pr-3 ${b.awaitingProviderEvent > 0 ? 'text-amber-700' : 'text-gray-400'}`}>{b.awaitingProviderEvent}</td>
+                        <td className={`py-1 pr-3 ${b.failed > 0 ? 'text-[#B00000]' : 'text-gray-400'}`}>{b.failed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {health.webhookConfigured === false && (
+                <p className="mt-1 text-[11px] text-amber-700">
+                  RESEND_WEBHOOK_SECRET is not set, so no row can move past &ldquo;accepted&rdquo;. Add the
+                  webhook endpoint (/api/resend/webhook) in the Resend dashboard and the secret on Vercel.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button type="button" disabled={testing} onClick={sendTest}
