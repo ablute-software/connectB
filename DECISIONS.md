@@ -5210,3 +5210,52 @@ by coincidence.
 
 **The generalisable part:** a state change that gates one surface is not a
 state change. Ask which other surfaces read the thing it was supposed to mean.
+
+## Prompt 570 — internal accounts, a triage board, and 749 queue items that were already in the catalog (05/09/2026)
+
+Internal team accounts (`is_internal`) never feed review queues by default;
+exact catalog matches are linked automatically and never queued.
+
+**The number that made this worth doing:** the "Added by startups" queue held
+751 items and 749 of them were firms the catalog already had — 692 sharing a
+normalised domain, 57 more a normalised name. Four out of five items were
+asking a reviewer to look at something already known. The queue is now 59, of
+which 58 are a choice between two named firms rather than a blank review.
+
+**Why the queue kept refilling**, which is the reusable part: it recomputed a
+match on every request instead of reading `catalog_review_status`. A row
+treated by a merge came straight back, because nothing about the treatment
+changed what the list was derived from. Deriving a worklist from the data
+rather than from the decisions is a queue that cannot be emptied.
+
+**Four columns in one family, and each cost a prompt this week because its
+name said what it was and never what it was not.** `is_test` looked like a
+discovery switch and also disabled monthly delivery and automations (563).
+`discovery_excluded_reason` looked like it served both sides of the market and
+the investor half lived in another table (568). `moderation_status` looked like
+it closed the account and closed only the login (571). `is_internal` therefore
+ships with its boundaries in the column comment: read only by review queues,
+does not disable automations, does not hide from discovery, does not block
+login.
+
+**A correspondence is not an event.** 749 candidates already had a
+`catalog_deliveries` row naming their catalog entry, so the link existed. It
+still went in a new column: deliveries are read by quota, by the monthly
+delivery and by the founder's pipeline, and a reconciliation job must not be
+able to hand someone an investor.
+
+**Server pagination and client-side derivation are incompatible.** Grade was
+computed in the browser over whichever rows had loaded. Correct at 751 rows in
+one response; silently wrong the moment pages existed, because "grade A first"
+becomes "grade A first among these 25" and looks identical. Moved to the
+server, over the whole set, using the same `completeness.ts`.
+
+**Never hide in silence.** A queue reading zero only because every row is
+internal says "0 · 59 hidden (internal)" and stays out of "All clear" — the
+count is the difference between "no work" and "none of it is yours". Three
+queues computed by their own tabs report null and show a dash, because not
+knowing is not zero.
+
+`?tab=` never worked: the page ignored the query string, so every direct link
+to a queue opened the first tab. Fixed as part of §B, since the board's cards
+would have inherited it.

@@ -85,8 +85,20 @@ export default function BackofficeLayout({ children }: { children: React.ReactNo
               );
             })}
           </nav>
+          {/* Prompt 570 §E — a solid control, the same white as the active
+              nav item, rather than a ghost button.
+
+              The request framed this as a contrast fix, and measured it is
+              not one: gray-300 on gray-900 is already about 12:1, well past
+              AA. What was wrong is weight. A transparent button with a
+              20%-white border, sitting beside nav items that fill solid
+              white when active, reads as the disabled state of something —
+              which is a poor look for the only way back out of the
+              back-office. Solid white with gray-900 text takes it to roughly
+              17.7:1 and, more to the point, makes it look pressable. */}
           {me?.orgRole && (
-            <Link href="/pipeline" className="rounded-lg border border-white/20 px-3 py-1.5 text-[12px] text-gray-300 hover:bg-white/10">
+            <Link href="/pipeline"
+              className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-medium text-gray-900 transition hover:bg-gray-100">
               ← Back to ablute_ (founder)
             </Link>
           )}
