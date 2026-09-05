@@ -3,7 +3,7 @@
 **Data:** 2026-09-04
 **Para:** sessão Claude Code
 **De:** Nuno + sessão de verificação
-**Contexto:** primeiro de quatro prompts saídos da revisão `revisao_backoffice_queue_profile_claims_20260904.md` (lê-a primeiro — tem os números por separador e os princípios; este prompt só executa a parte de fundações). Os separadores individuais (Contributions, Identity/Claims, GDPR/Trust) vêm nos 571–573 e **não** são para tocar aqui além do que está explícito abaixo.
+**Contexto:** primeiro de quatro prompts saídos da revisão `revisao_backoffice_queue_profile_claims_20260904.md` (lê-a primeiro — tem os números por separador e os princípios; este prompt só executa a parte de fundações). Os separadores individuais (Contributions, Identity/Claims, GDPR/Trust) vêm nos 572–574 e **não** são para tocar aqui além do que está explícito abaixo.
 
 ## O que confirmei por SQL antes de escrever isto
 
@@ -43,7 +43,7 @@ Um componente `QueueTable` (ou o nome que encaixar no que já existe — verific
 - Selecção persistente entre páginas; barra de acções em massa diz "12 selected across 2 pages"; "Clear selection".
 - Cabeçalho fixo (`sticky`) ao fazer scroll.
 
-Neste prompt, aplica o componente a **Catalog candidates** (§D) e, se for barato, a Contributions (só a lista — sem mudar cartões/agrupamento, isso é o 571). As outras filas migram nos prompts seguintes.
+Neste prompt, aplica o componente a **Catalog candidates** (§D) e, se for barato, a Contributions (só a lista — sem mudar cartões/agrupamento, isso é o 572). As outras filas migram nos prompts seguintes.
 
 ## §D — Catalog candidates: o que já está no catálogo não entra na fila
 
@@ -66,7 +66,7 @@ Fundo sólido claro (o mesmo branco do separador activo), texto escuro, seta; co
 
 ## Não fazer
 
-Não mexer em Contributions além da lista (§C), nem em Identity/Claims/GDPR/Trust/Key people/Competitor intel — são os 571–573. Não ligar `is_internal` a `is_test`, a automações, à descoberta ou às entregas. Não escrever em `catalog_entities` a partir do reconcile. Não apagar nenhuma das 751 linhas.
+Não mexer em Contributions além da lista (§C), nem em Identity/Claims/GDPR/Trust/Key people/Competitor intel — são os 572–574. Não ligar `is_internal` a `is_test`, a automações, à descoberta ou às entregas. Não escrever em `catalog_entities` a partir do reconcile. Não apagar nenhuma das 751 linhas.
 
 ## Verificar
 
