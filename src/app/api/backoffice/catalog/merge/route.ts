@@ -95,13 +95,21 @@ export async function POST(req: Request) {
   if ('error' in auth) return auth.error;
   const { admin, userId } = auth;
 
-  const { keepId, mergeIds, manualEntityId } = await req.json() as { keepId?: string; mergeIds?: string[]; manualEntityId?: string };
+  const { keepId, mergeIds, manualEntityId, reason, confirmInversion } = await req.json() as {
+    keepId?: string; mergeIds?: string[]; manualEntityId?: string; reason?: string; confirmInversion?: boolean;
+  };
   if (!keepId) return NextResponse.json({ ok: false, error: 'keepId is required.' }, { status: 400 });
 
   if (manualEntityId) return mergeFromManualEntity(admin, userId, keepId, manualEntityId);
 
   if (!mergeIds?.length) return NextResponse.json({ ok: false, error: 'mergeIds or manualEntityId is required.' }, { status: 400 });
   if (mergeIds.includes(keepId)) return NextResponse.json({ ok: false, error: 'keepId cannot also be in mergeIds.' }, { status: 400 });
+  // Prompt 580 §B.3 — a catalog-to-catalog merge deletes rows and repoints
+  // real founder pipelines; the AccountActionPanel-style confirm flow this
+  // now goes through always sends a reason, but the route enforces it
+  // independently rather than trusting the UI alone (the same "never only
+  // UI" discipline backoffice-auth.ts already documents for the admin gate).
+  if (!reason?.trim()) return NextResponse.json({ ok: false, error: 'A reason is required.' }, { status: 400 });
 
   const { data: rows, error: rowsErr } = await admin.from('catalog_entities').select('*').in('id', [keepId, ...mergeIds]);
   if (rowsErr) return NextResponse.json({ ok: false, error: rowsErr.message }, { status: 500 });
@@ -109,6 +117,19 @@ export async function POST(req: Request) {
   if (!keeper) return NextResponse.json({ ok: false, error: 'keepId not found.' }, { status: 404 });
   const losers = rows?.filter((r) => mergeIds.includes(r.id)) ?? [];
   if (losers.length !== mergeIds.length) return NextResponse.json({ ok: false, error: 'One or more mergeIds not found.' }, { status: 404 });
+
+  // Prompt 580 §B.2 — merging a verified row INTO a pending one is the
+  // exact inversion that corrupted btov Partners on 2026-08-13 (a verified,
+  // real firm with deliveries and pipelines merged into a pending row).
+  // The server refuses it without an explicit second confirmation from the
+  // client — not a UI nudge alone, since a fast click can miss those.
+  const invertsVerification = keeper.verification_status !== 'verified' && losers.some((l) => l.verification_status === 'verified');
+  if (invertsVerification && !confirmInversion) {
+    return NextResponse.json({
+      ok: false, requiresInversionConfirm: true,
+      error: 'This merges a verified entry into a pending one. Confirm explicitly to proceed.',
+    }, { status: 409 });
+  }
 
   const patch: Record<string, unknown> = {};
   const conflicts: Record<string, unknown[]> = {};
@@ -168,7 +189,10 @@ export async function POST(req: Request) {
 
   await logAdminAction(admin, {
     adminUserId: userId, action: 'catalog_merge', subjectType: 'catalog_entity', subjectId: keepId,
-    detail: { mergedFrom: losers.map((l) => ({ id: l.id, name: l.name })), fieldsFilled: patch, conflictsLeftForReview: conflicts },
+    detail: {
+      mergedFrom: losers.map((l) => ({ id: l.id, name: l.name })), fieldsFilled: patch,
+      conflictsLeftForReview: conflicts, reason: reason.trim(), invertedVerification: invertsVerification,
+    },
   });
 
   return NextResponse.json({ ok: true, keptId: keepId, mergedCount: losers.length, conflicts });

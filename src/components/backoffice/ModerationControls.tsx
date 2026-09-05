@@ -8,7 +8,7 @@
 import { useState } from 'react';
 import type { ModerationStatus, ModerationTargetType } from '@/lib/account-moderation';
 import { moderationCascadeLines } from '@/lib/moderation-cascade-copy';
-import { AccountActionPanel, type PanelAction } from './AccountActionPanel';
+import { AccountActionPanel, ACTION_VERB, type PanelAction } from './AccountActionPanel';
 import { Tooltip } from '@/components/ui';
 
 // 'undo' keeps this component's own inline confirm+justification flow — it
@@ -49,8 +49,18 @@ export function ModerationControls({ targetType, targetId, name, status, quarant
   }
 
   const panel = panelAction && (
-    <AccountActionPanel targetType={targetType} targetId={targetId} name={name} action={panelAction}
+    <AccountActionPanel title={ACTION_VERB[panelAction]} name={name}
       cascadeLines={moderationCascadeLines(targetType)}
+      confirmLabel={`Confirm ${ACTION_VERB[panelAction].toLowerCase()}`}
+      reasonPlaceholder="Why is this account being suspended/deleted?"
+      onConfirm={async (reason) => {
+        const res = await fetch(`/api/backoffice/moderation/${panelAction}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetType, targetId, justification: reason }),
+        });
+        const body = await res.json().catch(() => ({}));
+        return { ok: !!body.ok, error: body.error };
+      }}
       onClose={() => setPanelAction(null)}
       onDone={() => { setPanelAction(null); onChanged(); }} />
   );
