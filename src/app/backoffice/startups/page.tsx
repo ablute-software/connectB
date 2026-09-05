@@ -19,6 +19,7 @@
 // separately) · Stage · AI drafts this month · AI reviews this month, plus
 // sortable columns, search, and a History subtab (Block C.2).
 import { useEffect, useMemo, useState } from 'react';
+import { nextSort, sortRows, sortIndicator, type SortDir } from '@/lib/table-sort';
 import { Card, Tabs } from '@/components/ui';
 import { PLANS, planName, normalizePlan, parsePlanRequest } from '@/lib/plans';
 import type { PlanTier } from '@/lib/types';
@@ -56,15 +57,6 @@ const MATCHDEAL_LABEL: Record<OrgRow['matchDealStatus'], string> = {
 
 type SortKey = 'name' | 'plan' | 'createdAt' | 'members' | 'completenessPct' | 'interactionsThisWeek' | 'lastLogin' | 'status' | 'filesInVault' | 'visiblePipelineSize' | 'stage' | 'aiDraftsThisMonth' | 'aiReviewsThisMonth' | 'matchDealStatus';
 
-function cmp(a: unknown, b: unknown): number {
-  if (a == null && b == null) return 0;
-  if (a == null) return 1;
-  if (b == null) return -1;
-  if (typeof a === 'string' && typeof b === 'string') return a.localeCompare(b);
-  if (typeof a === 'number' && typeof b === 'number') return a - b;
-  return 0;
-}
-
 function MembersCell({ orgId, count }: { orgId: string; count: number }) {
   const [open, setOpen] = useState(false);
   const [members, setMembers] = useState<{ userId: string; email: string; role: string }[] | null>(null);
@@ -101,7 +93,7 @@ function StartupsTable() {
   const [enteringId, setEnteringId] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('name');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   async function openViewer(orgId: string) {
     setEnteringId(orgId);
@@ -142,15 +134,16 @@ function StartupsTable() {
   }
 
   function toggleSort(key: SortKey) {
-    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else { setSortKey(key); setSortDir('asc'); }
+    // Prompt 569 §7 — the rule lives in table-sort.ts now, shared with the
+    // Investors table rather than written twice.
+    const next = nextSort({ key: sortKey, dir: sortDir }, key);
+    setSortKey(next.key); setSortDir(next.dir);
   }
 
   const rows = useMemo(() => {
     let list = orgs ?? [];
     if (q) list = list.filter((o) => o.name.toLowerCase().includes(q.toLowerCase()));
-    const dir = sortDir === 'asc' ? 1 : -1;
-    return [...list].sort((a, b) => cmp(a[sortKey], b[sortKey]) * dir);
+    return sortRows(list, sortKey, sortDir);
   }, [orgs, q, sortKey, sortDir]);
 
   if (err) return <p className="text-sm text-[#B00000]">{err}</p>;
@@ -205,7 +198,7 @@ function StartupsTable() {
               <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
                 {columns.map((c) => (
                   <th key={c.key} className="cursor-pointer whitespace-nowrap py-1.5 pr-3 hover:text-gray-700" onClick={() => toggleSort(c.key)}>
-                    {c.label} {sortKey === c.key && (sortDir === 'asc' ? '▲' : '▼')}
+                    {c.label} {sortIndicator(sortKey === c.key, sortDir)}
                   </th>
                 ))}
                 <th className="whitespace-nowrap py-1.5 pr-3">Delete/Suspend</th>

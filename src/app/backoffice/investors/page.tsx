@@ -5,6 +5,7 @@
 // build next on a rounded number is how you end up believing your own
 // marketing. Read-only — the CRUD lives in Catálogo, linked at the bottom.
 import { useEffect, useMemo, useState } from 'react';
+import { nextSort, sortRows, sortIndicator, type SortDir } from '@/lib/table-sort';
 import Link from 'next/link';
 import { Card, Tabs } from '@/components/ui';
 import type { DomainMatchVerdict } from '@/lib/investor-domain-match';
@@ -246,6 +247,13 @@ function PipelineDecisionsPanel() {
 // column showing "—" with a tooltip means the underlying event doesn't
 // exist yet — not a zero, an honest "not tracked" (per the doc's own
 // instruction for "Files viewed").
+// Prompt 569 §7 — the sortable columns, by the field they order on.
+type InvestorSortKey =
+  | 'name' | 'planTier' | 'registrationDate' | 'seats' | 'verificationStatus' | 'complete'
+  | 'logsLast7Days' | 'lastLogin' | 'status' | 'accessRequestedLastMonth'
+  | 'accessGrantedLastMonth' | 'filesViewedLastMonth' | 'visiblePipelineSize'
+  | 'startupsInteractedWith' | 'startupComparisonsLastMonth' | 'aiAssistanceLastMonth';
+
 interface InvestorAccountRow {
   entityId: string; name: string; planTier: string | null;
   planTierRequested: string | null; planTierRequestedAt: string | null;
@@ -283,6 +291,8 @@ function InvestorAccountsTable() {
   const [err, setErr] = useState('');
   const [q, setQ] = useState('');
   const [savingEntityId, setSavingEntityId] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<InvestorSortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   function load() {
     fetch('/api/backoffice/investor-accounts').then((r) => r.json()).then((body) => {
@@ -314,10 +324,32 @@ function InvestorAccountsTable() {
   // Item 11 step 2 — "ordenando os pendentes primeiro", same as the
   // startups table's own pending-first Card above its full table (search
   // filter composes with this, not replaces it).
+  // Prompt 569 §7 — seventeen columns and no way to order by any of them.
+  //
+  // sortKey starts null, and null means the pending-first order this table has
+  // always opened on (item 11 step 2). Clicking a header takes over; there is
+  // no way back to pending-first short of a reload, which is honest — a
+  // sorted table that silently re-sorts itself is worse than one that stays
+  // where you put it. The comparator and the toggle rule are shared with the
+  // Startups table (table-sort.ts) rather than written a second time.
   const rows = useMemo(() => {
     const filtered = (accounts ?? []).filter((a) => a.name.toLowerCase().includes(q.toLowerCase()));
-    return [...filtered].sort((a, b) => (b.planTierRequested ? 1 : 0) - (a.planTierRequested ? 1 : 0));
-  }, [accounts, q]);
+    if (!sortKey) {
+      return [...filtered].sort((a, b) => (b.planTierRequested ? 1 : 0) - (a.planTierRequested ? 1 : 0));
+    }
+    return sortRows(filtered, sortKey, sortDir, (row, key) => {
+      // Two columns are not plain fields: "% Complete" is a boolean shown as a
+      // tick, and "Seats" reads as "linked / plan" but orders by what is used.
+      if (key === 'complete') return row.complete;
+      if (key === 'seats') return row.seats;
+      return (row as unknown as Record<string, unknown>)[key];
+    });
+  }, [accounts, q, sortKey, sortDir]);
+
+  function toggleSort(key: InvestorSortKey) {
+    const next = nextSort({ key: sortKey ?? key, dir: sortDir }, key);
+    setSortKey(next.key); setSortDir(sortKey === key ? next.dir : 'asc');
+  }
   const pending = (accounts ?? []).filter((a) => a.planTierRequested);
 
   if (err) return <Card title="Investor accounts"><p className="text-sm text-[#B00000]">{err}</p></Card>;
@@ -360,11 +392,30 @@ function InvestorAccountsTable() {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
-              <th className="whitespace-nowrap py-1.5 pr-3">Org</th><th className="pr-3">Plan</th><th className="pr-3">Registered</th>
-              <th className="pr-3">Seats (linked / plan)</th><th className="pr-3">Verification</th><th className="pr-3">% Complete</th><th className="pr-3">Logs/7d</th>
-              <th className="pr-3">Last login</th><th className="pr-3">Status</th><th className="pr-3">Delete/Suspend</th>
-              <th className="pr-3">Access req./mo</th><th className="pr-3">Access granted/mo</th><th className="pr-3">Files viewed/mo</th>
-              <th className="pr-3">Pipeline</th><th className="pr-3">Startups</th><th className="pr-3">Comparisons/mo</th><th>AI assist/mo</th>
+              {([
+                ['name', 'Org'], ['planTier', 'Plan'], ['registrationDate', 'Registered'],
+                ['seats', 'Seats (linked / plan)'], ['verificationStatus', 'Verification'],
+                ['complete', '% Complete'], ['logsLast7Days', 'Logs/7d'], ['lastLogin', 'Last login'],
+                ['status', 'Status'],
+              ] as [InvestorSortKey, string][]).map(([key, label]) => (
+                <th key={key} className="cursor-pointer whitespace-nowrap py-1.5 pr-3 hover:text-gray-700"
+                  onClick={() => toggleSort(key)}>
+                  {label} {sortIndicator(sortKey === key, sortDir)}
+                </th>
+              ))}
+              {/* Not sortable: it holds controls, not a value. */}
+              <th className="pr-3">Delete/Suspend</th>
+              {([
+                ['accessRequestedLastMonth', 'Access req./mo'], ['accessGrantedLastMonth', 'Access granted/mo'],
+                ['filesViewedLastMonth', 'Files viewed/mo'], ['visiblePipelineSize', 'Pipeline'],
+                ['startupsInteractedWith', 'Startups'], ['startupComparisonsLastMonth', 'Comparisons/mo'],
+                ['aiAssistanceLastMonth', 'AI assist/mo'],
+              ] as [InvestorSortKey, string][]).map(([key, label]) => (
+                <th key={key} className="cursor-pointer whitespace-nowrap pr-3 hover:text-gray-700"
+                  onClick={() => toggleSort(key)}>
+                  {label} {sortIndicator(sortKey === key, sortDir)}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
