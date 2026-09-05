@@ -959,7 +959,13 @@ export default function EntityPage({ params }: { params: { id: string } }) {
                 const disabled = m.key === 'message' && !canMessagePanel;
                 return (
                   <button key={m.key} disabled={disabled}
-                    title={disabled ? 'Messaging opens once this investor is connected' : undefined}
+                    title={disabled
+                      // Prompt 578 §D.1 — Nuno's own copy: the tab used to
+                      // say only "opens once connected", with no way for a
+                      // founder to tell whether that's a state to wait out
+                      // or a channel that will never apply to this investor.
+                      ? 'In-app messaging is for MatchDeal investors who marked you Interested. For catalog investors, reach out on your own channel and log it here.'
+                      : undefined}
                     onClick={() => setPanelMode(m.key)}
                     className={`flex flex-1 items-center justify-center gap-1 rounded-lg py-1.5 text-[12px] font-semibold ${
                       panelMode === m.key ? 'bg-white text-[#0E7490] shadow-[0_1px_4px_rgba(15,23,42,0.15)]'

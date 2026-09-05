@@ -634,6 +634,17 @@ export function RailLogForm({
           </label>
         </div>
       )}
+      {/* Prompt 578 §D.2 — separate from the reopenTrigger block above (that
+          one only renders when a freeze note was written; most dormant
+          entities have none, and got neither a warning nor a reopen before
+          this change). Unconditional on the note existing: logInteraction
+          now reopens any dormant entity on an outbound log, so this always
+          shows alongside it. */}
+      {entity.status === 'dormant' && direction === 'out' && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-[11px] font-medium text-amber-800">
+          Logging this will reopen the relationship.
+        </div>
+      )}
 
       <div>
         <div className="flex items-center gap-1">
