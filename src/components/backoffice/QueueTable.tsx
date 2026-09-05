@@ -41,12 +41,21 @@ export interface QueueTableProps<T> {
   /** How many rows the "Hide internal" toggle is currently hiding. */
   hiddenInternalCount?: number;
   emptyMessage?: string;
+  /** Prompt 572 §A — ReviewQueueLayout's own hook: a row click opens it in
+   * the decision panel. Independent of renderExpanded's inline chevron
+   * (a queue migrating to the panel pattern drops renderExpanded, it does
+   * not combine the two) and of renderBulkActions' checkboxes (clicking a
+   * row opens it; clicking its checkbox selects it, same as any list+
+   * detail view). Omitted entirely, rows behave exactly as before. */
+  onRowClick?: (row: T) => void;
+  activeId?: string | null;
 }
 
 export function QueueTable<T>({
   columns, rows, total, getRowId, loading,
   renderExpanded, renderBulkActions, filterControls,
   hiddenInternalCount = 0, emptyMessage = 'Nothing to review.',
+  onRowClick, activeId,
 }: QueueTableProps<T>) {
   const router = useRouter();
   const pathname = usePathname();
@@ -155,9 +164,10 @@ export function QueueTable<T>({
               const id = getRowId(row);
               return (
                 <Fragment key={id}>
-                  <tr className="align-top">
+                  <tr className={`align-top ${onRowClick ? 'cursor-pointer hover:bg-gray-50' : ''} ${activeId === id ? 'bg-[#E8F4F8]' : ''}`}
+                    onClick={onRowClick ? () => onRowClick(row) : undefined}>
                     {renderBulkActions && (
-                      <td className="py-1.5">
+                      <td className="py-1.5" onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" checked={selected.has(id)}
                           aria-label="Select row"
                           onChange={() => setSelected((prev) => {
@@ -168,7 +178,7 @@ export function QueueTable<T>({
                       </td>
                     )}
                     {renderExpanded && (
-                      <td className="py-1.5">
+                      <td className="py-1.5" onClick={(e) => e.stopPropagation()}>
                         <button onClick={() => setExpanded(expanded === id ? null : id)}
                           aria-label={expanded === id ? 'Collapse' : 'Expand'}
                           className="text-gray-400 hover:text-gray-700">

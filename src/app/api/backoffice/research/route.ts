@@ -137,6 +137,9 @@ export async function POST(req: Request) {
     const contributionRows = rows.flatMap((row) => proposals.map((p) => ({
       subject_type: subjectType, subject_id: row.id, org_id: row.org_id,
       field: p.field, value: p.value, source: 'ai', confidence: p.confidence, source_url: p.source_url,
+      // Prompt 572 §C.1 — same as entities/[id]/enrich: which route/model,
+      // not just "ai" with no further trace.
+      author_system: `backoffice-research:${model}`,
       note: `AI-proposed via research (§6b-3) for "${name}"`, status: 'submitted',
     })));
     const { error: insErr } = await admin.from('contributions').insert(contributionRows);
