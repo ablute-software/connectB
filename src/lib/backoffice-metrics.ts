@@ -983,6 +983,11 @@ export interface InvestorOrgRow {
   // and migration 0285 for why the gate only fires when a seat is ADDED).
   seatLimit: number; seatsOverLimit: boolean;
   startupsAnalyzed: number; activityState: 'highly_active' | 'active' | 'low_activity' | 'inactive';
+  // Prompt 576 Fase 3 — is_internal (migration 0316) lives per-seat on
+  // matchdeal_investor_members, not on catalog_entities; "internal if any
+  // member is" is the same find-first-truthy convention planTier already
+  // uses above, applied to a boolean instead of a string.
+  isInternal: boolean;
 }
 
 // 12.2 — per-investor view. This comment used to name four unenforced
@@ -999,10 +1004,11 @@ export interface InvestorOrgRow {
 // matchdeal_tier_limits() still governs swipe/like caps only.
 export async function investorOrgRows(admin: SupabaseClient): Promise<InvestorOrgRow[]> {
   const investors = await realInvestorEntities(admin);
-  const { data: members } = await admin.from('matchdeal_investor_members').select('id, catalog_entity_id, status');
+  const { data: members } = await admin.from('matchdeal_investor_members').select('id, catalog_entity_id, status, is_internal');
   const activeMembers = (members ?? []).filter((m) => m.status === 'active');
   const memberIdsByEntity = new Map<string, string[]>();
   for (const m of activeMembers) memberIdsByEntity.set(m.catalog_entity_id, [...(memberIdsByEntity.get(m.catalog_entity_id) ?? []), m.id]);
+  const isInternalByMember = new Map<string, boolean>(activeMembers.map((m) => [m.id as string, !!m.is_internal]));
 
   const allMemberIds = activeMembers.map((m) => m.id);
   const { data: profiles } = allMemberIds.length
@@ -1049,6 +1055,7 @@ export async function investorOrgRows(admin: SupabaseClient): Promise<InvestorOr
     const planTier = memberIds.map((id) => planTierByMember.get(id)).find(Boolean) ?? null;
     const planTierRequested = memberIds.map((id) => planTierRequestedByMember.get(id)).find(Boolean) ?? null;
     const planTierRequestedAt = memberIds.map((id) => planTierRequestedAtByMember.get(id)).find(Boolean) ?? null;
+    const isInternal = memberIds.map((id) => isInternalByMember.get(id)).find(Boolean) ?? false;
     const verificationStatus = c.verification_status as 'verified' | 'pending' | 'rejected';
     // Same 'tier_a' fallback as investor-seats.ts / portal-access.ts — a
     // firm with no tier set anywhere is treated as the entry plan, never as
@@ -1059,6 +1066,7 @@ export async function investorOrgRows(admin: SupabaseClient): Promise<InvestorOr
       planTier, planTierRequested, planTierRequestedAt, seatsLinked: memberIds.length,
       seatLimit, seatsOverLimit: memberIds.length > seatLimit,
       startupsAnalyzed: new Set(entitySwipes.map((s) => s.target_profile_id)).size, activityState,
+      isInternal,
     };
   });
 }

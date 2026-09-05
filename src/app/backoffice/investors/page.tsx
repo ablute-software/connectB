@@ -4,15 +4,19 @@
 // countries); this page quotes the real numbers, because deciding what to
 // build next on a rounded number is how you end up believing your own
 // marketing. Read-only — the CRUD lives in Catálogo, linked at the bottom.
-import { useEffect, useMemo, useState } from 'react';
-import { nextSort, sortRows, sortIndicator, type SortDir } from '@/lib/table-sort';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { sortRows, sortIndicator } from '@/lib/table-sort';
 import Link from 'next/link';
 import { Card, Tabs } from '@/components/ui';
 import type { DomainMatchVerdict } from '@/lib/investor-domain-match';
 import { ModerationControls } from '@/components/backoffice/ModerationControls';
 import { ModerationHistoryCard } from '@/components/backoffice/ModerationHistoryCard';
+import { AccountStatusFilter } from '@/components/backoffice/AccountStatusFilter';
 import type { ModerationStatus } from '@/lib/account-moderation';
 import { INVESTOR_PLANS } from '@/lib/plans';
+import { matchesAccountFilter, type AccountFilter } from '@/lib/account-filter';
+import { useTableUrlState } from '@/lib/use-table-url-state';
+import { PAGE_SIZES, pageCount, rangeLabel, toggleSort as urlToggleSort } from '@/lib/queue-table-state';
 
 // Item 11 — matchdeal_profiles.plan_tier/plan_tier_requested store MatchDeal's
 // own tier keys, not InvestorPlanTier ('pro_scout' etc) — same small local
@@ -254,6 +258,15 @@ type InvestorSortKey =
   | 'accessGrantedLastMonth' | 'filesViewedLastMonth' | 'visiblePipelineSize'
   | 'startupsInteractedWith' | 'startupComparisonsLastMonth' | 'aiAssistanceLastMonth';
 
+// Prompt 576 Fase 3 — the URL-state hook needs the valid key list to guard
+// against a hand-edited ?sort= naming a column that doesn't exist.
+const INVESTOR_SORT_KEYS: InvestorSortKey[] = [
+  'name', 'planTier', 'registrationDate', 'seats', 'verificationStatus', 'complete',
+  'logsLast7Days', 'lastLogin', 'status', 'accessRequestedLastMonth',
+  'accessGrantedLastMonth', 'filesViewedLastMonth', 'visiblePipelineSize',
+  'startupsInteractedWith', 'startupComparisonsLastMonth', 'aiAssistanceLastMonth',
+];
+
 interface InvestorAccountRow {
   entityId: string; name: string; planTier: string | null;
   planTierRequested: string | null; planTierRequestedAt: string | null;
@@ -269,6 +282,10 @@ interface InvestorAccountRow {
   moderationStatus: ModerationStatus; moderationQuarantineUntil: string | null;
   logsLast7Days: number | null; accessRequestedLastMonth: number | null; visiblePipelineSize: number | null;
   startupComparisonsLastMonth: number | null; aiAssistanceLastMonth: number | null;
+  // Prompt 576 Fase 3 — is_internal (migration 0316), OR-across-members via
+  // investorOrgRows() (backoffice-metrics.ts) — same convention planTier
+  // already uses for "which per-seat value represents the firm".
+  isInternal: boolean;
 }
 
 const INVESTOR_STATUS_STYLE: Record<InvestorAccountRow['status'], string> = {
@@ -289,10 +306,15 @@ function InvestorAccountsTable() {
   const [accounts, setAccounts] = useState<InvestorAccountRow[] | null>(null);
   const [moderationAvailable, setModerationAvailable] = useState(false);
   const [err, setErr] = useState('');
-  const [q, setQ] = useState('');
   const [savingEntityId, setSavingEntityId] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<InvestorSortKey | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  // Prompt 576 Fase 3 — page/sort/dir/search/status filter in the URL, same
+  // shape the Queue uses (queue-table-state.ts). sort absent still means
+  // the pending-first default below — that special case is untouched.
+  const [tableState, setTableState] = useTableUrlState({ sortableKeys: INVESTOR_SORT_KEYS });
+  const q = tableState.filters.q ?? '';
+  const statusFilter = (tableState.filters.status as AccountFilter | undefined) ?? 'all';
+  const sortKey = tableState.sort as InvestorSortKey | null;
+  const sortDir = tableState.dir;
 
   function load() {
     fetch('/api/backoffice/investor-accounts').then((r) => r.json()).then((body) => {
@@ -332,8 +354,9 @@ function InvestorAccountsTable() {
   // sorted table that silently re-sorts itself is worse than one that stays
   // where you put it. The comparator and the toggle rule are shared with the
   // Startups table (table-sort.ts) rather than written a second time.
-  const rows = useMemo(() => {
-    const filtered = (accounts ?? []).filter((a) => a.name.toLowerCase().includes(q.toLowerCase()));
+  const filteredSorted = useMemo(() => {
+    let filtered = (accounts ?? []).filter((a) => a.name.toLowerCase().includes(q.toLowerCase()));
+    filtered = filtered.filter((a) => matchesAccountFilter(statusFilter, { moderationStatus: a.moderationStatus, isInternal: a.isInternal }));
     if (!sortKey) {
       return [...filtered].sort((a, b) => (b.planTierRequested ? 1 : 0) - (a.planTierRequested ? 1 : 0));
     }
@@ -344,11 +367,19 @@ function InvestorAccountsTable() {
       if (key === 'seats') return row.seats;
       return (row as unknown as Record<string, unknown>)[key];
     });
-  }, [accounts, q, sortKey, sortDir]);
+  }, [accounts, q, statusFilter, sortKey, sortDir]);
+
+  const total = filteredSorted.length;
+  const totalPages = pageCount(total, tableState.pageSize);
+  const page = Math.min(tableState.page, totalPages);
+  const rows = useMemo(
+    () => filteredSorted.slice((page - 1) * tableState.pageSize, page * tableState.pageSize),
+    [filteredSorted, page, tableState.pageSize],
+  );
 
   function toggleSort(key: InvestorSortKey) {
-    const next = nextSort({ key: sortKey ?? key, dir: sortDir }, key);
-    setSortKey(next.key); setSortDir(sortKey === key ? next.dir : 'asc');
+    const { dir } = urlToggleSort(tableState, key);
+    setTableState({ sort: key, dir });
   }
   const pending = (accounts ?? []).filter((a) => a.planTierRequested);
 
@@ -382,10 +413,12 @@ function InvestorAccountsTable() {
           </ul>
         </Card>
       )}
-      <Card title={`Investor accounts (${rows.length}${q ? ` of ${accounts.length}` : ''})`}>
-      <div className="mb-3 flex items-center gap-2">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by firm name…"
+      <Card title={`Investor accounts (${rangeLabel({ ...tableState, page }, total)})`}>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <input value={q} onChange={(e) => setTableState({ filters: { ...tableState.filters, q: e.target.value } })} placeholder="Search by firm name…"
           className="w-56 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+        <AccountStatusFilter value={statusFilter}
+          onChange={(next) => setTableState({ filters: { ...tableState.filters, status: next === 'all' ? '' : next } })} />
         <p className="ml-auto text-xs text-gray-500">Real registered firms only — catalog stats below cover every imported entity.</p>
       </div>
       <div className="overflow-x-auto">
@@ -421,7 +454,15 @@ function InvestorAccountsTable() {
           <tbody>
             {rows.map((a) => (
               <tr key={a.entityId} className="border-t border-gray-50 align-top">
-                <td className="py-2 pr-3 font-medium">{a.name}</td>
+                <td className="py-2 pr-3 font-medium">
+                  {a.name}
+                  {a.isInternal && (
+                    <span className="ml-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500"
+                      title="Internal team account — what it produces doesn't need back-office review.">
+                      Internal
+                    </span>
+                  )}
+                </td>
                 <td className="pr-3">
                   <div className="flex items-center gap-1.5">
                     <select value={a.planTier ?? 'tier_a'} disabled={savingEntityId === a.entityId}
@@ -461,7 +502,7 @@ function InvestorAccountsTable() {
                 <td className="pr-3"><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${INVESTOR_STATUS_STYLE[a.status]}`}>{a.status}</span></td>
                 <td className="pr-3">
                   {moderationAvailable ? (
-                    <ModerationControls targetType="investor" targetId={a.entityId} status={a.moderationStatus} quarantineUntil={a.moderationQuarantineUntil} onChanged={load} />
+                    <ModerationControls targetType="investor" targetId={a.entityId} name={a.name} status={a.moderationStatus} quarantineUntil={a.moderationQuarantineUntil} onChanged={load} />
                   ) : <span className="text-xs text-gray-300">—</span>}
                 </td>
                 <td className="pr-3">
@@ -483,6 +524,19 @@ function InvestorAccountsTable() {
             ))}
           </tbody>
         </table>
+      </div>
+      {/* Prompt 576 Fase 3 — same client-side page slicing as Startups; see
+          that page's own comment for the ~200-row threshold to revisit. */}
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+        <button disabled={page <= 1} onClick={() => setTableState({ page: page - 1 })}
+          className="rounded border border-gray-300 px-2 py-1 disabled:opacity-30">← Prev</button>
+        <span>Page {page} of {totalPages}</span>
+        <button disabled={page >= totalPages} onClick={() => setTableState({ page: page + 1 })}
+          className="rounded border border-gray-300 px-2 py-1 disabled:opacity-30">Next →</button>
+        <select value={tableState.pageSize} onChange={(e) => setTableState({ pageSize: Number(e.target.value) as typeof PAGE_SIZES[number] })}
+          className="ml-1 rounded border border-gray-300 px-1.5 py-1">
+          {PAGE_SIZES.map((s) => <option key={s} value={s}>{s} / page</option>)}
+        </select>
       </div>
       {!moderationAvailable && <p className="mt-3 text-[11px] text-gray-400">Suspend/Delete activates once migration 0121 is applied.</p>}
       </Card>
@@ -675,6 +729,17 @@ function ClaimsQueue() {
 }
 
 export default function InvestorsPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-gray-400">Loading…</p>}>
+      <InvestorsPageContent />
+    </Suspense>
+  );
+}
+
+// Prompt 576 Fase 3 — InvestorAccountsTable now reads useSearchParams() (via
+// useTableUrlState); see startups/page.tsx's identical comment for why this
+// boundary is required.
+function InvestorsPageContent() {
   const [tab, setTab] = useState<'accounts' | 'claims' | 'catalog' | 'history'>('accounts');
   const [accounts, setAccounts] = useState<InvestorAccountRow[] | null>(null);
 

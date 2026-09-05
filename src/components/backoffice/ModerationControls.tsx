@@ -7,19 +7,27 @@
 // justification before anything fires.
 import { useState } from 'react';
 import type { ModerationStatus, ModerationTargetType } from '@/lib/account-moderation';
+import { moderationCascadeLines } from '@/lib/moderation-cascade-copy';
+import { AccountActionPanel, type PanelAction } from './AccountActionPanel';
 
-type Mode = 'suspend' | 'undo' | 'delete';
+// 'undo' keeps this component's own inline confirm+justification flow — it
+// is a recovery action, not a destructive one, and Fase 3's side panel
+// (AccountActionPanel) is scoped to Suspend/Delete only.
+type Mode = 'undo';
 
 interface LatestAction { justification: string; actorEmail: string; createdAt: string }
 
-export function ModerationControls({ targetType, targetId, status, quarantineUntil, onChanged }: {
+export function ModerationControls({ targetType, targetId, name, status, quarantineUntil, onChanged }: {
   targetType: ModerationTargetType;
   targetId: string;
+  /** Prompt 576 Fase 3 — the side panel needs something to put in its header. */
+  name: string;
   status: ModerationStatus;
   quarantineUntil: string | null;
   onChanged: () => void;
 }) {
   const [mode, setMode] = useState<Mode | null>(null);
+  const [panelAction, setPanelAction] = useState<PanelAction | null>(null);
   const [justification, setJustification] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -39,6 +47,13 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
     onChanged();
   }
 
+  const panel = panelAction && (
+    <AccountActionPanel targetType={targetType} targetId={targetId} name={name} action={panelAction}
+      cascadeLines={moderationCascadeLines(targetType)}
+      onClose={() => setPanelAction(null)}
+      onDone={() => { setPanelAction(null); onChanged(); }} />
+  );
+
   async function loadLatestJustification() {
     setLatest('loading');
     const res = await fetch(`/api/backoffice/moderation/history?targetType=${targetType}&targetId=${targetId}`);
@@ -48,10 +63,11 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
     setLatest(suspend ? { justification: suspend.justification, actorEmail: suspend.actorEmail, createdAt: suspend.createdAt } : null);
   }
 
-  if (status === 'deleted') return <span className="text-xs text-gray-400">Deleted</span>;
+  if (status === 'deleted') return <><span className="text-xs text-gray-400">Deleted</span>{panel}</>;
 
   if (mode) {
     return (
+      <>
       <div className="flex flex-col gap-1">
         <textarea value={justification} onChange={(e) => setJustification(e.target.value)} placeholder="Justification (required)"
           rows={2} className="w-48 rounded border border-gray-200 p-1 text-xs" />
@@ -64,6 +80,8 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
           <button onClick={() => { setMode(null); setErr(''); }} className="rounded border border-gray-300 px-2 py-0.5 text-[11px]">Cancel</button>
         </div>
       </div>
+      {panel}
+      </>
     );
   }
 
@@ -79,8 +97,9 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
     // suspend, then a 30-day quarantine, enforced in canDelete rather than by
     // a disabled button. Saying so costs one line and removes the guesswork.
     return (
+      <>
       <div className="flex flex-col gap-0.5">
-        <button onClick={() => setMode('suspend')} className="text-left text-xs text-[#B00000] hover:underline">Suspend</button>
+        <button onClick={() => setPanelAction('suspend')} className="text-left text-xs text-[#B00000] hover:underline">Suspend</button>
         <span className="text-[10px] leading-tight text-gray-400">
           {/* Prompt 571 — the second sentence is the one that was missing: until
               0315, suspending closed the login and left the account sitting in
@@ -90,11 +109,14 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
           30-day quarantine.
         </span>
       </div>
+      {panel}
+      </>
     );
   }
 
   const quarantineActive = !!quarantineUntil && new Date(quarantineUntil) > new Date();
   return (
+    <>
     <div className="flex flex-col gap-1">
       <span className="text-[11px] text-amber-700">
         {quarantineActive ? `Quarantine until ${new Date(quarantineUntil!).toLocaleDateString()}` : 'Quarantine elapsed'}
@@ -111,7 +133,7 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
       )}
       <div className="flex gap-1.5">
         <button onClick={() => setMode('undo')} className="text-xs text-[#0E7490] hover:underline">Undo</button>
-        <button disabled={quarantineActive} onClick={() => setMode('delete')}
+        <button disabled={quarantineActive} onClick={() => setPanelAction('delete')}
           title={quarantineActive ? 'Wait for the 30-day quarantine to elapse' : undefined}
           className="text-xs text-[#B00000] hover:underline disabled:text-gray-300 disabled:no-underline">
           Delete
@@ -126,5 +148,7 @@ export function ModerationControls({ targetType, targetId, status, quarantineUnt
         </span>
       )}
     </div>
+    {panel}
+    </>
   );
 }

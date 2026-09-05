@@ -119,6 +119,7 @@ export async function GET() {
       matchDealStatus,
       moderationStatus: moderationAvailable ? ((org.moderation_status as string | undefined) ?? 'active') : 'active',
       moderationQuarantineUntil: moderationAvailable ? ((org.moderation_quarantine_until as string | null | undefined) ?? null) : null,
+      isInternal: !!(org.is_internal as boolean | undefined),
     };
   });
 
