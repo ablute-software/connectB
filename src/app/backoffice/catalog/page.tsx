@@ -14,6 +14,8 @@ import { useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui';
 import { EnrichmentCampaignPanel } from '@/components/backoffice/EnrichmentCampaignPanel';
 import { OutreachSupplyCard } from '@/components/backoffice/OutreachSupplyCard';
+import { AccountActionPanel } from '@/components/backoffice/AccountActionPanel';
+import type { DupMatch, MatchReason } from '@/lib/catalog-dedupe';
 
 type ContactRow = {
   id: string; fullName: string; linkedinUrl: string | null; hookStatus: string;
@@ -27,6 +29,12 @@ type CatalogEntity = {
   stage_min: string | null; stage_max: string | null; check_min_eur: number | null; check_max_eur: number | null;
   geographies: string[] | null; contacts: ContactRow[]; created_at: string;
 };
+
+// Prompt 580 §B.2/§B.3 — the merge tool's own per-candidate weight, from
+// /api/backoffice/catalog/dedupe (not present on CatalogEntity generally;
+// only the merge-duplicates cluster response carries these three counts).
+type DedupeMember = CatalogEntity & { deliveries: number; packs: number; aliasCount: number };
+type DupCluster = { reasons: MatchReason[]; matches: DupMatch[]; suspicious: boolean; members: DedupeMember[] };
 
 function fmtCheck(min: number | null, max: number | null) {
   if (!min && !max) return '—';
@@ -55,68 +63,166 @@ function extractProvenanceOrgName(notes: string | null): string | null {
   return notes?.match(/^Added by startup (.+)\. \(/)?.[1] ?? null;
 }
 
+// Prompt 580 §B.2 — verified first; without one, whichever candidate has
+// more real-world weight already attached (deliveries + packs + aliases —
+// the same three things merge/route.ts itself repoints or deletes, never a
+// score invented separately from what the merge actually touches).
+function pickDefaultKeeper(members: DedupeMember[]): string {
+  const verified = members.find((m) => m.verification_status === 'verified');
+  if (verified) return verified.id;
+  return [...members].sort((a, b) =>
+    (b.deliveries + b.packs + b.aliasCount) - (a.deliveries + a.packs + a.aliasCount),
+  )[0].id;
+}
+
+const REASON_LABEL: Record<MatchReason, string> = { domain: 'domain', name: 'name', alias: 'alias' };
+
 function MergeDuplicatesTool({ onMerged }: { onMerged: () => void }) {
-  const [clusters, setClusters] = useState<{ reasons: string[]; members: CatalogEntity[] }[] | null>(null);
+  const [clusters, setClusters] = useState<DupCluster[] | null>(null);
   const [err, setErr] = useState('');
   const [keepChoice, setKeepChoice] = useState<Record<number, string>>({});
-  const [busy, setBusy] = useState<number | null>(null);
+  const [panelFor, setPanelFor] = useState<number | null>(null);
+  const [dismissBusy, setDismissBusy] = useState<number | null>(null);
   const [result, setResult] = useState('');
 
   function refresh() {
     fetch('/api/backoffice/catalog/dedupe').then((r) => r.json()).then((body) => {
       if (body.ok === false) { setErr(body.error); return; }
-      setClusters(body.clusters);
+      const cls = body.clusters as DupCluster[];
+      setClusters(cls);
+      setKeepChoice(Object.fromEntries(cls.map((cl, i) => [i, pickDefaultKeeper(cl.members)])));
     });
   }
   useEffect(refresh, []);
 
-  async function merge(i: number, cluster: { members: CatalogEntity[] }) {
-    const keepId = keepChoice[i] ?? cluster.members[0].id;
-    const mergeIds = cluster.members.map((m) => m.id).filter((id) => id !== keepId);
-    setBusy(i); setResult('');
+  function keeperFor(i: number, cl: DupCluster): string {
+    return keepChoice[i] ?? cl.members[0].id;
+  }
+  function isInversion(i: number, cl: DupCluster): boolean {
+    const keepId = keeperFor(i, cl);
+    const keeper = cl.members.find((m) => m.id === keepId);
+    return keeper?.verification_status !== 'verified' && cl.members.some((m) => m.id !== keepId && m.verification_status === 'verified');
+  }
+  function nameOf(cl: DupCluster, id: string): string {
+    return cl.members.find((m) => m.id === id)?.name ?? id;
+  }
+
+  async function confirmMerge(i: number, cl: DupCluster, reason: string): Promise<{ ok: boolean; error?: string }> {
+    const keepId = keeperFor(i, cl);
+    const mergeIds = cl.members.map((m) => m.id).filter((id) => id !== keepId);
     const res = await fetch('/api/backoffice/catalog/merge', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keepId, mergeIds }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keepId, mergeIds, reason, confirmInversion: isInversion(i, cl) }),
     });
-    const body = await res.json();
-    setBusy(null);
-    if (body.ok === false) { setResult(body.error); return; }
+    const body = await res.json().catch(() => ({}));
+    if (!body.ok) return { ok: false, error: body.error ?? 'Merge failed.' };
     setResult(`Merged ${body.mergedCount} row(s) into the kept entry.${Object.keys(body.conflicts ?? {}).length ? ' Some fields conflicted and were left for manual review — see the audit log.' : ''}`);
-    refresh(); onMerged();
+    return { ok: true };
+  }
+
+  async function dismiss(i: number, cl: DupCluster) {
+    const reason = window.prompt('Why are these not duplicates?')?.trim();
+    if (!reason) return;
+    setDismissBusy(i); setResult('');
+    const res = await fetch('/api/backoffice/catalog/dedupe/dismiss', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: cl.members.map((m) => m.id), reason }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setDismissBusy(null);
+    if (!body.ok) { setResult(body.error); return; }
+    setResult(`Dismissed. Removed ${body.removedAliases} linking alias(es).`);
+    refresh();
   }
 
   if (err) return <Card title="Merge duplicates"><p className="text-sm text-[#B00000]">{err}</p></Card>;
   if (!clusters) return <Card title="Merge duplicates"><p className="text-sm text-gray-400">Scanning…</p></Card>;
 
+  // Prompt 580 §B.5 — "(3)" used to mean 3 groups while showing 4 rows in
+  // one of them; both numbers now, always.
+  const totalFirms = clusters.reduce((s, cl) => s + cl.members.length, 0);
+  const countLabel = clusters.length === 0 ? '0' : `${clusters.length} group${clusters.length === 1 ? '' : 's'} · ${totalFirms} firm${totalFirms === 1 ? '' : 's'}`;
+
   return (
-    <Card title={`Merge duplicates (${clusters.length})`} tint={clusters.length > 0 ? 'amber' : undefined}>
+    <Card title={`Merge duplicates (${countLabel})`} tint={clusters.length > 0 ? 'amber' : undefined}>
       <p className="mb-3 text-xs text-gray-500">
         Matched by normalized website domain, normalized name (diacritics/legal-suffix/parenthetical stripped), and known aliases.
       </p>
       {result && <p className="mb-2 text-xs text-cyan-800">{result}</p>}
       {clusters.length === 0 ? <p className="text-sm text-gray-400">No likely duplicates found.</p> : (
         <div className="space-y-3">
-          {clusters.map((cl, i) => (
-            <div key={i} className="rounded-xl border border-amber-200 bg-amber-50/50 p-3">
-              <div className="mb-2 flex items-center gap-2 text-xs text-amber-800">
-                Matched by: {cl.reasons.join(', ')}
+          {clusters.map((cl, i) => {
+            const keepId = keeperFor(i, cl);
+            const losers = cl.members.filter((m) => m.id !== keepId);
+            const totalDeliveries = losers.reduce((s, m) => s + m.deliveries, 0);
+            const totalPacks = losers.reduce((s, m) => s + m.packs, 0);
+            const totalAliases = losers.reduce((s, m) => s + m.aliasCount, 0);
+            const cascadeLines = [
+              `Deletes ${losers.length} catalog ${losers.length === 1 ? 'entry' : 'entries'}: ${losers.map((m) => m.name).join(', ')}.`,
+              `Repoints ${totalDeliveries} catalog deliveries (founder pipelines) to the kept entry.`,
+              `Repoints ${totalPacks} pack reference${totalPacks === 1 ? '' : 's'}.`,
+              `Adds ${losers.length} name${losers.length === 1 ? '' : 's'} and ${totalAliases} existing alias(es) as new aliases of the kept entry.`,
+              ...(isInversion(i, cl) ? ['⚠ Merges a VERIFIED entry into a pending one.'] : []),
+            ];
+            return (
+              <div key={i} className={`rounded-xl border p-3 ${cl.suspicious ? 'border-[#B00000]/40 bg-red-50/40' : 'border-amber-200 bg-amber-50/50'}`}>
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-amber-800">
+                  <span>Matched by: {cl.reasons.map((r) => REASON_LABEL[r]).join(', ')}</span>
+                  {cl.suspicious && (
+                    <span className="rounded-full bg-[#B00000] px-2 py-0.5 text-[10px] font-bold uppercase text-white" title="More than 3 firms joined at least partly through an alias — the exact shape of the 2026-08-13 incident. Check each edge below before merging.">
+                      ⚠ Check aliases
+                    </span>
+                  )}
+                </div>
+                {/* Prompt 580 §B.4 — which alias/name/domain linked which two
+                    firms specifically, not just a group-wide flag with no
+                    detail — this is what would have made the 08/13 mistake
+                    visible at a glance instead of looking like one strong match. */}
+                {cl.matches.length > 0 && (
+                  <ul className="mb-2 space-y-0.5 text-[11px] text-gray-500">
+                    {cl.matches.map((m, mi) => (
+                      <li key={mi}>
+                        {m.ids.map((id) => nameOf(cl, id)).join(' ↔ ')} — matched by {REASON_LABEL[m.reason]} &lsquo;{m.value}&rsquo;
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <ul className="space-y-1 text-sm">
+                  {cl.members.map((m) => (
+                    <li key={m.id} className="flex items-center gap-2">
+                      <input type="radio" name={`keep-${i}`} checked={keepId === m.id}
+                        onChange={() => setKeepChoice({ ...keepChoice, [i]: m.id })} />
+                      <span className="font-medium">{m.name}</span>
+                      {m.website && <span className="text-xs text-gray-400">{m.website}</span>}
+                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${m.verification_status === 'verified' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{m.verification_status}</span>
+                      <span className="text-[10px] text-gray-400">{m.deliveries} deliveries · {m.packs} packs · {m.aliasCount} aliases</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-2 flex gap-2">
+                  <button onClick={() => setPanelFor(i)}
+                    className="rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-800 disabled:opacity-40">
+                    Merge into selected
+                  </button>
+                  {/* Prompt 580 §B.1 — the button the tool never had: the
+                      exact 4-firm group named in this prompt could only ever
+                      be merged, never dismissed as unrelated. */}
+                  <button disabled={dismissBusy === i} onClick={() => void dismiss(i, cl)}
+                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                    {dismissBusy === i ? 'Dismissing…' : 'Not duplicates'}
+                  </button>
+                </div>
+                {panelFor === i && (
+                  <AccountActionPanel title="Merge" name={`Keep: ${nameOf(cl, keepId)}`}
+                    cascadeLines={cascadeLines} confirmLabel="Confirm merge"
+                    reasonPlaceholder="Why are these the same firm?"
+                    onConfirm={(reason) => confirmMerge(i, cl, reason)}
+                    onClose={() => setPanelFor(null)}
+                    onDone={() => { setPanelFor(null); refresh(); onMerged(); }} />
+                )}
               </div>
-              <ul className="space-y-1 text-sm">
-                {cl.members.map((m) => (
-                  <li key={m.id} className="flex items-center gap-2">
-                    <input type="radio" name={`keep-${i}`} checked={(keepChoice[i] ?? cl.members[0].id) === m.id}
-                      onChange={() => setKeepChoice({ ...keepChoice, [i]: m.id })} />
-                    <span className="font-medium">{m.name}</span>
-                    {m.website && <span className="text-xs text-gray-400">{m.website}</span>}
-                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${m.verification_status === 'verified' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{m.verification_status}</span>
-                  </li>
-                ))}
-              </ul>
-              <button disabled={busy === i} onClick={() => merge(i, cl)}
-                className="mt-2 rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-800 disabled:opacity-40">
-                {busy === i ? 'Merging…' : 'Merge into selected'}
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Card>

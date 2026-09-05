@@ -5,6 +5,15 @@
 // nothing here is org- or investor-specific, that lives in
 // moderation-cascade-copy.ts, which the caller reads and passes in).
 //
+// Prompt 580 §B.3 — generalized once a second, genuinely different caller
+// appeared (the catalog merge tool, a different endpoint and payload shape
+// entirely): `onConfirm` replaces a hardcoded fetch to
+// /api/backoffice/moderation/${action}, so this panel now only owns the
+// UI contract (cascade preview, reason required, confirm/cancel) and every
+// caller owns its own request. ModerationControls still supplies its own
+// onConfirm that fetches the moderation endpoint exactly as before — this
+// is additive, not a behavior change for Fase 3's existing usage.
+//
 // Portal-rendered for the same reason WelcomeModal/HelpSupportWidget/
 // BackofficeSearch are: an ancestor with backdrop-blur/filter/etc. silently
 // becomes the containing block for a `fixed` descendant otherwise (see
@@ -19,18 +28,23 @@
 // Suspend/Delete for the panel.
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ModerationTargetType } from '@/lib/account-moderation';
 
 export type PanelAction = 'suspend' | 'delete';
 
-const ACTION_VERB: Record<PanelAction, string> = { suspend: 'Suspend', delete: 'Delete' };
-const ACTION_COLOR: Record<PanelAction, string> = {
-  suspend: 'bg-[#B00000] hover:bg-[#900000]', delete: 'bg-[#B00000] hover:bg-[#900000]',
-};
+export const ACTION_VERB: Record<PanelAction, string> = { suspend: 'Suspend', delete: 'Delete' };
 
-export function AccountActionPanel({ targetType, targetId, name, action, cascadeLines, onClose, onDone }: {
-  targetType: ModerationTargetType; targetId: string; name: string; action: PanelAction;
-  cascadeLines: string[]; onClose: () => void; onDone: () => void;
+export function AccountActionPanel({ title, name, cascadeLines, confirmLabel, reasonPlaceholder, onConfirm, onClose, onDone }: {
+  /** Shown as the small uppercase kicker above the name — "Suspend" / "Delete" / "Merge". */
+  title: string;
+  name: string;
+  cascadeLines: string[];
+  /** Button label, e.g. "Confirm suspend" / "Confirm merge". */
+  confirmLabel: string;
+  reasonPlaceholder?: string;
+  /** Owns the actual request; the panel only owns reason-required UI. */
+  onConfirm: (reason: string) => Promise<{ ok: boolean; error?: string }>;
+  onClose: () => void;
+  onDone: () => void;
 }) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -42,13 +56,9 @@ export function AccountActionPanel({ targetType, targetId, name, action, cascade
   async function confirm() {
     if (!canConfirm) return;
     setBusy(true); setErr('');
-    const res = await fetch(`/api/backoffice/moderation/${action}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetType, targetId, justification: reason }),
-    });
-    const body = await res.json().catch(() => ({}));
+    const result = await onConfirm(reason);
     setBusy(false);
-    if (!body.ok) { setErr(body.error ?? 'Action failed.'); return; }
+    if (!result.ok) { setErr(result.error ?? 'Action failed.'); return; }
     onDone();
   }
 
@@ -58,7 +68,7 @@ export function AccountActionPanel({ targetType, targetId, name, action, cascade
       <div className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-[#B00000]">{ACTION_VERB[action]}</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-[#B00000]">{title}</div>
             <h2 className="text-base font-bold text-gray-900">{name}</h2>
           </div>
           <button onClick={() => !busy && onClose()} className="text-gray-400 hover:text-gray-600" aria-label="Close">✕</button>
@@ -76,7 +86,7 @@ export function AccountActionPanel({ targetType, targetId, name, action, cascade
             Reason <span className="text-[#B00000]">(required)</span>
           </label>
           <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={4}
-            placeholder="Why is this account being suspended/deleted?"
+            placeholder={reasonPlaceholder ?? 'Why is this account being suspended/deleted?'}
             className="mt-1.5 w-full rounded-lg border border-gray-300 p-2.5 text-sm" />
           {err && <p className="mt-2 text-xs text-[#B00000]">{err}</p>}
         </div>
@@ -87,8 +97,8 @@ export function AccountActionPanel({ targetType, targetId, name, action, cascade
             Cancel
           </button>
           <button onClick={() => void confirm()} disabled={!canConfirm || busy}
-            className={`ml-auto rounded-lg px-3.5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40 ${ACTION_COLOR[action]}`}>
-            {busy ? 'Saving…' : `Confirm ${ACTION_VERB[action].toLowerCase()}`}
+            className="ml-auto rounded-lg bg-[#B00000] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[#900000] disabled:cursor-not-allowed disabled:opacity-40">
+            {busy ? 'Saving…' : confirmLabel}
           </button>
         </div>
       </div>
