@@ -4,9 +4,7 @@
 // always correct at the moment you look, never stale from a missed run.
 import { NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/backoffice-auth';
-
-const HOUR = 60 * 60 * 1000;
-const DAY = 24 * HOUR;
+import { ticketFlags } from '@/lib/support-ticket-flags';
 
 interface Ticket {
   id: string; created_at: string; source: string; org_id: string | null; user_id: string | null;
@@ -15,11 +13,11 @@ interface Ticket {
   last_activity_at: string; first_response_at: string | null; resolved_at: string | null;
 }
 
+// Prompt 576 Fase 2 — thin wrapper kept here (rather than inlined at both
+// call sites) only because this file's `now` capture and object-spread
+// shape were already established before Attention needed the same flags.
 function flags(t: Ticket, now: number) {
-  const delayedNew = t.status === 'new' && !t.first_response_at && now - Date.parse(t.created_at) > DAY;
-  const forgottenOpen = t.status === 'open' && now - Date.parse(t.last_activity_at) > 3 * DAY;
-  const suggestClose = t.status === 'waiting_user' && now - Date.parse(t.last_activity_at) > 7 * DAY;
-  return { delayedNew, forgottenOpen, suggestClose };
+  return ticketFlags(t, now);
 }
 
 export async function GET(req: Request) {

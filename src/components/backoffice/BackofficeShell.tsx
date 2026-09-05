@@ -36,12 +36,19 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [rows, setRows] = useState<QueueSummaryRow[] | null>(null);
+  // Prompt 576 Fase 2 — sourced from the real 4-signal /api/backoffice/
+  // system-status now, not the single-signal email-only proxy Fase 1 used
+  // as a placeholder. null (a signal with no baseline, e.g. AI costs before
+  // a prior month exists) never turns this red — only a confirmed false does.
   const [systemNominal, setSystemNominal] = useState<boolean | null>(null);
   const [supportBadge, setSupportBadge] = useState(0);
 
   useEffect(() => {
     fetch('/api/backoffice/queue/summary').then((r) => r.json()).then((body) => {
-      if (body.ok) { setRows(body.rows); setSystemNominal(body.systemNominal); }
+      if (body.ok) setRows(body.rows);
+    }).catch(() => {});
+    fetch('/api/backoffice/system-status').then((r) => r.json()).then((body) => {
+      if (body.ok) setSystemNominal(!(body.signals as { ok: boolean | null }[]).some((s) => s.ok === false));
     }).catch(() => {});
     fetch('/api/backoffice/support').then((r) => r.json()).then((body) => {
       if (body.ok) setSupportBadge(body.counts.navBadge as number);
@@ -128,10 +135,13 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
     // placeholder rather than either invented or silently dropped.
     { key: 'insight-contrib-by-user', label: 'Contributions by user', icon: '◆', active: false, group: 4, dimmed: true },
 
-    item('system-email', 'Email delivery', '/backoffice/email-delivery', {
+    // Prompt 576 Fase 2 — the unified 4-signal list (§7's format), one
+    // level above the four individual detail pages it links out to.
+    item('system-overview', 'Overview', '/backoffice/system', {
       icon: '●', group: 5, groupLabel: 'System',
       groupMeta: <span className={`inline-block h-[7px] w-[7px] rounded-full ${systemNominal === false ? 'bg-red-500' : 'bg-green-500'}`} />,
     }),
+    item('system-email', 'Email delivery', '/backoffice/email-delivery', { icon: '●', group: 5 }),
     item('system-gap', 'Gap engine health', '/backoffice/gap-engine-health', { icon: '●', group: 5 }),
     // Neither has a browsable page yet — same placeholder treatment as
     // Contributions by user above, not a data change to invent one.
