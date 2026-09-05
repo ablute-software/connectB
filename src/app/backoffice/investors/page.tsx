@@ -16,7 +16,7 @@ import type { ModerationStatus } from '@/lib/account-moderation';
 import { INVESTOR_PLANS } from '@/lib/plans';
 import { matchesAccountFilter, type AccountFilter } from '@/lib/account-filter';
 import { useTableUrlState } from '@/lib/use-table-url-state';
-import { PAGE_SIZES, pageCount, rangeLabel, toggleSort as urlToggleSort } from '@/lib/queue-table-state';
+import { PAGE_SIZES, pageCount, rangeLabel, toggleSort as urlToggleSort, type ColumnSortType } from '@/lib/queue-table-state';
 
 // Item 11 — matchdeal_profiles.plan_tier/plan_tier_requested store MatchDeal's
 // own tier keys, not InvestorPlanTier ('pro_scout' etc) — same small local
@@ -377,8 +377,10 @@ function InvestorAccountsTable() {
     [filteredSorted, page, tableState.pageSize],
   );
 
-  function toggleSort(key: InvestorSortKey) {
-    const { dir } = urlToggleSort(tableState, key);
+  function toggleSort(key: InvestorSortKey, type: ColumnSortType) {
+    // Fase 3 — same type-based initial direction as Startups (queue-table-
+    // state.ts's own rule): text starts ascending, number/date descending.
+    const { dir } = urlToggleSort(tableState, key, type);
     setTableState({ sort: key, dir });
   }
   const pending = (accounts ?? []).filter((a) => a.planTierRequested);
@@ -426,26 +428,26 @@ function InvestorAccountsTable() {
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
               {([
-                ['name', 'Org'], ['planTier', 'Plan'], ['registrationDate', 'Registered'],
-                ['seats', 'Seats (linked / plan)'], ['verificationStatus', 'Verification'],
-                ['complete', '% Complete'], ['logsLast7Days', 'Logs/7d'], ['lastLogin', 'Last login'],
-                ['status', 'Status'],
-              ] as [InvestorSortKey, string][]).map(([key, label]) => (
+                ['name', 'Org', 'text'], ['planTier', 'Plan', 'text'], ['registrationDate', 'Registered', 'date'],
+                ['seats', 'Seats (linked / plan)', 'number'], ['verificationStatus', 'Verification', 'text'],
+                ['complete', '% Complete', 'number'], ['logsLast7Days', 'Logs/7d', 'number'], ['lastLogin', 'Last login', 'date'],
+                ['status', 'Status', 'text'],
+              ] as [InvestorSortKey, string, ColumnSortType][]).map(([key, label, type]) => (
                 <th key={key} className="cursor-pointer whitespace-nowrap py-1.5 pr-3 hover:text-gray-700"
-                  onClick={() => toggleSort(key)}>
+                  onClick={() => toggleSort(key, type)}>
                   {label} {sortIndicator(sortKey === key, sortDir)}
                 </th>
               ))}
               {/* Not sortable: it holds controls, not a value. */}
               <th className="pr-3">Delete/Suspend</th>
               {([
-                ['accessRequestedLastMonth', 'Access req./mo'], ['accessGrantedLastMonth', 'Access granted/mo'],
-                ['filesViewedLastMonth', 'Files viewed/mo'], ['visiblePipelineSize', 'Pipeline'],
-                ['startupsInteractedWith', 'Startups'], ['startupComparisonsLastMonth', 'Comparisons/mo'],
-                ['aiAssistanceLastMonth', 'AI assist/mo'],
-              ] as [InvestorSortKey, string][]).map(([key, label]) => (
+                ['accessRequestedLastMonth', 'Access req./mo', 'number'], ['accessGrantedLastMonth', 'Access granted/mo', 'number'],
+                ['filesViewedLastMonth', 'Files viewed/mo', 'number'], ['visiblePipelineSize', 'Pipeline', 'number'],
+                ['startupsInteractedWith', 'Startups', 'number'], ['startupComparisonsLastMonth', 'Comparisons/mo', 'number'],
+                ['aiAssistanceLastMonth', 'AI assist/mo', 'number'],
+              ] as [InvestorSortKey, string, ColumnSortType][]).map(([key, label, type]) => (
                 <th key={key} className="cursor-pointer whitespace-nowrap pr-3 hover:text-gray-700"
-                  onClick={() => toggleSort(key)}>
+                  onClick={() => toggleSort(key, type)}>
                   {label} {sortIndicator(sortKey === key, sortDir)}
                 </th>
               ))}
@@ -500,7 +502,13 @@ function InvestorAccountsTable() {
                 </td>
                 <td className="pr-3 text-xs text-gray-400 whitespace-nowrap">{a.lastLogin ? a.lastLogin.slice(0, 10) : 'never'}</td>
                 <td className="pr-3"><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${INVESTOR_STATUS_STYLE[a.status]}`}>{a.status}</span></td>
-                <td className="pr-3">
+                {/* Fase 3 — same fix as startups/page.tsx's identical
+                    column: min-width (not width, which an auto-layout
+                    table's algorithm is free to override — confirmed live
+                    before making this change) is what actually floors this
+                    column so ModerationControls' own text wraps at a
+                    predictable width instead of squeezing to ~86px. */}
+                <td className="min-w-48 pr-3">
                   {moderationAvailable ? (
                     <ModerationControls targetType="investor" targetId={a.entityId} name={a.name} status={a.moderationStatus} quarantineUntil={a.moderationQuarantineUntil} onChanged={load} />
                   ) : <span className="text-xs text-gray-300">—</span>}

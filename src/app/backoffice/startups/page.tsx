@@ -31,7 +31,7 @@ import { AccountStatusFilter } from '@/components/backoffice/AccountStatusFilter
 import type { ModerationStatus } from '@/lib/account-moderation';
 import { matchesAccountFilter, type AccountFilter } from '@/lib/account-filter';
 import { useTableUrlState } from '@/lib/use-table-url-state';
-import { PAGE_SIZES, pageCount, rangeLabel, toggleSort as urlToggleSort } from '@/lib/queue-table-state';
+import { PAGE_SIZES, pageCount, rangeLabel, toggleSort as urlToggleSort, type ColumnSortType } from '@/lib/queue-table-state';
 
 const PERIOD_LABEL: Record<'monthly' | 'annual', string> = { monthly: 'Mensal', annual: 'Anual' };
 
@@ -66,13 +66,16 @@ type SortKey = 'name' | 'plan' | 'createdAt' | 'members' | 'completenessPct' | '
 // Prompt 576 Fase 3 — hoisted to module scope: it's a static list (never
 // depends on component state), and the URL-state hook needs the key list
 // before the table's own render does.
-const COLUMNS: { key: SortKey; label: string }[] = [
-  { key: 'name', label: 'Org' }, { key: 'plan', label: 'Plan' }, { key: 'createdAt', label: 'Registered' },
-  { key: 'completenessPct', label: '% Complete' }, { key: 'interactionsThisWeek', label: 'Logs/7d' },
-  { key: 'lastLogin', label: 'Last login' }, { key: 'status', label: 'Status' }, { key: 'filesInVault', label: 'Files' },
-  { key: 'visiblePipelineSize', label: 'Pipeline' }, { key: 'stage', label: 'Stage' },
-  { key: 'aiDraftsThisMonth', label: 'AI drafts' }, { key: 'aiReviewsThisMonth', label: 'AI review' },
-  { key: 'matchDealStatus', label: 'MatchDeal' },
+// Fase 3 (row height/sort follow-up) — `type` is what toggleSort's own
+// initial-direction rule reads (queue-table-state.ts): text columns start
+// ascending, number/date start descending.
+const COLUMNS: { key: SortKey; label: string; type: ColumnSortType }[] = [
+  { key: 'name', label: 'Org', type: 'text' }, { key: 'plan', label: 'Plan', type: 'text' }, { key: 'createdAt', label: 'Registered', type: 'date' },
+  { key: 'completenessPct', label: '% Complete', type: 'number' }, { key: 'interactionsThisWeek', label: 'Logs/7d', type: 'number' },
+  { key: 'lastLogin', label: 'Last login', type: 'date' }, { key: 'status', label: 'Status', type: 'text' }, { key: 'filesInVault', label: 'Files', type: 'number' },
+  { key: 'visiblePipelineSize', label: 'Pipeline', type: 'number' }, { key: 'stage', label: 'Stage', type: 'text' },
+  { key: 'aiDraftsThisMonth', label: 'AI drafts', type: 'number' }, { key: 'aiReviewsThisMonth', label: 'AI review', type: 'number' },
+  { key: 'matchDealStatus', label: 'MatchDeal', type: 'text' },
 ];
 
 function MembersCell({ orgId, count }: { orgId: string; count: number }) {
@@ -158,13 +161,14 @@ function StartupsTable() {
     }
   }
 
-  function toggleSort(key: SortKey) {
+  function toggleSort(key: SortKey, type: ColumnSortType) {
     // Prompt 569 §7's rule (table-sort.ts) still does the actual comparing;
-    // Fase 3 moves which key/direction is active into the URL, so the click
-    // rule that decides the NEXT dir is queue-table-state.ts's own — the
-    // Queue's first click on a column goes to desc, and this table now
-    // matches it rather than keeping a second, asc-first convention.
-    const { dir } = urlToggleSort(tableState, key);
+    // Fase 3 moved which key/direction is active into the URL, reusing
+    // queue-table-state.ts's own click rule. That rule now takes the
+    // column's type: text starts ascending (Org, Plan, Stage — matching
+    // what this table always did before Fase 3's move), number/date start
+    // descending (highest/most-recent first) — never a per-table exception.
+    const { dir } = urlToggleSort(tableState, key, type);
     setTableState({ sort: key, dir });
   }
 
@@ -229,7 +233,7 @@ function StartupsTable() {
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
                 {columns.map((c) => (
-                  <th key={c.key} className="cursor-pointer whitespace-nowrap py-1.5 pr-3 hover:text-gray-700" onClick={() => toggleSort(c.key)}>
+                  <th key={c.key} className="cursor-pointer whitespace-nowrap py-1.5 pr-3 hover:text-gray-700" onClick={() => toggleSort(c.key, c.type)}>
                     {c.label} {sortIndicator(sortKey === c.key, sortDir)}
                   </th>
                 ))}
@@ -282,7 +286,18 @@ function StartupsTable() {
                       {MATCHDEAL_LABEL[o.matchDealStatus]}
                     </span>
                   </td>
-                  <td className="pr-3">
+                  {/* Fase 3 — this column had no width of its own, so the
+                      table's other whitespace-nowrap columns squeezed it to
+                      ~86px; ModerationControls' own explanatory text then
+                      wrapped into enough lines to set the whole row's height
+                      (measured live: up to 183.5px). A plain `width`
+                      utility (tried first) does nothing here — this is an
+                      auto-layout table (no table-layout: fixed), where
+                      `width` on a cell is only ever a hint the algorithm is
+                      free to override; `min-width` is the one that's
+                      actually a floor, confirmed live before changing this
+                      to min-w-48 rather than w-48. */}
+                  <td className="min-w-48 pr-3">
                     {moderationAvailable ? (
                       <ModerationControls targetType="org" targetId={o.orgId} name={o.name} status={o.moderationStatus} quarantineUntil={o.moderationQuarantineUntil} onChanged={load} />
                     ) : <span className="text-xs text-gray-300">—</span>}

@@ -111,8 +111,26 @@ export function pageCount(total: number, pageSize: number): number {
   return Math.max(1, Math.ceil(total / pageSize));
 }
 
-/** Clicking the sorted column flips it; clicking another switches to it. */
-export function toggleSort(current: QueueTableState, key: string): Pick<QueueTableState, 'sort' | 'dir'> {
-  if (current.sort !== key) return { sort: key, dir: 'desc' };
+// Fase 3 — Startups/Investors adopted this module's own toggle rule
+// (desc-first, unconditional) when they moved their sort state into the URL,
+// silently losing the asc-first convention their text columns (Org, Plan,
+// Stage) had under the old table-sort.ts. A column's NATURAL reading order
+// depends on what it holds, not on which table it's in: text reads A→Z
+// first, a date or a number reads highest/most-recent first — so the rule
+// lives here, keyed on that one fact, rather than as a per-column-name
+// exception in each page (which is exactly what regressed silently once
+// already and would regress again the same way for the next table).
+export type ColumnSortType = 'text' | 'number' | 'date';
+
+/**
+ * Clicking the sorted column flips it; clicking another switches to it, at
+ * that column's own natural starting direction — text ascending, number and
+ * date descending. `columnType` is optional so an existing caller that
+ * hasn't been taught its columns' types yet (the Queue itself, today) keeps
+ * its current desc-first behavior unchanged; a caller that DOES pass it gets
+ * the type-correct default.
+ */
+export function toggleSort(current: QueueTableState, key: string, columnType?: ColumnSortType): Pick<QueueTableState, 'sort' | 'dir'> {
+  if (current.sort !== key) return { sort: key, dir: columnType === 'text' ? 'asc' : 'desc' };
   return { sort: key, dir: current.dir === 'desc' ? 'asc' : 'desc' };
 }

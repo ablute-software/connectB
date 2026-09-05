@@ -89,4 +89,28 @@ describe('rangeLabel / pageCount / toggleSort', () => {
     expect(toggleSort({ ...s, dir: 'asc' }, 'name')).toEqual({ sort: 'name', dir: 'desc' });
     expect(toggleSort(s, 'added')).toEqual({ sort: 'added', dir: 'desc' });
   });
+
+  // Fase 3 — Startups/Investors adopted this desc-first rule unconditionally
+  // when they moved their sort state here, regressing their own text
+  // columns (Org, Plan, Stage), which used to start ascending under
+  // table-sort.ts's nextSort. The rule now reads the column's type.
+  it('a NEW column starts ascending when its type is text', () => {
+    const s = P('');
+    expect(toggleSort(s, 'name', 'text')).toEqual({ sort: 'name', dir: 'asc' });
+  });
+  it('a NEW column starts descending when its type is number or date', () => {
+    const s = P('');
+    expect(toggleSort(s, 'createdAt', 'date')).toEqual({ sort: 'createdAt', dir: 'desc' });
+    expect(toggleSort(s, 'completenessPct', 'number')).toEqual({ sort: 'completenessPct', dir: 'desc' });
+  });
+  it('omitting the type keeps the Queue\'s own existing desc-first behavior unchanged', () => {
+    const s = P('');
+    expect(toggleSort(s, 'added')).toEqual({ sort: 'added', dir: 'desc' });
+  });
+  it('the type only decides the FIRST click — flipping an already-sorted column ignores it', () => {
+    const s = P('sort=name&dir=asc');
+    expect(toggleSort(s, 'name', 'text')).toEqual({ sort: 'name', dir: 'desc' });
+    const d = P('sort=createdAt&dir=desc');
+    expect(toggleSort(d, 'createdAt', 'date')).toEqual({ sort: 'createdAt', dir: 'asc' });
+  });
 });

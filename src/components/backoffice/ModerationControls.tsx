@@ -9,6 +9,7 @@ import { useState } from 'react';
 import type { ModerationStatus, ModerationTargetType } from '@/lib/account-moderation';
 import { moderationCascadeLines } from '@/lib/moderation-cascade-copy';
 import { AccountActionPanel, type PanelAction } from './AccountActionPanel';
+import { Tooltip } from '@/components/ui';
 
 // 'undo' keeps this component's own inline confirm+justification flow — it
 // is a recovery action, not a destructive one, and Fase 3's side panel
@@ -98,16 +99,23 @@ export function ModerationControls({ targetType, targetId, name, status, quarant
     // a disabled button. Saying so costs one line and removes the guesswork.
     return (
       <>
-      <div className="flex flex-col gap-0.5">
-        <button onClick={() => setPanelAction('suspend')} className="text-left text-xs text-[#B00000] hover:underline">Suspend</button>
-        <span className="text-[10px] leading-tight text-gray-400">
-          {/* Prompt 571 — the second sentence is the one that was missing: until
-              0315, suspending closed the login and left the account sitting in
-              every investor's deck. */}
-          Suspending removes the account from investor discovery and pipelines
-          while it lasts. To delete: suspend first, then delete after the
-          30-day quarantine.
-        </span>
+      <div className="flex max-w-48 flex-col gap-0.5">
+        {/* Fase 3 — this explanation used to be an always-visible <span>
+            with no width of its own, inside a <td> in an auto-layout table
+            (no table-layout: fixed) whose OTHER whitespace-nowrap columns
+            squeezed it to ~86px: it wrapped into ~14 lines and set the
+            WHOLE row's height (measured live: 183.5px, confirmed by
+            zeroing this span alone). A tooltip keeps the exact same text
+            (Prompt 571's own fix for "suspend was previously invisible as
+            a path to delete") reachable on hover, without it ever
+            occupying row layout. max-w-48 on this wrapper (not width on
+            the <td> in startups/investors page.tsx — tried first, and
+            confirmed live NOT to constrain an auto-layout table cell)
+            keeps every branch below the same predictable width regardless
+            of what the table's column-width algorithm decides. */}
+        <Tooltip text="Suspending removes the account from investor discovery and pipelines while it lasts. To delete: suspend first, then delete after the 30-day quarantine.">
+          <button onClick={() => setPanelAction('suspend')} className="text-left text-xs text-[#B00000] hover:underline">Suspend</button>
+        </Tooltip>
       </div>
       {panel}
       </>
@@ -117,7 +125,7 @@ export function ModerationControls({ targetType, targetId, name, status, quarant
   const quarantineActive = !!quarantineUntil && new Date(quarantineUntil) > new Date();
   return (
     <>
-    <div className="flex flex-col gap-1">
+    <div className="flex max-w-48 flex-col gap-1">
       <span className="text-[11px] text-amber-700">
         {quarantineActive ? `Quarantine until ${new Date(quarantineUntil!).toLocaleDateString()}` : 'Quarantine elapsed'}
       </span>
@@ -141,7 +149,12 @@ export function ModerationControls({ targetType, targetId, name, status, quarant
       </div>
       {/* Prompt 569 §0 — a disabled button with only a title attribute reads as
           "broken" rather than "not yet": the reason was invisible on touch and
-          to anyone who does not hover. */}
+          to anyone who does not hover. Kept visible (not a Tooltip like the
+          Suspend explanation above) on purpose — short enough that the
+          max-w-48 wrapper above keeps it to a couple of lines rather than
+          the ~14 lines the much longer Suspend text hit, and Prompt 569
+          §0's own reasoning is exactly why this one shouldn't move behind
+          a hover. */}
       {quarantineActive && (
         <span className="text-[10px] leading-tight text-gray-400">
           Delete unlocks when the quarantine elapses.
