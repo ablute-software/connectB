@@ -194,7 +194,15 @@ export function BackofficeShell({ me, children }: { me: Me | null; children: Rea
           </div>
         }
       />
-      <div className="flex-1 md:ml-16 min-[1440px]:ml-60">
+      {/* Prompt 582 §B.4 — min-w-0 overrides the flex item's default
+          min-width:auto. Without it, a min-width floor anywhere in the
+          page's content (e.g. the Catalog table's own floor, added so its
+          card can scroll instead of squeezing text illegibly) inflates
+          THIS flex item's own minimum size and forces the whole page to
+          scroll horizontally — the exact classic flexbox trap, and
+          invisible until a descendant actually has a real min-width to
+          expose it. No effect on pages whose content already fits. */}
+      <div className="min-w-0 flex-1 md:ml-16 min-[1440px]:ml-60">
         <WorkspaceHeader
           left={<div className="text-[15px] font-bold text-[#0E7490] md:hidden" style={{ fontFamily: 'Comfortaa, Inter, sans-serif' }}>{BRAND_NAME} · Back-office</div>}
           right={<span className="text-xs text-gray-300">Platform team console</span>}
